@@ -1,4 +1,4 @@
-import type { EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
+import type { ColonyState, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import {
   Activity,
   ChevronRight,
@@ -7,6 +7,7 @@ import {
   FileText,
   FolderOpen,
   ListChecks,
+  Mail,
   Terminal,
   Users,
   X,
@@ -23,7 +24,7 @@ import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { deriveSteps } from './steps.ts'
 
-type Tab = 'files' | 'tasks' | 'team' | 'terminal' | 'activity'
+type Tab = 'files' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
 
 const ORDER: TaskSnapshot['status'][] = [
   'in_progress',
@@ -109,6 +110,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
     .filter((t) => t.status !== 'deleted')
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
   const agents = Object.values(state.agents)
+  const messages = useMemo(() => conversation(state), [state])
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
 
@@ -145,6 +147,15 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
               </>
             ),
             count: agents.length,
+          },
+          {
+            value: 'mail',
+            label: (
+              <>
+                <Mail className="size-3.5" /> Mail
+              </>
+            ),
+            count: messages.length,
           },
           {
             value: 'terminal',
@@ -386,6 +397,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                   ))}
                 </div>
               ))}
+            {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
             {tab === 'activity' &&
               (steps.length === 0 ? (
                 <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
@@ -431,5 +443,99 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
         )}
       </AnimatePresence>
     </>
+  )
+}
+
+interface Message {
+  readonly id: string
+  readonly seq: number
+  readonly time: string
+  readonly from: string
+  /** An agent's name, or `board` for a post everyone can read. */
+  readonly to: string
+  readonly subject?: string
+  readonly text: string
+  readonly read?: boolean
+}
+
+/** Everything the agents said to each other: board posts and direct mail, oldest first. */
+function conversation(state: ColonyState): Message[] {
+  return [
+    ...state.board.map((b) => ({
+      id: b.id,
+      seq: b.seq,
+      time: b.time,
+      from: b.agent,
+      to: 'board',
+      text: b.text,
+    })),
+    ...state.mail.map((m) => ({
+      id: m.id,
+      seq: m.seq,
+      time: m.time,
+      from: m.from,
+      to: m.to,
+      ...(m.subject ? { subject: m.subject } : {}),
+      text: m.body,
+      read: m.delivered,
+    })),
+  ].sort((a, b) => a.seq - b.seq)
+}
+
+/** The agents' conversation, filterable to the messages one agent sent or received. */
+function MailTab(props: { messages: readonly Message[]; onInspect(name: string): void }) {
+  const [who, setWho] = useState('')
+  const names = [...new Set(props.messages.flatMap((m) => [m.from, m.to]))]
+    .filter((n) => n !== 'board')
+    .sort()
+  const shown = who ? props.messages.filter((m) => m.from === who || m.to === who) : props.messages
+  if (props.messages.length === 0)
+    return (
+      <Empty icon={<Mail className="size-5" />} title="No messages yet">
+        Board posts and mail between agents show up here.
+      </Empty>
+    )
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
+        <span className="text-[12px] text-muted">
+          {shown.length} message{shown.length === 1 ? '' : 's'}
+        </span>
+        <Select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Show messages for">
+          <option value="">Everyone</option>
+          {names.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <ol className="flex flex-col gap-3 px-4 py-3">
+        {shown.map((m) => (
+          <li key={m.id} className="flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => props.onInspect(m.from)}
+              aria-label={`Open ${m.from}`}
+              className="h-fit rounded-lg transition-transform hover:scale-105"
+            >
+              <AgentAvatar name={m.from} status="idle" size={26} awake />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-1.5 text-[12px]">
+                <span className="font-semibold text-fg">{m.from}</span>
+                <span className="text-muted">→ {m.to === 'board' ? 'everyone' : m.to}</span>
+                {m.to !== 'board' && m.read === false && <Pill tone="warn">unread</Pill>}
+                <time className="ml-auto shrink-0 tabular-nums text-muted">{m.time.slice(11, 16)}</time>
+              </div>
+              <div className="mt-1 rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
+                {m.subject && <div className="mb-0.5 font-medium text-fg">{m.subject}</div>}
+                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }

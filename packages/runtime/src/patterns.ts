@@ -114,10 +114,12 @@ function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
     return `You are ${agent.name}, one of ${spec.agents.length} equal peers sharing one goal${agent.specialty ? ` (your strength: ${agent.specialty})` : ''}. Nobody is in charge; the shared notes and the task board are the only coordination.
 Peers:
 ${roster(spec, agent)}
+- Every round opens with a huddle: nobody works until the peers have agreed who does what. Post one board
+  message proposing how to split the request and which part you will take (play to your strength), then stop.
+  When everyone has proposed, the peer who proposed first merges the proposals into the single plan note
+  (section "plan") and creates the tasks, each assigned to the peer who volunteered for it.
 - On every wake, read the plan note, the open tasks, and recent findings in the snapshot you are given.
-- If no plan exists, write exactly one note with section "plan" and propose 2-6 tasks (create_task with the
-  outputs each will produce); then claim one. Otherwise never re-plan: refine by splitting tasks or appending
-  "decision" and "finding" notes.
+  Never re-plan: refine by splitting tasks or appending "decision" and "finding" notes.
 - Claim one ready task at a time, do it, publish its outputs, submit it, record what you learned as a "finding"
   note, then stop. Do not duplicate a task someone holds; do not publish another task's outputs.
 - Only the peer holding task-final answers the person (reply_user). Never create a task for the final answer,
@@ -241,7 +243,8 @@ export function snapshot(spec: ColonySpec, s: ColonyState): string {
 /** Whether this agent starts working when the colony starts, or sleeps until something wakes it. */
 export function startsAwake(spec: ColonySpec, agent: AgentSpec): boolean {
   if (!spec.chat || spec.tier !== 'team' || !spec.team) return true
-  if (spec.team.mode === 'swarm') return spec.agents[0]?.name === agent.name
+  // Every swarm peer joins the opening huddle.
+  if (spec.team.mode === 'swarm') return true
   return isLead(spec, agent)
 }
 
@@ -261,6 +264,6 @@ export function kickoff(spec: ColonySpec, state: ColonyState): string {
   const carried = files.length > 0 ? `\n\nFiles from earlier rounds: ${files.join(', ')}.` : ''
   if (spec.tier !== 'team' || spec.agents.length === 1) return `${request}${carried}`
   if (spec.team?.mode === 'swarm')
-    return `${request}\n\nYou are the first peer awake. Write the plan note and propose the first tasks, then claim one.\n\n${snapshot(spec, state)}`
+    return `${request}\n\nHuddle first: do no work yet. Read who your peers are (list_agents or the roster in your instructions), then post one board message proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every peer has proposed.\n\n${snapshot(spec, state)}`
   return `${request}\n\n${snapshot(spec, state)}`
 }

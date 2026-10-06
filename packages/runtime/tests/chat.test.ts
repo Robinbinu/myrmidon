@@ -247,52 +247,69 @@ test('tasks created together in one message can depend on each other', async () 
   await chats.stopAll()
 })
 
-test('swarm: one seed plans, duplicates and second plans are refused, and a speaker answers once', async () => {
+test('swarm: peers huddle before working, the first proposer plans, and a speaker answers once', async () => {
   const resolver = new ModelResolver()
-  // Calls in one batch run concurrently, so task numbers are not fixed; find tasks by the file they produce.
-  const taskFor = (ctx: LlmContext, output: string) =>
-    new RegExp(`(task-\\d+) r1 \\[pending\\][^"\\\\]*?outputs=${output.replace('.', '\\.')}`).exec(
-      JSON.stringify(ctx.messages),
-    )?.[1] ?? 'task-missing'
-  const asksForFinal = (ctx: LlmContext) => JSON.stringify(ctx.messages.at(-1) ?? '').includes('task-final')
-  const peer = (ref: string, steps: Step[]) => {
-    let answered = false
-    let i = 0
-    scripted(resolver, ref, [
-      ...Array.from({ length: 20 }, () => (ctx: LlmContext) => {
-        if (asksForFinal(ctx) && !answered) {
-          answered = true
-          return [
-            tool('reply_user', {
-              text: 'Your haiku and its title are in haiku.txt and title.txt.',
-              final: true,
-            }),
-          ]
-        }
-        const step = steps[i++]
-        return typeof step === 'function' ? step(ctx) : (step ?? ['ok'])
-      }),
-    ])
+  let answered = false
+  const progress = new Map<string, { phase: string; task?: string; out?: string }>()
+  // Who proposes first is a race, so each mock peer acts on what it is told rather than on a fixed script.
+  const brain = (ctx: LlmContext): MockContent[] => {
+    const system = ctx.systemPrompt?.join('\n') ?? ''
+    const me = /You are ([a-z]+), one of/.exec(system)?.[1] ?? '?'
+    const others = [...system.matchAll(/^- ([a-z]+): peer \(/gm)].map((m) => m[1] as string)
+    const last = JSON.stringify(ctx.messages.at(-1) ?? '')
+    const st = progress.get(me) ?? { phase: 'idle' }
+    progress.set(me, st)
+    if (last.includes('task-final') && !answered) {
+      answered = true
+      return [
+        tool('reply_user', { text: 'Your haiku and its title are in haiku.txt and title.txt.', final: true }),
+      ]
+    }
+    if (last.includes('Huddle first'))
+      return [
+        tool('publish_artifact', { name: 'early.txt', content: 'starting alone' }),
+        tool('post', {
+          text: `I propose a title task and a haiku task; I (${me}) will take whichever is left.`,
+        }),
+      ]
+    if (last.includes('You proposed first')) {
+      st.phase = 'planned'
+      return [
+        tool('append_note', { text: 'Plan: a title, then the haiku.', section: 'plan' }),
+        tool('create_task', {
+          subject: 'Write a title for the haiku',
+          assignee: others[0],
+          outputs: ['title.txt'],
+        }),
+        tool('create_task', { subject: 'Draft the haiku about rain', assignee: me, outputs: ['haiku.txt'] }),
+      ]
+    }
+    const mine = /Task (task-\d+) r1 is yours.*?Outputs: ([a-z.]+)/.exec(last)
+    if (mine) {
+      Object.assign(st, { phase: 'claimed', task: mine[1], out: mine[2] })
+      return [tool('claim_task', { id: mine[1], revision: 1 })]
+    }
+    if (st.phase === 'planned') {
+      st.phase = 'checked'
+      return [
+        tool('create_task', { subject: 'Draft the haiku about rain please' }),
+        tool('append_note', { text: 'A second plan', section: 'plan' }),
+      ]
+    }
+    if (st.phase === 'claimed') {
+      st.phase = 'published'
+      return [tool('publish_artifact', { name: st.out ?? '', content: `${st.out} by ${me}\n` })]
+    }
+    if (st.phase === 'published') {
+      st.phase = 'submitted'
+      return [tool('submit_task', { id: st.task ?? '', revision: 2, artifacts: [st.out ?? ''] })]
+    }
+    return ['ok']
   }
-  peer('mock/p1', [
-    [
-      tool('append_note', { text: 'Plan: a title, then the haiku.', section: 'plan' }),
-      tool('create_task', { subject: 'Write a title for the haiku', outputs: ['title.txt'] }),
-      tool('create_task', { subject: 'Draft the haiku about rain', outputs: ['haiku.txt'] }),
-    ],
-    [tool('create_task', { subject: 'Draft the haiku about rain please' })],
-    (ctx) => [tool('claim_task', { id: taskFor(ctx, 'haiku.txt'), revision: 1 })],
-    [tool('publish_artifact', { name: 'haiku.txt', content: 'Rain on the tin roof\n' })],
-    (ctx) => [tool('submit_task', { id: taskFor(ctx, 'haiku.txt'), revision: 2, artifacts: ['haiku.txt'] })],
-    ['done'],
-  ])
-  peer('mock/p2', [
-    (ctx) => [tool('claim_task', { id: taskFor(ctx, 'title.txt'), revision: 1 })],
-    [tool('publish_artifact', { name: 'title.txt', content: 'Tin Roof\n' })],
-    (ctx) => [tool('submit_task', { id: taskFor(ctx, 'title.txt'), revision: 2, artifacts: ['title.txt'] })],
-    ['done'],
-  ])
-  peer('mock/p3', [[tool('append_note', { text: 'My own plan', section: 'plan' })], ['nothing for me']])
+  for (const ref of ['mock/p1', 'mock/p2', 'mock/p3']) {
+    const m = createMockModel({ handler: (ctx: LlmContext) => ({ content: brain(ctx) }) })
+    resolver.register(ref, { model: m.model, streamFn: m.stream })
+  }
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
   const { colonyId } = await chats.send('Write a haiku with a title', {
@@ -313,22 +330,28 @@ test('swarm: one seed plans, duplicates and second plans are refused, and a spea
   })
   expect(s.status).toBe('completed')
   expect(s.pattern).toBe('blackboard')
-  const [seed, second] = Object.keys(s.agents)
-  expect(s.tasks['task-final']?.owner).toBe(seed)
+  expect(Object.keys(s.agents)).not.toContain('lead')
   expect(s.chatMessages.filter((m) => m.final)).toHaveLength(1)
 
   const log = await events(colonyId)
   const results = log
     .filter((e) => e.type === 'tool/result')
     .map((e) => e.payload as EventPayloads['tool/result'])
+  // Nobody worked alone during the huddle, and every peer proposed before the plan existed.
+  expect(results.filter((r) => r.tool === 'publish_artifact' && r.output.includes('huddling'))).toHaveLength(
+    3,
+  )
+  expect(s.artifacts['early.txt']).toBeUndefined()
+  const planAt = log.findIndex((e) => e.type === 'note/appended')
+  const proposals = log.slice(0, planAt).filter((e) => e.type === 'board/posted')
+  expect(new Set(proposals.map((e) => (e.payload as EventPayloads['board/posted']).agent)).size).toBe(3)
+  // The plan's tasks went to the peers who took them, and re-planning or duplicating is refused.
+  const planned = Object.values(s.tasks).filter((t) => t.outputs?.length)
+  expect(planned.every((t) => t.assignee && t.status === 'verified')).toBe(true)
   expect(results.some((r) => r.tool === 'create_task' && !r.ok && r.output.includes('similar to'))).toBe(true)
   expect(
     results.some((r) => r.tool === 'append_note' && !r.ok && r.output.includes('plan already exists')),
   ).toBe(true)
-  const firstTask = log.findIndex((e) => e.type === 'task/changed')
-  const early = log.slice(0, firstTask).filter((e) => e.type === 'agent/turn')
-  expect(early.every((e) => (e.payload as EventPayloads['agent/turn']).agent === seed)).toBe(true)
-  expect(turnsOf(log, second ?? '').length).toBeGreaterThan(0)
 })
 
 test('answer tier: one agent replies directly, with no team and no judge', async () => {

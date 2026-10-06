@@ -20,8 +20,12 @@ A **lead** plans the job and hands each part to a **specialist worker**. Each sp
 Equal **peers** share one goal. There is no boss: the shared **notes** and **task board** are the only
 coordination (a blackboard).
 
-- One peer (the seed) starts: it writes the single **plan** note and proposes the first tasks with the
-  files each will produce. The other peers wake once tasks exist.
+- Every round opens with a **huddle**. All peers wake, see who else is on the team, and each posts one board
+  message proposing how to split the request and which part it will take. Until the huddle ends only
+  looking and talking tools work (read, list, `post`, mail); nobody starts the work alone.
+- The huddle ends when every peer has proposed (or after 90 seconds). The peer who proposed first merges
+  the proposals into the single **plan** note and creates the tasks, each assigned to the peer who
+  volunteered for it with the files it will produce; each peer is woken by its assignment.
 - Peers claim one task at a time. Nobody re-plans; peers refine the plan by splitting tasks or appending
   `decision` and `finding` notes.
 - Duplicate tasks are refused, a task's output files can only be published by the peer holding it, and a

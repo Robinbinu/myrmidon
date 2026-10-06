@@ -76,6 +76,8 @@ export const AWAITING_USER = 'awaiting your reply'
 const LEASE_MS = 120_000
 /** A swarm whose first peer produced no tasks in this long gets a second peer to bootstrap it. */
 const BOOTSTRAP_MS = 60_000
+/** The longest a swarm's opening huddle waits for every peer's proposal. */
+const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 const MAX_VERIFY_ROUNDS = 3
 
@@ -129,6 +131,8 @@ export class ColonyRun implements ColonyHost {
   private _speakerOwesAnswer = false
   private _bootstrapAt = 0
   private _bootstrapped = 1
+  /** Set while a swarm's peers are proposing how to split the work; `after` is the seq it opened at. */
+  private _huddle?: { since: number; after: number; proposed: Set<string> }
 
   constructor(
     private readonly runtime: Runtime,
@@ -161,6 +165,32 @@ export class ColonyRun implements ColonyHost {
 
   deadline() {
     return this._deadline
+  }
+
+  huddling() {
+    return this._huddle !== undefined
+  }
+
+  /**
+   * Ends the opening huddle. The peer who proposed first merges the proposals into the plan and assigns the
+   * tasks; the others are woken by their assignments. If nobody proposed, the first peer plans.
+   */
+  private _closeHuddle(why: string) {
+    const huddle = this._huddle
+    if (!huddle) return
+    this._huddle = undefined
+    const peers = this.spec.agents.map((a) => a.name)
+    const proposals = this._state.board.filter((b) => b.seq > huddle.after && peers.includes(b.agent))
+    const planner = proposals[0]?.agent ?? peers[0]
+    if (!planner) return
+    this._bootstrapAt = Date.now()
+    this._bootstrapped = peers.indexOf(planner) + 1
+    const listed = proposals.map((b) => `- ${b.agent}: ${b.text}`).join('\n') || '(no proposals were posted)'
+    this._wake(
+      planner,
+      `The huddle is over (${why}). Proposals:\n${listed}\n\nYou proposed first, so write the plan: one note with section "plan" that merges the proposals, then create the tasks with create_task, each with assignee set to the peer who volunteered for it and the outputs it will produce. Then claim your own.\n\n${snapshot(this.spec, this._state)}`,
+      'kickoff',
+    )
   }
 
   append(draft: EventDraft): Promise<MyrEvent> {
@@ -285,6 +315,12 @@ export class ColonyRun implements ColonyHost {
     }
     this._deadline = Date.now() + wallMs
     this._bootstrapAt = Date.now()
+    const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team' && this.spec.agents.length > 1
+    const planned =
+      this._state.notes.some((n) => n.section === 'plan' && n.agent !== 'previous-round') ||
+      Object.keys(this._state.tasks).length > 0
+    if (swarm && !planned)
+      this._huddle = { since: Date.now(), after: this._state.lastSeq, proposed: new Set() }
     await this.append({
       type: 'colony/started',
       actor: SYSTEM,
@@ -589,6 +625,10 @@ export class ColonyRun implements ColonyHost {
       }
       case 'board/posted': {
         const p = e.payload as EventPayloads['board/posted']
+        if (this._huddle && this._agents.has(p.agent)) {
+          this._huddle.proposed.add(p.agent)
+          if (this._huddle.proposed.size >= this._agents.size) this._closeHuddle('every peer proposed')
+        }
         for (const m of p.mentions)
           if (m !== p.agent) notify(m, `${p.agent} mentioned you on the board: ${p.text}`, 'mention')
         break
@@ -716,6 +756,7 @@ export class ColonyRun implements ColonyHost {
     }
     if (!this._awaiting) {
       await this._releaseStaleClaims(now)
+      if (this._huddle && now - this._huddle.since >= HUDDLE_MS) this._closeHuddle('time is up')
       if (this.spec.team?.mode === 'swarm' && this.spec.tier === 'team') await this._tendSwarm(now)
     }
     const quiet = this._verifying === 0 && live.every((a) => a.idle)
@@ -798,6 +839,7 @@ export class ColonyRun implements ColonyHost {
   private async _tendSwarm(now: number) {
     const tasks = Object.values(this._state.tasks).filter((t) => t.status !== 'deleted')
     const work = tasks.filter((t) => t.id !== 'task-final')
+    if (this._huddle) return
     if (work.length === 0) {
       const next = this.spec.agents[this._bootstrapped]
       const seedsIdle = this.spec.agents

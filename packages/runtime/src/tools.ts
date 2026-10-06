@@ -104,6 +104,22 @@ const FILLER = new Set(
   ),
 )
 
+/** All a swarm peer may do during the opening huddle: look around and talk. */
+const HUDDLE_TOOLS = new Set([
+  'read_task',
+  'read_board',
+  'read_notes',
+  'list_agents',
+  'list_tasks',
+  'list_artifacts',
+  'read_artifact',
+  'observe',
+  'read_docs',
+  'post',
+  'send_mail',
+  'read_mail',
+])
+
 // A peer-made "final answer" task would block task-final, which only appears once every other task is verified.
 const FINAL_TASK =
   /\b(final (answer|review|reply|response|summary)|answer the (person|user)|reply to the (person|user)|respond to the (person|user))\b/i
@@ -841,6 +857,10 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
           try {
             if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
             if (host.state().status !== 'running') throw new Error('the colony is no longer running')
+            if (host.huddling() && !HUDDLE_TOOLS.has(def.name))
+              throw new Error(
+                'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
+              )
             const result = await def.run(params ?? {}, agent, host)
             output = typeof result === 'string' ? result : result.text
             if (typeof result !== 'string') images = result.images

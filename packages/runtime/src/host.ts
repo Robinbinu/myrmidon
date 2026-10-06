@@ -29,6 +29,8 @@ export interface ColonyHost {
   deadline(): number
   /** An agent's tool batch has finished (all calls in one model response have results). */
   batchEnded(agent: string): void
+  /** A swarm's opening huddle: peers are proposing how to split the work, and nobody may start it yet. */
+  huddling(): boolean
   /** Search and page fetching for agents. */
   readonly web: WebTools
 }
