@@ -1,32 +1,36 @@
 /* ============ tokens ============
    Monochrome ink and paper: interactive elements use the text colour itself. Colour is reserved for
    meaning: signal amber for live work (the mascot's colour), lime and green for verified, red for
-   failure, and each agent's own identity colour. */
+   failure, and each agent's own identity colour. Text colours (muted and the status colours) are chosen
+   to meet WCAG AA, 4.5:1, on every surface in both themes. */
 :root {
   --bg: #f3f2ee;
   --surface: #ffffff;
   --surface-2: #f0efea;
   --surface-3: #e5e3dc;
   --border: #e4e2db;
-  --border-strong: #cfccc2;
+  --border-strong: #bdb9ae;
   --text: #0b0b0d;
   --text-2: #3b3b42;
-  --muted: #7b7b84;
+  --muted: #62626b;
   --accent: #0b0b0d;
   --accent-hover: #2b2b31;
   --accent-soft: rgb(11 11 13 / 0.06);
   --on-accent: #ffffff;
   --ink: #0b0b0d;
   --on-ink: #f6f6f8;
+  /* The person's own messages: ink on paper; a raised neutral in the dark, not a white slab. */
+  --bubble: #0b0b0d;
+  --on-bubble: #f6f6f8;
   --signal: #ffb31a;
   --lime: #d4ff3a;
-  --ok: #10a050;
-  --ok-soft: rgb(16 160 80 / 0.09);
-  --warn: #d9480f;
-  --warn-soft: rgb(217 72 15 / 0.1);
-  --bad: #e5484d;
-  --bad-soft: rgb(229 72 77 / 0.09);
-  --work: #c27a00;
+  --ok: #0a7a3a;
+  --ok-soft: rgb(10 122 58 / 0.09);
+  --warn: #b53d0a;
+  --warn-soft: rgb(181 61 10 / 0.09);
+  --bad: #c0272d;
+  --bad-soft: rgb(192 39 45 / 0.08);
+  --work: #8a5a00;
   --idle: #a1a1aa;
   --edge: #b9b6ac;
   --code-bg: #f5f4f0;
@@ -55,17 +59,19 @@
     --surface: #101013;
     --surface-2: #17171b;
     --surface-3: #222228;
-    --border: #1e1e23;
-    --border-strong: #2d2d34;
+    --border: #222228;
+    --border-strong: #3a3a43;
     --text: #f4f4f6;
     --text-2: #c8c8d0;
-    --muted: #7d7d88;
+    --muted: #8f8f9a;
     --accent: #f4f4f6;
     --accent-hover: #ffffff;
     --accent-soft: rgb(255 255 255 / 0.08);
     --on-accent: #0b0b0d;
     --ink: #f4f4f6;
     --on-ink: #0b0b0d;
+    --bubble: #2a2a31;
+    --on-bubble: #f4f4f6;
     --ok: #3ddc84;
     --ok-soft: rgb(61 220 132 / 0.11);
     --warn: #ff8a4c;
@@ -93,17 +99,19 @@
   --surface: #101013;
   --surface-2: #17171b;
   --surface-3: #222228;
-  --border: #1e1e23;
-  --border-strong: #2d2d34;
+  --border: #222228;
+  --border-strong: #3a3a43;
   --text: #f4f4f6;
   --text-2: #c8c8d0;
-  --muted: #7d7d88;
+  --muted: #8f8f9a;
   --accent: #f4f4f6;
   --accent-hover: #ffffff;
   --accent-soft: rgb(255 255 255 / 0.08);
   --on-accent: #0b0b0d;
   --ink: #f4f4f6;
   --on-ink: #0b0b0d;
+  --bubble: #2a2a31;
+  --on-bubble: #f4f4f6;
   --ok: #3ddc84;
   --ok-soft: rgb(61 220 132 / 0.11);
   --warn: #ff8a4c;

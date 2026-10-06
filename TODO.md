@@ -22,7 +22,10 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Design fixes** — review and fix the UI's design with the `web-artifacts-builder` and `ui-ux-pro-max` skills.
+- [x] **Design fixes** (ui-ux-pro-max audit; web-artifacts-builder's anti-slop rules) — AA contrast for muted and
+      status text in both themes, stronger control borders, an 11px floor for tiny text, hover-only actions visible
+      on touch, reduced-motion for pulsing animations, a dark-mode bubble instead of a white slab, one result card
+      per round (verdict, files, changes), and a phone layout (no rail, view picker, panel starts closed).
 - [x] **Replay the agent's computer** (2a81043) — a timeline scrubber in the Computer view: keyframes per
       browser action (screenshot + cursor + highlight, stored as blobs and logged), step back through what an
       agent did, "jump to live".

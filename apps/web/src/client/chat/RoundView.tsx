@@ -4,7 +4,6 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronRight,
   CircleStop,
   Copy,
   ExternalLink,
@@ -168,41 +167,55 @@ export function RoundView(props: {
       <ApprovalCards colonyId={props.colonyId} state={state} />
       <LoginCards state={state} />
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
-      {files.length > 0 && (
-        <motion.div {...enter} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {files.map(([name, versions]) => {
-            const latest = versions.at(-1)
-            const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
-            return (
-              <button
-                key={name}
-                type="button"
-                onClick={() => setFile(name)}
-                className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-card"
-              >
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent transition-transform duration-200 group-hover:scale-105">
-                  <Icon className="size-4.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] font-medium">{name}</span>
-                  <span className="text-[11.5px] text-muted">
-                    v{latest?.version} · {compact(latest?.size ?? 0)}B · {latest?.author}
-                  </span>
-                </span>
-                <ChevronRight className="size-4 text-muted transition-transform duration-200 group-hover:translate-x-0.5" />
-              </button>
-            )
-          })}
-        </motion.div>
+      {state.status !== 'completed' && (
+        <Outcome
+          state={state}
+          retry={props.retry}
+          onRetry={() => opening && props.onRetry(opening.text)}
+          onResume={props.onResume}
+          models={props.models}
+        />
       )}
-      <Outcome
-        state={state}
-        retry={props.retry}
-        onRetry={() => opening && props.onRetry(opening.text)}
-        onResume={props.onResume}
-        models={props.models}
-      />
-      <RoundChanges colonyId={props.colonyId} state={state} running={isRunning(state.status)} />
+      {/* One result card: the verdict, the files, and the project's changes, as rows. Empty rows render nothing. */}
+      <motion.div
+        {...enter}
+        className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface empty:hidden"
+      >
+        {state.status === 'completed' && (
+          <Outcome
+            state={state}
+            retry={props.retry}
+            onRetry={() => opening && props.onRetry(opening.text)}
+            onResume={props.onResume}
+            models={props.models}
+          />
+        )}
+        {files.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
+            <span className="mr-1 text-[12.5px] text-muted">Files</span>
+            {files.map(([name, versions]) => {
+              const latest = versions.at(-1)
+              const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setFile(name)}
+                  title={`v${latest?.version} · ${compact(latest?.size ?? 0)}B · ${latest?.author}`}
+                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-[12.5px] font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
+                >
+                  <Icon className="size-3.5 shrink-0 text-muted" />
+                  <span className="truncate">{name}</span>
+                  {(latest?.version ?? 1) > 1 && (
+                    <span className="text-[11px] text-muted">v{latest?.version}</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        <RoundChanges colonyId={props.colonyId} state={state} running={isRunning(state.status)} />
+      </motion.div>
       <AnimatePresence>
         {inspect && (
           <AgentSheet
@@ -241,7 +254,7 @@ function UserMessage(props: {
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-ink px-4 py-2.5 text-[15px] leading-[1.6] text-on-ink shadow-soft">
+      <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-[1.6] text-on-bubble shadow-soft">
         {props.text}
       </div>
       {props.attachments?.length ? (
@@ -282,7 +295,7 @@ function UserMessage(props: {
           type="button"
           onClick={() => copy(props.text)}
           aria-label="Copy message"
-          className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+          className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
@@ -312,7 +325,7 @@ function AgentMessage(props: { from: string; text: string; final: boolean; onIns
         <div className={cn(props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3')}>
           <Markdown text={props.text} />
         </div>
-        <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-within:opacity-100">
           <Button
             variant="ghost"
             size="sm"
@@ -543,7 +556,7 @@ function Outcome({
   if (state.status === 'completed') {
     const judge = finals.filter((v) => v.score !== undefined).at(-1)
     return (
-      <motion.div {...enter} className={cn(box, 'border-ok/25 bg-ok-soft text-ok')} role="status">
+      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-[13.5px] text-ok" role="status">
         <BadgeCheck className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
@@ -561,7 +574,7 @@ function Outcome({
             </details>
           )}
         </div>
-      </motion.div>
+      </div>
     )
   }
   if (failed) {

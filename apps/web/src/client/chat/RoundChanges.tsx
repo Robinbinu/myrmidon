@@ -65,8 +65,8 @@ export function RoundChanges(props: { colonyId: string; state: ColonyState; runn
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3.5 py-2.5 text-[13px]">
+    <div className="flex flex-col">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
         <FolderGit2 className="size-4 shrink-0 text-muted" />
         {!changes ? (
           <span className="flex items-center gap-1.5 text-muted">
@@ -123,7 +123,9 @@ export function RoundChanges(props: { colonyId: string; state: ColonyState; runn
         )}
       </div>
       {open && changes && !rewound && (
-        <DiffView files={changes.files} patch={changes.patch} truncated={changes.truncated} />
+        <div className="px-3 pb-3">
+          <DiffView files={changes.files} patch={changes.patch} truncated={changes.truncated} />
+        </div>
       )}
       <AnimatePresence>
         {confirm && changes && (

@@ -122,17 +122,17 @@ function Section(props: {
           type="button"
           onClick={props.onToggle}
           aria-expanded={!props.closed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted hover:text-fg"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-[11px] uppercase tracking-[0.14em] text-muted hover:text-fg"
         >
           <ChevronRight
             className={cn('size-3.5 shrink-0 transition-transform', !props.closed && 'rotate-90')}
           />
           {props.title}
-          <span className="rounded-full bg-surface-2 px-1.5 text-[10px] tabular-nums tracking-normal">
+          <span className="rounded-full bg-surface-2 px-1.5 text-[11px] tabular-nums tracking-normal">
             {props.count}
           </span>
         </button>
-        <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           {props.actions}
         </span>
       </div>
@@ -196,7 +196,7 @@ function ChangeRow(props: {
           />
           <FilePath path={props.path} />
         </button>
-        <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           {props.actions}
         </span>
         <span
@@ -575,11 +575,11 @@ function Tree(props: {
             >
               <span className="min-w-0 flex-1 truncate font-mono">{n.name}</span>
               {f?.added !== undefined && (
-                <span className="shrink-0 font-mono text-[10.5px] tabular-nums">
+                <span className="shrink-0 font-mono text-[11px] tabular-nums">
                   <span className="text-ok">+{f.added}</span> <span className="text-bad">−{f.removed}</span>
                 </span>
               )}
-              <span className={cn('w-3 shrink-0 text-center font-mono text-[10.5px] font-bold', s.className)}>
+              <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}>
                 {s.label}
               </span>
             </button>
@@ -656,7 +656,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
             <>
               <span className="flex items-center gap-1.5">
                 <span
-                  className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white"
+                  className="grid size-5 place-items-center rounded-full text-[11px] font-bold text-white"
                   style={{ background: `hsl(${hue(target.commit.author)} 45% 45%)` }}
                 >
                   {initials(target.commit.author)}

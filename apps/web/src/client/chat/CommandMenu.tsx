@@ -252,7 +252,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           return (
             <div key={it.key}>
               {it.section && (
-                <div className="px-2.5 pb-1 pt-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted first:pt-1">
+                <div className="px-2.5 pb-1 pt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted first:pt-1">
                   {it.section}
                 </div>
               )}

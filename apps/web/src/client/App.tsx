@@ -1,5 +1,5 @@
 import { foldColony, type MyrEvent } from '@myrmidon/protocol'
-import { Network, PanelLeft, Trash2 } from 'lucide-react'
+import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -107,6 +107,11 @@ export function App() {
   )
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
+  // Below the docking width the panel covers the chat, so it never reopens on its own there.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
+  useEffect(() => {
+    if (window.innerWidth < 1280) setWorkspaceOpen(false)
+  }, [])
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -508,6 +513,17 @@ export function App() {
                     </Pill>
                   )}
                 </div>
+                {view === 'chat' && chat && (
+                  <IconButton
+                    label="Workspace"
+                    title="Workspace (⌘J)"
+                    active={workspaceOpen}
+                    onClick={() => setWorkspaceOpen(!workspaceOpen)}
+                    className="md:hidden"
+                  >
+                    <PanelRight className="size-4" />
+                  </IconButton>
+                )}
                 {view === 'chat' && chat && (
                   <Button
                     variant="ghost"

@@ -82,7 +82,7 @@ export function ColonyTools(props: { colonyId: string; tools: ColonyState['madeT
   }
   return (
     <div className="flex flex-col gap-2 p-2">
-      <div className="px-1.5 pt-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+      <div className="px-1.5 pt-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
         Tools made here
       </div>
       {tools.map((t) => {

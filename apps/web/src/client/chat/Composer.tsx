@@ -168,7 +168,7 @@ export function TeamSettings(props: {
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+          <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
             {swarm ? 'Peers' : 'Specialists'}
           </span>
           <span className="text-[11.5px] text-muted">{config.roster.length} / 8</span>

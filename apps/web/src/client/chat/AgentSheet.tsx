@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<string, string> = {
 function Section(props: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn('border-t border-line px-5 py-4', props.className)}>
-      <h3 className="mb-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">{props.title}</h3>
+      <h3 className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">{props.title}</h3>
       {props.children}
     </section>
   )
@@ -157,7 +157,7 @@ export function AgentSheet(props: {
               ].map(([label, value]) => (
                 <span key={label} className="flex flex-col gap-1">
                   <DotMatrix text={value ?? ''} dot={2.1} className="text-fg" />
-                  <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
                     {label}
                   </span>
                 </span>

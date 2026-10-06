@@ -74,7 +74,7 @@ export function ModelPicker(props: {
         aria-expanded={open}
         className="group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft"
       >
-        <span className="flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wider text-muted">
+        <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
           {props.icon}
           {props.label}
         </span>
@@ -136,7 +136,7 @@ export function ModelPicker(props: {
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 bg-surface px-2.5 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
                     {provider}
                   </div>
                   {items.map(({ m, i }) => (
@@ -164,7 +164,7 @@ export function ModelPicker(props: {
                         </span>
                       )}
                       {m.source && m.source !== 'omp' && (
-                        <span className="rounded bg-accent-soft px-1.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                        <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent">
                           {m.source === 'custom' ? 'custom' : 'key'}
                         </span>
                       )}

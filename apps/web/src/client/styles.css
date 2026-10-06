@@ -31,6 +31,8 @@
   --color-code: var(--code-bg);
   --color-ink: var(--ink);
   --color-on-ink: var(--on-ink);
+  --color-bubble: var(--bubble);
+  --color-on-bubble: var(--on-bubble);
   --color-signal: var(--signal);
   --color-lime: var(--lime);
   --color-screen: var(--screen);
@@ -64,6 +66,17 @@
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+  /* Motion that loops or pulses stops for people who asked for less motion; spinners still turn slowly. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-ping,
+    .animate-pulse,
+    .animate-bounce {
+      animation: none;
+    }
+    .animate-spin {
+      animation-duration: 2.4s;
+    }
   }
   ::selection {
     background: color-mix(in srgb, var(--signal) 32%, transparent);

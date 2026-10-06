@@ -539,7 +539,7 @@ function LiveTab({
           >
             {shownLabel && (
               <span
-                className="absolute -top-5 left-0 max-w-[240px] truncate rounded px-1.5 py-px text-[10.5px] font-medium"
+                className="absolute -top-5 left-0 max-w-[240px] truncate rounded px-1.5 py-px text-[11px] font-medium"
                 style={{ background: agentColor(agent), color: inkOn(agentColor(agent)) }}
               >
                 {shownLabel}

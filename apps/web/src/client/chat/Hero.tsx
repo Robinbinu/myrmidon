@@ -339,7 +339,7 @@ export function Hero(props: {
                 className="h-auto w-[min(400px,calc(100vw-96px))]"
               />
               <div className="mt-5 flex items-center justify-between px-1">
-                <span className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.2em] text-white/35">
+                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-white/35">
                   <span className={`size-1 rounded-full ${asleep ? 'bg-white/30' : 'bg-[#3ddc84]'}`} />
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span

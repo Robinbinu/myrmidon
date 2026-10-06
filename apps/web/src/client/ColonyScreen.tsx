@@ -408,7 +408,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span className="flex flex-col">
-      <span className="text-[10.5px] font-semibold uppercase tracking-wider">{label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
       <span className="text-[13px] font-semibold text-fg">{value}</span>
     </span>
   )
@@ -449,7 +449,7 @@ function AgentButton(props: {
         </span>
         <span className="block truncate font-mono text-[11px] text-muted">{props.detail}</span>
       </span>
-      {props.meta && <span className="relative text-[10.5px] tabular-nums text-muted">{props.meta}</span>}
+      {props.meta && <span className="relative text-[11px] tabular-nums text-muted">{props.meta}</span>}
     </button>
   )
 }
@@ -525,7 +525,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
           >
             <div className="grid gap-2 border-t border-line bg-code px-3 py-2.5 font-mono text-[12px]">
               <div>
-                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-muted">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
                   Input
                 </div>
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">
@@ -536,7 +536,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
                 <div>
                   <div
                     className={cn(
-                      'mb-1 text-[10.5px] font-semibold uppercase tracking-wider',
+                      'mb-1 text-[11px] font-semibold uppercase tracking-wider',
                       item.ok ? 'text-muted' : 'text-bad',
                     )}
                   >

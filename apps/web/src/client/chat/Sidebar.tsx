@@ -166,7 +166,7 @@ export function Sidebar(props: {
             onClick={() => startRename(c)}
             aria-label={`Rename “${c.title}”`}
             title="Rename chat"
-            className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+            className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <Pencil className="size-3.5" />
           </button>
@@ -177,7 +177,7 @@ export function Sidebar(props: {
           onClick={() => props.onDelete(c)}
           aria-label={`Delete “${c.title}”`}
           title="Delete chat"
-          className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad focus-visible:opacity-100 group-hover:opacity-100"
+          className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -215,7 +215,7 @@ export function Sidebar(props: {
           className="group flex h-10 items-center gap-2 rounded-full bg-ink pl-3.5 pr-2 text-[13.5px] font-medium text-on-ink shadow-card transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
         >
           <Plus className="size-4 transition-transform duration-200 group-hover:rotate-90" /> New task
-          <span className="ml-auto rounded-full bg-on-ink/15 px-2 py-0.5 font-mono text-[10.5px] text-on-ink/70">
+          <span className="ml-auto rounded-full bg-on-ink/15 px-2 py-0.5 font-mono text-[11px] text-on-ink/70">
             ⌘K
           </span>
         </button>
@@ -233,7 +233,7 @@ export function Sidebar(props: {
       </div>
       <nav className="min-h-0 flex-1 overflow-auto px-2 pb-3">
         <div className="group/projects flex items-center px-3 pb-1 pt-3">
-          <span className="flex-1 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+          <span className="flex-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
             Projects
           </span>
           <button
@@ -280,7 +280,7 @@ export function Sidebar(props: {
                   onClick={() => props.onProjectPermissions(p)}
                   aria-label={`Permissions for ${p.name}`}
                   title="What agents may do in this folder"
-                  className="absolute right-[4.25rem] top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-[4.25rem] top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <ShieldCheck className="size-3.5" />
                 </button>
@@ -289,7 +289,7 @@ export function Sidebar(props: {
                   onClick={() => props.onNewInProject(p)}
                   aria-label={`New chat in ${p.name}`}
                   title={`New chat in ${p.name}`}
-                  className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <Plus className="size-3.5" />
                 </button>
@@ -298,7 +298,7 @@ export function Sidebar(props: {
                   onClick={() => props.onRemoveProject(p)}
                   aria-label={`Remove ${p.name} from projects`}
                   title="Remove from projects (the folder and its chats stay)"
-                  className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <X className="size-3.5" />
                 </button>
@@ -320,7 +320,7 @@ export function Sidebar(props: {
         )}
         {grouped.map((g) => (
           <div key={g.label}>
-            <div className="px-3 pb-1 pt-4 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+            <div className="px-3 pb-1 pt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
               {g.label}
             </div>
             {g.chats.map(row)}

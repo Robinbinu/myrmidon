@@ -205,8 +205,9 @@ function WorkspaceBody({
         <div
           className={cn(
             'flex-col border-l border-line bg-surface',
-            // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail.
-            'fixed inset-y-0 right-12 z-40 w-[min(460px,calc(100vw-3rem))] shadow-pop xl:static xl:z-auto xl:w-[440px] xl:shadow-none',
+            // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail;
+            // phones have no rail and give the panel the whole width.
+            'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(460px,calc(100vw-3rem))] xl:static xl:z-auto xl:w-[440px] xl:shadow-none',
             open ? 'flex' : 'hidden',
           )}
         >
@@ -214,9 +215,26 @@ function WorkspaceBody({
             <>
               <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
                 <View className="size-4 text-muted" />
-                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold">
+                <span className="hidden min-w-0 flex-1 truncate text-[14px] font-semibold md:block">
                   {views.find((v) => v.value === tab)?.label}
                 </span>
+                {/* Phones have no rail; the views are picked here instead. */}
+                <Select
+                  value={tab}
+                  onChange={(e) => {
+                    const next = e.target.value as Tab
+                    setTab(next)
+                    if (next === 'shell') setShellOpened(true)
+                  }}
+                  aria-label="Workspace view"
+                  className="min-w-0 flex-1 md:hidden"
+                >
+                  {views.map((v) => (
+                    <option key={v.value} value={v.value}>
+                      {v.label}
+                    </option>
+                  ))}
+                </Select>
                 {roundPicker}
                 <IconButton label="Close panel" title="Close panel (⌘J)" onClick={() => onOpenChange(false)}>
                   <X className="size-4" />
@@ -285,7 +303,7 @@ function WorkspaceBody({
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+                              <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
                                 Plan · {plan.agent}
                               </summary>
                               <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
@@ -402,7 +420,7 @@ function WorkspaceBody({
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                        <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+                                        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
                                           {label}
                                         </span>
                                       </span>
@@ -504,7 +522,7 @@ function WorkspaceBody({
         </div>
         <nav
           aria-label="Workspace views"
-          className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface py-2"
+          className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface py-2 md:flex"
         >
           {views.map((v) => {
             const count = counts[v.value]
@@ -538,7 +556,7 @@ function WorkspaceBody({
                 )}
                 <v.icon className="size-[18px]" />
                 {!!count && (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[10px] font-medium leading-4 tabular-nums text-fg-2">
+                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[11px] font-medium leading-4 tabular-nums text-fg-2">
                     {count > 99 ? '99+' : count}
                   </span>
                 )}
