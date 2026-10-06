@@ -14,6 +14,11 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Replay the agent's computer** (like Manus) — a timeline scrubber in the Computer view: keyframes per
+      browser action (screenshot + cursor + highlight, stored as blobs and logged), step back through what an
+      agent did, "jump to live".
+- [ ] **Computer view for non-browser work** — show the agent's terminal and the file it is editing live in the
+      same panel when it is not browsing (Manus shows the terminal/editor too).
 - [x] **Smarter harness prompts** (9440c44: craft + delivery contract, lead brief template, date/env, thinking
       levels, tool when/when-not, `working` doc, stop-with-task reminder; A/B measured) — agents (even Opus 5.5) act dumb in Myrmidon. Study the system prompts, tool
       descriptions and agent docs of strong harnesses (omp's own prompts in node_modules, Claude Code, Codex,
@@ -25,7 +30,7 @@ Requests queued while other work is in progress. Top of each section is next.
       /stop, /retry, /resume, /thinking, /attach, /clear …) with an autocomplete menu; plan mode (show the plan
       for approve/edit before an expensive team round); per-agent thinking level; other omp session controls
       worth copying (compaction, checkpoints/rewind, model switch mid-chat). Agents learn them from the docs.
-- [ ] **Real browser for agents (Playwright or alternative)** — proper web access: rendered pages, clicking,
+- [x] **Real browser for agents** (0980c14: puppeteer-core + system Chrome, browser_* tools, artifact: URLs) — proper web access: rendered pages, clicking,
       forms, screenshots, JS-heavy sites, and dev features for web apps the colony builds (open the built
       page, read console/network errors, run checks, screenshot for the judge). Research options first:
       Playwright, omp's built-in browser relay, browser-use, Stagehand, chrome-devtools MCP.
@@ -34,7 +39,7 @@ Requests queued while other work is in progress. Top of each section is next.
       network, Web Vitals, traces). Plan: playwright-core in-process (TS, no Python), snapshot/click/type/eval
       tools, plus CDP for console/network; live view via CDP Page.startScreencast frames over the existing
       websocket, takeover by forwarding mouse/keyboard (Input.dispatch*).
-- [ ] **Watch and take over the agent's browser** — when an agent browses, the person can see the live page
+- [x] **Watch and take over the agent's browser** (28ad606, 7e12c96: Computer view, live screencast, agent cursor + element highlight, take control/hand back, full screen, IDE-style workspace bar) — when an agent browses, the person can see the live page
       in the UI (screencast), follow what the agent clicks, and take control (pause the agent, drive it, hand
       back), like Claude's browser pane.
 - [x] **Workers persist across a chat's messages** — later rounds reuse the same workers (names, specialties,
