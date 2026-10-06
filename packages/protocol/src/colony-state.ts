@@ -107,6 +107,11 @@ export interface ColonyState {
   mail: MailEntry[]
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
+  /** Sign-ins agents asked the person for, by agent; `finished` is set once handed back or given up. */
+  logins: Record<
+    string,
+    EventPayloads['login/requested'] & { time: string; finished?: EventPayloads['login/finished']['outcome'] }
+  >
   /** Dev servers agents started, by name; `stopped` is set once one ends. */
   servers: Record<string, EventPayloads['server/started'] & { time: string; stopped?: string }>
   /** Tool calls waiting for the person, and how earlier ones were decided. */
@@ -156,6 +161,7 @@ export function emptyColonyState(id: string): ColonyState {
     checkpoints: {},
     approvals: {},
     servers: {},
+    logins: {},
     verdicts: [],
     signals: [],
     chatMessages: [],
@@ -218,6 +224,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'login/requested': {
+      const p = event.payload as EventPayloads['login/requested']
+      state.logins[p.agent] = { ...p, time: event.time }
+      break
+    }
+    case 'login/finished': {
+      const p = event.payload as EventPayloads['login/finished']
+      const login = state.logins[p.agent]
+      if (login) login.finished = p.outcome
       break
     }
     case 'server/started': {

@@ -17,6 +17,7 @@ const TALK = ['post', 'append_note', 'send_mail']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
   'browser_open',
+  'request_login',
   'browser_snapshot',
   'browser_click',
   'browser_type',

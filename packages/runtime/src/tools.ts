@@ -307,6 +307,7 @@ async function guardProjectCommand(host: ColonyHost, agent: string, tool: string
 
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
 const UNTRUSTED = new Set([
+  'request_login',
   'web_search',
   'web_fetch',
   'browser_open',
@@ -1190,6 +1191,35 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
       await keyframe(host, agent, tab, 'open')
       return pageSnapshot(tab)
+    },
+  },
+  {
+    name: 'request_login',
+    tier: 'write',
+    description:
+      'Ask the person to sign in to a site in your browser when a page needs an account (a login wall, "sign in to ' +
+      'continue"). It opens the URL in your tab and waits while the person takes control in the Computer view, signs ' +
+      'in themselves, and hands the browser back; then you get the page as it is. Never type passwords, codes or ' +
+      'other credentials yourself, and never ask for them in chat. Sign-ins persist for later rounds.',
+    parameters: type({
+      url: type('string').describe('The sign-in page (or the page that needs it)'),
+      site: type('string').describe('Who to sign in to, e.g. "GitHub"'),
+      reason: type('string').describe('Why you need it, in one sentence for the person'),
+    }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      if (!/^https?:/.test(args.url)) throw new Error('url must be http(s)')
+      await tab.page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await keyframe(host, agent, tab, 'open')
+      const outcome = await host.requestLogin(agent, args.site, args.url, args.reason)
+      if (outcome !== 'handed-back')
+        throw new Error(
+          outcome === 'timeout'
+            ? `the person did not sign in to ${args.site} in time; continue without it or say what is blocked`
+            : 'the round stopped',
+        )
+      const after = await browserTab(host, agent)
+      return `The person signed in to ${args.site} and handed the browser back.\n${await pageSnapshot(after)}`
     },
   },
   {

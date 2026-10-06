@@ -419,6 +419,20 @@ export class ChatService {
     for (const run of this._live.values()) if (run.id === colonyId) run.nudge(agent, text)
   }
 
+  /**
+   * The person handed an agent's browser back. If the agent was waiting for a sign-in, that wait ends; otherwise
+   * the agent is told its page may have changed.
+   */
+  async handBack(colonyId: string, agent: string): Promise<void> {
+    const run = [...this._live.values()].find((r) => r.id === colonyId)
+    if (!run) return
+    if (await run.finishLogin(agent, 'handed-back')) return
+    run.nudge(
+      agent,
+      'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
+    )
+  }
+
   async stop(chatId: string): Promise<void> {
     await this._live.get(chatId)?.stop('stopped by user')
   }

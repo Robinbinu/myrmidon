@@ -82,6 +82,9 @@ export interface RunOptions {
 }
 
 const QUIET_NUDGES = 2
+/** How long an agent waits for the person to sign in before it goes on without. */
+const LOGIN_MS = 15 * 60_000
+
 /** Dev servers one colony may run at once, and how long one gets to start serving. */
 const MAX_SERVERS = 3
 const SERVER_START_MS = 60_000
@@ -168,6 +171,7 @@ export class ColonyRun implements ColonyHost {
   private readonly _approvals = new Map<string, (approved: boolean) => void>()
   private readonly _servers = new Map<string, SandboxProcess>()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
+  private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
   private readonly _todos = new Map<string, readonly TodoItem[]>()
 
@@ -234,6 +238,37 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, model, previous },
       })
     }
+  }
+
+  async requestLogin(agent: string, site: string, url: string, reason: string) {
+    if (this._logins.has(agent)) throw new Error('you are already waiting for a sign-in')
+    const outcome = new Promise<'handed-back' | 'timeout' | 'stopped'>((resolve) => {
+      const timer = setTimeout(() => void this.finishLogin(agent, 'timeout'), LOGIN_MS)
+      this._logins.set(agent, (o) => {
+        clearTimeout(timer)
+        resolve(o)
+      })
+    })
+    await this.append({
+      type: 'login/requested',
+      actor: agentActor(agent),
+      payload: { agent, site, url, reason },
+    })
+    return outcome
+  }
+
+  /** Ends a sign-in wait (handed back, timed out, or the round stopped); returns whether one was waiting. */
+  async finishLogin(agent: string, outcome: 'handed-back' | 'timeout' | 'stopped'): Promise<boolean> {
+    const done = this._logins.get(agent)
+    if (!done) return false
+    this._logins.delete(agent)
+    await this.append({
+      type: 'login/finished',
+      actor: outcome === 'handed-back' ? { kind: 'user', id: 'user' } : SYSTEM,
+      payload: { agent, outcome },
+    })
+    done(outcome)
+    return true
   }
 
   rememberUntrusted(agent: string, source: string, text: string) {
@@ -1224,6 +1259,7 @@ export class ColonyRun implements ColonyHost {
   private async _end() {
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
+    for (const agent of [...this._logins.keys()]) await this.finishLogin(agent, 'stopped').catch(() => false)
     // Nothing may stay waiting on the person once the round is over.
     for (const id of [...this._approvals.keys()])
       await this.decideApproval(id, false, 'stopped').catch(() => {})

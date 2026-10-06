@@ -703,6 +703,53 @@ test('plan mode presents the plan for approval before any work, and thinking can
 })
 
 test.skipIf(!findChrome())(
+  'request_login waits for the person to sign in and hand the browser back',
+  async () => {
+    const site = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response('<title>Sign in</title><h1>Please sign in</h1>', {
+          headers: { 'content-type': 'text/html' },
+        }),
+    })
+    const browser = new BrowserHub(join(home, 'browser'))
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/needs-login', [
+      [
+        tool('request_login', {
+          url: `http://localhost:${site.port}/login`,
+          site: 'Example',
+          reason: 'The report is behind a login.',
+        }),
+      ],
+      [tool('reply_user', { text: 'Signed in, thanks.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Get the report', {
+      ...solo('mock/needs-login'),
+      judgeModel: 'mock/judge',
+    })
+    const waiting = await waitFor(colonyId, (s) => Object.values(s.logins).some((l) => !l.finished))
+    expect(Object.values(waiting.logins)[0]).toMatchObject({
+      site: 'Example',
+      reason: 'The report is behind a login.',
+    })
+    // Handing back (what the Computer view does after the person signs in) ends the wait.
+    await chats.handBack(colonyId, Object.keys(waiting.logins)[0] ?? '')
+    const s = await waitFor(colonyId)
+    expect(Object.values(s.logins)[0]?.finished).toBe('handed-back')
+    const result = (await events(colonyId)).find((e) => e.type === 'tool/result')
+      ?.payload as EventPayloads['tool/result']
+    expect(result.ok).toBe(true)
+    expect(result.output).toContain('The person signed in to Example and handed the browser back.')
+    expect(result.output).toContain('Please sign in')
+    await browser.close()
+    site.stop(true)
+  },
+)
+
+test.skipIf(!findChrome())(
   'an agent opens the page it built in a real browser, clicks, and reads the console',
   async () => {
     const browser = new BrowserHub(join(home, 'browser'))

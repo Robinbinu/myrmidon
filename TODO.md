@@ -22,6 +22,7 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Design fixes** — review and fix the UI's design with the `web-artifacts-builder` and `ui-ux-pro-max` skills.
 - [x] **Replay the agent's computer** (2a81043) — a timeline scrubber in the Computer view: keyframes per
       browser action (screenshot + cursor + highlight, stored as blobs and logged), step back through what an
       agent did, "jump to live".

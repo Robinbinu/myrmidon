@@ -93,15 +93,21 @@ export function Computer({
   colonyId,
   live,
   events,
+  focus,
 }: {
   colonyId: string
   live: boolean
   events: readonly MyrEvent[]
+  /** An agent to show first, e.g. one waiting for the person to sign in. */
+  focus?: string
 }) {
   const keyframes = useMemo(() => keyframesOf(events), [events])
   const activity = useMemo(() => activityOf(events), [events])
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [agent, setAgent] = useState<string>()
+  useEffect(() => {
+    if (focus) setAgent(focus)
+  }, [focus])
 
   useEffect(() => {
     let stop = false

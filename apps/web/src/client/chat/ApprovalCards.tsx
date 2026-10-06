@@ -1,5 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import { Check, ShieldQuestion, X } from 'lucide-react'
+import { Check, KeyRound, MonitorSmartphone, ShieldQuestion, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { send } from '../api.ts'
@@ -65,6 +65,56 @@ export function ApprovalCards({ colonyId, state }: { colonyId: string; state: Co
               icon={<Check className="size-3.5" />}
             >
               Approve
+            </Button>
+          </div>
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  )
+}
+
+/**
+ * Sign-ins an agent is waiting for: the person opens that agent's browser in the Computer view, takes control,
+ * signs in themselves, and hands it back. Agents never see or type the credentials.
+ */
+export function LoginCards({ state }: { state: ColonyState }) {
+  const waiting = Object.values(state.logins).filter((l) => !l.finished)
+  return (
+    <AnimatePresence initial={false}>
+      {waiting.map((l) => (
+        <motion.div
+          key={l.agent}
+          layout
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={spring}
+          role="alert"
+          className="flex flex-col gap-2.5 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3"
+        >
+          <div className="flex items-center gap-2 text-[13.5px]">
+            <KeyRound className="size-4 shrink-0 text-accent" />
+            <span>
+              <span className="font-semibold">{l.agent}</span> needs you to sign in to{' '}
+              <span className="font-semibold">{l.site}</span>
+            </span>
+          </div>
+          <p className="text-[12.5px] leading-relaxed text-fg-2">
+            {l.reason} Open {l.agent}’s browser, choose Take control, sign in, then Hand back. The agent never
+            sees what you type, and the sign-in is kept for later rounds.
+          </p>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<MonitorSmartphone className="size-3.5" />}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('myr:open-view', { detail: { view: 'computer', agent: l.agent } }),
+                )
+              }
+            >
+              Open {l.agent}’s browser
             </Button>
           </div>
         </motion.div>

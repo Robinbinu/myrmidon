@@ -858,12 +858,8 @@ export function startServer(options: ServeOptions): WebServer {
           if (msg.type === 'control') {
             const by = msg.by === 'person' ? 'person' : 'agent'
             await options.browser?.setControl(colony, agent, by)
-            if (by === 'agent')
-              options.chats?.wakeAgent(
-                colony,
-                agent,
-                'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
-              )
+            // Handing back ends a sign-in the agent was waiting for, or tells it the page may have changed.
+            if (by === 'agent') await options.chats?.handBack(colony, agent)
             return
           }
           await options.browser?.input(colony, agent, msg as LiveInput)

@@ -164,6 +164,19 @@ function WorkspaceBody({
     }
   }
   const View = views.find((v) => v.value === tab)?.icon ?? FileCode
+  // Cards in the chat (a sign-in request) can open a view here, e.g. one agent's browser.
+  const [focus, setFocus] = useState<string>()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and onOpenChange are stable enough for a listener
+  useEffect(() => {
+    const open = (e: Event) => {
+      const { view, agent } = (e as CustomEvent<{ view: Tab; agent?: string }>).detail
+      setTab(view)
+      if (agent) setFocus(agent)
+      onOpenChange(true)
+    }
+    window.addEventListener('myr:open-view', open)
+    return () => window.removeEventListener('myr:open-view', open)
+  }, [])
   useEffect(() => {
     if (open && tab === 'shell') setShellOpened(true)
   }, [open, tab])
@@ -455,7 +468,12 @@ function WorkspaceBody({
                       ))}
                     {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
                     {tab === 'computer' && (
-                      <Computer colonyId={colonyId} live={state.status === 'running'} events={events} />
+                      <Computer
+                        colonyId={colonyId}
+                        live={state.status === 'running'}
+                        events={events}
+                        {...(focus ? { focus } : {})}
+                      />
                     )}
                     {tab === 'activity' &&
                       (steps.length === 0 ? (
