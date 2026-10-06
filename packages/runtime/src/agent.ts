@@ -9,6 +9,7 @@ import {
   type StreamFn,
 } from '@oh-my-pi/pi-agent-core'
 import { type AssistantMessage, streamSimple } from '@oh-my-pi/pi-ai'
+import { ContextCompactor } from './compaction.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import { kickoff, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
@@ -45,6 +46,16 @@ export class ColonyAgent {
   private readonly _agent: Agent
   /** The current model's own stream function, if it has one (test models); otherwise pi's default. */
   private _stream?: StreamFn
+  private readonly _compactor = new ContextCompactor({
+    model: () => this._agent.state.model,
+    apiKey: (m) => this.resolver.apiKey(m),
+    onCompacted: (info) =>
+      void this.host.append({
+        type: 'agent/compacted',
+        actor: agentActor(this.spec.name),
+        payload: { agent: this.spec.name, ...info },
+      }),
+  })
   /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
   private readonly _unread = new Map<number, InboxItem>()
   private _stamp = 0
@@ -80,6 +91,7 @@ export class ColonyAgent {
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
+      transformContext: (messages, signal) => this._compactor.transform(messages, signal),
       // pi reads the model afresh each step but keeps the stream function for a whole loop; dispatching here lets
       // a mid-round model switch reach models that bring their own stream too.
       streamFn: (model, context, options) => (this._stream ?? streamSimple)(model, context, options),

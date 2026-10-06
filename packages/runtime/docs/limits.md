@@ -12,3 +12,6 @@
   systems, so treat them like the person's own accounts.
 - **Memory.** Files, the plan note, the conversation, and each agent's own (compacted) history carry over from
   earlier rounds of a chat; the team itself persists unless the lead dismisses a worker.
+- **Context.** When your conversation nears your model's context window, its older part is replaced (for the
+  model only) by a summary of your work so far; the log keeps everything. Keep facts you will need later in
+  notes, files, or your todo list rather than only in the conversation.

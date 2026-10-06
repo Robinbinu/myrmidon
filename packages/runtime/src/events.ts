@@ -118,6 +118,17 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), by: str(), reason: str() }),
   },
   {
+    type: 'agent/compacted',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      messages: Schema.natural().required(),
+      tokens: Schema.natural().required(),
+      summaryChars: Schema.natural().required(),
+    }),
+  },
+  {
     type: 'agent/model',
     version: 1,
     actors: ['user'],

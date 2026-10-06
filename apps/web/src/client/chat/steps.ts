@@ -151,6 +151,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'agent/compacted': {
+        const p = e.payload as EventPayloads['agent/compacted']
+        out.push({
+          ...base,
+          kind: 'think',
+          agent: p.agent,
+          lead: 'Compacted its context',
+          tail: `summarized ${p.messages} earlier messages at ~${Math.round(p.tokens / 1000)}k tokens`,
+        })
+        break
+      }
       case 'agent/model': {
         const p = e.payload as EventPayloads['agent/model']
         out.push({

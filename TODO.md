@@ -34,7 +34,7 @@ Requests queued while other work is in progress. Top of each section is next.
       planning and verification habits, how to read the snapshot, how to use the board/notes/mail well.
       Update the harness docs (`packages/runtime/docs/*.md`) agents read via `read_docs` to match.
       Measure before/after with the eval prompts.
-- [x] **Slash commands and omp's controls** (a9abbe1: /plan /steer /queue /stop /resume /retry /new /rename /mode /model /thinking /team /attach /export /mcp /settings /help; plan mode; thinking setting. model switch mid-round: `/model` or POST /api/chats/:id/model, logged as agent/model. Still open: checkpoints/rewind, compaction) — slash commands in the composer (/plan, /model, /team, /mode,
+- [x] **Slash commands and omp's controls** (a9abbe1: /plan /steer /queue /stop /resume /retry /new /rename /mode /model /thinking /team /attach /export /mcp /settings /help; plan mode; thinking setting. model switch mid-round: `/model` or POST /api/chats/:id/model, logged as agent/model. compaction: near the model's window, older messages are summarized for the model (pi's generateSummary, folded forward), the log keeps everything. Still open: checkpoints/rewind) — slash commands in the composer (/plan, /model, /team, /mode,
       /stop, /retry, /resume, /thinking, /attach, /clear …) with an autocomplete menu; plan mode (show the plan
       for approve/edit before an expensive team round); per-agent thinking level; other omp session controls
       worth copying (compaction, checkpoints/rewind, model switch mid-chat). Agents learn them from the docs.
