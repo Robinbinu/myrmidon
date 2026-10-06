@@ -57,6 +57,19 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
   return task.blockedBy.every((b) => state.tasks[b]?.status === 'verified')
 }
 
+/**
+ * Tool calls from one assistant message run concurrently, but an agent planning several tasks at once
+ * expects them to be created in the order it wrote them, so later ones can name earlier ids in blockedBy.
+ */
+const creating = new WeakMap<ColonyHost, Map<string, Promise<unknown>>>()
+function inCallOrder<T>(host: ColonyHost, agent: string, run: () => Promise<T>): Promise<T> {
+  const chains = creating.get(host) ?? new Map<string, Promise<unknown>>()
+  creating.set(host, chains)
+  const next = (chains.get(agent) ?? Promise.resolve()).catch(() => {}).then(run)
+  chains.set(agent, next)
+  return next
+}
+
 const MENTION = /@([a-z][a-z0-9-]{0,31})/g
 
 // Words every task subject shares; they say nothing about which task it is.
@@ -277,41 +290,45 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const e = first(
-        await host.appendAtomic((s) => {
-          const blockedBy: string[] = args.blockedBy ?? []
-          for (const b of blockedBy) {
-            if (!s.tasks[b])
-              throw new Error(
-                `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
+        await inCallOrder(host, agent, () =>
+          host.appendAtomic((s) => {
+            const blockedBy: string[] = args.blockedBy ?? []
+            for (const b of blockedBy) {
+              if (!s.tasks[b])
+                throw new Error(
+                  `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
+                )
+            }
+            if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
+            if (host.spec.team?.mode === 'swarm') {
+              const twin = Object.values(s.tasks).find(
+                (t) =>
+                  t.status !== 'deleted' &&
+                  t.status !== 'verified' &&
+                  similar(t.subject, args.subject) >= 0.6,
               )
-          }
-          if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
-          if (host.spec.team?.mode === 'swarm') {
-            const twin = Object.values(s.tasks).find(
-              (t) =>
-                t.status !== 'deleted' && t.status !== 'verified' && similar(t.subject, args.subject) >= 0.6,
-            )
-            if (twin)
-              throw new Error(
-                `similar to ${twin.id} (${twin.subject}); claim it, or split it with a more specific task that uses blockedBy`,
-              )
-          }
-          const outputs: string[] = (args.outputs ?? []).map(assertArtifactName)
-          const id = `task-${Object.keys(s.tasks).length + 1}`
-          return [
-            taskEvent(agent, {
-              id,
-              revision: 1,
-              subject: args.subject,
-              description: args.description ?? '',
-              status: 'pending',
-              blockedBy,
-              artifacts: [],
-              ...(args.assignee ? { assignee: args.assignee } : {}),
-              ...(outputs.length ? { outputs } : {}),
-            }),
-          ]
-        }),
+              if (twin)
+                throw new Error(
+                  `similar to ${twin.id} (${twin.subject}); claim it, or split it with a more specific task that uses blockedBy`,
+                )
+            }
+            const outputs: string[] = (args.outputs ?? []).map(assertArtifactName)
+            const id = `task-${Object.keys(s.tasks).length + 1}`
+            return [
+              taskEvent(agent, {
+                id,
+                revision: 1,
+                subject: args.subject,
+                description: args.description ?? '',
+                status: 'pending',
+                blockedBy,
+                artifacts: [],
+                ...(args.assignee ? { assignee: args.assignee } : {}),
+                ...(outputs.length ? { outputs } : {}),
+              }),
+            ]
+          }),
+        ),
       )
       const task = (e.payload as EventPayloads['task/changed']).task
       return `created ${taskLine(task)}`

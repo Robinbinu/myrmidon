@@ -168,6 +168,47 @@ test('orchestrated: an assigned task wakes only its assignee', async () => {
   await chats.stopAll()
 })
 
+test('tasks created together in one message can depend on each other', async () => {
+  const resolver = new ModelResolver()
+  const researcher = (ctx: LlmContext) =>
+    /- ([a-z]+): researcher \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => [
+      tool('create_task', { subject: 'Gather the facts', assignee: researcher(ctx) }),
+      tool('create_task', {
+        subject: 'Summarise the facts',
+        assignee: researcher(ctx),
+        blockedBy: ['task-1'],
+      }),
+      tool('create_task', {
+        subject: 'Review the summary',
+        assignee: researcher(ctx),
+        blockedBy: ['task-2'],
+      }),
+    ],
+    ['waiting'],
+  ])
+  scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Research it', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'researcher', model: 'mock/researcher' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId, (st) => Object.keys(st.tasks).length >= 3)
+  const failed = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as { ok: boolean; output: string })
+    .filter((r) => !r.ok)
+  expect(failed.map((r) => r.output)).toEqual([])
+  expect(s.tasks['task-1']?.subject).toBe('Gather the facts')
+  expect(s.tasks['task-2']?.blockedBy).toEqual(['task-1'])
+  expect(s.tasks['task-3']?.blockedBy).toEqual(['task-2'])
+  await chats.stopAll()
+})
+
 test('swarm: one seed plans, duplicates and second plans are refused, and a speaker answers once', async () => {
   const resolver = new ModelResolver()
   // Calls in one batch run concurrently, so task numbers are not fixed; find tasks by the file they produce.

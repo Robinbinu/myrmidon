@@ -3,7 +3,7 @@ import { Fragment, type ReactNode } from 'react'
 import { useCopy } from '../ui/hooks.ts'
 
 const INLINE =
-  /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^\]\n]+\]\([^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
 const LINK =
   'font-medium text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
@@ -27,6 +27,15 @@ function inline(text: string): ReactNode[] {
           {token.slice(2, -2)}
         </strong>,
       )
+    else if (token.startsWith('*') || token.startsWith('_'))
+      out.push(
+        <em key={at} className="italic">
+          {token.slice(1, -1)}
+        </em>,
+      )
+    else if (token.startsWith('[') && !/\]\(https?:\/\//.test(token))
+      // Anchors and relative paths have nowhere to go outside the document, so keep just the label.
+      out.push(token.slice(1, token.indexOf(']')))
     else if (token.startsWith('[')) {
       out.push(
         <a
@@ -82,8 +91,8 @@ const CELLS = (row: string) =>
     .map((c) => c.trim())
 
 /**
- * Small, safe Markdown subset for agent replies: code fences, tables, headings, lists, bold, inline code
- * and links. It builds React elements only, so model output can never inject HTML.
+ * Small, safe Markdown subset for agent replies and Markdown artifacts: code fences, tables, headings,
+ * lists, quotes, rules, bold, italics, inline code and links. It builds React elements only, so model output can never inject HTML.
  */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = []
@@ -136,6 +145,22 @@ export function Markdown({ text }: { text: string }) {
             </tbody>
           </table>
         </div>,
+      )
+      continue
+    }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+      blocks.push(<hr key={key++} className="my-5 border-line" />)
+      i++
+      continue
+    }
+    if (/^\s*>/.test(line)) {
+      const quoted: string[] = []
+      while (i < lines.length && /^\s*>/.test(lines[i] as string))
+        quoted.push((lines[i++] as string).replace(/^\s*>\s?/, ''))
+      blocks.push(
+        <blockquote key={key++} className="my-3 border-l-2 border-line-strong pl-4 text-muted">
+          <Markdown text={quoted.join('\n')} />
+        </blockquote>,
       )
       continue
     }
@@ -193,6 +218,8 @@ export function Markdown({ text }: { text: string }) {
       !(lines[i] as string).startsWith('```') &&
       !/^(#{1,4})\s/.test(lines[i] as string) &&
       !isList(lines[i] as string) &&
+      !/^\s*>/.test(lines[i] as string) &&
+      !/^\s*([-*_])(\s*\1){2,}\s*$/.test(lines[i] as string) &&
       !/^\s*\|.*\|\s*$/.test(lines[i] as string)
     ) {
       para.push(lines[i++] as string)

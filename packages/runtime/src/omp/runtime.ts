@@ -76,6 +76,31 @@ export interface ProviderUpdate {
   readonly models: readonly string[]
 }
 
+/** A subscription or account sign-in omp supports (Claude Pro/Max, ChatGPT, Gemini, …). */
+export interface LoginOption {
+  readonly id: string
+  readonly name: string
+  /** The model provider the login authenticates. */
+  readonly provider: string
+  /** omp can call this provider's models right now. */
+  readonly ready: boolean
+}
+
+/** How a sign-in talks to the person doing it. */
+export interface LoginHandlers {
+  /** Open this URL in a browser; the login finishes by itself when the provider redirects back. */
+  onAuth(url: string, instructions?: string): void
+  /** A question the flow needs answered, e.g. a pasted authorization code. */
+  onPrompt(message: string, placeholder?: string): Promise<string>
+  onProgress(message: string): void
+  readonly signal: AbortSignal
+}
+
+export interface LoginResult {
+  readonly email?: string
+  readonly orgName?: string
+}
+
 export interface OmpRuntime {
   readonly agentDir: string
   /** Models omp can call with the credentials it has. */
@@ -87,6 +112,9 @@ export interface OmpRuntime {
   providers(): ProviderInfo[]
   setApiKey(provider: string, key: string): Promise<void>
   removeCredentials(provider: string): Promise<void>
+  logins(): LoginOption[]
+  /** Runs an interactive OAuth sign-in and stores the credential in the vault. */
+  login(id: string, handlers: LoginHandlers): Promise<LoginResult | undefined>
   addProvider(input: CustomProviderInput): Promise<ProviderInfo>
   updateProvider(name: string, update: ProviderUpdate): Promise<ProviderInfo>
   removeProvider(name: string): Promise<void>
@@ -137,6 +165,7 @@ async function start(home: string): Promise<OmpRuntime> {
   const { Settings } = await import('@oh-my-pi/pi-coding-agent/config/settings')
   const { discoverAuthStorage } = await import('@oh-my-pi/pi-coding-agent/sdk')
   const { ModelRegistry } = await import('@oh-my-pi/pi-coding-agent/config/model-registry')
+  const { getOAuthProviders } = await import('@oh-my-pi/pi-ai/registry/oauth/index')
   const search = await import('@oh-my-pi/pi-coding-agent/web/search/index')
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
@@ -257,6 +286,32 @@ async function start(home: string): Promise<OmpRuntime> {
     async removeCredentials(provider) {
       await core.credentials.remove(provider)
       await core.registry.refresh('offline').catch(() => {})
+    },
+    logins() {
+      const ready = new Set(core.registry.getAvailable('chat').map((m) => m.provider))
+      return getOAuthProviders()
+        .filter((p) => p.available)
+        .map((p) => {
+          const provider = p.storeCredentialsAs ?? p.id
+          return { id: p.id, name: p.name, provider, ready: ready.has(provider) }
+        })
+    },
+    async login(id, handlers) {
+      if (!getOAuthProviders().some((p) => p.id === id)) throw new Error(`unknown sign-in ${id}`)
+      const identity = await core.auth.oauth.login(id, {
+        onAuth: (info) => handlers.onAuth(info.launchUrl ?? info.url, info.instructions),
+        onPrompt: (prompt) => handlers.onPrompt(prompt.message, prompt.placeholder),
+        onManualCodeInput: () =>
+          handlers.onPrompt('Or paste the authorization code / redirect URL here', 'code#state or URL'),
+        onProgress: handlers.onProgress,
+        signal: handlers.signal,
+      })
+      await core.registry.refresh('offline').catch(() => {})
+      if (!identity) return undefined
+      return {
+        ...(identity.email ? { email: identity.email } : {}),
+        ...(identity.orgName ? { orgName: identity.orgName } : {}),
+      }
     },
     async addProvider(input) {
       if (!PROVIDER_NAME.test(input.name))

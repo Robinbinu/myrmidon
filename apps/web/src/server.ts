@@ -17,6 +17,7 @@ import {
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
+import { Logins } from './logins.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -77,6 +78,7 @@ export function startServer(options: ServeOptions): WebServer {
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
   const store = new SqliteLogStore(options.home)
   const sockets = new Set<ServerWebSocket<StreamData>>()
+  const logins = options.omp ? new Logins(options.omp) : undefined
 
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
@@ -280,6 +282,35 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
+        }),
+      },
+      '/api/logins': {
+        GET: guard(() => {
+          if (!options.omp) return json({ error: 'sign-in needs the chat runtime' }, 503)
+          return json({ logins: options.omp.logins() })
+        }),
+        POST: guard(async (req) => {
+          if (!logins) return json({ error: 'sign-in needs the chat runtime' }, 503)
+          const { login } = (await req.json()) as { login?: unknown }
+          if (typeof login !== 'string' || !options.omp?.logins().some((l) => l.id === login))
+            return json({ error: 'unknown sign-in' }, 400)
+          return json(await logins.start(login))
+        }),
+      },
+      '/api/logins/:id': {
+        GET: guard((req) => {
+          const state = logins?.get(req.params.id ?? '')
+          return state ? json(state) : json({ error: 'no such sign-in' }, 404)
+        }),
+        POST: guard(async (req) => {
+          const { answer } = (await req.json()) as { answer?: unknown }
+          if (typeof answer !== 'string' || !answer.trim()) return json({ error: 'answer is required' }, 400)
+          const state = logins?.answer(req.params.id ?? '', answer.trim())
+          return state ? json(state) : json({ error: 'no such sign-in' }, 404)
+        }),
+        DELETE: guard((req) => {
+          const state = logins?.cancel(req.params.id ?? '')
+          return state ? json(state) : json({ error: 'no such sign-in' }, 404)
         }),
       },
       '/api/import-omp': {

@@ -1,15 +1,19 @@
 import type { ArtifactVersion } from '@myrmidon/protocol'
-import { Check, Copy, Download, ExternalLink, FileCode, GitCompare, Monitor } from 'lucide-react'
+import { BookOpen, Check, Copy, Download, ExternalLink, FileCode, GitCompare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { blobText, previewUrl } from '../api.ts'
 import { diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Select, Skeleton, Tabs } from '../ui/primitives.tsx'
+import { Markdown } from './Markdown.tsx'
 
 type View = 'code' | 'preview' | 'diff'
 
-/** File viewer for one artifact: source with line numbers, live preview, and diff against the previous version. */
+/**
+ * File viewer for one artifact: source with line numbers, a live preview for HTML or rendered Markdown, and
+ * a diff against the previous version.
+ */
 export function ArtifactViewer(props: {
   colonyId: string
   name: string
@@ -20,7 +24,8 @@ export function ArtifactViewer(props: {
   const selected = props.versions.find((v) => v.version === version) ?? props.versions.at(-1)
   const previous = selected ? props.versions.find((v) => v.version === selected.parentVersion) : undefined
   const isHtml = selected?.mediaType === 'text/html'
-  const [view, setView] = useState<View>(isHtml ? 'preview' : 'code')
+  const isMarkdown = selected?.mediaType === 'text/markdown' || /\.(md|markdown)$/i.test(props.name)
+  const [view, setView] = useState<View>(isHtml || isMarkdown ? 'preview' : 'code')
   const [text, setText] = useState<string>()
   const [prev, setPrev] = useState<string>()
   const [preview, setPreview] = useState<string>()
@@ -71,12 +76,23 @@ export function ArtifactViewer(props: {
             ),
           },
         ]
-      : []),
+      : isMarkdown
+        ? [
+            {
+              value: 'preview' as const,
+              label: (
+                <>
+                  <BookOpen className="size-3.5" /> Rendered
+                </>
+              ),
+            },
+          ]
+        : []),
     {
       value: 'code' as const,
       label: (
         <>
-          <FileCode className="size-3.5" /> Code
+          <FileCode className="size-3.5" /> {isMarkdown ? 'Source' : 'Code'}
         </>
       ),
     },
@@ -117,7 +133,7 @@ export function ArtifactViewer(props: {
             disabled={text === undefined}
             icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           >
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? 'Copied' : isMarkdown ? 'Copy markdown' : 'Copy'}
           </Button>
           <Button
             size="sm"
@@ -159,6 +175,12 @@ export function ArtifactViewer(props: {
           <Skeleton className="h-3.5 w-3/5" />
           <Skeleton className="h-3.5 w-4/5" />
           <Skeleton className="h-3.5 w-2/5" />
+        </div>
+      ) : view === 'preview' && isMarkdown ? (
+        <div className="flex-1 overflow-auto">
+          <article className="mx-auto max-w-3xl px-8 py-6 text-[14.5px] leading-relaxed">
+            <Markdown text={text} />
+          </article>
         </div>
       ) : (
         <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-[12.5px] leading-[1.65]">

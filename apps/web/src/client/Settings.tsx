@@ -7,12 +7,14 @@ import {
   CircleCheck,
   CircleX,
   Download,
+  ExternalLink,
   Eye,
   EyeOff,
   Gavel,
   Globe,
   KeyRound,
   LoaderCircle,
+  LogIn,
   MessageSquareText,
   Monitor,
   Moon,
@@ -619,6 +621,192 @@ function ModelsSection(props: {
   )
 }
 
+interface LoginOption {
+  id: string
+  name: string
+  provider: string
+  ready: boolean
+}
+
+interface LoginState {
+  id: string
+  login: string
+  status: 'waiting' | 'done' | 'failed' | 'cancelled'
+  url?: string
+  instructions?: string
+  prompt?: { message: string; placeholder?: string }
+  progress?: string
+  result?: { email?: string; orgName?: string }
+  error?: string
+}
+
+/** Subscription sign-ins listed first; the rest sit behind "More". */
+const FEATURED_LOGINS = [
+  'anthropic',
+  'openai-codex',
+  'google-gemini-cli',
+  'google-antigravity',
+  'github-copilot',
+]
+
+/** Sign in with a subscription (Claude Pro/Max, ChatGPT, Gemini, Copilot…) through omp's OAuth flows. */
+function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
+  const toast = useToast()
+  const [logins, setLogins] = useState<LoginOption[]>()
+  const [session, setSession] = useState<LoginState>()
+  const [answer, setAnswer] = useState('')
+  const [more, setMore] = useState(false)
+
+  const load = () =>
+    api<{ logins: LoginOption[] }>('/api/logins')
+      .then((r) => setLogins(r.logins))
+      .catch(() => setLogins([]))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once on mount
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const waiting = session?.status === 'waiting'
+  const sessionId = session?.id
+  // biome-ignore lint/correctness/useExhaustiveDependencies: polls while one sign-in is open
+  useEffect(() => {
+    if (!waiting || !sessionId) return
+    const t = setInterval(async () => {
+      const next = await api<LoginState>(`/api/logins/${sessionId}`).catch(() => undefined)
+      if (!next) return
+      setSession(next)
+      if (next.status === 'done') {
+        const who = next.result?.email ?? next.result?.orgName
+        toast(`Signed in${who ? ` as ${who}` : ''}`, 'success')
+        void load()
+        api<{ providers: ProviderInfo[] }>('/api/settings')
+          .then((r) => props.onProviders(r.providers))
+          .catch(() => {})
+      } else if (next.status === 'failed') toast(next.error ?? 'Sign-in failed', 'error')
+    }, 1500)
+    return () => clearInterval(t)
+  }, [waiting, sessionId])
+
+  const start = async (login: string) => {
+    setAnswer('')
+    try {
+      const state = await send<LoginState>('POST', '/api/logins', { login })
+      setSession(state)
+      if (state.url) window.open(state.url, '_blank', 'noopener')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+
+  if (!logins?.length) return null
+  const rank = (l: LoginOption) => {
+    const i = FEATURED_LOGINS.indexOf(l.id)
+    return i === -1 ? FEATURED_LOGINS.length : i
+  }
+  const sorted = [...logins].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+  const shown = more ? sorted : sorted.filter((l) => l.ready || FEATURED_LOGINS.includes(l.id))
+
+  return (
+    <div className="mb-8">
+      <h4 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
+        <LogIn className="size-4 text-muted" /> Sign in with a subscription
+        <span className="font-normal text-muted">
+          use Claude, ChatGPT or Gemini plans instead of API keys
+        </span>
+      </h4>
+      <Card>
+        {shown.map((l) => {
+          const active = session?.login === l.id && session.status === 'waiting' ? session : undefined
+          return (
+            <div key={l.id} className="border-b border-line px-4 py-3 last:border-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                    {l.name}
+                    {l.ready ? <Pill tone="ok">signed in</Pill> : null}
+                  </div>
+                  <div className="font-mono text-[11.5px] text-muted">{l.provider}</div>
+                </div>
+                {active ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      send('DELETE', `/api/logins/${active.id}`).then(() => setSession(undefined))
+                    }
+                  >
+                    Cancel
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => start(l.id)}
+                    disabled={waiting}
+                    icon={<LogIn className="size-3.5" />}
+                  >
+                    {l.ready ? 'Sign in again' : 'Sign in'}
+                  </Button>
+                )}
+              </div>
+              {active && (
+                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-[12.5px]">
+                  <div className="flex items-center gap-2 text-fg-2">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    {active.progress ?? 'Finish signing in in the browser tab; this updates by itself.'}
+                  </div>
+                  {active.instructions && <div className="text-muted">{active.instructions}</div>}
+                  {active.url && (
+                    <a
+                      href={active.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 font-medium text-accent hover:underline"
+                    >
+                      <ExternalLink className="size-3.5" /> Open the sign-in page
+                    </a>
+                  )}
+                  {active.prompt && (
+                    <form
+                      className="flex gap-2"
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        if (!answer.trim()) return
+                        setSession(await send<LoginState>('POST', `/api/logins/${active.id}`, { answer }))
+                        setAnswer('')
+                      }}
+                    >
+                      <TextInput
+                        aria-label={active.prompt.message}
+                        placeholder={active.prompt.placeholder ?? active.prompt.message}
+                        value={answer}
+                        onChange={(e) => setAnswer(e.target.value)}
+                        className="font-mono text-[12px]"
+                      />
+                      <Button size="sm" type="submit" disabled={!answer.trim()}>
+                        Submit
+                      </Button>
+                    </form>
+                  )}
+                  {active.prompt && <div className="text-muted">{active.prompt.message}</div>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </Card>
+      {sorted.length > shown.length && (
+        <button
+          type="button"
+          onClick={() => setMore(true)}
+          className="mt-2 text-[12.5px] font-medium text-muted hover:text-fg"
+        >
+          Show {sorted.length - shown.length} more sign-ins
+        </button>
+      )}
+    </div>
+  )
+}
+
 function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[]): void }) {
   const toast = useToast()
   const [adding, setAdding] = useState(false)
@@ -699,6 +887,8 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
           </div>
         </Card>
       )}
+
+      <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">

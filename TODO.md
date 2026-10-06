@@ -14,9 +14,9 @@ Requests queued while other work is in progress. Top of each section is next.
 
 - [x] **Send feedback in a new chat** — optimistic user bubble + PendingRound with the mascot thinking.
 - [x] **Idle faces go to sleep** — agent avatars doze (closed eyes + drifting "z") after 15s idle.
-- [ ] **Claude Code integration (from omp)** — omp can drive Claude models through the user's Claude Code
-      login; find how omp does it (provider/auth in @oh-my-pi) and expose those models in Myrmidon's model
-      picker so colonies can run on Claude.
+- [x] **Claude via subscription sign-in (from omp)** — omp's own claude.ai OAuth (provider `anthropic`), now
+      a "Sign in with a subscription" card in Settings → Keys & providers (Claude, ChatGPT, Gemini, Copilot…).
+      Your stored Claude login expired 2026-09-01 (refresh token invalid), so sign in again there.
 - [ ] **Steer vs queue for messages to a running colony** — like Claude Code: a message can *steer*
       (interrupt the current turn and be read immediately, top priority) or *queue* (wait until the agent
       finishes its current step, like omp). Composer control + `chat/user` payload flag; agent.ts steer vs inbox.
@@ -25,8 +25,7 @@ Requests queued while other work is in progress. Top of each section is next.
       replies, and the run card); the lead can reply to it directly.
 - [ ] **Attach files as context** (like omp) — attach files/images in the composer; carried into the round as
       artifacts or context the agents can read.
-- [ ] **Markdown artifacts** — render `.md` artifacts as markdown in the artifact viewer, with a Source toggle
-      to see the raw text and a copy button.
+- [x] **Markdown artifacts** — Rendered / Source tabs and "Copy markdown" in the artifact viewer.
 - [ ] **MCP support** — let colonies use MCP servers (stdio/HTTP) as tools: config in Settings (import from
       omp's mcp.json), tool discovery, per-server enable, sandbox/approval rules, docs for agents.
 
