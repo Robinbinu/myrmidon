@@ -32,6 +32,7 @@ import {
   scriptCommand,
 } from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
+import type { ProjectCheck } from './project-context.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
@@ -257,6 +258,47 @@ const DOCS: Record<string, string> = {
   chat: chatDoc,
   limits: limitsDoc,
   working: workingDoc,
+}
+
+/** The checks run by default: the project's `check` script if it has one, otherwise everything but build. */
+export function pickChecks(all: readonly ProjectCheck[], only?: string): ProjectCheck[] {
+  if (only) return all.filter((c) => c.name === only)
+  return all.some((c) => c.name === 'check')
+    ? all.filter((c) => c.name === 'check')
+    : all.filter((c) => c.name !== 'build')
+}
+
+/** Runs checks one after another in the sandbox; the report lists PASS/FAIL per check and the failing output. */
+export async function runProjectChecks(
+  host: ColonyHost,
+  cwd: string,
+  writable: readonly string[],
+  checks: readonly ProjectCheck[],
+): Promise<{ ok: boolean; report: string }> {
+  const lines: string[] = []
+  const failures: string[] = []
+  for (const check of checks) {
+    const started = Date.now()
+    const r = await host.sandbox.run({
+      command: check.command,
+      cwd,
+      writable: [...new Set(writable)],
+      timeoutMs: 300_000,
+    })
+    const ok = !r.timedOut && r.code === 0
+    const took = `${((Date.now() - started) / 1000).toFixed(1)}s`
+    lines.push(
+      `${ok ? 'PASS' : 'FAIL'} ${check.name} (\`${check.command}\`, ${r.timedOut ? 'timed out' : took})`,
+    )
+    if (!ok) {
+      const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-60).join('\n')
+      failures.push(`--- ${check.name} (${r.timedOut ? 'timed out after 300s' : `exit ${r.code}`})\n${tail}`)
+    }
+  }
+  return {
+    ok: failures.length === 0,
+    report: [...lines, ...(failures.length ? ['', ...failures] : [])].join('\n'),
+  }
 }
 
 export const TOOL_DEFS: readonly ToolDef[] = [
@@ -1166,11 +1208,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('run_checks needs the OS sandbox')
       const all = host.project.checks
-      const picked = args.only
-        ? all.filter((c) => c.name === args.only)
-        : all.some((c) => c.name === 'check')
-          ? all.filter((c) => c.name === 'check')
-          : all.filter((c) => c.name !== 'build')
+      const picked = pickChecks(all, args.only)
       if (picked.length === 0)
         throw new Error(
           args.only
@@ -1178,29 +1216,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
         )
       const cwd = host.workspace.workdir(agent)
-      const lines: string[] = []
-      const failures: string[] = []
-      for (const check of picked) {
-        const started = Date.now()
-        const r = await host.sandbox.run({
-          command: check.command,
-          cwd,
-          writable: [...new Set([cwd, host.workspace.scratch(agent)])],
-          timeoutMs: 300_000,
-        })
-        const ok = !r.timedOut && r.code === 0
-        const took = `${((Date.now() - started) / 1000).toFixed(1)}s`
-        lines.push(
-          `${ok ? 'PASS' : 'FAIL'} ${check.name} (\`${check.command}\`, ${r.timedOut ? 'timed out' : took})`,
-        )
-        if (!ok) {
-          const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-60).join('\n')
-          failures.push(
-            `--- ${check.name} (${r.timedOut ? 'timed out after 300s' : `exit ${r.code}`})\n${tail}`,
-          )
-        }
-      }
-      return clip([...lines, ...(failures.length ? ['', ...failures] : [])].join('\n'))
+      return clip((await runProjectChecks(host, cwd, [cwd, host.workspace.scratch(agent)], picked)).report)
     },
   },
   {

@@ -4,6 +4,7 @@ import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import type { AcceptanceCheck } from './spec.ts'
+import { pickChecks, runProjectChecks } from './tools.ts'
 
 const MAX_JUDGE_CHARS = 60_000
 
@@ -184,8 +185,7 @@ export class Verifier {
   }
 
   /** The latest observing tool calls with their results, so the judge checks claims against what was seen. */
-  private async _observations(): Promise<string> {
-    const events = await this.host.log.read(this.host.id)
+  private async _observations(events: readonly MyrEvent[]): Promise<string> {
     const calls = new Map<string, EventPayloads['tool/call']>()
     const seen: string[] = []
     for (const e of events) {
@@ -224,8 +224,30 @@ export class Verifier {
         .map((m) => `[${m.from}${m.final ? ', final' : ''}] ${m.text}`)
         .join('\n\n')}\n`
     }
+    const events = await this.host.log.read(this.host.id)
+    // In a project the work is the folder itself: show the round's diff, and run the project's own checks when
+    // an agent touched files, so code is judged on whether it builds and passes, not only on how it reads.
+    const diff = await this.host.projectDiff().catch(() => undefined)
+    if (diff?.trim())
+      corpus += `\n===== changes to the project in this round (unified diff) =====\n${diff.slice(0, MAX_DIFF_CHARS)}\n`
+    let checks = ''
+    const project = this.host.project
+    const edited = events.some(
+      (e) => e.type === 'tool/call' && EDITING.has((e.payload as EventPayloads['tool/call']).tool),
+    )
+    const path = this.host.workspace.workdir('verifier')
+    const picked = project ? pickChecks(project.checks) : []
+    if (
+      project &&
+      edited &&
+      picked.length > 0 &&
+      (this.host.sandbox.kind !== 'none' || this.host.unsafeNoSandbox)
+    )
+      checks = (
+        await runProjectChecks(this.host, path, [path, this.host.workspace.scratch('verifier')], picked)
+      ).report
     if (!corpus) return { pass: false, score: 0, evidence: 'no artifacts or replies to judge' }
-    const observed = await this._observations()
+    const observed = await this._observations(events)
     const resolved = this.resolver.resolve(modelRef)
     const context: LlmContext = {
       systemPrompt: [
@@ -234,12 +256,22 @@ export class Verifier {
           'current events may be out of date. OBSERVED lists what the agents actually saw with their tools during ' +
           'this round: trust it over your memory. Fail claims that are unsupported or contradict the observations, ' +
           'not claims that merely differ from what you remember.',
-        'Reply with ONLY a JSON object: {"score": number between 0 and 1, "reasons": "short justification"}.',
+        ...(checks
+          ? [
+              "PROJECT CHECKS are the project's own typecheck/lint/test, run by you just now. If a check fails because " +
+                "of this round's changes, the work is not done: score below the threshold and name the failure. A " +
+                'failure plainly unrelated to the request (already broken before) is a minor finding, not a fail.',
+            ]
+          : []),
+        'Reply with ONLY a JSON object: {"score": number between 0 and 1, "reasons": "short justification", ' +
+          '"findings": [{"severity": "blocker" | "major" | "minor", "where": "file:line, artifact or reply", ' +
+          '"what": "what is wrong and what fixing it means"}]}. Findings are concrete problems to fix, most serious ' +
+          'first; an empty list means none.',
       ],
       messages: [
         {
           role: 'user',
-          content: `MISSION:\n${state.mission}\n\nRUBRIC:\n${rubric}\n\nARTIFACTS:${corpus.slice(0, MAX_JUDGE_CHARS)}${observed ? `\n\nOBSERVED (latest tool results, clipped):${observed}` : ''}`,
+          content: `MISSION:\n${state.mission}\n\nRUBRIC:\n${rubric}\n\nARTIFACTS:${corpus.slice(0, MAX_JUDGE_CHARS)}${checks ? `\n\nPROJECT CHECKS:\n${checks}` : ''}${observed ? `\n\nOBSERVED (latest tool results, clipped):${observed}` : ''}`,
           timestamp: Date.now(),
         },
       ],
@@ -253,16 +285,57 @@ export class Verifier {
     const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
     const json = /\{[\s\S]*\}/.exec(text)?.[0]
     if (!json) throw new Error(`judge did not return JSON: ${text.slice(0, 200)}`)
-    const parsed = JSON.parse(json) as { score?: unknown; reasons?: unknown }
+    const parsed = JSON.parse(json) as { score?: unknown; reasons?: unknown; findings?: unknown }
     const value = Number(parsed.score)
     if (!Number.isFinite(value) || value < 0 || value > 1)
       throw new Error(`judge returned invalid score: ${parsed.score}`)
+    const findings = gradedFindings(parsed.findings)
     return {
       pass: value >= threshold,
       score: value,
-      evidence: `score ${value.toFixed(2)} (threshold ${threshold}): ${String(parsed.reasons ?? '')}`,
+      evidence: [
+        `score ${value.toFixed(2)} (threshold ${threshold}): ${String(parsed.reasons ?? '')}`,
+        ...findings.map((f) => `- [${f.severity}] ${f.where ? `${f.where}: ` : ''}${f.what}`),
+        ...(checks
+          ? [
+              '',
+              'Project checks run by the reviewer:',
+              checks
+                .split('\n')
+                .filter((l) => /^(PASS|FAIL) /.test(l))
+                .join('\n'),
+            ]
+          : []),
+      ].join('\n'),
     }
   }
+}
+
+/** Tools that change files; a project round that used any of them gets its checks run by the judge. */
+const EDITING = new Set(['fs_write', 'fs_edit', 'shell'])
+const MAX_DIFF_CHARS = 40_000
+const SEVERITIES = ['blocker', 'major', 'minor'] as const
+
+/** The judge's findings, kept only when well formed and ordered most serious first. */
+export function gradedFindings(
+  raw: unknown,
+): { severity: (typeof SEVERITIES)[number]; where?: string; what: string }[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .flatMap((f) => {
+      const x = f as { severity?: unknown; where?: unknown; what?: unknown }
+      const severity = SEVERITIES.find((s) => s === x.severity) ?? 'major'
+      if (typeof x.what !== 'string' || !x.what.trim()) return []
+      return [
+        {
+          severity,
+          ...(typeof x.where === 'string' && x.where.trim() ? { where: x.where.trim() } : {}),
+          what: x.what.trim(),
+        },
+      ]
+    })
+    .sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity))
+    .slice(0, 12)
 }
 
 /** Tools whose results show the world as the agents found it (pages, searches, files, command output). */

@@ -339,13 +339,14 @@ export class ChatService {
     const project = previous.at(-1)?.state.chat?.project ?? this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
-    const run = new ColonyRun(this.runtime, spec, {
+    const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      projectDiff: () => this._roundDiff(run, project),
     })
     const prior = previous.at(-1)
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
@@ -428,6 +429,13 @@ export class ChatService {
         `checkpoint (${phase}) of ${project.path} failed: ${err instanceof Error ? err.message : err}`,
       )
     }
+  }
+
+  /** The round's changes to its project since its start checkpoint, for the judge. */
+  private async _roundDiff(run: ColonyRun, project: { id: string; path: string } | undefined) {
+    const start = run.state().checkpoints.start
+    if (!project || !start || !this.options.checkpoints) return undefined
+    return (await this.options.checkpoints.changes(project, start)).patch
   }
 
   private async _projectRound(colonyId: string) {
@@ -516,7 +524,8 @@ export class ChatService {
         models[agent.name] = model
       }
     }
-    const run = new ColonyRun(this.runtime, spec, {
+    const run: ColonyRun = new ColonyRun(this.runtime, spec, {
+      projectDiff: () => this._roundDiff(run, last.state.chat?.project),
       resolver: this.options.resolver,
       resumeId: last.id as ColonyId,
       ...(this.options.web ? { web: this.options.web } : {}),

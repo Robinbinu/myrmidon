@@ -998,6 +998,77 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
+test.skipIf(detectSandbox().kind === 'none')(
+  'in a project the judge reads the diff, runs the checks, and returns graded findings',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const { Checkpoints } = await import('../src/checkpoints.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-judge-'))
+    await Bun.write(
+      join(folder, 'package.json'),
+      JSON.stringify({ scripts: { test: 'grep -q good src/state.txt' } }),
+    )
+    await Bun.write(join(folder, 'bun.lock'), '')
+    await Bun.write(join(folder, 'src', 'state.txt'), 'good\n')
+    const projects = new ProjectStore(home)
+    const project = projects.add(folder)
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/coder', [
+      [tool('fs_write', { path: 'src/state.txt', content: 'broken\n' })],
+      [tool('reply_user', { text: 'Changed the state file.', final: true })],
+      ['waiting'],
+    ])
+    let seen = ''
+    const reviewer = createMockModel({
+      handler: (ctx: LlmContext) => {
+        seen = JSON.stringify(ctx)
+        return {
+          content: [
+            JSON.stringify({
+              score: 0.2,
+              reasons: 'The test fails.',
+              findings: [
+                { severity: 'minor', what: 'Reply could say which file changed.' },
+                {
+                  severity: 'blocker',
+                  where: 'src/state.txt:1',
+                  what: 'test fails: the file no longer says good',
+                },
+              ],
+            }),
+          ],
+        }
+      },
+    })
+    resolver.register('mock/judge', { model: reviewer.model, streamFn: reviewer.stream })
+    const chats = new ChatService(runtime, {
+      resolver,
+      classify: fixed('solo'),
+      projects,
+      checkpoints: new Checkpoints(join(home, 'checkpoints')),
+    })
+    const { colonyId } = await chats.send(
+      'Update the state file',
+      { ...solo('mock/coder'), judgeModel: 'mock/judge' },
+      undefined,
+      { project: project.id },
+    )
+    const s = await waitFor(colonyId, (x) => x.verdicts.some((v) => v.target === 'colony'))
+    await chats.stopAll()
+    expect(seen).toContain('+broken')
+    expect(seen).toContain('PROJECT CHECKS')
+    expect(seen).toContain('FAIL test (`bun run test`')
+    const verdict = s.verdicts.find((v) => v.target === 'colony')
+    expect(verdict?.pass).toBe(false)
+    // Most serious first, with where it is, then the checks the judge ran.
+    expect(verdict?.evidence).toContain(
+      '- [blocker] src/state.txt:1: test fails: the file no longer says good\n- [minor] Reply could say which file changed.',
+    )
+    expect(verdict?.evidence).toContain('Project checks run by the reviewer:\nFAIL test')
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

@@ -54,6 +54,8 @@ export interface ColonyHost {
   readonly browser?: BrowserHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
+  /** What this round changed in its project folder, as a unified diff; undefined outside projects. */
+  projectDiff(): Promise<string | undefined>
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

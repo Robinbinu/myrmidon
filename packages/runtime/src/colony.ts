@@ -75,6 +75,8 @@ export interface RunOptions {
   readonly mcp?: McpHub
   /** The person's kept tools, loaded into every fresh round. */
   readonly library?: ToolLibrary
+  /** The round's changes to its project folder so far, as a unified diff (from the start checkpoint). */
+  readonly projectDiff?: () => Promise<string | undefined>
   /** Shared headless Chrome for the browser_* tools. */
   readonly browser?: BrowserHub
 }
@@ -211,6 +213,10 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, model, previous },
       })
     }
+  }
+
+  projectDiff(): Promise<string | undefined> {
+    return this.options.projectDiff?.() ?? Promise.resolve(undefined)
   }
 
   toolsChanged() {
