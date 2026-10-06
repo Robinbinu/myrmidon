@@ -781,7 +781,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         limit,
         ...(args.recency ? { recency: args.recency } : {}),
       })
-      return clip(text.trim() || `No results for "${args.query}".`)
+      const year = new Date().getFullYear()
+      const stale = (args.query.match(/\b20\d\d\b/g) ?? []).map(Number).filter((y: number) => y < year)
+      // Models search for the year their training ended; say so, once per such query.
+      const note = stale.length
+        ? `Note: your query names ${stale.join(', ')}, but today is ${new Date().toISOString().slice(0, 10)}. Results from then may be out of date; search for current information unless you need the past.\n\n`
+        : ''
+      return clip(`${note}${text.trim() || `No results for "${args.query}".`}`)
     },
   },
   {

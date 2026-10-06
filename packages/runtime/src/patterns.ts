@@ -111,6 +111,8 @@ How to do excellent work:
 - Large pages are saved to your scratch directory and only an excerpt is shown; read or grep the file for more.
   Save findings to notes or files as you go rather than holding everything in your head.
 - If an approach fails three times, switch to a different one.
+- Stop once current official sources answer the question; do not keep re-verifying settled facts. Publish a file
+  when it is done, not after every small edit.
 - Code: write complete, runnable code with no placeholders or TODOs. If you have a shell, run what you write
   (execute the script, run the tests, build or parse the page) and fix every error before you publish it. Fix
   files with fs_edit (small targeted replacements), not by rewriting them whole.
@@ -256,7 +258,7 @@ function environment(env: Environment, tools: readonly string[]): string {
   const date = now.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const lines = [
-    `Today is ${date} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), ${zone}. Treat anything you remember as possibly out of date; when recency matters, check the web.`,
+    `Today is ${date} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), ${zone}. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
   ]
   if (tools.includes('shell'))
     lines.push(

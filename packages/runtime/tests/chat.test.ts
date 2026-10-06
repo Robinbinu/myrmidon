@@ -806,6 +806,30 @@ test('long pages are saved to scratch with an excerpt, and an unfinished todo li
   expect(seen.some((m) => m.includes('You stopped with 2 open items on your todo list'))).toBe(true)
 })
 
+test('searching for a past year gets a note that the results may be stale', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('web_search', { query: 'API pricing 2024' }), tool('web_search', { query: 'API pricing' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const web = {
+    search: async () => 'some results',
+    read: async () => ({ url: '', method: '', contentType: '', output: '' }),
+  }
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), web })
+  const { colonyId } = await chats.send('Find pricing', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  const outputs = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .filter((r) => r.tool === 'web_search')
+    .map((r) => r.output)
+  // Searches run in parallel, so their results can land in either order.
+  expect(outputs.filter((o) => o.startsWith('Note: your query names 2024'))).toHaveLength(1)
+  expect(outputs.filter((o) => o === 'some results')).toHaveLength(1)
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [
