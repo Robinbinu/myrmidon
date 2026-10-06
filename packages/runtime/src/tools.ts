@@ -104,6 +104,9 @@ const FILLER = new Set(
   ),
 )
 
+const FINAL_HINT =
+  'task-final is finished by sending the complete answer with reply_user(final: true); it is never claimed, submitted, or released'
+
 /** All a swarm peer may do during the opening huddle: look around and talk. */
 const HUDDLE_TOOLS = new Set([
   'read_task',
@@ -394,6 +397,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: 'Claim a pending or rejected task. Pass the revision you read; stale claims are refused.',
     parameters: type({ id: type('string'), revision: type('number') }),
     async run(args, agent, host) {
+      if (args.id === 'task-final') throw new Error(FINAL_HINT)
       const e = first(
         await host.appendAtomic((s) => {
           const task = requireTask(s, args.id)
@@ -435,6 +439,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: 'Give up a task you own so someone else can claim it.',
     parameters: type({ id: type('string'), revision: type('number') }),
     async run(args, agent, host) {
+      if (args.id === 'task-final') throw new Error(FINAL_HINT)
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
         if (task.owner !== agent || task.status !== 'in_progress')
@@ -453,6 +458,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: 'Submit a task you own for verification, listing the artifacts that complete it.',
     parameters: type({ id: type('string'), revision: type('number'), artifacts: type('string').array() }),
     async run(args, agent, host) {
+      if (args.id === 'task-final') throw new Error(FINAL_HINT)
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
         if (task.owner !== agent || task.status !== 'in_progress')
