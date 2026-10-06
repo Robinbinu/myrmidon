@@ -1,6 +1,6 @@
 import { type Context, Service } from '@deepseek-ai/cordis'
 import type { ColonyId, EventDraft, EventId, MyrEvent } from '@myrmidon/protocol'
-import { completionGuard, CORE_EVENT_TYPES, type Guard } from './guards.ts'
+import { CORE_EVENT_TYPES, completionGuard, type Guard } from './guards.ts'
 import { newEventId, newSpanId, newTraceId } from './ids.ts'
 import { Redactor } from './redact.ts'
 import { type EventTypeDefinition, EventTypeRegistry } from './registry.ts'
@@ -56,7 +56,11 @@ export class EventLog extends Service {
     return this.redactor.addSecret(value)
   }
 
-  append(colonyId: ColonyId, drafts: readonly EventDraft[], options: AppendOptions = {}): Promise<MyrEvent[]> {
+  append(
+    colonyId: ColonyId,
+    drafts: readonly EventDraft[],
+    options: AppendOptions = {},
+  ): Promise<MyrEvent[]> {
     return this._serialize(colonyId, async () => {
       const prepared: PreparedEvent[] = []
       for (const draft of drafts) {

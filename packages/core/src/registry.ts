@@ -17,7 +17,8 @@ export class EventTypeRegistry {
   private readonly _types = new Map<string, EventTypeDefinition>()
 
   register(def: EventTypeDefinition): () => void {
-    if (this._types.has(def.type)) throw new MyrError('DUPLICATE_EVENT_TYPE', `event type already registered: ${def.type}`)
+    if (this._types.has(def.type))
+      throw new MyrError('DUPLICATE_EVENT_TYPE', `event type already registered: ${def.type}`)
     if (!Number.isInteger(def.version) || def.version < 1) throw new RangeError(`bad version for ${def.type}`)
     this._types.set(def.type, def)
     return () => {
@@ -33,7 +34,11 @@ export class EventTypeRegistry {
     return [...this._types.keys()].sort()
   }
 
-  async validate(type: string, actor: ActorRef, payload: unknown): Promise<{ version: number; payload: unknown }> {
+  async validate(
+    type: string,
+    actor: ActorRef,
+    payload: unknown,
+  ): Promise<{ version: number; payload: unknown }> {
     const def = this._types.get(type)
     if (!def) throw new MyrError('UNKNOWN_EVENT_TYPE', `unknown event type: ${type}`)
     if (def.actors && !def.actors.includes(actor.kind)) {

@@ -1,6 +1,6 @@
+import type { AgentStatus, EventId } from '@myrmidon/protocol'
 import { Agent, type AgentEvent, type AgentState } from '@oh-my-pi/pi-agent-core'
 import type { AssistantMessage } from '@oh-my-pi/pi-ai'
-import type { AgentStatus, EventId } from '@myrmidon/protocol'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import { kickoff, systemPrompt, toolsFor } from './patterns.ts'
@@ -43,7 +43,9 @@ export class ColonyAgent {
         systemPrompt: systemPrompt(host.spec, spec, host.spec.agents),
         model: resolved.model,
         tools,
-        ...(resolved.model.reasoning ? { thinkingLevel: 'low' as NonNullable<AgentState['thinkingLevel']> } : {}),
+        ...(resolved.model.reasoning
+          ? { thinkingLevel: 'low' as NonNullable<AgentState['thinkingLevel']> }
+          : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
       ...(resolved.streamFn ? { streamFn: resolved.streamFn } : {}),
@@ -105,7 +107,11 @@ export class ColonyAgent {
     this.turn += 1
     const trigger = [...new Set(items.map((i) => i.trigger))].join(',')
     this.working = true
-    await this.host.append({ type: 'agent/turn', actor: SYS, payload: { agent: this.name, phase: 'start', turn: this.turn, trigger } })
+    await this.host.append({
+      type: 'agent/turn',
+      actor: SYS,
+      payload: { agent: this.name, phase: 'start', turn: this.turn, trigger },
+    })
     await this._status('working')
     await this._markDelivered(items)
     const timer = setTimeout(() => this._agent.abort('turn timeout'), TURN_TIMEOUT_MS)
@@ -124,12 +130,21 @@ export class ColonyAgent {
       await Bun.sleep(1000 * 2 ** this._failures)
       this.inbox.push({ text: 'Your previous turn failed. Check observe and continue.', trigger: 'retry' })
     }
-    await this.host.append({ type: 'agent/turn', actor: SYS, payload: { agent: this.name, phase: 'end', turn: this.turn, trigger } })
+    await this.host.append({
+      type: 'agent/turn',
+      actor: SYS,
+      payload: { agent: this.name, phase: 'end', turn: this.turn, trigger },
+    })
   }
 
   private async _markDelivered(items: readonly InboxItem[]) {
     for (const item of items) {
-      if (item.mail) await this.host.append({ type: 'mail/delivered', actor: SYS, payload: { mail: item.mail, to: this.name } })
+      if (item.mail)
+        await this.host.append({
+          type: 'mail/delivered',
+          actor: SYS,
+          payload: { mail: item.mail, to: this.name },
+        })
     }
   }
 
@@ -144,6 +159,8 @@ export class ColonyAgent {
   private _onEvent(e: AgentEvent) {
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
     const m = e.message as AssistantMessage
+    // The abort that ends a stopped colony is not a model failure.
+    if (this._stopped && m.stopReason !== 'stop' && m.stopReason !== 'toolUse') return
     const text = m.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
     const thinking = m.content.flatMap((c) => (c.type === 'thinking' ? [c.thinking] : [])).join('\n')
     const toolCalls = m.content.flatMap((c) =>

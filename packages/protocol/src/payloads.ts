@@ -42,7 +42,8 @@ export interface EventPayloads {
     budget: { wallMs: number; costUsd?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
   }
-  'colony/started': Record<string, never>
+  /** `pid`/`hostname` identify the runner process so orphaned colonies can be detected. */
+  'colony/started': { pid?: number; hostname?: string }
   'colony/stopped': { reason: string }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
@@ -74,7 +75,12 @@ export interface EventPayloads {
     author: string
     mediaType: string
   }
-  'observer/signal': { kind: SignalKind; severity: 'info' | 'warn' | 'critical'; facts: string; targets: string[] }
+  'observer/signal': {
+    kind: SignalKind
+    severity: 'info' | 'warn' | 'critical'
+    facts: string
+    targets: string[]
+  }
   'verifier/requested': { target: string; by: string }
   'verifier/verdict': {
     target: string

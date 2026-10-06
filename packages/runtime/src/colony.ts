@@ -1,6 +1,14 @@
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { BlobStore, EventLog, MyrError, newColonyId, SqliteLogStore, sqliteLogStore } from '@myrmidon/core'
+import {
+  BlobStore,
+  EventLog,
+  MyrError,
+  newColonyId,
+  type SqliteLogStore,
+  sqliteLogStore,
+} from '@myrmidon/core'
 import {
   applyEvent,
   type ColonyId,
@@ -133,13 +141,16 @@ export class ColonyRun implements ColonyHost {
     const refs = new Set(this.spec.agents.map((a) => a.model))
     for (const c of this.spec.acceptance) if (c.verifier === 'llm-judge') refs.add(c.model)
     if (this.spec.taskJudge) refs.add(this.spec.taskJudge)
-    for (const ref of refs) await this.resolver.requireApiKey(this.resolver.resolve(ref).model)
+    await Promise.all([...refs].map((ref) => this.resolver.probe(ref)))
     const needsExec =
       this.spec.acceptance.some((c) => c.verifier === 'command') ||
       this.spec.agents.some((a) => toolsFor(this.spec, a).includes('shell'))
     if (needsExec && this.sandbox.kind === 'none' && !this.unsafeNoSandbox) {
       const commandChecks = this.spec.acceptance.some((c) => c.verifier === 'command')
-      if (commandChecks) throw new Error('command acceptance checks need an OS sandbox; none found (use --unsafe-no-sandbox to override)')
+      if (commandChecks)
+        throw new Error(
+          'command acceptance checks need an OS sandbox; none found (use --unsafe-no-sandbox to override)',
+        )
     }
   }
 
@@ -160,7 +171,12 @@ export class ColonyRun implements ColonyHost {
         name: this.spec.name,
         mission: this.spec.mission,
         pattern: this.spec.pattern,
-        agents: this.spec.agents.map((a) => ({ name: a.name, role: a.role, model: a.model, tools: toolsFor(this.spec, a) })),
+        agents: this.spec.agents.map((a) => ({
+          name: a.name,
+          role: a.role,
+          model: a.model,
+          tools: toolsFor(this.spec, a),
+        })),
         acceptance: this.spec.acceptance,
         budget: {
           wallMs: this.spec.budget.wallMs,
@@ -172,11 +188,19 @@ export class ColonyRun implements ColonyHost {
     })
     for (const a of this.spec.agents) this._agents.set(a.name, new ColonyAgent(a, this, this.resolver))
     this._deadline = Date.now() + this.spec.budget.wallMs
-    await this.append({ type: 'colony/started', actor: SYSTEM, payload: {} })
+    await this.append({
+      type: 'colony/started',
+      actor: SYSTEM,
+      payload: { pid: process.pid, hostname: hostname() },
+    })
     for (const a of this._agents.values()) {
       a.run().catch((err) => {
         console.error(`[${a.name}] crashed:`, err)
-        void this.append({ type: 'agent/status', actor: SYSTEM, payload: { agent: a.name, status: 'failed', detail: String(err) } })
+        void this.append({
+          type: 'agent/status',
+          actor: SYSTEM,
+          payload: { agent: a.name, status: 'failed', detail: String(err) },
+        })
       })
     }
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
@@ -197,7 +221,11 @@ export class ColonyRun implements ColonyHost {
         await this.append({
           type: 'board/posted',
           actor: { kind: 'user', id: 'verifier' },
-          payload: { agent: 'verifier', text: `Task review for ${taskId} failed to run: ${String(err)}`, mentions: [by] },
+          payload: {
+            agent: 'verifier',
+            text: `Task review for ${taskId} failed to run: ${String(err)}`,
+            mentions: [by],
+          },
         }).catch(() => {})
       })
       .finally(() => {
@@ -210,7 +238,11 @@ export class ColonyRun implements ColonyHost {
     this._finalRunning = true
     this._verifying += 1
     try {
-      await this.append({ type: 'verifier/requested', actor: { kind: 'agent', id: by }, payload: { target: 'colony', by } })
+      await this.append({
+        type: 'verifier/requested',
+        actor: { kind: 'agent', id: by },
+        payload: { target: 'colony', by },
+      })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
         await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: result.verdicts } })
@@ -218,7 +250,11 @@ export class ColonyRun implements ColonyHost {
         return `ALL CHECKS PASSED — the colony is complete.\n${result.report}`
       }
       for (const agent of this._agents.values()) {
-        if (agent.name !== by) agent.notify({ trigger: 'verdict', text: `Final verification requested by ${by} FAILED:\n${result.report}` })
+        if (agent.name !== by)
+          agent.notify({
+            trigger: 'verdict',
+            text: `Final verification requested by ${by} FAILED:\n${result.report}`,
+          })
       }
       return `VERIFICATION FAILED. Fix these and request again:\n${result.report}\n\n(${by}'s summary: ${summary.slice(0, 500)})`
     } finally {
@@ -233,12 +269,15 @@ export class ColonyRun implements ColonyHost {
     switch (e.type) {
       case 'mail/sent': {
         const p = e.payload as EventPayloads['mail/sent']
-        notify(p.to, `mail from ${p.from}${p.subject ? ` [${p.subject}]` : ''}: ${p.body}`, 'mail', { mail: e.id })
+        notify(p.to, `mail from ${p.from}${p.subject ? ` [${p.subject}]` : ''}: ${p.body}`, 'mail', {
+          mail: e.id,
+        })
         break
       }
       case 'board/posted': {
         const p = e.payload as EventPayloads['board/posted']
-        for (const m of p.mentions) if (m !== p.agent) notify(m, `${p.agent} mentioned you on the board: ${p.text}`, 'mention')
+        for (const m of p.mentions)
+          if (m !== p.agent) notify(m, `${p.agent} mentioned you on the board: ${p.text}`, 'mention')
         break
       }
       case 'observer/signal': {
@@ -253,6 +292,17 @@ export class ColonyRun implements ColonyHost {
         const task = this._state.tasks[p.target.slice(5)]
         if (task?.owner) {
           notify(task.owner, `${task.id} ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}`, 'verdict')
+        }
+        // Leads coordinate integration, so they hear about every task outcome, not only their own.
+        for (const lead of this.spec.agents.filter((a) => a.role === 'lead' && a.name !== task?.owner)) {
+          const open = Object.values(this._state.tasks).filter(
+            (t) => t.status !== 'verified' && t.status !== 'deleted',
+          )
+          notify(
+            lead.name,
+            `${task?.id ?? p.target} by ${task?.owner ?? '?'} was ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — consider request_final_verification'}`,
+            'verdict',
+          )
         }
         break
       }
@@ -272,7 +322,8 @@ export class ColonyRun implements ColonyHost {
         break
       }
     }
-    if (e.type === 'artifact/versioned' || e.type === 'note/appended' || e.type === 'board/posted') this._scheduleMirror()
+    if (e.type === 'artifact/versioned' || e.type === 'note/appended' || e.type === 'board/posted')
+      this._scheduleMirror()
   }
 
   private async _observe() {
@@ -288,7 +339,8 @@ export class ColonyRun implements ColonyHost {
   private async _watch() {
     if (this._state.status !== 'running') return
     if (!this.runtime.ctx.get('log')) return void this._end()
-    if (Date.now() >= this._deadline) return void this.stop(`budget: wall time ${Math.round(this.spec.budget.wallMs / 1000)}s exhausted`)
+    if (Date.now() >= this._deadline)
+      return void this.stop(`budget: wall time ${Math.round(this.spec.budget.wallMs / 1000)}s exhausted`)
     const agents = [...this._agents.values()]
     const live = agents.filter((a) => {
       const status = this._state.agents[a.name]?.status
@@ -303,7 +355,8 @@ export class ColonyRun implements ColonyHost {
     this._quietSince ??= Date.now()
     if (Date.now() - this._quietSince < (this.options.quietMs ?? 8000)) return
     this._quietSince = undefined
-    if (this._nudges >= QUIET_NUDGES) return void this.stop('stalled: every agent is idle and verification has not passed')
+    if (this._nudges >= QUIET_NUDGES)
+      return void this.stop('stalled: every agent is idle and verification has not passed')
     this._nudges += 1
     await this.append({
       type: 'observer/signal',
@@ -321,7 +374,9 @@ export class ColonyRun implements ColonyHost {
     if (this._mirrorTimer) return
     this._mirrorTimer = setTimeout(() => {
       this._mirrorTimer = undefined
-      this.workspace.writeMirror(this._state, this.blobs).catch((err) => console.error('mirror write failed:', err))
+      this.workspace
+        .writeMirror(this._state, this.blobs)
+        .catch((err) => console.error('mirror write failed:', err))
     }, 300)
   }
 

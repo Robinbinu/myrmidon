@@ -1,6 +1,16 @@
 import type { AgentSpec, ColonySpec } from './spec.ts'
 
-const READ = ['read_task', 'read_board', 'read_notes', 'read_mail', 'list_agents', 'list_tasks', 'list_artifacts', 'read_artifact', 'observe']
+const READ = [
+  'read_task',
+  'read_board',
+  'read_notes',
+  'read_mail',
+  'list_agents',
+  'list_tasks',
+  'list_artifacts',
+  'read_artifact',
+  'observe',
+]
 const TALK = ['post', 'append_note', 'send_mail']
 const TASKS = ['create_task', 'claim_task', 'release_task', 'submit_task']
 const WORK = ['publish_artifact', 'fs_write', 'fs_read', 'fs_list', 'shell']
@@ -9,7 +19,8 @@ function roleTools(pattern: ColonySpec['pattern'], role: string): string[] {
   if (pattern === 'lead-workers' && role === 'lead') {
     return [...READ, ...TALK, ...TASKS, ...WORK, 'request_final_verification']
   }
-  if (pattern === 'lead-workers') return [...READ, ...TALK, 'claim_task', 'release_task', 'submit_task', ...WORK]
+  if (pattern === 'lead-workers')
+    return [...READ, ...TALK, 'claim_task', 'release_task', 'submit_task', ...WORK]
   return [...READ, ...TALK, ...TASKS, ...WORK, 'request_final_verification']
 }
 

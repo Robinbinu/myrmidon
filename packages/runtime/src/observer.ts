@@ -38,7 +38,11 @@ export class FactualObserver {
     if (s.budget.costUsd !== undefined) {
       const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
       if (spent >= 0.8 * s.budget.costUsd && this._once('budget-0.8')) {
-        out.push({ kind: 'budget', severity: 'warn', facts: `$${spent.toFixed(3)} of $${s.budget.costUsd} spent.` })
+        out.push({
+          kind: 'budget',
+          severity: 'warn',
+          facts: `$${spent.toFixed(3)} of $${s.budget.costUsd} spent.`,
+        })
       }
     }
     const progress = Math.max(
@@ -53,17 +57,30 @@ export class FactualObserver {
       this._lastProgressSeq = progress
     }
     const unclaimed = Object.values(s.tasks).filter(
-      (t) => (t.status === 'pending' || t.status === 'rejected') && t.blockedBy.every((b) => s.tasks[b]?.status === 'verified'),
+      (t) =>
+        (t.status === 'pending' || t.status === 'rejected') &&
+        t.blockedBy.every((b) => s.tasks[b]?.status === 'verified'),
     )
     const idle = Object.values(s.agents).filter((a) => a.status === 'idle')
     if (unclaimed.length > 0 && idle.length > 0) {
       out.push(
-        this._signal('unclaimed', 'info', `Ready but unclaimed: ${unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')}.`, idle.map((a) => a.info.name)),
+        this._signal(
+          'unclaimed',
+          'info',
+          `Ready but unclaimed: ${unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')}.`,
+          idle.map((a) => a.info.name),
+        ),
       )
     }
     if (this._quietTicks >= 2) {
       this._quietTicks = 0
-      out.push(this._signal('stall', 'warn', `No new board posts, artifact versions, or verdicts for two observer intervals. ${this._taskFacts()}`))
+      out.push(
+        this._signal(
+          'stall',
+          'warn',
+          `No new board posts, artifact versions, or verdicts for two observer intervals. ${this._taskFacts()}`,
+        ),
+      )
     }
     return out
   }

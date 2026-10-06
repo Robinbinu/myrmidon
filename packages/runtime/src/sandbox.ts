@@ -25,7 +25,9 @@ export interface Sandbox {
 const MAX_OUTPUT = 64 * 1024
 
 function cap(text: string) {
-  return text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}\n…[truncated ${text.length - MAX_OUTPUT} chars]` : text
+  return text.length > MAX_OUTPUT
+    ? `${text.slice(0, MAX_OUTPUT)}\n…[truncated ${text.length - MAX_OUTPUT} chars]`
+    : text
 }
 
 // SBPL string literals have no escaping we rely on, so paths with quotes or backslashes are refused.
@@ -69,7 +71,8 @@ export function detectSandbox(): Sandbox {
   if (process.platform === 'darwin' && Bun.which('sandbox-exec')) {
     return {
       kind: 'sandbox-exec',
-      run: (spec) => spawnConfined(['sandbox-exec', '-p', macProfile(spec.writable), '/bin/sh', '-c', spec.command], spec),
+      run: (spec) =>
+        spawnConfined(['sandbox-exec', '-p', macProfile(spec.writable), '/bin/sh', '-c', spec.command], spec),
     }
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
@@ -80,14 +83,21 @@ export function detectSandbox(): Sandbox {
         spawnConfined(
           [
             bwrap,
-            '--ro-bind', '/', '/',
-            '--dev', '/dev',
-            '--proc', '/proc',
+            '--ro-bind',
+            '/',
+            '/',
+            '--dev',
+            '/dev',
+            '--proc',
+            '/proc',
             ...spec.writable.flatMap((d) => ['--bind', d, d]),
             '--unshare-pid',
             '--die-with-parent',
-            '--chdir', spec.cwd,
-            '/bin/sh', '-c', spec.command,
+            '--chdir',
+            spec.cwd,
+            '/bin/sh',
+            '-c',
+            spec.command,
           ],
           spec,
         ),

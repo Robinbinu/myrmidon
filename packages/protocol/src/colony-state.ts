@@ -1,5 +1,12 @@
 import type { EventId, MyrEvent } from './event.ts'
-import type { AgentInfo, AgentStatus, ColonyStatus, EventPayloads, SignalKind, TaskSnapshot } from './payloads.ts'
+import type {
+  AgentInfo,
+  AgentStatus,
+  ColonyStatus,
+  EventPayloads,
+  SignalKind,
+  TaskSnapshot,
+} from './payloads.ts'
 
 export interface AgentView {
   readonly info: AgentInfo
@@ -200,7 +207,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'board/posted': {
       const p = event.payload as EventPayloads['board/posted']
       state.board.push({ ...base, agent: p.agent, text: p.text, mentions: p.mentions })
-      const targets = p.mentions.length > 0 ? p.mentions : Object.keys(state.agents).filter((a) => a !== p.agent)
+      const targets =
+        p.mentions.length > 0 ? p.mentions : Object.keys(state.agents).filter((a) => a !== p.agent)
       for (const to of targets) link(state, p.agent, to)
       touch(state, p.agent, event.seq)
       break
@@ -267,7 +275,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
   return state
 }
 
-export function foldColony(id: string, events: Iterable<MyrEvent>, uptoSeq = Number.POSITIVE_INFINITY): ColonyState {
+export function foldColony(
+  id: string,
+  events: Iterable<MyrEvent>,
+  uptoSeq = Number.POSITIVE_INFINITY,
+): ColonyState {
   const state = emptyColonyState(id)
   for (const event of events) {
     if (event.seq > uptoSeq) break

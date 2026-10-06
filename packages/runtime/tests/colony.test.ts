@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { ColonyRun, ModelResolver, parseColonySpec, type Runtime, bootRuntime, detectSandbox } from '../src/index.ts'
+import {
+  bootRuntime,
+  ColonyRun,
+  detectSandbox,
+  ModelResolver,
+  parseColonySpec,
+  type Runtime,
+} from '../src/index.ts'
 
 let home: string
 let runtime: Runtime
@@ -30,7 +37,11 @@ function scripted(resolver: ModelResolver, ref: string, script: MockContent[][])
   resolver.register(ref, { model: mock.model, streamFn: mock.stream })
 }
 
-const tool = (name: string, args: Record<string, unknown>): MockContent => ({ type: 'toolCall', name, arguments: args })
+const tool = (name: string, args: Record<string, unknown>): MockContent => ({
+  type: 'toolCall',
+  name,
+  arguments: args,
+})
 
 test('a colony coordinates, publishes, and completes only through verification', async () => {
   const resolver = new ModelResolver()
@@ -42,8 +53,11 @@ test('a colony coordinates, publishes, and completes only through verification',
   ])
   scripted(resolver, 'mock/helper', [[tool('read_artifact', { name: 'hello.txt' })], ['looks right']])
 
-  const acceptance: unknown[] = [{ verifier: 'checks', rules: [{ artifact: 'hello.txt', contains: 'hello' }] }]
-  if (detectSandbox().kind !== 'none') acceptance.push({ verifier: 'command', run: 'grep -q colony hello.txt', against: ['hello.txt'] })
+  const acceptance: unknown[] = [
+    { verifier: 'checks', rules: [{ artifact: 'hello.txt', contains: 'hello' }] },
+  ]
+  if (detectSandbox().kind !== 'none')
+    acceptance.push({ verifier: 'command', run: 'grep -q colony hello.txt', against: ['hello.txt'] })
 
   const spec = parseColonySpec({
     name: 'Greeting',
@@ -71,7 +85,9 @@ test('a colony coordinates, publishes, and completes only through verification',
   expect(types).toContain('colony/completed')
   expect(types).toContain('llm/response')
   expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i + 1))
-  expect(await Bun.file(join(run.workspace.mirrorRoot, 'artifacts', 'hello.txt')).text()).toBe('hello colony\n')
+  expect(await Bun.file(join(run.workspace.mirrorRoot, 'artifacts', 'hello.txt')).text()).toBe(
+    'hello colony\n',
+  )
 })
 
 test('failed verification does not complete the colony', async () => {
@@ -116,4 +132,30 @@ test('agents cannot escape their scratch directory', async () => {
   expect(outputs.every((o) => !o.ok)).toBe(true)
   expect(outputs[0]?.output).toContain('escapes your scratch directory')
   expect(outputs[1]?.output).toContain('invalid artifact name')
+})
+
+test('recovery marks colonies with a dead runner process as stopped', async () => {
+  const { colonyId } = await import('@myrmidon/core')
+  const { recoverOrphans } = await import('../src/index.ts')
+  const { hostname } = await import('node:os')
+  const id = colonyId('orphan-test')
+  const system = { kind: 'system', id: 'myrmidon' } as const
+  await runtime.ctx.log.append(id, [
+    {
+      type: 'colony/created',
+      actor: system,
+      payload: {
+        name: 'Orphan',
+        mission: 'm',
+        pattern: 'blackboard',
+        agents: [{ name: 'a', role: 'worker', model: 'x/y', tools: [] }],
+        budget: { wallMs: 600_000 },
+      },
+    },
+    { type: 'colony/started', actor: system, payload: { pid: 2 ** 22 + 12345, hostname: hostname() } },
+  ])
+  expect(await recoverOrphans(runtime.ctx.log)).toEqual([id])
+  const events = await runtime.ctx.log.read(id)
+  expect(events.at(-1)?.type).toBe('colony/stopped')
+  expect(await recoverOrphans(runtime.ctx.log)).toEqual([])
 })

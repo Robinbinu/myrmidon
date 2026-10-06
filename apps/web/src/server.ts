@@ -1,0 +1,203 @@
+import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
+import { join } from 'node:path'
+import { BlobStore, colonyId, MyrError, SqliteLogStore } from '@myrmidon/core'
+import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
+import type { ServerWebSocket } from 'bun'
+import index from './client/index.html'
+
+export interface ServeOptions {
+  readonly home: string
+  /** 0 picks a free port. */
+  readonly port?: number
+  readonly token?: string
+}
+
+export interface WebServer {
+  readonly url: string
+  readonly token: string
+  stop(): Promise<void>
+}
+
+interface StreamData {
+  colony: ColonyId
+  cursor: number
+}
+
+const POLL_MS = 400
+const BATCH = 500
+
+/** Local dashboard + API. Binds to 127.0.0.1 only and requires a bearer token for every API call. */
+export function startServer(options: ServeOptions): WebServer {
+  const token = options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
+  const store = new SqliteLogStore(options.home)
+  const sockets = new Set<ServerWebSocket<StreamData>>()
+
+  const json = (data: unknown, status = 200) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    })
+
+  const authorized = (req: Request, url: URL) => {
+    const host = req.headers.get('host') ?? ''
+    if (host !== `127.0.0.1:${server.port}` && host !== `localhost:${server.port}`) return false
+    const origin = req.headers.get('origin')
+    if (origin && origin !== `http://${host}`) return false
+    const header = req.headers.get('authorization')
+    const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
+    return given !== null && given !== undefined && tokenEquals(given, token)
+  }
+
+  const guard =
+    (
+      handler: (req: Request & { params: Record<string, string> }, url: URL) => Promise<Response> | Response,
+    ) =>
+    async (req: Request & { params: Record<string, string> }) => {
+      const url = new URL(req.url)
+      if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+      try {
+        return await handler(req, url)
+      } catch (err) {
+        if (
+          err instanceof MyrError &&
+          (err.code === 'COLONY_NOT_FOUND' || err.code === 'INVALID_COLONY_ID')
+        ) {
+          return json({ error: err.message }, 404)
+        }
+        if (err instanceof MyrError && err.code === 'BLOB_NOT_FOUND') return json({ error: err.message }, 404)
+        console.error(err)
+        return json({ error: 'internal error' }, 500)
+      }
+    }
+
+  // Agent-built pages run on their own port: a separate origin cannot read the dashboard's token or call its API.
+  const previewToken = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
+  const preview = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url)
+      const match = /^\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
+      if (!match) return new Response('not found', { status: 404 })
+      const [, rawId, given, rawPath] = match as unknown as [string, string, string, string]
+      if (!tokenEquals(given, previewToken)) return new Response('unauthorized', { status: 401 })
+      try {
+        const id = colonyId(rawId)
+        const state = foldColony(id, await store.read(id))
+        const name = decodeURIComponent(rawPath)
+        const latest = state.artifacts[name]?.at(-1)
+        if (!latest) return new Response(`no artifact ${name}`, { status: 404 })
+        const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
+        return new Response(Buffer.from(await blobs.get(latest.blob)), {
+          headers: {
+            'content-type': `${latest.mediaType}; charset=utf-8`,
+            'content-security-policy': "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'",
+            'cache-control': 'no-store',
+          },
+        })
+      } catch (err) {
+        if (err instanceof MyrError) return new Response(err.message, { status: 404 })
+        throw err
+      }
+    },
+  })
+
+  const server = Bun.serve<StreamData>({
+    hostname: '127.0.0.1',
+    port: options.port ?? 0,
+    development: false,
+    routes: {
+      '/': index,
+      '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
+      '/api/colonies': guard(async () => {
+        const ids = await store.colonies()
+        const rows = []
+        for (const id of ids) {
+          const state = foldColony(id, await store.read(id))
+          rows.push({
+            id,
+            name: state.name,
+            status: state.status,
+            statusReason: state.statusReason,
+            pattern: state.pattern,
+            createdAt: state.createdAt,
+            agents: Object.values(state.agents).map((a) => ({
+              name: a.info.name,
+              model: a.info.model,
+              role: a.info.role,
+            })),
+            metrics: colonyMetrics(state),
+          })
+        }
+        rows.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+        return json(rows)
+      }),
+      '/api/colonies/:id/events': guard(async (req, url) => {
+        const id = colonyId(req.params.id ?? '')
+        const from = Number(url.searchParams.get('from') ?? '1')
+        const limit = Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000)
+        return json(await store.read(id, { from, limit }))
+      }),
+      '/api/colonies/:id/blobs/:hash': guard(async (req) => {
+        const id = colonyId(req.params.id ?? '')
+        if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
+        const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
+        return new Response(Buffer.from(await blobs.get(req.params.hash ?? '')), {
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'cache-control': 'private, max-age=31536000, immutable',
+          },
+        })
+      }),
+      '/api/colonies/:id/stream': async (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const id = colonyId(req.params.id ?? '')
+        const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
+        if (server.upgrade(req, { data: { colony: id, cursor } })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
+    },
+    fetch: () => json({ error: 'not found' }, 404),
+    websocket: {
+      open(ws) {
+        sockets.add(ws)
+        void pump(ws)
+      },
+      close(ws) {
+        sockets.delete(ws)
+      },
+      message() {},
+    },
+  })
+
+  async function pump(ws: ServerWebSocket<StreamData>) {
+    if (!(await store.exists(ws.data.colony))) return
+    const events = await store.read(ws.data.colony, { from: ws.data.cursor + 1, limit: BATCH })
+    if (events.length === 0) return
+    ws.data.cursor = events.at(-1)?.seq ?? ws.data.cursor
+    ws.send(JSON.stringify(events))
+  }
+
+  const poll = setInterval(() => {
+    for (const ws of sockets) void pump(ws).catch(() => ws.close(1011, 'stream error'))
+  }, POLL_MS)
+
+  return {
+    url: `http://127.0.0.1:${server.port}/#token=${token}`,
+    token,
+    async stop() {
+      clearInterval(poll)
+      for (const ws of sockets) ws.close(1001, 'server stopping')
+      await server.stop(true)
+      await preview.stop(true)
+      store.close()
+    },
+  }
+}
+
+function tokenEquals(a: string, b: string) {
+  const ea = Buffer.from(a)
+  const eb = Buffer.from(b)
+  return ea.length === eb.length && nodeTimingSafeEqual(ea, eb)
+}

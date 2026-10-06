@@ -54,7 +54,9 @@ const rawSchema = Schema.object({
   pattern: Schema.union(['blackboard', 'lead-workers']).default('blackboard'),
   agents: Schema.array(
     Schema.object({
-      name: Schema.string().pattern(/^[a-z][a-z0-9-]{0,31}$/).required(),
+      name: Schema.string()
+        .pattern(/^[a-z][a-z0-9-]{0,31}$/)
+        .required(),
       role: Schema.string().default('worker'),
       model: Schema.string().required(),
       instructions: Schema.string(),
@@ -68,7 +70,9 @@ const rawSchema = Schema.object({
     costUsd: Schema.number(),
     maxTurns: Schema.natural().default(40),
   }).default({ wall: '15m', maxTurns: 40 }),
-  observer: Schema.object({ interval: Schema.union([String, Number]).default('30s') }).default({ interval: '30s' }),
+  observer: Schema.object({ interval: Schema.union([String, Number]).default('30s') }).default({
+    interval: '30s',
+  }),
   taskJudge: Schema.string(),
 })
 
@@ -76,7 +80,9 @@ const rawSchema = Schema.object({
 export function loadColonySpec(path: string): ColonySpec {
   const file = resolve(path)
   const base = dirname(file)
-  return parseColonySpec(Bun.YAML.parse(readFileSync(file, 'utf8')), (p) => readFileSync(resolve(base, p), 'utf8'))
+  return parseColonySpec(Bun.YAML.parse(readFileSync(file, 'utf8')), (p) =>
+    readFileSync(resolve(base, p), 'utf8'),
+  )
 }
 
 export function parseColonySpec(input: unknown, readFile: (path: string) => string = () => ''): ColonySpec {
@@ -120,8 +126,12 @@ function parseCheck(c: unknown, i: number, inline: (v: string) => string): Accep
   const check = c as Record<string, unknown>
   switch (check?.verifier) {
     case 'checks':
-      if (!Array.isArray(check.rules) || check.rules.length === 0) throw new Error(`acceptance[${i}]: checks needs rules`)
-      return { verifier: 'checks', rules: check.rules as Extract<AcceptanceCheck, { verifier: 'checks' }>['rules'] }
+      if (!Array.isArray(check.rules) || check.rules.length === 0)
+        throw new Error(`acceptance[${i}]: checks needs rules`)
+      return {
+        verifier: 'checks',
+        rules: check.rules as Extract<AcceptanceCheck, { verifier: 'checks' }>['rules'],
+      }
     case 'command':
       if (typeof check.run !== 'string') throw new Error(`acceptance[${i}]: command needs run`)
       return {

@@ -74,14 +74,19 @@ export class SqliteLogStore implements LogStore {
     return db
   }
 
-  async append(colonyId: ColonyId, events: readonly PreparedEvent[], expectedHead?: number): Promise<MyrEvent[]> {
+  async append(
+    colonyId: ColonyId,
+    events: readonly PreparedEvent[],
+    expectedHead?: number,
+  ): Promise<MyrEvent[]> {
     const db = this._open(colonyId, true)
     const insert = db.prepare(
       `insert into events (seq, id, time, type, actor_kind, actor_id, caused_by, trace_id, span_id, parent_span_id, schema, payload)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     const run = db.transaction(() => {
-      const head = (db.query('select coalesce(max(seq), 0) as head from events').get() as { head: number }).head
+      const head = (db.query('select coalesce(max(seq), 0) as head from events').get() as { head: number })
+        .head
       if (expectedHead !== undefined && head !== expectedHead) {
         throw new MyrError('HEAD_MISMATCH', `expected head ${expectedHead}, found ${head}`)
       }

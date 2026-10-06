@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +20,11 @@ async function boot() {
   await root.plugin(sqliteLogStore, { home })
   await root.plugin(EventLog)
   await new Promise((r) => setTimeout(r, 5))
-  root.log.registerType({ type: 'note/appended', version: 1, schema: Schema.object({ text: Schema.string().required() }) })
+  root.log.registerType({
+    type: 'note/appended',
+    version: 1,
+    schema: Schema.object({ text: Schema.string().required() }),
+  })
 }
 
 beforeEach(async () => {
@@ -57,14 +61,19 @@ describe('EventLog', () => {
   })
 
   test('rejects unknown types and invalid payloads', async () => {
-    await expect(root.log.appendOne(C, { type: 'nope/x', actor: agent, payload: {} })).rejects.toThrow(MyrError)
+    await expect(root.log.appendOne(C, { type: 'nope/x', actor: agent, payload: {} })).rejects.toThrow(
+      MyrError,
+    )
     await expect(
       root.log.appendOne(C, { type: 'note/appended', actor: agent, payload: { text: 5 } }),
     ).rejects.toThrow('invalid note/appended payload')
   })
 
   test('only verifiers may append verdicts', async () => {
-    const draft = { type: 'verifier/verdict', payload: { target: 'x', verifierId: 'v', pass: true, evidence: '' } }
+    const draft = {
+      type: 'verifier/verdict',
+      payload: { target: 'x', verifierId: 'v', pass: true, evidence: '' },
+    }
     await expect(root.log.appendOne(C, { ...draft, actor: agent })).rejects.toThrow('may not append')
     await root.log.appendOne(C, { ...draft, actor: verifier })
   })
@@ -101,9 +110,13 @@ describe('EventLog', () => {
 
   test('expectedHead gives compare-and-set appends', async () => {
     await root.log.appendOne(C, { type: 'note/appended', actor: agent, payload: { text: 'a' } })
-    await root.log.append(C, [{ type: 'note/appended', actor: agent, payload: { text: 'b' } }], { expectedHead: 1 })
+    await root.log.append(C, [{ type: 'note/appended', actor: agent, payload: { text: 'b' } }], {
+      expectedHead: 1,
+    })
     await expect(
-      root.log.append(C, [{ type: 'note/appended', actor: agent, payload: { text: 'c' } }], { expectedHead: 1 }),
+      root.log.append(C, [{ type: 'note/appended', actor: agent, payload: { text: 'c' } }], {
+        expectedHead: 1,
+      }),
     ).rejects.toThrow('expected head 1')
   })
 
@@ -125,7 +138,8 @@ describe('EventLog', () => {
       payload: { text: 'key sk-ant-abcdefghijklmnopqrstuvwxyz and hunter2-super-secret' },
     })
     const [event] = await root.log.read(C)
-    expect((event?.payload as { text: string }).text).toBe(`key ${REDACTED} and ${REDACTED}`)
+    expect(event).toBeDefined()
+    expect((event as { payload: { text: string } }).payload.text).toBe(`key ${REDACTED} and ${REDACTED}`)
   })
 
   test('emits log/appended only after commit', async () => {

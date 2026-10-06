@@ -36,7 +36,8 @@ export class BlobStore {
     const file = Bun.file(this._path(hash))
     if (!(await file.exists())) throw new MyrError('BLOB_NOT_FOUND', `no blob ${hash}`)
     const bytes = new Uint8Array(await file.arrayBuffer())
-    if (BlobStore.hash(bytes) !== hash) throw new MyrError('BLOB_CORRUPT', `blob ${hash} failed its hash check`)
+    if (BlobStore.hash(bytes) !== hash)
+      throw new MyrError('BLOB_CORRUPT', `blob ${hash} failed its hash check`)
     return bytes
   }
 

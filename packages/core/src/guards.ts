@@ -41,11 +41,15 @@ export const CORE_EVENT_TYPES: readonly EventTypeDefinition[] = [
 export const completionGuard: Guard = async ({ colonyId, event, pending, store }) => {
   if (event.type !== 'colony/completed') return
   const { verdicts } = event.payload as EventPayloads['colony/completed']
-  if (verdicts.length === 0) throw new MyrError('GUARD_REJECTED', 'colony/completed must cite at least one verdict')
+  if (verdicts.length === 0)
+    throw new MyrError('GUARD_REJECTED', 'colony/completed must cite at least one verdict')
   for (const id of verdicts) {
     const found = pending.find((p) => p.id === id) ?? (await store.get(colonyId, id))
-    if (!found || found.type !== 'verifier/verdict') {
-      throw new MyrError('GUARD_REJECTED', `colony/completed cites ${id}, which is not a verdict in ${colonyId}`)
+    if (found?.type !== 'verifier/verdict') {
+      throw new MyrError(
+        'GUARD_REJECTED',
+        `colony/completed cites ${id}, which is not a verdict in ${colonyId}`,
+      )
     }
     if ((found.payload as EventPayloads['verifier/verdict']).pass !== true) {
       throw new MyrError('GUARD_REJECTED', `colony/completed cites failing verdict ${id}`)

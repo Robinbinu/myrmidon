@@ -1,8 +1,8 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, relative } from 'node:path'
+import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
-import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
 import { agentActor, type ColonyHost } from './host.ts'
 import { assertArtifactName } from './workspace.ts'
 
@@ -16,7 +16,14 @@ interface ToolDef {
   readonly tier: Tier
   readonly description: string
   readonly parameters: ReturnType<typeof type>
+  // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
   run(args: any, agent: string, host: ColonyHost): Promise<string>
+}
+
+function first<T>(items: readonly T[]): T {
+  const item = items[0]
+  if (item === undefined) throw new Error('expected an appended event')
+  return item
 }
 
 const clip = (text: string, max = MAX_READ_CHARS) =>
@@ -55,9 +62,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const s = host.state()
       const left = Math.max(0, Math.round((host.deadline() - Date.now()) / 1000))
       const roster = Object.values(s.agents)
-        .map((a) => `- ${a.info.name} (${a.info.role}, ${a.info.model})${a.info.name === agent ? ' ← you' : ''}`)
+        .map(
+          (a) => `- ${a.info.name} (${a.info.role}, ${a.info.model})${a.info.name === agent ? ' ← you' : ''}`,
+        )
         .join('\n')
-      const acceptance = host.spec.acceptance.map((c) => `- ${describeCheck(c)}`).join('\n') || '- none declared'
+      const acceptance =
+        host.spec.acceptance.map((c) => `- ${describeCheck(c)}`).join('\n') || '- none declared'
       return `MISSION:\n${s.mission}\n\nACCEPTANCE (checked by the verifier, not by agents):\n${acceptance}\n\nTIME LEFT: ${left}s\n\nROSTER:\n${roster}`
     },
   },
@@ -114,15 +124,24 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({}),
     async run(_args, _agent, host) {
       const notes = host.state().notes
-      return clip(notes.map((n) => `${n.id} ${n.agent}: ${n.text}${n.corrects ? ` (corrects ${n.corrects})` : ''}`).join('\n')) ||
-        '(no notes yet)'
+      return (
+        clip(
+          notes
+            .map((n) => `${n.id} ${n.agent}: ${n.text}${n.corrects ? ` (corrects ${n.corrects})` : ''}`)
+            .join('\n'),
+        ) || '(no notes yet)'
+      )
     },
   },
   {
     name: 'send_mail',
     tier: 'write',
     description: 'Send a direct message to one agent. It wakes the recipient.',
-    parameters: type({ to: type('string'), 'subject?': type('string'), body: type('string').atLeastLength(1) }),
+    parameters: type({
+      to: type('string'),
+      'subject?': type('string'),
+      body: type('string').atLeastLength(1),
+    }),
     async run(args, agent, host) {
       if (!host.state().agents[args.to]) throw new Error(`no such agent: ${args.to}`)
       if (args.to === agent) throw new Error('you cannot mail yourself')
@@ -140,8 +159,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: 'Read mail sent to you.',
     parameters: type({ 'limit?': type('number') }),
     async run(args, agent, host) {
-      const mail = host.state().mail.filter((m) => m.to === agent).slice(-(args.limit ?? 20))
-      return mail.map((m) => `from ${m.from}${m.subject ? ` [${m.subject}]` : ''}: ${m.body}`).join('\n') || '(no mail)'
+      const mail = host
+        .state()
+        .mail.filter((m) => m.to === agent)
+        .slice(-(args.limit ?? 20))
+      return (
+        mail.map((m) => `from ${m.from}${m.subject ? ` [${m.subject}]` : ''}: ${m.body}`).join('\n') ||
+        '(no mail)'
+      )
     },
   },
   {
@@ -153,7 +178,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const s = host.state()
       return Object.values(s.agents)
         .map((a) => {
-          const task = Object.values(s.tasks).find((t) => t.owner === a.info.name && t.status === 'in_progress')
+          const task = Object.values(s.tasks).find(
+            (t) => t.owner === a.info.name && t.status === 'in_progress',
+          )
           return `${a.info.name} (${a.info.role}) ${a.status}${task ? ` working on ${task.id}` : ''}`
         })
         .join('\n')
@@ -179,23 +206,25 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'blockedBy?': type('string').array().describe('Task ids that must be verified first'),
     }),
     async run(args, agent, host) {
-      const [e] = await host.appendAtomic((s) => {
-        const blockedBy: string[] = args.blockedBy ?? []
-        for (const b of blockedBy) requireTask(s, b)
-        const id = `task-${Object.keys(s.tasks).length + 1}`
-        return [
-          taskEvent(agent, {
-            id,
-            revision: 1,
-            subject: args.subject,
-            description: args.description ?? '',
-            status: 'pending',
-            blockedBy,
-            artifacts: [],
-          }),
-        ]
-      })
-      const task = (e?.payload as EventPayloads['task/changed']).task
+      const e = first(
+        await host.appendAtomic((s) => {
+          const blockedBy: string[] = args.blockedBy ?? []
+          for (const b of blockedBy) requireTask(s, b)
+          const id = `task-${Object.keys(s.tasks).length + 1}`
+          return [
+            taskEvent(agent, {
+              id,
+              revision: 1,
+              subject: args.subject,
+              description: args.description ?? '',
+              status: 'pending',
+              blockedBy,
+              artifacts: [],
+            }),
+          ]
+        }),
+      )
+      const task = (e.payload as EventPayloads['task/changed']).task
       return `created ${taskLine(task)}`
     },
   },
@@ -205,16 +234,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: 'Claim a pending or rejected task. Pass the revision you read; stale claims are refused.',
     parameters: type({ id: type('string'), revision: type('number') }),
     async run(args, agent, host) {
-      const [e] = await host.appendAtomic((s) => {
-        const task = requireTask(s, args.id)
-        if (task.revision !== args.revision) {
-          throw new Error(`stale revision: ${task.id} is at r${task.revision}; re-read with list_tasks`)
-        }
-        if (task.status !== 'pending' && task.status !== 'rejected') throw new Error(`${task.id} is ${task.status}`)
-        if (!blockersDone(s, task)) throw new Error(`${task.id} is blocked by ${task.blockedBy.join(', ')}`)
-        return [taskEvent(agent, { ...task, revision: task.revision + 1, status: 'in_progress', owner: agent })]
-      })
-      return `claimed ${taskLine((e?.payload as EventPayloads['task/changed']).task)}`
+      const e = first(
+        await host.appendAtomic((s) => {
+          const task = requireTask(s, args.id)
+          if (task.revision !== args.revision) {
+            throw new Error(`stale revision: ${task.id} is at r${task.revision}; re-read with list_tasks`)
+          }
+          if (task.status !== 'pending' && task.status !== 'rejected')
+            throw new Error(`${task.id} is ${task.status}`)
+          if (!blockersDone(s, task)) throw new Error(`${task.id} is blocked by ${task.blockedBy.join(', ')}`)
+          return [
+            taskEvent(agent, { ...task, revision: task.revision + 1, status: 'in_progress', owner: agent }),
+          ]
+        }),
+      )
+      return `claimed ${taskLine((e.payload as EventPayloads['task/changed']).task)}`
     },
   },
   {
@@ -225,8 +259,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
-        if (task.owner !== agent || task.status !== 'in_progress') throw new Error(`you do not hold ${task.id}`)
-        if (task.revision !== args.revision) throw new Error(`stale revision: ${task.id} is at r${task.revision}`)
+        if (task.owner !== agent || task.status !== 'in_progress')
+          throw new Error(`you do not hold ${task.id}`)
+        if (task.revision !== args.revision)
+          throw new Error(`stale revision: ${task.id} is at r${task.revision}`)
         const { owner: _owner, ...rest } = task
         return [taskEvent(agent, { ...rest, revision: task.revision + 1, status: 'pending' })]
       })
@@ -241,11 +277,19 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
-        if (task.owner !== agent || task.status !== 'in_progress') throw new Error(`you do not hold ${task.id}`)
-        if (task.revision !== args.revision) throw new Error(`stale revision: ${task.id} is at r${task.revision}`)
-        for (const name of args.artifacts) if (!s.artifacts[name]) throw new Error(`no such artifact: ${name}`)
+        if (task.owner !== agent || task.status !== 'in_progress')
+          throw new Error(`you do not hold ${task.id}`)
+        if (task.revision !== args.revision)
+          throw new Error(`stale revision: ${task.id} is at r${task.revision}`)
+        for (const name of args.artifacts)
+          if (!s.artifacts[name]) throw new Error(`no such artifact: ${name}`)
         return [
-          taskEvent(agent, { ...task, revision: task.revision + 1, status: 'submitted', artifacts: args.artifacts }),
+          taskEvent(agent, {
+            ...task,
+            revision: task.revision + 1,
+            status: 'submitted',
+            artifacts: args.artifacts,
+          }),
         ]
       })
       host.requestTaskVerification(args.id, agent)
@@ -266,31 +310,40 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const name = assertArtifactName(args.name)
+      // Models often send an empty `content` alongside `fromScratch`; treat empty as absent, but never guess between two real sources.
+      const content = typeof args.content === 'string' && args.content.length > 0 ? args.content : undefined
+      if (content !== undefined && args.fromScratch)
+        throw new Error('give either content or fromScratch, not both')
       let bytes: Uint8Array
-      if (typeof args.content === 'string') bytes = new TextEncoder().encode(args.content)
-      else if (args.fromScratch) bytes = readFileSync(host.workspace.resolveInScratch(agent, args.fromScratch))
-      else throw new Error('give content or fromScratch')
-      if (bytes.byteLength > MAX_ARTIFACT_BYTES) throw new Error(`artifact too large (${bytes.byteLength} bytes)`)
+      if (content !== undefined) bytes = new TextEncoder().encode(content)
+      else if (args.fromScratch)
+        bytes = readFileSync(host.workspace.resolveInScratch(agent, args.fromScratch))
+      else throw new Error('give non-empty content or fromScratch')
+      if (bytes.byteLength === 0) throw new Error('refusing to publish an empty artifact')
+      if (bytes.byteLength > MAX_ARTIFACT_BYTES)
+        throw new Error(`artifact too large (${bytes.byteLength} bytes)`)
       const { hash, size } = await host.blobs.put(bytes)
-      const [e] = await host.appendAtomic((s) => {
-        const prev = s.artifacts[name]?.at(-1)
-        return [
-          {
-            type: 'artifact/versioned',
-            actor: agentActor(agent),
-            payload: {
-              name,
-              version: (prev?.version ?? 0) + 1,
-              blob: hash,
-              size,
-              ...(prev ? { parentVersion: prev.version } : {}),
-              author: agent,
-              mediaType: args.mediaType ?? guessMediaType(name),
+      const e = first(
+        await host.appendAtomic((s) => {
+          const prev = s.artifacts[name]?.at(-1)
+          return [
+            {
+              type: 'artifact/versioned',
+              actor: agentActor(agent),
+              payload: {
+                name,
+                version: (prev?.version ?? 0) + 1,
+                blob: hash,
+                size,
+                ...(prev ? { parentVersion: prev.version } : {}),
+                author: agent,
+                mediaType: args.mediaType ?? guessMediaType(name),
+              },
             },
-          },
-        ]
-      })
-      return `published ${name} v${(e?.payload as EventPayloads['artifact/versioned']).version} (${size} bytes)`
+          ]
+        }),
+      )
+      return `published ${name} v${(e.payload as EventPayloads['artifact/versioned']).version} (${size} bytes)`
     },
   },
   {
@@ -314,8 +367,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(_args, _agent, host) {
       const entries = Object.entries(host.state().artifacts)
       return (
-        entries.map(([n, vs]) => `${n} v${vs.at(-1)?.version} (${vs.at(-1)?.size} bytes, ${vs.at(-1)?.author})`).join('\n') ||
-        '(no artifacts yet)'
+        entries
+          .map(([n, vs]) => `${n} v${vs.at(-1)?.version} (${vs.at(-1)?.size} bytes, ${vs.at(-1)?.author})`)
+          .join('\n') || '(no artifacts yet)'
       )
     },
   },
@@ -388,7 +442,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'directory. The shared artifacts are readable at $MYR_MIRROR/artifacts.',
     parameters: type({ command: type('string'), 'timeoutSeconds?': type('number') }),
     async run(args, agent, host) {
-      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error('shell is disabled: no OS sandbox')
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error('shell is disabled: no OS sandbox')
       const cwd = host.workspace.scratch(agent)
       const r = await host.sandbox.run({
         command: args.command,
@@ -472,7 +527,11 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
         approval: def.tier,
         async execute(callId: string, params: unknown): Promise<AgentToolResult> {
           const actor = agentActor(agent)
-          await host.append({ type: 'tool/call', actor, payload: { agent, callId, tool: def.name, args: params ?? {} } })
+          await host.append({
+            type: 'tool/call',
+            actor,
+            payload: { agent, callId, tool: def.name, args: params ?? {} },
+          })
           let output: string
           let ok = true
           try {

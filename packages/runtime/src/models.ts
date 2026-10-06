@@ -1,6 +1,6 @@
-import { getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
-import { getBundledModel, getBundledModels, getBundledProviders } from '@oh-my-pi/pi-catalog'
 import type { StreamFn } from '@oh-my-pi/pi-agent-core'
+import { completeSimple, getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
+import { getBundledModel, getBundledModels, getBundledProviders } from '@oh-my-pi/pi-catalog'
 
 export interface ResolvedModel {
   readonly ref: string
@@ -57,6 +57,23 @@ export class ModelResolver {
     if ((await proc.exited) !== 0 || !value) return undefined
     this._tokens.set(model.provider, { value, at: Date.now() })
     return value
+  }
+
+  /** Sends a one-line request so unsupported models or rejected credentials fail before a colony starts. */
+  async probe(ref: string): Promise<void> {
+    const resolved = this.resolve(ref)
+    if (resolved.streamFn || resolved.model.api === 'mock') return
+    const apiKey = await this.requireApiKey(resolved.model)
+    const reply = await completeSimple(
+      resolved.model,
+      {
+        systemPrompt: ['Reply with OK.'],
+        messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }],
+      },
+      { apiKey },
+    )
+    if (reply.stopReason === 'error')
+      throw new Error(`model ${ref} is not usable: ${reply.errorMessage ?? 'unknown error'}`)
   }
 
   async requireApiKey(model: Model): Promise<string> {

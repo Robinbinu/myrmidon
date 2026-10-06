@@ -35,12 +35,26 @@ const defs: EventTypeDefinition[] = [
         Schema.object({ name: str(), role: str(), model: str(), tools: strs() }),
       ).required(),
       acceptance: Schema.array(Schema.any()).default([]),
-      budget: Schema.object({ wallMs: Schema.natural().required(), costUsd: Schema.number(), maxTurns: Schema.natural() }),
+      budget: Schema.object({
+        wallMs: Schema.natural().required(),
+        costUsd: Schema.number(),
+        maxTurns: Schema.natural(),
+      }),
       unsafeNoSandbox: Schema.boolean().default(false),
     }),
   },
-  { type: 'colony/started', version: 1, actors: ['system'], schema: Schema.object({}) },
-  { type: 'colony/stopped', version: 1, actors: ['system', 'user'], schema: Schema.object({ reason: str() }) },
+  {
+    type: 'colony/started',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ pid: Schema.natural(), hostname: Schema.string() }),
+  },
+  {
+    type: 'colony/stopped',
+    version: 1,
+    actors: ['system', 'user'],
+    schema: Schema.object({ reason: str() }),
+  },
   { type: 'colony/failed', version: 1, actors: ['system'], schema: Schema.object({ reason: str() }) },
   {
     type: 'agent/status',
@@ -56,7 +70,12 @@ const defs: EventTypeDefinition[] = [
     type: 'agent/turn',
     version: 1,
     actors: ['system'],
-    schema: Schema.object({ agent: str(), phase: oneOf('start', 'end'), turn: Schema.natural().required(), trigger: str() }),
+    schema: Schema.object({
+      agent: str(),
+      phase: oneOf('start', 'end'),
+      turn: Schema.natural().required(),
+      trigger: str(),
+    }),
   },
   {
     type: 'llm/response',
@@ -109,7 +128,12 @@ const defs: EventTypeDefinition[] = [
     actors: ['agent', 'user'],
     schema: Schema.object({ from: str(), to: str(), subject: Schema.string().default(''), body: str() }),
   },
-  { type: 'mail/delivered', version: 1, actors: ['system'], schema: Schema.object({ mail: str(), to: str() }) },
+  {
+    type: 'mail/delivered',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ mail: str(), to: str() }),
+  },
   {
     type: 'task/changed',
     version: 1,

@@ -3,5 +3,5 @@
   "files": { "includes": ["**", "!**/node_modules", "!**/.myrmidon", "!**/*.sqlite"] },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 110 },
   "javascript": { "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" } },
-  "linter": { "rules": { "recommended": true } }
+  "linter": { "rules": { "preset": "recommended" } }
 }

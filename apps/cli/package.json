@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@myrmidon/core": "workspace:*",
+    "@myrmidon/protocol": "workspace:*",
     "@myrmidon/runtime": "workspace:*",
     "@myrmidon/web": "workspace:*"
   }

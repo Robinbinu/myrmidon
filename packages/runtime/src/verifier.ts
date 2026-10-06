@@ -1,6 +1,6 @@
 import { join } from 'node:path'
-import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
 import type { ActorRef, ColonyState, EventId, EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
 import type { ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import type { AcceptanceCheck } from './spec.ts'
@@ -50,17 +50,27 @@ export class Verifier {
     await this.host.append({
       type: 'verifier/verdict',
       actor: actor('task-review'),
-      payload: { target: `task:${taskId}`, verifierId: 'task-review', pass: outcome.pass, ...score(outcome), evidence: outcome.evidence },
+      payload: {
+        target: `task:${taskId}`,
+        verifierId: 'task-review',
+        pass: outcome.pass,
+        ...score(outcome),
+        evidence: outcome.evidence,
+      },
     })
     await this.host.appendAtomic((s) => {
       const current = s.tasks[taskId]
-      if (!current || current.status !== 'submitted') return []
+      if (current?.status !== 'submitted') return []
       return [
         {
           type: 'task/changed',
           actor: actor('task-review'),
           payload: {
-            task: { ...current, revision: current.revision + 1, status: outcome.pass ? 'verified' : 'rejected' },
+            task: {
+              ...current,
+              revision: current.revision + 1,
+              status: outcome.pass ? 'verified' : 'rejected',
+            },
             by: 'verifier',
           },
         },
@@ -72,7 +82,11 @@ export class Verifier {
   async verifyColony(): Promise<ColonyVerification> {
     const checks = this.host.spec.acceptance
     if (checks.length === 0) {
-      return { pass: false, verdicts: [], report: 'no acceptance checks are declared, so the colony cannot be verified' }
+      return {
+        pass: false,
+        verdicts: [],
+        report: 'no acceptance checks are declared, so the colony cannot be verified',
+      }
     }
     const verdicts: EventId[] = []
     const lines: string[] = []
@@ -83,12 +97,21 @@ export class Verifier {
       try {
         outcome = await this.runCheck(check, i)
       } catch (err) {
-        outcome = { pass: false, evidence: `verifier error: ${err instanceof Error ? err.message : String(err)}` }
+        outcome = {
+          pass: false,
+          evidence: `verifier error: ${err instanceof Error ? err.message : String(err)}`,
+        }
       }
       const e: MyrEvent = await this.host.append({
         type: 'verifier/verdict',
         actor: actor(verifierId),
-        payload: { target: 'colony', verifierId, pass: outcome.pass, ...score(outcome), evidence: outcome.evidence },
+        payload: {
+          target: 'colony',
+          verifierId,
+          pass: outcome.pass,
+          ...score(outcome),
+          evidence: outcome.evidence,
+        },
       })
       verdicts.push(e.id)
       pass &&= outcome.pass
@@ -118,12 +141,16 @@ export class Verifier {
         continue
       }
       if (rule.exists === false) failures.push(`${rule.artifact} must not exist`)
-      if (rule.minBytes !== undefined && latest.size < rule.minBytes) failures.push(`${rule.artifact} is ${latest.size} bytes (< ${rule.minBytes})`)
-      if (rule.maxBytes !== undefined && latest.size > rule.maxBytes) failures.push(`${rule.artifact} is ${latest.size} bytes (> ${rule.maxBytes})`)
+      if (rule.minBytes !== undefined && latest.size < rule.minBytes)
+        failures.push(`${rule.artifact} is ${latest.size} bytes (< ${rule.minBytes})`)
+      if (rule.maxBytes !== undefined && latest.size > rule.maxBytes)
+        failures.push(`${rule.artifact} is ${latest.size} bytes (> ${rule.maxBytes})`)
       if (rule.contains !== undefined || rule.notContains !== undefined) {
         const text = await this.host.blobs.text(latest.blob)
-        if (rule.contains !== undefined && !text.includes(rule.contains)) failures.push(`${rule.artifact} lacks "${rule.contains}"`)
-        if (rule.notContains !== undefined && text.includes(rule.notContains)) failures.push(`${rule.artifact} contains "${rule.notContains}"`)
+        if (rule.contains !== undefined && !text.includes(rule.contains))
+          failures.push(`${rule.artifact} lacks "${rule.contains}"`)
+        if (rule.notContains !== undefined && text.includes(rule.notContains))
+          failures.push(`${rule.artifact} contains "${rule.notContains}"`)
       }
     }
     return failures.length === 0
@@ -131,14 +158,23 @@ export class Verifier {
       : { pass: false, evidence: failures.join('; ') }
   }
 
-  private async command(state: ColonyState, check: Extract<AcceptanceCheck, { verifier: 'command' }>, index: number) {
+  private async command(
+    state: ColonyState,
+    check: Extract<AcceptanceCheck, { verifier: 'command' }>,
+    index: number,
+  ) {
     if (this.host.sandbox.kind === 'none' && !this.host.unsafeNoSandbox) {
       return { pass: false, evidence: 'command checks need an OS sandbox (or --unsafe-no-sandbox)' }
     }
     const dir = join(this.host.workspace.colonyDir, 'verify', `check-${index}`)
     const missing = await this.host.workspace.materialize(state, this.host.blobs, check.against, dir)
     if (missing.length > 0) return { pass: false, evidence: `missing artifacts: ${missing.join(', ')}` }
-    const r = await this.host.sandbox.run({ command: check.run, cwd: dir, writable: [dir], timeoutMs: check.timeoutMs ?? 120_000 })
+    const r = await this.host.sandbox.run({
+      command: check.run,
+      cwd: dir,
+      writable: [dir],
+      timeoutMs: check.timeoutMs ?? 120_000,
+    })
     const tail = (s: string) => s.slice(-3000)
     const status = r.timedOut ? 'timed out' : `exit ${r.code}`
     return {
@@ -147,7 +183,12 @@ export class Verifier {
     }
   }
 
-  private async judge(modelRef: string, rubric: string, threshold: number, only: readonly string[]): Promise<CheckOutcome> {
+  private async judge(
+    modelRef: string,
+    rubric: string,
+    threshold: number,
+    only: readonly string[],
+  ): Promise<CheckOutcome> {
     const state = this.host.state()
     const names = only.length > 0 ? only : Object.keys(state.artifacts)
     let corpus = ''
@@ -176,13 +217,15 @@ export class Verifier {
     const reply = resolved.streamFn
       ? await (await resolved.streamFn(resolved.model, context, { apiKey })).result()
       : await completeSimple(resolved.model, context, { apiKey })
-    if (reply.stopReason === 'error') throw new Error(`judge model failed: ${reply.errorMessage ?? 'unknown error'}`)
+    if (reply.stopReason === 'error')
+      throw new Error(`judge model failed: ${reply.errorMessage ?? 'unknown error'}`)
     const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
     const json = /\{[\s\S]*\}/.exec(text)?.[0]
     if (!json) throw new Error(`judge did not return JSON: ${text.slice(0, 200)}`)
     const parsed = JSON.parse(json) as { score?: unknown; reasons?: unknown }
     const value = Number(parsed.score)
-    if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(`judge returned invalid score: ${parsed.score}`)
+    if (!Number.isFinite(value) || value < 0 || value > 1)
+      throw new Error(`judge returned invalid score: ${parsed.score}`)
     return {
       pass: value >= threshold,
       score: value,

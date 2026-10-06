@@ -7,7 +7,9 @@ const ARTIFACT_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._
 
 export function assertArtifactName(name: string): string {
   if (name.length > 200 || !ARTIFACT_NAME.test(name) || name.split('/').includes('..')) {
-    throw new Error(`invalid artifact name ${JSON.stringify(name)}: use letters, digits, ., _, -, and / between segments`)
+    throw new Error(
+      `invalid artifact name ${JSON.stringify(name)}: use letters, digits, ., _, -, and / between segments`,
+    )
   }
   return name
 }
@@ -67,7 +69,12 @@ export class ColonyWorkspace {
   }
 
   /** Writes the latest version of the named artifacts into a fresh directory for verification. */
-  async materialize(state: ColonyState, blobs: BlobStore, names: readonly string[], dir: string): Promise<string[]> {
+  async materialize(
+    state: ColonyState,
+    blobs: BlobStore,
+    names: readonly string[],
+    dir: string,
+  ): Promise<string[]> {
     rmSync(dir, { recursive: true, force: true })
     mkdirSync(dir, { recursive: true })
     const missing: string[] = []
