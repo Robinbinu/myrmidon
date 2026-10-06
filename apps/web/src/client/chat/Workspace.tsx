@@ -18,7 +18,7 @@ import { useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { compact } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
-import { Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
+import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, toneFor } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -27,6 +27,17 @@ import { Computer } from './Computer.tsx'
 import { deriveSteps } from './steps.ts'
 
 type Tab = 'files' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
+
+/** The panel's views, listed down its activity bar like an IDE's. */
+const VIEWS: { value: Tab; label: string; icon: typeof FileCode }[] = [
+  { value: 'files', label: 'Files', icon: FileCode },
+  { value: 'computer', label: 'Computer', icon: MonitorSmartphone },
+  { value: 'tasks', label: 'Tasks', icon: ListChecks },
+  { value: 'team', label: 'Team', icon: Users },
+  { value: 'mail', label: 'Mail', icon: Mail },
+  { value: 'terminal', label: 'Terminal', icon: Terminal },
+  { value: 'activity', label: 'Activity', icon: Activity },
+]
 
 const ORDER: TaskSnapshot['status'][] = [
   'in_progress',
@@ -115,322 +126,310 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
   const messages = useMemo(() => conversation(state), [state])
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
+  const counts: Partial<Record<Tab, number>> = {
+    files: files.length,
+    tasks: tasks.length,
+    team: agents.length,
+    mail: messages.length,
+    terminal: shells.length,
+  }
 
   return (
     <>
-      <Tabs
-        id="workspace"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          {
-            value: 'files',
-            label: (
-              <>
-                <FileCode className="size-3.5" /> Files
-              </>
-            ),
-            count: files.length,
-          },
-          {
-            value: 'computer',
-            label: (
-              <>
-                <MonitorSmartphone className="size-3.5" /> Computer
-              </>
-            ),
-          },
-          {
-            value: 'tasks',
-            label: (
-              <>
-                <ListChecks className="size-3.5" /> Tasks
-              </>
-            ),
-            count: tasks.length,
-          },
-          {
-            value: 'team',
-            label: (
-              <>
-                <Users className="size-3.5" /> Team
-              </>
-            ),
-            count: agents.length,
-          },
-          {
-            value: 'mail',
-            label: (
-              <>
-                <Mail className="size-3.5" /> Mail
-              </>
-            ),
-            count: messages.length,
-          },
-          {
-            value: 'terminal',
-            label: (
-              <>
-                <Terminal className="size-3.5" /> Terminal
-              </>
-            ),
-            count: shells.length,
-          },
-          {
-            value: 'activity',
-            label: (
-              <>
-                <Activity className="size-3.5" /> Activity
-              </>
-            ),
-          },
-        ]}
-      />
-      <div className="min-h-0 flex-1 overflow-auto">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-          >
-            {tab === 'files' &&
-              (files.length === 0 ? (
-                <Empty icon={<FileCode className="size-5" />} title="No files yet">
-                  Everything the colony publishes appears here, with every version kept.
-                </Empty>
-              ) : (
-                <div className="p-2">
-                  {files.map(([name, versions]) => {
-                    const latest = versions.at(-1)
-                    const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FileCode
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() => setFile(name)}
-                        className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
-                      >
-                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
-                          <Icon className="size-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13.5px] font-medium">{name}</span>
-                          <span className="text-[11.5px] text-muted">
-                            {versions.length} version{versions.length === 1 ? '' : 's'} ·{' '}
-                            {compact(latest?.size ?? 0)}B · {latest?.author}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line px-4">
+            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted">
+              {VIEWS.find((v) => v.value === tab)?.label}
+            </span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={tab}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                {tab === 'files' &&
+                  (files.length === 0 ? (
+                    <Empty icon={<FileCode className="size-5" />} title="No files yet">
+                      Everything the colony publishes appears here, with every version kept.
+                    </Empty>
+                  ) : (
+                    <div className="p-2">
+                      {files.map(([name, versions]) => {
+                        const latest = versions.at(-1)
+                        const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FileCode
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => setFile(name)}
+                            className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+                          >
+                            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+                              <Icon className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13.5px] font-medium">{name}</span>
+                              <span className="text-[11.5px] text-muted">
+                                {versions.length} version{versions.length === 1 ? '' : 's'} ·{' '}
+                                {compact(latest?.size ?? 0)}B · {latest?.author}
+                              </span>
+                            </span>
+                            <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
+                {tab === 'tasks' &&
+                  (tasks.length === 0 ? (
+                    <Empty icon={<ListChecks className="size-5" />} title="No tasks">
+                      Tasks appear when a team splits the work into parts.
+                    </Empty>
+                  ) : (
+                    <>
+                      {plan && (
+                        <details className="group border-b border-line px-4 py-3" open>
+                          <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+                            Plan · {plan.agent}
+                          </summary>
+                          <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
+                            {plan.text}
+                          </p>
+                        </details>
+                      )}
+                      <div className="border-b border-line px-4 py-3.5">
+                        <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
+                          <span className="font-semibold">
+                            {by('verified')} of {tasks.length} done
                           </span>
-                        </span>
-                        <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
-                      </button>
-                    )
-                  })}
-                </div>
-              ))}
-            {tab === 'tasks' &&
-              (tasks.length === 0 ? (
-                <Empty icon={<ListChecks className="size-5" />} title="No tasks">
-                  Tasks appear when a team splits the work into parts.
-                </Empty>
-              ) : (
-                <>
-                  {plan && (
-                    <details className="group border-b border-line px-4 py-3" open>
-                      <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
-                        Plan · {plan.agent}
-                      </summary>
-                      <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
-                        {plan.text}
-                      </p>
-                    </details>
-                  )}
-                  <div className="border-b border-line px-4 py-3.5">
-                    <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
-                      <span className="font-semibold">
-                        {by('verified')} of {tasks.length} done
-                      </span>
-                      <span className="text-muted">
-                        {by('in_progress')} active · {by('submitted')} in review · {by('pending')} waiting
-                      </span>
-                    </div>
-                    <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
-                      <motion.span
-                        className="bg-ok"
-                        animate={{ width: pct(by('verified')) }}
-                        transition={softSpring}
-                      />
-                      <motion.span
-                        className="bg-warn"
-                        animate={{ width: pct(by('submitted')) }}
-                        transition={softSpring}
-                      />
-                      <motion.span
-                        className="bg-work"
-                        animate={{ width: pct(by('in_progress')) }}
-                        transition={softSpring}
-                      />
-                    </div>
-                  </div>
-                  <ul className="divide-y divide-line">
-                    {tasks.map((t) => (
-                      <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
-                          <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                          {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                          <span className="text-muted">
+                            {by('in_progress')} active · {by('submitted')} in review · {by('pending')} waiting
+                          </span>
                         </div>
-                        <span className="sr-only">{t.subject}</span>
-                        {/* Agents complete tasks, so the check is a live readout, not a control. */}
-                        <div inert className="-my-1.5" title={t.subject}>
-                          <SpringCheck
-                            label={<span className="block truncate">{t.subject}</span>}
-                            className="check-line"
-                            checked={t.status === 'verified'}
-                            color="var(--text)"
-                            fillColor="var(--ok)"
-                            checkColor="var(--bg)"
-                            boxSize={18}
-                            boxRadius={6}
-                            fontSize={13.5}
-                            doneOpacity={0.5}
+                        <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
+                          <motion.span
+                            className="bg-ok"
+                            animate={{ width: pct(by('verified')) }}
+                            transition={softSpring}
+                          />
+                          <motion.span
+                            className="bg-warn"
+                            animate={{ width: pct(by('submitted')) }}
+                            transition={softSpring}
+                          />
+                          <motion.span
+                            className="bg-work"
+                            animate={{ width: pct(by('in_progress')) }}
+                            transition={softSpring}
                           />
                         </div>
-                        {t.description && <div className="text-[12.5px] text-muted">{t.description}</div>}
-                        {t.blockedBy.length > 0 && (
-                          <div className="text-[11.5px] text-muted">after {t.blockedBy.join(', ')}</div>
-                        )}
-                      </motion.li>
-                    ))}
-                  </ul>
-                </>
-              ))}
-            {tab === 'team' && (
-              <ul className="divide-y divide-line">
-                {agents.map((a) => {
-                  const task = tasks.find((t) => t.owner === a.info.name && t.status === 'in_progress')
-                  const lead = a.info.role === 'lead'
-                  return (
-                    <li key={a.info.name}>
-                      <button
-                        type="button"
-                        onClick={() => setInspect(a.info.name)}
-                        className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
-                      >
-                        <AgentAvatar name={a.info.name} status={a.status} size={40} />
-                        <div className="grid min-w-0 flex-1 gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{a.info.name}</span>
-                            {lead && <Crown className="size-3.5 text-signal" />}
-                            {a.info.specialty && (
-                              <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
-                                {a.info.specialty}
-                              </span>
-                            )}
-                            <Pill tone={toneFor(a.status)}>
-                              <Dot status={a.status} /> {a.status}
-                            </Pill>
-                          </div>
-                          <div className="truncate font-mono text-[11.5px] text-muted">{a.info.model}</div>
-                          {(task || a.detail) && (
-                            <div className="text-[12.5px]">
-                              {task ? `Working on ${task.subject}` : a.detail}
+                      </div>
+                      <ul className="divide-y divide-line">
+                        {tasks.map((t) => (
+                          <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
+                              <span className="font-mono text-[11px] text-muted">{t.id}</span>
+                              {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
                             </div>
-                          )}
-                          <div className="mt-1 flex flex-wrap gap-4">
-                            {[
-                              ['turns', String(a.turns)],
-                              ['tokens', compact(a.tokens)],
-                              ['tools', String(a.toolCalls)],
-                            ].map(([label, value]) => (
-                              <span key={label} className="flex flex-col gap-1">
-                                <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
-                                  {label}
-                                </span>
-                              </span>
-                            ))}
-                            {a.costKnown && a.cost > 0 && (
-                              <span className="self-end text-[11.5px] tabular-nums text-muted">
-                                ${a.cost.toFixed(3)}
+                            <span className="sr-only">{t.subject}</span>
+                            {/* Agents complete tasks, so the check is a live readout, not a control. */}
+                            <div inert className="-my-1.5" title={t.subject}>
+                              <SpringCheck
+                                label={<span className="block truncate">{t.subject}</span>}
+                                className="check-line"
+                                checked={t.status === 'verified'}
+                                color="var(--text)"
+                                fillColor="var(--ok)"
+                                checkColor="var(--bg)"
+                                boxSize={18}
+                                boxRadius={6}
+                                fontSize={13.5}
+                                doneOpacity={0.5}
+                              />
+                            </div>
+                            {t.description && <div className="text-[12.5px] text-muted">{t.description}</div>}
+                            {t.blockedBy.length > 0 && (
+                              <div className="text-[11.5px] text-muted">after {t.blockedBy.join(', ')}</div>
+                            )}
+                          </motion.li>
+                        ))}
+                      </ul>
+                    </>
+                  ))}
+                {tab === 'team' && (
+                  <ul className="divide-y divide-line">
+                    {agents.map((a) => {
+                      const task = tasks.find((t) => t.owner === a.info.name && t.status === 'in_progress')
+                      const lead = a.info.role === 'lead'
+                      return (
+                        <li key={a.info.name}>
+                          <button
+                            type="button"
+                            onClick={() => setInspect(a.info.name)}
+                            className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
+                          >
+                            <AgentAvatar name={a.info.name} status={a.status} size={40} />
+                            <div className="grid min-w-0 flex-1 gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold">{a.info.name}</span>
+                                {lead && <Crown className="size-3.5 text-signal" />}
+                                {a.info.specialty && (
+                                  <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
+                                    {a.info.specialty}
+                                  </span>
+                                )}
+                                <Pill tone={toneFor(a.status)}>
+                                  <Dot status={a.status} /> {a.status}
+                                </Pill>
+                              </div>
+                              <div className="truncate font-mono text-[11.5px] text-muted">
+                                {a.info.model}
+                              </div>
+                              {(task || a.detail) && (
+                                <div className="text-[12.5px]">
+                                  {task ? `Working on ${task.subject}` : a.detail}
+                                </div>
+                              )}
+                              <div className="mt-1 flex flex-wrap gap-4">
+                                {[
+                                  ['turns', String(a.turns)],
+                                  ['tokens', compact(a.tokens)],
+                                  ['tools', String(a.toolCalls)],
+                                ].map(([label, value]) => (
+                                  <span key={label} className="flex flex-col gap-1">
+                                    <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
+                                    <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+                                      {label}
+                                    </span>
+                                  </span>
+                                ))}
+                                {a.costKnown && a.cost > 0 && (
+                                  <span className="self-end text-[11.5px] tabular-nums text-muted">
+                                    ${a.cost.toFixed(3)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {tab === 'terminal' &&
+                  (shells.length === 0 ? (
+                    <Empty icon={<Terminal className="size-5" />} title="No shell commands yet">
+                      Agents run commands in a sandbox that can only write to their own scratch folder.
+                    </Empty>
+                  ) : (
+                    <div className="m-3 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
+                      {[...shells].reverse().map((s) => (
+                        <div key={s.id} className="border-b border-white/5 px-3.5 py-3 last:border-0">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                            <span>{s.agent}</span>
+                            <span>·</span>
+                            <span>{s.time.slice(11, 19)}</span>
+                            <span className="flex-1" />
+                            {s.ok === undefined ? (
+                              <span className="text-work">running…</span>
+                            ) : (
+                              <span
+                                className={
+                                  s.ok && /^exit 0/.test(s.output ?? '')
+                                    ? 'text-emerald-400'
+                                    : 'text-amber-400'
+                                }
+                              >
+                                {(s.output ?? '').split('\n')[0]}
                               </span>
                             )}
                           </div>
+                          <div className="mt-1.5 whitespace-pre-wrap break-all">
+                            <span className="select-none text-emerald-400">$ </span>
+                            {s.command}
+                          </div>
+                          {s.output && (
+                            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
+                              {s.output
+                                .split('\n')
+                                .slice(1)
+                                .join('\n')
+                                .replace(/--- (stdout|stderr)\n?/g, '')
+                                .trim() || '(no output)'}
+                            </pre>
+                          )}
                         </div>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-            {tab === 'terminal' &&
-              (shells.length === 0 ? (
-                <Empty icon={<Terminal className="size-5" />} title="No shell commands yet">
-                  Agents run commands in a sandbox that can only write to their own scratch folder.
-                </Empty>
-              ) : (
-                <div className="m-3 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
-                  {[...shells].reverse().map((s) => (
-                    <div key={s.id} className="border-b border-white/5 px-3.5 py-3 last:border-0">
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                        <span>{s.agent}</span>
-                        <span>·</span>
-                        <span>{s.time.slice(11, 19)}</span>
-                        <span className="flex-1" />
-                        {s.ok === undefined ? (
-                          <span className="text-work">running…</span>
-                        ) : (
-                          <span
-                            className={
-                              s.ok && /^exit 0/.test(s.output ?? '') ? 'text-emerald-400' : 'text-amber-400'
-                            }
-                          >
-                            {(s.output ?? '').split('\n')[0]}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1.5 whitespace-pre-wrap break-all">
-                        <span className="select-none text-emerald-400">$ </span>
-                        {s.command}
-                      </div>
-                      {s.output && (
-                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
-                          {s.output
-                            .split('\n')
-                            .slice(1)
-                            .join('\n')
-                            .replace(/--- (stdout|stderr)\n?/g, '')
-                            .trim() || '(no output)'}
-                        </pre>
-                      )}
+                      ))}
                     </div>
                   ))}
-                </div>
-              ))}
-            {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
-            {tab === 'computer' && <Computer colonyId={colonyId} live={state.status === 'running'} />}
-            {tab === 'activity' &&
-              (steps.length === 0 ? (
-                <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
-              ) : (
-                <ol className="flex flex-col px-4 py-2">
-                  {[...steps].reverse().map((s) => (
-                    <li
-                      key={s.id}
-                      className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-[12.5px] last:border-0"
-                    >
-                      <span className="min-w-0 break-words text-fg-2">
-                        <span className="text-muted">{s.agent} · </span>
-                        {s.lead} {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
-                        {s.tail && <span className="text-muted">{s.tail}</span>}
-                      </span>
-                      <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
-                    </li>
+                {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
+                {tab === 'computer' && <Computer colonyId={colonyId} live={state.status === 'running'} />}
+                {tab === 'activity' &&
+                  (steps.length === 0 ? (
+                    <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
+                  ) : (
+                    <ol className="flex flex-col px-4 py-2">
+                      {[...steps].reverse().map((s) => (
+                        <li
+                          key={s.id}
+                          className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-[12.5px] last:border-0"
+                        >
+                          <span className="min-w-0 break-words text-fg-2">
+                            <span className="text-muted">{s.agent} · </span>
+                            {s.lead} {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
+                            {s.tail && <span className="text-muted">{s.tail}</span>}
+                          </span>
+                          <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
+                        </li>
+                      ))}
+                    </ol>
                   ))}
-                </ol>
-              ))}
-          </motion.div>
-        </AnimatePresence>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
+        <nav
+          aria-label="Workspace views"
+          className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-line py-2"
+        >
+          {VIEWS.map((v) => {
+            const count = counts[v.value]
+            return (
+              <button
+                key={v.value}
+                type="button"
+                onClick={() => setTab(v.value)}
+                aria-label={v.label}
+                aria-current={tab === v.value ? 'page' : undefined}
+                title={v.label}
+                className={cn(
+                  'relative grid size-9 place-items-center rounded-lg transition-colors',
+                  tab === v.value ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                )}
+              >
+                {tab === v.value && (
+                  <motion.span
+                    layoutId="workspace-view"
+                    transition={softSpring}
+                    className="absolute -left-[7px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-fg"
+                  />
+                )}
+                <v.icon className="size-[18px]" />
+                {!!count && (
+                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[10px] font-medium leading-4 tabular-nums text-fg-2">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </nav>
       </div>
       <AnimatePresence>
         {file && state.artifacts[file] && (

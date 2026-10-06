@@ -11,7 +11,16 @@ import modesDoc from '../docs/modes.md' with { type: 'text' }
 import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
-import { assertAgentControl, type BrowserTab, pageElement, pageSnapshot, pointAt } from './browser.ts'
+import {
+  assertAgentControl,
+  type BrowserTab,
+  doneWith,
+  pageElement,
+  pageSnapshot,
+  pointAt,
+  refLabel,
+  watched,
+} from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
@@ -868,8 +877,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ ref: type('string').describe('e.g. e12') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const at = await pointAt(tab, await pageElement(tab, args.ref), 'click')
+      const at = await pointAt(tab, await pageElement(tab, args.ref), 'click', refLabel(tab, args.ref))
       await tab.page.mouse.click(at.x, at.y)
+      doneWith(tab)
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
       return pageSnapshot(tab)
     },
@@ -884,9 +894,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const field = await pageElement(tab, args.ref)
-      const at = await pointAt(tab, field, 'type')
+      const at = await pointAt(tab, field, 'type', refLabel(tab, args.ref))
       await tab.page.mouse.click(at.x, at.y, { count: 3 })
-      await field.type(args.text)
+      // Typed key by key while someone watches, so they can follow it.
+      await field.type(args.text, { delay: watched(tab) ? 35 : 0 })
+      doneWith(tab)
       if (args.submit) await field.press('Enter')
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
       return pageSnapshot(tab)

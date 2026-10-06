@@ -18,6 +18,8 @@ export type LiveEvent =
   | { type: 'cursor'; x: number; y: number; action: 'move' | 'click' | 'type' }
   | { type: 'page'; url: string; title: string }
   | { type: 'control'; by: 'agent' | 'person' }
+  /** The element the agent is about to act on, or null once it is done. */
+  | { type: 'highlight'; box: { x: number; y: number; width: number; height: number; label: string } | null }
 
 /** Input from a person who has taken control, in CSS pixels. */
 export type LiveInput =
@@ -364,21 +366,50 @@ export function assertAgentControl(tab: Tab): void {
     )
 }
 
+/** Whether anyone is watching this tab; agents only slow down to be followed when someone is. */
+export function watched(tab: Tab): boolean {
+  return tab.watchers.size > 0
+}
+
+/** Clears the highlight once the agent's action is done. */
+export function doneWith(tab: Tab): void {
+  if (watched(tab)) emit(tab, { type: 'highlight', box: null })
+}
+
 /**
- * Moves the agent's (real) mouse to an element's centre in a few steps, so a watcher sees the cursor travel,
- * and returns that point for the click or typing that follows.
+ * Moves the agent's real mouse to an element's centre. While someone watches, the element is highlighted and the
+ * cursor glides there in visible steps; otherwise it jumps. Returns the point for the click or typing that follows.
  */
 export async function pointAt(
   tab: Tab,
   handle: ElementHandle,
   action: 'click' | 'type',
+  label = '',
 ): Promise<{ x: number; y: number }> {
   await handle.scrollIntoView().catch(() => {})
   const box = await handle.boundingBox()
   if (!box) throw new Error('that element is not visible; take a fresh browser_snapshot')
   const to = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-  await tab.page.mouse.move(to.x, to.y, { steps: 8 })
+  if (watched(tab)) {
+    emit(tab, { type: 'highlight', box: { ...box, label } })
+    const from = tab.cursor
+    const steps = 12
+    for (let i = 1; i <= steps; i++) {
+      // Ease out, so the pointer decelerates onto its target like a hand would.
+      const t = 1 - (1 - i / steps) ** 3
+      const p = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }
+      await tab.page.mouse.move(p.x, p.y)
+      emit(tab, { type: 'cursor', ...p, action: 'move' })
+      await Bun.sleep(28)
+    }
+  } else await tab.page.mouse.move(to.x, to.y)
   tab.cursor = to
   emit(tab, { type: 'cursor', ...to, action })
   return to
+}
+
+/** "button: Add" for the element behind a ref, to label the highlight a watcher sees. */
+export function refLabel(tab: Tab, ref: string): string {
+  const node = tab.refs.get(ref)
+  return node ? `${node.role}${node.name ? `: ${node.name.slice(0, 40)}` : ''}` : ''
 }

@@ -1,9 +1,9 @@
-import { Globe, Hand, MonitorSmartphone, Undo2 } from 'lucide-react'
+import { Globe, Hand, Maximize2, Minimize2, MonitorSmartphone, Undo2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, browserSocket } from '../api.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
-import { AgentAvatar, agentColor } from '../ui/pixel.tsx'
-import { Button, cn, Empty, Pill } from '../ui/primitives.tsx'
+import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
+import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
 
 interface TabInfo {
   agent: string
@@ -20,6 +20,15 @@ type LiveEvent =
   | { type: 'page'; url: string; title: string }
   | { type: 'control'; by: 'agent' | 'person' }
   | { type: 'error'; message: string }
+  | { type: 'highlight'; box: Box | null }
+
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+  label: string
+}
 
 /** Keys sent as key presses; anything else that is one character is typed as text. */
 const KEYS = new Set([
@@ -105,6 +114,8 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
   const [by, setBy] = useState<'agent' | 'person'>('agent')
   const [error, setError] = useState<string>()
   const [scale, setScale] = useState(1)
+  const [highlight, setHighlight] = useState<Box | null>(null)
+  const [full, setFull] = useState(false)
   const socket = useRef<WebSocket>(undefined)
   const screen = useRef<HTMLDivElement>(null)
 
@@ -118,6 +129,7 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
       else if (e.type === 'page') setPage(e)
       else if (e.type === 'control') setBy(e.by)
       else if (e.type === 'error') setError(e.message)
+      else if (e.type === 'highlight') setHighlight(e.box)
       else if (e.type === 'cursor') {
         setCursor({ x: e.x, y: e.y, clicking: e.action === 'click' })
         clearTimeout(clickTimer)
@@ -133,15 +145,23 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
   }, [colonyId, agent])
 
   // Frames come in CSS pixels of the agent's viewport; the screen scales them to fit the panel.
+  const frameWidth = frame?.width
   useEffect(() => {
     const el = screen.current
-    if (!el || !frame) return
-    const fit = () => setScale(el.clientWidth / frame.width)
+    if (!el || !frameWidth) return
+    const fit = () => setScale(el.clientWidth / frameWidth)
     fit()
     const ro = new ResizeObserver(fit)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [frame])
+  }, [frameWidth])
+
+  useEffect(() => {
+    if (!full) return
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !controlling && setFull(false)
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  })
 
   const send = (msg: object) => socket.current?.readyState === 1 && socket.current.send(JSON.stringify(msg))
   const controlling = by === 'person'
@@ -151,7 +171,12 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={cn(
+        'flex flex-col gap-2',
+        full && 'fixed inset-0 z-[60] overflow-auto bg-surface px-[max(16px,4vw)] py-4',
+      )}
+    >
       <div className="flex items-center gap-2">
         <AgentAvatar name={agent} status={controlling ? 'idle' : 'working'} size={26} awake />
         <div className="min-w-0 flex-1">
@@ -177,6 +202,13 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
             {controlling ? `Hand back to ${agent}` : 'Take control'}
           </Button>
         )}
+        <IconButton
+          label={full ? 'Exit full screen' : 'Full screen'}
+          size="sm"
+          onClick={() => setFull(!full)}
+        >
+          {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </IconButton>
       </div>
       <div className="truncate rounded-lg border border-line bg-surface-2 px-2.5 py-1 font-mono text-[11.5px] text-fg-2">
         {page.url || 'about:blank'}
@@ -187,7 +219,8 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
         role="img"
         aria-label={`${agent}'s browser: ${page.title || page.url}`}
         className={cn(
-          'relative w-full overflow-hidden rounded-xl border bg-black outline-none',
+          'relative mx-auto w-full overflow-hidden rounded-xl border bg-black outline-none',
+          full && 'max-w-[calc((100dvh-140px)*1.6)]',
           controlling ? 'cursor-default border-warn/60 ring-2 ring-warn/25' : 'border-line',
         )}
         style={{ aspectRatio: frame ? `${frame.width} / ${frame.height}` : '16 / 10' }}
@@ -221,6 +254,28 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
         ) : (
           <div className="absolute inset-0 grid place-items-center text-[12.5px] text-white/50">
             {error ?? 'Connecting to the browser…'}
+          </div>
+        )}
+        {!controlling && frame && highlight && (
+          <div
+            className="pointer-events-none absolute rounded-[4px] border-2 transition-all duration-200"
+            style={{
+              left: highlight.x * scale - 3,
+              top: highlight.y * scale - 3,
+              width: highlight.width * scale + 6,
+              height: highlight.height * scale + 6,
+              borderColor: agentColor(agent),
+              background: `${agentColor(agent)}1a`,
+            }}
+          >
+            {highlight.label && (
+              <span
+                className="absolute -top-5 left-0 max-w-[240px] truncate rounded px-1.5 py-px text-[10.5px] font-medium"
+                style={{ background: agentColor(agent), color: inkOn(agentColor(agent)) }}
+              >
+                {highlight.label}
+              </span>
+            )}
           </div>
         )}
         {!controlling && frame && (
