@@ -617,8 +617,9 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
     judgeModel: 'mock/judge',
   })
   const s = await waitFor(colonyId, (st) => st.tasks['task-1']?.status === 'verified').catch(async (err) => {
-    for (const e of await events(colonyId))
-      console.log(e.seq, e.type, JSON.stringify(e.payload).slice(0, 200))
+    if (process.env.MYR_DEBUG)
+      for (const e of await events(colonyId))
+        console.log(e.seq, e.type, JSON.stringify(e.payload).slice(0, 200))
     throw err
   })
   expect(s.artifacts['notes.md']).toBeDefined()
