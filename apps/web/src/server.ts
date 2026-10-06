@@ -22,6 +22,11 @@ export interface ServeOptions {
   /** 0 picks a free port. */
   readonly port?: number
   readonly token?: string
+  /**
+   * Development only: skip the bearer token. The server still binds to 127.0.0.1 and still rejects
+   * foreign Host and Origin headers, so other sites and DNS rebinding cannot reach the API.
+   */
+  readonly noAuth?: boolean
   /** Enables the chat API; without it the server is a read-only dashboard. */
   readonly chats?: ChatService
   readonly settings?: SettingsStore
@@ -61,7 +66,9 @@ const BATCH = 500
 
 /** Local dashboard + API. Binds to 127.0.0.1 only and requires a bearer token for every API call. */
 export function startServer(options: ServeOptions): WebServer {
-  const token = options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
+  const token = options.noAuth
+    ? ''
+    : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
   const store = new SqliteLogStore(options.home)
   const sockets = new Set<ServerWebSocket<StreamData>>()
 
@@ -76,6 +83,7 @@ export function startServer(options: ServeOptions): WebServer {
     if (host !== `127.0.0.1:${server.port}` && host !== `localhost:${server.port}`) return false
     const origin = req.headers.get('origin')
     if (origin && origin !== `http://${host}`) return false
+    if (options.noAuth) return true
     const header = req.headers.get('authorization')
     const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
     return given !== null && given !== undefined && tokenEquals(given, token)
@@ -391,7 +399,9 @@ export function startServer(options: ServeOptions): WebServer {
   }, POLL_MS)
 
   return {
-    url: `http://127.0.0.1:${server.port}/#token=${token}`,
+    url: options.noAuth
+      ? `http://127.0.0.1:${server.port}/`
+      : `http://127.0.0.1:${server.port}/#token=${token}`,
     token,
     async stop() {
       clearInterval(poll)

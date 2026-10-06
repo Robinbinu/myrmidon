@@ -29,7 +29,7 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
-  myrmidon serve [--port N]
+  myrmidon serve [--port N] [--dev]
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
   myrmidon ls
   myrmidon events <colony-id> [--json]
@@ -37,6 +37,7 @@ Usage:
 
 Options:
   --home DIR   Data directory (default $MYRMIDON_HOME or ~/.myrmidon)
+  --dev        Serve the dashboard without an access token (localhost only; for development)
 `
 
 const { values, positionals } = parseArgs({
@@ -49,6 +50,7 @@ const { values, positionals } = parseArgs({
     json: { type: 'boolean', default: false },
     out: { type: 'string' },
     'unsafe-no-sandbox': { type: 'boolean', default: false },
+    dev: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -187,7 +189,9 @@ async function run(path: string) {
       `id ${colony.id} · sandbox ${sandbox.kind}${values['unsafe-no-sandbox'] ? ' (UNSAFE override)' : ''} · data ${home}`,
     ),
   )
-  const server = values.ui ? startServer({ home, port: Number(values.port ?? 0) }) : undefined
+  const server = values.ui
+    ? startServer({ home, port: Number(values.port ?? 0), noAuth: values.dev })
+    : undefined
   if (server) console.log(`${c.bold('UI')} ${server.url}`)
   let interrupted = false
   process.on('SIGINT', () => {
@@ -250,8 +254,11 @@ async function main() {
         resolver,
         omp,
         sandboxKind: sandbox.kind,
+        noAuth: values.dev,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      if (values.dev)
+        console.log(c.yellow('dev mode: no access token. Any program on this machine can use the API.'))
       console.log(
         c.dim(
           `data ${home} · ${omp.available().length} models ready · sandbox ${sandbox.kind} · Ctrl-C to stop`,
