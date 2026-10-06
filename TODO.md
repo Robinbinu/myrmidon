@@ -12,9 +12,11 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Send feedback in a new chat** — clicking send in a fresh chat shows nothing until the round starts
-      (triage + preflight take seconds). Show an immediate optimistic user bubble, a "starting the colony…"
-      state with the mascot thinking, and disable double-send.
+- [x] **Send feedback in a new chat** — optimistic user bubble + PendingRound with the mascot thinking.
+- [x] **Idle faces go to sleep** — agent avatars doze (closed eyes + drifting "z") after 15s idle.
+- [ ] **Claude Code integration (from omp)** — omp can drive Claude models through the user's Claude Code
+      login; find how omp does it (provider/auth in @oh-my-pi) and expose those models in Myrmidon's model
+      picker so colonies can run on Claude.
 - [ ] **Steer vs queue for messages to a running colony** — like Claude Code: a message can *steer*
       (interrupt the current turn and be read immediately, top priority) or *queue* (wait until the agent
       finishes its current step, like omp). Composer control + `chat/user` payload flag; agent.ts steer vs inbox.

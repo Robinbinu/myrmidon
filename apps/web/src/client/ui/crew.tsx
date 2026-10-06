@@ -1,7 +1,7 @@
 import { type Form, identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotion } from 'motion/react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { type Mood, moodFor } from './pixel.tsx'
+import { type Mood, Snore, useAgentMood } from './pixel.tsx'
 
 /*
  * Worker characters: a plain rounded shape in the worker's colour with two ink eyes, drawn in a 100×100
@@ -167,12 +167,18 @@ function useBlink(active: boolean): boolean {
  * A worker's character: its own shape and colour (both derived from its call sign) with eyes that look
  * around while it works, blink, smile when done, and close when it rests.
  */
-export function AgentCharacter(props: { name: string; status: string; size?: number; className?: string }) {
+export function AgentCharacter(props: {
+  name: string
+  status: string
+  size?: number
+  className?: string
+  awake?: boolean
+}) {
   const size = props.size ?? 32
   const reduce = useReducedMotion()
   const { color, form } = identityOf(props.name)
   const body = BODIES[form]
-  const mood = moodFor(props.status)
+  const mood = useAgentMood(props.status, props.awake)
   const working = mood === 'working' || mood === 'thinking'
   const blink = useBlink(!reduce && !['happy', 'error', 'sleep', 'love'].includes(mood))
   const [look, setLook] = useState<[number, number]>([0, 0])
@@ -203,7 +209,7 @@ export function AgentCharacter(props: { name: string; status: string; size?: num
   return (
     <span
       className={props.className}
-      style={{ width: size, height: size, display: 'inline-block', flexShrink: 0 }}
+      style={{ width: size, height: size, display: 'inline-block', flexShrink: 0, position: 'relative' }}
       title={`${props.name} · ${props.status}`}
       aria-hidden
     >
@@ -211,6 +217,7 @@ export function AgentCharacter(props: { name: string; status: string; size?: num
         {body.draw(color)}
         <Eyes body={body} mood={mood} blink={blink} look={look} />
       </svg>
+      {mood === 'sleep' && size >= 28 && <Snore size={size} />}
     </span>
   )
 }

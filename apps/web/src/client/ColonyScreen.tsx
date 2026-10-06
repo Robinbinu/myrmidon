@@ -566,7 +566,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
       )}
     >
       <div className="mb-1 flex items-center gap-2 text-[12px]">
-        <AgentAvatar name={item.agent} status="idle" size={18} />
+        <AgentAvatar name={item.agent} status="idle" size={18} awake />
         <span className="font-semibold">{item.agent}</span>
         <RowMeta agent="" time={item.time} />
       </div>

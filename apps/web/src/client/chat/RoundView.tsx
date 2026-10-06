@@ -226,7 +226,7 @@ function AgentMessage(props: { from: string; text: string; final: boolean; onIns
         aria-label={`What ${props.from} is doing`}
         className="h-fit rounded-[10px] transition-transform hover:scale-105"
       >
-        <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} />
+        <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} awake />
       </button>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-[12.5px]">

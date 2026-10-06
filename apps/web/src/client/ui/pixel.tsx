@@ -62,6 +62,44 @@ export function moodFor(status: string): Mood {
   }
 }
 
+/** How long an agent sits idle before its face dozes off. */
+export const DOZE_MS = 15_000
+
+/**
+ * The mood an agent's face shows: its status, except that an agent left idle for a while falls asleep.
+ * `awake` keeps the face open for avatars used as static icons rather than live agents.
+ */
+export function useAgentMood(status: string, awake = false): Mood {
+  const mood = moodFor(status)
+  const resting = !awake && mood === 'idle'
+  const [dozing, setDozing] = useState(false)
+  useEffect(() => {
+    setDozing(false)
+    if (!resting) return
+    const t = setTimeout(() => setDozing(true), DOZE_MS)
+    return () => clearTimeout(t)
+  }, [resting])
+  return resting && dozing ? 'sleep' : mood
+}
+
+/** A small "z" drifting up from a sleeping face. */
+export function Snore(props: { size: number }) {
+  const reduce = useReducedMotion()
+  const font = Math.max(8, Math.round(props.size * 0.26))
+  return (
+    <motion.span
+      className="pointer-events-none absolute select-none font-semibold leading-none text-muted"
+      style={{ right: -font * 0.35, top: -font * 0.55, fontSize: font }}
+      initial={reduce ? { opacity: 0.6 } : { opacity: 0, x: 0, y: 2 }}
+      animate={reduce ? { opacity: 0.6 } : { opacity: [0, 0.7, 0], x: [0, 2, 4], y: [2, -3, -8] }}
+      transition={reduce ? undefined : { duration: 2.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeOut' }}
+      aria-hidden
+    >
+      z
+    </motion.span>
+  )
+}
+
 type Cell = readonly [number, number]
 
 const HEART = ['.#.#.', '#####', '.###.', '..#..']
@@ -306,9 +344,27 @@ export function PixelFace(props: {
  * The avatar used for agents everywhere: the lead (and the judge) get a face on a small dark screen, like the
  * mascot; workers get their own character.
  */
-export function AgentAvatar(props: { name: string; status: string; size?: number; className?: string }) {
+export function AgentAvatar(props: {
+  name: string
+  status: string
+  size?: number
+  className?: string
+  /** Never doze: for avatars that label a message or event rather than show a live agent. */
+  awake?: boolean
+}) {
   if (props.name !== 'lead' && props.name !== 'judge') return <AgentCharacter {...props} />
+  return <ScreenAvatar {...props} />
+}
+
+function ScreenAvatar(props: {
+  name: string
+  status: string
+  size?: number
+  className?: string
+  awake?: boolean
+}) {
   const size = props.size ?? 32
+  const mood = useAgentMood(props.status, props.awake)
   const cols = 7
   const rows = 7
   const pad = size * 0.16
@@ -321,13 +377,14 @@ export function AgentAvatar(props: { name: string; status: string; size?: number
       aria-hidden
     >
       <PixelFace
-        mood={moodFor(props.status)}
+        mood={mood}
         color={agentColor(props.name)}
         cols={cols}
         rows={rows}
         cell={cell}
         gap={cell * 0.3}
       />
+      {mood === 'sleep' && size >= 28 && <Snore size={size} />}
     </span>
   )
 }
