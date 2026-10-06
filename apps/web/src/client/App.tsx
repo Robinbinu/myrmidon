@@ -506,20 +506,18 @@ export function App() {
                   )}
                 </div>
                 {view === 'chat' && chat && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<Network className="size-4" />}
-                      onClick={() => {
-                        const latest = chat.rounds.at(-1)
-                        if (latest) setColonyModal(latest.colonyId)
-                      }}
-                      title="Colony console: agents, tool calls, tasks, replay"
-                    >
-                      <span className="hidden sm:inline">Colony</span>
-                    </Button>
-                  </>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Network className="size-4" />}
+                    onClick={() => {
+                      const latest = chat.rounds.at(-1)
+                      if (latest) setColonyModal(latest.colonyId)
+                    }}
+                    title="Colony console: agents, tool calls, tasks, replay"
+                  >
+                    <span className="hidden sm:inline">Colony</span>
+                  </Button>
                 )}
               </header>
               {chatsError && (
