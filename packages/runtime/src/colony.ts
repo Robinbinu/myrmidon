@@ -23,7 +23,7 @@ import {
 import { ColonyAgent } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
-import type { ColonyHost } from './host.ts'
+import type { ColonyHost, TodoItem } from './host.ts'
 import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -139,8 +139,9 @@ export class ColonyRun implements ColonyHost {
   private _bootstrapped = 1
   /** Set while a swarm's peers are proposing how to split the work; `after` is the seq it opened at. */
   private _huddle?: { since: number; after: number; proposed: Set<string> }
-  /** Reminders sent to agents that stopped holding a task, keyed by agent and task. */
+  /** Reminders sent to agents that stopped with work open, keyed by agent and task (or todo list). */
   private readonly _reminded = new Map<string, number>()
+  private readonly _todos = new Map<string, readonly TodoItem[]>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -186,6 +187,11 @@ export class ColonyRun implements ColonyHost {
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
   nudge(agent: string, text: string) {
     if (this._state.status === 'running') this._wake(agent, text, 'person')
+  }
+
+  setTodos(agent: string, items: readonly TodoItem[]) {
+    this._todos.set(agent, items)
+    this._reminded.delete(`${agent}:todo`)
   }
 
   huddling() {
@@ -752,7 +758,7 @@ export class ColonyRun implements ColonyHost {
     const held = Object.values(this._state.tasks).find(
       (t) => t.status === 'in_progress' && t.owner === agent && t.id !== 'task-final',
     )
-    if (!held) return
+    if (!held) return this._remindTodos(agent)
     const key = `${agent}:${held.id}`
     const sent = this._reminded.get(key) ?? 0
     if (sent >= 2) return
@@ -760,6 +766,22 @@ export class ColonyRun implements ColonyHost {
     this._wake(
       agent,
       `You stopped while holding ${held.id} r${held.revision} (${held.subject}). Finish it: publish its outputs and submit_task. If you truly cannot, release_task and post what blocks you. (Reminder ${sent + 1} of 2)`,
+      'reminder',
+    )
+  }
+
+  /** Like a held task: an agent that stops with its own checklist unfinished is reminded, at most twice. */
+  private _remindTodos(agent: string) {
+    const open = (this._todos.get(agent) ?? []).filter((t) => !t.done)
+    const answered = this._state.chatMessages.some((m) => m.from === agent && m.final)
+    if (open.length === 0 || answered) return
+    const key = `${agent}:todo`
+    const sent = this._reminded.get(key) ?? 0
+    if (sent >= 2) return
+    this._reminded.set(key, sent + 1)
+    this._wake(
+      agent,
+      `You stopped with ${open.length} open item${open.length === 1 ? '' : 's'} on your todo list:\n${open.map((t) => `- [ ] ${t.text}`).join('\n')}\nContinue with them, or update_todo to mark them done or drop the ones that no longer apply. (Reminder ${sent + 1} of 2)`,
       'reminder',
     )
   }

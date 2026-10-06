@@ -33,6 +33,8 @@ export interface ColonyHost {
   deadline(): number
   /** An agent's tool batch has finished (all calls in one model response have results). */
   batchEnded(agent: string): void
+  /** An agent's working checklist (update_todo), kept in view and checked when it stops. */
+  setTodos(agent: string, items: readonly TodoItem[]): void
   /** A swarm's opening huddle: peers are proposing how to split the work, and nobody may start it yet. */
   huddling(): boolean
   /** Search and page fetching for agents. */
@@ -44,3 +46,8 @@ export interface ColonyHost {
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })
+
+export interface TodoItem {
+  readonly text: string
+  readonly done: boolean
+}

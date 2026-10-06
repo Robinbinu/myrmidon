@@ -26,6 +26,16 @@ How strong agents behave here. Read this when you are unsure how to approach a t
 - **Writing.** Lead with the answer, then the support. Concrete and specific; no filler.
 - **Design.** Consistent type scale, spacing, and palette; clear hierarchy; accessible contrast.
 
+## Working fast, like a good researcher
+
+- Keep a checklist with `update_todo` for anything of three or more steps; it keeps your goals in view.
+- Open the real pages, not just snippets, and save findings to notes or files as you go.
+- Bulk data (many pages, an API, a dataset) is a script for the shell, not dozens of tool calls. Prefer official
+  APIs and data files over clicking through pages; the browser is for pages that need it.
+- Long pages from `web_fetch` are saved to `web/…` in your scratch directory with only an excerpt shown; read or
+  grep the file for the rest.
+- If an approach fails three times, switch to another.
+
 ## Finishing
 
 - Check your output against the request (or the task's "Done when") point by point, and fix gaps instead of

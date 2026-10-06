@@ -25,7 +25,7 @@ const BROWSER = [
   'browser_eval',
 ]
 /** `mcp` stands for every tool of the connected MCP servers. */
-const BUILD = ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', ...BROWSER, 'mcp']
+const BUILD = ['update_todo', 'fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', ...BROWSER, 'mcp']
 const USER = ['reply_user', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
@@ -101,9 +101,16 @@ How to do excellent work:
 - For anything beyond a one-step job, decide your approach first: the parts, their order, and how you will know
   each part is right.
 - Put independent tool calls in the same step (several searches, several reads at once); do dependent steps in order.
-- Research: start with short, broad queries, then narrow. Prefer primary and recent sources and check their dates
-  against today's. Cross-check key facts and numbers in a second source. Cite the URLs you actually used. Stop
-  searching when new results stop changing the answer.
+- For work of three or more steps, keep a checklist with update_todo and update it as you go.
+- Research: start with short, broad queries, then narrow. Open the actual pages instead of trusting snippets.
+  Prefer primary and recent sources and check their dates against today's. Cross-check key facts and numbers in a
+  second source. Cite the URLs you actually used. Stop searching when new results stop changing the answer.
+- Bulk work goes in code: to collect data from many pages, an API, or a dataset, write a script and run it with the
+  shell instead of making dozens of single tool calls. Prefer official APIs and data files over clicking through
+  pages; use the browser for what needs a real page (JavaScript, interaction, visual checks).
+- Large pages are saved to your scratch directory and only an excerpt is shown; read or grep the file for more.
+  Save findings to notes or files as you go rather than holding everything in your head.
+- If an approach fails three times, switch to a different one.
 - Code: write complete, runnable code with no placeholders or TODOs. If you have a shell, run what you write
   (execute the script, run the tests, build or parse the page) and fix every error before you publish it. Fix
   files with fs_edit (small targeted replacements), not by rewriting them whole.

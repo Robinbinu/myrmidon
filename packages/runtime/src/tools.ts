@@ -26,6 +26,18 @@ import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
+/** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
+const PAGE_EXCERPT = 8_000
+
+/** A short, stable file name for a fetched URL. */
+function pageFileName(url: string): string {
+  const slug = url
+    .replace(/^https?:\/\//, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60)
+  return `${slug || 'page'}-${Bun.hash(url).toString(36).slice(0, 6)}`
+}
 const MAX_READ_CHARS = 40_000
 
 type Tier = 'read' | 'write' | 'exec'
@@ -780,9 +792,20 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'arXiv papers, Stack Overflow, and more get dedicated readers. Use it to verify a fact or number before you rely ' +
       'on it, and prefer primary sources (official docs, the original paper or announcement) over summaries.',
     parameters: type({ url: type('string').describe('http(s) URL') }),
-    async run(args, _agent, host) {
+    async run(args, agent, host) {
       const page = await host.web.read(args.url)
-      return clip(`Source: ${page.url} (${page.method}, ${page.contentType})\n\n${page.output}`)
+      const head = `Source: ${page.url} (${page.method}, ${page.contentType})`
+      if (page.output.length <= PAGE_EXCERPT) return `${head}\n\n${page.output}`
+      // Like Manus: keep context small and the rest recoverable. The full page goes to a scratch file the agent
+      // can read or grep, and only an excerpt enters the conversation.
+      const self = host.spec.agents.find((a) => a.name === agent)
+      if (!self || !toolsFor(host.spec, self).includes('fs_read'))
+        return clip(`${head}\n\n${page.output}`, 16_000)
+      const name = `web/${pageFileName(page.url)}.md`
+      const path = host.workspace.resolveInScratch(agent, name)
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, `${head}\n\n${page.output}`)
+      return `${head}\n(${page.output.length} chars; the full text is saved as ${name} in your scratch directory: fs_read it, or search it with the shell)\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
     },
   },
   {
@@ -874,6 +897,24 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
+    },
+  },
+  {
+    name: 'update_todo',
+    tier: 'write',
+    description:
+      'Your working checklist for multi-step work, like a todo.md: write the whole list each time, marking finished ' +
+      'items done. It is echoed back so your goals stay in view as the work grows, and stopping with open items gets ' +
+      'you a reminder. Use it for jobs of three or more steps; skip it for one-step answers.',
+    parameters: type({ items: type({ text: type('string').atLeastLength(1), 'done?': 'boolean' }).array() }),
+    async run(args, agent, host) {
+      const items = (args.items as { text: string; done?: boolean }[]).map((i) => ({
+        text: i.text,
+        done: i.done === true,
+      }))
+      host.setTodos(agent, items)
+      const done = items.filter((i) => i.done).length
+      return `Todo (${done}/${items.length} done):\n${items.map((i) => `- [${i.done ? 'x' : ' '}] ${i.text}`).join('\n')}`
     },
   },
   {

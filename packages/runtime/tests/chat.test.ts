@@ -747,6 +747,65 @@ test.skipIf(!findChrome())(
   60_000,
 )
 
+test('long pages are saved to scratch with an excerpt, and an unfinished todo list gets a reminder', async () => {
+  const resolver = new ModelResolver()
+  const web = {
+    search: async () => 'results',
+    read: async (url: string) => ({
+      url,
+      method: 'html',
+      contentType: 'text/html',
+      output: `START ${'lorem ipsum '.repeat(2000)} END-OF-PAGE`,
+    }),
+  }
+  const seen: string[] = []
+  const agent = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const last = JSON.stringify(ctx.messages.at(-1) ?? '')
+      seen.push(last)
+      if (seen.length === 1)
+        return {
+          content: [
+            tool('update_todo', { items: [{ text: 'Read the page' }, { text: 'Summarise it' }] }),
+            tool('web_fetch', { url: 'https://example.com/long' }),
+          ],
+        }
+      if (last.includes('open items on your todo list'))
+        return {
+          content: [
+            tool('update_todo', {
+              items: [
+                { text: 'Read the page', done: true },
+                { text: 'Summarise it', done: true },
+              ],
+            }),
+            tool('reply_user', { text: 'Summarised.', final: true }),
+          ],
+        }
+      return { content: ['Pausing here.'] }
+    },
+  })
+  resolver.register('mock/solo', { model: agent.model, streamFn: agent.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), web })
+  const { colonyId } = await chats.send('Summarise a long page', {
+    ...solo('mock/solo'),
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  const fetched = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .find((r) => r.tool === 'web_fetch')
+  expect(fetched?.output).toContain('the full text is saved as web/')
+  expect(fetched?.output).not.toContain('END-OF-PAGE')
+  const name = /saved as (web\/[\w.-]+\.md)/.exec(fetched?.output ?? '')?.[1] ?? ''
+  const saved = await Bun.file(join(home, 'colonies', colonyId, 'scratch', 'lead', name)).text()
+  expect(saved).toContain('END-OF-PAGE')
+  expect(seen.some((m) => m.includes('You stopped with 2 open items on your todo list'))).toBe(true)
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [
