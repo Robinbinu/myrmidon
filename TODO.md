@@ -87,7 +87,8 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] Observer counts tool calls as progress (no stall warnings mid-research).
 - [x] Per-round token budget (`budget.tokens`) and, for chat rounds, spend and token limits in Settings → Team &
       budget; at 80% agents are told to wrap up, at 100% the round stops.
-- [ ] Global chat/colony index in SQLite so the chat list doesn't open every colony log.
+- [x] Chat index (`<home>/chat-index.sqlite`): the list re-reads only logs whose files changed (53 colonies:
+      16–21ms per poll → ~1ms); full folds only for the chat being acted on.
 - [x] Harden the timing-sensitive tests: five tests waited on wall-clock (a 1s stall tick that ignored `quietMs`,
       and an 8s quiet wait after `ask_user`); the round now pauses as soon as a question is open and everyone is
       idle. Suite 52s → 18s, passes 3× in parallel.

@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
@@ -973,6 +974,36 @@ test('older auto/manual team configs still work', () => {
     { role: 'worker', model: 'c/d' },
     { role: 'worker', model: 'c/d' },
   ])
+})
+
+test('the chat list reads only the logs that changed since the last listing', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/indexed', [
+    [tool('ask_user', { question: 'Which format do you want?' })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send('make a report', solo('mock/indexed'))
+  await waitFor(colonyId)
+  await chats.stopAll()
+
+  // A fresh service, as after a restart: nothing is live, so every listing goes through the index.
+  const later = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const reads = spyOn(SqliteLogStore.prototype, 'read')
+  try {
+    expect((await later.list())[0]?.title).toBe('make a report')
+    expect(reads).toHaveBeenCalledTimes(1)
+    reads.mockClear()
+    expect((await later.list())[0]?.rounds).toHaveLength(1)
+    expect(reads).toHaveBeenCalledTimes(0)
+
+    await later.rename(chatId, 'Quarterly report')
+    reads.mockClear()
+    expect((await later.list())[0]?.title).toBe('Quarterly report')
+    expect(reads).toHaveBeenCalledTimes(1)
+  } finally {
+    reads.mockRestore()
+  }
 })
 
 test('deleting a chat removes every round and its data', async () => {

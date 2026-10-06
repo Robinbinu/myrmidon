@@ -12,6 +12,7 @@ import {
 import { completeSimple } from '@oh-my-pi/pi-ai'
 import { compactTranscript, readTranscript } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
@@ -223,46 +224,55 @@ export class ChatService {
     return this.runtime.ctx.logStore as SqliteLogStore
   }
 
-  private async rounds(): Promise<Map<string, { state: ColonyState; id: string }[]>> {
-    const byChat = new Map<string, { state: ColonyState; id: string }[]>()
-    for (const id of await this.store.colonies()) {
-      const live = [...this._live.values()].find((r) => r.id === id)
-      const state = live ? live.state() : foldColony(id, await this.store.read(id))
-      if (!state.chat) continue
-      const list = byChat.get(state.chat.chatId) ?? []
-      list.push({ state, id })
-      byChat.set(state.chat.chatId, list)
-    }
-    for (const list of byChat.values())
-      list.sort((a, b) => (a.state.chat?.round ?? 0) - (b.state.chat?.round ?? 0))
-    return byChat
+  private _index?: ChatIndex
+  private get index() {
+    this._index ??= new ChatIndex(this.store.home, this.store)
+    return this._index
+  }
+
+  private readonly _liveState = (id: string) => [...this._live.values()].find((r) => r.id === id)?.state()
+
+  /** One chat's rounds in order, with their full state. */
+  private async rounds(chatId: string): Promise<{ state: ColonyState; id: string }[]> {
+    const mine = (await this.index.rounds(this._liveState))
+      .filter((r) => r.chatId === chatId)
+      .sort((a, b) => a.round - b.round)
+    return Promise.all(
+      mine.map(async (r) => ({
+        id: r.colonyId,
+        state:
+          this._liveState(r.colonyId) ?? foldColony(r.colonyId, await this.store.read(r.colonyId as never)),
+      })),
+    )
   }
 
   async list(): Promise<ChatSummary[]> {
+    const byChat = new Map<string, IndexedRound[]>()
+    for (const r of await this.index.rounds(this._liveState))
+      byChat.set(r.chatId, [...(byChat.get(r.chatId) ?? []), r])
     const out: ChatSummary[] = []
-    for (const [chatId, list] of await this.rounds()) {
+    for (const [chatId, list] of byChat) {
+      list.sort((a, b) => a.round - b.round)
       const last = list.at(-1)
       const first = list[0]
       if (!last || !first) continue
       const renamed = list
-        .map((r) => r.state.chatTitle)
+        .map((r) => r.title)
         .filter((t) => t !== undefined)
         .sort((a, b) => a.at.localeCompare(b.at))
         .at(-1)
       out.push({
         chatId,
-        title: renamed?.title ?? title(first.state.chat?.request ?? first.state.name),
-        ...(first.state.chat?.project
-          ? { project: { id: first.state.chat.project.id, name: first.state.chat.project.name } }
-          : {}),
-        updatedAt: last.state.endedAt ?? last.state.createdAt ?? '',
-        status: last.state.status,
+        title: renamed?.title ?? title(first.request || first.name),
+        ...(first.project ? { project: first.project } : {}),
+        updatedAt: last.endedAt ?? last.createdAt ?? '',
+        status: last.status,
         rounds: list.map((r) => ({
-          colonyId: r.id,
-          round: r.state.chat?.round ?? 0,
-          status: r.state.status,
-          request: r.state.chat?.request ?? '',
-          swarm: r.state.team?.mode === 'swarm',
+          colonyId: r.colonyId,
+          round: r.round,
+          status: r.status,
+          request: r.request,
+          swarm: r.swarm,
         })),
       })
     }
@@ -306,7 +316,7 @@ export class ChatService {
       await live.postUserMessage(message, delivery, attachments)
       return { chatId: id, colonyId: live.id, started: false }
     }
-    const previous = (await this.rounds()).get(id) ?? []
+    const previous = await this.rounds(id)
     const history = conversation(previous)
     const classify = this.options.classify ?? llmClassifier(this.options.resolver, () => config.leadModel)
     // One retry, then one agent with every tool: it can do anything a single agent can without waking a team.
@@ -358,7 +368,7 @@ export class ChatService {
     const clean = name.replace(/\s+/g, ' ').trim()
     if (!clean) throw new Error('title is empty')
     if (clean.length > 120) throw new Error('title is longer than 120 characters')
-    const latest = ((await this.rounds()).get(chatId) ?? []).at(-1)
+    const latest = (await this.rounds(chatId)).at(-1)
     if (!latest) throw new Error('no such chat')
     const draft = {
       type: 'chat/renamed',
@@ -397,7 +407,7 @@ export class ChatService {
    */
   async resume(chatId: string, model?: string): Promise<{ chatId: string; colonyId: string }> {
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
-    const last = (await this.rounds()).get(chatId)?.at(-1)
+    const last = (await this.rounds(chatId)).at(-1)
     if (!last) throw new Error('no such chat')
     if (last.state.status === 'completed')
       throw new Error('the latest round already completed; send a follow-up instead')
@@ -489,8 +499,11 @@ export class ChatService {
       await live.done
       this._live.delete(chatId)
     }
-    const rounds = (await this.rounds()).get(chatId) ?? []
-    for (const { id } of rounds) this.store.deleteColony(id as never)
+    const rounds = await this.rounds(chatId)
+    for (const { id } of rounds) {
+      this.store.deleteColony(id as never)
+      this.index.forget(id)
+    }
     return rounds.map((r) => r.id)
   }
 
