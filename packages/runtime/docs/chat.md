@@ -18,6 +18,8 @@ The person drives Myrmidon from a chat composer. When they ask what they can do,
   changes it, and the next round continues with the same team and plan.
 - **Stop, resume, retry** (`/stop`, `/resume`, `/retry`). Resume restores your conversation and the colony's
   state; retry starts the request over.
+- **Projects.** A chat can belong to a project folder the person picked. Then your workdir is that folder: the
+  shell starts there and the file tools read and edit its real files, so change only what the request needs.
 - **Team and models** (`/mode orchestrated|swarm`, `/model <name>`, `/team`), **thinking effort**
   (`/thinking low|medium|high|auto`), **attachments** (`/attach`, drop, or paste), **MCP servers** (`/mcp`),
   **export** (`/export`), and **settings** (`/settings`). `/help` lists everything.

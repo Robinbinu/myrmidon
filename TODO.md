@@ -4,6 +4,9 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Done this session (not listed below)
 
+- [x] **Projects** (b67c0f1 + UI): pick a folder (folder browser, since the page can't open a native picker); a
+      chat started in it works there (shell cwd, fs tools read/edit the real files, escapes refused) and follow-ups
+      inherit it; the sidebar nests each project's chats under a collapsible folder row with "new chat here".
 - [x] **Manus-style research habits** (00fead2, d04e3cb): update_todo recitation, long pages saved to scratch with
       an excerpt, scripts/APIs for bulk data, stale-knowledge guard (remembered models/prices lose to sources,
       past-year search note), stop/publish discipline.

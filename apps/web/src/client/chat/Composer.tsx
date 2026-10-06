@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { type ModelOption, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { cn, spring } from '../ui/primitives.tsx'
 import { matchSlash, parseSlash, SLASH_COMMANDS, type SlashCommand } from './commands.ts'
@@ -311,6 +311,8 @@ interface ComposerProps {
   onTextChange?(text: string): void
   /** Runs a slash command other than the ones the composer handles itself (team, attach, help). */
   onCommand(name: string, arg: string): Promise<void>
+  /** Shows and picks the project folder the chat works in. */
+  project?: ReactNode
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
@@ -591,6 +593,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <span className="truncate">{lead?.name ?? (config.leadModel || 'Choose a model')}</span>
               </button>
             )}
+            {props.project}
             <AnimatePresence initial={false}>
               {props.running && (
                 <motion.div

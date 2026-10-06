@@ -8,6 +8,7 @@ import {
   type ColonySummary,
   type ModelOption,
   normalizeConfig,
+  type Project,
   post,
   send as request,
   type TeamConfig,
@@ -15,6 +16,7 @@ import {
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
+import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
@@ -114,6 +116,10 @@ export function App() {
   /** A request on its way: shown at once, until its round appears in the chat list. */
   const [pending, setPending] = useState<{ text: string; chatId?: string; colonyId?: string }>()
   const [draft, setDraft] = useState('')
+  const [projects, setProjects] = useState<Project[]>([])
+  /** The project a new chat will work in. */
+  const [newProject, setNewProject] = useState<string>()
+  const [picking, setPicking] = useState(false)
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
 
@@ -144,6 +150,12 @@ export function App() {
   }, [toast])
 
   useEffect(loadModels, [loadModels])
+
+  useEffect(() => {
+    api<{ projects: Project[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch((err) => toast(String(err.message ?? err), 'error'))
+  }, [toast])
 
   // Announce rounds that finish while the user is elsewhere.
   useEffect(() => {
@@ -179,16 +191,20 @@ export function App() {
       setPending(undefined)
   }, [chats, pending])
 
-  const newTask = useCallback(() => {
-    setActiveChat(undefined)
-    setView('chat')
-    setSettingsOpen(false)
-    setMobileNav(false)
-    requestAnimationFrame(() => composer.current?.focus())
-  }, [setActiveChat])
+  const newTask = useCallback(
+    (project?: string) => {
+      setNewProject(project)
+      setActiveChat(undefined)
+      setView('chat')
+      setSettingsOpen(false)
+      setMobileNav(false)
+      requestAnimationFrame(() => composer.current?.focus())
+    },
+    [setActiveChat],
+  )
 
   useHotkeys([
-    { combo: 'mod+k', run: newTask, inInputs: true },
+    { combo: 'mod+k', run: () => newTask(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     { combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true },
@@ -217,6 +233,7 @@ export function App() {
         chatId,
         delivery,
         ...(plan ? { plan: true } : {}),
+        ...(!chatId && newProject ? { project: newProject } : {}),
         ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
       })
       setActiveChat(r.chatId)
@@ -365,7 +382,20 @@ export function App() {
         setSettingsOpen(false)
         setMobileNav(false)
       }}
-      onNew={newTask}
+      onNew={() => newTask()}
+      projects={projects}
+      onNewInProject={(p) => newTask(p.id)}
+      onAddProject={() => setPicking(true)}
+      onRemoveProject={async (p) => {
+        try {
+          const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
+          setProjects(r.projects)
+          if (newProject === p.id) setNewProject(undefined)
+          toast(`Removed ${p.name} from projects; its folder and chats are untouched`, 'info')
+        } catch (err) {
+          toast(String((err as Error).message ?? err), 'error')
+        }
+      }}
       onView={(v) => {
         setView(v)
         setSettingsOpen(false)
@@ -522,6 +552,18 @@ export function App() {
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
                       onCommand={command}
                       onStop={stop}
+                      project={
+                        // A chat started without a project stays without one.
+                        (!chat || chat.project) && (
+                          <ProjectPill
+                            projects={projects}
+                            {...(chat?.project ? { fixed: chat.project } : {})}
+                            {...(newProject ? { value: newProject } : {})}
+                            onChange={setNewProject}
+                            onAdd={() => setPicking(true)}
+                          />
+                        )
+                      }
                     />
                   )
                   const waiting =
@@ -600,6 +642,17 @@ export function App() {
               </div>
             </div>
           </Modal>
+        )}
+        {picking && (
+          <FolderPicker
+            key="folders"
+            onClose={() => setPicking(false)}
+            onAdded={(p, all) => {
+              setProjects(all)
+              setPicking(false)
+              newTask(p.id)
+            }}
+          />
         )}
         {colonyModal && (
           <Modal

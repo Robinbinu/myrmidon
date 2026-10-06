@@ -212,4 +212,14 @@ export interface ChatSummary {
   updatedAt: string
   status: string
   rounds: ChatRound[]
+  /** The project folder the chat works in. */
+  project?: { id: string; name: string }
+}
+
+/** A folder chats can work in, like a Claude Code or Codex project. */
+export interface Project {
+  id: string
+  name: string
+  path: string
+  addedAt: string
 }
