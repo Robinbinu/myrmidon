@@ -19,7 +19,9 @@ SWE-bench leaderboards.
 | Swarm orchestrator | Orchestrated (lead + roster) and swarm (huddle, then claim), persistent workers, mail, task board, judge, model-error pause | Parallel coders share one folder, no mid-round escalation, judging isn't tailored to the type of work, no spend visibility, coordination gaps |
 | Agent harness | Event-sourced log, transcripts, MCP, sign-ins, thinking levels, prompts tuned by A/B, docs agents can read | No eval suite, no memory across chats, no hooks, no self-made tools or skills, no budgets, no audit trail |
 
-## Milestone 0: Measure first
+## Milestone 0: Measure first — done
+
+Status (2026-10-07): all done. Eval harness is `bun run eval` (apps/eval); budgets, run-card spend/time-left, chat index, timing-test fix; spawn cap is `maxWorkers`.
 
 Every later milestone changes prompts or tools. Without numbers, we can't tell whether a change helped.
 
@@ -40,7 +42,9 @@ Every later milestone changes prompts or tools. Without numbers, we can't tell w
    faster.
 4. **Harden the two timing-sensitive chat tests.**
 
-## Milestone 1: Coding harness core
+## Milestone 1: Coding harness core — done
+
+Status (2026-10-07): all done — checkpoints + rewind, round diffs and the Git view (stage/commit), AGENTS.md/CLAUDE.md, grep/glob/run_checks + project outline, judge runs checks and returns graded findings, per-project permissions (autonomous / ask / read-only), dev servers, compaction.
 
 This makes a project chat as trustworthy as Claude Code or Codex in the same folder.
 
@@ -116,7 +120,9 @@ This makes a project chat as trustworthy as Claude Code or Codex in the same fol
    - Run diff in Compare runs.
 6. **Live board.** The task board streams in the workspace while the round runs.
 
-## Milestone 4: Agent harness
+## Milestone 4: Agent harness — done
+
+Status: 2 (self-made tools) done; the rest open.
 
 1. **Memory across chats.**
    - Per-user preferences and decisions, with provenance and an editor in Settings.
