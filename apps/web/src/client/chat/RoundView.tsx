@@ -4,22 +4,15 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleAlert,
   CircleStop,
   Copy,
   FileCode,
   FileText,
-  Globe,
-  ListChecks,
   LoaderCircle,
-  Megaphone,
   MessageCircleQuestion,
   Network,
   RotateCcw,
-  Search,
-  Terminal,
   TriangleAlert,
-  UserPlus,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
@@ -36,22 +29,11 @@ import {
 } from '../ui/pixel.tsx'
 import { Button, cn, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
+import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
-import { currentStep, deriveSteps, type Step, type StepKind } from './steps.ts'
-
-const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
-  search: { icon: Search, color: 'text-sky-500' },
-  fetch: { icon: Globe, color: 'text-sky-500' },
-  file: { icon: FileCode, color: 'text-accent' },
-  task: { icon: ListChecks, color: 'text-warn' },
-  team: { icon: UserPlus, color: 'text-violet-500' },
-  verdict: { icon: BadgeCheck, color: 'text-ok' },
-  error: { icon: TriangleAlert, color: 'text-bad' },
-  shell: { icon: Terminal, color: 'text-fg-2' },
-  talk: { icon: Megaphone, color: 'text-muted' },
-  signal: { icon: CircleAlert, color: 'text-warn' },
-}
+import { StepRow } from './StepRow.tsx'
+import { currentStep, deriveSteps } from './steps.ts'
 
 export const AWAITING = 'awaiting your reply'
 
@@ -72,6 +54,7 @@ export function RoundView(props: {
   const colony = useColony(props.colonyId)
   const { state, events } = colony
   const [file, setFile] = useState<string>()
+  const [inspect, setInspect] = useState<string>()
 
   if (colony.error)
     return <div className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{colony.error}</div>
@@ -93,13 +76,24 @@ export function RoundView(props: {
   return (
     <section className="flex flex-col gap-4">
       {opening && <UserMessage text={opening.text} />}
-      <RunCard state={state} events={events} onOpenColony={() => props.onOpenColony(props.colonyId)} />
+      <RunCard
+        state={state}
+        events={events}
+        onOpenColony={() => props.onOpenColony(props.colonyId)}
+        onInspect={setInspect}
+      />
       <AnimatePresence initial={false}>
         {thread.map((m) =>
           m.from === 'user' ? (
             <UserMessage key={m.id} text={m.text} />
           ) : (
-            <AgentMessage key={m.id} from={m.from} text={m.text} final={m.final} />
+            <AgentMessage
+              key={m.id}
+              from={m.from}
+              text={m.text}
+              final={m.final}
+              onInspect={() => setInspect(m.from)}
+            />
           ),
         )}
       </AnimatePresence>
@@ -131,6 +125,17 @@ export function RoundView(props: {
         </motion.div>
       )}
       <Outcome state={state} retry={props.retry} onRetry={() => opening && props.onRetry(opening.text)} />
+      <AnimatePresence>
+        {inspect && (
+          <AgentSheet
+            key={inspect}
+            name={inspect}
+            state={state}
+            events={events}
+            onClose={() => setInspect(undefined)}
+          />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {file && state.artifacts[file] && (
           <ArtifactViewer
@@ -164,11 +169,18 @@ function UserMessage({ text }: { text: string }) {
   )
 }
 
-function AgentMessage(props: { from: string; text: string; final: boolean }) {
+function AgentMessage(props: { from: string; text: string; final: boolean; onInspect(): void }) {
   const [copied, copy] = useCopy()
   return (
     <motion.div {...enter} className="group flex gap-3">
-      <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} />
+      <button
+        type="button"
+        onClick={props.onInspect}
+        aria-label={`What ${props.from} is doing`}
+        className="h-fit rounded-[10px] transition-transform hover:scale-105"
+      >
+        <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} />
+      </button>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-[12.5px]">
           <span className="font-semibold text-fg">{props.from}</span>
@@ -193,7 +205,12 @@ function AgentMessage(props: { from: string; text: string; final: boolean }) {
   )
 }
 
-function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpenColony(): void }) {
+function RunCard(props: {
+  state: ColonyState
+  events: readonly MyrEvent[]
+  onOpenColony(): void
+  onInspect(name: string): void
+}) {
   const { state, events } = props
   const running = isRunning(state.status)
   const [open, setOpen] = useState<boolean>()
@@ -292,6 +309,7 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
                 {agents.map((a) => (
                   <AgentChip
                     key={a.info.name}
+                    onClick={() => props.onInspect(a.info.name)}
                     name={a.info.name}
                     status={a.status}
                     active={a.status === 'working'}
@@ -340,37 +358,6 @@ function Elapsed({ ms }: { ms: number }) {
   const s = Math.floor(ms / 1000)
   const text = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   return <DotMatrix text={text} dot={2} className="mr-1 text-fg-2" />
-}
-
-function StepRow({ step }: { step: Step }) {
-  const style = STEP_STYLE[step.kind]
-  return (
-    <motion.li
-      layout
-      initial={{ opacity: 0, x: -6 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0 }}
-      transition={softSpring}
-      className="relative grid grid-cols-[24px_1fr_auto] items-start gap-2.5 py-1.5 text-[13px] text-fg-2"
-    >
-      <span
-        className={cn(
-          'z-10 grid size-6 place-items-center rounded-lg border border-line bg-surface',
-          style.color,
-        )}
-      >
-        <style.icon className="size-3" />
-      </span>
-      <span className="min-w-0 break-words pt-0.5">
-        <span className="text-muted">{step.agent} · </span>
-        {step.lead} {step.strong && <span className="font-semibold text-fg">{step.strong}</span>}{' '}
-        {step.tail && <span className="text-muted">{step.tail}</span>}
-      </span>
-      <time dateTime={step.time} className="pt-0.5 text-[11.5px] tabular-nums text-muted">
-        {step.time.slice(11, 16)}
-      </time>
-    </motion.li>
-  )
 }
 
 function Outcome({

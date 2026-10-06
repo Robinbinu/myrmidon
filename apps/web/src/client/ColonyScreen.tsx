@@ -124,7 +124,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: Mail,
-          tone: 'text-violet-500',
+          tone: 'text-work',
           text: `${p.from} → ${p.to}${p.subject ? ` · ${p.subject}` : ''}`,
           body: p.body,
         })
@@ -136,7 +136,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: Megaphone,
-          tone: 'text-sky-500',
+          tone: 'text-fg-2',
           text: 'posted to the board',
           body: p.text,
         })
@@ -208,7 +208,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: UserPlus,
-          tone: 'text-violet-500',
+          tone: 'text-work',
           text: `brought in ${p.agent.name} (${p.agent.model})`,
           body: p.focus,
         })

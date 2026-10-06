@@ -4,6 +4,7 @@ import {
   Moon,
   Network,
   PanelLeftClose,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -11,7 +12,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
@@ -41,12 +42,26 @@ export function Sidebar(props: {
   onTheme(t: ThemeChoice): void
   onSelect(chatId: string): void
   onDelete(chat: ChatSummary): void
+  onRename(chat: ChatSummary, title: string): Promise<void>
   onNew(): void
   onView(v: View): void
   onSettings(): void
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
+  const [editing, setEditing] = useState<string>()
+  const [draft, setDraft] = useState('')
+  const cancelled = useRef(false)
+  const startRename = (c: ChatSummary) => {
+    cancelled.current = false
+    setEditing(c.chatId)
+    setDraft(c.title)
+  }
+  const finishRename = (c: ChatSummary, save: boolean) => {
+    setEditing(undefined)
+    const next = draft.trim()
+    if (save && next && next !== c.title) void props.onRename(c, next)
+  }
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase()
     const hits = props.chats.filter(
@@ -126,33 +141,69 @@ export function Sidebar(props: {
               const on = c.chatId === props.activeChat && props.view === 'chat'
               return (
                 <div key={c.chatId} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => props.onSelect(c.chatId)}
-                    title={c.title}
-                    aria-current={on ? 'page' : undefined}
-                    className={cn(
-                      'relative flex w-full items-center gap-2.5 rounded-lg py-2 pl-3 pr-9 text-left text-[13.5px] transition-colors',
-                      on ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
-                    )}
-                  >
-                    {on && (
-                      <motion.span
-                        layoutId="chat-active"
-                        transition={spring}
-                        className="absolute inset-0 rounded-lg bg-surface-3/70"
-                      />
-                    )}
-                    <span className="relative flex min-w-0 flex-1 items-center gap-2.5">
-                      <Dot status={c.status === 'running' || c.status === 'created' ? 'working' : c.status} />
-                      <span className="truncate">{c.title}</span>
-                      {c.rounds.length > 1 && (
-                        <span className="ml-auto text-[11px] tabular-nums text-muted">{c.rounds.length}</span>
+                  {editing === c.chatId ? (
+                    <input
+                      // biome-ignore lint/a11y/noAutofocus: focus moves into the field the user just asked to edit
+                      autoFocus
+                      value={draft}
+                      maxLength={120}
+                      aria-label="Chat title"
+                      onChange={(e) => setDraft(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onBlur={() => finishRename(c, !cancelled.current)}
+                      onKeyDown={(e) => {
+                        // Both keys leave through blur, which saves unless Escape asked to cancel.
+                        if (e.key === 'Escape') cancelled.current = true
+                        if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+                      }}
+                      className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] outline-none focus:ring-2 focus:ring-accent-soft"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => props.onSelect(c.chatId)}
+                      onDoubleClick={() => startRename(c)}
+                      title={c.title}
+                      aria-current={on ? 'page' : undefined}
+                      className={cn(
+                        'relative flex w-full items-center gap-2.5 rounded-lg py-2 pl-3 pr-16 text-left text-[13.5px] transition-colors',
+                        on ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
                       )}
-                    </span>
-                  </button>
+                    >
+                      {on && (
+                        <motion.span
+                          layoutId="chat-active"
+                          transition={spring}
+                          className="absolute inset-0 rounded-lg bg-surface-3/70"
+                        />
+                      )}
+                      <span className="relative flex min-w-0 flex-1 items-center gap-2.5">
+                        <Dot
+                          status={c.status === 'running' || c.status === 'created' ? 'working' : c.status}
+                        />
+                        <span className="truncate">{c.title}</span>
+                        {c.rounds.length > 1 && (
+                          <span className="ml-auto text-[11px] tabular-nums text-muted">
+                            {c.rounds.length}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  )}
+                  {editing !== c.chatId && (
+                    <button
+                      type="button"
+                      onClick={() => startRename(c)}
+                      aria-label={`Rename “${c.title}”`}
+                      title="Rename chat"
+                      className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
+                    hidden={editing === c.chatId}
                     onClick={() => props.onDelete(c)}
                     aria-label={`Delete “${c.title}”`}
                     title="Delete chat"

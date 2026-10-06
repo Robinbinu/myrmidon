@@ -77,6 +77,7 @@ const defs: EventTypeDefinition[] = [
     actors: ['agent'],
     schema: Schema.object({ agent: str(), text: str(), final: Schema.boolean().default(false) }),
   },
+  { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
   {
     type: 'colony/stopped',
     version: 1,

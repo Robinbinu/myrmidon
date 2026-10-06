@@ -99,6 +99,8 @@ export interface ColonyState {
   signals: SignalEntry[]
   chatMessages: ChatEntry[]
   chat?: EventPayloads['colony/created']['chat']
+  /** A title the user gave the conversation in this round, with when. */
+  chatTitle?: { title: string; at: string }
   team?: EventPayloads['colony/created']['team']
   /** Communication counts keyed `from→to`; drives the colony map edges. */
   links: Record<string, number>
@@ -192,6 +194,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['chat/reply']
       state.chatMessages.push({ ...base, from: p.agent, text: p.text, final: p.final })
       touch(state, p.agent, event.seq)
+      break
+    }
+    case 'chat/renamed': {
+      const p = event.payload as EventPayloads['chat/renamed']
+      state.chatTitle = { title: p.title, at: event.time }
       break
     }
     case 'colony/started':

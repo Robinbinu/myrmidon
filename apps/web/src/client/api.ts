@@ -111,7 +111,11 @@ export interface ModelOption {
   hidden?: boolean
 }
 
-export async function send<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
+export async function send<T>(
+  method: 'PUT' | 'PATCH' | 'DELETE' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

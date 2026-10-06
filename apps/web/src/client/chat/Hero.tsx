@@ -2,7 +2,7 @@ import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
-import { DotMatrix, JUDGE_COLOR, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
+import { agentColor, DotMatrix, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
 import { softSpring } from '../ui/primitives.tsx'
 import TechText from '../vendor/react-bits/TechText'
 
@@ -47,9 +47,9 @@ const IDLE_TRICKS: Reaction[] = [
 
 /** The crew that hangs around the mascot. Positions are relative to the face's center. */
 const CREW = [
-  { name: 'nova', color: '#ff7eb6', x: -340, y: -70 },
-  { name: 'kai', color: '#4d7cff', x: 320, y: 30 },
-  { name: 'judge', color: JUDGE_COLOR, x: -290, y: 130 },
+  { name: 'nova', color: agentColor('nova'), x: -340, y: -70 },
+  { name: 'kai', color: agentColor('kai'), x: 320, y: 30 },
+  { name: 'judge', color: agentColor('judge'), x: -290, y: 130 },
 ]
 
 const readToken = (name: string) =>

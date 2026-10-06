@@ -19,6 +19,7 @@ import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
+import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { deriveSteps } from './steps.ts'
 
@@ -97,6 +98,7 @@ export function Workspace(props: { chat: ChatSummary; onClose(): void }) {
 
 function WorkspaceBody({ colonyId }: { colonyId: string }) {
   const { state, events } = useColony(colonyId)
+  const [inspect, setInspect] = useState<string>()
   const [tab, setTab] = useState<Tab>('files')
   const [file, setFile] = useState<string>()
   const steps = useMemo(() => deriveSteps(events), [events])
@@ -277,42 +279,48 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                   const task = tasks.find((t) => t.owner === a.info.name && t.status === 'in_progress')
                   const lead = a.info.role === 'lead'
                   return (
-                    <li key={a.info.name} className="flex gap-3 px-4 py-3.5">
-                      <AgentAvatar name={a.info.name} status={a.status} size={40} />
-                      <div className="grid min-w-0 flex-1 gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{a.info.name}</span>
-                          {lead && <Crown className="size-3.5 text-signal" />}
-                          <Pill tone={toneFor(a.status)}>
-                            <Dot status={a.status} /> {a.status}
-                          </Pill>
-                        </div>
-                        <div className="truncate font-mono text-[11.5px] text-muted">{a.info.model}</div>
-                        {(task || a.detail) && (
-                          <div className="text-[12.5px]">
-                            {task ? `Working on ${task.subject}` : a.detail}
+                    <li key={a.info.name}>
+                      <button
+                        type="button"
+                        onClick={() => setInspect(a.info.name)}
+                        className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
+                      >
+                        <AgentAvatar name={a.info.name} status={a.status} size={40} />
+                        <div className="grid min-w-0 flex-1 gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{a.info.name}</span>
+                            {lead && <Crown className="size-3.5 text-signal" />}
+                            <Pill tone={toneFor(a.status)}>
+                              <Dot status={a.status} /> {a.status}
+                            </Pill>
                           </div>
-                        )}
-                        <div className="mt-1 flex flex-wrap gap-4">
-                          {[
-                            ['turns', String(a.turns)],
-                            ['tokens', compact(a.tokens)],
-                            ['tools', String(a.toolCalls)],
-                          ].map(([label, value]) => (
-                            <span key={label} className="flex flex-col gap-1">
-                              <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                              <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
-                                {label}
-                              </span>
-                            </span>
-                          ))}
-                          {a.costKnown && a.cost > 0 && (
-                            <span className="self-end text-[11.5px] tabular-nums text-muted">
-                              ${a.cost.toFixed(3)}
-                            </span>
+                          <div className="truncate font-mono text-[11.5px] text-muted">{a.info.model}</div>
+                          {(task || a.detail) && (
+                            <div className="text-[12.5px]">
+                              {task ? `Working on ${task.subject}` : a.detail}
+                            </div>
                           )}
+                          <div className="mt-1 flex flex-wrap gap-4">
+                            {[
+                              ['turns', String(a.turns)],
+                              ['tokens', compact(a.tokens)],
+                              ['tools', String(a.toolCalls)],
+                            ].map(([label, value]) => (
+                              <span key={label} className="flex flex-col gap-1">
+                                <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
+                                <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+                                  {label}
+                                </span>
+                              </span>
+                            ))}
+                            {a.costKnown && a.cost > 0 && (
+                              <span className="self-end text-[11.5px] tabular-nums text-muted">
+                                ${a.cost.toFixed(3)}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      </button>
                     </li>
                   )
                 })}
@@ -333,7 +341,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                         <span>{s.time.slice(11, 19)}</span>
                         <span className="flex-1" />
                         {s.ok === undefined ? (
-                          <span className="text-sky-400">running…</span>
+                          <span className="text-work">running…</span>
                         ) : (
                           <span
                             className={
@@ -392,6 +400,17 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
             name={file}
             versions={state.artifacts[file] ?? []}
             onClose={() => setFile(undefined)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {inspect && (
+          <AgentSheet
+            key={inspect}
+            name={inspect}
+            state={state}
+            events={events}
+            onClose={() => setInspect(undefined)}
           />
         )}
       </AnimatePresence>

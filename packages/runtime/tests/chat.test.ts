@@ -165,3 +165,24 @@ test('a double-clicked retry starts one round, not two', async () => {
   expect(chat?.rounds).toHaveLength(2)
   await chats.stopAll()
 })
+
+test('renaming a chat sticks, survives a restart, and rejects empty titles', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/namer', [[tool('reply_user', { text: 'Which format do you want?' })], ['waiting']])
+  const chats = new ChatService(runtime, { resolver })
+  const config = {
+    mode: 'auto' as const,
+    leadModel: 'mock/namer',
+    workerModel: 'mock/namer',
+    workers: 0,
+    judgeModel: 'mock/namer',
+  }
+  const { chatId } = await chats.send('make a report', config)
+  expect(await chats.rename(chatId, '  Quarterly   report ')).toBe('Quarterly report')
+  expect((await chats.list())[0]?.title).toBe('Quarterly report')
+  await expect(chats.rename(chatId, '   ')).rejects.toThrow('empty')
+  await expect(chats.rename('chat-missing', 'x')).rejects.toThrow('no such chat')
+  await chats.stopAll()
+  const reopened = new ChatService(runtime, { resolver })
+  expect((await reopened.list())[0]?.title).toBe('Quarterly report')
+})

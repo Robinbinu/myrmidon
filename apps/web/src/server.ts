@@ -309,6 +309,16 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/chats/:chatId': {
+        PATCH: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { title } = (await req.json()) as { title?: unknown }
+          if (typeof title !== 'string') return json({ error: 'title is required' }, 400)
+          try {
+            return json({ ok: true, title: await options.chats.rename(req.params.chatId ?? '', title) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
         DELETE: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           const deleted = await options.chats.delete(req.params.chatId ?? '')

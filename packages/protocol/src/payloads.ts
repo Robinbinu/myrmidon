@@ -50,6 +50,8 @@ export interface EventPayloads {
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
   'chat/user': { text: string }
   'chat/reply': { agent: string; text: string; final: boolean }
+  /** The user renamed the conversation; the newest rename across its rounds wins. */
+  'chat/renamed': { title: string }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

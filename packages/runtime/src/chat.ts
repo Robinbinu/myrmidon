@@ -90,9 +90,14 @@ export class ChatService {
       const last = list.at(-1)
       const first = list[0]
       if (!last || !first) continue
+      const renamed = list
+        .map((r) => r.state.chatTitle)
+        .filter((t) => t !== undefined)
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
       out.push({
         chatId,
-        title: title(first.state.chat?.request ?? first.state.name),
+        title: renamed?.title ?? title(first.state.chat?.request ?? first.state.name),
         updatedAt: last.state.endedAt ?? last.state.createdAt ?? '',
         status: last.state.status,
         rounds: list.map((r) => ({
@@ -163,6 +168,24 @@ export class ChatService {
       if (this._live.get(id) === run) this._live.delete(id)
     })
     return { chatId: id, colonyId: run.id, started: true }
+  }
+
+  /** Renames a conversation; recorded in its latest round's log, so the name survives restarts. */
+  async rename(chatId: string, name: string): Promise<string> {
+    const clean = name.replace(/\s+/g, ' ').trim()
+    if (!clean) throw new Error('title is empty')
+    if (clean.length > 120) throw new Error('title is longer than 120 characters')
+    const latest = ((await this.rounds()).get(chatId) ?? []).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const draft = {
+      type: 'chat/renamed',
+      actor: { kind: 'user', id: 'user' },
+      payload: { title: clean },
+    } as const
+    const live = this._live.get(chatId)
+    if (live?.id === latest.id) await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    return clean
   }
 
   async stop(chatId: string): Promise<void> {

@@ -1,22 +1,16 @@
+import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotion } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
+
+export { JUDGE_COLOR, LEAD_COLOR, USER_COLOR } from '@myrmidon/protocol'
 
 /* ------------------------------------------------------------------ identity */
 
-/** Lead is signal amber, the judge lime, the user ultramarine; workers get a stable color from their call sign. */
-const WORKER_COLORS = ['#ff7eb6', '#4d7cff', '#a374ff', '#19c3e6', '#ff6a3d', '#2ed3a0', '#c6f432', '#ff9f43']
-export const LEAD_COLOR = '#ffb31a'
-export const JUDGE_COLOR = '#d4ff3a'
-export const USER_COLOR = '#3434f0'
-
+/** Lead is signal amber, the judge lime, the user ultramarine; each worker owns a palette colour. */
 export function agentColor(name: string): string {
-  if (name === 'lead') return LEAD_COLOR
-  if (name === 'judge' || name.startsWith('verifier')) return JUDGE_COLOR
-  if (name === 'user' || name === 'You') return USER_COLOR
-  let h = 0
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return WORKER_COLORS[h % WORKER_COLORS.length] as string
+  return identityOf(name).color
 }
 
 /** Dark or light text, whichever reads on the given fill. */
@@ -308,8 +302,12 @@ export function PixelFace(props: {
   )
 }
 
-/** A face on a small dark screen tile: the avatar used for agents everywhere. */
+/**
+ * The avatar used for agents everywhere: the lead (and the judge) get a face on a small dark screen, like the
+ * mascot; workers get their own character.
+ */
 export function AgentAvatar(props: { name: string; status: string; size?: number; className?: string }) {
+  if (props.name !== 'lead' && props.name !== 'judge') return <AgentCharacter {...props} />
   const size = props.size ?? 32
   const cols = 7
   const rows = 7
@@ -413,20 +411,30 @@ export function DotMatrix(props: {
 }
 
 /** Inline agent chip for lists: mini face + name, tinted with the agent's color. */
-export function AgentChip(props: { name: string; status: string; detail?: string; active?: boolean }) {
+export function AgentChip(props: {
+  name: string
+  status: string
+  detail?: string
+  active?: boolean
+  onClick?: () => void
+}) {
   const color = agentColor(props.name)
   return (
-    <motion.span
+    <motion.button
+      type="button"
+      onClick={props.onClick}
+      aria-label={`What ${props.name} is doing`}
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
+      initial={{ opacity: 0, scale: 0.3 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-[12px]"
+      transition={{ type: 'spring', stiffness: 520, damping: 17 }}
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-[12px] transition-colors hover:border-line-strong hover:bg-surface-2"
       style={props.active ? { borderColor: `${color}88`, boxShadow: `0 0 0 3px ${color}22` } : undefined}
       title={props.detail}
     >
       <AgentAvatar name={props.name} status={props.status} size={22} />
       <span className="font-semibold">{props.name}</span>
       {props.detail && <span className="max-w-40 truncate text-muted">{props.detail}</span>}
-    </motion.span>
+    </motion.button>
   )
 }

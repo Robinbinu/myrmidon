@@ -166,7 +166,10 @@ export function Switch(props: {
       <motion.span
         layout
         transition={spring}
-        className={cn('size-5 rounded-full bg-white shadow-soft', props.checked ? 'ml-auto' : 'ml-0')}
+        className={cn(
+          'size-5 rounded-full shadow-soft',
+          props.checked ? 'ml-auto bg-on-accent' : 'ml-0 bg-white',
+        )}
       />
     </button>
   )

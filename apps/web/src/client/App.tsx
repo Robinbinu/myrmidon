@@ -205,6 +205,14 @@ export function App() {
   const sidebar = (
     <Sidebar
       onDelete={setDeleting}
+      onRename={async (c, title) => {
+        try {
+          await request('PATCH', `/api/chats/${c.chatId}`, { title })
+          refreshChats()
+        } catch (err) {
+          toast(String((err as Error).message ?? err), 'error')
+        }
+      }}
       chats={chats}
       activeChat={activeChat}
       view={view}
