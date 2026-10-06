@@ -5,6 +5,7 @@ import {
   Check,
   CircleCheck,
   CircleX,
+  Download,
   Eye,
   EyeOff,
   Gavel,
@@ -35,6 +36,7 @@ import type { ThemeChoice } from './ui/hooks.ts'
 import {
   Button,
   cn,
+  Dot,
   Empty,
   Field,
   IconButton,
@@ -50,19 +52,14 @@ import {
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
 
-type Api =
-  | 'openai-completions'
-  | 'openai-responses'
-  | 'anthropic-messages'
-  | 'google-generative-ai'
-  | 'ollama-chat'
+type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
-interface ProviderConfig {
-  name: string
-  api: Api
-  baseUrl: string
-  auth: 'key' | 'none'
-  models: { id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean }[]
+interface ProviderInfo {
+  id: string
+  models: number
+  ready: boolean
+  custom: boolean
+  baseUrl?: string
 }
 
 export interface ServerSettings {
@@ -80,17 +77,19 @@ export interface ServerSettings {
   verification: { threshold: number; rubric?: string }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
-  models: { hidden: string[]; providers: ProviderConfig[] }
+  search: { provider: string }
+  models: { hidden: string[] }
 }
 
 interface SettingsResponse {
   settings: ServerSettings
-  credentials: string[]
-  builtInProviders: string[]
+  providers: ProviderInfo[]
+  searchProviders: { id: string; label: string }[]
   customApis: Api[]
   sandbox: string
   home: string
-  omp: boolean
+  agentDir?: string
+  ompSetup: boolean
 }
 
 export type Section = 'general' | 'models' | 'team' | 'tools' | 'verification' | 'instructions'
@@ -109,7 +108,6 @@ const API_LABELS: Record<Api, string> = {
   'openai-responses': 'OpenAI Responses API',
   'anthropic-messages': 'Anthropic Messages API',
   'google-generative-ai': 'Google Gemini API',
-  'ollama-chat': 'Ollama',
 }
 
 const API_HINT_URL: Record<Api, string> = {
@@ -117,7 +115,6 @@ const API_HINT_URL: Record<Api, string> = {
   'openai-responses': 'https://api.openai.com/v1',
   'anthropic-messages': 'https://api.anthropic.com',
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
-  'ollama-chat': 'http://localhost:11434',
 }
 
 /** Full-page settings, shown in place of the chat. Every change autosaves. */
@@ -182,8 +179,8 @@ export function Settings(props: {
     else timer.current = setTimeout(save, 450)
   }
 
-  const credentialsChanged = (credentials: string[]) => {
-    setData((d) => (d ? { ...d, credentials } : d))
+  const providersChanged = (providers: ProviderInfo[]) => {
+    setData((d) => (d ? { ...d, providers } : d))
     props.onModelsChanged()
   }
 
@@ -330,7 +327,7 @@ export function Settings(props: {
                       onAddProvider={() => setModelsTab('providers')}
                     />
                   ) : (
-                    <Providers data={data} update={update} onCredentials={credentialsChanged} />
+                    <Providers data={data} onProviders={providersChanged} />
                   )}
                 </>
               )}
@@ -469,8 +466,8 @@ function ModelsSection(props: {
   return (
     <>
       <Heading title="Models">
-        {props.models.length} models from your omp setup, providers you added, and built-in providers with a
-        saved key. Hide the ones you never use, and test any model with a one-line request.
+        {props.models.length} models you can call right now, from every provider with a key or login. Hide the
+        ones you never use, and test any model with a one-line request.
       </Heading>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
@@ -489,7 +486,7 @@ function ModelsSection(props: {
             api('/api/models?refresh=1')
               .then(() => {
                 props.onRefresh()
-                toast('Model list refreshed from omp', 'success')
+                toast('Model lists refreshed from providers', 'success')
               })
               .catch((err) => toast(String(err.message ?? err), 'error'))
               .finally(() => setRefreshing(false))
@@ -513,7 +510,6 @@ function ModelsSection(props: {
                 <div className="flex items-center gap-2">
                   <span className="truncate text-[13.5px] font-medium">{m.name}</span>
                   {m.reasoning && <Brain className="size-3.5 text-muted" />}
-                  {m.source && <Pill tone={m.source === 'omp' ? 'neutral' : 'accent'}>{m.source}</Pill>}
                 </div>
                 <div className="truncate font-mono text-[11.5px] text-muted">{m.ref}</div>
                 {t && t !== 'running' && (
@@ -560,26 +556,21 @@ function ModelsSection(props: {
   )
 }
 
-function Providers(props: {
-  data: SettingsResponse
-  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
-  onCredentials(c: string[]): void
-}) {
+function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[]): void }) {
   const toast = useToast()
-  const [keyProvider, setKeyProvider] = useState(
-    props.data.builtInProviders.includes('anthropic') ? 'anthropic' : (props.data.builtInProviders[0] ?? ''),
-  )
-  const [keyValue, setKeyValue] = useState('')
   const [adding, setAdding] = useState(false)
-  const providers = props.data.settings.models.providers
+  const [showAll, setShowAll] = useState(false)
+  const [editing, setEditing] = useState<string>()
+  const [importing, setImporting] = useState<'idle' | 'confirm' | 'busy'>('idle')
+  const providers = props.data.providers
+  const shown = showAll ? providers : providers.filter((p) => p.ready || p.custom)
+  const hiddenCount = providers.length - shown.length
 
-  const saveKey = async (provider: string, value: string) => {
+  const act = async (run: () => Promise<{ providers: ProviderInfo[] }>, done: string) => {
     try {
-      const r = await send<{ credentials: string[] }>('PUT', `/api/credentials/${provider}`, {
-        apiKey: value,
-      })
-      props.onCredentials(r.credentials)
-      toast(`Saved the ${provider} key`, 'success')
+      const r = await run()
+      props.onProviders(r.providers)
+      toast(done, 'success')
       return true
     } catch (err) {
       toast(String((err as Error).message), 'error')
@@ -587,84 +578,76 @@ function Providers(props: {
     }
   }
 
-  const removeKey = async (provider: string) => {
-    try {
-      const r = await send<{ credentials: string[] }>('DELETE', `/api/credentials/${provider}`)
-      props.onCredentials(r.credentials)
-      toast(`Removed the ${provider} key`, 'info')
-    } catch (err) {
-      toast(String((err as Error).message), 'error')
-    }
-  }
-
   return (
     <>
       <Heading title="Providers & keys">
-        Add any model the way omp does: save a key for a built-in provider, or connect your own endpoint. Keys
-        stay in a private file on this machine, are never shown again, and are scrubbed from colony logs.
+        Myrmidon runs omp’s provider stack in-process: every built-in provider, OAuth logins, and custom
+        endpoints from <span className="font-mono">models.yml</span>. Keys live in an encrypted-at-rest vault
+        under <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span>, are never shown again, and
+        never reach the browser.
       </Heading>
 
-      <h4 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
-        <KeyRound className="size-4 text-muted" /> API keys for built-in providers
-      </h4>
-      <Card className="mb-8">
-        <Row>
-          <div className="flex flex-wrap gap-2">
-            <Select
-              value={keyProvider}
-              onChange={(e) => setKeyProvider(e.target.value)}
-              aria-label="Provider"
-              className="min-w-40"
-            >
-              {props.data.builtInProviders.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </Select>
-            <TextInput
-              type="password"
-              autoComplete="off"
-              placeholder="Paste API key"
-              value={keyValue}
-              onChange={(e) => setKeyValue(e.target.value)}
-              className="min-w-48 flex-1"
-              aria-label="API key"
-            />
-            <Button
-              variant="primary"
-              disabled={!keyValue.trim()}
-              onClick={async () => {
-                if (await saveKey(keyProvider, keyValue)) setKeyValue('')
-              }}
-            >
-              Save key
-            </Button>
+      {props.data.ompSetup && (
+        <Card className="mb-8">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+              <Download className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13.5px] font-medium">Import your omp setup</div>
+              <div className="text-[12.5px] text-muted">
+                {importing === 'confirm'
+                  ? 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.'
+                  : 'Copy keys, OAuth logins, and custom providers from ~/.omp/agent. The omp CLI is not needed.'}
+              </div>
+            </div>
+            {importing === 'confirm' ? (
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setImporting('idle')}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={async () => {
+                    setImporting('busy')
+                    await act(async () => {
+                      const r = await send<{ copied: string[]; providers: ProviderInfo[] }>(
+                        'POST',
+                        '/api/import-omp',
+                      )
+                      return r
+                    }, 'Imported your omp setup')
+                    setImporting('idle')
+                  }}
+                >
+                  Replace and import
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => setImporting('confirm')}
+                disabled={importing === 'busy'}
+                icon={importing === 'busy' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+              >
+                Import
+              </Button>
+            )}
           </div>
-          <p className="mt-2 text-[12px] text-muted">
-            Without a saved key, Myrmidon uses the provider’s environment variable or your{' '}
-            <span className="font-mono">omp login</span>.
-          </p>
-        </Row>
-        {props.data.credentials.map((p) => (
-          <div key={p} className="flex items-center gap-3 px-4 py-2.5">
-            <KeyRound className="size-4 text-ok" />
-            <span className="flex-1 font-mono text-[13px]">{p}</span>
-            <span className="font-mono text-[12px] text-muted">••••••••</span>
-            <IconButton size="sm" label={`Remove ${p} key`} onClick={() => void removeKey(p)}>
-              <Trash2 className="size-4" />
-            </IconButton>
-          </div>
-        ))}
-      </Card>
+        </Card>
+      )}
 
       <div className="mb-2 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">
-          <Server className="size-4 text-muted" /> Custom providers
+          <KeyRound className="size-4 text-muted" /> Providers
+          <span className="font-normal text-muted">
+            {providers.filter((p) => p.ready).length} ready of {providers.length}
+          </span>
         </h4>
         {!adding && (
           <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-            Add provider
+            Custom endpoint
           </Button>
         )}
       </div>
@@ -678,52 +661,137 @@ function Providers(props: {
             className="overflow-hidden"
           >
             <ProviderForm
-              existing={providers.map((p) => p.name)}
+              existing={providers.map((p) => p.id)}
               apis={props.data.customApis}
               onCancel={() => setAdding(false)}
-              onSave={async (p, key) => {
-                if (key && !(await saveKey(p.name, key))) return
-                props.update((s) => {
-                  s.models.providers = [...s.models.providers, p]
-                  return s
-                }, true)
-                setAdding(false)
+              onSave={async (body) => {
+                if (
+                  await act(
+                    () => send<{ providers: ProviderInfo[] }>('POST', '/api/providers', body),
+                    `Connected ${body.name}`,
+                  )
+                )
+                  setAdding(false)
               }}
             />
           </motion.div>
         )}
       </AnimatePresence>
-      {providers.length === 0 && !adding ? (
-        <Card>
-          <Empty icon={<Server className="size-5" />} title="No custom providers">
-            Connect LM Studio, Ollama, vLLM, OpenRouter, a company gateway, or any OpenAI, Anthropic, or
-            Gemini-compatible endpoint.
+      <Card>
+        {shown.length === 0 && (
+          <Empty icon={<Server className="size-5" />} title="No providers ready yet">
+            Import your omp setup, add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any
+            OpenAI, Anthropic, or Gemini-compatible endpoint.
           </Empty>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {providers.map((p) => (
-            <ProviderCard
-              key={p.name}
-              provider={p}
-              hasKey={props.data.credentials.includes(p.name)}
-              onChange={(next) =>
-                props.update((s) => {
-                  s.models.providers = s.models.providers.map((x) => (x.name === p.name ? next : x))
-                  return s
-                }, true)
-              }
-              onRemove={() =>
-                props.update((s) => {
-                  s.models.providers = s.models.providers.filter((x) => x.name !== p.name)
-                  return s
-                }, true)
-              }
-            />
-          ))}
-        </div>
-      )}
+        )}
+        {shown.map((p) => (
+          <div key={p.id} className="px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <Dot status={p.ready ? 'ready' : 'idle'} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[13px]">{p.id}</span>
+                  {p.custom && <Pill tone="accent">custom</Pill>}
+                  <span className="text-[12px] text-muted">
+                    {p.models} model{p.models === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {p.baseUrl && <div className="truncate font-mono text-[11.5px] text-muted">{p.baseUrl}</div>}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setEditing(editing === p.id ? undefined : p.id)}
+              >
+                {p.ready ? 'Replace key' : 'Add key'}
+              </Button>
+              {p.ready && !p.custom && (
+                <IconButton
+                  size="sm"
+                  label={`Remove ${p.id} credentials`}
+                  onClick={() =>
+                    void act(
+                      () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
+                      `Removed ${p.id} credentials`,
+                    )
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </IconButton>
+              )}
+              {p.custom && (
+                <IconButton
+                  size="sm"
+                  label={`Remove ${p.id}`}
+                  onClick={() =>
+                    void act(
+                      () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
+                      `Removed ${p.id}`,
+                    )
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </IconButton>
+              )}
+            </div>
+            {editing === p.id && (
+              <KeyForm
+                provider={p.id}
+                onSave={async (apiKey) => {
+                  if (
+                    await act(
+                      () =>
+                        send<{ providers: ProviderInfo[] }>('PUT', `/api/credentials/${p.id}`, { apiKey }),
+                      `Saved the ${p.id} key`,
+                    )
+                  )
+                    setEditing(undefined)
+                }}
+              />
+            )}
+          </div>
+        ))}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="w-full px-4 py-2.5 text-left text-[12.5px] text-muted hover:text-fg"
+          >
+            Show {hiddenCount} more built-in providers
+          </button>
+        )}
+      </Card>
+      <p className="mt-2 text-[12px] text-muted">
+        Environment variables such as <span className="font-mono">ANTHROPIC_API_KEY</span> also work.
+      </p>
     </>
+  )
+}
+
+function KeyForm(props: { provider: string; onSave(key: string): Promise<void> }) {
+  const [value, setValue] = useState('')
+  return (
+    <form
+      className="mt-2 flex gap-2 pl-5"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (value.trim()) void props.onSave(value.trim())
+      }}
+    >
+      <TextInput
+        type="password"
+        autoComplete="off"
+        autoFocus
+        placeholder={`${props.provider} API key`}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="flex-1"
+        aria-label={`${props.provider} API key`}
+      />
+      <Button type="submit" variant="primary" disabled={!value.trim()}>
+        Save
+      </Button>
+    </form>
   )
 }
 
@@ -731,40 +799,19 @@ function ProviderForm(props: {
   existing: string[]
   apis: Api[]
   onCancel(): void
-  onSave(p: ProviderConfig, key?: string): Promise<void>
+  onSave(body: { name: string; api: Api; baseUrl: string; apiKey?: string; models: string[] }): Promise<void>
 }) {
   const [name, setName] = useState('')
   const [apiType, setApiType] = useState<Api>('openai-completions')
   const [baseUrl, setBaseUrl] = useState('')
   const [auth, setAuth] = useState<'key' | 'none'>('key')
   const [key, setKey] = useState('')
-  const [found, setFound] = useState<string[]>()
-  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [manual, setManual] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-  const nameOk = /^[a-z0-9][a-z0-9_-]{0,39}$/.test(name) && !props.existing.includes(name)
+  const nameOk = /^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name)
   const urlOk = /^https?:\/\//.test(baseUrl)
-
-  const discover = async () => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      const r = await send<{ models: string[] }>('POST', '/api/providers/discover', {
-        api: apiType,
-        baseUrl,
-        apiKey: auth === 'key' ? key : undefined,
-      })
-      setFound(r.models)
-      setPicked(new Set(r.models.slice(0, 20)))
-    } catch (err) {
-      setError(String((err as Error).message))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const models = [...new Set([...picked, ...manual.split(/[\s,]+/).filter(Boolean)])]
+  const models = [...new Set(manual.split(/[\s,]+/).filter(Boolean))]
+  const discovers = apiType === 'openai-completions' || apiType === 'openai-responses'
   return (
     <Card className="mb-3 border-accent/30">
       <div className="grid gap-4 p-4">
@@ -813,150 +860,56 @@ function ProviderForm(props: {
                 autoComplete="off"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder="API key (stored privately)"
+                placeholder="API key"
                 aria-label="API key"
               />
             </div>
           )}
         </div>
-        <div className="rounded-xl bg-surface-2 p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[13px] font-medium">Models</span>
-            <Button
-              size="sm"
-              onClick={() => void discover()}
-              disabled={!urlOk || busy}
-              icon={
-                busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Globe className="size-3.5" />
-              }
-            >
-              Discover models
-            </Button>
-          </div>
-          {error && <p className="mb-2 text-[12.5px] text-bad">{error}</p>}
-          {found && (
-            <div className="mb-2 max-h-48 overflow-auto rounded-lg border border-line bg-surface p-1">
-              {found.length === 0 && (
-                <p className="p-2 text-[12.5px] text-muted">The endpoint listed no models.</p>
-              )}
-              {found.map((id) => (
-                <label
-                  key={id}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-[12.5px] hover:bg-surface-2"
-                >
-                  <input
-                    type="checkbox"
-                    checked={picked.has(id)}
-                    onChange={() =>
-                      setPicked((p) => {
-                        const n = new Set(p)
-                        if (n.has(id)) n.delete(id)
-                        else n.add(id)
-                        return n
-                      })
-                    }
-                    className="accent-[var(--accent)]"
-                  />
-                  <span className="font-mono">{id}</span>
-                </label>
-              ))}
-            </div>
-          )}
+        <Field
+          label="Models"
+          hint={
+            discovers
+              ? 'Leave empty to discover them from the endpoint’s model list.'
+              : 'Model ids, separated by commas.'
+          }
+        >
           <TextInput
             value={manual}
             onChange={(e) => setManual(e.target.value)}
-            placeholder="…or type model ids, separated by commas"
+            placeholder="qwen3-8b, llama-3.3-70b"
             aria-label="Model ids"
           />
-        </div>
+        </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={props.onCancel}>
             Cancel
           </Button>
           <Button
             variant="primary"
-            disabled={!nameOk || !urlOk || models.length === 0}
-            onClick={() =>
-              void props.onSave(
-                { name, api: apiType, baseUrl: baseUrl.trim(), auth, models: models.map((id) => ({ id })) },
-                auth === 'key' && key.trim() ? key.trim() : undefined,
-              )
+            disabled={
+              !nameOk ||
+              !urlOk ||
+              busy ||
+              (auth === 'key' && !key.trim()) ||
+              (!discovers && models.length === 0)
             }
+            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+            onClick={async () => {
+              setBusy(true)
+              await props.onSave({
+                name,
+                api: apiType,
+                baseUrl: baseUrl.trim(),
+                ...(auth === 'key' ? { apiKey: key.trim() } : {}),
+                models,
+              })
+              setBusy(false)
+            }}
           >
-            Add provider · {models.length} model{models.length === 1 ? '' : 's'}
+            Connect {models.length ? `· ${models.length} model${models.length === 1 ? '' : 's'}` : ''}
           </Button>
         </div>
-      </div>
-    </Card>
-  )
-}
-
-function ProviderCard(props: {
-  provider: ProviderConfig
-  hasKey: boolean
-  onChange(p: ProviderConfig): void
-  onRemove(): void
-}) {
-  const [adding, setAdding] = useState('')
-  const p = props.provider
-  return (
-    <Card>
-      <div className="flex items-start gap-3 px-4 py-3.5">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
-          <Server className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold">{p.name}</span>
-            <Pill>{API_LABELS[p.api]}</Pill>
-            {p.auth === 'none' ? (
-              <Pill tone="neutral">no key</Pill>
-            ) : props.hasKey ? (
-              <Pill tone="ok">key saved</Pill>
-            ) : (
-              <Pill tone="warn">no key yet</Pill>
-            )}
-          </div>
-          <div className="truncate font-mono text-[12px] text-muted">{p.baseUrl}</div>
-        </div>
-        <IconButton size="sm" label={`Remove ${p.name}`} onClick={props.onRemove}>
-          <Trash2 className="size-4" />
-        </IconButton>
-      </div>
-      <div className="flex flex-wrap gap-1.5 px-4 py-3">
-        {p.models.map((m) => (
-          <span
-            key={m.id}
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 py-0.5 pl-2.5 pr-1 font-mono text-[11.5px]"
-          >
-            {m.id}
-            <button
-              type="button"
-              aria-label={`Remove ${m.id}`}
-              onClick={() => props.onChange({ ...p, models: p.models.filter((x) => x.id !== m.id) })}
-              className="grid size-4 place-items-center rounded-full text-muted hover:bg-surface-3 hover:text-fg"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            const id = adding.trim()
-            if (id && !p.models.some((m) => m.id === id))
-              props.onChange({ ...p, models: [...p.models, { id }] })
-            setAdding('')
-          }}
-        >
-          <input
-            value={adding}
-            onChange={(e) => setAdding(e.target.value)}
-            placeholder="+ model id"
-            aria-label={`Add a model to ${p.name}`}
-            className="h-6 w-32 rounded-full border border-dashed border-line-strong bg-transparent px-2.5 font-mono text-[11.5px] outline-none focus:border-accent"
-          />
-        </form>
       </div>
     </Card>
   )
@@ -1088,7 +1041,7 @@ const TOOL_INFO: {
   {
     key: 'web',
     label: 'Web search & fetch',
-    hint: 'Search the internet and read pages through omp.',
+    hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
     icon: Globe,
   },
   {
@@ -1152,6 +1105,32 @@ function ToolsSection(props: {
             </div>
           </Row>
         ))}
+      </Card>
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+        <Search className="size-4 text-muted" /> Web search
+      </h4>
+      <Card>
+        <Row>
+          <Field
+            label="Search provider"
+            hint="Auto tries omp’s chain: providers you have keys for first, then keyless ones like DuckDuckGo."
+            inline
+          >
+            <Select
+              value={props.data.settings.search.provider}
+              onChange={(e) => props.update((s) => ({ ...s, search: { provider: e.target.value } }), true)}
+              aria-label="Search provider"
+              className="min-w-44"
+            >
+              <option value="auto">Auto</option>
+              {props.data.searchProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </Row>
       </Card>
     </>
   )
@@ -1294,8 +1273,10 @@ function About({ data }: { data?: SettingsResponse }) {
           </Field>
         </Row>
         <Row>
-          <Field label="omp CLI" hint="Used for logins, web search, and your model list." inline>
-            {data ? data.omp ? <Pill tone="ok">found</Pill> : <Pill tone="warn">not found</Pill> : null}
+          <Field label="Providers ready" hint="Through the embedded omp provider stack." inline>
+            <span className="font-mono text-[12.5px] text-muted">
+              {data ? data.providers.filter((p) => p.ready).length : '…'}
+            </span>
           </Field>
         </Row>
         <Row>
@@ -1311,7 +1292,8 @@ function About({ data }: { data?: SettingsResponse }) {
         </Row>
       </Card>
       <div className="mt-4 flex items-center gap-2 text-[12px] text-muted">
-        <Bot className="size-3.5" /> Built on pi-ai, pi-agent-core, and Cordis.
+        <Bot className="size-3.5" /> Built on oh-my-pi (providers, search, readers), pi-agent-core, and
+        Cordis.
       </div>
     </>
   )

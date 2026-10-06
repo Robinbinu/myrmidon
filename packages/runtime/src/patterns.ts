@@ -69,7 +69,7 @@ function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
   if (isLead(spec, agent)) {
     const team =
       spec.team?.mode === 'auto'
-        ? `You may add up to ${spec.team.maxWorkers} workers with spawn_worker (models: ${spec.team.workerModels.join(', ')}).`
+        ? `You may add up to ${spec.team.maxWorkers} workers with spawn_worker (models: ${spec.team.workerModels.join(', ')}); each gets a call sign such as nova or kai, which you use to mail it and assign tasks.`
         : 'Your team is fixed; coordinate the agents listed above.'
     return `You are the LEAD. Plan the work as a few concrete tasks with create_task (use blockedBy for ordering),
 announce them on the board, review what workers publish, and integrate the final result yourself if needed. ${team}`

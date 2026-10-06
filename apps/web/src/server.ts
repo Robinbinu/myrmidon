@@ -1,17 +1,17 @@
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
 import {
   buildCatalog,
-  builtInProviders,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
-  discoverModels,
-  listAvailableModels,
+  importFromOmp,
   type ModelResolver,
-  ompDefaultModel,
+  type OmpRuntime,
   type SettingsStore,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
@@ -26,6 +26,8 @@ export interface ServeOptions {
   readonly chats?: ChatService
   readonly settings?: SettingsStore
   readonly resolver?: ModelResolver
+  /** omp's embedded model registry, credential vault, and web tools. */
+  readonly omp?: OmpRuntime
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -141,15 +143,14 @@ export function startServer(options: ServeOptions): WebServer {
       '/': index,
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
       '/api/models': guard(async (_req, url) => {
-        const refresh = url.searchParams.get('refresh') === '1'
-        if (refresh) await listAvailableModels(true)
-        const models = options.resolver
-          ? await buildCatalog(options.resolver, options.settings)
-          : (await listAvailableModels()).map((m) => ({ ...m, source: 'omp' as const, hidden: false }))
+        const omp = options.omp
+        if (!omp) return json({ models: [], defaults: options.settings?.get().team })
+        if (url.searchParams.get('refresh') === '1') await omp.refreshModels()
+        const models = buildCatalog(omp, options.settings, url.searchParams.get('hidden') === '1')
         const saved = options.settings?.get().team
         return json({
           models,
-          default: saved?.leadModel ?? ompDefaultModel() ?? models[0]?.ref,
+          default: saved?.leadModel ?? omp.defaultModel() ?? models[0]?.ref,
           defaults: saved,
         })
       }),
@@ -172,12 +173,13 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           return json({
             settings: options.settings.get(),
-            credentials: options.settings.configuredProviders(),
-            builtInProviders: builtInProviders(),
+            providers: options.omp?.providers() ?? [],
+            searchProviders: options.omp?.searchProviders() ?? [],
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
-            omp: Boolean(Bun.which('omp')),
+            agentDir: options.omp?.agentDir,
+            ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
           })
         }),
         PUT: guard(async (req) => {
@@ -191,49 +193,69 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/credentials/:provider': {
         PUT: guard(async (req) => {
-          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
           const { apiKey } = (await req.json()) as { apiKey?: unknown }
           if (typeof apiKey !== 'string') return json({ error: 'apiKey is required' }, 400)
           try {
-            options.settings.setApiKey(req.params.provider ?? '', apiKey)
-            return json({ ok: true, credentials: options.settings.configuredProviders() })
+            await options.omp.setApiKey(req.params.provider ?? '', apiKey)
+            return json({ ok: true, providers: options.omp.providers() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
-        DELETE: guard((req) => {
-          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
-          options.settings.setApiKey(req.params.provider ?? '', null)
-          return json({ ok: true, credentials: options.settings.configuredProviders() })
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          await options.omp.removeCredentials(req.params.provider ?? '')
+          return json({ ok: true, providers: options.omp.providers() })
         }),
       },
-      '/api/providers/discover': {
+      '/api/providers': {
         POST: guard(async (req) => {
-          const body = (await req.json()) as {
-            api?: unknown
-            baseUrl?: unknown
-            apiKey?: unknown
-            provider?: unknown
+          if (!options.omp) return json({ error: 'providers need the chat runtime' }, 503)
+          const body = (await req.json()) as Record<string, unknown>
+          if (
+            typeof body.name !== 'string' ||
+            typeof body.baseUrl !== 'string' ||
+            typeof body.api !== 'string'
+          ) {
+            return json({ error: 'name, baseUrl and api are required' }, 400)
           }
-          if (typeof body.api !== 'string' || !(CUSTOM_APIS as readonly string[]).includes(body.api)) {
-            return json({ error: `api must be one of ${CUSTOM_APIS.join(', ')}` }, 400)
-          }
-          if (typeof body.baseUrl !== 'string' || !/^https?:\/\//.test(body.baseUrl)) {
-            return json({ error: 'baseUrl must be an http(s) URL' }, 400)
-          }
-          const key =
-            typeof body.apiKey === 'string' && body.apiKey
-              ? body.apiKey
-              : typeof body.provider === 'string'
-                ? options.settings?.apiKey(body.provider)
-                : undefined
           try {
-            return json({ models: await discoverModels(body.api as CustomApi, body.baseUrl, key) })
+            const provider = await options.omp.addProvider({
+              name: body.name,
+              baseUrl: body.baseUrl,
+              api: body.api as CustomApi,
+              ...(typeof body.apiKey === 'string' && body.apiKey ? { apiKey: body.apiKey } : {}),
+              models: Array.isArray(body.models)
+                ? body.models.filter((m): m is string => typeof m === 'string')
+                : [],
+            })
+            return json({ ok: true, provider, providers: options.omp.providers() })
           } catch (err) {
-            return json(
-              { error: `discovery failed: ${err instanceof Error ? err.message : String(err)}` },
-              502,
-            )
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/providers/:name': {
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'providers need the chat runtime' }, 503)
+          try {
+            await options.omp.removeProvider(req.params.name ?? '')
+            return json({ ok: true, providers: options.omp.providers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/import-omp': {
+        POST: guard(async () => {
+          if (!options.omp) return json({ error: 'import needs the chat runtime' }, 503)
+          try {
+            const report = importFromOmp(options.home)
+            await options.omp.reload()
+            return json({ ok: true, ...report, providers: options.omp.providers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
       },

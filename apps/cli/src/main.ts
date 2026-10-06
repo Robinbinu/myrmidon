@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import './home.ts'
 import { parseArgs } from 'node:util'
 import { colonyId, SqliteLogStore } from '@myrmidon/core'
 import {
@@ -11,12 +10,15 @@ import {
   type MyrEvent,
 } from '@myrmidon/protocol'
 import {
+  bootOmp,
   bootRuntime,
   ChatService,
   ColonyRun,
   detectSandbox,
+  importFromOmp,
   loadColonySpec,
   ModelResolver,
+  ompWebTools,
   type Runtime,
   recoverOrphans,
   SettingsStore,
@@ -28,6 +30,7 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
   myrmidon serve [--port N]
+  myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
   myrmidon ls
   myrmidon events <colony-id> [--json]
   myrmidon export <colony-id> [--out file.jsonl]
@@ -50,7 +53,7 @@ const { values, positionals } = parseArgs({
   },
 })
 
-const home = resolve(values.home ?? process.env.MYRMIDON_HOME ?? join(homedir(), '.myrmidon'))
+const home = process.env.MYRMIDON_HOME as string
 const [command, arg] = positionals
 
 const c = {
@@ -161,7 +164,14 @@ async function run(path: string) {
   const runtime = await bootRuntime(home)
   await recover(runtime)
   const sandbox = detectSandbox()
-  const colony = new ColonyRun(runtime, spec, { unsafeNoSandbox: values['unsafe-no-sandbox'], sandbox })
+  const omp = await bootOmp(home)
+  const settings = new SettingsStore(home)
+  const colony = new ColonyRun(runtime, spec, {
+    unsafeNoSandbox: values['unsafe-no-sandbox'],
+    sandbox,
+    resolver: new ModelResolver(omp),
+    web: ompWebTools(omp, () => settings.get().search.provider),
+  })
   runtime.ctx.on('log/appended', (id, events) => {
     if (id !== colony.id) return
     for (const e of events) {
@@ -223,19 +233,13 @@ async function main() {
       const runtime = await bootRuntime(home)
       await recover(runtime)
       const settings = new SettingsStore(home)
-      // Saved API keys must never reach the event log, even if an agent echoes one.
-      let unregister: (() => void)[] = []
-      const registerSecrets = () => {
-        for (const off of unregister) off()
-        unregister = settings.keys().map((k) => runtime.ctx.log.registerSecret(k))
-      }
-      registerSecrets()
-      settings.onChange(registerSecrets)
-      const resolver = new ModelResolver(settings)
+      const omp = await bootOmp(home)
+      const resolver = new ModelResolver(omp)
       const sandbox = detectSandbox()
       const chats = new ChatService(runtime, {
         resolver,
         settings,
+        web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
       })
       const server = startServer({
@@ -244,10 +248,15 @@ async function main() {
         chats,
         settings,
         resolver,
+        omp,
         sandboxKind: sandbox.kind,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
-      console.log(c.dim(`data ${home} · sandbox ${sandbox.kind} · Ctrl-C to stop`))
+      console.log(
+        c.dim(
+          `data ${home} · ${omp.available().length} models ready · sandbox ${sandbox.kind} · Ctrl-C to stop`,
+        ),
+      )
       process.on('SIGINT', async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         await chats.stopAll()
@@ -255,6 +264,12 @@ async function main() {
         await runtime.dispose()
         process.exit(0)
       })
+      return
+    }
+    case 'import-omp': {
+      const report = importFromOmp(home)
+      console.log(`${c.green('imported')} ${report.copied.join(', ') || 'nothing'} into ${home}/agent`)
+      if (report.skipped.length) console.log(c.dim(`not found: ${report.skipped.join(', ')}`))
       return
     }
     case 'ls': {

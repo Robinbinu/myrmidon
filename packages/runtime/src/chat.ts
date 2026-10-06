@@ -3,8 +3,10 @@ import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
 import { ColonyRun, type Runtime } from './colony.ts'
 import type { ModelResolver } from './models.ts'
+import { pickName } from './names.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
+import type { WebTools } from './web.ts'
 
 export interface TeamConfig {
   /** `auto`: the lead decides whether and whom to spawn; `manual`: exactly `workers` workers from the start. */
@@ -58,6 +60,7 @@ export class ChatService {
       resolver: ModelResolver
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
+      web?: WebTools
     },
   ) {}
 
@@ -119,6 +122,7 @@ export class ChatService {
     const previous = (await this.rounds()).get(id) ?? []
     const run = new ColonyRun(this.runtime, this.buildSpec(id, message, config, previous), {
       resolver: this.options.resolver,
+      ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
     })
     const prior = previous.at(-1)
@@ -180,9 +184,12 @@ export class ChatService {
       },
     ]
     if (config.mode === 'manual') {
+      const taken = new Set(['lead'])
       for (let i = 1; i <= workers; i++) {
+        const name = pickName(taken)
+        taken.add(name)
         agents.push({
-          name: `worker-${i}`,
+          name,
           role: 'worker',
           model: config.workerModel,
           ...(workerNote ? { instructions: workerNote } : {}),

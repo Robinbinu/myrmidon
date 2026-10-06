@@ -2,6 +2,7 @@ import type { BlobStore, EventLog } from '@myrmidon/core'
 import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import type { WebTools } from './web.ts'
 import type { ColonyWorkspace } from './workspace.ts'
 
 /** Everything a tool or service needs from the running colony, without depending on the runner. */
@@ -24,8 +25,10 @@ export interface ColonyHost {
   requestTaskVerification(taskId: string, by: string): void
   requestFinalVerification(by: string, summary: string): Promise<string>
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
-  spawnWorker(by: string, name: string, focus: string, model?: string): Promise<string>
+  spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
   deadline(): number
+  /** Search and page fetching for agents. */
+  readonly web: WebTools
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

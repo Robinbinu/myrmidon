@@ -50,56 +50,6 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
   return task.blockedBy.every((b) => state.tasks[b]?.status === 'verified')
 }
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape sequences is the point
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
-const BOX_EDGE = /^[\s│┃|]+|[\s│┃|]+$/g
-const BOX_RULE = /^[\s╭╮╰╯├┤┌┐└┘─━┬┴┼]+$/
-
-/** Runs an omp subcommand and returns its output as plain text (omp renders boxes for terminals). */
-async function ompText(args: string[]): Promise<string> {
-  const omp = Bun.which('omp')
-  if (!omp) throw new Error('web tools need the omp CLI on PATH')
-  const proc = Bun.spawn([omp, ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: 90_000,
-    env: { ...process.env, NO_COLOR: '1', COLUMNS: '160' },
-  })
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-  const text = out
-    .replace(ANSI, '')
-    .split('\n')
-    .filter((line) => !BOX_RULE.test(line))
-    .map((line) => line.replace(BOX_EDGE, ''))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-  if (code !== 0) throw new Error(`omp ${args[0]} failed: ${(err || text).slice(0, 300)}`)
-  return text || '(no results)'
-}
-
-// Agents must not use web_fetch to reach the dashboard or other local services.
-const PRIVATE_HOST =
-  /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?$|\[?f[cd])/i
-
-function assertPublicUrl(raw: string): string {
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw new Error(`not a URL: ${raw}`)
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:')
-    throw new Error('only http(s) URLs can be fetched')
-  if (PRIVATE_HOST.test(url.hostname))
-    throw new Error('local and private network addresses cannot be fetched')
-  return url.href
-}
-
 const MENTION = /@([a-z][a-z0-9-]{0,31})/g
 
 export const TOOL_DEFS: readonly ToolDef[] = [
@@ -492,23 +442,33 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'web_search',
     tier: 'read',
-    description: 'Search the web. Returns a synthesized answer with cited source URLs.',
+    description:
+      'Search the web. Returns an answer synthesized from current sources with citations, or ranked results ' +
+      'with titles, URLs, and snippets. Use web_fetch to read a source in full.',
     parameters: type({
       query: type('string').atLeastLength(2),
-      'limit?': type('number').describe('Max sources (default 5, max 10)'),
+      'limit?': type('number').describe('Max results (default 6, max 10)'),
+      'recency?': type("'day' | 'week' | 'month' | 'year'").describe('Only results from this period'),
     }),
-    async run(args) {
-      const limit = Math.min(Math.max(1, args.limit ?? 5), 10)
-      return clip(await ompText(['search', args.query, '--limit', String(limit)]))
+    async run(args, _agent, host) {
+      const limit = Math.min(Math.max(1, args.limit ?? 6), 10)
+      const text = await host.web.search(args.query, {
+        limit,
+        ...(args.recency ? { recency: args.recency } : {}),
+      })
+      return clip(text.trim() || `No results for "${args.query}".`)
     },
   },
   {
     name: 'web_fetch',
     tier: 'read',
-    description: 'Fetch a public web page, PDF, or document URL as readable text.',
+    description:
+      'Read a public URL as clean text: web pages, PDFs and documents, GitHub repos/issues, npm/PyPI packages, ' +
+      'arXiv papers, Stack Overflow, and more get dedicated readers.',
     parameters: type({ url: type('string').describe('http(s) URL') }),
-    async run(args) {
-      return clip(await ompText(['read', assertPublicUrl(args.url)]))
+    async run(args, _agent, host) {
+      const page = await host.web.read(args.url)
+      return clip(`Source: ${page.url} (${page.method}, ${page.contentType})\n\n${page.output}`)
     },
   },
   {
@@ -531,15 +491,19 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'spawn_worker',
     tier: 'write',
     description:
-      'Add a worker agent to the colony for a focused part of the job. Give it a short lowercase name and a ' +
-      'precise focus. Only spawn when parallel or specialised work clearly helps.',
+      'Add a worker agent to the colony for a focused part of the job. Describe its role and a precise focus; ' +
+      'it gets a call sign (returned) that you use to message it and assign tasks. Only spawn when parallel or ' +
+      'specialised work clearly helps.',
     parameters: type({
-      name: type('string').describe('lowercase, e.g. researcher or frontend'),
+      role: type('string')
+        .atLeastLength(2)
+        .atMostLength(40)
+        .describe('Short role, e.g. researcher or frontend'),
       focus: type('string').atLeastLength(10).describe('What this worker is responsible for'),
       'model?': type('string').describe('One of the allowed worker models; defaults to the first'),
     }),
     async run(args, agent, host) {
-      return host.spawnWorker(agent, args.name, args.focus, args.model)
+      return host.spawnWorker(agent, args.role, args.focus, args.model)
     },
   },
   {

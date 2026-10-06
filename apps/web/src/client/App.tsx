@@ -115,7 +115,7 @@ export function App() {
   }, [])
 
   const loadModels = useCallback(() => {
-    api<{ models: ModelOption[]; default?: string; defaults?: Partial<TeamConfig> }>('/api/models')
+    api<{ models: ModelOption[]; default?: string; defaults?: Partial<TeamConfig> }>('/api/models?hidden=1')
       .then((r) => {
         setModels(r.models)
         setConfig((current) => {

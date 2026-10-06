@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { foldColony } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
-import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
+import { bootRuntime, CALL_SIGNS, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 
 let home: string
 let runtime: Runtime
@@ -39,7 +39,7 @@ test('a chat request plans, spawns a worker, answers, verifies, and carries file
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [
     [tool('reply_user', { text: 'Plan: a writer drafts the poem, I review.' })],
-    [tool('spawn_worker', { name: 'writer', focus: 'Write a four-line poem about ants into poem.txt' })],
+    [tool('spawn_worker', { role: 'writer', focus: 'Write a four-line poem about ants into poem.txt' })],
     ['waiting for the writer'],
     [tool('reply_user', { text: 'Done: poem.txt contains the poem.', final: true })],
     [tool('request_final_verification', { summary: 'poem.txt' })],
@@ -72,10 +72,11 @@ test('a chat request plans, spawns a worker, answers, verifies, and carries file
   }
   const round1 = await waitFor(first.colonyId)
   expect(round1.status).toBe('completed')
-  expect(Object.keys(round1.agents).sort()).toEqual(['lead', 'writer'])
+  const worker = Object.keys(round1.agents).find((n) => n !== 'lead') ?? ''
+  expect(CALL_SIGNS as readonly string[]).toContain(worker)
   expect(round1.chatMessages.map((m) => m.from)).toEqual(['user', 'lead', 'lead'])
   expect(round1.chatMessages.at(-1)?.final).toBe(true)
-  expect(round1.artifacts['poem.txt']?.at(-1)?.author).toBe('writer')
+  expect(round1.artifacts['poem.txt']?.at(-1)?.author).toBe(worker)
 
   const second = await chats.send('Now make it rhyme', config, first.chatId)
   expect(second.colonyId).not.toBe(first.colonyId)

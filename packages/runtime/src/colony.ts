@@ -23,11 +23,13 @@ import { ColonyAgent } from './agent.ts'
 import { registerColonyEvents } from './events.ts'
 import type { ColonyHost } from './host.ts'
 import { ModelResolver } from './models.ts'
+import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
 import { toolsFor } from './patterns.ts'
 import { detectSandbox, type Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import { Verifier } from './verifier.ts'
+import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
 
 export interface Runtime {
@@ -56,6 +58,8 @@ export async function bootRuntime(home: string): Promise<Runtime> {
 export interface RunOptions {
   readonly unsafeNoSandbox?: boolean
   readonly resolver?: ModelResolver
+  /** Search and fetch backends; defaults to keyless DuckDuckGo plus any search keys in the environment. */
+  readonly web?: WebTools
   readonly sandbox?: Sandbox
   /** How long all agents may sit idle with empty inboxes before the colony is nudged. */
   readonly quietMs?: number
@@ -72,6 +76,7 @@ export class ColonyRun implements ColonyHost {
   readonly sandbox: Sandbox
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
+  readonly web: WebTools
   readonly done: Promise<ColonyState>
 
   private _state: ColonyState
@@ -102,6 +107,7 @@ export class ColonyRun implements ColonyHost {
     this.sandbox = options.sandbox ?? detectSandbox()
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
+    this.web = options.web ?? noWebTools
     this._state = emptyColonyState(this.id)
     this._verifier = new Verifier(this, this.resolver)
     this._observer = new FactualObserver(this)
@@ -239,15 +245,14 @@ export class ColonyRun implements ColonyHost {
     await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text } })
   }
 
-  async spawnWorker(by: string, name: string, focus: string, model?: string): Promise<string> {
+  /** `label` is the lead's short description of the role (e.g. `researcher`); the worker gets a call sign. */
+  async spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string> {
     const team = this.spec.team
     if (team?.mode !== 'auto') throw new Error('this colony has a fixed team; spawning is disabled')
     if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
       throw new Error('only the lead can spawn workers')
     if (this._spawned >= team.maxWorkers) throw new Error(`worker limit reached (${team.maxWorkers})`)
-    if (!/^[a-z][a-z0-9-]{0,31}$/.test(name))
-      throw new Error('worker names are lowercase letters, digits, and dashes')
-    if (this._agents.has(name)) throw new Error(`an agent named ${name} already exists`)
+    const name = pickName(new Set(this.spec.agents.map((a) => a.name)))
     const chosen = model ?? team.workerModels[0]
     if (!chosen || !team.workerModels.includes(chosen)) {
       throw new Error(`model must be one of: ${team.workerModels.join(', ')}`)
@@ -256,7 +261,7 @@ export class ColonyRun implements ColonyHost {
       name,
       role: 'worker',
       model: chosen,
-      instructions: `Your focus, assigned by ${by}: ${focus}`,
+      instructions: `You are ${name}, the colony's ${label}. Your focus, assigned by ${by}: ${focus}`,
     }
     this._spawned += 1
     this.spec.agents.push(spec)
@@ -266,7 +271,7 @@ export class ColonyRun implements ColonyHost {
       payload: {
         agent: { name, role: 'worker', model: chosen, tools: toolsFor(this.spec, spec) },
         by,
-        focus,
+        focus: `${label}: ${focus}`,
       },
     })
     const agent = new ColonyAgent(spec, this, this.resolver)
@@ -280,7 +285,7 @@ export class ColonyRun implements ColonyHost {
       })
     })
     agent.notify({ trigger: 'assignment', text: `You were spawned by ${by}. Your focus: ${focus}` })
-    return `spawned ${name} (${chosen}); it has been told its focus and can see the board and task graph`
+    return `spawned ${name} as ${label} (${chosen}); address it as "${name}". It has been told its focus and can see the board and task graph`
   }
 
   requestTaskVerification(taskId: string, by: string): void {
