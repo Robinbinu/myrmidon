@@ -115,3 +115,24 @@ test('a round that ends with a question waits for the user instead of stalling',
   }
   throw new Error('round did not end')
 })
+
+test('deleting a chat removes every round and its data', async () => {
+  const { existsSync } = await import('node:fs')
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/brief', [[tool('reply_user', { text: 'Which format do you want?' })], ['waiting']])
+  const chats = new ChatService(runtime, { resolver })
+  const config = {
+    mode: 'auto' as const,
+    leadModel: 'mock/brief',
+    workerModel: 'mock/brief',
+    workers: 0,
+    judgeModel: 'mock/brief',
+  }
+  const { chatId, colonyId } = await chats.send('make a report', config)
+  const dir = join(home, 'colonies', colonyId)
+  expect(existsSync(dir)).toBe(true)
+  const deleted = await chats.delete(chatId)
+  expect(deleted).toEqual([colonyId])
+  expect(existsSync(dir)).toBe(false)
+  expect(await chats.list()).toEqual([])
+})

@@ -1,184 +1,452 @@
-import type { ColonyState, MyrEvent } from '@myrmidon/protocol'
-import { colonyMetrics } from '@myrmidon/protocol'
-import { previewUrl } from '../api.ts'
-import { describeEvent } from '../describe.ts'
+import { type ColonyState, colonyMetrics, type MyrEvent } from '@myrmidon/protocol'
+import {
+  BadgeCheck,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleStop,
+  Copy,
+  FileCode,
+  FileText,
+  Globe,
+  Hexagon,
+  ListChecks,
+  LoaderCircle,
+  Megaphone,
+  MessageCircleQuestion,
+  Network,
+  RotateCcw,
+  Search,
+  Terminal,
+  TriangleAlert,
+  UserPlus,
+} from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useMemo, useState } from 'react'
+import { compact, duration, useCopy } from '../ui/hooks.ts'
+import { Button, cn, Dot, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
+import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
+import { currentStep, deriveSteps, type Step, type StepKind } from './steps.ts'
 
-const ACTIVITY_TYPES = new Set([
-  'tool/call',
-  'board/posted',
-  'task/changed',
-  'artifact/versioned',
-  'agent/joined',
-  'verifier/verdict',
-  'mail/sent',
-])
-
-function lastActivity(events: readonly MyrEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e && ACTIVITY_TYPES.has(e.type)) return describeEvent(e)
-  }
-  return undefined
+const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
+  search: { icon: Search, color: 'text-sky-500' },
+  fetch: { icon: Globe, color: 'text-sky-500' },
+  file: { icon: FileCode, color: 'text-accent' },
+  task: { icon: ListChecks, color: 'text-warn' },
+  team: { icon: UserPlus, color: 'text-violet-500' },
+  verdict: { icon: BadgeCheck, color: 'text-ok' },
+  error: { icon: TriangleAlert, color: 'text-bad' },
+  shell: { icon: Terminal, color: 'text-fg-2' },
+  talk: { icon: Megaphone, color: 'text-muted' },
+  signal: { icon: CircleAlert, color: 'text-warn' },
 }
 
-/** One round of a conversation: the user's message, the colony's replies, and a live activity card. */
-export function RoundView(props: { colonyId: string; onOpenColony(id: string): void }) {
+export const AWAITING = 'awaiting your reply'
+
+export function isRunning(status: string) {
+  return status === 'running' || status === 'created'
+}
+
+const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
+
+/** One round of a conversation: the request, live run card, files, replies, and verified outcome. */
+export function RoundView(props: {
+  colonyId: string
+  onOpenColony(id: string): void
+  onRetry(text: string): void
+}) {
   const colony = useColony(props.colonyId)
   const { state, events } = colony
-  if (colony.error) return <div className="banner error">{colony.error}</div>
-  const user = state.chatMessages.filter((m) => m.from === 'user')
-  const firstUser = user[0]
-  const items = state.chatMessages.filter((m) => m !== firstUser)
+  const [file, setFile] = useState<string>()
+
+  if (colony.error)
+    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{colony.error}</div>
+  if (events.length === 0) {
+    return (
+      <section className="flex flex-col gap-3" aria-busy="true">
+        <Skeleton className="ml-auto h-11 w-2/5 rounded-2xl" />
+        <Skeleton className="h-20 rounded-2xl" />
+      </section>
+    )
+  }
+  const [first, ...rest] = state.chatMessages
+  const opening = first?.from === 'user' ? first : undefined
+  const thread = opening ? rest : state.chatMessages
+  const files = Object.entries(state.artifacts).filter(([, v]) =>
+    v.some((x) => x.author !== 'previous-round'),
+  )
+
   return (
-    <section className="round">
-      {firstUser && (
-        <div className="msg user">
-          <div className="bubble">
-            <Markdown text={firstUser.text} />
-          </div>
-        </div>
+    <section className="flex flex-col gap-4">
+      {opening && <UserMessage text={opening.text} />}
+      <RunCard state={state} events={events} onOpenColony={() => props.onOpenColony(props.colonyId)} />
+      <AnimatePresence initial={false}>
+        {thread.map((m) =>
+          m.from === 'user' ? (
+            <UserMessage key={m.id} text={m.text} />
+          ) : (
+            <AgentMessage key={m.id} from={m.from} text={m.text} final={m.final} />
+          ),
+        )}
+      </AnimatePresence>
+      {files.length > 0 && (
+        <motion.div {...enter} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {files.map(([name, versions]) => {
+            const latest = versions.at(-1)
+            const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setFile(name)}
+                className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-card"
+              >
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent transition-transform duration-200 group-hover:scale-105">
+                  <Icon className="size-4.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium">{name}</span>
+                  <span className="text-[11.5px] text-muted">
+                    v{latest?.version} · {compact(latest?.size ?? 0)}B · {latest?.author}
+                  </span>
+                </span>
+                <ChevronRight className="size-4 text-muted transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
+            )
+          })}
+        </motion.div>
       )}
-      <ActivityCard
-        state={state}
-        events={events}
-        onOpen={() => props.onOpenColony(props.colonyId)}
-        colonyId={props.colonyId}
-      />
-      {items.map((m) =>
-        m.from === 'user' ? (
-          <div key={m.id} className="msg user">
-            <div className="bubble">
-              <Markdown text={m.text} />
-            </div>
-          </div>
-        ) : (
-          <div key={m.id} className={m.final ? 'msg agent final' : 'msg agent'}>
-            <div className="avatar" aria-hidden>
-              ⬡
-            </div>
-            <div className="msg-body">
-              <div className="msg-from">
-                {m.from}
-                {m.final && <span className="tag">final answer</span>}
-              </div>
-              <Markdown text={m.text} />
-            </div>
-          </div>
-        ),
-      )}
-      <Outcome state={state} />
+      <Outcome state={state} onRetry={() => opening && props.onRetry(opening.text)} />
+      <AnimatePresence>
+        {file && state.artifacts[file] && (
+          <ArtifactViewer
+            colonyId={props.colonyId}
+            name={file}
+            versions={state.artifacts[file] ?? []}
+            onClose={() => setFile(undefined)}
+          />
+        )}
+      </AnimatePresence>
     </section>
   )
 }
 
-function ActivityCard(props: {
-  state: ColonyState
-  events: readonly MyrEvent[]
-  colonyId: string
-  onOpen(): void
-}) {
-  const { state } = props
-  const agents = Object.values(state.agents)
-  const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
-  const done = tasks.filter((t) => t.status === 'verified').length
-  const running = state.status === 'running' || state.status === 'created'
-  const m = colonyMetrics(state)
-  const artifacts = Object.entries(state.artifacts).filter(([, v]) =>
-    v.some((x) => x.author !== 'previous-round'),
-  )
+function UserMessage({ text }: { text: string }) {
+  const [copied, copy] = useCopy()
   return (
-    <div className={running ? 'activity live' : 'activity'}>
-      <div className="activity-head">
-        <span className={`dot status-${running ? 'working' : state.status}`} />
-        <strong>
-          {running
-            ? 'Colony working'
-            : state.statusReason === 'awaiting your reply'
-              ? 'Waiting for you'
-              : `Colony ${state.status}`}
-        </strong>
-        <span className="muted small">
-          {Math.round(m.wallMs / 1000)}s · {m.tokens.toLocaleString()} tokens
-          {tasks.length > 0 && ` · ${done}/${tasks.length} tasks verified`}
-        </span>
-        <button type="button" className="link small" onClick={props.onOpen}>
-          Open colony ↗
-        </button>
+    <motion.div {...enter} className="group flex flex-col items-end gap-1">
+      <div className="max-w-[min(85%,640px)] rounded-[20px] rounded-br-md bg-surface-2 px-4 py-2.5">
+        <Markdown text={text} />
       </div>
-      <div className="team-chips">
-        {agents.map((a) => (
-          <span
-            key={a.info.name}
-            className={`agent-chip status-${a.status}`}
-            title={`${a.info.model} · ${a.status}`}
-          >
-            <span className={`dot status-${a.status}`} />
-            {a.info.name}
-            <span className="muted">{a.info.model.split('/').pop()}</span>
-          </span>
-        ))}
-      </div>
-      {running && <div className="activity-now mono small">{lastActivity(props.events) ?? 'starting…'}</div>}
-      {artifacts.length > 0 && (
-        <div className="artifact-chips">
-          {artifacts.map(([name, versions]) => {
-            const latest = versions.at(-1)
-            return (
-              <span key={name} className="artifact-chip">
-                📄 {name}
-                <span className="muted small">v{latest?.version}</span>
-                {latest?.mediaType === 'text/html' && (
-                  <button
-                    type="button"
-                    className="link small"
-                    onClick={() => {
-                      void previewUrl(props.colonyId, name).then((url) =>
-                        window.open(url, '_blank', 'noopener'),
-                      )
-                    }}
-                  >
-                    preview
-                  </button>
-                )}
-              </span>
-            )
-          })}
-        </div>
-      )}
-    </div>
+      <button
+        type="button"
+        onClick={() => copy(text)}
+        aria-label="Copy message"
+        className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+      >
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </button>
+    </motion.div>
   )
 }
 
-function Outcome({ state }: { state: ColonyState }) {
+function AgentMessage(props: { from: string; text: string; final: boolean }) {
+  const [copied, copy] = useCopy()
+  return (
+    <motion.div {...enter} className="group flex gap-3">
+      <div
+        className="brand-gradient grid size-8 shrink-0 place-items-center rounded-xl text-white shadow-soft"
+        aria-hidden
+      >
+        <Hexagon className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center gap-2 text-[12.5px]">
+          <span className="font-semibold text-fg">{props.from}</span>
+          {props.final && <Pill tone="ok">final answer</Pill>}
+        </div>
+        <div className={cn(props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3')}>
+          <Markdown text={props.text} />
+        </div>
+        <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => copy(props.text)}
+            icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpenColony(): void }) {
+  const { state, events } = props
+  const running = isRunning(state.status)
+  const [open, setOpen] = useState<boolean>()
+  const expanded = open ?? running
+  const [showAll, setShowAll] = useState(false)
+  const steps = useMemo(() => deriveSteps(events), [events])
+  const m = colonyMetrics(state)
+  const agents = Object.values(state.agents)
+  const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
+  const done = tasks.filter((t) => t.status === 'verified').length
+  const now = running ? currentStep(events) : undefined
+  const awaiting = state.statusReason === AWAITING
+  // Newest first, matching every other feed in the app.
+  const visible = (showAll ? steps : steps.slice(-6)).slice().reverse()
+
+  const head = running
+    ? { icon: LoaderCircle, title: 'Working on it', tone: 'text-work', spin: true }
+    : state.status === 'completed'
+      ? { icon: BadgeCheck, title: `Done in ${duration(m.wallMs)}`, tone: 'text-ok', spin: false }
+      : awaiting
+        ? { icon: MessageCircleQuestion, title: 'Paused for your reply', tone: 'text-accent', spin: false }
+        : {
+            icon: CircleStop,
+            title: state.status === 'failed' ? 'Run failed' : 'Run stopped',
+            tone: 'text-warn',
+            spin: false,
+          }
+
+  return (
+    <motion.div
+      {...enter}
+      className={cn(
+        'overflow-hidden rounded-2xl border bg-surface shadow-soft transition-colors duration-300',
+        running ? 'border-work/35' : 'border-line',
+      )}
+    >
+      <div className="flex items-center gap-1 p-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen(!expanded)}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+        >
+          <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2', head.tone)}>
+            <head.icon className={cn('size-4', head.spin && 'animate-spin')} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13.5px] font-semibold">{head.title}</span>
+            <span className="block truncate text-[12px] tabular-nums text-muted">
+              {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length} steps
+              {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {compact(m.tokens)} tokens
+              {running && ` · ${duration(m.wallMs)}`}
+            </span>
+          </span>
+          <motion.span animate={{ rotate: expanded ? 0 : -90 }} transition={spring} className="text-muted">
+            <ChevronDown className="size-4" />
+          </motion.span>
+        </button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={props.onOpenColony}
+          icon={<Network className="size-3.5" />}
+          title="Colony map, replay, and agent transcripts"
+        >
+          <span className="hidden sm:inline">Colony</span>
+        </Button>
+      </div>
+      {running && (
+        <div className="relative h-0.5 overflow-hidden bg-surface-2">
+          {tasks.length ? (
+            <motion.span
+              className="absolute inset-y-0 left-0 bg-gradient-to-r from-accent to-sky-400"
+              animate={{ width: `${Math.max(4, (done / tasks.length) * 100)}%` }}
+              transition={softSpring}
+            />
+          ) : (
+            <motion.span
+              className="absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-accent to-transparent"
+              animate={{ x: ['-100%', '260%'] }}
+              transition={{ duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
+            />
+          )}
+        </div>
+      )}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={softSpring}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col gap-3 px-4 pb-4 pt-2">
+              <div className="flex flex-wrap gap-1.5">
+                {agents.map((a) => (
+                  <motion.span
+                    layout
+                    key={a.info.name}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={spring}
+                    title={`${a.info.model} · ${a.status}`}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full border bg-surface-2 py-1 pl-2 pr-2.5 text-[12px]',
+                      a.status === 'working' ? 'border-work/40' : 'border-line',
+                    )}
+                  >
+                    <Dot status={a.status} />
+                    <span className="font-semibold">{a.info.name}</span>
+                    <span className="text-muted">{a.info.model.split('/').pop()}</span>
+                  </motion.span>
+                ))}
+              </div>
+              {steps.length > 0 && (
+                // Newest first; the list scrolls inside the card so the chat never grows with it.
+                <ol className="relative flex max-h-80 flex-col overflow-y-auto overscroll-contain pr-1">
+                  <span className="absolute bottom-3 left-[11px] top-3 w-px bg-line" aria-hidden />
+                  <AnimatePresence initial={false}>
+                    {visible.map((s) => (
+                      <StepRow key={s.id} step={s} />
+                    ))}
+                  </AnimatePresence>
+                </ol>
+              )}
+              {steps.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(!showAll)}
+                  className="self-start text-[12.5px] font-medium text-accent hover:underline"
+                >
+                  {showAll ? 'Show fewer steps' : `Show all ${steps.length} steps`}
+                </button>
+              )}
+              {now && (
+                <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                  <motion.span key={now} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    {now}…
+                  </motion.span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+function StepRow({ step }: { step: Step }) {
+  const style = STEP_STYLE[step.kind]
+  return (
+    <motion.li
+      layout
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0 }}
+      transition={softSpring}
+      className="relative grid grid-cols-[24px_1fr_auto] items-start gap-2.5 py-1.5 text-[13px] text-fg-2"
+    >
+      <span
+        className={cn(
+          'z-10 grid size-6 place-items-center rounded-lg border border-line bg-surface',
+          style.color,
+        )}
+      >
+        <style.icon className="size-3" />
+      </span>
+      <span className="min-w-0 break-words pt-0.5">
+        <span className="text-muted">{step.agent} · </span>
+        {step.lead} {step.strong && <span className="font-semibold text-fg">{step.strong}</span>}{' '}
+        {step.tail && <span className="text-muted">{step.tail}</span>}
+      </span>
+      <time dateTime={step.time} className="pt-0.5 text-[11.5px] tabular-nums text-muted">
+        {step.time.slice(11, 16)}
+      </time>
+    </motion.li>
+  )
+}
+
+function Outcome({ state, onRetry }: { state: ColonyState; onRetry(): void }) {
   const finals = state.verdicts.filter((v) => v.target === 'colony')
+  const last = finals.at(-1)
+  const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
   if (state.status === 'completed') {
     const judge = finals.filter((v) => v.score !== undefined).at(-1)
     return (
-      <div className="outcome ok">
-        ✓ Verified{judge?.score !== undefined ? ` · judge score ${judge.score.toFixed(2)}` : ''}
-      </div>
+      <motion.div {...enter} className={cn(box, 'border-ok/25 bg-ok-soft text-ok')} role="status">
+        <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">
+            Verified by an independent judge
+            {judge?.score !== undefined && (
+              <span className="tabular-nums"> · score {judge.score.toFixed(2)}</span>
+            )}
+          </div>
+          {judge && (
+            <details className="mt-1 text-fg-2">
+              <summary className="cursor-pointer text-[12.5px]">Why it passed</summary>
+              <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+                {judge.evidence}
+              </pre>
+            </details>
+          )}
+        </div>
+      </motion.div>
     )
   }
-  if (state.status === 'stopped' && state.statusReason === 'awaiting your reply') {
-    return <div className="outcome wait">Waiting for your reply</div>
+  if (state.status === 'stopped' && state.statusReason === AWAITING) {
+    return (
+      <motion.div {...enter} className={cn(box, 'border-accent/25 bg-accent-soft text-accent')} role="status">
+        <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <div className="font-semibold">Waiting for your reply</div>
+          <div className="text-[12.5px] text-fg-2">
+            Answer below and the colony continues where it left off, with its files.
+          </div>
+        </div>
+      </motion.div>
+    )
   }
   if (state.status === 'stopped' || state.status === 'failed') {
-    const last = finals.at(-1)
     return (
-      <div className="outcome bad">
-        {state.status === 'failed' ? 'Failed' : 'Stopped'}: {state.statusReason}
-        {last && !last.pass && (
-          <div className="muted small">Last verification: {last.evidence.slice(0, 300)}</div>
-        )}
-      </div>
+      <motion.div {...enter} className={cn(box, 'border-bad/25 bg-bad-soft text-bad')} role="status">
+        <CircleStop className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div>
+            <span className="font-semibold">{state.status === 'failed' ? 'Failed' : 'Stopped'}</span>
+            <span className="text-[12.5px]"> · {state.statusReason}</span>
+          </div>
+          {last && !last.pass && (
+            <details className="mt-1 text-fg-2">
+              <summary className="cursor-pointer text-[12.5px]">Last verification</summary>
+              <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+                {last.evidence}
+              </pre>
+            </details>
+          )}
+        </div>
+        <Button size="sm" onClick={onRetry} icon={<RotateCcw className="size-3.5" />}>
+          Retry
+        </Button>
+      </motion.div>
     )
   }
-  const failing = finals.at(-1)
-  return failing && !failing.pass ? (
-    <div className="outcome warn">
-      Verification failed, the colony is fixing it: {failing.evidence.slice(0, 240)}
-    </div>
+  return last && !last.pass ? (
+    <motion.div {...enter} className={cn(box, 'border-warn/25 bg-warn-soft text-warn')} role="status">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <span className="font-semibold">Judge asked for changes</span>
+        <span className="text-[12.5px]"> · the colony is fixing them</span>
+        <details className="mt-1 text-fg-2">
+          <summary className="cursor-pointer text-[12.5px]">Feedback</summary>
+          <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+            {last.evidence}
+          </pre>
+        </details>
+      </div>
+    </motion.div>
   ) : null
 }

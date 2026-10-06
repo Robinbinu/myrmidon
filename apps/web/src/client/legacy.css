@@ -1,0 +1,177 @@
+/* Styles for the React Flow colony map and the compare table, which are not yet on Tailwind utilities. */
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12.5px;
+}
+.mono {
+  font-family: var(--mono);
+}
+.empty {
+  color: var(--muted);
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--idle);
+  flex: none;
+  display: inline-block;
+}
+.dot.status-working {
+  background: var(--work);
+}
+.dot.status-completed,
+.dot.status-ready {
+  background: var(--ok);
+}
+.dot.status-failed {
+  background: var(--bad);
+}
+.dot.status-stopped {
+  background: var(--warn);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.pill.status-completed {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+.pill.status-failed,
+.pill.status-stopped {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+.pill.status-running {
+  color: var(--work);
+}
+
+.react-flow {
+  --xy-background-pattern-dots-color-default: var(--border-strong);
+  --xy-edge-stroke-default: var(--edge);
+}
+.react-flow__edge-text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.react-flow__edge-textbg {
+  fill: var(--bg);
+}
+.edge-active .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.agent-node {
+  width: 220px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+}
+.agent-node.selected {
+  outline: 2px solid var(--accent);
+}
+.agent-node.status-working {
+  border-color: var(--work);
+}
+.agent-node.status-failed {
+  border-color: var(--bad);
+}
+.agent-node-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.agent-node-model {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-node-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.agent-node-task {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.agent-node-detail {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.handle {
+  opacity: 0;
+}
+
+.compare {
+  padding: 20px;
+}
+.compare table {
+  border-collapse: collapse;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.compare th,
+.compare td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+.compare th {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 650;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--surface-2);
+}
+.compare tbody tr:hover {
+  background: var(--surface-2);
+}
+.compare .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.compare .link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}

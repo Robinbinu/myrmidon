@@ -33,7 +33,9 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
 }
 
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
-  return agent.tools ?? roleTools(spec, agent)
+  const tools = agent.tools ?? roleTools(spec, agent)
+  const disabled = new Set(spec.disabledTools ?? [])
+  return disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
 }
 
 const COMMON = `

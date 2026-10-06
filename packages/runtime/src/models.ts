@@ -2,6 +2,7 @@ import type { StreamFn } from '@oh-my-pi/pi-agent-core'
 import { completeSimple, getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
 import { getBundledModel, getBundledModels, getBundledProviders } from '@oh-my-pi/pi-catalog'
 import { buildCustomModel, readCustomProviders } from './omp-config.ts'
+import type { SettingsStore } from './settings.ts'
 
 export interface ResolvedModel {
   readonly ref: string
@@ -17,9 +18,24 @@ export class ModelResolver {
 
   private _providers?: ReturnType<typeof readCustomProviders>
 
-  private _customProviders() {
-    this._providers ??= readCustomProviders()
+  constructor(private readonly settings?: SettingsStore) {
+    settings?.onChange(() => {
+      this._providers = undefined
+    })
+  }
+
+  /** Providers from omp's models.yml, overlaid by providers added in Myrmidon settings. */
+  customProviders() {
+    if (!this._providers) {
+      const merged = readCustomProviders()
+      for (const p of this.settings?.get().models.providers ?? []) merged.set(p.name, p)
+      this._providers = merged
+    }
     return this._providers
+  }
+
+  private _customProviders() {
+    return this.customProviders()
   }
 
   register(ref: string, resolved: Omit<ResolvedModel, 'ref'>): () => void {
@@ -37,7 +53,7 @@ export class ModelResolver {
     const ompProvider = this._customProviders().get(provider)
     if (ompProvider) {
       const model = buildCustomModel(provider, ompProvider, id)
-      if (!model) throw new Error(`unknown model ${JSON.stringify(id)} for ${provider} in omp models.yml`)
+      if (!model) throw new Error(`unknown model ${JSON.stringify(id)} for provider ${provider}`)
       return { ref, model }
     }
     if (!(getBundledProviders() as string[]).includes(provider)) {
@@ -55,11 +71,13 @@ export class ModelResolver {
   }
 
   /**
-   * Credentials come from the provider's environment variable first, then from an existing
-   * `omp` login. Nothing is persisted by Myrmidon.
+   * Credentials, in order: a key saved in Myrmidon settings, the provider's environment variable,
+   * then an existing `omp` login.
    */
   async apiKey(model: Model): Promise<string | undefined> {
     if (model.api === 'mock') return 'mock'
+    const saved = this.settings?.apiKey(model.provider)
+    if (saved) return saved
     if (this._customProviders().get(model.provider)?.auth === 'none') return 'none'
     const env = getEnvApiKey(model.provider)
     if (env) return env
@@ -95,7 +113,7 @@ export class ModelResolver {
     const key = await this.apiKey(model)
     if (!key) {
       throw new Error(
-        `no credentials for ${model.provider}: set its API key environment variable or run \`omp login ${model.provider}\``,
+        `no credentials for ${model.provider}: add an API key in Settings → Models, set its environment variable, or run \`omp login ${model.provider}\``,
       )
     }
     return key

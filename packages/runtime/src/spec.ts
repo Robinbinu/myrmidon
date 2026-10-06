@@ -40,6 +40,8 @@ export interface ColonySpec {
   chat?: { chatId: string; round: number; request: string; history: string }
   /** How the team may grow at run time. */
   team?: TeamPolicy
+  /** Tools removed from every agent regardless of role. */
+  disabledTools?: string[]
 }
 
 export interface TeamPolicy {

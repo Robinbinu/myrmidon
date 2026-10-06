@@ -1,7 +1,12 @@
+import { Check, Copy } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
+import { useCopy } from '../ui/hooks.ts'
 
 const INLINE =
   /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+
+const LINK =
+  'font-medium text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
 
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = []
@@ -10,37 +15,82 @@ function inline(text: string): ReactNode[] {
     const token = m[0]
     const at = m.index ?? 0
     if (at > last) out.push(text.slice(last, at))
-    if (token.startsWith('`')) out.push(<code key={at}>{token.slice(1, -1)}</code>)
-    else if (token.startsWith('**')) out.push(<strong key={at}>{token.slice(2, -2)}</strong>)
-    else if (token.startsWith('[')) {
-      const label = token.slice(1, token.indexOf(']'))
-      const href = token.slice(token.indexOf('(') + 1, -1)
+    if (token.startsWith('`')) {
       out.push(
-        <a key={at} href={href} target="_blank" rel="noreferrer">
-          {label}
+        <code key={at} className="rounded-md border border-line bg-code px-1.5 py-px font-mono text-[0.86em]">
+          {token.slice(1, -1)}
+        </code>,
+      )
+    } else if (token.startsWith('**'))
+      out.push(
+        <strong key={at} className="font-semibold text-fg">
+          {token.slice(2, -2)}
+        </strong>,
+      )
+    else if (token.startsWith('[')) {
+      out.push(
+        <a
+          key={at}
+          className={LINK}
+          href={token.slice(token.indexOf('(') + 1, -1)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {token.slice(1, token.indexOf(']'))}
         </a>,
       )
-    } else
+    } else {
       out.push(
-        <a key={at} href={token} target="_blank" rel="noreferrer">
+        <a key={at} className={LINK} href={token} target="_blank" rel="noreferrer">
           {token}
         </a>,
       )
+    }
     last = at + token.length
   }
   if (last < text.length) out.push(text.slice(last))
   return out
 }
 
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, copy] = useCopy()
+  return (
+    <div className="my-3 overflow-hidden rounded-xl border border-line bg-code">
+      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-[11.5px] text-muted">
+        <span className="font-mono">{lang || 'code'}</span>
+        <button
+          type="button"
+          onClick={() => copy(code)}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors hover:bg-surface-3 hover:text-fg"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-[12.5px] leading-relaxed">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
+}
+
+const CELLS = (row: string) =>
+  row
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((c) => c.trim())
+
 /**
- * Small, safe Markdown subset for agent replies: fenced code, headings, lists, bold, inline code, and
- * links. It builds React elements only, so model output can never inject HTML.
+ * Small, safe Markdown subset for agent replies: code fences, tables, headings, lists, bold, inline code
+ * and links. It builds React elements only, so model output can never inject HTML.
  */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = []
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   let i = 0
   let key = 0
+  const isList = (l: string) => /^\s*([-*]|\d+\.)\s+/.test(l)
   while (i < lines.length) {
     const line = lines[i] as string
     if (line.startsWith('```')) {
@@ -49,43 +99,37 @@ export function Markdown({ text }: { text: string }) {
       i++
       while (i < lines.length && !(lines[i] as string).startsWith('```')) body.push(lines[i++] as string)
       i++
-      blocks.push(
-        <pre key={key++} className="md-code" data-lang={lang || undefined}>
-          <code>{body.join('\n')}</code>
-        </pre>,
-      )
+      blocks.push(<CodeBlock key={key++} lang={lang} code={body.join('\n')} />)
       continue
     }
     if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? '')) {
-      const cells = (row: string) =>
-        row
-          .trim()
-          .replace(/^\||\|$/g, '')
-          .split('|')
-          .map((c) => c.trim())
-      const head = cells(line)
+      const head = CELLS(line)
       i += 2
       const rows: string[][] = []
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i] as string))
-        rows.push(cells(lines[i++] as string))
+        rows.push(CELLS(lines[i++] as string))
       blocks.push(
-        <div key={key++} className="md-table">
-          <table>
-            <thead>
+        <div key={key++} className="my-3 overflow-x-auto rounded-xl border border-line">
+          <table className="w-full border-collapse text-[13.5px]">
+            <thead className="bg-surface-2">
               <tr>
                 {head.map((h, n) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: table cells are positional
-                  <th key={n}>{inline(h)}</th>
+                  <th key={n} className="border-b border-line px-3 py-2 text-left font-semibold">
+                    {inline(h)}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((r, n) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: table rows are positional
-                <tr key={n}>
+                <tr key={n} className="border-b border-line last:border-0">
                   {r.map((c, m) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: table cells are positional
-                    <td key={m}>{inline(c)}</td>
+                    <td key={m} className="px-3 py-2 align-top">
+                      {inline(c)}
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -97,27 +141,42 @@ export function Markdown({ text }: { text: string }) {
     }
     const heading = /^(#{1,4})\s+(.*)$/.exec(line)
     if (heading) {
+      const level = heading[1]?.length ?? 1
       blocks.push(
-        <p key={key++} className={`md-h md-h${heading[1]?.length}`}>
+        <p
+          key={key++}
+          className={
+            level === 1
+              ? 'mb-2 mt-4 text-[18px] font-semibold tracking-tight'
+              : level === 2
+                ? 'mb-1.5 mt-4 text-[16px] font-semibold tracking-tight'
+                : 'mb-1 mt-3 text-[15px] font-semibold'
+          }
+        >
           {inline(heading[2] ?? '')}
         </p>,
       )
       i++
       continue
     }
-    if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+    if (isList(line)) {
       const ordered = /^\s*\d+\./.test(line)
       const items: string[] = []
-      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i] as string)) {
+      while (i < lines.length && isList(lines[i] as string)) {
         items.push((lines[i] as string).replace(/^\s*([-*]|\d+\.)\s+/, ''))
         i++
       }
       const List = ordered ? 'ol' : 'ul'
       blocks.push(
-        <List key={key++}>
+        <List
+          key={key++}
+          className={`my-2 space-y-1 pl-5 ${ordered ? 'list-decimal' : 'list-disc'} marker:text-muted`}
+        >
           {items.map((it, n) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: list items are positional
-            <li key={n}>{inline(it)}</li>
+            <li key={n} className="pl-1">
+              {inline(it)}
+            </li>
           ))}
         </List>,
       )
@@ -133,12 +192,16 @@ export function Markdown({ text }: { text: string }) {
       (lines[i] as string).trim() !== '' &&
       !(lines[i] as string).startsWith('```') &&
       !/^(#{1,4})\s/.test(lines[i] as string) &&
-      !/^\s*([-*]|\d+\.)\s+/.test(lines[i] as string)
+      !isList(lines[i] as string) &&
+      !/^\s*\|.*\|\s*$/.test(lines[i] as string)
     ) {
       para.push(lines[i++] as string)
     }
+    if (para.length === 0) {
+      para.push(lines[i++] as string)
+    }
     blocks.push(
-      <p key={key++}>
+      <p key={key++} className="my-2 first:mt-0 last:mb-0">
         {para.map((p, n) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
           <Fragment key={n}>
@@ -149,5 +212,5 @@ export function Markdown({ text }: { text: string }) {
       </p>,
     )
   }
-  return <div className="md">{blocks}</div>
+  return <div className="break-words text-[15px] leading-[1.7] text-fg [&>*:first-child]:mt-0">{blocks}</div>
 }

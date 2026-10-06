@@ -1,0 +1,377 @@
+import type { EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
+import {
+  Activity,
+  Bot,
+  ChevronRight,
+  Crown,
+  FileCode,
+  FileText,
+  FolderOpen,
+  ListChecks,
+  Terminal,
+  Users,
+  X,
+} from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useMemo, useState } from 'react'
+import type { ChatSummary } from '../api.ts'
+import { compact } from '../ui/hooks.ts'
+import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
+import { useColony } from '../use-colony.ts'
+import { ArtifactViewer } from './ArtifactViewer.tsx'
+import { deriveSteps } from './steps.ts'
+
+type Tab = 'files' | 'tasks' | 'team' | 'terminal' | 'activity'
+
+const ORDER: TaskSnapshot['status'][] = [
+  'in_progress',
+  'submitted',
+  'rejected',
+  'pending',
+  'verified',
+  'deleted',
+]
+
+interface ShellRun {
+  id: string
+  agent: string
+  command: string
+  output?: string
+  ok?: boolean
+  time: string
+}
+
+function shellRuns(events: readonly MyrEvent[]): ShellRun[] {
+  const runs = new Map<string, ShellRun>()
+  for (const e of events) {
+    if (e.type === 'tool/call') {
+      const p = e.payload as EventPayloads['tool/call']
+      if (p.tool !== 'shell') continue
+      const args = (p.args ?? {}) as { command?: string }
+      runs.set(p.callId, { id: e.id, agent: p.agent, command: args.command ?? '', time: e.time })
+    } else if (e.type === 'tool/result') {
+      const p = e.payload as EventPayloads['tool/result']
+      const run = runs.get(p.callId)
+      if (p.tool === 'shell' && run) Object.assign(run, { output: p.output, ok: p.ok })
+    }
+  }
+  return [...runs.values()]
+}
+
+/** Right-hand panel: files, task progress, team, shell sessions, and the full activity log. */
+export function Workspace(props: { chat: ChatSummary; onClose(): void }) {
+  const rounds = props.chat.rounds
+  const [picked, setPicked] = useState<string>()
+  const colonyId =
+    picked && rounds.some((r) => r.colonyId === picked) ? picked : (rounds.at(-1)?.colonyId ?? '')
+  return (
+    <motion.aside
+      initial={{ x: 24, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 24, opacity: 0 }}
+      transition={softSpring}
+      aria-label="Workspace"
+      className="fixed inset-y-0 right-0 z-40 flex w-[min(460px,94vw)] flex-col border-l border-line bg-surface shadow-pop xl:static xl:z-auto xl:w-[440px] xl:shadow-none"
+    >
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
+        <FolderOpen className="size-4 text-muted" />
+        <span className="flex-1 text-[14px] font-semibold">Workspace</span>
+        {rounds.length > 1 && (
+          <Select value={colonyId} onChange={(e) => setPicked(e.target.value)} aria-label="Round">
+            {rounds.map((r) => (
+              <option key={r.colonyId} value={r.colonyId}>
+                Round {r.round}
+              </option>
+            ))}
+          </Select>
+        )}
+        <IconButton label="Close workspace" onClick={props.onClose}>
+          <X className="size-4" />
+        </IconButton>
+      </div>
+      {colonyId && <WorkspaceBody key={colonyId} colonyId={colonyId} />}
+    </motion.aside>
+  )
+}
+
+function WorkspaceBody({ colonyId }: { colonyId: string }) {
+  const { state, events } = useColony(colonyId)
+  const [tab, setTab] = useState<Tab>('files')
+  const [file, setFile] = useState<string>()
+  const steps = useMemo(() => deriveSteps(events), [events])
+  const shells = useMemo(() => shellRuns(events), [events])
+  const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
+  const tasks = Object.values(state.tasks)
+    .filter((t) => t.status !== 'deleted')
+    .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
+  const agents = Object.values(state.agents)
+  const by = (s: string) => tasks.filter((t) => t.status === s).length
+  const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
+
+  return (
+    <>
+      <Tabs
+        id="workspace"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          {
+            value: 'files',
+            label: (
+              <>
+                <FileCode className="size-3.5" /> Files
+              </>
+            ),
+            count: files.length,
+          },
+          {
+            value: 'tasks',
+            label: (
+              <>
+                <ListChecks className="size-3.5" /> Tasks
+              </>
+            ),
+            count: tasks.length,
+          },
+          {
+            value: 'team',
+            label: (
+              <>
+                <Users className="size-3.5" /> Team
+              </>
+            ),
+            count: agents.length,
+          },
+          {
+            value: 'terminal',
+            label: (
+              <>
+                <Terminal className="size-3.5" /> Terminal
+              </>
+            ),
+            count: shells.length,
+          },
+          {
+            value: 'activity',
+            label: (
+              <>
+                <Activity className="size-3.5" /> Activity
+              </>
+            ),
+          },
+        ]}
+      />
+      <div className="min-h-0 flex-1 overflow-auto">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            {tab === 'files' &&
+              (files.length === 0 ? (
+                <Empty icon={<FileCode className="size-5" />} title="No files yet">
+                  Everything the colony publishes appears here, with every version kept.
+                </Empty>
+              ) : (
+                <div className="p-2">
+                  {files.map(([name, versions]) => {
+                    const latest = versions.at(-1)
+                    const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FileCode
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => setFile(name)}
+                        className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-medium">{name}</span>
+                          <span className="text-[11.5px] text-muted">
+                            {versions.length} version{versions.length === 1 ? '' : 's'} ·{' '}
+                            {compact(latest?.size ?? 0)}B · {latest?.author}
+                          </span>
+                        </span>
+                        <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+            {tab === 'tasks' &&
+              (tasks.length === 0 ? (
+                <Empty icon={<ListChecks className="size-5" />} title="No tasks">
+                  The lead creates tasks when the work has several parts.
+                </Empty>
+              ) : (
+                <>
+                  <div className="border-b border-line px-4 py-3.5">
+                    <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
+                      <span className="font-semibold">
+                        {by('verified')} of {tasks.length} done
+                      </span>
+                      <span className="text-muted">
+                        {by('in_progress')} active · {by('submitted')} in review · {by('pending')} waiting
+                      </span>
+                    </div>
+                    <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
+                      <motion.span
+                        className="bg-ok"
+                        animate={{ width: pct(by('verified')) }}
+                        transition={softSpring}
+                      />
+                      <motion.span
+                        className="bg-warn"
+                        animate={{ width: pct(by('submitted')) }}
+                        transition={softSpring}
+                      />
+                      <motion.span
+                        className="bg-work"
+                        animate={{ width: pct(by('in_progress')) }}
+                        transition={softSpring}
+                      />
+                    </div>
+                  </div>
+                  <ul className="divide-y divide-line">
+                    {tasks.map((t) => (
+                      <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
+                          <span className="font-mono text-[11px] text-muted">{t.id}</span>
+                          {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                        </div>
+                        <div className="text-[13.5px] font-medium">{t.subject}</div>
+                        {t.description && <div className="text-[12.5px] text-muted">{t.description}</div>}
+                        {t.blockedBy.length > 0 && (
+                          <div className="text-[11.5px] text-muted">after {t.blockedBy.join(', ')}</div>
+                        )}
+                      </motion.li>
+                    ))}
+                  </ul>
+                </>
+              ))}
+            {tab === 'team' && (
+              <ul className="divide-y divide-line">
+                {agents.map((a) => {
+                  const task = tasks.find((t) => t.owner === a.info.name && t.status === 'in_progress')
+                  const lead = a.info.role === 'lead'
+                  return (
+                    <li key={a.info.name} className="flex gap-3 px-4 py-3.5">
+                      <div
+                        className={cn(
+                          'grid size-9 shrink-0 place-items-center rounded-xl',
+                          lead ? 'brand-gradient text-white' : 'bg-surface-3 text-fg-2',
+                        )}
+                      >
+                        {lead ? <Crown className="size-4" /> : <Bot className="size-4" />}
+                      </div>
+                      <div className="grid min-w-0 flex-1 gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{a.info.name}</span>
+                          <Pill tone={toneFor(a.status)}>
+                            <Dot status={a.status} /> {a.status}
+                          </Pill>
+                        </div>
+                        <div className="truncate font-mono text-[11.5px] text-muted">{a.info.model}</div>
+                        {(task || a.detail) && (
+                          <div className="text-[12.5px]">
+                            {task ? `Working on ${task.subject}` : a.detail}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-3 text-[11.5px] tabular-nums text-muted">
+                          <span>{a.turns} turns</span>
+                          <span>{compact(a.tokens)} tokens</span>
+                          <span>{a.toolCalls} tool calls</span>
+                          {a.costKnown && a.cost > 0 && <span>${a.cost.toFixed(3)}</span>}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {tab === 'terminal' &&
+              (shells.length === 0 ? (
+                <Empty icon={<Terminal className="size-5" />} title="No shell commands yet">
+                  Agents run commands in a sandbox that can only write to their own scratch folder.
+                </Empty>
+              ) : (
+                <div className="m-3 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
+                  {[...shells].reverse().map((s) => (
+                    <div key={s.id} className="border-b border-white/5 px-3.5 py-3 last:border-0">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span>{s.agent}</span>
+                        <span>·</span>
+                        <span>{s.time.slice(11, 19)}</span>
+                        <span className="flex-1" />
+                        {s.ok === undefined ? (
+                          <span className="text-sky-400">running…</span>
+                        ) : (
+                          <span
+                            className={
+                              s.ok && /^exit 0/.test(s.output ?? '') ? 'text-emerald-400' : 'text-amber-400'
+                            }
+                          >
+                            {(s.output ?? '').split('\n')[0]}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 whitespace-pre-wrap break-all">
+                        <span className="select-none text-emerald-400">$ </span>
+                        {s.command}
+                      </div>
+                      {s.output && (
+                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
+                          {s.output
+                            .split('\n')
+                            .slice(1)
+                            .join('\n')
+                            .replace(/--- (stdout|stderr)\n?/g, '')
+                            .trim() || '(no output)'}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            {tab === 'activity' &&
+              (steps.length === 0 ? (
+                <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
+              ) : (
+                <ol className="flex flex-col px-4 py-2">
+                  {[...steps].reverse().map((s) => (
+                    <li
+                      key={s.id}
+                      className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-[12.5px] last:border-0"
+                    >
+                      <span className="min-w-0 break-words text-fg-2">
+                        <span className="text-muted">{s.agent} · </span>
+                        {s.lead} {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
+                        {s.tail && <span className="text-muted">{s.tail}</span>}
+                      </span>
+                      <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
+                    </li>
+                  ))}
+                </ol>
+              ))}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      <AnimatePresence>
+        {file && state.artifacts[file] && (
+          <ArtifactViewer
+            colonyId={colonyId}
+            name={file}
+            versions={state.artifacts[file] ?? []}
+            onClose={() => setFile(undefined)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}

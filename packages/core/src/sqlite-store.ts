@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ActorKind, ColonyId, EventId, MyrEvent } from '@myrmidon/protocol'
 import { MyrError } from './errors.ts'
@@ -141,6 +141,21 @@ export class SqliteLogStore implements LogStore {
       .filter((d) => d.isDirectory() && existsSync(join(dir, d.name, 'events.sqlite')))
       .map((d) => toColonyId(d.name))
       .sort()
+  }
+
+  /** Closes this store's handle on a colony so another process or call can remove it. */
+  forget(colonyId: ColonyId) {
+    this._dbs.get(colonyId)?.close()
+    this._dbs.delete(colonyId)
+  }
+
+  /**
+   * Removes a whole colony: its log, blobs, and scratch files. Events are never edited individually;
+   * this is the user discarding an entire run.
+   */
+  deleteColony(colonyId: ColonyId) {
+    this.forget(colonyId)
+    rmSync(this.colonyDir(colonyId), { recursive: true, force: true })
   }
 
   close() {

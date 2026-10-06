@@ -2,7 +2,18 @@ import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
-import { type ChatService, listAvailableModels, ompDefaultModel } from '@myrmidon/runtime'
+import {
+  buildCatalog,
+  builtInProviders,
+  type ChatService,
+  CUSTOM_APIS,
+  type CustomApi,
+  discoverModels,
+  listAvailableModels,
+  type ModelResolver,
+  ompDefaultModel,
+  type SettingsStore,
+} from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
 
@@ -13,6 +24,10 @@ export interface ServeOptions {
   readonly token?: string
   /** Enables the chat API; without it the server is a read-only dashboard. */
   readonly chats?: ChatService
+  readonly settings?: SettingsStore
+  readonly resolver?: ModelResolver
+  /** Shown in settings so users know whether the shell tool is confined. */
+  readonly sandboxKind?: string
 }
 
 export interface WebServer {
@@ -126,9 +141,102 @@ export function startServer(options: ServeOptions): WebServer {
       '/': index,
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
       '/api/models': guard(async (_req, url) => {
-        const models = await listAvailableModels(url.searchParams.get('refresh') === '1')
-        return json({ models, default: ompDefaultModel() ?? models[0]?.ref })
+        const refresh = url.searchParams.get('refresh') === '1'
+        if (refresh) await listAvailableModels(true)
+        const models = options.resolver
+          ? await buildCatalog(options.resolver, options.settings)
+          : (await listAvailableModels()).map((m) => ({ ...m, source: 'omp' as const, hidden: false }))
+        const saved = options.settings?.get().team
+        return json({
+          models,
+          default: saved?.leadModel ?? ompDefaultModel() ?? models[0]?.ref,
+          defaults: saved,
+        })
       }),
+      '/api/models/test': {
+        POST: guard(async (req) => {
+          if (!options.resolver) return json({ error: 'model testing needs the chat runtime' }, 503)
+          const { ref } = (await req.json()) as { ref?: unknown }
+          if (typeof ref !== 'string') return json({ error: 'ref is required' }, 400)
+          const started = Date.now()
+          try {
+            await options.resolver.probe(ref)
+            return json({ ok: true, ms: Date.now() - started })
+          } catch (err) {
+            return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+          }
+        }),
+      },
+      '/api/settings': {
+        GET: guard(() => {
+          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
+          return json({
+            settings: options.settings.get(),
+            credentials: options.settings.configuredProviders(),
+            builtInProviders: builtInProviders(),
+            customApis: CUSTOM_APIS,
+            sandbox: options.sandboxKind ?? 'unknown',
+            home: options.home,
+            omp: Boolean(Bun.which('omp')),
+          })
+        }),
+        PUT: guard(async (req) => {
+          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
+          try {
+            return json({ settings: options.settings.set(await req.json()) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/credentials/:provider': {
+        PUT: guard(async (req) => {
+          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
+          const { apiKey } = (await req.json()) as { apiKey?: unknown }
+          if (typeof apiKey !== 'string') return json({ error: 'apiKey is required' }, 400)
+          try {
+            options.settings.setApiKey(req.params.provider ?? '', apiKey)
+            return json({ ok: true, credentials: options.settings.configuredProviders() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
+          options.settings.setApiKey(req.params.provider ?? '', null)
+          return json({ ok: true, credentials: options.settings.configuredProviders() })
+        }),
+      },
+      '/api/providers/discover': {
+        POST: guard(async (req) => {
+          const body = (await req.json()) as {
+            api?: unknown
+            baseUrl?: unknown
+            apiKey?: unknown
+            provider?: unknown
+          }
+          if (typeof body.api !== 'string' || !(CUSTOM_APIS as readonly string[]).includes(body.api)) {
+            return json({ error: `api must be one of ${CUSTOM_APIS.join(', ')}` }, 400)
+          }
+          if (typeof body.baseUrl !== 'string' || !/^https?:\/\//.test(body.baseUrl)) {
+            return json({ error: 'baseUrl must be an http(s) URL' }, 400)
+          }
+          const key =
+            typeof body.apiKey === 'string' && body.apiKey
+              ? body.apiKey
+              : typeof body.provider === 'string'
+                ? options.settings?.apiKey(body.provider)
+                : undefined
+          try {
+            return json({ models: await discoverModels(body.api as CustomApi, body.baseUrl, key) })
+          } catch (err) {
+            return json(
+              { error: `discovery failed: ${err instanceof Error ? err.message : String(err)}` },
+              502,
+            )
+          }
+        }),
+      },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
         POST: guard(async (req) => {
@@ -147,6 +255,16 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
+        }),
+      },
+      '/api/chats/:chatId': {
+        DELETE: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const deleted = await options.chats.delete(req.params.chatId ?? '')
+          if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
+          for (const id of deleted) store.forget(id as ColonyId)
+          for (const ws of sockets) if (deleted.includes(ws.data.colony)) ws.close(1000, 'colony deleted')
+          return json({ ok: true, deleted })
         }),
       },
       '/api/chats/:chatId/stop': {

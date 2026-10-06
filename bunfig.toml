@@ -1,0 +1,3 @@
+# Tailwind CSS for the dashboard's HTML entrypoint (Bun.serve bundles it at startup).
+[serve.static]
+plugins = ["bun-plugin-tailwind"]

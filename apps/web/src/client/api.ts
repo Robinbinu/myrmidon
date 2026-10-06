@@ -107,6 +107,19 @@ export interface ModelOption {
   name: string
   reasoning: boolean
   contextWindow?: number
+  source?: 'omp' | 'custom' | 'key'
+  hidden?: boolean
+}
+
+export async function send<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${path}`)
+  return data as T
 }
 
 export interface TeamConfig {

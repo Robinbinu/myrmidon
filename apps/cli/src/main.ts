@@ -19,6 +19,7 @@ import {
   ModelResolver,
   type Runtime,
   recoverOrphans,
+  SettingsStore,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
 
@@ -221,13 +222,32 @@ async function main() {
     case 'serve': {
       const runtime = await bootRuntime(home)
       await recover(runtime)
+      const settings = new SettingsStore(home)
+      // Saved API keys must never reach the event log, even if an agent echoes one.
+      let unregister: (() => void)[] = []
+      const registerSecrets = () => {
+        for (const off of unregister) off()
+        unregister = settings.keys().map((k) => runtime.ctx.log.registerSecret(k))
+      }
+      registerSecrets()
+      settings.onChange(registerSecrets)
+      const resolver = new ModelResolver(settings)
+      const sandbox = detectSandbox()
       const chats = new ChatService(runtime, {
-        resolver: new ModelResolver(),
+        resolver,
+        settings,
         unsafeNoSandbox: values['unsafe-no-sandbox'],
       })
-      const server = startServer({ home, port: Number(values.port ?? 0), chats })
+      const server = startServer({
+        home,
+        port: Number(values.port ?? 0),
+        chats,
+        settings,
+        resolver,
+        sandboxKind: sandbox.kind,
+      })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
-      console.log(c.dim(`data ${home} · sandbox ${detectSandbox().kind} · Ctrl-C to stop`))
+      console.log(c.dim(`data ${home} · sandbox ${sandbox.kind} · Ctrl-C to stop`))
       process.on('SIGINT', async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         await chats.stopAll()

@@ -3,6 +3,7 @@ import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
 import { ColonyRun, type Runtime } from './colony.ts'
 import type { ModelResolver } from './models.ts'
+import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
 
 export interface TeamConfig {
@@ -53,7 +54,11 @@ export class ChatService {
 
   constructor(
     private readonly runtime: Runtime,
-    private readonly options: { resolver: ModelResolver; unsafeNoSandbox?: boolean },
+    private readonly options: {
+      resolver: ModelResolver
+      unsafeNoSandbox?: boolean
+      settings?: SettingsStore
+    },
   ) {}
 
   private get store() {
@@ -139,6 +144,19 @@ export class ChatService {
     await this._live.get(chatId)?.stop('stopped by user')
   }
 
+  /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */
+  async delete(chatId: string): Promise<string[]> {
+    const live = this._live.get(chatId)
+    if (live) {
+      await live.stop('chat deleted')
+      await live.done
+      this._live.delete(chatId)
+    }
+    const rounds = (await this.rounds()).get(chatId) ?? []
+    for (const { id } of rounds) this.store.deleteColony(id as never)
+    return rounds.map((r) => r.id)
+  }
+
   async stopAll(): Promise<void> {
     await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
   }
@@ -150,11 +168,32 @@ export class ChatService {
     previous: { state: ColonyState }[],
   ): ColonySpec {
     const workers = Math.min(Math.max(0, Math.floor(config.workers)), MAX_WORKERS)
-    const agents: AgentSpec[] = [{ name: 'lead', role: 'lead', model: config.leadModel }]
+    const s = this.options.settings?.get()
+    const leadNote = s?.instructions.lead?.trim()
+    const workerNote = s?.instructions.worker?.trim()
+    const agents: AgentSpec[] = [
+      {
+        name: 'lead',
+        role: 'lead',
+        model: config.leadModel,
+        ...(leadNote ? { instructions: leadNote } : {}),
+      },
+    ]
     if (config.mode === 'manual') {
-      for (let i = 1; i <= workers; i++)
-        agents.push({ name: `worker-${i}`, role: 'worker', model: config.workerModel })
+      for (let i = 1; i <= workers; i++) {
+        agents.push({
+          name: `worker-${i}`,
+          role: 'worker',
+          model: config.workerModel,
+          ...(workerNote ? { instructions: workerNote } : {}),
+        })
+      }
     }
+    const disabledTools = s
+      ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
+          .filter((g) => !s.tools[g])
+          .flatMap((g) => [...TOOL_GROUPS[g]])
+      : []
     const history = previous
       .map(({ state }) => {
         const replies = state.chatMessages.filter((m) => m.from !== 'user')
@@ -169,9 +208,20 @@ export class ChatService {
         : request,
       pattern: 'lead-workers',
       agents,
-      acceptance: [{ verifier: 'llm-judge', model: config.judgeModel, rubric: RUBRIC, threshold: 0.7 }],
-      budget: { wallMs: Math.round((config.wallMinutes ?? 30) * 60_000), maxTurns: 40 },
-      observer: { intervalMs: 45_000 },
+      acceptance: [
+        {
+          verifier: 'llm-judge',
+          model: config.judgeModel,
+          rubric: s?.verification.rubric?.trim() || RUBRIC,
+          threshold: s?.verification.threshold ?? 0.7,
+        },
+      ],
+      budget: {
+        wallMs: Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000),
+        maxTurns: s?.team.maxTurns ?? 40,
+      },
+      observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
+      ...(disabledTools.length ? { disabledTools } : {}),
       chat: { chatId, round: previous.length + 1, request, history },
       team: {
         mode: config.mode,
