@@ -603,6 +603,25 @@ export function startServer(options: ServeOptions): WebServer {
         const limit = Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000)
         return json(await store.read(id, { from, limit }))
       }),
+      '/api/colonies/:id/changes': guard(async (req) => {
+        if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+        try {
+          return json(await options.chats.changes(req.params.id ?? ''))
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/colonies/:id/rewind': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { undo } = (await req.json().catch(() => ({}))) as { undo?: unknown }
+          try {
+            return json(await options.chats.rewind(req.params.id ?? '', undo === true))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
       '/api/colonies/:id/blobs/:hash': guard(async (req) => {
         const id = colonyId(req.params.id ?? '')
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)

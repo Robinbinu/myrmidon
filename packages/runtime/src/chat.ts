@@ -13,6 +13,7 @@ import { completeSimple } from '@oh-my-pi/pi-ai'
 import { compactTranscript, readTranscript } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
+import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -216,6 +217,8 @@ export class ChatService {
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
+      /** Snapshots of project folders, for each round's changes and rewinding. */
+      checkpoints?: Checkpoints
       /** The person's kept tools (made by agents), loaded into every round. */
       library?: ToolLibrary
       /** Shared headless Chrome for the browser_* tools. */
@@ -347,6 +350,7 @@ export class ChatService {
     const prior = previous.at(-1)
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
+      await this._checkpoint(run.id, project, 'start', `before: ${message}`)
       if (prior) await this.carryOver(prior, run)
       await this.carryTranscripts(previous, run)
       const names = await run.attach(attachments)
@@ -365,6 +369,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       if (this._live.get(id) === run) this._live.delete(id)
+      void this._checkpoint(run.id, project, 'end', `after: ${message}`)
     })
     return { chatId: id, colonyId: run.id, started: true }
   }
@@ -401,6 +406,63 @@ export class ChatService {
 
   async stop(chatId: string): Promise<void> {
     await this._live.get(chatId)?.stop('stopped by user')
+  }
+
+  /** Snapshots a project round's folder; a failure is reported but never stops the round. */
+  private async _checkpoint(
+    colonyId: string,
+    project: { id: string; path: string } | undefined,
+    phase: 'start' | 'end',
+    label: string,
+  ) {
+    if (!project || !this.options.checkpoints) return
+    try {
+      const commit = await this.options.checkpoints.snapshot(project, label)
+      await this.runtime.ctx.log.appendOne(colonyId as never, {
+        type: 'checkpoint/created',
+        actor: { kind: 'system', id: 'myrmidon' },
+        payload: { commit, phase },
+      })
+    } catch (err) {
+      console.warn(
+        `checkpoint (${phase}) of ${project.path} failed: ${err instanceof Error ? err.message : err}`,
+      )
+    }
+  }
+
+  private async _projectRound(colonyId: string) {
+    if (!this.options.checkpoints) throw new Error('checkpoints need the chat runtime')
+    const state = foldColony(colonyId, await this.store.read(colonyId as never))
+    const project = state.chat?.project
+    if (!project) throw new Error('this round has no project folder')
+    if (!state.checkpoints.start) throw new Error('this round has no checkpoint')
+    return { state, project, checkpoints: this.options.checkpoints, start: state.checkpoints.start }
+  }
+
+  /** What a round changed in its project: from its start to its end, or to now while it runs. */
+  async changes(colonyId: string) {
+    const { state, project, checkpoints, start } = await this._projectRound(colonyId)
+    return checkpoints.changes(project, start, state.checkpoints.end)
+  }
+
+  /**
+   * Puts a round's project folder back as it was when the round started (`undo`: reverts the latest rewind).
+   * Refused while the chat has a round running, since its agents would be editing the same files.
+   */
+  async rewind(colonyId: string, undo = false): Promise<{ changed: number }> {
+    const { state, project, checkpoints, start } = await this._projectRound(colonyId)
+    const chatId = state.chat?.chatId ?? ''
+    if (this._live.get(chatId)?.state().status === 'running')
+      throw new Error('stop the running round before rewinding its files')
+    const target = undo ? state.checkpoints.restored?.undo : start
+    if (!target) throw new Error('there is no rewind to undo')
+    const { undo: before, changed } = await checkpoints.restore(project, target)
+    await this.runtime.ctx.log.appendOne(colonyId as never, {
+      type: 'checkpoint/restored',
+      actor: { kind: 'user', id: 'user' },
+      payload: { commit: target, undo: before, changed },
+    })
+    return { changed }
   }
 
   /**
@@ -477,6 +539,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       if (this._live.get(chatId) === run) this._live.delete(chatId)
+      void this._checkpoint(run.id, last.state.chat?.project, 'end', `after resumed round ${run.id}`)
     })
     return { chatId, colonyId: run.id }
   }

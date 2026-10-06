@@ -895,8 +895,10 @@ test('a transient model error is retried quietly and never enters the context', 
   expect(seen[1]).not.toContain('Overloaded')
 }, 20_000)
 
-test('a chat in a project works in that folder, and follow-ups stay in it', async () => {
+test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {
   const { ProjectStore } = await import('../src/projects.ts')
+  const { Checkpoints } = await import('../src/checkpoints.ts')
+  const checkpoints = new Checkpoints(join(home, 'checkpoints'))
   const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
   await Bun.write(join(folder, 'README.md'), '# Demo project')
   const projects = new ProjectStore(home)
@@ -913,7 +915,7 @@ test('a chat in a project works in that folder, and follow-ups stay in it', asyn
     [tool('reply_user', { text: 'Still here.', final: true })],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects, checkpoints })
   const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
   const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
   const s = await waitFor(first.colonyId)
@@ -929,6 +931,17 @@ test('a chat in a project works in that folder, and follow-ups stay in it', asyn
   const s2 = await waitFor(second.colonyId)
   expect(s2.chat?.project?.path).toBe(project.path)
   expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
+
+  // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
+  await waitFor(first.colonyId, (x) => x.checkpoints.end !== undefined)
+  await waitFor(second.colonyId, (x) => x.checkpoints.end !== undefined)
+  const changes = await chats.changes(first.colonyId)
+  expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
+  expect(await chats.rewind(first.colonyId)).toEqual({ changed: 1 })
+  expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
+  expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
+  await chats.rewind(first.colonyId, true)
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
   rmSync(folder, { recursive: true, force: true })
 })
 

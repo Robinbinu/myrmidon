@@ -15,6 +15,7 @@ import {
   bootOmp,
   bootRuntime,
   ChatService,
+  Checkpoints,
   ColonyRun,
   detectSandbox,
   importFromOmp,
@@ -249,6 +250,7 @@ async function main() {
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
+      const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
         .start()
@@ -262,6 +264,7 @@ async function main() {
         browser,
         projects,
         library,
+        checkpoints,
       })
       const server = startServer({
         home,

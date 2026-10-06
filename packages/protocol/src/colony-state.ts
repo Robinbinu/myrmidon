@@ -107,6 +107,12 @@ export interface ColonyState {
   mail: MailEntry[]
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
+  /** Project folder snapshots of this round, and the latest rewind (if any). */
+  checkpoints: {
+    start?: string
+    end?: string
+    restored?: EventPayloads['checkpoint/restored'] & { time: string }
+  }
   /** Tools made by agents (or loaded from the library), latest definition per name. */
   madeTools: Record<string, EventPayloads['tool/created'] & { seq: number; time: string }>
   verdicts: VerdictEntry[]
@@ -140,6 +146,7 @@ export function emptyColonyState(id: string): ColonyState {
     tasks: {},
     artifacts: {},
     madeTools: {},
+    checkpoints: {},
     verdicts: [],
     signals: [],
     chatMessages: [],
@@ -202,6 +209,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'checkpoint/created': {
+      const p = event.payload as EventPayloads['checkpoint/created']
+      state.checkpoints[p.phase] = p.commit
+      break
+    }
+    case 'checkpoint/restored': {
+      const p = event.payload as EventPayloads['checkpoint/restored']
+      state.checkpoints.restored = { ...p, time: event.time }
       break
     }
     case 'tool/created': {

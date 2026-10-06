@@ -118,6 +118,18 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), by: str(), reason: str() }),
   },
   {
+    type: 'checkpoint/created',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ commit: str(), phase: oneOf('start', 'end') }),
+  },
+  {
+    type: 'checkpoint/restored',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ commit: str(), undo: str(), changed: Schema.natural().required() }),
+  },
+  {
     type: 'agent/compacted',
     version: 1,
     actors: ['agent'],

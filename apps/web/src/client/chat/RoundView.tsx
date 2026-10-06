@@ -36,6 +36,7 @@ import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ModelPicker } from './ModelPicker.tsx'
+import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
 
@@ -196,6 +197,7 @@ export function RoundView(props: {
         onResume={props.onResume}
         models={props.models}
       />
+      <RoundChanges colonyId={props.colonyId} state={state} running={isRunning(state.status)} />
       <AnimatePresence>
         {inspect && (
           <AgentSheet
