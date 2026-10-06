@@ -262,7 +262,7 @@ function environment(env: Environment, tools: readonly string[]): string {
   ]
   if (tools.includes('shell'))
     lines.push(
-      `Shell: ${process.platform}, ${env.sandbox} sandbox, working in your scratch directory. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
+      `Shell: ${process.platform}, ${env.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
     )
   return lines.join('\n')
 }

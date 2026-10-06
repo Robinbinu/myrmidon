@@ -15,6 +15,7 @@ import { api, browserSocket, keyframeImage } from '../api.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
+import { type Activity, activityOf } from './activity.ts'
 
 interface TabInfo {
   agent: string
@@ -23,6 +24,8 @@ interface TabInfo {
   controlledBy: 'agent' | 'person'
   /** The tab closed (the round ended); its last screen stays on show. */
   closed?: boolean
+  /** The agent has used only its terminal and files. */
+  noBrowser?: boolean
 }
 
 type LiveEvent =
@@ -77,6 +80,15 @@ function keyframesOf(events: readonly MyrEvent[]): Map<string, Keyframe[]> {
   return out
 }
 
+/** The view an agent's computer is showing: one of its kinds of activity, or whatever it did last. */
+type Mode = 'follow' | Activity['kind']
+
+const MODE_LABEL: Record<Activity['kind'], string> = {
+  browser: 'Browser',
+  terminal: 'Terminal',
+  editor: 'Editor',
+}
+
 export function Computer({
   colonyId,
   live,
@@ -87,6 +99,7 @@ export function Computer({
   events: readonly MyrEvent[]
 }) {
   const keyframes = useMemo(() => keyframesOf(events), [events])
+  const activity = useMemo(() => activityOf(events), [events])
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [agent, setAgent] = useState<string>()
 
@@ -115,11 +128,15 @@ export function Computer({
       .filter((a) => !tabs.some((t) => t.agent === a))
       .map((a) => ({ agent: a, url: '', title: '', controlledBy: 'agent' as const, closed: true })),
   ]
+  for (const a of activity.keys())
+    if (!known.some((t) => t.agent === a))
+      known.push({ agent: a, url: '', title: '', controlledBy: 'agent', closed: true, noBrowser: true })
   const current = known.find((t) => t.agent === agent) ?? known[0]
   if (!current)
     return (
-      <Empty icon={<MonitorSmartphone className="size-5" />} title="No browser in use">
-        When an agent opens a web page you can watch it here, follow its cursor, and take control.
+      <Empty icon={<MonitorSmartphone className="size-5" />} title="Nothing on screen yet">
+        When an agent browses, runs commands, or writes files, you can watch it here, follow its cursor, and
+        take control of its browser.
       </Empty>
     )
   return (
@@ -144,13 +161,149 @@ export function Computer({
           ))}
         </div>
       )}
-      <LiveTab
+      <AgentScreen
         key={current.agent}
         colonyId={colonyId}
-        agent={current.agent}
-        live={live && !current.closed}
+        tab={current}
+        live={live}
         frames={keyframes.get(current.agent) ?? []}
+        activity={activity.get(current.agent) ?? []}
       />
+    </div>
+  )
+}
+
+/** One agent's computer: its browser, terminal, or editor, following whichever it used last unless pinned. */
+function AgentScreen(props: {
+  colonyId: string
+  tab: TabInfo
+  live: boolean
+  frames: readonly Keyframe[]
+  activity: readonly Activity[]
+}) {
+  const [mode, setMode] = useState<Mode>('follow')
+  const hasBrowser = !props.tab.noBrowser || props.frames.length > 0
+  const kinds = (['browser', 'terminal', 'editor'] as const).filter((k) =>
+    k === 'browser' ? hasBrowser : props.activity.some((a) => a.kind === k),
+  )
+  const latest = props.activity.at(-1)?.kind ?? (hasBrowser ? 'browser' : undefined)
+  const shown = mode === 'follow' ? latest : mode
+  return (
+    <div className="flex flex-col gap-2">
+      {kinds.length > 1 && (
+        <div className="flex items-center gap-1 rounded-lg border border-line p-0.5 text-[12px]">
+          {(['follow', ...kinds] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              onClick={() => setMode(m)}
+              className={cn(
+                'flex-1 rounded-md px-2 py-1 font-medium transition-colors',
+                mode === m ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+              )}
+            >
+              {m === 'follow' ? `Follow${latest ? ` · ${MODE_LABEL[latest]}` : ''}` : MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown === 'browser' && (
+        <LiveTab
+          colonyId={props.colonyId}
+          agent={props.tab.agent}
+          live={props.live && !props.tab.closed}
+          frames={props.frames}
+        />
+      )}
+      {shown === 'terminal' && (
+        <TerminalScreen agent={props.tab.agent} activity={props.activity} live={props.live} />
+      )}
+      {shown === 'editor' && <EditorScreen agent={props.tab.agent} activity={props.activity} />}
+    </div>
+  )
+}
+
+/** The agent's recent shell commands and their output, newest at the bottom, like a terminal window. */
+function TerminalScreen(props: { agent: string; activity: readonly Activity[]; live: boolean }) {
+  const runs = props.activity
+    .filter((a): a is Extract<Activity, { kind: 'terminal' }> => a.kind === 'terminal')
+    .slice(-20)
+  const end = useRef<HTMLDivElement>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow new output as it lands
+  useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [runs.length, runs.at(-1)?.output])
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ScreenTitle agent={props.agent} what="Terminal" />
+      <div className="max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-[#0b0b0d] p-3 font-mono text-[11.5px] leading-relaxed text-[#d7d7de]">
+        {runs.map((r, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: runs are positional and append-only
+          <div key={i} className="mb-2">
+            <div className="text-[#9be37a]">
+              <span className="select-none text-[#6b6b78]">$ </span>
+              {r.command}
+            </div>
+            {r.output === undefined ? (
+              props.live && i === runs.length - 1 && <div className="text-[#6b6b78]">running…</div>
+            ) : (
+              <pre className={cn('m-0 whitespace-pre-wrap break-words', r.ok === false && 'text-[#ff8a8a]')}>
+                {r.output.length > 4_000
+                  ? `${r.output.slice(0, 4_000)}
+…`
+                  : r.output}
+              </pre>
+            )}
+          </div>
+        ))}
+        <div ref={end} />
+      </div>
+    </div>
+  )
+}
+
+/** The file the agent last wrote or edited; an edit shows what it replaced. */
+function EditorScreen(props: { agent: string; activity: readonly Activity[] }) {
+  const last = props.activity
+    .filter((a): a is Extract<Activity, { kind: 'editor' }> => a.kind === 'editor')
+    .at(-1)
+  if (!last) return null
+  const lines = last.edit
+    ? [
+        ...last.edit.old.split('\n').map((t) => ({ t, kind: 'del' as const })),
+        ...last.edit.new.split('\n').map((t) => ({ t, kind: 'add' as const })),
+      ]
+    : (last.content ?? '(published from a file in its scratch directory)')
+        .split('\n')
+        .map((t) => ({ t, kind: 'same' as const }))
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ScreenTitle agent={props.agent} what={`Editor · ${last.path}${last.edit ? ' (edit)' : ''}`} />
+      <pre className="m-0 max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-code py-2 font-mono text-[11.5px] leading-[1.6]">
+        {lines.slice(0, 600).map((l, i) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+            key={i}
+            className={cn('flex', l.kind === 'add' && 'bg-ok-soft', l.kind === 'del' && 'bg-bad-soft')}
+          >
+            <span className="w-10 shrink-0 select-none pr-3 text-right text-muted/70">
+              {l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : i + 1}
+            </span>
+            <span className="whitespace-pre pr-4">{l.t}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
+  )
+}
+
+function ScreenTitle(props: { agent: string; what: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <AgentAvatar name={props.agent} status="working" size={26} awake />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-semibold">{props.agent}’s computer</div>
+        <div className="truncate text-[11.5px] text-muted">{props.what}</div>
+      </div>
     </div>
   )
 }

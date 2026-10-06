@@ -811,7 +811,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const path = host.workspace.resolveInScratch(agent, name)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, `${head}\n\n${page.output}`)
-      return `${head}\n(${page.output.length} chars; the full text is saved as ${name} in your scratch directory: fs_read it, or search it with the shell)\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
+      return `${head}\n(${page.output.length} chars; the full text is saved as ${name} in your scratch directory: fs_read("${name}"), or in the shell, which starts in that directory, grep -n "term" ${name})\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
     },
   },
   {
