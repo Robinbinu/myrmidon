@@ -18,6 +18,7 @@ import { compact } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
+import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { deriveSteps } from './steps.ts'
 
@@ -245,7 +246,22 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                           <span className="font-mono text-[11px] text-muted">{t.id}</span>
                           {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
                         </div>
-                        <div className="text-[13.5px] font-medium">{t.subject}</div>
+                        <span className="sr-only">{t.subject}</span>
+                        {/* Agents complete tasks, so the check is a live readout, not a control. */}
+                        <div inert className="-my-1.5" title={t.subject}>
+                          <SpringCheck
+                            label={<span className="block truncate">{t.subject}</span>}
+                            className="check-line"
+                            checked={t.status === 'verified'}
+                            color="var(--text)"
+                            fillColor="var(--ok)"
+                            checkColor="var(--bg)"
+                            boxSize={18}
+                            boxRadius={6}
+                            fontSize={13.5}
+                            doneOpacity={0.5}
+                          />
+                        </div>
                         {t.description && <div className="text-[12.5px] text-muted">{t.description}</div>}
                         {t.blockedBy.length > 0 && (
                           <div className="text-[11.5px] text-muted">after {t.blockedBy.join(', ')}</div>

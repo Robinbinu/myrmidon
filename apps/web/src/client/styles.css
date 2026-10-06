@@ -108,3 +108,13 @@
 @utility caret {
   animation: blink-caret 1.1s steps(1) infinite;
 }
+
+/* A SpringCheck whose label stays on one line, so the strike-through crosses the words. */
+.check-line {
+  max-width: 100%;
+}
+.check-line .spring-check__label,
+.check-line .spring-check__word {
+  display: block;
+  min-width: 0;
+}
