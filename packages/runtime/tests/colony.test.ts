@@ -111,6 +111,64 @@ test('failed verification does not complete the colony', async () => {
   expect(final.verdicts.some((v) => v.target === 'colony' && !v.pass)).toBe(true)
 })
 
+test('grep and glob search the working directory', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/searcher', [
+    [
+      tool('fs_write', { path: 'src/math.ts', content: 'export function add(a, b) {\n  return a + b\n}\n' }),
+      tool('fs_write', {
+        path: 'src/util/strings.ts',
+        content: 'export const shout = (s) => s.toUpperCase()\n',
+      }),
+    ],
+    [
+      tool('grep', { pattern: 'function\\s+add', context: 1 }),
+      tool('grep', { pattern: 'export', filesOnly: true }),
+      tool('glob', { pattern: '**/*.ts' }),
+      tool('grep', { pattern: 'nothing-here' }),
+      tool('grep', { pattern: 'x', path: '../..' }),
+    ],
+  ])
+  const spec = parseColonySpec({
+    name: 'Search',
+    mission: 'Search.',
+    agents: [{ name: 'searcher', model: 'mock/searcher', tools: ['fs_write', 'grep', 'glob'] }],
+    budget: { wall: '20s' },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  await run.done
+  // Read-tier calls in one step run together, so match each result to its call rather than relying on order.
+  const log = await runtime.ctx.log.read(run.id)
+  const calls = new Map(
+    log
+      .filter((e) => e.type === 'tool/call')
+      .map((e) => {
+        const p = e.payload as { callId: string; args: unknown }
+        return [p.callId, JSON.stringify(p.args)] as const
+      }),
+  )
+  const order = [
+    { pattern: 'function\\s+add', context: 1 },
+    { pattern: 'export', filesOnly: true },
+    { pattern: '**/*.ts' },
+    { pattern: 'nothing-here' },
+    { pattern: 'x', path: '../..' },
+  ].map((a) => JSON.stringify(a))
+  const out = log
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as { tool: string; callId: string; ok: boolean; output: string })
+    .filter((r) => r.tool !== 'fs_write')
+    .sort((a, b) => order.indexOf(calls.get(a.callId) ?? '') - order.indexOf(calls.get(b.callId) ?? ''))
+  expect(out[0]?.output).toContain('1 match in 1 file')
+  expect(out[0]?.output).toContain('src/math.ts\n  1: export function add(a, b) {\n  2-   return a + b')
+  expect(out[1]?.output.split('\n').slice(1).sort()).toEqual(['src/math.ts', 'src/util/strings.ts'])
+  expect(out[2]?.output.split('\n').sort()).toEqual(['src/math.ts', 'src/util/strings.ts'])
+  expect(out[3]?.output).toContain('No matches')
+  expect(out[4]).toMatchObject({ ok: false })
+  expect(out[4]?.output).toContain('outside your scratch directory')
+})
+
 test('agents cannot escape their scratch directory', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/escape', [

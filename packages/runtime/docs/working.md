@@ -73,3 +73,14 @@ output), make it a tool with `create_tool` instead of retyping shell commands:
 - It appears as `tool_<name>` for everyone with shell in this colony, and carries into later rounds of the chat.
   The person can keep it in their library so every new round starts with it.
 - Keep tools small and single-purpose; one-off work does not need a tool.
+
+## Working in a code project
+
+When the chat has a project folder, its AGENTS.md / CLAUDE.md, layout and check commands are in your environment
+section. Then:
+
+- Find before you read: `glob` for files by name, `grep` for where something is defined or used. Read only what
+  the change needs, and read a file before you edit it.
+- Follow the project's instructions and conventions over your own habits; keep the change to what was asked.
+- After changing code, `run_checks` runs the project's own typecheck, lint and tests. Fix what fails before you
+  say you are done, and say plainly if something still fails.

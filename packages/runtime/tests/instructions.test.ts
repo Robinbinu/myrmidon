@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseColonySpec, readProjectInstructions, systemPrompt } from '../src/index.ts'
+import { parseColonySpec, readProjectContext, readProjectInstructions, systemPrompt } from '../src/index.ts'
 
 let dir: string
 let root: string
@@ -49,15 +49,19 @@ test('agents in a project chat get the instructions and a shell that starts in t
     tier: 'solo' as const,
     chat: { chatId: 'chat-a', round: 1, request: 'r', history: '', project },
   }
-  const instructions = readProjectInstructions(root)
+  write('package.json', '{"scripts": {"test": "bun test", "lint": "biome check ."}}')
+  write('bun.lock', '')
+  write('src/app/main.ts', 'export {}')
   const prompt = systemPrompt(chatSpec, spec.agents[0] as never, {
     sandbox: 'sandbox-exec',
     web: false,
     browser: false,
-    ...(instructions ? { instructions } : {}),
+    project: readProjectContext(root),
   }).join('\n')
   expect(prompt).toContain('Project instructions (AGENTS.md)')
   expect(prompt).toContain('Run bun test before you finish.')
   expect(prompt).toContain('commands start in the project folder')
   expect(prompt).not.toContain('commands start in your scratch directory')
+  expect(prompt).toContain('Project checks: lint `bun run lint`, test `bun run test`')
+  expect(prompt).toContain('src/ (1 file)\n  src/app/ (1 file)')
 })

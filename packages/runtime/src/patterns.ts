@@ -1,5 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import type { ProjectInstructions } from './instructions.ts'
+import type { ProjectContext } from './project-context.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
 
 const LOOK = [
@@ -32,7 +32,10 @@ const BUILD = [
   'fs_edit',
   'fs_read',
   'fs_list',
+  'grep',
+  'glob',
   'shell',
+  'run_checks',
   'create_tool',
   ...BROWSER,
   'mcp',
@@ -58,7 +61,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'browser_open',
         'browser_snapshot',
         // In a project, quick questions are often about its code: reading it needs no team.
-        ...(spec.chat.project ? ['fs_read', 'fs_list'] : []),
+        ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob'] : []),
         'list_artifacts',
         'read_artifact',
         'read_docs',
@@ -257,7 +260,7 @@ export interface Environment {
   readonly sandbox: string
   readonly web: boolean
   readonly browser: boolean
-  readonly instructions?: ProjectInstructions
+  readonly project?: ProjectContext
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -288,7 +291,12 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     lines.push(
       `Project: "${project.name}" at ${project.path}. This is the person's real folder: your file tools and shell work here, and changes are real. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory, not the project.`,
     )
-  const guide = env.instructions
+  const guide = env.project?.instructions
+  if (project && env.project?.layout) lines.push(`Project layout:\n${env.project.layout}`)
+  if (project && env.project?.checks.length)
+    lines.push(
+      `Project checks: ${env.project.checks.map((c) => `${c.name} \`${c.command}\``).join(', ')}. Run them (run_checks) after you change code and before you say you are done; fix what fails.`,
+    )
   if (project && guide) {
     if (guide.text)
       lines.push(

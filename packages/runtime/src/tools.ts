@@ -1,9 +1,10 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
+import * as natives from '@oh-my-pi/pi-natives'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
 import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
 import limitsDoc from '../docs/limits.md' with { type: 'text' }
@@ -34,6 +35,9 @@ import { toolsFor } from './patterns.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
+/** Most matches grep returns, and most paths glob lists, so a broad search does not flood the context. */
+const GREP_LIMIT = 100
+const GLOB_LIMIT = 200
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 const PAGE_EXCERPT = 8_000
 
@@ -778,6 +782,87 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'grep',
+    tier: 'read',
+    description:
+      'Search file contents in your working directory with a regular expression (ripgrep syntax), respecting ' +
+      '.gitignore. Use it to find where something is defined or used before reading files: function names, error ' +
+      'strings, config keys, imports. Narrow with `glob` (e.g. "*.ts") and widen with `context` lines. For finding ' +
+      'files by name use glob; for reading a whole file use fs_read.',
+    parameters: type({
+      pattern: type('string').atLeastLength(1).describe('Regular expression, e.g. "function\\s+parseSlash"'),
+      'path?': type('string').describe('Folder or file to search, relative to your working directory'),
+      'glob?': type('string').describe('Only files matching this, e.g. "*.tsx" or "src/**/*.ts"'),
+      'ignoreCase?': 'boolean',
+      'context?': type('number').describe('Lines of context around each match (default 0, max 5)'),
+      'filesOnly?': type('boolean').describe('List matching files instead of lines'),
+    }),
+    async run(args, agent, host) {
+      const root = host.workspace.workdir(agent)
+      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const context = Math.min(Math.max(0, args.context ?? 0), 5)
+      const result = await natives.grep({
+        pattern: args.pattern,
+        path: target,
+        ...(args.glob ? { glob: args.glob } : {}),
+        ...(args.ignoreCase ? { ignoreCase: true } : {}),
+        hidden: false,
+        gitignore: true,
+        maxCount: GREP_LIMIT,
+        maxCountPerFile: 20,
+        maxColumns: 300,
+        timeoutMs: 20_000,
+        ...(context ? { context } : {}),
+        mode: args.filesOnly ? natives.GrepOutputMode.FilesWithMatches : natives.GrepOutputMode.Content,
+      })
+      const where = (p: string) => relative(root, resolve(target, p)) || p
+      if (result.matches.length === 0)
+        return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
+      const head = `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} in ${result.filesWithMatches} file${result.filesWithMatches === 1 ? '' : 's'}${result.totalMatches > result.matches.length ? ` (showing ${result.matches.length})` : ''}`
+      if (args.filesOnly) return `${head}\n${result.matches.map((m) => where(m.path)).join('\n')}`
+      const lines: string[] = [head]
+      let file = ''
+      for (const m of result.matches) {
+        const p = where(m.path)
+        if (p !== file) {
+          lines.push(`\n${p}`)
+          file = p
+        }
+        for (const c of m.contextBefore ?? []) lines.push(`  ${c.lineNumber}- ${c.line}`)
+        lines.push(`  ${m.lineNumber}: ${m.line}`)
+        for (const c of m.contextAfter ?? []) lines.push(`  ${c.lineNumber}- ${c.line}`)
+      }
+      return clip(lines.join('\n'))
+    },
+  },
+  {
+    name: 'glob',
+    tier: 'read',
+    description:
+      'Find files by name pattern in your working directory, newest first, respecting .gitignore: "**/*.test.ts", ' +
+      '"src/**/Button*", "*.md". Use it to locate files before reading them; fs_list shows a whole folder instead.',
+    parameters: type({
+      pattern: type('string').atLeastLength(1),
+      'path?': type('string').describe('Folder to search, relative to your working directory'),
+    }),
+    async run(args, agent, host) {
+      const root = host.workspace.workdir(agent)
+      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const result = await natives.glob({
+        pattern: args.pattern,
+        path: target,
+        fileType: natives.FileType.File,
+        gitignore: true,
+        hidden: false,
+        sortByMtime: true,
+        maxResults: GLOB_LIMIT,
+        timeoutMs: 20_000,
+      })
+      if (result.matches.length === 0) return `No files match ${args.pattern}.`
+      return result.matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+    },
+  },
+  {
     name: 'web_search',
     tier: 'read',
     description:
@@ -1065,6 +1150,57 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const tab = await browserTab(host, agent)
       const value = await tab.page.evaluate(`(async () => (${args.expression}))()`)
       return clip(JSON.stringify(value, null, 2) ?? 'undefined')
+    },
+  },
+  {
+    name: 'run_checks',
+    tier: 'exec',
+    description:
+      "Run the project's own checks in the sandbox and get a short pass/fail summary with the failing output: its " +
+      '`check` script if it has one, otherwise typecheck, lint and test (whatever its package.json, Cargo.toml, go.mod ' +
+      'or pyproject defines). Run it after you change code and before you say you are done, then fix what fails. ' +
+      '`only` runs one check by name (e.g. "test", or "build", which is never run by default).',
+    parameters: type({ 'only?': type('string').describe('check, typecheck, lint, test, or build') }),
+    async run(args, agent, host) {
+      if (!host.project) throw new Error('run_checks works in project chats; use shell to run commands here')
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error('run_checks needs the OS sandbox')
+      const all = host.project.checks
+      const picked = args.only
+        ? all.filter((c) => c.name === args.only)
+        : all.some((c) => c.name === 'check')
+          ? all.filter((c) => c.name === 'check')
+          : all.filter((c) => c.name !== 'build')
+      if (picked.length === 0)
+        throw new Error(
+          args.only
+            ? `this project has no ${args.only} check; it has: ${all.map((c) => c.name).join(', ') || 'none'}`
+            : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
+        )
+      const cwd = host.workspace.workdir(agent)
+      const lines: string[] = []
+      const failures: string[] = []
+      for (const check of picked) {
+        const started = Date.now()
+        const r = await host.sandbox.run({
+          command: check.command,
+          cwd,
+          writable: [...new Set([cwd, host.workspace.scratch(agent)])],
+          timeoutMs: 300_000,
+        })
+        const ok = !r.timedOut && r.code === 0
+        const took = `${((Date.now() - started) / 1000).toFixed(1)}s`
+        lines.push(
+          `${ok ? 'PASS' : 'FAIL'} ${check.name} (\`${check.command}\`, ${r.timedOut ? 'timed out' : took})`,
+        )
+        if (!ok) {
+          const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-60).join('\n')
+          failures.push(
+            `--- ${check.name} (${r.timedOut ? 'timed out after 300s' : `exit ${r.code}`})\n${tail}`,
+          )
+        }
+      }
+      return clip([...lines, ...(failures.length ? ['', ...failures] : [])].join('\n'))
     },
   },
   {

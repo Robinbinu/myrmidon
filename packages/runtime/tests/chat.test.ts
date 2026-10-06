@@ -12,6 +12,7 @@ import {
   CALL_SIGNS,
   ChatService,
   type Classify,
+  detectSandbox,
   findChrome,
   ModelResolver,
   normalizeTeamConfig,
@@ -944,6 +945,58 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
   rmSync(folder, { recursive: true, force: true })
 })
+
+test.skipIf(detectSandbox().kind === 'none')(
+  "run_checks runs the project's own checks and reports what failed",
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-checks-'))
+    await Bun.write(
+      join(folder, 'package.json'),
+      JSON.stringify({
+        scripts: {
+          typecheck: 'echo types ok',
+          lint: "echo 'src/a.ts:3 unused variable' && exit 2",
+          test: 'echo tests ok',
+          build: 'echo built',
+        },
+      }),
+    )
+    await Bun.write(join(folder, 'bun.lock'), '')
+    const projects = new ProjectStore(home)
+    const project = projects.add(folder)
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/checker', [
+      [tool('run_checks', {})],
+      [tool('run_checks', { only: 'deploy' })],
+      [tool('reply_user', { text: 'Lint fails.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const { colonyId } = await chats.send(
+      'Check the project',
+      { ...solo('mock/checker'), judgeModel: 'mock/judge' },
+      undefined,
+      {
+        project: project.id,
+      },
+    )
+    await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    const first = results[0]?.output ?? ''
+    expect(first).toContain('PASS typecheck (`bun run typecheck`')
+    expect(first).toContain('FAIL lint (`bun run lint`')
+    expect(first).toContain('PASS test (`bun run test`')
+    expect(first).not.toContain('build')
+    expect(first).toContain('src/a.ts:3 unused variable')
+    expect(results[1]?.output).toContain(
+      'this project has no deploy check; it has: typecheck, lint, test, build',
+    )
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
 
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
