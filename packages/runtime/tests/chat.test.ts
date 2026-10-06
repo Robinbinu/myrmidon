@@ -739,6 +739,9 @@ test.skipIf(!findChrome())(
     expect(out('browser_click')?.output).toContain('button "Clicked"')
     expect(out('browser_console')?.output).toContain('clicked ok')
     expect(out('browser_screenshot')?.ok).toBe(true)
+    // Each action left a keyframe to replay.
+    const frames = (await events(colonyId)).filter((e) => e.type === 'browser/keyframe')
+    expect(frames.map((e) => (e.payload as { action: string }).action)).toEqual(['open', 'click'])
     await browser.close()
   },
   60_000,

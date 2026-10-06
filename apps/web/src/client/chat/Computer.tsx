@@ -1,6 +1,17 @@
-import { Globe, Hand, Maximize2, Minimize2, MonitorSmartphone, Undo2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { api, browserSocket } from '../api.ts'
+import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Globe,
+  Hand,
+  Maximize2,
+  Minimize2,
+  MonitorSmartphone,
+  Radio,
+  Undo2,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, browserSocket, keyframeImage } from '../api.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
@@ -51,7 +62,31 @@ const KEYS = new Set([
  * The agents' computers, like Manus: pick an agent with a browser open and watch its tab live, with its cursor
  * flying to what it clicks. Take control to drive the page yourself; hand it back and the agent carries on.
  */
-export function Computer({ colonyId, live }: { colonyId: string; live: boolean }) {
+type Keyframe = EventPayloads['browser/keyframe'] & { seq: number; time: string }
+
+/** Every browser keyframe in the log, per agent, oldest first. */
+function keyframesOf(events: readonly MyrEvent[]): Map<string, Keyframe[]> {
+  const out = new Map<string, Keyframe[]>()
+  for (const e of events) {
+    if (e.type !== 'browser/keyframe') continue
+    const p = e.payload as EventPayloads['browser/keyframe']
+    const list = out.get(p.agent) ?? []
+    list.push({ ...p, seq: e.seq, time: e.time })
+    out.set(p.agent, list)
+  }
+  return out
+}
+
+export function Computer({
+  colonyId,
+  live,
+  events,
+}: {
+  colonyId: string
+  live: boolean
+  events: readonly MyrEvent[]
+}) {
+  const keyframes = useMemo(() => keyframesOf(events), [events])
   const [tabs, setTabs] = useState<TabInfo[]>([])
   const [agent, setAgent] = useState<string>()
 
@@ -73,7 +108,14 @@ export function Computer({ colonyId, live }: { colonyId: string; live: boolean }
     }
   }, [colonyId, live])
 
-  const current = tabs.find((t) => t.agent === agent) ?? tabs[0]
+  // Agents with a live tab, plus any whose tab has closed but left a recording.
+  const known: TabInfo[] = [
+    ...tabs,
+    ...[...keyframes.keys()]
+      .filter((a) => !tabs.some((t) => t.agent === a))
+      .map((a) => ({ agent: a, url: '', title: '', controlledBy: 'agent' as const, closed: true })),
+  ]
+  const current = known.find((t) => t.agent === agent) ?? known[0]
   if (!current)
     return (
       <Empty icon={<MonitorSmartphone className="size-5" />} title="No browser in use">
@@ -82,9 +124,9 @@ export function Computer({ colonyId, live }: { colonyId: string; live: boolean }
     )
   return (
     <div className="flex flex-col gap-3 p-4">
-      {tabs.length > 1 && (
+      {known.length > 1 && (
         <div className="flex flex-wrap gap-1.5">
-          {tabs.map((t) => (
+          {known.map((t) => (
             <button
               key={t.agent}
               type="button"
@@ -102,12 +144,54 @@ export function Computer({ colonyId, live }: { colonyId: string; live: boolean }
           ))}
         </div>
       )}
-      <LiveTab key={current.agent} colonyId={colonyId} agent={current.agent} live={live && !current.closed} />
+      <LiveTab
+        key={current.agent}
+        colonyId={colonyId}
+        agent={current.agent}
+        live={live && !current.closed}
+        frames={keyframes.get(current.agent) ?? []}
+      />
     </div>
   )
 }
 
-function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; live: boolean }) {
+function LiveTab({
+  colonyId,
+  agent,
+  live,
+  frames,
+}: {
+  colonyId: string
+  agent: string
+  live: boolean
+  frames: readonly Keyframe[]
+}) {
+  // 'live' follows the agent; a number replays that keyframe. A finished session opens on its last step.
+  const [at, setAt] = useState<number | 'live'>(live ? 'live' : Math.max(0, frames.length - 1))
+  const [still, setStill] = useState<string>()
+  const replaying = at !== 'live' ? frames[at] : undefined
+  useEffect(() => {
+    if (!live && at === 'live' && frames.length > 0) setAt(frames.length - 1)
+  }, [live, at, frames.length])
+  const stillBlob = replaying?.blob
+  useEffect(() => {
+    if (!stillBlob) return
+    let url: string | undefined
+    let stop = false
+    keyframeImage(colonyId, stillBlob)
+      .then((u) => {
+        if (stop) URL.revokeObjectURL(u)
+        else {
+          url = u
+          setStill(u)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      stop = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [colonyId, stillBlob])
   const [frame, setFrame] = useState<{ data: string; width: number; height: number }>()
   const [page, setPage] = useState({ url: '', title: '' })
   const [cursor, setCursor] = useState({ x: 640, y: 400, clicking: false })
@@ -145,7 +229,7 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
   }, [colonyId, agent])
 
   // Frames come in CSS pixels of the agent's viewport; the screen scales them to fit the panel.
-  const frameWidth = frame?.width
+  const frameWidth = replaying?.width ?? frame?.width
   useEffect(() => {
     const el = screen.current
     if (!el || !frameWidth) return
@@ -162,6 +246,16 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
     document.addEventListener('keydown', esc)
     return () => document.removeEventListener('keydown', esc)
   })
+
+  const shownBox = replaying ? replaying.box : highlight
+  const shownLabel = replaying ? replaying.label : highlight?.label
+  const step = (d: number) =>
+    setAt((cur) => {
+      const i = cur === 'live' ? frames.length - 1 + (d < 0 ? 1 : 0) : cur
+      const next = i + d
+      if (next >= frames.length) return live ? 'live' : frames.length - 1
+      return Math.max(0, next)
+    })
 
   const send = (msg: object) => socket.current?.readyState === 1 && socket.current.send(JSON.stringify(msg))
   const controlling = by === 'person'
@@ -182,7 +276,8 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold">{agent}’s computer</div>
           <div className="flex items-center gap-1 truncate text-[11.5px] text-muted">
-            <Globe className="size-3 shrink-0" /> {page.title || page.url || 'blank page'}
+            <Globe className="size-3 shrink-0" />{' '}
+            {(replaying ? replaying.title || replaying.url : page.title || page.url) || 'blank page'}
           </div>
         </div>
         {controlling ? (
@@ -211,7 +306,7 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
         </IconButton>
       </div>
       <div className="truncate rounded-lg border border-line bg-surface-2 px-2.5 py-1 font-mono text-[11.5px] text-fg-2">
-        {page.url || 'about:blank'}
+        {(replaying ? replaying.url : page.url) || 'about:blank'}
       </div>
       <div
         ref={screen}
@@ -223,7 +318,13 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
           full && 'max-w-[calc((100dvh-140px)*1.6)]',
           controlling ? 'cursor-default border-warn/60 ring-2 ring-warn/25' : 'border-line',
         )}
-        style={{ aspectRatio: frame ? `${frame.width} / ${frame.height}` : '16 / 10' }}
+        style={{
+          aspectRatio: replaying
+            ? `${replaying.width} / ${replaying.height}`
+            : frame
+              ? `${frame.width} / ${frame.height}`
+              : '16 / 10',
+        }}
         onMouseMove={(e) => controlling && send({ type: 'mouse', action: 'move', ...point(e) })}
         onMouseDown={(e) => {
           if (!controlling) return
@@ -244,7 +345,16 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
           else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) send({ type: 'text', text: e.key })
         }}
       >
-        {frame ? (
+        {replaying ? (
+          still && (
+            <img
+              alt=""
+              draggable={false}
+              src={still}
+              className="pointer-events-none absolute inset-0 size-full select-none object-contain"
+            />
+          )
+        ) : frame ? (
           <img
             alt=""
             draggable={false}
@@ -256,40 +366,91 @@ function LiveTab({ colonyId, agent, live }: { colonyId: string; agent: string; l
             {error ?? 'Connecting to the browser…'}
           </div>
         )}
-        {!controlling && frame && highlight && (
+        {!controlling && (replaying || frame) && (replaying ? replaying.box : highlight) && (
           <div
             className="pointer-events-none absolute rounded-[4px] border-2 transition-all duration-200"
             style={{
-              left: highlight.x * scale - 3,
-              top: highlight.y * scale - 3,
-              width: highlight.width * scale + 6,
-              height: highlight.height * scale + 6,
+              left: (shownBox?.x ?? 0) * scale - 3,
+              top: (shownBox?.y ?? 0) * scale - 3,
+              width: (shownBox?.width ?? 0) * scale + 6,
+              height: (shownBox?.height ?? 0) * scale + 6,
               borderColor: agentColor(agent),
               background: `${agentColor(agent)}1a`,
             }}
           >
-            {highlight.label && (
+            {shownLabel && (
               <span
                 className="absolute -top-5 left-0 max-w-[240px] truncate rounded px-1.5 py-px text-[10.5px] font-medium"
                 style={{ background: agentColor(agent), color: inkOn(agentColor(agent)) }}
               >
-                {highlight.label}
+                {shownLabel}
               </span>
             )}
           </div>
         )}
-        {!controlling && frame && (
+        {!controlling && (replaying || frame) && (
           <div className="pointer-events-none absolute inset-0">
             <CrewCursor
               name={agent}
               color={agentColor(agent)}
-              x={cursor.x * scale}
-              y={cursor.y * scale}
+              x={(replaying?.cursor?.x ?? cursor.x) * scale}
+              y={(replaying?.cursor?.y ?? cursor.y) * scale}
               clicking={cursor.clicking}
             />
           </div>
         )}
       </div>
+      {frames.length > 0 && !controlling && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <IconButton label="Previous step" size="sm" onClick={() => step(-1)} disabled={at === 0}>
+              <ChevronLeft className="size-3.5" />
+            </IconButton>
+            <div className="flex h-6 min-w-0 flex-1 items-center gap-[3px] overflow-x-auto">
+              {frames.map((f, i) => (
+                <button
+                  key={f.seq}
+                  type="button"
+                  onClick={() => setAt(i)}
+                  title={`${f.action}${f.label ? ` · ${f.label}` : ''} · ${f.time.slice(11, 19)}`}
+                  aria-label={`Step ${i + 1}: ${f.action}`}
+                  className={cn(
+                    'h-4 min-w-[6px] flex-1 rounded-sm transition-colors',
+                    at === i
+                      ? 'bg-fg'
+                      : f.action === 'open'
+                        ? 'bg-fg-2/50 hover:bg-fg-2'
+                        : 'bg-surface-3 hover:bg-fg-2/60',
+                  )}
+                />
+              ))}
+            </div>
+            <IconButton
+              label="Next step"
+              size="sm"
+              onClick={() => step(1)}
+              disabled={at === 'live' || (!live && at === frames.length - 1)}
+            >
+              <ChevronRight className="size-3.5" />
+            </IconButton>
+            {live && (
+              <Button
+                size="sm"
+                variant={at === 'live' ? 'primary' : 'secondary'}
+                onClick={() => setAt('live')}
+                icon={<Radio className="size-3.5" />}
+              >
+                Live
+              </Button>
+            )}
+          </div>
+          <div className="truncate text-[11.5px] text-muted">
+            {replaying
+              ? `Step ${(at as number) + 1} of ${frames.length} · ${replaying.action}${replaying.label ? ` · ${replaying.label}` : ''} · ${replaying.time.slice(11, 19)}`
+              : `${frames.length} recorded step${frames.length === 1 ? '' : 's'} · scrub back to replay what ${agent} did`}
+          </div>
+        </div>
+      )}
       {controlling && (
         <p className="text-[12px] text-muted">
           Click and type in the page as usual. {agent} waits until you hand it back.

@@ -37,6 +37,15 @@ export async function api<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** A browser keyframe as an object URL for <img src>, fetched with the auth header (no token in URLs). */
+export async function keyframeImage(colony: string, hash: string): Promise<string> {
+  const res = await fetch(`/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new ApiError(`keyframe ${hash.slice(0, 8)}: ${res.status}`)
+  return URL.createObjectURL(await res.blob())
+}
+
 export async function blobText(colony: string, hash: string): Promise<string> {
   const res = await fetch(`/api/colonies/${colony}/blobs/${hash}`, {
     headers: { authorization: `Bearer ${token}` },

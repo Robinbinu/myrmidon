@@ -176,6 +176,30 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), callId: str(), tool: str(), args: Schema.any() }),
   },
   {
+    type: 'browser/keyframe',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      blob: str(),
+      url: Schema.string().default(''),
+      title: Schema.string().default(''),
+      action: oneOf('open', 'click', 'type', 'press'),
+      label: Schema.string(),
+      cursor: optional(Schema.object({ x: Schema.number().required(), y: Schema.number().required() })),
+      box: optional(
+        Schema.object({
+          x: Schema.number().required(),
+          y: Schema.number().required(),
+          width: Schema.number().required(),
+          height: Schema.number().required(),
+        }),
+      ),
+      width: Schema.number().required(),
+      height: Schema.number().required(),
+    }),
+  },
+  {
     type: 'tool/result',
     version: 1,
     actors: ['agent'],

@@ -76,6 +76,22 @@ export interface EventPayloads {
   'colony/started': { pid?: number; hostname?: string; resumed?: boolean }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
+  /**
+   * A frame of an agent's browser after one action, for replaying what it did: a JPEG screenshot (blob), where its
+   * cursor was, and the element it acted on, in CSS pixels of a `width` x `height` viewport.
+   */
+  'browser/keyframe': {
+    agent: string
+    blob: string
+    url: string
+    title: string
+    action: 'open' | 'click' | 'type' | 'press'
+    label?: string
+    cursor?: { x: number; y: number }
+    box?: { x: number; y: number; width: number; height: number }
+    width: number
+    height: number
+  }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
   /**

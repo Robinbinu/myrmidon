@@ -519,9 +519,11 @@ export function startServer(options: ServeOptions): WebServer {
         const id = colonyId(req.params.id ?? '')
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
+        // Browser keyframes are JPEGs; everything else is served as inert text.
+        const image = new URL(req.url).searchParams.get('as') === 'jpeg'
         return new Response(Buffer.from(await blobs.get(req.params.hash ?? '')), {
           headers: {
-            'content-type': 'text/plain; charset=utf-8',
+            'content-type': image ? 'image/jpeg' : 'text/plain; charset=utf-8',
             'cache-control': 'private, max-age=31536000, immutable',
           },
         })

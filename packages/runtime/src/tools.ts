@@ -127,6 +127,41 @@ async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> 
   return tab
 }
 
+/** Records what the agent's browser shows after an action, so the person can replay it later. */
+async function keyframe(
+  host: ColonyHost,
+  agent: string,
+  tab: BrowserTab,
+  action: EventPayloads['browser/keyframe']['action'],
+  label?: string,
+  box?: { x: number; y: number; width: number; height: number } | null,
+) {
+  try {
+    const shot = await tab.page.screenshot({ type: 'jpeg', quality: 55 })
+    const { hash } = await host.blobs.put(new Uint8Array(shot))
+    const view = tab.page.viewport()
+    await host.append({
+      type: 'browser/keyframe',
+      actor: agentActor(agent),
+      payload: {
+        agent,
+        blob: hash,
+        url: tab.page.url(),
+        title: await tab.page.title().catch(() => ''),
+        action,
+        ...(label ? { label } : {}),
+        cursor: tab.cursor,
+        ...(box ? { box: { x: box.x, y: box.y, width: box.width, height: box.height } } : {}),
+        width: view?.width ?? 1280,
+        height: view?.height ?? 800,
+      },
+    })
+  } catch (err) {
+    // Replay is a convenience; a failed capture must not fail the agent's action.
+    console.error(`[${agent}] keyframe failed:`, err instanceof Error ? err.message : err)
+  }
+}
+
 /** A file URL for a published artifact, after writing the latest files so relative links resolve. */
 async function artifactUrl(host: ColonyHost, name: string): Promise<string> {
   const artifacts = host.state().artifacts
@@ -856,6 +891,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (!/^(https?|file):/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
       await tab.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+      await keyframe(host, agent, tab, 'open')
       return pageSnapshot(tab)
     },
   },
@@ -877,10 +913,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ ref: type('string').describe('e.g. e12') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const at = await pointAt(tab, await pageElement(tab, args.ref), 'click', refLabel(tab, args.ref))
+      const handle = await pageElement(tab, args.ref)
+      const label = refLabel(tab, args.ref)
+      const box = await handle.boundingBox()
+      const at = await pointAt(tab, handle, 'click', label)
       await tab.page.mouse.click(at.x, at.y)
       doneWith(tab)
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+      await keyframe(host, agent, tab, 'click', label, box)
       return pageSnapshot(tab)
     },
   },
@@ -898,9 +938,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       await tab.page.mouse.click(at.x, at.y, { count: 3 })
       // Typed key by key while someone watches, so they can follow it.
       await field.type(args.text, { delay: watched(tab) ? 35 : 0 })
+      const box = await field.boundingBox().catch(() => null)
       doneWith(tab)
       if (args.submit) await field.press('Enter')
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+      await keyframe(host, agent, tab, 'type', `${refLabel(tab, args.ref)} ← ${args.text.slice(0, 40)}`, box)
       return pageSnapshot(tab)
     },
   },
@@ -914,6 +956,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const tab = await browserTab(host, agent)
       await tab.page.keyboard.press(args.key as never)
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 3_000 }).catch(() => {})
+      await keyframe(host, agent, tab, 'press', args.key)
       return pageSnapshot(tab)
     },
   },

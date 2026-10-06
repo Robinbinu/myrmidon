@@ -369,7 +369,9 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                     </div>
                   ))}
                 {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
-                {tab === 'computer' && <Computer colonyId={colonyId} live={state.status === 'running'} />}
+                {tab === 'computer' && (
+                  <Computer colonyId={colonyId} live={state.status === 'running'} events={events} />
+                )}
                 {tab === 'activity' &&
                   (steps.length === 0 ? (
                     <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
