@@ -1,0 +1,158 @@
+import { type EventLog, type EventTypeDefinition, Schema } from '@myrmidon/core'
+
+const str = () => Schema.string().required()
+const strs = () => Schema.array(Schema.string()).default([])
+const oneOf = (...values: string[]) => Schema.union(values).required()
+
+const usage = Schema.object({
+  input: Schema.number().required(),
+  output: Schema.number().required(),
+  totalTokens: Schema.number().required(),
+  cost: Schema.number(),
+})
+
+const task = Schema.object({
+  id: str(),
+  revision: Schema.natural().required(),
+  subject: str(),
+  description: Schema.string().default(''),
+  status: oneOf('pending', 'in_progress', 'submitted', 'verified', 'rejected', 'deleted'),
+  owner: Schema.string(),
+  blockedBy: strs(),
+  artifacts: strs(),
+})
+
+const defs: EventTypeDefinition[] = [
+  {
+    type: 'colony/created',
+    version: 1,
+    actors: ['system', 'user'],
+    schema: Schema.object({
+      name: str(),
+      mission: str(),
+      pattern: str(),
+      agents: Schema.array(
+        Schema.object({ name: str(), role: str(), model: str(), tools: strs() }),
+      ).required(),
+      acceptance: Schema.array(Schema.any()).default([]),
+      budget: Schema.object({ wallMs: Schema.natural().required(), costUsd: Schema.number(), maxTurns: Schema.natural() }),
+      unsafeNoSandbox: Schema.boolean().default(false),
+    }),
+  },
+  { type: 'colony/started', version: 1, actors: ['system'], schema: Schema.object({}) },
+  { type: 'colony/stopped', version: 1, actors: ['system', 'user'], schema: Schema.object({ reason: str() }) },
+  { type: 'colony/failed', version: 1, actors: ['system'], schema: Schema.object({ reason: str() }) },
+  {
+    type: 'agent/status',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: str(),
+      status: oneOf('provisioning', 'ready', 'working', 'idle', 'completed', 'stopped', 'failed'),
+      detail: Schema.string(),
+    }),
+  },
+  {
+    type: 'agent/turn',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), phase: oneOf('start', 'end'), turn: Schema.natural().required(), trigger: str() }),
+  },
+  {
+    type: 'llm/response',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      text: Schema.string().default(''),
+      thinking: Schema.string(),
+      toolCalls: Schema.array(Schema.object({ id: str(), name: str(), arguments: Schema.any() })).default([]),
+      usage,
+      stopReason: str(),
+      error: Schema.string(),
+    }),
+  },
+  {
+    type: 'tool/call',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({ agent: str(), callId: str(), tool: str(), args: Schema.any() }),
+  },
+  {
+    type: 'tool/result',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      callId: str(),
+      tool: str(),
+      ok: Schema.boolean().required(),
+      output: Schema.string().default(''),
+    }),
+  },
+  {
+    type: 'board/posted',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ agent: str(), text: str(), mentions: strs() }),
+  },
+  {
+    type: 'note/appended',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ agent: str(), text: str(), corrects: Schema.string() }),
+  },
+  {
+    type: 'mail/sent',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ from: str(), to: str(), subject: Schema.string().default(''), body: str() }),
+  },
+  { type: 'mail/delivered', version: 1, actors: ['system'], schema: Schema.object({ mail: str(), to: str() }) },
+  {
+    type: 'task/changed',
+    version: 1,
+    actors: ['agent', 'system', 'verifier'],
+    schema: Schema.object({ task, by: str() }),
+  },
+  {
+    type: 'artifact/versioned',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      name: str(),
+      version: Schema.natural().required(),
+      blob: str(),
+      size: Schema.natural().required(),
+      parentVersion: Schema.natural(),
+      author: str(),
+      mediaType: Schema.string().default('text/plain'),
+    }),
+  },
+  {
+    type: 'observer/signal',
+    version: 1,
+    actors: ['observer'],
+    schema: Schema.object({
+      kind: oneOf('deadline', 'budget', 'stall', 'unclaimed', 'blocked', 'conflict'),
+      severity: oneOf('info', 'warn', 'critical'),
+      facts: str(),
+      targets: strs(),
+    }),
+  },
+  {
+    type: 'verifier/requested',
+    version: 1,
+    actors: ['agent', 'system'],
+    schema: Schema.object({ target: str(), by: str() }),
+  },
+]
+
+/** Registers every colony event type; returns one disposer for all of them. */
+export function registerColonyEvents(log: EventLog): () => void {
+  const disposers = defs.filter((d) => !log.registry.get(d.type)).map((d) => log.registerType(d))
+  return () => {
+    for (const dispose of disposers) dispose()
+  }
+}

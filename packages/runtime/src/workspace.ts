@@ -1,0 +1,89 @@
+import { chmodSync, existsSync, mkdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import type { BlobStore } from '@myrmidon/core'
+import type { ColonyState } from '@myrmidon/protocol'
+
+const ARTIFACT_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/
+
+export function assertArtifactName(name: string): string {
+  if (name.length > 200 || !ARTIFACT_NAME.test(name) || name.split('/').includes('..')) {
+    throw new Error(`invalid artifact name ${JSON.stringify(name)}: use letters, digits, ., _, -, and / between segments`)
+  }
+  return name
+}
+
+/** On-disk layout of one colony: scratch directories per agent plus a read-only mirror. */
+export class ColonyWorkspace {
+  readonly scratchRoot: string
+  readonly mirrorRoot: string
+
+  constructor(readonly colonyDir: string) {
+    this.scratchRoot = join(colonyDir, 'scratch')
+    this.mirrorRoot = join(colonyDir, 'mirror')
+    mkdirSync(this.scratchRoot, { recursive: true })
+    mkdirSync(this.mirrorRoot, { recursive: true })
+  }
+
+  scratch(agent: string): string {
+    const dir = join(this.scratchRoot, agent)
+    mkdirSync(dir, { recursive: true })
+    return realpathSync(dir)
+  }
+
+  /**
+   * Resolves an agent-supplied path inside its scratch directory. Symlinks are resolved so a link
+   * cannot point the agent outside its own directory.
+   */
+  resolveInScratch(agent: string, path: string): string {
+    const root = this.scratch(agent)
+    const target = isAbsolute(path) ? path : resolve(root, path)
+    let probe = target
+    while (!existsSync(probe)) probe = dirname(probe)
+    const real = join(realpathSync(probe), relative(probe, target))
+    if (real !== root && !real.startsWith(root + sep)) {
+      throw new Error(`path escapes your scratch directory: ${path}`)
+    }
+    return real
+  }
+
+  /** Rewrites the read-only mirror of artifacts and notes from projected state. */
+  async writeMirror(state: ColonyState, blobs: BlobStore): Promise<void> {
+    const write = (rel: string, content: string | Uint8Array) => {
+      const path = join(this.mirrorRoot, rel)
+      mkdirSync(dirname(path), { recursive: true })
+      if (existsSync(path)) {
+        chmodSync(path, 0o644)
+        unlinkSync(path)
+      }
+      writeFileSync(path, content)
+      chmodSync(path, 0o444)
+    }
+    write('notes.md', state.notes.map((n) => `- [${n.time}] ${n.agent}: ${n.text}`).join('\n'))
+    write('board.md', state.board.map((b) => `- [${b.time}] ${b.agent}: ${b.text}`).join('\n'))
+    for (const [name, versions] of Object.entries(state.artifacts)) {
+      const latest = versions.at(-1)
+      if (latest) write(join('artifacts', name), await blobs.get(latest.blob))
+    }
+  }
+
+  /** Writes the latest version of the named artifacts into a fresh directory for verification. */
+  async materialize(state: ColonyState, blobs: BlobStore, names: readonly string[], dir: string): Promise<string[]> {
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(dir, { recursive: true })
+    const missing: string[] = []
+    const all = names.length > 0 ? names : Object.keys(state.artifacts)
+    for (const name of all) {
+      const prefix = name.endsWith('/') ? name : `${name}/`
+      const matches = Object.keys(state.artifacts).filter((a) => a === name || a.startsWith(prefix))
+      if (matches.length === 0) missing.push(name)
+      for (const match of matches) {
+        const latest = state.artifacts[match]?.at(-1)
+        if (!latest) continue
+        const path = join(dir, match)
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, await blobs.get(latest.blob))
+      }
+    }
+    return missing
+  }
+}
