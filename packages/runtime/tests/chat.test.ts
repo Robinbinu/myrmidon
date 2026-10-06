@@ -6,10 +6,12 @@ import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from 
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import {
+  BrowserHub,
   bootRuntime,
   CALL_SIGNS,
   ChatService,
   type Classify,
+  findChrome,
   ModelResolver,
   normalizeTeamConfig,
   type Runtime,
@@ -698,6 +700,49 @@ test('plan mode presents the plan for approval before any work, and thinking can
   const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
   expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')
 })
+
+test.skipIf(!findChrome())(
+  'an agent opens the page it built in a real browser, clicks, and reads the console',
+  async () => {
+    const browser = new BrowserHub(join(home, 'browser'))
+    const resolver = new ModelResolver()
+    const page =
+      "<!doctype html><title>Counter</title><button onclick=\"this.textContent='Clicked';console.log('clicked ok')\">Go</button>"
+    const seen: string[] = []
+    const agent = createMockModel({
+      handler: (ctx: LlmContext) => {
+        const last = JSON.stringify(ctx.messages.at(-1) ?? '')
+        seen.push(last)
+        if (seen.length === 1)
+          return { content: [tool('publish_artifact', { name: 'index.html', content: page })] }
+        if (seen.length === 2) return { content: [tool('browser_open', { url: 'artifact:index.html' })] }
+        const ref = /button \\"Go\\" \[(e\d+)\]/.exec(last)?.[1]
+        if (ref) return { content: [tool('browser_click', { ref })] }
+        if (last.includes('Clicked') && !last.includes('clicked ok'))
+          return { content: [tool('browser_console', {}), tool('browser_screenshot', {})] }
+        return { content: [tool('reply_user', { text: 'Tested.', final: true })] }
+      },
+    })
+    resolver.register('mock/solo', { model: agent.model, streamFn: agent.stream })
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Build and test a counter', {
+      ...solo('mock/solo'),
+      judgeModel: 'mock/judge',
+    })
+    await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    const out = (tool: string) => results.find((r) => r.tool === tool)
+    expect(out('browser_open')?.output).toContain('title: Counter')
+    expect(out('browser_click')?.output).toContain('button "Clicked"')
+    expect(out('browser_console')?.output).toContain('clicked ok')
+    expect(out('browser_screenshot')?.ok).toBe(true)
+    await browser.close()
+  },
+  60_000,
+)
 
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()

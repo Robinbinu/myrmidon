@@ -11,6 +11,7 @@ import {
 } from '@myrmidon/protocol'
 import { completeSimple } from '@oh-my-pi/pi-ai'
 import { compactTranscript, readTranscript } from './agent.ts'
+import type { BrowserHub } from './browser.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
@@ -197,6 +198,8 @@ export class ChatService {
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
+      /** Shared headless Chrome for the browser_* tools. */
+      browser?: BrowserHub
     },
   ) {}
 
@@ -307,6 +310,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.browser ? { browser: this.options.browser } : {}),
     })
     const prior = previous.at(-1)
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
@@ -374,6 +378,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.browser ? { browser: this.options.browser } : {}),
     })
     this._live.set(chatId, run)
     try {

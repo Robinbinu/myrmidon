@@ -60,6 +60,7 @@ export class ColonyAgent {
         systemPrompt: systemPrompt(host.spec, spec, {
           sandbox: host.sandbox.kind,
           web: host.web !== noWebTools,
+          browser: host.browser !== undefined,
         }),
         model: resolved.model,
         tools,

@@ -21,6 +21,7 @@ import {
   type TaskSnapshot,
 } from '@myrmidon/protocol'
 import { ColonyAgent } from './agent.ts'
+import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
 import type { ColonyHost } from './host.ts'
 import type { McpHub } from './mcp.ts'
@@ -70,6 +71,8 @@ export interface RunOptions {
   readonly resumeId?: ColonyId
   /** Shared MCP connections; their tools are offered to agents allowed `mcp`. */
   readonly mcp?: McpHub
+  /** Shared headless Chrome for the browser_* tools. */
+  readonly browser?: BrowserHub
 }
 
 const QUIET_NUDGES = 2
@@ -170,6 +173,10 @@ export class ColonyRun implements ColonyHost {
 
   deadline() {
     return this._deadline
+  }
+
+  get browser() {
+    return this.options.browser?.available ? this.options.browser : undefined
   }
 
   mcpTools() {
@@ -986,6 +993,7 @@ export class ColonyRun implements ColonyHost {
     clearTimeout(this._mirrorTimer)
     this._mirrorTimer = undefined
     for (const a of this._agents.values()) a.stop()
+    await this.options.browser?.closeColony(this.id).catch(() => {})
     await Bun.sleep(50)
     await this.workspace.writeMirror(this._state, this.blobs).catch(() => {})
     this._offLog?.()

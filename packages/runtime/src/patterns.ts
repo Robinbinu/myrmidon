@@ -14,8 +14,18 @@ const WEB = ['web_search', 'web_fetch']
 const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs']
 const TALK = ['post', 'append_note', 'send_mail']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
+const BROWSER = [
+  'browser_open',
+  'browser_snapshot',
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_screenshot',
+  'browser_console',
+  'browser_eval',
+]
 /** `mcp` stands for every tool of the connected MCP servers. */
-const BUILD = ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', 'mcp']
+const BUILD = ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', ...BROWSER, 'mcp']
 const USER = ['reply_user', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
@@ -97,6 +107,8 @@ How to do excellent work:
 - Code: write complete, runnable code with no placeholders or TODOs. If you have a shell, run what you write
   (execute the script, run the tests, build or parse the page) and fix every error before you publish it. Fix
   files with fs_edit (small targeted replacements), not by rewriting them whole.
+- Web pages and apps: after publishing, open them with browser_open("artifact:<name>"), click through the main
+  interactions, check browser_console is clean, and look at a browser_screenshot. Fix what you find and republish.
 - Writing: lead with the answer, then the support. Be concrete and specific; cut filler and repetition.
 - Visual and UI work: modern, polished, responsive, and accessible, with real content (no lorem ipsum), a
   consistent type scale, spacing, and colour palette.
@@ -213,6 +225,7 @@ nobody owns, publish artifacts, and request final verification once the output m
 export interface Environment {
   readonly sandbox: string
   readonly web: boolean
+  readonly browser: boolean
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -267,6 +280,10 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
       has('shell') &&
         (env.sandbox !== 'none' ? `run shell commands in a ${env.sandbox} sandbox` : 'no shell (no sandbox)'),
       has('publish_artifact') && 'publish files for the person',
+      has('browser_open') &&
+        (env.browser
+          ? 'drive a real headless browser (browser_*), including pages you publish'
+          : 'no browser (Chrome not installed)'),
       has('mcp') && 'use the tools of connected MCP servers (named mcp__server_tool)',
       has('create_task') && 'create tasks',
       has('spawn_worker') && 'add specialist workers',

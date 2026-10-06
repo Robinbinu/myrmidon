@@ -7,6 +7,16 @@ export const TOOL_GROUPS = {
   web: ['web_search', 'web_fetch'],
   files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list'],
   messaging: ['send_mail', 'post', 'append_note'],
+  browser: [
+    'browser_open',
+    'browser_snapshot',
+    'browser_click',
+    'browser_type',
+    'browser_press',
+    'browser_screenshot',
+    'browser_console',
+    'browser_eval',
+  ],
   // Stands for every tool of the connected MCP servers.
   mcp: ['mcp'],
 } as const
@@ -54,6 +64,7 @@ export const settingsSchema = Schema.object({
     files: Schema.boolean().default(true),
     messaging: Schema.boolean().default(true),
     mcp: Schema.boolean().default(true),
+    browser: Schema.boolean().default(true),
   }).default({}),
   search: Schema.object({
     provider: Schema.string()

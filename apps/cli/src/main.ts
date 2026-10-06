@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import './home.ts'
+import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { colonyId, SqliteLogStore } from '@myrmidon/core'
 import {
@@ -10,6 +11,7 @@ import {
   type MyrEvent,
 } from '@myrmidon/protocol'
 import {
+  BrowserHub,
   bootOmp,
   bootRuntime,
   ChatService,
@@ -242,6 +244,7 @@ async function main() {
       const resolver = new ModelResolver(omp)
       const sandbox = detectSandbox()
       const mcp = new McpHub(omp.agentDir)
+      const browser = new BrowserHub(join(home, 'browser'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
         .start()
@@ -252,6 +255,7 @@ async function main() {
         web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
         mcp,
+        browser,
       })
       const server = startServer({
         home,
@@ -275,6 +279,8 @@ async function main() {
       process.on('SIGINT', async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         await chats.stopAll()
+        await browser.close().catch(() => {})
+        await mcp.close().catch(() => {})
         await server.stop()
         await runtime.dispose()
         process.exit(0)

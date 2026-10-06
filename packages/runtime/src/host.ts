@@ -1,6 +1,7 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
 import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { BrowserHub } from './browser.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import type { WebTools } from './web.ts'
@@ -38,6 +39,8 @@ export interface ColonyHost {
   readonly web: WebTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
+  /** A real browser for agents; absent when no Chrome is installed. */
+  readonly browser?: BrowserHub
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

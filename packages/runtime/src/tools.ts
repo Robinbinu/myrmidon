@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, relative } from 'node:path'
+import { dirname, join, relative } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
@@ -10,6 +11,7 @@ import modesDoc from '../docs/modes.md' with { type: 'text' }
 import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
+import { type BrowserTab, pageElement, pageSnapshot } from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
@@ -108,6 +110,27 @@ const FILLER = new Set(
 
 const FINAL_HINT =
   'task-final is finished by sending the complete answer with reply_user(final: true); it is never claimed, submitted, or released'
+
+function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> {
+  if (!host.browser) throw new Error('no browser here: Chrome is not installed on this machine')
+  return host.browser.tab(host.id, agent)
+}
+
+/** A file URL for a published artifact, after writing the latest files so relative links resolve. */
+async function artifactUrl(host: ColonyHost, name: string): Promise<string> {
+  const artifacts = host.state().artifacts
+  if (!artifacts[name]) throw new Error(`no such artifact: ${name}`)
+  // Its own copy: the mirror is read-only for the agents' shells.
+  const root = join(host.workspace.colonyDir, 'browse')
+  for (const [file, versions] of Object.entries(artifacts)) {
+    const latest = versions.at(-1)
+    if (!latest) continue
+    const path = join(root, assertArtifactName(file))
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, await host.blobs.get(latest.blob))
+  }
+  return pathToFileURL(join(root, name)).href
+}
 
 /** All a swarm peer may do during the opening huddle: look around and talk. */
 const HUDDLE_TOOLS = new Set([
@@ -805,6 +828,120 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
+    },
+  },
+  {
+    name: 'browser_open',
+    tier: 'write',
+    description:
+      'Open a URL in your browser tab (a real headless Chrome) and get the page as an accessibility snapshot with ' +
+      'element refs. Use it for pages that need JavaScript, interaction, or a visual check; for reading static ' +
+      'pages web_fetch is faster. `artifact:<name>` opens a file the colony published (e.g. artifact:index.html), ' +
+      'to test what you built.',
+    parameters: type({ url: type('string').describe('http(s) URL, or artifact:<name>') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const target = args.url.startsWith('artifact:') ? await artifactUrl(host, args.url.slice(9)) : args.url
+      if (!/^(https?|file):/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
+      await tab.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+      return pageSnapshot(tab)
+    },
+  },
+  {
+    name: 'browser_snapshot',
+    tier: 'read',
+    description:
+      'Read your browser tab again as an accessibility snapshot. Take one after anything changes the page; element ' +
+      'refs (e1, e2, ...) from older snapshots stop working after navigation or re-rendering.',
+    parameters: type({}),
+    async run(_args, agent, host) {
+      return pageSnapshot(await browserTab(host, agent))
+    },
+  },
+  {
+    name: 'browser_click',
+    tier: 'write',
+    description: 'Click an element by its ref from the latest snapshot. Returns the new snapshot.',
+    parameters: type({ ref: type('string').describe('e.g. e12') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      await (await pageElement(tab, args.ref)).click()
+      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+      return pageSnapshot(tab)
+    },
+  },
+  {
+    name: 'browser_type',
+    tier: 'write',
+    description:
+      'Type into a field by its ref (replacing what is there). Set submit to press Enter afterwards. Returns the new ' +
+      'snapshot. Never type passwords, payment details, or other secrets.',
+    parameters: type({ ref: type('string'), text: type('string'), 'submit?': type('boolean') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const field = await pageElement(tab, args.ref)
+      await field.click({ count: 3 })
+      await field.type(args.text)
+      if (args.submit) await field.press('Enter')
+      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+      return pageSnapshot(tab)
+    },
+  },
+  {
+    name: 'browser_press',
+    tier: 'write',
+    description:
+      'Press a key in the page (Enter, Escape, Tab, ArrowDown, PageDown, ...). Returns the new snapshot.',
+    parameters: type({ key: type('string') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      await tab.page.keyboard.press(args.key as never)
+      await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 3_000 }).catch(() => {})
+      return pageSnapshot(tab)
+    },
+  },
+  {
+    name: 'browser_screenshot',
+    tier: 'read',
+    description:
+      'Screenshot your browser tab (the viewport, or the whole page with fullPage) to check layout and visual ' +
+      'quality. Models that can see images get the picture.',
+    parameters: type({ 'fullPage?': type('boolean') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const data = (await tab.page.screenshot({
+        type: 'png',
+        fullPage: args.fullPage ?? false,
+        encoding: 'base64',
+      })) as string
+      return { text: `screenshot of ${tab.page.url()}`, images: [{ data, mimeType: 'image/png' }] }
+    },
+  },
+  {
+    name: 'browser_console',
+    tier: 'read',
+    description:
+      'Console messages, uncaught page errors, failed requests, and HTTP errors from your tab since you last asked. ' +
+      'Check it after opening a page you built: a clean console is part of done.',
+    parameters: type({}),
+    async run(_args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const lines = tab.logs.splice(0)
+      return lines.length ? lines.join('\n') : '(no console output, errors, or failed requests)'
+    },
+  },
+  {
+    name: 'browser_eval',
+    tier: 'write',
+    description:
+      'Evaluate a JavaScript expression in the page and get the result as JSON, e.g. ' +
+      '`document.querySelectorAll("li").length` or `[...document.links].map(a => a.href)`. Runs in the page only.',
+    parameters: type({ expression: type('string') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const value = await tab.page.evaluate(`(async () => (${args.expression}))()`)
+      return clip(JSON.stringify(value, null, 2) ?? 'undefined')
     },
   },
   {
