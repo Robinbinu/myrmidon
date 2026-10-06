@@ -18,6 +18,7 @@ import {
   emptyColonyState,
   type MyrEvent,
   SYSTEM,
+  type TaskSnapshot,
 } from '@myrmidon/protocol'
 import { ColonyAgent } from './agent.ts'
 import { registerColonyEvents } from './events.ts'
@@ -75,6 +76,12 @@ const BOOTSTRAP_MS = 60_000
 /** Failed final verifications before a round gives up. */
 const MAX_VERIFY_ROUNDS = 3
 
+/** How a wake is delivered: `mail` is recorded as read when the agent sees it; `queue` waits for the agent's current work. */
+interface Delivery {
+  readonly mail?: MyrEvent['id']
+  readonly queue?: boolean
+}
+
 export class ColonyRun implements ColonyHost {
   readonly id: ColonyId
   readonly blobs: BlobStore
@@ -101,7 +108,7 @@ export class ColonyRun implements ColonyHost {
   private _seed?: () => Promise<void>
   /** Set while the colony waits on the person's answer; wakes for agents are held until it arrives. */
   private _awaiting = false
-  private _held: { name: string; text: string; trigger: string; mail?: MyrEvent['id'] }[] = []
+  private _held: ({ name: string; text: string; trigger: string } & Delivery)[] = []
   private readonly _assigned = new Map<string, string>()
   /**
    * Task wakes held until the creator's tool batch finishes: a plan note and its tasks arrive in one batch whose
@@ -262,9 +269,9 @@ export class ColonyRun implements ColonyHost {
     this._seed = seed
   }
 
-  async postUserMessage(text: string): Promise<void> {
+  async postUserMessage(text: string, mode: 'steer' | 'queue' = 'steer'): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
-    await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text } })
+    await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text, mode } })
   }
 
   /**
@@ -424,7 +431,7 @@ export class ColonyRun implements ColonyHost {
     for (const announce of queued) announce()
   }
 
-  private _wake(name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) {
+  private _wake(name: string, text: string, trigger: string, extra: Delivery = {}) {
     // While the person is being asked something, nobody acts on anything else.
     if (this._awaiting) {
       this._held.push({ name, text, trigger, ...extra })
@@ -434,7 +441,7 @@ export class ColonyRun implements ColonyHost {
   }
 
   private _route(e: MyrEvent) {
-    const notify = (name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) =>
+    const notify = (name: string, text: string, trigger: string, extra: Delivery = {}) =>
       this._wake(name, text, trigger, extra)
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team'
     switch (e.type) {
@@ -442,17 +449,19 @@ export class ColonyRun implements ColonyHost {
         const p = e.payload as EventPayloads['chat/user']
         this._awaiting = false
         const held = this._held.splice(0)
+        // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
+        const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
         if (swarm) {
           const target = this._state.tasks['task-final']?.owner ?? this.spec.agents[0]?.name
-          if (target) notify(target, `${p.text}\n\n${snapshot(this.spec, this._state)}`, 'user')
+          if (target) notify(target, `${p.text}\n\n${snapshot(this.spec, this._state)}`, 'user', delivery)
         } else {
           const talkers = [...this._agents.values()].filter((a) =>
             toolsFor(this.spec, a.spec).includes('reply_user'),
           )
           for (const a of talkers.length > 0 ? talkers : [...this._agents.values()])
-            notify(a.name, p.text, 'user')
+            notify(a.name, p.text, 'user', delivery)
         }
-        for (const h of held) notify(h.name, h.text, h.trigger, h.mail ? { mail: h.mail } : {})
+        for (const { name, text, trigger, ...rest } of held) notify(name, text, trigger, rest)
         break
       }
       case 'chat/reply': {
@@ -510,6 +519,7 @@ export class ColonyRun implements ColonyHost {
           queued.push(() => this._announceTask(p))
           this._afterBatch.set(p.by, queued)
         } else this._announceTask(p)
+        if (p.task.status === 'verified') this._announceUnblocked(p.task.id)
         break
       }
       case 'agent/turn':
@@ -531,9 +541,23 @@ export class ColonyRun implements ColonyHost {
   }
 
   /** Wakes whoever should hear about a task: its assignee, or idle teammates for a new unassigned task. */
-  private _announceTask(p: EventPayloads['task/changed']) {
+  private _ready(t: TaskSnapshot) {
+    return t.blockedBy.every((b) => this._state.tasks[b]?.status === 'verified')
+  }
+
+  /** Tasks waiting on `done` that have nothing left blocking them are announced now, as if just created. */
+  private _announceUnblocked(done: string) {
+    for (const t of Object.values(this._state.tasks)) {
+      if (t.blockedBy.includes(done) && t.status === 'pending' && this._ready(t))
+        this._announceTask({ task: t, by: 'scheduler' }, true)
+    }
+  }
+
+  private _announceTask(p: EventPayloads['task/changed'], unblocked = false) {
     const t = p.task
     const open = t.status === 'pending' || t.status === 'rejected' || t.id === 'task-final'
+    // Waking someone for a task they cannot claim yet only costs a turn; they hear once it is unblocked.
+    if (open && !this._ready(t)) return
     if (t.assignee && open && this._assigned.get(t.id) !== t.assignee) {
       this._assigned.set(t.id, t.assignee)
       const outputs = t.outputs?.length ? `\nOutputs: ${t.outputs.join(', ')}` : ''
@@ -544,12 +568,13 @@ export class ColonyRun implements ColonyHost {
       )
       return
     }
-    if (t.revision !== 1 || t.assignee) return
+    if ((t.revision !== 1 && !unblocked) || t.assignee) return
     for (const a of this._agents.values()) {
       // In an orchestrated team the lead creates tasks for workers; it does not pick them up itself.
       if (a.name === p.by || !a.idle || (this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'))
         continue
-      this._wake(a.name, `New task ${t.id}: ${t.subject}\n\n${snapshot(this.spec, this._state)}`, 'task')
+      const what = unblocked ? `Task ${t.id} is unblocked` : `New task ${t.id}`
+      this._wake(a.name, `${what}: ${t.subject}\n\n${snapshot(this.spec, this._state)}`, 'task')
     }
   }
 

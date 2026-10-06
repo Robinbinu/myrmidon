@@ -1,4 +1,16 @@
-import { ArrowUp, Crown, Gavel, Minus, Plus, Square, Users, Workflow, X } from 'lucide-react'
+import {
+  ArrowUp,
+  Crown,
+  Gavel,
+  ListEnd,
+  Minus,
+  Navigation,
+  Plus,
+  Square,
+  Users,
+  Workflow,
+  X,
+} from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { type ModelOption, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
@@ -261,6 +273,17 @@ export interface ComposerHandle {
   fill(text: string): void
 }
 
+/**
+ * How a message reaches a running round: `steer` joins the agent's next step, `queue` waits until it has
+ * finished what it is doing.
+ */
+export type Delivery = 'steer' | 'queue'
+
+const DELIVERIES = [
+  { value: 'steer', label: 'Steer', icon: Navigation, hint: 'Read at the next step' },
+  { value: 'queue', label: 'Queue', icon: ListEnd, hint: 'Read once the current work is done' },
+] as const
+
 interface ComposerProps {
   models: ModelOption[]
   config: TeamConfig
@@ -269,7 +292,8 @@ interface ComposerProps {
   busy: boolean
   status?: string
   placeholder: string
-  onSend(text: string): Promise<void>
+  /** `delivery` only matters while a round is running. */
+  onSend(text: string, delivery: Delivery): Promise<void>
   onStop(): void
   /** Inline under the empty-state hero rather than docked at the bottom. */
   centered?: boolean
@@ -279,6 +303,7 @@ interface ComposerProps {
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
   const [text, setText] = useState('')
   const [showTeam, setShowTeam] = useState(false)
+  const [delivery, setDelivery] = useState<Delivery>('steer')
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const { config } = props
@@ -317,13 +342,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }, [showTeam])
 
-  const send = async () => {
+  const send = async (how: Delivery = delivery) => {
     const value = text.trim()
     if (!value || props.busy) return
     setText('')
     setShowTeam(false)
     try {
-      await props.onSend(value)
+      await props.onSend(value, how)
     } catch {
       setText(value)
     }
@@ -369,7 +394,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
-                void send()
+                // Alt+Enter sends the other way, without changing the toggle.
+                void send(e.altKey && props.running ? (delivery === 'steer' ? 'queue' : 'steer') : delivery)
               }
             }}
             aria-label="Message"
@@ -398,6 +424,36 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <Crown className="size-3.5 shrink-0" />
               <span className="truncate">{lead?.name ?? (config.leadModel || 'Choose a model')}</span>
             </button>
+            <AnimatePresence initial={false}>
+              {props.running && (
+                <motion.div
+                  key="delivery"
+                  role="group"
+                  aria-label="How the lead reads your message"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={spring}
+                  className="inline-flex h-8 items-center rounded-full border border-line p-0.5"
+                >
+                  {DELIVERIES.map((d) => (
+                    <button
+                      key={d.value}
+                      type="button"
+                      aria-pressed={delivery === d.value}
+                      title={`${d.hint} (Alt+Enter sends the other way)`}
+                      onClick={() => setDelivery(d.value)}
+                      className={cn(
+                        'inline-flex h-full items-center gap-1 rounded-full px-2.5 text-[12px] font-medium transition-colors duration-150',
+                        delivery === d.value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+                      )}
+                    >
+                      <d.icon className="size-3.5" /> {d.label}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
             <span className="flex-1" />
             <AnimatePresence>
               {props.status && (

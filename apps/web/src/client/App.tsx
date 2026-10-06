@@ -13,7 +13,7 @@ import {
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
-import { Composer, type ComposerHandle } from './chat/Composer.tsx'
+import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
@@ -156,7 +156,7 @@ export function App() {
     { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
   ])
 
-  const send = async (text: string, chatId = activeChat) => {
+  const send = async (text: string, chatId = activeChat, delivery: Delivery = 'steer') => {
     if (!config) return
     if (!config.leadModel) {
       toast('Choose a lead model first', 'error')
@@ -170,13 +170,17 @@ export function App() {
         text,
         config,
         chatId,
+        delivery,
       })
       setActiveChat(r.chatId)
       setView('chat')
       if (r.started) setPending({ text, chatId: r.chatId, colonyId: r.colonyId })
       else {
         setPending(undefined)
-        toast('Sent to the lead', 'info')
+        toast(
+          delivery === 'queue' ? 'Queued for when the lead finishes its step' : 'Steering the lead',
+          'info',
+        )
       }
       refreshChats()
     } catch (err) {
@@ -386,7 +390,7 @@ export function App() {
                             : 'Ask a follow-up or request changes…'
                           : 'Describe what you want done…'
                       }
-                      onSend={(t) => send(t)}
+                      onSend={(t, delivery) => send(t, activeChat, delivery)}
                       onStop={stop}
                     />
                   )

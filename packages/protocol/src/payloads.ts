@@ -66,7 +66,11 @@ export interface EventPayloads {
   'colony/started': { pid?: number; hostname?: string }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
-  'chat/user': { text: string }
+  /**
+   * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
+   * doing. Only meaningful for messages sent while a round is running.
+   */
+  'chat/user': { text: string; mode?: 'steer' | 'queue' }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   'chat/reply': { agent: string; text: string; final: boolean; question?: boolean }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
@@ -90,6 +94,7 @@ export interface EventPayloads {
   'board/posted': { agent: string; text: string; mentions: string[] }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
   'mail/sent': { from: string; to: string; subject: string; body: string }
+  /** `mail` is a mail/sent event, or a chat/user message the agent has now read. */
   'mail/delivered': { mail: EventId; to: string }
   'task/changed': { task: TaskSnapshot; by: string }
   'artifact/versioned': {

@@ -168,6 +168,44 @@ test('orchestrated: an assigned task wakes only its assignee', async () => {
   await chats.stopAll()
 })
 
+test('orchestrated: a worker assigned a blocked task sleeps until its blockers are verified', async () => {
+  const resolver = new ModelResolver()
+  const specialist = (ctx: LlmContext, role: string) =>
+    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => [
+      tool('create_task', { subject: 'Gather the facts', assignee: specialist(ctx, 'researcher') }),
+      tool('create_task', {
+        subject: 'Build the page',
+        assignee: specialist(ctx, 'coder'),
+        blockedBy: ['task-1'],
+      }),
+    ],
+    ['waiting'],
+  ])
+  scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
+  scripted(resolver, 'mock/coder', [['should not run yet']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Research and build', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [
+      { role: 'researcher', model: 'mock/researcher' },
+      { role: 'coder', model: 'mock/coder' },
+    ],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId, (st) =>
+    Object.values(st.agents).some((a) => a.info.specialty === 'researcher' && a.turns > 0),
+  )
+  await Bun.sleep(300)
+  const coder = Object.values(s.agents).find((a) => a.info.specialty === 'coder')?.info.name ?? ''
+  expect(coder).not.toBe('')
+  expect(turnsOf(await events(colonyId), coder)).toHaveLength(0)
+  await chats.stopAll()
+})
+
 test('tasks created together in one message can depend on each other', async () => {
   const resolver = new ModelResolver()
   const researcher = (ctx: LlmContext) =>
@@ -325,6 +363,49 @@ test('an answer written as plain text still reaches the person', async () => {
     final: true,
     text: 'Life is self-sustaining chemistry capable of evolution.',
   })
+})
+
+test('a message sent mid-turn steers the next step or waits its turn, and shows as read', async () => {
+  const resolver = new ModelResolver()
+  const seen = (ctx: LlmContext, text: string) => JSON.stringify(ctx.messages).includes(text)
+  let release!: () => void
+  const busy = new Promise<void>((r) => {
+    release = r
+  })
+  const calls: LlmContext[] = []
+  const lead = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      calls.push(ctx)
+      if (calls.length === 1) {
+        await busy
+        return { content: [tool('list_artifacts', {})] }
+      }
+      if (seen(ctx, 'QUEUED-NOTE'))
+        return { content: [tool('reply_user', { text: 'All done.', final: true })] }
+      if (seen(ctx, 'STEER-NOTE')) return { content: ['Noted the steer, finishing up.'] }
+      return { content: ['working'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const { chatId, colonyId } = await chats.send('Tidy the files', config)
+  await waitFor(colonyId, () => calls.length === 1)
+  await chats.send('STEER-NOTE use tabs', config, chatId, 'steer')
+  await chats.send('QUEUED-NOTE also add a README', config, chatId, 'queue')
+  release()
+  const s = await waitFor(colonyId)
+  // The steer joined the step right after the running tool batch; the queued note waited until the
+  // agent had finished that work, then started its own step.
+  const steerAt = calls.findIndex((c) => seen(c, 'STEER-NOTE'))
+  const queueAt = calls.findIndex((c) => seen(c, 'QUEUED-NOTE'))
+  expect(steerAt).toBe(1)
+  expect(queueAt).toBeGreaterThan(steerAt)
+  const mid = s.chatMessages.filter((m) => m.from === 'user' && m.mode)
+  expect(mid.map((m) => m.mode)).toEqual(['steer', 'queue'])
+  expect(mid.map((m) => m.readBy)).toEqual([['lead'], ['lead']])
+  expect(s.chatMessages.at(-1)?.text).toBe('All done.')
 })
 
 test('ask_user pauses the round until the person answers', async () => {

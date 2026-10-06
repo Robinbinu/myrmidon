@@ -1,7 +1,8 @@
-import { type ColonyState, colonyMetrics, type MyrEvent } from '@myrmidon/protocol'
+import { type ChatEntry, type ColonyState, colonyMetrics, type MyrEvent } from '@myrmidon/protocol'
 import {
   BadgeCheck,
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   CircleStop,
@@ -116,6 +117,26 @@ export function RoundView(props: {
   const [first, ...rest] = state.chatMessages
   const opening = first?.from === 'user' ? first : undefined
   const thread = opening ? rest : state.chatMessages
+  // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
+  const split = thread.findLastIndex((m) => m.from === 'user') + 1
+  const message = (m: ChatEntry) =>
+    m.from === 'user' ? (
+      <UserMessage
+        key={m.id}
+        text={m.text}
+        mode={m.mode}
+        readBy={m.readBy}
+        live={state.status === 'running'}
+      />
+    ) : (
+      <AgentMessage
+        key={m.id}
+        from={m.from}
+        text={m.text}
+        final={m.final}
+        onInspect={() => setInspect(m.from)}
+      />
+    )
   const files = Object.entries(state.artifacts).filter(([, v]) =>
     v.some((x) => x.author !== 'previous-round'),
   )
@@ -123,27 +144,16 @@ export function RoundView(props: {
   return (
     <section className="flex flex-col gap-4">
       {opening && <UserMessage text={opening.text} />}
-      <RunCard
-        state={state}
-        events={events}
-        onOpenColony={() => props.onOpenColony(props.colonyId)}
-        onInspect={setInspect}
-      />
-      <AnimatePresence initial={false}>
-        {thread.map((m) =>
-          m.from === 'user' ? (
-            <UserMessage key={m.id} text={m.text} />
-          ) : (
-            <AgentMessage
-              key={m.id}
-              from={m.from}
-              text={m.text}
-              final={m.final}
-              onInspect={() => setInspect(m.from)}
-            />
-          ),
-        )}
-      </AnimatePresence>
+      <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
+      <motion.div layout transition={softSpring}>
+        <RunCard
+          state={state}
+          events={events}
+          onOpenColony={() => props.onOpenColony(props.colonyId)}
+          onInspect={setInspect}
+        />
+      </motion.div>
+      <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
       {files.length > 0 && (
         <motion.div {...enter} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {files.map(([name, versions]) => {
@@ -197,21 +207,48 @@ export function RoundView(props: {
   )
 }
 
-function UserMessage({ text }: { text: string }) {
+function UserMessage(props: {
+  text: string
+  /** Set for messages sent while the round was running. */
+  mode?: 'steer' | 'queue' | undefined
+  readBy?: readonly string[] | undefined
+  live?: boolean
+}) {
   const [copied, copy] = useCopy()
+  const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
       <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-ink px-4 py-2.5 text-[15px] leading-[1.6] text-on-ink shadow-soft">
-        {text}
+        {props.text}
       </div>
-      <button
-        type="button"
-        onClick={() => copy(text)}
-        aria-label="Copy message"
-        className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
-      >
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </button>
+      <div className="flex items-center gap-1.5">
+        {props.mode && (
+          <span className="flex items-center gap-1 text-[11.5px] text-muted" aria-live="polite">
+            {props.mode === 'steer' ? 'Steer' : 'Queued'}
+            <span aria-hidden>·</span>
+            {read ? (
+              <>
+                <CheckCheck className="size-3.5 text-ok" /> Read by {read.join(', ')}
+              </>
+            ) : props.live ? (
+              <>
+                <LoaderCircle className="size-3 animate-spin" />
+                {props.mode === 'steer' ? 'joins the next step' : 'waits until the current work is done'}
+              </>
+            ) : (
+              'not read before the round ended'
+            )}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => copy(props.text)}
+          aria-label="Copy message"
+          className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+      </div>
     </motion.div>
   )
 }

@@ -12,6 +12,8 @@ export interface InboxItem {
   readonly text: string
   readonly trigger: string
   readonly mail?: EventId
+  /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
+  readonly queue?: boolean
 }
 
 // A safety net only: one turn can include many model calls and large file writes.
@@ -22,7 +24,7 @@ const SYS = { kind: 'system', id: 'scheduler' } as const
 
 /**
  * One colony member: a pi-agent-core Agent plus an inbox. Idle agents sleep until something is
- * delivered; deliveries during a turn are steered into the running turn.
+ * delivered; deliveries during a turn are steered into its next step, or queued as a follow-up.
  */
 export class ColonyAgent {
   readonly inbox: InboxItem[] = []
@@ -32,6 +34,9 @@ export class ColonyAgent {
   private _stopped = false
   private _failures = 0
   private readonly _agent: Agent
+  /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
+  private readonly _unread = new Map<number, InboxItem>()
+  private _stamp = 0
 
   constructor(
     readonly spec: AgentSpec,
@@ -69,8 +74,11 @@ export class ColonyAgent {
   notify(item: InboxItem) {
     if (this._stopped) return
     if (this.working) {
-      this._agent.steer({ role: 'user', content: render([item]), timestamp: Date.now() })
-      void this._markDelivered([item])
+      this._stamp = Math.max(Date.now(), this._stamp + 1)
+      const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
+      if (item.mail) this._unread.set(message.timestamp, item)
+      if (item.queue) this._agent.followUp(message)
+      else this._agent.steer(message)
       return
     }
     this.inbox.push(item)
@@ -133,6 +141,7 @@ export class ColonyAgent {
       await this._status('working', `turn error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       clearTimeout(timer)
+      this._requeueUnread()
       this.working = false
     }
     if (this._failures > 0 && this._failures < MAX_CONSECUTIVE_FAILURES) {
@@ -173,6 +182,20 @@ export class ColonyAgent {
     })
   }
 
+  /** Deliveries that arrived as the turn was ending were never injected; they start the next turn instead. */
+  private _requeueUnread() {
+    if (!this._agent.hasQueuedMessages()) return
+    const left = this._agent.peekUndeliveredQueuedMessages()
+    this._agent.clearAllQueues()
+    for (const m of left) {
+      const item = this._unread.get(m.timestamp)
+      this._unread.delete(m.timestamp)
+      const content = (m as { content?: unknown }).content
+      if (item) this.inbox.push(item)
+      else if (typeof content === 'string' && content) this.inbox.push({ text: content, trigger: 'mail' })
+    }
+  }
+
   private async _markDelivered(items: readonly InboxItem[]) {
     for (const item of items) {
       if (item.mail)
@@ -193,6 +216,14 @@ export class ColonyAgent {
   }
 
   private _onEvent(e: AgentEvent) {
+    if (e.type === 'message_end' && e.message.role === 'user') {
+      const item = this._unread.get(e.message.timestamp)
+      if (item) {
+        this._unread.delete(e.message.timestamp)
+        void this._markDelivered([item])
+      }
+      return
+    }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
       return

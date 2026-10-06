@@ -17,12 +17,10 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Claude via subscription sign-in (from omp)** — omp's own claude.ai OAuth (provider `anthropic`), now
       a "Sign in with a subscription" card in Settings → Keys & providers (Claude, ChatGPT, Gemini, Copilot…).
       Your stored Claude login expired 2026-09-01 (refresh token invalid), so sign in again there.
-- [ ] **Steer vs queue for messages to a running colony** — like Claude Code: a message can *steer*
-      (interrupt the current turn and be read immediately, top priority) or *queue* (wait until the agent
-      finishes its current step, like omp). Composer control + `chat/user` payload flag; agent.ts steer vs inbox.
-- [ ] **Read receipts for messages sent mid-run** — when a steer/queued message is delivered to the lead, show it
-      as read, and move the live run card below it in the transcript (chronological interleave of user messages,
-      replies, and the run card); the lead can reply to it directly.
+- [x] **Steer vs queue for messages to a running colony** — Steer/Queue toggle in the composer while a round
+      runs (Alt+Enter sends the other way); steer joins the agent's next step, queue waits until it finishes.
+- [x] **Read receipts for messages sent mid-run** — "Read by lead" under the bubble once the agent actually
+      ingests it; the run card sits below the latest mid-run message.
 - [ ] **Attach files as context** (like omp) — attach files/images in the composer; carried into the round as
       artifacts or context the agents can read.
 - [x] **Markdown artifacts** — Rendered / Source tabs and "Copy markdown" in the artifact viewer.

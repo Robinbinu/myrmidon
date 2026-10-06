@@ -73,6 +73,10 @@ export interface ChatEntry extends Entry {
   readonly final: boolean
   /** The colony is waiting on the user to answer this. */
   readonly question?: boolean
+  /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
+  readonly mode?: 'steer' | 'queue'
+  /** Agents that have read this message (mid-run user messages only). */
+  readBy?: string[]
 }
 
 export interface SignalEntry extends Entry {
@@ -193,7 +197,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'chat/user': {
       const p = event.payload as EventPayloads['chat/user']
-      state.chatMessages.push({ ...base, from: 'user', text: p.text, final: false })
+      state.chatMessages.push({
+        ...base,
+        from: 'user',
+        text: p.text,
+        final: false,
+        ...(p.mode ? { mode: p.mode } : {}),
+      })
       break
     }
     case 'chat/reply': {
@@ -289,6 +299,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['mail/delivered']
       const mail = state.mail.find((m) => m.id === p.mail)
       if (mail) mail.delivered = true
+      const message = mail ? undefined : state.chatMessages.find((m) => m.id === p.mail)
+      if (message && !message.readBy?.includes(p.to)) message.readBy = [...(message.readBy ?? []), p.to]
       break
     }
     case 'task/changed': {

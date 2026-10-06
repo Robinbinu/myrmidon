@@ -55,6 +55,7 @@ const POLL_MS = 400
 const sendSchema = Schema.object({
   text: Schema.string().min(1).max(20_000).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  delivery: Schema.union(['steer', 'queue']),
   // Both the current team shape and the older auto/manual one are accepted; normalizeTeamConfig maps them.
   config: Schema.object({
     mode: Schema.union(['orchestrated', 'swarm', 'auto', 'manual']).default('orchestrated'),
@@ -340,7 +341,7 @@ export function startServer(options: ServeOptions): WebServer {
           }
           try {
             const config = normalizeTeamConfig(body.config as Record<string, unknown>)
-            return json(await options.chats.send(body.text, config, body.chatId))
+            return json(await options.chats.send(body.text, config, body.chatId, body.delivery))
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }

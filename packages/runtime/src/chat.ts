@@ -220,13 +220,15 @@ export class ChatService {
     text: string,
     config: TeamConfig,
     chatId?: string,
+    /** For a round already running: steer its next step (default) or queue until the agent finishes. */
+    delivery: 'steer' | 'queue' = 'steer',
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())
       .catch(() => {})
-      .then(() => this.deliver(id, message, config))
+      .then(() => this.deliver(id, message, config, delivery))
     this._sending.set(id, turn)
     try {
       return await turn
@@ -239,10 +241,11 @@ export class ChatService {
     id: string,
     message: string,
     config: TeamConfig,
+    delivery: 'steer' | 'queue',
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message)
+      await live.postUserMessage(message, delivery)
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = (await this.rounds()).get(id) ?? []

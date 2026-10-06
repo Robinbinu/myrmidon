@@ -79,7 +79,12 @@ const defs: EventTypeDefinition[] = [
       focus: Schema.string().default(''),
     }),
   },
-  { type: 'chat/user', version: 1, actors: ['user'], schema: Schema.object({ text: str() }) },
+  {
+    type: 'chat/user',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ text: str(), mode: Schema.union(['steer', 'queue']) }),
+  },
   {
     type: 'chat/reply',
     version: 1,

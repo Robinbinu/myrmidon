@@ -79,8 +79,13 @@ const FILLER = new Set(
   ),
 )
 
+// Numbers and ordinals tell otherwise identical subjects apart ("example app #1" vs "#2").
+const MARKER = /\d+|\b(first|second|third|fourth|fifth|sixth|one|two|three|four|five|six)\b/g
+
 /** Content-word overlap (Jaccard) of two task subjects, 0 to 1; catches peers proposing the same task twice. */
-function similar(a: string, b: string): number {
+export function similar(a: string, b: string): number {
+  const markers = (s: string) => [...new Set(s.toLowerCase().match(MARKER) ?? [])].sort().join(',')
+  if (markers(a) !== markers(b)) return 0
   const words = (s: string) =>
     new Set((s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((w) => !FILLER.has(w)))
   const x = words(a)
