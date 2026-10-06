@@ -412,53 +412,6 @@ export function DotMatrix(props: {
   )
 }
 
-/* ------------------------------------------------------------------ cursors */
-
-/** The rounded pointer from collaborative design tools. */
-export function CursorArrow({ color, size = 18 }: { color: string; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden className="shrink-0">
-      <path
-        d="M3.1 2.2c-.5-.4-1.2 0-1.1.7l2.3 14.6c.1.7 1 .9 1.4.3l2.9-4.3c.2-.3.5-.5.9-.5l5.2-.2c.7 0 1-.9.5-1.4L3.1 2.2Z"
-        fill={color}
-        stroke="white"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-/** A named cursor: pointer plus a colored pill, the way collaborators appear on a shared canvas. */
-export function CursorPill(props: {
-  name: string
-  color?: string
-  className?: string
-  size?: 'sm' | 'md' | 'lg'
-  face?: string
-}) {
-  const color = props.color ?? agentColor(props.name)
-  const size = props.size ?? 'sm'
-  return (
-    <span className={cn('pointer-events-none inline-flex select-none flex-col items-start', props.className)}>
-      <CursorArrow color={color} size={size === 'lg' ? 26 : size === 'md' ? 20 : 16} />
-      <span
-        className={cn(
-          'ml-3 -mt-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full font-semibold shadow-card',
-          size === 'lg'
-            ? 'px-4 py-1.5 text-[15px]'
-            : size === 'md'
-              ? 'px-3 py-1 text-[13px]'
-              : 'px-2.5 py-0.5 text-[11.5px]',
-        )}
-        style={{ background: color, color: inkOn(color) }}
-      >
-        {props.name}
-      </span>
-    </span>
-  )
-}
-
 /** Inline agent chip for lists: mini face + name, tinted with the agent's color. */
 export function AgentChip(props: { name: string; status: string; detail?: string; active?: boolean }) {
   const color = agentColor(props.name)

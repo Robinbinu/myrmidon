@@ -1,15 +1,8 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
-import {
-  AnimatePresence,
-  motion,
-  useAnimate,
-  useMotionTemplate,
-  useReducedMotion,
-  useSpring,
-  useTransform,
-} from 'motion/react'
+import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import { CursorPill, DotMatrix, JUDGE_COLOR, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
+import { CrewCursor, tripMs } from '../ui/cursor.tsx'
+import { DotMatrix, JUDGE_COLOR, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
 import { softSpring } from '../ui/primitives.tsx'
 import TechText from '../vendor/react-bits/TechText'
 
@@ -58,11 +51,6 @@ const CREW = [
   { name: 'kai', color: '#4d7cff', x: 320, y: 30 },
   { name: 'judge', color: JUDGE_COLOR, x: -290, y: 130 },
 ]
-
-/** The screen leans toward the pointer like a card on a table: max angle, reach beyond its edge, spring. */
-const TILT_MAX = 9
-const TILT_REACH = 260
-const TILT_SPRING = { stiffness: 220, damping: 24, mass: 0.6 }
 
 const readToken = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#ffffff'
@@ -130,12 +118,6 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
   const [look, setLook] = useState<[number, number]>()
   const [crew, setCrew] = useState<CrewState[]>(() => CREW.map((c) => ({ ...c, clicking: false })))
   const ink = useToken('--text')
-  const tiltX = useSpring(0, TILT_SPRING)
-  const tiltY = useSpring(0, TILT_SPRING)
-  const plane = useMotionTemplate`perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`
-  // The face sits deeper than the glass, so it drifts against the tilt; the glare slides with it.
-  const faceShift = useMotionTemplate`translate(${useTransform(tiltY, (v) => -v * 0.8)}px, ${useTransform(tiltX, (v) => v * 0.8)}px)`
-  const glare = useMotionTemplate`radial-gradient(circle at ${useTransform(tiltY, (v) => 50 + v * 5)}% ${useTransform(tiltX, (v) => 40 - v * 5)}%, rgb(255 255 255 / 0.09), transparent 60%)`
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typingRef = useRef(props.typing)
@@ -170,19 +152,13 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
       if (!el) return
       const r = el.getBoundingClientRect()
       lastUser.current = Date.now()
-      if (!reduce && e.pointerType !== 'touch') {
-        const nx = clamp((e.clientX - (r.left + r.width / 2)) / (r.width / 2 + TILT_REACH), -1, 1)
-        const ny = clamp((e.clientY - (r.top + r.height / 2)) / (r.height / 2 + TILT_REACH), -1, 1)
-        tiltY.set(nx * TILT_MAX)
-        tiltX.set(-ny * TILT_MAX)
-      }
       const g = gaze(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2))
       setLook((l) => (l && l[0] === g[0] && l[1] === g[1] ? l : g))
       if (asleepRef.current) react({ mood: 'surprised', label: 'oh!' })
     }
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
-  }, [react, reduce, scope, tiltX, tiltY])
+  }, [react, scope])
 
   // Dozing off, and the occasional trick while nobody is around.
   useEffect(() => {
@@ -247,9 +223,10 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
           const { hw, hh } = size()
           const x = (Math.random() * 2 - 1) * hw * 0.55
           const y = (Math.random() * 2 - 1) * hh * 0.45
+          const from = positions.current[i] ?? { x, y }
           update(i, { x, y })
           follow(x, y)
-          await wait(1350)
+          await wait(tripMs(Math.hypot(x - from.x, y - from.y)) + 260)
           if (!alive) return
           update(i, { clicking: true })
           react(pick(POKED))
@@ -286,33 +263,25 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             initial={{ opacity: 0, y: 12, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={softSpring}
-            style={{ transform: plane }}
           >
             <button
               ref={scope}
               type="button"
               onClick={() => react(pick(POKED))}
               aria-label="Poke the colony"
-              className="relative block cursor-pointer rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
+              className="block cursor-pointer rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
             >
-              <motion.span
-                aria-hidden
-                className="pointer-events-none absolute inset-0 rounded-[36px]"
-                style={{ backgroundImage: glare }}
+              <PixelFace
+                mood={mood}
+                color={LEAD_COLOR}
+                cols={15}
+                rows={8}
+                cell={20}
+                gap={6}
+                glow
+                {...(look ? { look } : {})}
+                className="h-auto w-[min(400px,calc(100vw-96px))]"
               />
-              <motion.div style={reduce ? undefined : { transform: faceShift }}>
-                <PixelFace
-                  mood={mood}
-                  color={LEAD_COLOR}
-                  cols={15}
-                  rows={8}
-                  cell={20}
-                  gap={6}
-                  glow
-                  {...(look ? { look } : {})}
-                  className="h-auto w-[min(400px,calc(100vw-96px))]"
-                />
-              </motion.div>
               <div className="mt-5 flex items-center justify-between px-1">
                 <span className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.2em] text-white/35">
                   <span className={`size-1 rounded-full ${asleep ? 'bg-white/30' : 'bg-[#3ddc84]'}`} />
@@ -333,40 +302,17 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             </button>
           </motion.div>
 
-          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block" aria-hidden>
+          <motion.div
+            className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
+            aria-hidden
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4, duration: 0.3 }}
+          >
             {crew.map((c) => (
-              <motion.div
-                key={c.name}
-                className="absolute left-0 top-0"
-                initial={{ opacity: 0, x: c.x, y: c.y }}
-                animate={{ opacity: 1, x: c.x, y: c.y }}
-                transition={{
-                  opacity: { delay: 0.4, duration: 0.3 },
-                  default: { duration: 1.25, ease: [0.45, 0, 0.2, 1] },
-                }}
-              >
-                <AnimatePresence>
-                  {c.clicking && (
-                    <motion.span
-                      className="absolute -left-3 -top-3 size-7 rounded-full border-2"
-                      style={{ borderColor: c.color }}
-                      initial={{ scale: 0.2, opacity: 0.9 }}
-                      animate={{ scale: 1.8, opacity: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.5, ease: 'easeOut' }}
-                    />
-                  )}
-                </AnimatePresence>
-                <motion.div
-                  animate={{ scale: c.clicking ? 0.82 : 1 }}
-                  transition={{ type: 'spring', stiffness: 700, damping: 20 }}
-                  style={{ originX: 0, originY: 0 }}
-                >
-                  <CursorPill name={c.name} color={c.color} />
-                </motion.div>
-              </motion.div>
+              <CrewCursor key={c.name} name={c.name} color={c.color} x={c.x} y={c.y} clicking={c.clicking} />
             ))}
-          </div>
+          </motion.div>
         </div>
 
         <h1 className="sr-only">What should the colony build?</h1>
@@ -374,7 +320,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...softSpring, delay: 0.06 }}
-          className="mb-5 mt-9 h-[72px] w-full"
+          className="mb-0 mt-3 h-[124px] w-full"
           aria-hidden
         >
           <TechText
