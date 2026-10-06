@@ -167,6 +167,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _reminded = new Map<string, number>()
   private readonly _approvals = new Map<string, (approved: boolean) => void>()
   private readonly _servers = new Map<string, SandboxProcess>()
+  private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
+  readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
   private readonly _todos = new Map<string, readonly TodoItem[]>()
 
   constructor(
@@ -232,6 +234,16 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, model, previous },
       })
     }
+  }
+
+  rememberUntrusted(agent: string, source: string, text: string) {
+    const list = this._untrusted.get(agent) ?? []
+    list.push({ source, text: text.slice(0, 200_000) })
+    this._untrusted.set(agent, list.slice(-8))
+  }
+
+  recentUntrusted(agent: string) {
+    return this._untrusted.get(agent) ?? []
   }
 
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {

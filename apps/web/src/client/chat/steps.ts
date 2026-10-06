@@ -152,6 +152,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'safety/flagged': {
+        const p = e.payload as EventPayloads['safety/flagged']
+        out.push({
+          ...base,
+          kind: 'error',
+          agent: p.agent,
+          lead: 'Possible prompt injection:',
+          tail: cut(`${p.reason} (from ${p.source})`, 160),
+        })
+        break
+      }
       case 'server/started': {
         const p = e.payload as EventPayloads['server/started']
         out.push({

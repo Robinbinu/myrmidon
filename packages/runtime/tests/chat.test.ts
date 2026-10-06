@@ -827,8 +827,13 @@ test('searching for a past year gets a note that the results may be stale', asyn
     .filter((r) => r.tool === 'web_search')
     .map((r) => r.output)
   // Searches run in parallel, so their results can land in either order.
-  expect(outputs.filter((o) => o.startsWith('Note: your query names 2024'))).toHaveLength(1)
-  expect(outputs.filter((o) => o === 'some results')).toHaveLength(1)
+  // The harness's note stays outside the untrusted block; the results are inside it.
+  const noted = outputs.filter((o) => o.startsWith('Note: your query names 2024'))
+  expect(noted).toHaveLength(1)
+  expect(noted[0]).toMatch(/\n\n⟦untrusted \w+ · search: API pricing 2024⟧\nsome results\n⟦\/untrusted \w+⟧$/)
+  expect(
+    outputs.filter((o) => /^⟦untrusted \w+ · search: API pricing⟧\nsome results\n/.test(o)),
+  ).toHaveLength(1)
 })
 
 test('a model refusal pauses the round, stays out of context, and the round continues on another model', async () => {

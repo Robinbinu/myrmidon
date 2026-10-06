@@ -54,6 +54,11 @@ export interface ColonyHost {
   readonly browser?: BrowserHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
+  /** This round's random marker for untrusted content, so a page cannot fake the end of its own block. */
+  readonly boundary: string
+  /** Records web content an agent was shown, and returns what it saw recently (newest last). */
+  rememberUntrusted(agent: string, source: string, text: string): void
+  recentUntrusted(agent: string): readonly { source: string; text: string }[]
   /**
    * Asks the person to approve one tool call (an "ask" project's edits and commands); resolves false if they deny
    * it, it times out, or the round stops first.

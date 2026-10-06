@@ -82,6 +82,7 @@ export class ColonyAgent {
           sandbox: host.sandbox.kind,
           web: host.web !== noWebTools,
           browser: host.browser !== undefined,
+          boundary: host.boundary,
           ...(host.project ? { project: host.project } : {}),
         }),
         model: resolved.model,

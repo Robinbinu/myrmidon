@@ -130,6 +130,12 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), by: str(), reason: str() }),
   },
   {
+    type: 'safety/flagged',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), tool: str(), reason: str(), source: str() }),
+  },
+  {
     type: 'server/started',
     version: 1,
     actors: ['agent'],

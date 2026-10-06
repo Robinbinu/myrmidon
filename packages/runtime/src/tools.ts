@@ -59,6 +59,8 @@ type Tier = 'read' | 'write' | 'exec'
 interface ToolOutput {
   readonly text: string
   readonly images: readonly { readonly data: string; readonly mimeType: string }[]
+  /** The harness's own note (where a page was saved, a stale-year warning); stays outside the untrusted block. */
+  readonly preface?: string
 }
 
 interface ToolDef {
@@ -301,6 +303,61 @@ async function guardProjectCommand(host: ColonyHost, agent: string, tool: string
   if (simple && permissions.allow.some((prefix) => line === prefix || line.startsWith(`${prefix} `))) return
   if (!(await host.requestApproval(agent, tool, line.length > 300 ? `${line.slice(0, 300)}…` : line)))
     throw new Error('the person did not approve this command; ask them (ask_user) or take another approach')
+}
+
+/** Tools whose results are outside content an agent must treat as data, never as instructions. */
+const UNTRUSTED = new Set([
+  'web_search',
+  'web_fetch',
+  'browser_open',
+  'browser_snapshot',
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_console',
+  'browser_eval',
+])
+/** Tools whose command is checked against recent web content before it runs. */
+const COPY_CHECKED = new Set(['shell', 'start_server'])
+
+function untrustedSource(tool: string, params: unknown, output: string): string {
+  const args = (params ?? {}) as { url?: unknown; query?: unknown }
+  if (tool === 'web_fetch' && typeof args.url === 'string') return args.url
+  if (tool === 'web_search' && typeof args.query === 'string') return `search: ${args.query}`
+  // Browser snapshots start with the page's URL.
+  const page = /^url: (\S+)/m.exec(output)?.[1]
+  return page ? `${tool} ${page}` : tool
+}
+
+/**
+ * Marks outside content so the model can tell data from instructions ("spotlighting"). The boundary is random per
+ * round and removed from the content, so a page cannot close the block early and speak as the harness.
+ */
+export function spotlight(boundary: string, source: string, text: string): string {
+  const clean = text.replace(/⟦\/?untrusted[^⟧]*⟧/g, '')
+  return `⟦untrusted ${boundary} · ${source}⟧\n${clean}\n⟦/untrusted ${boundary}⟧`
+}
+
+/**
+ * Flags a command that appears word for word in web content the agent just read: the usual shape of a prompt
+ * injection ("run this to continue"). It is recorded for the person, not blocked; copying a documented install
+ * command is often legitimate.
+ */
+async function flagIfCopied(host: ColonyHost, agent: string, tool: string, params: unknown) {
+  const command = String((params as { command?: unknown })?.command ?? '').trim()
+  if (command.length < 12) return
+  const hit = host.recentUntrusted(agent).find((u) => u.text.includes(command))
+  if (!hit) return
+  await host.append({
+    type: 'safety/flagged',
+    actor: { kind: 'system', id: 'myrmidon' },
+    payload: {
+      agent,
+      tool,
+      reason: `ran a command that appears word for word in web content: ${command.slice(0, 200)}`,
+      source: hit.source,
+    },
+  })
 }
 
 /** The checks run by default: the project's `check` script if it has one, otherwise everything but build. */
@@ -974,7 +1031,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const note = stale.length
         ? `Note: your query names ${stale.join(', ')}, but today is ${new Date().toISOString().slice(0, 10)}. Results from then may be out of date; search for current information unless you need the past.\n\n`
         : ''
-      return clip(`${note}${text.trim() || `No results for "${args.query}".`}`)
+      return { text: clip(text.trim() || `No results for "${args.query}".`), images: [], preface: note }
     },
   },
   {
@@ -988,19 +1045,23 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       const page = await host.web.read(args.url)
       const head = `Source: ${page.url} (${page.method}, ${page.contentType})`
-      if (page.output.length <= PAGE_EXCERPT) return `${head}\n\n${page.output}`
+      if (page.output.length <= PAGE_EXCERPT) return { text: page.output, images: [], preface: `${head}\n` }
       // Like Manus: keep context small and the rest recoverable. The full page goes to a scratch file the agent
       // can read or grep, and only an excerpt enters the conversation.
       const self = host.spec.agents.find((a) => a.name === agent)
       if (!self || !toolsFor(host.spec, self).includes('fs_read'))
-        return clip(`${head}\n\n${page.output}`, 16_000)
+        return { text: clip(page.output, 16_000), images: [], preface: `${head}\n` }
       const name = `web/${pageFileName(page.url)}.md`
       const path = host.workspace.resolveInScratch(agent, name)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, `${head}\n\n${page.output}`)
       // In a project the shell starts in the project, so point at the scratch copy by its full path.
       const where = host.workspace.project ? path : name
-      return `${head}\n(${page.output.length} chars; the full text is saved as ${where}: fs_read it, or grep -n "term" ${where} in the shell)\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
+      return {
+        text: `${page.output.slice(0, PAGE_EXCERPT)}\n…`,
+        images: [],
+        preface: `${head}\n(${page.output.length} chars; the full text is saved as ${where}: fs_read it, or grep -n "term" ${where} in the shell)\n`,
+      }
     },
   },
   {
@@ -1547,6 +1608,16 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         actor,
         payload: { agent, callId, tool: tool.name, ok: !result.isError, output: clip(text, 8_000) },
       })
+      // MCP servers bring in outside content (mail, issues, pages): the agent sees it marked as untrusted too.
+      if (tool.name.startsWith('mcp__') && !result.isError) {
+        host.rememberUntrusted(agent, tool.name, text)
+        return {
+          ...result,
+          content: result.content.map((c) =>
+            c.type === 'text' ? { ...c, text: spotlight(host.boundary, tool.name, c.text) } : c,
+          ),
+        }
+      }
       return result
     },
   } as AgentTool
@@ -1580,10 +1651,21 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
               throw new Error(
                 'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
               )
+            if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             if (typeof result !== 'string') images = result.images
+            const preface = typeof result === 'string' ? '' : (result.preface ?? '')
+            // Long pages are saved under web/ in scratch; reading one back is still outside content.
+            const savedPage =
+              def.name === 'fs_read' && /(^|\/)web\//.test(String((params as { path?: unknown })?.path ?? ''))
+            if (UNTRUSTED.has(def.name) || savedPage) {
+              const source = untrustedSource(def.name, params, output)
+              host.rememberUntrusted(agent, source, output)
+              output = spotlight(host.boundary, source, output)
+            }
+            output = `${preface}${output}`
           } catch (err) {
             ok = false
             output = `ERROR: ${err instanceof Error ? err.message : String(err)}`

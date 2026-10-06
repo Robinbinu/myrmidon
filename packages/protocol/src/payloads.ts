@@ -136,6 +136,8 @@ export interface EventPayloads {
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
   'approval/requested': ApprovalRequest
+  /** An agent did something that looks like following instructions from web content (possible prompt injection). */
+  'safety/flagged': { agent: string; tool: string; reason: string; source: string }
   /** An agent started a long-running process (a dev server) reachable at `url` on this machine. */
   'server/started': { agent: string; name: string; command: string; url: string }
   'server/stopped': { name: string; reason: string }
