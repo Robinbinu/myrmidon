@@ -25,7 +25,7 @@ export interface AppendOptions {
  * they apply to every store provider; there is deliberately no update or delete operation.
  */
 export class EventLog extends Service {
-  static override inject = ['logStore']
+  static inject = ['logStore']
 
   readonly registry = new EventTypeRegistry()
   readonly redactor = new Redactor()
