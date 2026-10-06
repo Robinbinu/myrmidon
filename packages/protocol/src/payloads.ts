@@ -10,7 +10,19 @@ export interface AgentInfo {
   readonly role: string
   readonly model: string
   readonly tools: readonly string[]
+  /** What a specialist worker is for, e.g. `researcher` or `coder`. */
+  readonly specialty?: string
 }
+
+/**
+ * How a chat colony's team works. `orchestrated`: a lead plans and assigns tasks to specialists;
+ * `swarm`: equal peers coordinate through shared notes and tasks. `auto`/`manual` are older names
+ * for lead-run teams, kept so earlier logs still read.
+ */
+export type TeamMode = 'orchestrated' | 'swarm' | 'auto' | 'manual'
+
+/** What kind of shared note this is; one live `plan` per colony. */
+export type NoteSection = 'plan' | 'decision' | 'finding' | 'status' | 'user'
 
 export interface TaskSnapshot {
   readonly id: string
@@ -21,6 +33,10 @@ export interface TaskSnapshot {
   readonly owner?: string
   readonly blockedBy: readonly string[]
   readonly artifacts: readonly string[]
+  /** The agent this task is meant for; only it is woken when the task appears. */
+  readonly assignee?: string
+  /** Artifact names this task will produce; nobody else may publish them while it is in progress. */
+  readonly outputs?: readonly string[]
 }
 
 export interface UsageInfo {
@@ -42,14 +58,17 @@ export interface EventPayloads {
     budget: { wallMs: number; costUsd?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
     chat?: { chatId: string; round: number; request: string }
-    team?: { mode: 'auto' | 'manual'; maxWorkers: number; workerModels: string[] }
+    team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
+    /** How much machinery this round uses: a direct answer, one agent, or the full team. */
+    tier?: 'answer' | 'solo' | 'team'
   }
   /** `pid`/`hostname` identify the runner process so orphaned colonies can be detected. */
   'colony/started': { pid?: number; hostname?: string }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
   'chat/user': { text: string }
-  'chat/reply': { agent: string; text: string; final: boolean }
+  /** `question` marks a reply that waits on the user before the colony can continue. */
+  'chat/reply': { agent: string; text: string; final: boolean; question?: boolean }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   'chat/renamed': { title: string }
   'colony/failed': { reason: string }
@@ -69,7 +88,7 @@ export interface EventPayloads {
   'tool/call': { agent: string; callId: string; tool: string; args: unknown }
   'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
   'board/posted': { agent: string; text: string; mentions: string[] }
-  'note/appended': { agent: string; text: string; corrects?: EventId }
+  'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
   'mail/sent': { from: string; to: string; subject: string; body: string }
   'mail/delivered': { mail: EventId; to: string }
   'task/changed': { task: TaskSnapshot; by: string }

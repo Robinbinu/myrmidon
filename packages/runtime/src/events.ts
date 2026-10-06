@@ -23,6 +23,8 @@ const task = Schema.object({
   owner: Schema.string(),
   blockedBy: strs(),
   artifacts: strs(),
+  assignee: Schema.string(),
+  outputs: Schema.array(Schema.string()),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -35,7 +37,7 @@ const defs: EventTypeDefinition[] = [
       mission: str(),
       pattern: str(),
       agents: Schema.array(
-        Schema.object({ name: str(), role: str(), model: str(), tools: strs() }),
+        Schema.object({ name: str(), role: str(), model: str(), tools: strs(), specialty: Schema.string() }),
       ).required(),
       acceptance: Schema.array(Schema.any()).default([]),
       budget: Schema.object({
@@ -47,11 +49,12 @@ const defs: EventTypeDefinition[] = [
       chat: optional(Schema.object({ chatId: str(), round: Schema.natural().required(), request: str() })),
       team: optional(
         Schema.object({
-          mode: oneOf('auto', 'manual'),
+          mode: oneOf('orchestrated', 'swarm', 'auto', 'manual'),
           maxWorkers: Schema.natural().required(),
           workerModels: strs(),
         }),
       ),
+      tier: Schema.union(['answer', 'solo', 'team']),
     }),
   },
   {
@@ -65,7 +68,13 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({
-      agent: Schema.object({ name: str(), role: str(), model: str(), tools: strs() }).required(),
+      agent: Schema.object({
+        name: str(),
+        role: str(),
+        model: str(),
+        tools: strs(),
+        specialty: Schema.string(),
+      }).required(),
       by: str(),
       focus: Schema.string().default(''),
     }),
@@ -75,7 +84,12 @@ const defs: EventTypeDefinition[] = [
     type: 'chat/reply',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ agent: str(), text: str(), final: Schema.boolean().default(false) }),
+    schema: Schema.object({
+      agent: str(),
+      text: str(),
+      final: Schema.boolean().default(false),
+      question: Schema.boolean(),
+    }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
   {
@@ -149,7 +163,12 @@ const defs: EventTypeDefinition[] = [
     type: 'note/appended',
     version: 1,
     actors: ['agent', 'user'],
-    schema: Schema.object({ agent: str(), text: str(), corrects: Schema.string() }),
+    schema: Schema.object({
+      agent: str(),
+      text: str(),
+      corrects: Schema.string(),
+      section: Schema.union(['plan', 'decision', 'finding', 'status', 'user']),
+    }),
   },
   {
     type: 'mail/sent',

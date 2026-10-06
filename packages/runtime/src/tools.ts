@@ -3,7 +3,14 @@ import { dirname, relative } from 'node:path'
 import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
+import chatDoc from '../docs/chat.md' with { type: 'text' }
+import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
+import limitsDoc from '../docs/limits.md' with { type: 'text' }
+import modesDoc from '../docs/modes.md' with { type: 'text' }
+import overviewDoc from '../docs/overview.md' with { type: 'text' }
+import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import { agentActor, type ColonyHost } from './host.ts'
+import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
@@ -30,7 +37,7 @@ const clip = (text: string, max = MAX_READ_CHARS) =>
   text.length > max ? `${text.slice(0, max)}\n…[truncated ${text.length - max} chars]` : text
 
 function taskLine(t: TaskSnapshot) {
-  const owner = t.owner ? ` owner=${t.owner}` : ''
+  const owner = `${t.owner ? ` owner=${t.owner}` : ''}${t.assignee && t.assignee !== t.owner ? ` assignee=${t.assignee}` : ''}${t.outputs?.length ? ` outputs=${t.outputs.join(',')}` : ''}`
   const blocked = t.blockedBy.length ? ` blockedBy=${t.blockedBy.join(',')}` : ''
   const arts = t.artifacts.length ? ` artifacts=${t.artifacts.join(',')}` : ''
   return `${t.id} r${t.revision} [${t.status}]${owner}${blocked}${arts} — ${t.subject}`
@@ -51,6 +58,36 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
 }
 
 const MENTION = /@([a-z][a-z0-9-]{0,31})/g
+
+/** Word-overlap similarity of two task subjects, 0 to 1; catches peers proposing the same task twice. */
+function similar(a: string, b: string): number {
+  const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+  const x = words(a)
+  const y = words(b)
+  if (x.size === 0 || y.size === 0) return 0
+  let shared = 0
+  for (const w of x) if (y.has(w)) shared += 1
+  return shared / Math.min(x.size, y.size)
+}
+
+/** The swarm peer that currently speaks for the colony: whoever holds task-final. */
+function speaker(state: ColonyState): string | undefined {
+  return state.tasks['task-final']?.owner
+}
+
+function toolsAllowed(host: ColonyHost, agent: string): string[] {
+  const spec = host.spec.agents.find((a) => a.name === agent)
+  return spec ? toolsFor(host.spec, spec) : []
+}
+
+const DOCS: Record<string, string> = {
+  overview: overviewDoc,
+  modes: modesDoc,
+  coordination: coordinationDoc,
+  verification: verificationDoc,
+  chat: chatDoc,
+  limits: limitsDoc,
+}
 
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
@@ -103,17 +140,35 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'append_note',
     tier: 'write',
     description:
-      'Append to the shared notes. Notes are append-only: to fix a note, append a new one with `corrects` set to its id.',
+      'Append to the shared notes. Notes are append-only: to fix a note, append a new one with `corrects` set to its id. ' +
+      'section: "plan" (only one per colony), "decision", "finding", or "status".',
     parameters: type({
       text: type('string').atLeastLength(1),
+      'section?': type("'plan' | 'decision' | 'finding' | 'status'"),
       'corrects?': type('string').describe('Event id of the note this one corrects'),
     }),
     async run(args, agent, host) {
-      const e = await host.append({
-        type: 'note/appended',
-        actor: agentActor(agent),
-        payload: { agent, text: args.text, ...(args.corrects ? { corrects: args.corrects } : {}) },
-      })
+      const e = first(
+        await host.appendAtomic((s) => {
+          const plan = s.notes.find((n) => n.section === 'plan')
+          if (args.section === 'plan' && plan && args.corrects !== plan.id)
+            throw new Error(
+              `a plan already exists (${plan.id} by ${plan.agent}); refine it with a "decision" note, or correct it by passing corrects: "${plan.id}"`,
+            )
+          return [
+            {
+              type: 'note/appended',
+              actor: agentActor(agent),
+              payload: {
+                agent,
+                text: args.text,
+                ...(args.section ? { section: args.section } : {}),
+                ...(args.corrects ? { corrects: args.corrects } : {}),
+              },
+            },
+          ]
+        }),
+      )
       return `note ${e.id} appended`
     },
   },
@@ -127,7 +182,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       return (
         clip(
           notes
-            .map((n) => `${n.id} ${n.agent}: ${n.text}${n.corrects ? ` (corrects ${n.corrects})` : ''}`)
+            .map(
+              (n) =>
+                `${n.id} ${n.agent}${n.section ? ` [${n.section}]` : ''}: ${n.text}${n.corrects ? ` (corrects ${n.corrects})` : ''}`,
+            )
             .join('\n'),
         ) || '(no notes yet)'
       )
@@ -199,10 +257,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'create_task',
     tier: 'write',
-    description: 'Create a task on the shared task graph.',
+    description:
+      'Create a task on the shared task graph. `assignee` wakes only that agent; `outputs` names the files the task ' +
+      'will produce (nobody else may publish them while it is in progress).',
     parameters: type({
       subject: type('string').atLeastLength(1),
       'description?': type('string'),
+      'assignee?': type('string').describe('Agent to do it; it is woken with the task'),
+      'outputs?': type('string').array().describe('Artifact names this task will produce'),
       'blockedBy?': type('string').array().describe('Task ids that must be verified first'),
     }),
     async run(args, agent, host) {
@@ -215,6 +277,18 @@ export const TOOL_DEFS: readonly ToolDef[] = [
                 `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
               )
           }
+          if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
+          if (host.spec.team?.mode === 'swarm') {
+            const twin = Object.values(s.tasks).find(
+              (t) =>
+                t.status !== 'deleted' && t.status !== 'verified' && similar(t.subject, args.subject) >= 0.6,
+            )
+            if (twin)
+              throw new Error(
+                `similar to ${twin.id} (${twin.subject}); claim it, or split it with a more specific task that uses blockedBy`,
+              )
+          }
+          const outputs: string[] = (args.outputs ?? []).map(assertArtifactName)
           const id = `task-${Object.keys(s.tasks).length + 1}`
           return [
             taskEvent(agent, {
@@ -225,6 +299,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
               status: 'pending',
               blockedBy,
               artifacts: [],
+              ...(args.assignee ? { assignee: args.assignee } : {}),
+              ...(outputs.length ? { outputs } : {}),
             }),
           ]
         }),
@@ -254,6 +330,24 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         }),
       )
       return `claimed ${taskLine((e.payload as EventPayloads['task/changed']).task)}`
+    },
+  },
+  {
+    name: 'assign_task',
+    tier: 'write',
+    description: 'Give a pending or rejected task to an agent; it is woken with the task.',
+    parameters: type({ id: type('string'), assignee: type('string'), revision: type('number') }),
+    async run(args, agent, host) {
+      await host.appendAtomic((s) => {
+        const task = requireTask(s, args.id)
+        if (!s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
+        if (task.revision !== args.revision)
+          throw new Error(`stale revision: ${task.id} is at r${task.revision}`)
+        if (task.status !== 'pending' && task.status !== 'rejected')
+          throw new Error(`${task.id} is ${task.status}; only pending or rejected tasks can be assigned`)
+        return [taskEvent(agent, { ...task, revision: task.revision + 1, assignee: args.assignee })]
+      })
+      return `${args.id} assigned to ${args.assignee}`
     },
   },
   {
@@ -330,6 +424,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const { hash, size } = await host.blobs.put(bytes)
       const e = first(
         await host.appendAtomic((s) => {
+          const owner = Object.values(s.tasks).find(
+            (t) => t.status === 'in_progress' && t.owner !== agent && t.outputs?.includes(name),
+          )
+          if (owner)
+            throw new Error(
+              `${name} is an output of ${owner.id}, which ${owner.owner} is working on; do not publish it`,
+            )
           const prev = s.artifacts[name]?.at(-1)
           return [
             {
@@ -475,10 +576,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'reply_user',
     tier: 'write',
     description:
-      'Send a message to the human in the chat. Use it to confirm your plan, ask a blocking question, ' +
-      'and give the final answer (set final: true) before requesting final verification.',
+      'Send a message to the person. final: true is the complete answer and starts verification automatically. ' +
+      'Use ask_user for a question you need answered.',
     parameters: type({ text: type('string').atLeastLength(1), 'final?': type('boolean') }),
     async run(args, agent, host) {
+      if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
+        throw new Error(
+          'only the peer holding task-final speaks to the person; record what you found as a note',
+        )
       await host.append({
         type: 'chat/reply',
         actor: agentActor(agent),
@@ -488,12 +593,53 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'ask_user',
+    tier: 'write',
+    description:
+      'Ask the person something the colony cannot proceed without. The round pauses until they answer; stop working ' +
+      'after asking. Only for real blockers: otherwise make a sensible assumption and say so.',
+    parameters: type({ question: type('string').atLeastLength(3) }),
+    async run(args, agent, host) {
+      const last = host.state().chatMessages.at(-1)
+      if (last?.question) throw new Error('a question to the person is already open; wait for the answer')
+      await host.append({
+        type: 'chat/reply',
+        actor: agentActor(agent),
+        payload: { agent, text: args.question, final: false, question: true },
+      })
+      return 'question sent; the round pauses until the person answers. Stop now.'
+    },
+  },
+  {
+    name: 'read_docs',
+    tier: 'read',
+    description:
+      'Read the Myrmidon harness docs: how this colony runs, team modes, tasks and notes, verification, talking to ' +
+      'the person, limits, and every tool. Call with no page to list them.',
+    parameters: type({
+      'page?': type('string').describe('overview, modes, coordination, verification, chat, limits, or tools'),
+    }),
+    async run(args, agent, host) {
+      const page = args.page?.replace(/\.md$/, '').trim()
+      if (!page)
+        return `Harness docs (read_docs with page):\n${[...Object.keys(DOCS), 'tools'].map((p) => `- ${p}`).join('\n')}`
+      if (page === 'tools') {
+        const mine = new Set(toolsAllowed(host, agent))
+        return TOOL_DEFS.map(
+          (d) => `- ${d.name}${mine.has(d.name) ? '' : ' (not available to you)'}: ${d.description}`,
+        ).join('\n')
+      }
+      const doc = DOCS[page]
+      if (!doc) throw new Error(`no doc "${page}"; pages: ${[...Object.keys(DOCS), 'tools'].join(', ')}`)
+      return doc
+    },
+  },
+  {
     name: 'spawn_worker',
     tier: 'write',
     description:
-      'Add a worker agent to the colony for a focused part of the job. Describe its role and a precise focus; ' +
-      'it gets a call sign (returned) that you use to message it and assign tasks. Only spawn when parallel or ' +
-      'specialised work clearly helps.',
+      'Add a specialist worker for a kind of work no current teammate covers. Describe its role and focus and pick ' +
+      'the model that fits; it gets a call sign (returned) and sleeps until you assign it a task.',
     parameters: type({
       role: type('string')
         .atLeastLength(2)

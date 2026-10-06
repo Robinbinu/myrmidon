@@ -24,6 +24,8 @@ export interface AgentSpec {
   /** Extra role instructions appended to the pattern's role prompt. */
   instructions?: string
   tools?: string[]
+  /** What a specialist worker is for, e.g. `researcher`; shown to the lead for routing. */
+  specialty?: string
 }
 
 export interface ColonySpec {
@@ -42,11 +44,19 @@ export interface ColonySpec {
   team?: TeamPolicy
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
+  /** Chat rounds: how much machinery this request gets (decided by triage). */
+  tier?: Tier
 }
 
+/** `answer`: one agent replies directly; `solo`: one agent with every tool; `team`: the configured team. */
+export type Tier = 'answer' | 'solo' | 'team'
+
 export interface TeamPolicy {
-  /** `auto`: the lead spawns workers as it sees fit; `manual`: the configured agents are the whole team. */
-  mode: 'auto' | 'manual'
+  /**
+   * `orchestrated`: a lead plans and assigns tasks to specialist workers (and may add more up to
+   * `maxWorkers`); `swarm`: equal peers coordinate through shared notes and tasks.
+   */
+  mode: 'orchestrated' | 'swarm'
   maxWorkers: number
   /** Models the lead may assign to spawned workers; the first is the default. */
   workerModels: string[]

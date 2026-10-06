@@ -17,7 +17,7 @@ export type ToolGroup = keyof typeof TOOL_GROUPS
 export interface MyrSettings {
   version: 1
   team: {
-    mode: 'auto' | 'manual'
+    mode: 'orchestrated' | 'swarm'
     workers: number
     leadModel?: string
     workerModel?: string
@@ -38,7 +38,7 @@ export interface MyrSettings {
 export const settingsSchema = Schema.object({
   version: Schema.const(1).default(1),
   team: Schema.object({
-    mode: Schema.union(['auto', 'manual']).default('auto'),
+    mode: Schema.union(['orchestrated', 'swarm']).default('orchestrated'),
     workers: Schema.natural().max(8).default(3),
     leadModel: Schema.string(),
     workerModel: Schema.string(),
@@ -74,6 +74,10 @@ export const settingsSchema = Schema.object({
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
 function parse(input: unknown): MyrSettings {
+  // Older files say `auto`/`manual`; both were lead-run teams.
+  const raw = (input ?? {}) as { team?: { mode?: unknown } }
+  if (raw.team && (raw.team.mode === 'auto' || raw.team.mode === 'manual'))
+    input = { ...raw, team: { ...raw.team, mode: 'orchestrated' } }
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
   return {
     version: 1,

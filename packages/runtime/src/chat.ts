@@ -1,21 +1,105 @@
 import { join } from 'node:path'
 import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
+import { completeSimple } from '@oh-my-pi/pi-ai'
 import { ColonyRun, type Runtime } from './colony.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
-import type { AgentSpec, ColonySpec } from './spec.ts'
+import type { AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
 
+const MAX_WORKERS = 8
+
+export interface RosterEntry {
+  /** What this teammate is for, e.g. `researcher`, `coder`, `writer`; `peer` for an unspecialised swarm peer. */
+  readonly role: string
+  readonly model: string
+}
+
 export interface TeamConfig {
-  /** `auto`: the lead decides whether and whom to spawn; `manual`: exactly `workers` workers from the start. */
-  readonly mode: 'auto' | 'manual'
+  /** `orchestrated`: a lead assigns tasks to specialists; `swarm`: equal peers share notes and tasks. */
+  readonly mode: 'orchestrated' | 'swarm'
+  /** The lead's model, also used for direct answers and one-agent rounds. */
   readonly leadModel: string
-  readonly workerModel: string
-  readonly workers: number
+  /** Specialists (orchestrated) or peers (swarm), up to 8. */
+  readonly roster: readonly RosterEntry[]
+  /** Orchestrated only: how many more specialists the lead may add. */
+  readonly extraWorkers?: number
   readonly judgeModel: string
   readonly wallMinutes?: number
+}
+
+/** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
+export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
+  const str = (v: unknown, fallback = '') => (typeof v === 'string' && v ? v : fallback)
+  const leadModel = str(raw.leadModel)
+  const judgeModel = str(raw.judgeModel, leadModel)
+  const wall = typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}
+  if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
+    const roster = (Array.isArray(raw.roster) ? raw.roster : [])
+      .filter(
+        (r): r is RosterEntry => typeof r?.role === 'string' && typeof r?.model === 'string' && !!r.model,
+      )
+      .slice(0, MAX_WORKERS)
+      .map((r) => ({ role: r.role.trim().slice(0, 40) || 'worker', model: r.model }))
+    const extra = typeof raw.extraWorkers === 'number' ? Math.max(0, Math.floor(raw.extraWorkers)) : 0
+    return { mode: raw.mode, leadModel, roster, extraWorkers: extra, judgeModel, ...wall }
+  }
+  const workers = Math.min(Math.max(0, Math.floor(Number(raw.workers) || 0)), MAX_WORKERS)
+  const workerModel = str(raw.workerModel, leadModel)
+  return raw.mode === 'manual'
+    ? {
+        mode: 'orchestrated',
+        leadModel,
+        roster: Array.from({ length: workers }, () => ({ role: 'worker', model: workerModel })),
+        extraWorkers: 0,
+        judgeModel,
+        ...wall,
+      }
+    : { mode: 'orchestrated', leadModel, roster: [], extraWorkers: workers, judgeModel, ...wall }
+}
+
+/** Decides how much machinery a request needs before any agent starts. */
+export type Classify = (request: string, history: string) => Promise<Tier>
+
+const TRIAGE = `You route requests for Myrmidon, a system that runs teams of AI agents. Classify the person's newest
+message into exactly one tier and reply with JSON only: {"tier":"answer"} or {"tier":"solo"} or {"tier":"team"}.
+- answer: conversation, greetings, opinions, explanations, definitions, quick facts, short how-to answers, and
+  questions about Myrmidon or what it can do. One agent replies directly, maybe after a quick web search.
+- solo: one concrete deliverable a single capable agent can finish in a few steps: a small script or page, a short
+  document, a focused research summary, a fix to an earlier file.
+- team: large or multi-part work that benefits from several specialists in parallel: an app with several parts,
+  broad research across many sources, a document plus code plus tests. Also short follow-ups like "go" or
+  "continue" when the earlier conversation was team work.
+When unsure between two tiers, pick the smaller one.`
+
+/** The default classifier: one short call to the lead's model. Scripted test models skip it. */
+export function llmClassifier(resolver: ModelResolver, model: () => string): Classify {
+  return async (request, history) => {
+    const resolved = resolver.resolve(model())
+    if (resolved.streamFn || resolved.model.api === 'mock') return 'team'
+    const reply = await Promise.race([
+      completeSimple(
+        resolved.model,
+        {
+          systemPrompt: [TRIAGE],
+          messages: [
+            {
+              role: 'user',
+              content: `${history ? `Earlier in the conversation:\n${history.slice(-3000)}\n\n` : ''}Newest message: ${request.slice(0, 4000)}`,
+              timestamp: Date.now(),
+            },
+          ],
+        },
+        { apiKey: await resolver.requireApiKey(resolved.model) },
+      ),
+      Bun.sleep(25_000).then(() => undefined),
+    ])
+    const text = reply?.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('') ?? ''
+    const tier = /"tier"\s*:\s*"(answer|solo|team)"/.exec(text)?.[1]
+    return (tier as Tier | undefined) ?? 'team'
+  }
 }
 
 export interface ChatRound {
@@ -33,13 +117,24 @@ export interface ChatSummary {
   readonly rounds: ChatRound[]
 }
 
-const RUBRIC = `Judge whether the colony accomplished the user's request completely and correctly.
+const RUBRIC = `Judge whether the colony did what the person asked, completely and correctly.
 - Every part of the request is addressed; nothing is silently skipped.
-- Facts are accurate and, where relevant, backed by sources; code is correct and complete (no placeholders).
-- Delivered files and the final reply are consistent with each other and usable as described.
-Score 1.0 only for work you would hand to the user as-is.`
+- Claims are accurate; when the request asks for research or sources, they are cited. Code is correct and complete
+  (no placeholders).
+- The final answer and any delivered files are consistent with each other and usable as described.
+- The response fits the request: a simple question deserves a direct answer, not a report.
+Score 1.0 only for work you would hand to the person as-is.`
 
-const MAX_WORKERS = 8
+/** The earlier rounds of a chat as `User:` / `Colony:` pairs, for context in the next round. */
+function conversation(previous: { state: ColonyState }[]): string {
+  return previous
+    .map(({ state }) => {
+      const replies = state.chatMessages.filter((m) => m.from !== 'user')
+      const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
+      return `User: ${state.chat?.request ?? ''}\nColony (${state.status}): ${final?.text ?? '(no reply)'}`
+    })
+    .join('\n\n')
+}
 
 function newChatId() {
   return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -62,6 +157,8 @@ export class ChatService {
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
       web?: WebTools
+      /** Defaults to one short call to the lead's model; see `llmClassifier`. */
+      classify?: Classify
     },
   ) {}
 
@@ -146,7 +243,11 @@ export class ChatService {
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = (await this.rounds()).get(id) ?? []
-    const run = new ColonyRun(this.runtime, this.buildSpec(id, message, config, previous), {
+    const history = conversation(previous)
+    const classify = this.options.classify ?? llmClassifier(this.options.resolver, () => config.leadModel)
+    // A failed classification falls back to the full team: slower, but it can do anything.
+    const tier = await classify(message, history).catch(() => 'team' as const)
+    const run = new ColonyRun(this.runtime, this.buildSpec(id, message, config, previous, history, tier), {
       resolver: this.options.resolver,
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
@@ -154,7 +255,7 @@ export class ChatService {
     const prior = previous.at(-1)
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
-      if (prior) await this.carryArtifacts(prior, run)
+      if (prior) await this.carryOver(prior, run)
       await run.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text: message } })
     })
     this._live.set(id, run)
@@ -214,72 +315,106 @@ export class ChatService {
     request: string,
     config: TeamConfig,
     previous: { state: ColonyState }[],
+    history: string,
+    requested: Tier,
   ): ColonySpec {
-    const workers = Math.min(Math.max(0, Math.floor(config.workers)), MAX_WORKERS)
     const s = this.options.settings?.get()
     const leadNote = s?.instructions.lead?.trim()
     const workerNote = s?.instructions.worker?.trim()
-    const agents: AgentSpec[] = [
-      {
-        name: 'lead',
-        role: 'lead',
-        model: config.leadModel,
-        ...(leadNote ? { instructions: leadNote } : {}),
-      },
-    ]
-    if (config.mode === 'manual') {
-      const taken = new Set(['lead'])
-      for (let i = 1; i <= workers; i++) {
+    const roster = config.roster.slice(0, MAX_WORKERS)
+    const extra = config.mode === 'orchestrated' ? Math.max(0, config.extraWorkers ?? 0) : 0
+    // A team with nobody to delegate to is one agent working alone.
+    const tier: Tier =
+      requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
+        ? 'solo'
+        : requested
+    const taken = new Set(['lead'])
+    const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
+      roster.map((r) => {
         const name = pickName(taken)
         taken.add(name)
-        agents.push({
+        return {
           name,
-          role: 'worker',
-          model: config.workerModel,
+          role,
+          model: r.model,
+          ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
           ...(workerNote ? { instructions: workerNote } : {}),
-        })
-      }
+        }
+      })
+    const lead: AgentSpec = {
+      name: 'lead',
+      role: 'lead',
+      model: config.leadModel,
+      ...(leadNote ? { instructions: leadNote } : {}),
     }
+    const swarm = tier === 'team' && config.mode === 'swarm'
+    const agents: AgentSpec[] =
+      tier !== 'team'
+        ? [lead]
+        : swarm
+          ? roster.length > 0
+            ? crew('peer')
+            : [0, 1].map(() => {
+                const name = pickName(taken)
+                taken.add(name)
+                return { name, role: 'peer', model: config.leadModel }
+              })
+          : [lead, ...crew('worker')]
     const disabledTools = s
       ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
           .filter((g) => !s.tools[g])
           .flatMap((g) => [...TOOL_GROUPS[g]])
       : []
-    const history = previous
-      .map(({ state }) => {
-        const replies = state.chatMessages.filter((m) => m.from !== 'user')
-        const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-        return `User: ${state.chat?.request ?? ''}\nColony (${state.status}): ${final?.text ?? '(no reply)'}`
-      })
-      .join('\n\n')
+    const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
+    const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     return {
       name: title(request),
       mission: history
         ? `${request}\n\n(Context from earlier rounds of this conversation)\n${history}`
         : request,
-      pattern: 'lead-workers',
+      pattern: swarm ? 'blackboard' : 'lead-workers',
       agents,
-      acceptance: [
-        {
-          verifier: 'llm-judge',
-          model: config.judgeModel,
-          rubric: s?.verification.rubric?.trim() || RUBRIC,
-          threshold: s?.verification.threshold ?? 0.7,
-        },
-      ],
-      budget: {
-        wallMs: Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000),
-        maxTurns: s?.team.maxTurns ?? 40,
-      },
+      acceptance:
+        tier === 'answer'
+          ? []
+          : [
+              {
+                verifier: 'llm-judge',
+                model: config.judgeModel,
+                rubric: s?.verification.rubric?.trim() || RUBRIC,
+                threshold: s?.verification.threshold ?? 0.7,
+              },
+            ],
+      budget:
+        tier === 'answer'
+          ? { wallMs: Math.min(wallMs, 4 * 60_000), maxTurns: 4 }
+          : { wallMs, maxTurns: s?.team.maxTurns ?? 40 },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
       chat: { chatId, round: previous.length + 1, request, history },
+      tier,
       team: {
         mode: config.mode,
-        maxWorkers: config.mode === 'auto' ? workers : 0,
-        workerModels: [config.workerModel],
+        maxWorkers: tier === 'team' && !swarm ? roster.length + extra : 0,
+        workerModels: models,
       },
     }
+  }
+
+  /** Carries the previous round's files and plan into a new round, so follow-ups build on them. */
+  private async carryOver(prior: { state: ColonyState; id: string }, run: ColonyRun) {
+    await this.carryArtifacts(prior, run)
+    const plan = prior.state.notes.filter((n) => n.section === 'plan').at(-1)
+    if (plan)
+      await run.append({
+        type: 'note/appended',
+        actor: { kind: 'user', id: 'previous-round' },
+        payload: {
+          agent: 'previous-round',
+          text: `Plan from the previous round:\n${plan.text}`,
+          section: 'plan',
+        },
+      })
   }
 
   private async carryArtifacts(prior: { state: ColonyState; id: string }, run: ColonyRun) {

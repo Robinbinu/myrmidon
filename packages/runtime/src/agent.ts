@@ -3,9 +3,10 @@ import { Agent, type AgentEvent, type AgentState } from '@oh-my-pi/pi-agent-core
 import type { AssistantMessage } from '@oh-my-pi/pi-ai'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
-import { kickoff, systemPrompt, toolsFor } from './patterns.ts'
+import { kickoff, startsAwake, systemPrompt, toolsFor } from './patterns.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools } from './tools.ts'
+import { noWebTools } from './web.ts'
 
 export interface InboxItem {
   readonly text: string
@@ -41,7 +42,10 @@ export class ColonyAgent {
     const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
     this._agent = new Agent({
       initialState: {
-        systemPrompt: systemPrompt(host.spec, spec, host.spec.agents),
+        systemPrompt: systemPrompt(host.spec, spec, {
+          sandbox: host.sandbox.kind,
+          web: host.web !== noWebTools,
+        }),
         model: resolved.model,
         tools,
         ...(resolved.model.reasoning
@@ -79,8 +83,10 @@ export class ColonyAgent {
     this._wake?.()
   }
 
+  /** Runs until the colony ends. Agents that do not start awake sleep until a task, mail, or mention wakes them. */
   async run(): Promise<void> {
-    this.notify({ text: kickoff(this.host.spec), trigger: 'kickoff' })
+    if (startsAwake(this.host.spec, this.spec))
+      this.notify({ text: kickoff(this.host.spec, this.host.state()), trigger: 'kickoff' })
     while (!this._stopped && this.host.state().status === 'running') {
       if (this.inbox.length === 0) {
         await this._status('idle')

@@ -25,7 +25,7 @@ import type { ColonyHost } from './host.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
-import { toolsFor } from './patterns.ts'
+import { snapshot, toolsFor } from './patterns.ts'
 import { detectSandbox, type Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import { Verifier } from './verifier.ts'
@@ -68,6 +68,12 @@ export interface RunOptions {
 const QUIET_NUDGES = 2
 /** Stop reason for a chat round that ended with a question or update for the human. */
 export const AWAITING_USER = 'awaiting your reply'
+/** A claimed task whose holder sits idle this long goes back to the pool. */
+const LEASE_MS = 120_000
+/** A swarm whose first peer produced no tasks in this long gets a second peer to bootstrap it. */
+const BOOTSTRAP_MS = 60_000
+/** Failed final verifications before a round gives up. */
+const MAX_VERIFY_ROUNDS = 3
 
 export class ColonyRun implements ColonyHost {
   readonly id: ColonyId
@@ -93,7 +99,20 @@ export class ColonyRun implements ColonyHost {
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
   private _seed?: () => Promise<void>
-  private _spawned = 0
+  /** Set while the colony waits on the person's answer; wakes for agents are held until it arrives. */
+  private _awaiting = false
+  private _held: { name: string; text: string; trigger: string; mail?: MyrEvent['id'] }[] = []
+  private readonly _assigned = new Map<string, string>()
+  /**
+   * Task wakes held until the creator's tool batch finishes: a plan note and its tasks arrive in one batch whose
+   * calls run concurrently, and nobody should wake before the plan is in.
+   */
+  private readonly _afterBatch = new Map<string, (() => void)[]>()
+  private readonly _idleSince = new Map<string, number>()
+  private _failedVerifications = 0
+  private _speakerOwesAnswer = false
+  private _bootstrapAt = 0
+  private _bootstrapped = 1
 
   constructor(
     private readonly runtime: Runtime,
@@ -187,6 +206,7 @@ export class ColonyRun implements ColonyHost {
           role: a.role,
           model: a.model,
           tools: toolsFor(this.spec, a),
+          ...(a.specialty ? { specialty: a.specialty } : {}),
         })),
         acceptance: this.spec.acceptance,
         budget: {
@@ -205,11 +225,13 @@ export class ColonyRun implements ColonyHost {
             }
           : {}),
         ...(this.spec.team ? { team: this.spec.team } : {}),
+        ...(this.spec.tier ? { tier: this.spec.tier } : {}),
       },
     })
     await this._seed?.()
     for (const a of this.spec.agents) this._agents.set(a.name, new ColonyAgent(a, this, this.resolver))
     this._deadline = Date.now() + this.spec.budget.wallMs
+    this._bootstrapAt = Date.now()
     await this.append({
       type: 'colony/started',
       actor: SYSTEM,
@@ -245,13 +267,17 @@ export class ColonyRun implements ColonyHost {
     await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text } })
   }
 
-  /** `label` is the lead's short description of the role (e.g. `researcher`); the worker gets a call sign. */
+  /**
+   * Adds a specialist to an orchestrated team. `label` is its role (e.g. `researcher`); it gets a call sign
+   * and sleeps until the lead assigns it a task.
+   */
   async spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string> {
     const team = this.spec.team
-    if (team?.mode !== 'auto') throw new Error('this colony has a fixed team; spawning is disabled')
+    if (team?.mode !== 'orchestrated') throw new Error('only an orchestrated team can add workers')
     if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
       throw new Error('only the lead can spawn workers')
-    if (this._spawned >= team.maxWorkers) throw new Error(`worker limit reached (${team.maxWorkers})`)
+    const workers = this.spec.agents.filter((a) => a.role !== 'lead').length
+    if (workers >= team.maxWorkers) throw new Error(`worker limit reached (${team.maxWorkers})`)
     const name = pickName(new Set(this.spec.agents.map((a) => a.name)))
     const chosen = model ?? team.workerModels[0]
     if (!chosen || !team.workerModels.includes(chosen)) {
@@ -261,15 +287,15 @@ export class ColonyRun implements ColonyHost {
       name,
       role: 'worker',
       model: chosen,
-      instructions: `You are ${name}, the colony's ${label}. Your focus, assigned by ${by}: ${focus}`,
+      specialty: label,
+      instructions: `Your focus, as defined by ${by}: ${focus}`,
     }
-    this._spawned += 1
     this.spec.agents.push(spec)
     await this.append({
       type: 'agent/joined',
       actor: SYSTEM,
       payload: {
-        agent: { name, role: 'worker', model: chosen, tools: toolsFor(this.spec, spec) },
+        agent: { name, role: 'worker', model: chosen, tools: toolsFor(this.spec, spec), specialty: label },
         by,
         focus: `${label}: ${focus}`,
       },
@@ -284,8 +310,7 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, status: 'failed', detail: String(err) },
       })
     })
-    agent.notify({ trigger: 'assignment', text: `You were spawned by ${by}. Your focus: ${focus}` })
-    return `spawned ${name} as ${label} (${chosen}); address it as "${name}". It has been told its focus and can see the board and task graph`
+    return `spawned ${name} as ${label} (${chosen}). It is asleep until you give it a task: create_task with assignee "${name}"`
   }
 
   requestTaskVerification(taskId: string, by: string): void {
@@ -324,12 +349,15 @@ export class ColonyRun implements ColonyHost {
         void this._end()
         return `ALL CHECKS PASSED — the colony is complete.\n${result.report}`
       }
-      for (const agent of this._agents.values()) {
-        if (agent.name !== by)
-          agent.notify({
-            trigger: 'verdict',
-            text: `Final verification requested by ${by} FAILED:\n${result.report}`,
-          })
+      // Outside chat, everyone hears about a failed check; in chat the speaker owns the fix.
+      if (!this.spec.chat) {
+        for (const agent of this._agents.values()) {
+          if (agent.name !== by)
+            agent.notify({
+              trigger: 'verdict',
+              text: `Final verification requested by ${by} FAILED:\n${result.report}`,
+            })
+        }
       }
       return `VERIFICATION FAILED. Fix these and request again:\n${result.report}\n\n(${by}'s summary: ${summary.slice(0, 500)})`
     } finally {
@@ -338,17 +366,92 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
+  /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
+  private async _verifyFinalAnswer(by: string) {
+    if (this.spec.acceptance.length === 0) {
+      // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
+      const verdict = await this.append({
+        type: 'verifier/verdict',
+        actor: { kind: 'verifier', id: 'delivered' },
+        payload: {
+          target: 'colony',
+          verifierId: 'delivered',
+          pass: true,
+          evidence: 'Direct answer delivered; answer-tier rounds are not judged.',
+        },
+      })
+      await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: [verdict.id] } })
+      return void this._end()
+    }
+    const report = await this.requestFinalVerification(by, 'final answer sent to the person')
+    if (this._state.status !== 'running') return
+    this._failedVerifications += 1
+    if (this._failedVerifications >= MAX_VERIFY_ROUNDS)
+      return void this.stop(`verification failed ${MAX_VERIFY_ROUNDS} times; see the last verdict`)
+    if (this.spec.team?.mode === 'swarm' && this.spec.tier === 'team') {
+      // Peers fix the findings as a normal task; the speaker answers again once it is verified.
+      this._speakerOwesAnswer = true
+      await this.appendAtomic((s) => [
+        {
+          type: 'task/changed',
+          actor: SYSTEM,
+          payload: {
+            by: 'verifier',
+            task: {
+              id: `task-${Object.keys(s.tasks).length + 1}`,
+              revision: 1,
+              subject: 'Address the verifier findings on the final answer',
+              description: report.slice(0, 4000),
+              status: 'pending',
+              blockedBy: [],
+              artifacts: [],
+            },
+          },
+        },
+      ])
+      return
+    }
+    this._agents.get(by)?.notify({
+      trigger: 'verdict',
+      text: `${report}\n\nFix the work, then send an updated final answer with reply_user(final: true).`,
+    })
+  }
+
+  private _wake(name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) {
+    // While the person is being asked something, nobody acts on anything else.
+    if (this._awaiting) {
+      this._held.push({ name, text, trigger, ...extra })
+      return
+    }
+    this._agents.get(name)?.notify({ text, trigger, ...extra })
+  }
+
   private _route(e: MyrEvent) {
     const notify = (name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) =>
-      this._agents.get(name)?.notify({ text, trigger, ...extra })
+      this._wake(name, text, trigger, extra)
+    const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team'
     switch (e.type) {
       case 'chat/user': {
         const p = e.payload as EventPayloads['chat/user']
-        const talkers = [...this._agents.values()].filter((a) =>
-          toolsFor(this.spec, a.spec).includes('reply_user'),
-        )
-        for (const a of talkers.length > 0 ? talkers : [...this._agents.values()])
-          notify(a.name, p.text, 'user')
+        this._awaiting = false
+        const held = this._held.splice(0)
+        if (swarm) {
+          const target = this._state.tasks['task-final']?.owner ?? this.spec.agents[0]?.name
+          if (target) notify(target, `${p.text}\n\n${snapshot(this.spec, this._state)}`, 'user')
+        } else {
+          const talkers = [...this._agents.values()].filter((a) =>
+            toolsFor(this.spec, a.spec).includes('reply_user'),
+          )
+          for (const a of talkers.length > 0 ? talkers : [...this._agents.values()])
+            notify(a.name, p.text, 'user')
+        }
+        for (const h of held) notify(h.name, h.text, h.trigger, h.mail ? { mail: h.mail } : {})
+        break
+      }
+      case 'chat/reply': {
+        const p = e.payload as EventPayloads['chat/reply']
+        if (p.question) this._awaiting = true
+        else if (p.final && this.spec.chat) void this._verifyFinalAnswer(p.agent)
         break
       }
       case 'mail/sent': {
@@ -384,7 +487,7 @@ export class ColonyRun implements ColonyHost {
           )
           notify(
             lead.name,
-            `${task?.id ?? p.target} by ${task?.owner ?? '?'} was ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — consider request_final_verification'}`,
+            `${task?.id ?? p.target} by ${task?.owner ?? '?'} was ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — integrate and send the final answer'}`,
             'verdict',
           )
         }
@@ -392,13 +495,26 @@ export class ColonyRun implements ColonyHost {
       }
       case 'task/changed': {
         const p = e.payload as EventPayloads['task/changed']
-        if (p.task.revision !== 1) break
-        for (const a of this._agents.values()) {
-          if (a.name !== p.by && a.idle) notify(a.name, `New task ${p.task.id}: ${p.task.subject}`, 'task')
-        }
+        const creator = this._agents.get(p.by)
+        if (creator?.working) {
+          const queued = this._afterBatch.get(p.by) ?? []
+          queued.push(() => this._announceTask(p))
+          this._afterBatch.set(p.by, queued)
+        } else this._announceTask(p)
         break
       }
+      case 'agent/turn':
       case 'llm/response': {
+        const agent = (e.payload as { agent: string }).agent
+        const queued = this._afterBatch.get(agent)
+        if (
+          queued &&
+          (e.type === 'llm/response' || (e.payload as EventPayloads['agent/turn']).phase === 'end')
+        ) {
+          this._afterBatch.delete(agent)
+          for (const announce of queued) announce()
+        }
+        if (e.type === 'agent/turn') break
         const limit = this.spec.budget.costUsd
         if (limit === undefined) break
         const spent = Object.values(this._state.agents).reduce((n, a) => n + a.cost, 0)
@@ -408,6 +524,29 @@ export class ColonyRun implements ColonyHost {
     }
     if (e.type === 'artifact/versioned' || e.type === 'note/appended' || e.type === 'board/posted')
       this._scheduleMirror()
+  }
+
+  /** Wakes whoever should hear about a task: its assignee, or idle teammates for a new unassigned task. */
+  private _announceTask(p: EventPayloads['task/changed']) {
+    const t = p.task
+    const open = t.status === 'pending' || t.status === 'rejected' || t.id === 'task-final'
+    if (t.assignee && open && this._assigned.get(t.id) !== t.assignee) {
+      this._assigned.set(t.id, t.assignee)
+      const outputs = t.outputs?.length ? `\nOutputs: ${t.outputs.join(', ')}` : ''
+      this._wake(
+        t.assignee,
+        `Task ${t.id} r${t.revision} is yours: ${t.subject}\n${t.description}${outputs}\n\n${snapshot(this.spec, this._state)}`,
+        'task',
+      )
+      return
+    }
+    if (t.revision !== 1 || t.assignee) return
+    for (const a of this._agents.values()) {
+      // In an orchestrated team the lead creates tasks for workers; it does not pick them up itself.
+      if (a.name === p.by || !a.idle || (this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'))
+        continue
+      this._wake(a.name, `New task ${t.id}: ${t.subject}\n\n${snapshot(this.spec, this._state)}`, 'task')
+    }
   }
 
   private async _observe() {
@@ -431,19 +570,28 @@ export class ColonyRun implements ColonyHost {
       return status !== 'failed' && status !== 'stopped'
     })
     if (live.length === 0) return void this.stop('all agents have stopped or failed')
+    const now = Date.now()
+    for (const a of agents) {
+      if (a.idle) this._idleSince.set(a.name, this._idleSince.get(a.name) ?? now)
+      else this._idleSince.delete(a.name)
+    }
+    if (!this._awaiting) {
+      await this._releaseStaleClaims(now)
+      if (this.spec.team?.mode === 'swarm' && this.spec.tier === 'team') await this._tendSwarm(now)
+    }
     const quiet = this._verifying === 0 && live.every((a) => a.idle)
     if (!quiet) {
       this._quietSince = undefined
       return
     }
-    this._quietSince ??= Date.now()
-    if (Date.now() - this._quietSince < (this.options.quietMs ?? 8000)) return
+    this._quietSince ??= now
+    if (now - this._quietSince < (this.options.quietMs ?? 8000)) return
     this._quietSince = undefined
     // In a chat, a colony that spoke last and then went quiet is waiting on the human, not stuck.
     const lastChat = this._state.chatMessages.at(-1)
     if (this.spec.chat && lastChat && lastChat.from !== 'user') return void this.stop(AWAITING_USER)
     if (this._nudges >= QUIET_NUDGES)
-      return void this.stop('stalled: every agent is idle and verification has not passed')
+      return void this.stop('stalled: every agent is idle and the work is not finished')
     this._nudges += 1
     await this.append({
       type: 'observer/signal',
@@ -451,10 +599,117 @@ export class ColonyRun implements ColonyHost {
       payload: {
         kind: 'stall',
         severity: this._nudges === QUIET_NUDGES ? 'critical' : 'warn',
-        facts: `Every agent is idle and the colony is not verified. ${QUIET_NUDGES - this._nudges + 1} nudge(s) left before the colony stops. Check observe and list_tasks, then act or request_final_verification.`,
+        facts: `Every agent is idle and the work is not finished. ${QUIET_NUDGES - this._nudges + 1} nudge(s) left before the colony stops. Check list_tasks and observe, then continue the work${this.spec.chat ? ' or send the final answer' : ' or request_final_verification'}.`,
         targets: [],
       },
     })
+  }
+
+  /** Puts tasks back in the pool when their holder has stopped, failed, or sat idle past the lease. */
+  private async _releaseStaleClaims(now: number) {
+    for (const t of Object.values(this._state.tasks)) {
+      if (t.status !== 'in_progress' || !t.owner || t.id === 'task-final') continue
+      const status = this._state.agents[t.owner]?.status
+      const idleFor = now - (this._idleSince.get(t.owner) ?? now)
+      if (status !== 'failed' && status !== 'stopped' && idleFor < LEASE_MS) continue
+      await this.appendAtomic((s) => {
+        const cur = s.tasks[t.id]
+        if (cur?.status !== 'in_progress' || cur.owner !== t.owner) return []
+        const { owner: _owner, ...rest } = cur
+        return [
+          {
+            type: 'task/changed',
+            actor: SYSTEM,
+            payload: { by: 'scheduler', task: { ...rest, revision: cur.revision + 1, status: 'pending' } },
+          },
+        ]
+      })
+      const others = [...this._agents.values()].filter(
+        (a) =>
+          a.idle &&
+          a.name !== t.owner &&
+          !(this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'),
+      )
+      const lead = this.spec.agents.find((a) => a.role === 'lead')
+      const text = `${t.id} was released because ${t.owner} stopped working on it: ${t.subject}`
+      if (this.spec.team?.mode === 'orchestrated' && lead)
+        this._wake(lead.name, `${text}. Re-assign it with assign_task.`, 'task')
+      else
+        for (const a of others) this._wake(a.name, `${text}\n\n${snapshot(this.spec, this._state)}`, 'task')
+    }
+  }
+
+  /** Swarm upkeep: a second bootstrapper if the first produced nothing, and a speaker once the work is done. */
+  private async _tendSwarm(now: number) {
+    const tasks = Object.values(this._state.tasks).filter((t) => t.status !== 'deleted')
+    const work = tasks.filter((t) => t.id !== 'task-final')
+    if (work.length === 0) {
+      const next = this.spec.agents[this._bootstrapped]
+      const seedsIdle = this.spec.agents
+        .slice(0, this._bootstrapped)
+        .every((a) => this._agents.get(a.name)?.idle)
+      if (
+        next &&
+        seedsIdle &&
+        now - this._bootstrapAt >= BOOTSTRAP_MS &&
+        this._state.chatMessages.at(-1)?.from === 'user'
+      ) {
+        this._bootstrapped += 1
+        this._bootstrapAt = now
+        this._wake(
+          next.name,
+          `No plan or tasks exist yet. Write the plan note and propose the first tasks, then claim one.\n\n${snapshot(this.spec, this._state)}`,
+          'kickoff',
+        )
+      }
+      return
+    }
+    if (this._verifying > 0 || !work.every((t) => t.status === 'verified')) return
+    const final = this._state.tasks['task-final']
+    if (!final) {
+      const done = new Map<string, number>()
+      for (const t of work) if (t.owner) done.set(t.owner, (done.get(t.owner) ?? 0) + 1)
+      // Most verified tasks speaks; ties go to the earliest peer, so the choice is predictable.
+      const order = this.spec.agents.map((a) => a.name)
+      const speaker =
+        [...done].sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]))[0]?.[0] ??
+        order[0] ??
+        ''
+      await this.appendAtomic((s) =>
+        s.tasks['task-final']
+          ? []
+          : [
+              {
+                type: 'task/changed',
+                actor: SYSTEM,
+                payload: {
+                  by: 'scheduler',
+                  task: {
+                    id: 'task-final',
+                    revision: 1,
+                    subject: 'Deliver the final answer to the person',
+                    description:
+                      'Every task is verified. You are the speaker: read the plan, the files, and the findings, then send the complete final answer with reply_user(final: true).',
+                    status: 'in_progress',
+                    owner: speaker,
+                    assignee: speaker,
+                    blockedBy: [],
+                    artifacts: [],
+                  },
+                },
+              },
+            ],
+      )
+      return
+    }
+    if (this._speakerOwesAnswer && final.owner && this._agents.get(final.owner)?.idle) {
+      this._speakerOwesAnswer = false
+      this._wake(
+        final.owner,
+        `The verifier findings are addressed. Send an updated final answer with reply_user(final: true).\n\n${snapshot(this.spec, this._state)}`,
+        'verdict',
+      )
+    }
   }
 
   private _scheduleMirror() {

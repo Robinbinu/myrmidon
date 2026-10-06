@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   ColonyStatus,
   EventPayloads,
+  NoteSection,
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
@@ -37,6 +38,7 @@ export interface NoteEntry extends Entry {
   readonly agent: string
   readonly text: string
   readonly corrects?: EventId
+  readonly section?: NoteSection
 }
 
 export interface MailEntry extends Entry {
@@ -69,6 +71,8 @@ export interface ChatEntry extends Entry {
   readonly from: string
   readonly text: string
   readonly final: boolean
+  /** The colony is waiting on the user to answer this. */
+  readonly question?: boolean
 }
 
 export interface SignalEntry extends Entry {
@@ -102,6 +106,7 @@ export interface ColonyState {
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string }
   team?: EventPayloads['colony/created']['team']
+  tier?: EventPayloads['colony/created']['tier']
   /** Communication counts keyed `from→to`; drives the colony map edges. */
   links: Record<string, number>
   lastSeq: number
@@ -155,6 +160,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.createdAt = event.time
       state.chat = p.chat
       state.team = p.team
+      state.tier = p.tier
       for (const info of p.agents) {
         state.agents[info.name] = {
           info,
@@ -192,7 +198,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'chat/reply': {
       const p = event.payload as EventPayloads['chat/reply']
-      state.chatMessages.push({ ...base, from: p.agent, text: p.text, final: p.final })
+      state.chatMessages.push({
+        ...base,
+        from: p.agent,
+        text: p.text,
+        final: p.final,
+        ...(p.question ? { question: true } : {}),
+      })
       touch(state, p.agent, event.seq)
       break
     }
@@ -262,7 +274,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'note/appended': {
       const p = event.payload as EventPayloads['note/appended']
-      state.notes.push({ ...base, agent: p.agent, text: p.text, corrects: p.corrects })
+      state.notes.push({ ...base, agent: p.agent, text: p.text, corrects: p.corrects, section: p.section })
       touch(state, p.agent, event.seq)
       break
     }

@@ -11,6 +11,7 @@ import {
   type CustomApi,
   importFromOmp,
   type ModelResolver,
+  normalizeTeamConfig,
   type OmpRuntime,
   type SettingsStore,
 } from '@myrmidon/runtime'
@@ -53,12 +54,17 @@ const POLL_MS = 400
 const sendSchema = Schema.object({
   text: Schema.string().min(1).max(20_000).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  // Both the current team shape and the older auto/manual one are accepted; normalizeTeamConfig maps them.
   config: Schema.object({
-    mode: Schema.union(['auto', 'manual']).default('auto'),
+    mode: Schema.union(['orchestrated', 'swarm', 'auto', 'manual']).default('orchestrated'),
     leadModel: Schema.string().required(),
-    workerModel: Schema.string().required(),
-    workers: Schema.natural().max(8).default(2),
     judgeModel: Schema.string().required(),
+    roster: Schema.array(
+      Schema.object({ role: Schema.string().max(40).required(), model: Schema.string().required() }),
+    ).max(8),
+    extraWorkers: Schema.natural().max(8),
+    workerModel: Schema.string(),
+    workers: Schema.natural().max(8),
     wallMinutes: Schema.number().min(1).max(240),
   }).required(),
 })
@@ -302,7 +308,8 @@ export function startServer(options: ServeOptions): WebServer {
             )
           }
           try {
-            return json(await options.chats.send(body.text, body.config, body.chatId))
+            const config = normalizeTeamConfig(body.config as Record<string, unknown>)
+            return json(await options.chats.send(body.text, config, body.chatId))
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
