@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Build output
+dist/
+lib/
+build/
+out/
+*.tsbuildinfo
+coverage/
+
+# Myrmidon runtime data (colony logs, blobs, local databases)
+.myrmidon/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
