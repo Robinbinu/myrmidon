@@ -1,6 +1,5 @@
 import {
   BarChart3,
-  Hexagon,
   Monitor,
   Moon,
   Network,
@@ -15,7 +14,8 @@ import { motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
-import { cn, Dot, IconButton, Kbd, spring } from '../ui/primitives.tsx'
+import { Logo } from '../ui/Logo.tsx'
+import { cn, Dot, IconButton, spring } from '../ui/primitives.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
 
@@ -70,22 +70,17 @@ export function Sidebar(props: {
   const navItem = (on: boolean) =>
     cn(
       'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
-      on ? 'bg-accent-soft text-accent' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+      on ? 'bg-surface-3/70 text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
     )
 
   return (
     <aside
-      className="flex h-full w-[272px] flex-col border-r border-line bg-surface"
+      className="flex h-full w-[272px] flex-col border-r border-line bg-surface/60"
       aria-label="Conversations"
     >
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
-        <div className="flex flex-1 items-center gap-2.5 text-[15px] font-semibold tracking-tight">
-          <span
-            className="brand-gradient grid size-8 place-items-center rounded-xl text-white shadow-soft"
-            aria-hidden
-          >
-            <Hexagon className="size-4" />
-          </span>
+        <div className="flex flex-1 items-center gap-2.5 text-[16px] font-semibold tracking-[-0.03em]">
+          <Logo size={30} />
           Myrmidon
         </div>
         <IconButton label="Collapse sidebar" title="Collapse sidebar (⌘B)" onClick={props.onCollapse}>
@@ -96,11 +91,11 @@ export function Sidebar(props: {
         <button
           type="button"
           onClick={props.onNew}
-          className="group flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-[13.5px] font-medium shadow-soft transition-all duration-150 hover:border-line-strong hover:shadow-card active:scale-[0.99]"
+          className="group flex h-10 items-center gap-2 rounded-full bg-ink pl-3.5 pr-2 text-[13.5px] font-medium text-on-ink shadow-card transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
         >
           <Plus className="size-4 transition-transform duration-200 group-hover:rotate-90" /> New task
-          <span className="ml-auto">
-            <Kbd>⌘K</Kbd>
+          <span className="ml-auto rounded-full bg-on-ink/15 px-2 py-0.5 font-mono text-[10.5px] text-on-ink/70">
+            ⌘K
           </span>
         </button>
         <div className="relative">
@@ -124,7 +119,7 @@ export function Sidebar(props: {
         )}
         {grouped.map((g) => (
           <div key={g.label}>
-            <div className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            <div className="px-3 pb-1 pt-4 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
               {g.label}
             </div>
             {g.chats.map((c) => {
@@ -145,7 +140,7 @@ export function Sidebar(props: {
                       <motion.span
                         layoutId="chat-active"
                         transition={spring}
-                        className="absolute inset-0 rounded-lg bg-accent-soft"
+                        className="absolute inset-0 rounded-lg bg-surface-3/70"
                       />
                     )}
                     <span className="relative flex min-w-0 flex-1 items-center gap-2.5">

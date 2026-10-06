@@ -29,6 +29,22 @@ test('custom providers go to models.yml, keys to the vault, and models resolve t
   expect(model.baseUrl).toBe('http://localhost:1234/v1')
   expect(await resolver.apiKey(model)).toBe('local-key-123456')
 
+  const edited = await omp.updateProvider('lmstudio', {
+    baseUrl: 'http://localhost:4321/v1',
+    api: 'openai-completions',
+    keyless: false,
+    models: ['qwen3-8b', 'gemma-3'],
+  })
+  expect(edited).toMatchObject({
+    baseUrl: 'http://localhost:4321/v1',
+    modelIds: ['qwen3-8b', 'gemma-3'],
+    hasKey: true,
+  })
+  expect(await resolver.apiKey(resolver.resolve('lmstudio/gemma-3').model)).toBe('local-key-123456')
+  await expect(
+    omp.addProvider({ name: 'lmstudio', baseUrl: 'http://x', api: 'openai-completions', models: [] }),
+  ).rejects.toThrow('already exists')
+
   await omp.removeProvider('lmstudio')
   expect(omp.providers().some((p) => p.id === 'lmstudio')).toBe(false)
   expect(() => resolver.resolve('lmstudio/qwen3-8b')).toThrow('unknown model')

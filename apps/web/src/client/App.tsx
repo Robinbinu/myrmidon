@@ -1,14 +1,4 @@
-import {
-  BookOpen,
-  Bug,
-  Gamepad2,
-  Hexagon,
-  Network,
-  PanelLeft,
-  PanelRight,
-  Search as SearchIcon,
-  Trash2,
-} from 'lucide-react'
+import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -23,6 +13,7 @@ import {
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle } from './chat/Composer.tsx'
+import { Hero } from './chat/Hero.tsx'
 import { isRunning, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
@@ -33,29 +24,6 @@ import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/
 import { useToast } from './ui/Toast.tsx'
 
 const CONFIG_KEY = 'myr-team-config'
-
-const SUGGESTIONS = [
-  {
-    icon: SearchIcon,
-    title: 'Research with sources',
-    text: 'Compare the three most popular Rust web frameworks this year and write a report with a source for every claim.',
-  },
-  {
-    icon: Gamepad2,
-    title: 'Build an app',
-    text: 'Build a single-file HTML snake game with keyboard and touch controls, levels, and a saved high score.',
-  },
-  {
-    icon: Bug,
-    title: 'Write tested code',
-    text: 'Write a Python CLI that converts CSV files to Parquet, with type hints, error handling, and pytest tests.',
-  },
-  {
-    icon: BookOpen,
-    title: 'Explain a topic',
-    text: 'Explain how transformers handle long context today, with a short glossary and further reading.',
-  },
-]
 
 function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined] {
   const [data, setData] = useState<T>(initial)
@@ -103,6 +71,7 @@ export function App() {
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [typing, setTyping] = useState(false)
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
 
@@ -377,18 +346,9 @@ export function App() {
                 <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad">{chatsError}</div>
               )}
 
-              {view === 'chat' && (
-                <>
-                  {chat ? (
-                    <Transcript
-                      chat={chat}
-                      onOpenColony={setColonyModal}
-                      onRetry={(t) => void send(t).catch(() => {})}
-                    />
-                  ) : (
-                    <Welcome onPick={(t) => composer.current?.fill(t)} />
-                  )}
-                  {config && (
+              {view === 'chat' &&
+                (() => {
+                  const box = config && (
                     <Composer
                       ref={composer}
                       models={models}
@@ -396,6 +356,8 @@ export function App() {
                       onConfig={updateConfig}
                       running={running}
                       busy={busy}
+                      centered={!chat}
+                      onTextChange={(t) => setTyping(t.trim().length > 0)}
                       status={running ? 'Colony is working…' : undefined}
                       placeholder={
                         chat
@@ -407,9 +369,22 @@ export function App() {
                       onSend={(t) => send(t)}
                       onStop={stop}
                     />
-                  )}
-                </>
-              )}
+                  )
+                  return chat ? (
+                    <>
+                      <Transcript
+                        chat={chat}
+                        onOpenColony={setColonyModal}
+                        onRetry={(t) => void send(t).catch(() => {})}
+                      />
+                      {box}
+                    </>
+                  ) : (
+                    <Hero typing={typing} onPick={(t) => composer.current?.fill(t)}>
+                      {box}
+                    </Hero>
+                  )
+                })()}
               {view === 'colonies' && <ColoniesPane />}
               {view === 'compare' && <ComparePane onOpen={setColonyModal} />}
             </>
@@ -472,60 +447,6 @@ export function App() {
         )}
       </AnimatePresence>
     </MotionConfig>
-  )
-}
-
-function Welcome({ onPick }: { onPick(text: string): void }) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto flex min-h-full max-w-[820px] flex-col items-center justify-center gap-6 px-6 py-10 text-center">
-        <motion.div
-          initial={{ scale: 0.8, opacity: 0, rotate: -20 }}
-          animate={{ scale: 1, opacity: 1, rotate: 0 }}
-          transition={{ type: 'spring', stiffness: 200, damping: 16 }}
-          className="brand-gradient grid size-14 place-items-center rounded-2xl text-white shadow-card"
-          aria-hidden
-        >
-          <Hexagon className="size-7" />
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-        >
-          <h1 className="bg-gradient-to-r from-fg via-fg to-accent bg-clip-text text-[32px] text-transparent font-semibold leading-tight tracking-[-0.03em] sm:text-[38px]">
-            What should we get done?
-          </h1>
-          <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-muted">
-            Describe the outcome in plain words. A lead agent plans it, brings in helpers when they’re useful,
-            searches the web, runs code in a sandbox, and an independent judge checks the result before it’s
-            called done.
-          </p>
-        </motion.div>
-        <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2">
-          {SUGGESTIONS.map((s, i) => (
-            <motion.button
-              key={s.title}
-              type="button"
-              onClick={() => onPick(s.text)}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ ...softSpring, delay: 0.08 + i * 0.05 }}
-              whileHover={{ y: -2 }}
-              className="group flex items-start gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-soft transition-[border-color,box-shadow] duration-200 hover:border-accent/40 hover:shadow-card"
-            >
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent transition-transform duration-200 group-hover:scale-110">
-                <s.icon className="size-4" />
-              </span>
-              <span>
-                <span className="block text-[13.5px] font-semibold">{s.title}</span>
-                <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">{s.text}</span>
-              </span>
-            </motion.button>
-          ))}
-        </div>
-      </div>
-    </div>
   )
 }
 

@@ -3,6 +3,7 @@ import {
   Bot,
   Brain,
   Check,
+  ChevronRight,
   CircleCheck,
   CircleX,
   Download,
@@ -60,6 +61,19 @@ interface ProviderInfo {
   ready: boolean
   custom: boolean
   baseUrl?: string
+  api?: Api
+  modelIds?: string[]
+  keyless?: boolean
+  hasKey?: boolean
+}
+
+interface ProviderBody {
+  name: string
+  api: Api
+  baseUrl: string
+  apiKey?: string
+  keyless: boolean
+  models: string[]
 }
 
 export interface ServerSettings {
@@ -78,7 +92,7 @@ export interface ServerSettings {
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
-  models: { hidden: string[] }
+  models: { hidden: string[]; hiddenProviders: string[] }
 }
 
 interface SettingsResponse {
@@ -447,11 +461,19 @@ function ModelsSection(props: {
   const [query, setQuery] = useState('')
   const [tests, setTests] = useState<Record<string, 'running' | { ok: boolean; text: string }>>({})
   const [refreshing, setRefreshing] = useState(false)
+  const [open, setOpen] = useState<Record<string, boolean>>({})
   const hidden = new Set(props.settings.models.hidden)
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return props.models.filter((m) => !q || `${m.ref} ${m.name}`.toLowerCase().includes(q)).slice(0, 200)
-  }, [props.models, query])
+  const hiddenProviders = new Set(props.settings.models.hiddenProviders)
+  const q = query.trim().toLowerCase()
+  const groups = useMemo(() => {
+    const by = new Map<string, ModelOption[]>()
+    for (const m of props.models) {
+      if (q && !`${m.ref} ${m.name}`.toLowerCase().includes(q)) continue
+      by.set(m.provider, [...(by.get(m.provider) ?? []), m])
+    }
+    return [...by].sort(([a], [b]) => a.localeCompare(b))
+  }, [props.models, q])
+  const shown = props.models.filter((m) => !hidden.has(m.ref) && !hiddenProviders.has(m.provider)).length
 
   const test = async (ref: string) => {
     setTests((t) => ({ ...t, [ref]: 'running' }))
@@ -462,12 +484,20 @@ function ModelsSection(props: {
       setTests((t) => ({ ...t, [ref]: { ok: false, text: String((err as Error).message) } }))
     }
   }
+  const toggleSet = (key: 'hidden' | 'hiddenProviders', value: string) =>
+    props.update((s) => {
+      const set = new Set(s.models[key])
+      if (set.has(value)) set.delete(value)
+      else set.add(value)
+      s.models[key] = [...set]
+      return s
+    }, true)
 
   return (
     <>
       <Heading title="Models">
-        {props.models.length} models you can call right now, from every provider with a key or login. Hide the
-        ones you never use, and test any model with a one-line request.
+        {props.models.length} models you can call right now, {shown} shown in pickers. Switch off whole
+        providers you don’t use, hide single models, and test any model with a one-line request.
       </Heading>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
@@ -499,59 +529,92 @@ function ModelsSection(props: {
           Add models
         </Button>
       </div>
-      <Card className="max-h-[52vh] overflow-auto">
-        {filtered.length === 0 && <Empty title="No models match" />}
-        {filtered.map((m) => {
-          const t = tests[m.ref]
-          const isHidden = hidden.has(m.ref)
+      <div className="flex flex-col gap-2">
+        {groups.length === 0 && (
+          <Card>
+            <Empty title={q ? 'No models match' : 'No models yet'} />
+          </Card>
+        )}
+        {groups.map(([provider, models]) => {
+          const off = hiddenProviders.has(provider)
+          const expanded = open[provider] ?? (!!q || models.length <= 20)
           return (
-            <div key={m.ref} className={cn('flex items-center gap-3 px-4 py-2.5', isHidden && 'opacity-55')}>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-[13.5px] font-medium">{m.name}</span>
-                  {m.reasoning && <Brain className="size-3.5 text-muted" />}
-                </div>
-                <div className="truncate font-mono text-[11.5px] text-muted">{m.ref}</div>
-                {t && t !== 'running' && (
-                  <div
-                    className={cn(
-                      'mt-0.5 flex items-center gap-1 text-[12px]',
-                      t.ok ? 'text-ok' : 'text-bad',
-                    )}
-                  >
-                    {t.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
-                    <span className="truncate">{t.ok ? `Responded in ${t.text}` : t.text}</span>
-                  </div>
-                )}
+            <Card key={provider} className={cn(off && 'opacity-60')}>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpen((o) => ({ ...o, [provider]: !expanded }))}
+                  aria-expanded={expanded}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
+                    <ChevronRight className="size-4 text-muted" />
+                  </motion.span>
+                  <span className="font-mono text-[13px] font-medium">{provider}</span>
+                  <span className="text-[12px] tabular-nums text-muted">{models.length}</span>
+                </button>
+                <span className="text-[12px] text-muted">{off ? 'Off' : 'In pickers'}</span>
+                <Switch
+                  checked={!off}
+                  label={`Show ${provider} models in pickers`}
+                  onChange={() => toggleSet('hiddenProviders', provider)}
+                />
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void test(m.ref)}
-                disabled={t === 'running'}
-                icon={t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
-              >
-                Test
-              </Button>
-              <IconButton
-                size="sm"
-                label={isHidden ? `Show ${m.name}` : `Hide ${m.name}`}
-                onClick={() =>
-                  props.update((s) => {
-                    const set = new Set(s.models.hidden)
-                    if (set.has(m.ref)) set.delete(m.ref)
-                    else set.add(m.ref)
-                    s.models.hidden = [...set]
-                    return s
-                  }, true)
-                }
-              >
-                {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </IconButton>
-            </div>
+              {expanded && (
+                <div className="max-h-[46vh] overflow-auto">
+                  {models.map((m) => {
+                    const t = tests[m.ref]
+                    const isHidden = hidden.has(m.ref)
+                    return (
+                      <div
+                        key={m.ref}
+                        className={cn('flex items-center gap-3 py-2 pl-10 pr-4', isHidden && 'opacity-55')}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-[13px] font-medium">{m.name}</span>
+                            {m.reasoning && <Brain className="size-3.5 text-muted" />}
+                          </div>
+                          <div className="truncate font-mono text-[11px] text-muted">{m.id}</div>
+                          {t && t !== 'running' && (
+                            <div
+                              className={cn(
+                                'mt-0.5 flex items-center gap-1 text-[12px]',
+                                t.ok ? 'text-ok' : 'text-bad',
+                              )}
+                            >
+                              {t.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
+                              <span className="truncate">{t.ok ? `Responded in ${t.text}` : t.text}</span>
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void test(m.ref)}
+                          disabled={t === 'running'}
+                          icon={
+                            t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined
+                          }
+                        >
+                          Test
+                        </Button>
+                        <IconButton
+                          size="sm"
+                          label={isHidden ? `Show ${m.name}` : `Hide ${m.name}`}
+                          onClick={() => toggleSet('hidden', m.ref)}
+                        >
+                          {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                        </IconButton>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Card>
           )
         })}
-      </Card>
+      </div>
     </>
   )
 }
@@ -582,9 +645,8 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
     <>
       <Heading title="Providers & keys">
         Myrmidon runs omp’s provider stack in-process: every built-in provider, OAuth logins, and custom
-        endpoints from <span className="font-mono">models.yml</span>. Keys live in an encrypted-at-rest vault
-        under <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span>, are never shown again, and
-        never reach the browser.
+        endpoints from <span className="font-mono">models.yml</span>. Keys stay in owner-only files under{' '}
+        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span> and never reach the browser.
       </Heading>
 
       {props.data.ompSetup && (
@@ -703,7 +765,7 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
                 variant="ghost"
                 onClick={() => setEditing(editing === p.id ? undefined : p.id)}
               >
-                {p.ready ? 'Replace key' : 'Add key'}
+                {p.custom ? 'Edit' : p.ready ? 'Replace key' : 'Add key'}
               </Button>
               {p.ready && !p.custom && (
                 <IconButton
@@ -734,7 +796,26 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
                 </IconButton>
               )}
             </div>
-            {editing === p.id && (
+            {editing === p.id && p.custom && (
+              <div className="mt-3">
+                <ProviderForm
+                  initial={p}
+                  existing={providers.map((x) => x.id)}
+                  apis={props.data.customApis}
+                  onCancel={() => setEditing(undefined)}
+                  onSave={async ({ name: _name, ...body }) => {
+                    if (
+                      await act(
+                        () => send<{ providers: ProviderInfo[] }>('PUT', `/api/providers/${p.id}`, body),
+                        `Updated ${p.id}`,
+                      )
+                    )
+                      setEditing(undefined)
+                  }}
+                />
+              </div>
+            )}
+            {editing === p.id && !p.custom && (
               <KeyForm
                 provider={p.id}
                 onSave={async (apiKey) => {
@@ -796,29 +877,41 @@ function KeyForm(props: { provider: string; onSave(key: string): Promise<void> }
 }
 
 function ProviderForm(props: {
+  initial?: ProviderInfo
   existing: string[]
   apis: Api[]
   onCancel(): void
-  onSave(body: { name: string; api: Api; baseUrl: string; apiKey?: string; models: string[] }): Promise<void>
+  onSave(body: ProviderBody): Promise<void>
 }) {
-  const [name, setName] = useState('')
-  const [apiType, setApiType] = useState<Api>('openai-completions')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [auth, setAuth] = useState<'key' | 'none'>('key')
+  const init = props.initial
+  const editing = !!init
+  const [name, setName] = useState(init?.id ?? '')
+  const [apiType, setApiType] = useState<Api>(init?.api ?? 'openai-completions')
+  const [baseUrl, setBaseUrl] = useState(init?.baseUrl ?? '')
+  const [auth, setAuth] = useState<'key' | 'none'>(init?.keyless ? 'none' : 'key')
   const [key, setKey] = useState('')
-  const [manual, setManual] = useState('')
+  const [manual, setManual] = useState((init?.modelIds ?? []).join(', '))
   const [busy, setBusy] = useState(false)
-  const nameOk = /^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name)
+  const nameOk = editing || (/^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name))
   const urlOk = /^https?:\/\//.test(baseUrl)
   const models = [...new Set(manual.split(/[\s,]+/).filter(Boolean))]
   const discovers = apiType === 'openai-completions' || apiType === 'openai-responses'
+  const keyOk = auth === 'none' || !!key.trim() || (editing && !!init?.hasKey)
   return (
-    <Card className="mb-3 border-accent/30">
+    <Card className={cn(!editing && 'mb-3', 'border-accent/30')}>
       <div className="grid gap-4 p-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name" hint="Lowercase. Becomes the model prefix, e.g. lmstudio/qwen3">
+          <Field
+            label="Name"
+            hint={
+              editing
+                ? 'The model prefix; fixed once created.'
+                : 'Lowercase. Becomes the model prefix, e.g. lmstudio/qwen3'
+            }
+          >
             <TextInput
               value={name}
+              disabled={editing}
               onChange={(e) => setName(e.target.value.toLowerCase())}
               placeholder="lmstudio"
               aria-invalid={!!name && !nameOk}
@@ -844,7 +937,7 @@ function ProviderForm(props: {
         <div className="flex flex-wrap items-end gap-4">
           <Field label="Authentication">
             <Segmented
-              id="auth"
+              id={`auth-${init?.id ?? 'new'}`}
               value={auth}
               onChange={setAuth}
               options={[
@@ -860,7 +953,7 @@ function ProviderForm(props: {
                 autoComplete="off"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder="API key"
+                placeholder={editing && init?.hasKey ? 'Key saved · type to replace' : 'API key'}
                 aria-label="API key"
               />
             </div>
@@ -870,15 +963,16 @@ function ProviderForm(props: {
           label="Models"
           hint={
             discovers
-              ? 'Leave empty to discover them from the endpoint’s model list.'
+              ? 'Model ids, separated by commas. Leave empty to discover them from the endpoint’s model list.'
               : 'Model ids, separated by commas.'
           }
         >
-          <TextInput
+          <TextArea
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
             aria-label="Model ids"
+            className="min-h-16 font-mono text-[12.5px]"
           />
         </Field>
         <div className="flex justify-end gap-2">
@@ -887,13 +981,7 @@ function ProviderForm(props: {
           </Button>
           <Button
             variant="primary"
-            disabled={
-              !nameOk ||
-              !urlOk ||
-              busy ||
-              (auth === 'key' && !key.trim()) ||
-              (!discovers && models.length === 0)
-            }
+            disabled={!nameOk || !urlOk || busy || !keyOk || (!discovers && models.length === 0)}
             icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             onClick={async () => {
               setBusy(true)
@@ -901,13 +989,15 @@ function ProviderForm(props: {
                 name,
                 api: apiType,
                 baseUrl: baseUrl.trim(),
-                ...(auth === 'key' ? { apiKey: key.trim() } : {}),
+                ...(auth === 'key' && key.trim() ? { apiKey: key.trim() } : {}),
+                keyless: auth === 'none',
                 models,
               })
               setBusy(false)
             }}
           >
-            Connect {models.length ? `· ${models.length} model${models.length === 1 ? '' : 's'}` : ''}
+            {editing ? 'Save changes' : 'Connect'}
+            {models.length ? ` · ${models.length} model${models.length === 1 ? '' : 's'}` : ''}
           </Button>
         </div>
       </div>

@@ -21,11 +21,14 @@ export function buildCatalog(
   settings?: SettingsStore,
   includeHidden = false,
 ): CatalogEntry[] {
-  const hidden = new Set(settings?.get().models.hidden ?? [])
+  const prefs = settings?.get().models
+  const hiddenRefs = new Set(prefs?.hidden ?? [])
+  const hiddenProviders = new Set(prefs?.hiddenProviders ?? [])
   const out: CatalogEntry[] = []
   for (const m of omp.available()) {
     const ref = `${m.provider}/${m.id}`
-    if (!includeHidden && hidden.has(ref)) continue
+    const hidden = hiddenRefs.has(ref) || hiddenProviders.has(m.provider)
+    if (!includeHidden && hidden) continue
     out.push({
       ref,
       provider: m.provider,
@@ -33,7 +36,7 @@ export function buildCatalog(
       name: m.name ?? m.id,
       reasoning: m.reasoning === true,
       ...(typeof m.contextWindow === 'number' ? { contextWindow: m.contextWindow } : {}),
-      hidden: hidden.has(ref),
+      hidden,
     })
   }
   return out.sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))

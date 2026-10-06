@@ -60,6 +60,20 @@ export interface ProviderInfo {
   /** Declared in `models.yml` rather than built in. */
   readonly custom: boolean
   readonly baseUrl?: string
+  /** Custom providers only: what `models.yml` declares, for editing. */
+  readonly api?: string
+  readonly modelIds?: string[]
+  readonly keyless?: boolean
+  readonly hasKey?: boolean
+}
+
+export interface ProviderUpdate {
+  readonly baseUrl: string
+  readonly api: CustomApi
+  /** A new key; omitted keeps the current one. */
+  readonly apiKey?: string
+  readonly keyless: boolean
+  readonly models: readonly string[]
 }
 
 export interface OmpRuntime {
@@ -74,6 +88,7 @@ export interface OmpRuntime {
   setApiKey(provider: string, key: string): Promise<void>
   removeCredentials(provider: string): Promise<void>
   addProvider(input: CustomProviderInput): Promise<ProviderInfo>
+  updateProvider(name: string, update: ProviderUpdate): Promise<ProviderInfo>
   removeProvider(name: string): Promise<void>
   /** Re-reads `models.yml` and asks providers for their current model lists. */
   refreshModels(): Promise<void>
@@ -158,6 +173,41 @@ async function start(home: string): Promise<OmpRuntime> {
     renameSync(tmp, modelsPath)
   }
 
+  /** Writes a custom provider to models.yml, keeping fields Myrmidon does not edit (headers, compat, model limits). */
+  const saveProvider = async (name: string, update: ProviderUpdate): Promise<ProviderInfo> => {
+    if (!(CUSTOM_APIS as readonly string[]).includes(update.api))
+      throw new Error(`api must be one of ${CUSTOM_APIS.join(', ')}`)
+    if (!/^https?:\/\//.test(update.baseUrl)) throw new Error('baseUrl must be an http(s) URL')
+    const ids = [...new Set(update.models.map((m) => m.trim()).filter(Boolean))]
+    if (ids.length === 0 && update.api !== 'openai-completions' && update.api !== 'openai-responses') {
+      throw new Error('list at least one model id: discovery only works for OpenAI-compatible endpoints')
+    }
+    const doc = readModelsYml()
+    const previous = doc.providers[name] ?? {}
+    const previousModels = new Map(
+      (Array.isArray(previous.models) ? (previous.models as { id: string }[]) : []).map((m) => [m.id, m]),
+    )
+    const { apiKey: oldKey, auth: _auth, discovery: _discovery, models: _models, ...kept } = previous
+    const apiKey = update.keyless ? undefined : update.apiKey?.trim() || (oldKey as string | undefined)
+    if (!update.keyless && !apiKey) throw new Error('an API key is required unless the endpoint takes none')
+    doc.providers[name] = {
+      ...kept,
+      baseUrl: update.baseUrl.trim().replace(/\/+$/, ''),
+      api: update.api,
+      ...(apiKey ? { apiKey } : { auth: 'none' }),
+      ...(ids.length
+        ? { models: ids.map((id) => previousModels.get(id) ?? { id, name: id }) }
+        : { discovery: { type: 'openai-models-list' } }),
+    }
+    writeModelsYml(doc)
+    await core.registry.refresh('online')
+    const error = core.registry.getError()
+    if (error) throw new Error(error.message)
+    const info = runtime.providers().find((p) => p.id === name)
+    if (!info) throw new Error(`omp did not load provider ${name}`)
+    return info
+  }
+
   const runtime: OmpRuntime = {
     agentDir,
     available: () => core.registry.getAvailable('chat'),
@@ -171,14 +221,20 @@ async function start(home: string): Promise<OmpRuntime> {
       for (const m of core.registry.getAll('chat')) counts.set(m.provider, (counts.get(m.provider) ?? 0) + 1)
       for (const name of Object.keys(custom)) if (!counts.has(name)) counts.set(name, 0)
       return [...counts]
-        .map(([id, models]) => {
-          const baseUrl = custom[id]?.baseUrl
+        .map(([id, models]): ProviderInfo => {
+          const entry = custom[id]
+          if (!entry) return { id, models, ready: ready.has(id), custom: false }
+          const declared = Array.isArray(entry.models) ? (entry.models as { id?: unknown }[]) : []
           return {
             id,
             models,
             ready: ready.has(id),
-            custom: id in custom,
-            ...(typeof baseUrl === 'string' ? { baseUrl } : {}),
+            custom: true,
+            ...(typeof entry.baseUrl === 'string' ? { baseUrl: entry.baseUrl } : {}),
+            ...(typeof entry.api === 'string' ? { api: entry.api } : {}),
+            modelIds: declared.map((m) => m.id).filter((m): m is string => typeof m === 'string'),
+            keyless: entry.auth === 'none',
+            hasKey: typeof entry.apiKey === 'string' && entry.apiKey.length > 0,
           }
         })
         .sort((a, b) => Number(b.ready) - Number(a.ready) || a.id.localeCompare(b.id))
@@ -186,7 +242,16 @@ async function start(home: string): Promise<OmpRuntime> {
     async setApiKey(provider, key) {
       if (!PROVIDER_NAME.test(provider)) throw new Error('invalid provider id')
       if (!key.trim()) throw new Error('API key is empty')
-      await core.credentials.storeLoginApiKey(provider, key.trim())
+      const doc = readModelsYml()
+      const entry = doc.providers[provider]
+      if (entry) {
+        // Custom providers read their key from models.yml.
+        entry.apiKey = key.trim()
+        delete entry.auth
+        writeModelsYml(doc)
+      } else {
+        await core.credentials.storeLoginApiKey(provider, key.trim())
+      }
       await core.registry.refresh('offline').catch(() => {})
     },
     async removeCredentials(provider) {
@@ -196,29 +261,22 @@ async function start(home: string): Promise<OmpRuntime> {
     async addProvider(input) {
       if (!PROVIDER_NAME.test(input.name))
         throw new Error('provider name must be lowercase letters, digits and dashes')
-      if (!(CUSTOM_APIS as readonly string[]).includes(input.api))
-        throw new Error(`api must be one of ${CUSTOM_APIS.join(', ')}`)
-      if (!/^https?:\/\//.test(input.baseUrl)) throw new Error('baseUrl must be an http(s) URL')
-      const ids = [...new Set(input.models.map((m) => m.trim()).filter(Boolean))]
-      if (ids.length === 0 && input.api !== 'openai-completions' && input.api !== 'openai-responses') {
-        throw new Error('list at least one model id: discovery only works for OpenAI-compatible endpoints')
-      }
-      const doc = readModelsYml()
-      doc.providers[input.name] = {
-        baseUrl: input.baseUrl.replace(/\/+$/, ''),
+      if (
+        readModelsYml().providers[input.name] ||
+        core.registry.getAll('chat').some((m) => m.provider === input.name)
+      )
+        throw new Error(`a provider named ${input.name} already exists`)
+      return saveProvider(input.name, {
+        baseUrl: input.baseUrl,
         api: input.api,
-        ...(input.apiKey?.trim() ? { apiKey: input.apiKey.trim() } : { auth: 'none' }),
-        ...(ids.length
-          ? { models: ids.map((id) => ({ id, name: id })) }
-          : { discovery: { type: 'openai-models-list' } }),
-      }
-      writeModelsYml(doc)
-      await core.registry.refresh('online')
-      const error = core.registry.getError()
-      if (error) throw new Error(error.message)
-      const info = runtime.providers().find((p) => p.id === input.name)
-      if (!info) throw new Error(`omp did not load provider ${input.name}`)
-      return info
+        ...(input.apiKey?.trim() ? { apiKey: input.apiKey } : {}),
+        keyless: !input.apiKey?.trim(),
+        models: input.models,
+      })
+    },
+    async updateProvider(name, update) {
+      if (!readModelsYml().providers[name]) throw new Error(`${name} is not a custom provider`)
+      return saveProvider(name, update)
     },
     async removeProvider(name) {
       const doc = readModelsYml()

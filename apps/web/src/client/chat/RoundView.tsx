@@ -10,7 +10,6 @@ import {
   FileCode,
   FileText,
   Globe,
-  Hexagon,
   ListChecks,
   LoaderCircle,
   Megaphone,
@@ -25,7 +24,17 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { compact, duration, useCopy } from '../ui/hooks.ts'
-import { Button, cn, Dot, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
+import {
+  AgentAvatar,
+  AgentChip,
+  agentColor,
+  DotMatrix,
+  JUDGE_COLOR,
+  LEAD_COLOR,
+  type Mood,
+  PixelFace,
+} from '../ui/pixel.tsx'
+import { Button, cn, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
@@ -138,8 +147,8 @@ function UserMessage({ text }: { text: string }) {
   const [copied, copy] = useCopy()
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] rounded-[20px] rounded-br-md bg-surface-2 px-4 py-2.5">
-        <Markdown text={text} />
+      <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-ink px-4 py-2.5 text-[15px] leading-[1.6] text-on-ink shadow-soft">
+        {text}
       </div>
       <button
         type="button"
@@ -157,15 +166,11 @@ function AgentMessage(props: { from: string; text: string; final: boolean }) {
   const [copied, copy] = useCopy()
   return (
     <motion.div {...enter} className="group flex gap-3">
-      <div
-        className="brand-gradient grid size-8 shrink-0 place-items-center rounded-xl text-white shadow-soft"
-        aria-hidden
-      >
-        <Hexagon className="size-4" />
-      </div>
+      <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-[12.5px]">
           <span className="font-semibold text-fg">{props.from}</span>
+          <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
           {props.final && <Pill tone="ok">final answer</Pill>}
         </div>
         <div className={cn(props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3')}>
@@ -202,17 +207,16 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
   // Newest first, matching every other feed in the app.
   const visible = (showAll ? steps : steps.slice(-6)).slice().reverse()
 
-  const head = running
-    ? { icon: LoaderCircle, title: 'Working on it', tone: 'text-work', spin: true }
+  const head: { title: string; mood: Mood; color: string } = running
+    ? { title: 'Working on it', mood: 'working', color: LEAD_COLOR }
     : state.status === 'completed'
-      ? { icon: BadgeCheck, title: `Done in ${duration(m.wallMs)}`, tone: 'text-ok', spin: false }
+      ? { title: `Done in ${duration(m.wallMs)}`, mood: 'happy', color: JUDGE_COLOR }
       : awaiting
-        ? { icon: MessageCircleQuestion, title: 'Paused for your reply', tone: 'text-accent', spin: false }
+        ? { title: 'Paused for your reply', mood: 'waiting', color: LEAD_COLOR }
         : {
-            icon: CircleStop,
             title: state.status === 'failed' ? 'Run failed' : 'Run stopped',
-            tone: 'text-warn',
-            spin: false,
+            mood: state.status === 'failed' ? 'error' : 'sleep',
+            color: state.status === 'failed' ? '#ff6369' : '#8a8a94',
           }
 
   return (
@@ -230,17 +234,17 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
           aria-expanded={expanded}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
         >
-          <span className={cn('grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2', head.tone)}>
-            <head.icon className={cn('size-4', head.spin && 'animate-spin')} />
+          <span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-screen">
+            <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[13.5px] font-semibold">{head.title}</span>
             <span className="block truncate text-[12px] tabular-nums text-muted">
               {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length} steps
               {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {compact(m.tokens)} tokens
-              {running && ` · ${duration(m.wallMs)}`}
             </span>
           </span>
+          {running && <Elapsed ms={m.wallMs} />}
           <motion.span animate={{ rotate: expanded ? 0 : -90 }} transition={spring} className="text-muted">
             <ChevronDown className="size-4" />
           </motion.span>
@@ -259,7 +263,7 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
         <div className="relative h-0.5 overflow-hidden bg-surface-2">
           {tasks.length ? (
             <motion.span
-              className="absolute inset-y-0 left-0 bg-gradient-to-r from-accent to-sky-400"
+              className="absolute inset-y-0 left-0 bg-accent"
               animate={{ width: `${Math.max(4, (done / tasks.length) * 100)}%` }}
               transition={softSpring}
             />
@@ -284,22 +288,13 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
             <div className="flex flex-col gap-3 px-4 pb-4 pt-2">
               <div className="flex flex-wrap gap-1.5">
                 {agents.map((a) => (
-                  <motion.span
-                    layout
+                  <AgentChip
                     key={a.info.name}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={spring}
-                    title={`${a.info.model} · ${a.status}`}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 rounded-full border bg-surface-2 py-1 pl-2 pr-2.5 text-[12px]',
-                      a.status === 'working' ? 'border-work/40' : 'border-line',
-                    )}
-                  >
-                    <Dot status={a.status} />
-                    <span className="font-semibold">{a.info.name}</span>
-                    <span className="text-muted">{a.info.model.split('/').pop()}</span>
-                  </motion.span>
+                    name={a.info.name}
+                    status={a.status}
+                    active={a.status === 'working'}
+                    detail={a.info.model.split('/').pop()}
+                  />
                 ))}
               </div>
               {steps.length > 0 && (
@@ -336,6 +331,13 @@ function RunCard(props: { state: ColonyState; events: readonly MyrEvent[]; onOpe
       </AnimatePresence>
     </motion.div>
   )
+}
+
+/** Live elapsed time on the run card, as an LED readout. */
+function Elapsed({ ms }: { ms: number }) {
+  const s = Math.floor(ms / 1000)
+  const text = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  return <DotMatrix text={text} dot={2} className="mr-1 text-fg-2" />
 }
 
 function StepRow({ step }: { step: Step }) {

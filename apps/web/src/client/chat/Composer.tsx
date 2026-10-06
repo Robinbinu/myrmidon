@@ -2,7 +2,7 @@ import { ArrowUp, Bot, Crown, Gavel, Minus, Plus, Square, User, Users, Zap } fro
 import { AnimatePresence, motion } from 'motion/react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { ModelOption, TeamConfig } from '../api.ts'
-import { cn, Kbd, Segmented, spring } from '../ui/primitives.tsx'
+import { cn, Segmented, spring } from '../ui/primitives.tsx'
 import { ModelPicker } from './ModelPicker.tsx'
 
 export const PRESETS: {
@@ -171,7 +171,9 @@ interface ComposerProps {
   placeholder: string
   onSend(text: string): Promise<void>
   onStop(): void
+  /** Inline under the empty-state hero rather than docked at the bottom. */
   centered?: boolean
+  onTextChange?(text: string): void
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
@@ -188,6 +190,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       requestAnimationFrame(() => area.current?.focus())
     },
   }))
+
+  const onTextChange = useRef(props.onTextChange)
+  onTextChange.current = props.onTextChange
+  useEffect(() => onTextChange.current?.(text), [text])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure the textarea whenever its text changes
   useEffect(() => {
@@ -234,7 +240,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const canSend = text.trim().length > 0 && !props.busy
 
   return (
-    <div className={cn('shrink-0 px-4 pb-4 pt-2 sm:px-6', props.centered && 'pb-0')}>
+    <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-4 pb-4 pt-2 sm:px-6')}>
       <div className="relative mx-auto max-w-[820px]" ref={wrap}>
         <AnimatePresence>
           {showTeam && (
@@ -258,7 +264,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <motion.div
           layout
           transition={spring}
-          className="rounded-[22px] border border-line-strong bg-surface shadow-card transition-[box-shadow,border-color] duration-200 focus-within:border-accent/60 focus-within:shadow-[var(--shadow-md),0_0_0_4px_var(--accent-soft)]"
+          className="rounded-[26px] border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]"
         >
           <textarea
             ref={area}
@@ -341,9 +347,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   title="Send (Enter)"
                   className={cn(
                     'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
-                    canSend
-                      ? 'brand-gradient text-white shadow-card hover:brightness-110'
-                      : 'bg-surface-3 text-muted',
+                    canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',
                   )}
                 >
                   <ArrowUp className="size-4" strokeWidth={2.5} />
@@ -352,16 +356,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </AnimatePresence>
           </div>
         </motion.div>
-        <div className="mt-2 hidden flex-wrap justify-center gap-x-4 gap-y-1 text-[11.5px] text-muted sm:flex">
-          <span className="inline-flex items-center gap-1">
-            <Kbd>Enter</Kbd> send · <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> new line · <Kbd>/</Kbd> focus
-          </span>
-          <span>
-            {props.running
-              ? 'Messages go straight to the lead while it works'
-              : 'Every result is checked by an independent judge'}
-          </span>
-        </div>
       </div>
     </div>
   )

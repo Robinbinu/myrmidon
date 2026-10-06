@@ -1,7 +1,6 @@
 import type { EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import {
   Activity,
-  Bot,
   ChevronRight,
   Crown,
   FileCode,
@@ -16,7 +15,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { compact } from '../ui/hooks.ts'
-import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
+import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
+import { Dot, Empty, IconButton, Pill, Select, softSpring, Tabs, toneFor } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { deriveSteps } from './steps.ts'
@@ -262,17 +262,11 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                   const lead = a.info.role === 'lead'
                   return (
                     <li key={a.info.name} className="flex gap-3 px-4 py-3.5">
-                      <div
-                        className={cn(
-                          'grid size-9 shrink-0 place-items-center rounded-xl',
-                          lead ? 'brand-gradient text-white' : 'bg-surface-3 text-fg-2',
-                        )}
-                      >
-                        {lead ? <Crown className="size-4" /> : <Bot className="size-4" />}
-                      </div>
+                      <AgentAvatar name={a.info.name} status={a.status} size={40} />
                       <div className="grid min-w-0 flex-1 gap-1">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{a.info.name}</span>
+                          {lead && <Crown className="size-3.5 text-signal" />}
                           <Pill tone={toneFor(a.status)}>
                             <Dot status={a.status} /> {a.status}
                           </Pill>
@@ -283,11 +277,24 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                             {task ? `Working on ${task.subject}` : a.detail}
                           </div>
                         )}
-                        <div className="flex flex-wrap gap-3 text-[11.5px] tabular-nums text-muted">
-                          <span>{a.turns} turns</span>
-                          <span>{compact(a.tokens)} tokens</span>
-                          <span>{a.toolCalls} tool calls</span>
-                          {a.costKnown && a.cost > 0 && <span>${a.cost.toFixed(3)}</span>}
+                        <div className="mt-1 flex flex-wrap gap-4">
+                          {[
+                            ['turns', String(a.turns)],
+                            ['tokens', compact(a.tokens)],
+                            ['tools', String(a.toolCalls)],
+                          ].map(([label, value]) => (
+                            <span key={label} className="flex flex-col gap-1">
+                              <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
+                              <span className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted">
+                                {label}
+                              </span>
+                            </span>
+                          ))}
+                          {a.costKnown && a.cost > 0 && (
+                            <span className="self-end text-[11.5px] tabular-nums text-muted">
+                              ${a.cost.toFixed(3)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </li>

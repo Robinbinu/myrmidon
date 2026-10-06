@@ -237,6 +237,27 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/providers/:name': {
+        PUT: guard(async (req) => {
+          if (!options.omp) return json({ error: 'providers need the chat runtime' }, 503)
+          const body = (await req.json()) as Record<string, unknown>
+          if (typeof body.baseUrl !== 'string' || typeof body.api !== 'string') {
+            return json({ error: 'baseUrl and api are required' }, 400)
+          }
+          try {
+            const provider = await options.omp.updateProvider(req.params.name ?? '', {
+              baseUrl: body.baseUrl,
+              api: body.api as CustomApi,
+              ...(typeof body.apiKey === 'string' && body.apiKey ? { apiKey: body.apiKey } : {}),
+              keyless: body.keyless === true,
+              models: Array.isArray(body.models)
+                ? body.models.filter((m): m is string => typeof m === 'string')
+                : [],
+            })
+            return json({ ok: true, provider, providers: options.omp.providers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
         DELETE: guard(async (req) => {
           if (!options.omp) return json({ error: 'providers need the chat runtime' }, 503)
           try {

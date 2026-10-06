@@ -31,7 +31,8 @@ export interface MyrSettings {
   verification: { threshold: number; rubric?: string }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
-  models: { hidden: string[] }
+  /** `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers. */
+  models: { hidden: string[]; hiddenProviders: string[] }
 }
 
 export const settingsSchema = Schema.object({
@@ -67,6 +68,7 @@ export const settingsSchema = Schema.object({
   observer: Schema.object({ intervalSeconds: Schema.natural().min(10).max(600).default(45) }).default({}),
   models: Schema.object({
     hidden: Schema.array(Schema.string()).default([]),
+    hiddenProviders: Schema.array(Schema.string()).default([]),
   }).default({}),
 })
 
@@ -81,7 +83,7 @@ function parse(input: unknown): MyrSettings {
     verification: s.verification,
     instructions: s.instructions,
     observer: s.observer,
-    models: { hidden: s.models.hidden },
+    models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders },
   }
 }
 
