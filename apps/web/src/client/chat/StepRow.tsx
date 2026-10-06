@@ -1,5 +1,6 @@
 import {
   BadgeCheck,
+  Brain,
   CircleAlert,
   FileCode,
   Globe,
@@ -25,6 +26,7 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   shell: { icon: Terminal, color: 'text-fg-2' },
   talk: { icon: Megaphone, color: 'text-muted' },
   signal: { icon: CircleAlert, color: 'text-warn' },
+  think: { icon: Brain, color: 'text-muted' },
 }
 
 /** One line of the activity feed: kind icon, who, what, when. `hideAgent` drops the name in a one-agent view. */
@@ -47,11 +49,23 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       >
         <style.icon className="size-3" />
       </span>
-      <span className="min-w-0 break-words pt-0.5">
-        {!hideAgent && <span className="text-muted">{step.agent} · </span>}
-        {step.lead} {step.strong && <span className="font-semibold text-fg">{step.strong}</span>}{' '}
-        {step.tail && <span className="text-muted">{step.tail}</span>}
-      </span>
+      {step.detail ? (
+        <details className="group min-w-0 break-words pt-0.5">
+          <summary className="cursor-pointer list-none text-muted marker:hidden hover:text-fg-2">
+            {!hideAgent && <span>{step.agent} · </span>}
+            {step.lead} <span className="italic">{step.strong}</span>
+          </summary>
+          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
+            {step.detail}
+          </div>
+        </details>
+      ) : (
+        <span className="min-w-0 break-words pt-0.5">
+          {!hideAgent && <span className="text-muted">{step.agent} · </span>}
+          {step.lead} {step.strong && <span className="font-semibold text-fg">{step.strong}</span>}{' '}
+          {step.tail && <span className="text-muted">{step.tail}</span>}
+        </span>
+      )}
       <time dateTime={step.time} className="pt-0.5 text-[11.5px] tabular-nums text-muted">
         {step.time.slice(11, 16)}
       </time>

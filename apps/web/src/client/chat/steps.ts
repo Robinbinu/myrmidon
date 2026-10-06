@@ -11,6 +11,7 @@ export type StepKind =
   | 'shell'
   | 'talk'
   | 'signal'
+  | 'think'
 
 export interface Step {
   readonly id: string
@@ -20,6 +21,8 @@ export interface Step {
   readonly strong?: string
   readonly tail?: string
   readonly time: string
+  /** Longer text the row can expand to, e.g. the model's reasoning. */
+  readonly detail?: string
 }
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -39,6 +42,26 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
   for (const e of events) {
     const base = { id: e.id, time: e.time }
     switch (e.type) {
+      case 'llm/response': {
+        const p = e.payload as EventPayloads['llm/response']
+        const thinking = p.thinking?.trim()
+        if (!thinking) break
+        out.push({
+          ...base,
+          kind: 'think',
+          agent: p.agent,
+          lead: 'Thought',
+          strong: cut(
+            thinking
+              .split('\n')
+              .find((l) => l.trim())
+              ?.replace(/^[#*\s]+/, '') ?? '',
+            90,
+          ),
+          detail: thinking,
+        })
+        break
+      }
       case 'tool/call': {
         const p = e.payload as EventPayloads['tool/call']
         const args = (p.args ?? {}) as Record<string, unknown>

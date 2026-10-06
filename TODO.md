@@ -12,8 +12,13 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Show agents' thinking** — `llm/response.thinking` is already logged; show it (collapsed, streaming
-      when live) in the run card steps, the agent sheet, and the colony console.
+- [ ] **Swarm negotiates before executing** — on a new request every peer wakes, discovers the others
+      (list_agents, roster), and they agree on the plan and who does what (proposals on the board/notes,
+      claim by agreement) before anyone starts work. No single seed executing straight away.
+- [ ] **Mail view** — a Mail tab showing the agent-to-agent conversation (mail/sent, board posts, @mentions),
+      threaded by participants.
+- [x] **Show agents' thinking** — "Thought" rows in the run card expand to the full reasoning (the agent sheet and
+      colony console already showed it). Live token streaming is not logged, so it appears per step.
 - [x] **Send feedback in a new chat** — optimistic user bubble + PendingRound with the mascot thinking.
 - [x] **Idle faces go to sleep** — agent avatars doze (closed eyes + drifting "z") after 15s idle.
 - [x] **Claude via subscription sign-in (from omp)** — omp's own claude.ai OAuth (provider `anthropic`), now
