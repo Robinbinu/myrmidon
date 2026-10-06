@@ -322,6 +322,16 @@ function AgentMessage(props: { from: string; text: string; final: boolean; onIns
   )
 }
 
+/** Tokens, cost and time against the round's limits, e.g. "120k / 500k tokens · $0.84 / $2 · 12m left". */
+function spend(state: ColonyState, m: ReturnType<typeof colonyMetrics>, running: boolean): string {
+  const { tokens: tokenLimit, costUsd, wallMs } = state.budget
+  const parts = [`${compact(m.tokens)}${tokenLimit ? ` / ${compact(tokenLimit)}` : ''} tokens`]
+  if (m.cost !== undefined && (m.cost > 0 || costUsd))
+    parts.push(`$${m.cost < 0.1 ? m.cost.toFixed(3) : m.cost.toFixed(2)}${costUsd ? ` / $${costUsd}` : ''}`)
+  if (running && wallMs > 0) parts.push(`${duration(Math.max(0, wallMs - m.wallMs))} left`)
+  return parts.join(' · ')
+}
+
 function RunCard(props: {
   state: ColonyState
   events: readonly MyrEvent[]
@@ -378,7 +388,7 @@ function RunCard(props: {
             <span className="block truncate text-[12px] tabular-nums text-muted">
               {modeLabel(state)} · {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length}{' '}
               steps
-              {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {compact(m.tokens)} tokens
+              {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {spend(state, m, running)}
             </span>
           </span>
           {running && <Elapsed ms={m.wallMs} />}
