@@ -1,6 +1,9 @@
+import { join } from 'node:path'
+
 /**
- * Read-only views of a project's own git repository for the workspace's Git tab: branch and status, working
- * changes, history, and one commit's diff. Nothing here changes the repository.
+ * A project's own git repository for the workspace's Git tab: branch and status, working changes, history, one
+ * commit's diff, and the person's local source-control actions (stage, unstage, discard, commit). Agents never call
+ * these, and nothing here talks to a remote.
  */
 
 export interface ChangedFile {
@@ -31,6 +34,8 @@ export interface GitStatus {
 }
 
 export const MAX_PATCH = 512 * 1024
+const MAX_UNTRACKED_SHOWN = 50
+const MAX_UNTRACKED_BYTES = 256 * 1024
 
 /** Runs git in `cwd` and returns stdout; throws with git's message on failure. */
 export async function git(cwd: string, args: string[], env: Record<string, string> = {}): Promise<string> {
@@ -148,8 +153,26 @@ export async function gitWorkingChanges(path: string): Promise<Changes> {
   const untracked = (await git(path, ['ls-files', '--others', '--exclude-standard']))
     .split('\n')
     .filter(Boolean)
-    .map((p): ChangedFile => ({ path: p, status: '?' }))
-  return { files: [...files, ...untracked], ...capPatch(await git(path, ['diff', '-M', against])) }
+  // New files are not in `git diff`; show the first few in full, as additions, like an editor's source control.
+  let extra = ''
+  const fresh: ChangedFile[] = []
+  for (const [i, p] of untracked.entries()) {
+    const small = i < MAX_UNTRACKED_SHOWN && (Bun.file(join(path, p)).size ?? 0) <= MAX_UNTRACKED_BYTES
+    const patch = small ? await gitFileDiff(path, p, 'untracked').catch(() => '') : ''
+    const binary = !patch || /^Binary files /m.test(patch)
+    extra += patch
+    fresh.push({
+      path: p,
+      status: '?',
+      ...(binary
+        ? {}
+        : {
+            added: patch.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).length,
+            removed: 0,
+          }),
+    })
+  }
+  return { files: [...files, ...fresh], ...capPatch((await git(path, ['diff', '-M', against])) + extra) }
 }
 
 /** One commit's message and diff against its first parent. */
@@ -172,4 +195,78 @@ export async function gitCommit(
     ),
     ...capPatch(await git(path, ['show', '-M', '--format=', hash])),
   }
+}
+
+/**
+ * Paths a git action may touch: relative, inside the project, and never read as an option. Throws on anything else.
+ */
+function checkedPaths(paths: readonly string[]): string[] {
+  if (paths.length === 0 || paths.length > 1000) throw new Error('pick between 1 and 1000 files')
+  return paths.map((p) => {
+    if (typeof p !== 'string' || !p || p.startsWith('/') || p.startsWith('-') || p.split('/').includes('..'))
+      throw new Error(`not a project path: ${p}`)
+    return p
+  })
+}
+
+/** One file's diff: staged (index vs HEAD), unstaged (work tree vs index), or an untracked file in full. */
+export async function gitFileDiff(
+  path: string,
+  file: string,
+  kind: 'staged' | 'unstaged' | 'untracked',
+): Promise<string> {
+  const [p] = checkedPaths([file])
+  if (kind === 'untracked') {
+    // `--no-index` exits 1 when the files differ, which they always do against /dev/null.
+    const proc = Bun.spawn(['git', 'diff', '--no-index', '--', '/dev/null', p as string], {
+      cwd: path,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+    if (code > 1) throw new Error(`git diff failed for ${p}`)
+    return capPatch(out).patch
+  }
+  return capPatch(
+    await git(path, ['diff', ...(kind === 'staged' ? ['--cached'] : []), '-M', '--', p as string]),
+  ).patch
+}
+
+export async function gitStage(path: string, files: readonly string[]): Promise<void> {
+  await git(path, ['add', '--', ...checkedPaths(files)])
+}
+
+export async function gitUnstage(path: string, files: readonly string[]): Promise<void> {
+  const list = checkedPaths(files)
+  const head = (await git(path, ['rev-parse', '--verify', '-q', 'HEAD']).catch(() => '')).trim()
+  // Before the first commit there is no HEAD to restore from; dropping the paths from the index unstages them.
+  await git(
+    path,
+    head ? ['restore', '--staged', '--', ...list] : ['rm', '--cached', '--quiet', '--', ...list],
+  )
+}
+
+/**
+ * Throws away uncommitted work in the given files: tracked files go back to their staged (or committed) content,
+ * untracked files are deleted. The UI asks the person to confirm first.
+ */
+export async function gitDiscard(path: string, files: readonly string[]): Promise<void> {
+  const list = checkedPaths(files)
+  const untracked = new Set(
+    (await git(path, ['ls-files', '--others', '--exclude-standard', '--', ...list]))
+      .split('\n')
+      .filter(Boolean),
+  )
+  const tracked = list.filter((f) => !untracked.has(f))
+  if (tracked.length) await git(path, ['restore', '--worktree', '--', ...tracked])
+  if (untracked.size) await git(path, ['clean', '--force', '--quiet', '--', ...untracked])
+}
+
+/** Commits what is staged (or, with `all`, every change including new files) with the person's git identity. */
+export async function gitCommitChanges(path: string, message: string, all = false): Promise<string> {
+  const text = message.trim()
+  if (!text) throw new Error('write a commit message')
+  if (all) await git(path, ['add', '--all'])
+  await git(path, ['commit', '--quiet', '-m', text])
+  return (await git(path, ['rev-parse', '--short', 'HEAD'])).trim()
 }

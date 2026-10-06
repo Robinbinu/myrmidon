@@ -44,13 +44,48 @@ test('status, working changes, history and a commit read from the project’s ow
   expect(working.files).toEqual([
     { path: 'a.ts', status: 'M', added: 1, removed: 0 },
     { path: 'b.ts', status: 'A', added: 1, removed: 0 },
-    { path: 'notes.md', status: '?' },
+    { path: 'notes.md', status: '?', added: 1, removed: 0 },
   ])
   expect(working.patch).toContain('+three')
+  expect(working.patch).toContain('+untracked')
 
   const commit = await gitCommit(dir, status.log[0]?.hash ?? '')
   expect(commit.subject).toBe('Add two')
   expect(commit.files).toEqual([{ path: 'a.ts', status: 'M', added: 1, removed: 0 }])
   expect(commit.patch).toContain('+two')
   await expect(gitCommit(dir, 'HEAD; rm -rf /')).rejects.toThrow('not a commit hash')
+})
+
+test('stage, unstage, discard and commit act only on the given project paths', async () => {
+  sh('init', '-q', '-b', 'main')
+  writeFileSync(join(dir, 'a.ts'), 'one\n')
+  sh('add', '-A')
+  sh('commit', '-qm', 'First commit')
+  writeFileSync(join(dir, 'a.ts'), 'one\ntwo\n')
+  writeFileSync(join(dir, 'new.ts'), 'fresh\n')
+
+  const { gitStage, gitUnstage, gitDiscard, gitCommitChanges, gitFileDiff } = await import('../src/git.ts')
+  expect(await gitFileDiff(dir, 'a.ts', 'unstaged')).toContain('+two')
+  expect(await gitFileDiff(dir, 'new.ts', 'untracked')).toContain('+fresh')
+  await expect(gitStage(dir, ['../outside'])).rejects.toThrow('not a project path')
+  await expect(gitStage(dir, ['--all'])).rejects.toThrow('not a project path')
+
+  await gitStage(dir, ['a.ts'])
+  let status = await gitStatus(dir)
+  if (!status.repo) throw new Error('expected a repo')
+  expect(status.files.find((f) => f.path === 'a.ts')).toMatchObject({ index: 'M', worktree: '.' })
+  expect(await gitFileDiff(dir, 'a.ts', 'staged')).toContain('+two')
+  await gitUnstage(dir, ['a.ts'])
+  status = await gitStatus(dir)
+  if (!status.repo) throw new Error('expected a repo')
+  expect(status.files.find((f) => f.path === 'a.ts')).toMatchObject({ index: '.', worktree: 'M' })
+
+  await gitDiscard(dir, ['new.ts'])
+  expect(await Bun.file(join(dir, 'new.ts')).exists()).toBe(false)
+  await expect(gitCommitChanges(dir, '  ')).rejects.toThrow('commit message')
+  const short = await gitCommitChanges(dir, 'Add two', true)
+  status = await gitStatus(dir)
+  if (!status.repo) throw new Error('expected a repo')
+  expect(status.files).toEqual([])
+  expect(status.log[0]).toMatchObject({ short, subject: 'Add two' })
 })

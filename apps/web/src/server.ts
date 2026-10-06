@@ -11,7 +11,12 @@ import {
   CUSTOM_APIS,
   type CustomApi,
   gitCommit,
+  gitCommitChanges,
+  gitDiscard,
+  gitFileDiff,
+  gitStage,
   gitStatus,
+  gitUnstage,
   gitWorkingChanges,
   importFromOmp,
   type LiveInput,
@@ -402,6 +407,58 @@ export function startServer(options: ServeOptions): WebServer {
         if (!project) return json({ error: 'no such project' }, 404)
         return json(await gitWorkingChanges(project.path))
       }),
+      '/api/projects/:id/git/diff': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        const kind = url.searchParams.get('kind')
+        if (kind !== 'staged' && kind !== 'unstaged' && kind !== 'untracked')
+          return json({ error: 'kind is staged, unstaged or untracked' }, 400)
+        try {
+          return json({ patch: await gitFileDiff(project.path, url.searchParams.get('path') ?? '', kind) })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+        }
+      }),
+      // The person's own source-control actions (never an agent's): local only, nothing is pushed.
+      '/api/projects/:id/git/:action': {
+        POST: guard(async (req) => {
+          const project = options.projects?.get(req.params.id ?? '')
+          if (!project) return json({ error: 'no such project' }, 404)
+          const body = (await req.json().catch(() => ({}))) as {
+            paths?: unknown
+            message?: unknown
+            all?: unknown
+          }
+          const paths = Array.isArray(body.paths)
+            ? body.paths.filter((p): p is string => typeof p === 'string')
+            : []
+          try {
+            switch (req.params.action) {
+              case 'stage':
+                await gitStage(project.path, paths)
+                return json({ ok: true })
+              case 'unstage':
+                await gitUnstage(project.path, paths)
+                return json({ ok: true })
+              case 'discard':
+                await gitDiscard(project.path, paths)
+                return json({ ok: true })
+              case 'commit':
+                return json({
+                  commit: await gitCommitChanges(
+                    project.path,
+                    typeof body.message === 'string' ? body.message : '',
+                    body.all === true,
+                  ),
+                })
+              default:
+                return json({ error: 'unknown git action' }, 404)
+            }
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
       '/api/projects/:id/git/commits/:hash': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)

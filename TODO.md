@@ -102,7 +102,7 @@ Requests queued while other work is in progress. Top of each section is next.
       history with each commit's diff — read-only. Answer-tier agents in a project can now read its files.
 - [x] **Workspace bar always visible** — the right icon rail stays on screen even when the panel is closed;
       clicking an icon opens that view's panel, and the panel has a close button that collapses back to the rail.
-- [ ] **Git view, advanced** — collapsible Uncommitted changes and History sections; VS Code Source Control
+- [x] **Git view, advanced** — collapsible Uncommitted changes and History sections; VS Code Source Control
       (staged / unstaged / untracked groups, file tree, inline diff) meets GitLab (commit graph-like history with
       authors and dates, commit detail with file tree + side-by-side or unified diff, stats).
 - [x] **Slash menu redesign** — a command palette: Recent + grouped commands (Round / Team & model / Chat / App) with
