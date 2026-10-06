@@ -21,7 +21,7 @@ Requests queued while other work is in progress. Top of each section is next.
       planning and verification habits, how to read the snapshot, how to use the board/notes/mail well.
       Update the harness docs (`packages/runtime/docs/*.md`) agents read via `read_docs` to match.
       Measure before/after with the eval prompts.
-- [ ] **Slash commands and omp's controls** — slash commands in the composer (/plan, /model, /team, /mode,
+- [x] **Slash commands and omp's controls** (a9abbe1: /plan /steer /queue /stop /resume /retry /new /rename /mode /model /thinking /team /attach /export /mcp /settings /help; plan mode; thinking setting. Still open: checkpoints/rewind, compaction, model switch mid-round) — slash commands in the composer (/plan, /model, /team, /mode,
       /stop, /retry, /resume, /thinking, /attach, /clear …) with an autocomplete menu; plan mode (show the plan
       for approve/edit before an expensive team round); per-agent thinking level; other omp session controls
       worth copying (compaction, checkpoints/rewind, model switch mid-chat). Agents learn them from the docs.
@@ -59,7 +59,7 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Attach files as context** — paperclip / drop / paste in the composer; files become `uploads/…` artifacts,
       the agent is told to read them, images reach vision models through read_artifact.
 - [x] **Markdown artifacts** — Rendered / Source tabs and "Copy markdown" in the artifact viewer.
-- [ ] **MCP support** — let colonies use MCP servers (stdio/HTTP) as tools: config in Settings (import from
+- [x] **MCP support** (b28de8d, 871c787) — let colonies use MCP servers (stdio/HTTP) as tools: config in Settings (import from
       omp's mcp.json), tool discovery, per-server enable, sandbox/approval rules, docs for agents.
 
 - [x] **Resume after a shutdown or stop** — when the server restarts or a round is stopped, continue from
