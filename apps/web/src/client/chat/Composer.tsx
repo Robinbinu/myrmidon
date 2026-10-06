@@ -17,7 +17,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { type ModelOption, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { cn, spring } from '../ui/primitives.tsx'
-import { matchSlash, parseSlash, SLASH_COMMANDS, type SlashCommand } from './commands.ts'
+import { buildMenu, CommandMenu, rememberCommand } from './CommandMenu.tsx'
+import { parseSlash, type SlashCommand } from './commands.ts'
 import { ModelPicker } from './ModelPicker.tsx'
 
 export const MODES = [
@@ -317,6 +318,8 @@ interface ComposerProps {
   onCommand(name: string, arg: string): Promise<void>
   /** Shows and picks the project folder the chat works in. */
   project?: ReactNode
+  /** Whether a chat is open, and whether its latest round stopped early; decides which commands apply. */
+  chatState?: { chat: boolean; resumable: boolean }
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
@@ -371,17 +374,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const [menuIndex, setMenuIndex] = useState(0)
   const [showHelp, setShowHelp] = useState(false)
-  const menu = showHelp ? [...SLASH_COMMANDS] : matchSlash(text)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight whenever the typed command changes
   useEffect(() => setMenuIndex(0), [text])
 
+  const fillCommand = (t: string) => {
+    setShowHelp(false)
+    setText(t)
+    requestAnimationFrame(() => area.current?.focus())
+  }
+
   const runCommand = async (command: SlashCommand, arg: string) => {
     setShowHelp(false)
-    if (command.needsArg && !arg) {
-      setText(`/${command.name} `)
-      requestAnimationFrame(() => area.current?.focus())
-      return
-    }
+    if (command.needsArg && !arg) return fillCommand(`/${command.name} `)
+    rememberCommand(command.name)
     setText('')
     if (command.name === 'team') return setShowTeam(true)
     if (command.name === 'attach') return picker.current?.click()
@@ -412,44 +417,50 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const TeamIcon = config.mode === 'swarm' ? Users : Workflow
   const lead = props.models.find((m) => m.ref === config.leadModel)
+  const menu = buildMenu({
+    text,
+    all: showHelp,
+    ctx: { running: props.running, chat: !!props.chatState?.chat, resumable: !!props.chatState?.resumable },
+    dynamicOptions: (c) =>
+      c.name === 'model'
+        ? props.models
+            .filter((m) => !m.hidden)
+            .map((m) => ({
+              value: m.ref,
+              label: m.name,
+              description: `${m.provider}${m.reasoning ? ' · reasoning' : ''}`,
+            }))
+        : undefined,
+    current: (c) =>
+      c.name === 'model'
+        ? config.mode === 'swarm'
+          ? undefined
+          : (lead?.name ?? config.leadModel)
+        : c.name === 'mode'
+          ? config.mode === 'swarm'
+            ? 'Swarm'
+            : 'Orchestrated'
+          : c.name === 'thinking'
+            ? (config.thinking ?? 'auto')
+            : undefined,
+    pickCommand: (c) => void runCommand(c, ''),
+    completeCommand: (c) => fillCommand(`/${c.name}${c.needsArg ? ' ' : ''}`),
+    pickOption: (c, value) => void runCommand(c, value),
+    submit: () => void send(),
+  })
   const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-4 pb-4 pt-2 sm:px-6')}>
       <div className="relative mx-auto max-w-[820px]" ref={wrap}>
         <AnimatePresence>
-          {menu.length > 0 && !showTeam && (
-            <motion.div
-              role="listbox"
-              aria-label="Commands"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4, transition: { duration: 0.1 } }}
-              transition={spring}
-              className="absolute bottom-[calc(100%+8px)] left-0 z-30 max-h-[360px] w-full overflow-y-auto rounded-2xl border border-line bg-surface p-1.5 shadow-pop"
-            >
-              {menu.map((c, i) => (
-                <button
-                  key={c.name}
-                  type="button"
-                  role="option"
-                  aria-selected={i === menuIndex}
-                  onMouseEnter={() => setMenuIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    void runCommand(c, '')
-                  }}
-                  className={cn(
-                    'flex w-full items-baseline gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-colors',
-                    i === menuIndex ? 'bg-surface-2 text-fg' : 'text-fg-2',
-                  )}
-                >
-                  <span className="shrink-0 font-mono font-medium">/{c.name}</span>
-                  {c.args && <span className="shrink-0 font-mono text-[12px] text-muted">{c.args}</span>}
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">{c.description}</span>
-                </button>
-              ))}
-            </motion.div>
+          {menu && !showTeam && (
+            <CommandMenu
+              key={menu.command?.name ?? 'commands'}
+              menu={menu}
+              active={menuIndex}
+              onHover={setMenuIndex}
+            />
           )}
           {showTeam && (
             <motion.div
@@ -523,12 +534,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               addFiles(e.clipboardData.files)
             }}
             onKeyDown={(e) => {
-              if (menu.length > 0) {
-                const pick = menu[menuIndex] ?? menu[0]
-                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              if (menu) {
+                const items = menu.items
+                const pick = items[menuIndex] ?? items[0]
+                if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length > 0) {
                   e.preventDefault()
                   const step = e.key === 'ArrowDown' ? 1 : -1
-                  setMenuIndex((i) => (i + step + menu.length) % menu.length)
+                  setMenuIndex((i) => (i + step + items.length) % items.length)
                   return
                 }
                 if (e.key === 'Escape') {
@@ -537,9 +549,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   if (!showHelp) setText('')
                   return
                 }
-                if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && pick) {
+                if (e.key === 'Tab' && pick?.complete) {
                   e.preventDefault()
-                  void runCommand(pick, '')
+                  pick.complete()
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey && pick) {
+                  e.preventDefault()
+                  if (!pick.disabled) pick.run()
                   return
                 }
               }

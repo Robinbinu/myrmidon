@@ -559,6 +559,7 @@ export function App() {
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
                       onCommand={command}
                       onStop={stop}
+                      chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
                       project={
                         // A chat started without a project stays without one.
                         (!chat || chat.project) && (

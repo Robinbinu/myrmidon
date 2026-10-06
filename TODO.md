@@ -100,11 +100,12 @@ Requests queued while other work is in progress. Top of each section is next.
       xterm.js; the socket only opens for the dashboard's own origin), kept alive across tabs; the agents' sandboxed
       commands moved to "Agent commands". Git (project chats): branch, ahead/behind, uncommitted changes with diffs,
       history with each commit's diff — read-only. Answer-tier agents in a project can now read its files.
-- [ ] **Slash menu redesign** — the `/` menu looks plain. Study omp's command UI and make it modern, creative
-      and quick to use: grouped commands with icons, descriptions and argument hints, keyboard-first, recent
-      commands, inline argument pickers (models, modes, thinking levels).
-
-## Roadmap
-
-The review's roadmap (2026-10-06) and the open items above are planned by pillar in ROADMAP.md: coding
-harness, browser agent, swarm orchestrator, agent harness.
+- [ ] **Workspace bar always visible** — the right icon rail stays on screen even when the panel is closed;
+      clicking an icon opens that view's panel, and the panel has a close button that collapses back to the rail.
+- [ ] **Git view, advanced** — collapsible Uncommitted changes and History sections; VS Code Source Control
+      (staged / unstaged / untracked groups, file tree, inline diff) meets GitLab (commit graph-like history with
+      authors and dates, commit detail with file tree + side-by-side or unified diff, stats).
+- [x] **Slash menu redesign** — a command palette: Recent + grouped commands (Round / Team & model / Chat / App) with
+      icon tiles and current values, fuzzy match with highlighted letters, commands that can't run now dimmed with
+      the reason, and omp-style argument completion (/model lists models, /mode and /thinking their choices, current
+      one checked); ↑↓ ↵ Tab Esc with a hint footer.
