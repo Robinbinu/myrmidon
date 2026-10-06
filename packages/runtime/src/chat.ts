@@ -116,6 +116,8 @@ export interface ChatRound {
   readonly round: number
   readonly status: ColonyStatus
   readonly request: string
+  /** Swarm rounds have no lead to address. */
+  readonly swarm: boolean
 }
 
 export interface ChatSummary {
@@ -211,6 +213,7 @@ export class ChatService {
           round: r.state.chat?.round ?? 0,
           status: r.state.status,
           request: r.state.chat?.request ?? '',
+          swarm: r.state.team?.mode === 'swarm',
         })),
       })
     }

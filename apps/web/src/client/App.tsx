@@ -412,7 +412,7 @@ export function App() {
                       placeholder={
                         chat
                           ? running
-                            ? config?.mode === 'swarm'
+                            ? chat.rounds.at(-1)?.swarm
                               ? 'Message the peers while they work…'
                               : 'Message the lead while it works…'
                             : 'Ask a follow-up or request changes…'

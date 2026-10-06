@@ -179,6 +179,7 @@ export interface ChatRound {
   round: number
   status: string
   request: string
+  swarm?: boolean
 }
 
 export interface ChatSummary {
