@@ -2,9 +2,10 @@ import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
-import { agentColor, DotMatrix, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
+import { agentColor, DotMatrix, PixelFace } from '../ui/pixel.tsx'
 import { softSpring } from '../ui/primitives.tsx'
 import TechText from '../vendor/react-bits/TechText'
+import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
 const SUGGESTIONS = [
   {
@@ -29,21 +30,10 @@ const SUGGESTIONS = [
   },
 ]
 
-interface Reaction {
-  mood: Mood
-  label: string
-}
-
-const POKED: Reaction[] = [
-  { mood: 'wink', label: 'wink' },
-  { mood: 'love', label: 'love' },
-  { mood: 'surprised', label: 'oh!' },
-  { mood: 'happy', label: 'hehe' },
-]
-const IDLE_TRICKS: Reaction[] = [
-  { mood: 'wink', label: 'wink' },
-  { mood: 'happy', label: 'hehe' },
-]
+const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
+const IDLE_TRICKS: Emotion[] = [EMOTIONS.wink, EMOTIONS.happy]
+/** Resting the pointer on the screen this long counts as a pat. */
+const PAT_MS = 700
 
 /** The crew that hangs around the mascot. Positions are relative to the face's center. */
 const CREW = [
@@ -109,10 +99,24 @@ interface CrewState {
  * The mascot follows the pointer with its eyes, reacts when clicked or poked by its crew, plays small
  * tricks when left alone, and dozes off after a while.
  */
-export function Hero(props: { typing: boolean; onPick(text: string): void; children: ReactNode }) {
+export function Hero(props: {
+  /** What the user is typing; the mascot reads its mood. */
+  draft: string
+  /** Colonies running across all chats. */
+  working: number
+  /** The most recent chat's status and when it last changed. */
+  latest?: { status: string; updatedAt: string }
+  onPick(text: string): void
+  children: ReactNode
+}) {
   const reduce = useReducedMotion()
   const [scope, animate] = useAnimate<HTMLButtonElement>()
-  const [reaction, setReaction] = useState<Reaction>()
+  const [reaction, setReaction] = useState<Emotion>()
+  const [petted, setPetted] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+  const patTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const shakes = useRef<{ at: number; dir: number }[]>([])
+  const lastMove = useRef({ x: 0, t: 0 })
   const [asleep, setAsleep] = useState(false)
   const [hover, setHover] = useState(false)
   const [look, setLook] = useState<[number, number]>()
@@ -120,15 +124,16 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
   const ink = useToken('--text')
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
-  const typingRef = useRef(props.typing)
-  typingRef.current = props.typing
+  const typing = props.draft.trim().length > 0
+  const typingRef = useRef(typing)
+  typingRef.current = typing
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const busy = useRef(false)
   /** Where each crew cursor is heading, so new targets can keep their distance. */
   const positions = useRef(CREW.map((c) => ({ x: c.x, y: c.y })))
 
   const react = useCallback(
-    (r: Reaction) => {
+    (r: Emotion) => {
       asleepRef.current = false
       setAsleep(false)
       setReaction(r)
@@ -143,7 +148,17 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
     },
     [animate, reduce, scope],
   )
-  useEffect(() => () => clearTimeout(reactionTimer.current), [])
+  useEffect(
+    () => () => {
+      clearTimeout(reactionTimer.current)
+      clearTimeout(patTimer.current)
+    },
+    [],
+  )
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5000)
+    return () => clearInterval(t)
+  }, [])
 
   // Eyes follow the user's pointer; moving it also wakes a sleeping mascot.
   useEffect(() => {
@@ -154,7 +169,21 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
       lastUser.current = Date.now()
       const g = gaze(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2))
       setLook((l) => (l && l[0] === g[0] && l[1] === g[1] ? l : g))
-      if (asleepRef.current) react({ mood: 'surprised', label: 'oh!' })
+      if (asleepRef.current) react(EMOTIONS.surprised)
+      // Shaking the pointer back and forth makes it dizzy.
+      const dt = e.timeStamp - lastMove.current.t
+      const dx = e.clientX - lastMove.current.x
+      lastMove.current = { x: e.clientX, t: e.timeStamp }
+      if (dt > 0 && Math.abs(dx / dt) > 1.6) {
+        const dir = Math.sign(dx)
+        const recent = shakes.current.filter((s) => e.timeStamp - s.at < 600)
+        if (recent.at(-1)?.dir !== dir) recent.push({ at: e.timeStamp, dir })
+        shakes.current = recent
+        if (recent.length >= 4 && !busy.current) {
+          shakes.current = []
+          react(EMOTIONS.dizzy)
+        }
+      }
     }
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
@@ -250,10 +279,29 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
     }
   }, [react, reduce, scope])
 
-  const mood: Mood = props.typing
-    ? 'listening'
-    : (reaction?.mood ?? (asleep ? 'sleep' : hover ? 'thinking' : 'idle'))
-  const label = props.typing ? 'listening' : (reaction?.label ?? (asleep ? 'zzz' : 'ready'))
+  const emotion: Emotion =
+    reaction ??
+    (typing
+      ? readDraft(props.draft)
+      : asleep
+        ? EMOTIONS.sleepy
+        : petted
+          ? EMOTIONS.happy
+          : hover
+            ? EMOTIONS.curious
+            : ambient({
+                working: props.working,
+                ...(props.latest
+                  ? {
+                      latest: {
+                        status: props.latest.status,
+                        agoMs: now - Date.parse(props.latest.updatedAt),
+                      },
+                    }
+                  : {}),
+                hour: new Date(now).getHours(),
+              }))
+  const label = emotion.label
 
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
@@ -268,12 +316,20 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
               ref={scope}
               type="button"
               onClick={() => react(pick(POKED))}
+              onPointerEnter={() => {
+                clearTimeout(patTimer.current)
+                patTimer.current = setTimeout(() => setPetted(true), PAT_MS)
+              }}
+              onPointerLeave={() => {
+                clearTimeout(patTimer.current)
+                setPetted(false)
+              }}
               aria-label="Poke the colony"
               className="block cursor-pointer rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
             >
               <PixelFace
-                mood={mood}
-                color={LEAD_COLOR}
+                mood={emotion.mood}
+                color={emotion.color}
                 cols={15}
                 rows={8}
                 cell={20}
@@ -329,7 +385,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             fontWeight={600}
             letterSpacing={-0.03}
             color={ink}
-            accentColor={LEAD_COLOR}
+            accentColor={emotion.color}
             reveal="letter"
             dashLength={4}
             dashGap={2}

@@ -71,7 +71,7 @@ export function App() {
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [typing, setTyping] = useState(false)
+  const [draft, setDraft] = useState('')
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
 
@@ -365,7 +365,7 @@ export function App() {
                       running={running}
                       busy={busy}
                       centered={!chat}
-                      onTextChange={(t) => setTyping(t.trim().length > 0)}
+                      onTextChange={setDraft}
                       status={running ? 'Colony is working…' : undefined}
                       placeholder={
                         chat
@@ -389,7 +389,14 @@ export function App() {
                       {box}
                     </>
                   ) : (
-                    <Hero typing={typing} onPick={(t) => composer.current?.fill(t)}>
+                    <Hero
+                      draft={draft}
+                      working={chats.filter((c) => isRunning(c.status)).length}
+                      {...(chats[0]
+                        ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
+                        : {})}
+                      onPick={(t) => composer.current?.fill(t)}
+                    >
                       {box}
                     </Hero>
                   )

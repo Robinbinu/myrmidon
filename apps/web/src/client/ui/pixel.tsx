@@ -281,7 +281,7 @@ export function PixelFace(props: {
           width={cell}
           height={cell}
           rx={r}
-          style={{ fill: on ? props.color : 'var(--screen-cell)', transition: 'fill 90ms linear' }}
+          style={{ fill: on ? props.color : 'var(--screen-cell)', transition: 'fill 180ms ease-out' }}
         />,
       )
     }
