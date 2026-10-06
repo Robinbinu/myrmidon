@@ -66,6 +66,8 @@ export function RoundView(props: {
   colonyId: string
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Only the latest finished round offers a retry, and only one at a time. */
+  retry: 'ready' | 'starting' | 'hidden'
 }) {
   const colony = useColony(props.colonyId)
   const { state, events } = colony
@@ -128,7 +130,7 @@ export function RoundView(props: {
           })}
         </motion.div>
       )}
-      <Outcome state={state} onRetry={() => opening && props.onRetry(opening.text)} />
+      <Outcome state={state} retry={props.retry} onRetry={() => opening && props.onRetry(opening.text)} />
       <AnimatePresence>
         {file && state.artifacts[file] && (
           <ArtifactViewer
@@ -371,7 +373,15 @@ function StepRow({ step }: { step: Step }) {
   )
 }
 
-function Outcome({ state, onRetry }: { state: ColonyState; onRetry(): void }) {
+function Outcome({
+  state,
+  retry,
+  onRetry,
+}: {
+  state: ColonyState
+  retry: 'ready' | 'starting' | 'hidden'
+  onRetry(): void
+}) {
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
   const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
@@ -430,9 +440,22 @@ function Outcome({ state, onRetry }: { state: ColonyState; onRetry(): void }) {
             </details>
           )}
         </div>
-        <Button size="sm" onClick={onRetry} icon={<RotateCcw className="size-3.5" />}>
-          Retry
-        </Button>
+        {retry !== 'hidden' && (
+          <Button
+            size="sm"
+            onClick={onRetry}
+            disabled={retry === 'starting'}
+            icon={
+              retry === 'starting' ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="size-3.5" />
+              )
+            }
+          >
+            {retry === 'starting' ? 'Starting…' : 'Retry'}
+          </Button>
+        )}
       </motion.div>
     )
   }

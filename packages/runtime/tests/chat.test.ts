@@ -137,3 +137,31 @@ test('deleting a chat removes every round and its data', async () => {
   expect(existsSync(dir)).toBe(false)
   expect(await chats.list()).toEqual([])
 })
+
+test('a double-clicked retry starts one round, not two', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/asker', [[tool('reply_user', { text: 'Which format do you want?' })], ['waiting']])
+  const chats = new ChatService(runtime, { resolver })
+  const config = {
+    mode: 'auto' as const,
+    leadModel: 'mock/asker',
+    workerModel: 'mock/asker',
+    workers: 0,
+    judgeModel: 'mock/asker',
+  }
+  const first = await chats.send('make a report', config)
+  for (let i = 0; i < 400; i++) {
+    if (foldColony(first.colonyId, await runtime.ctx.log.read(first.colonyId as never)).status === 'stopped')
+      break
+    await Bun.sleep(50)
+  }
+  const [a, b] = await Promise.all([
+    chats.send('make a report', config, first.chatId),
+    chats.send('make a report', config, first.chatId),
+  ])
+  expect([a.started, b.started].filter(Boolean)).toHaveLength(1)
+  expect(a.colonyId).toBe(b.colonyId)
+  const [chat] = await chats.list()
+  expect(chat?.rounds).toHaveLength(2)
+  await chats.stopAll()
+})

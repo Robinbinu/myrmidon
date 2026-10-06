@@ -53,6 +53,7 @@ function title(text: string) {
 /** Conversations as sequences of colony rounds. Follow-ups after a round ends start a new round on its files. */
 export class ChatService {
   private readonly _live = new Map<string, ColonyRun>()
+  private readonly _sending = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -105,7 +106,11 @@ export class ChatService {
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
-  /** Delivers to the running round if there is one; otherwise starts a new round. */
+  /**
+   * Delivers to the running round if there is one; otherwise starts a new round. Sends to one chat are
+   * serialized: a second request that arrives while a round is still starting (a double-clicked retry)
+   * waits for it and goes to its lead, instead of starting a second colony that nothing can stop.
+   */
   async send(
     text: string,
     config: TeamConfig,
@@ -114,6 +119,22 @@ export class ChatService {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
+    const turn = (this._sending.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.deliver(id, message, config))
+    this._sending.set(id, turn)
+    try {
+      return await turn
+    } finally {
+      if (this._sending.get(id) === turn) this._sending.delete(id)
+    }
+  }
+
+  private async deliver(
+    id: string,
+    message: string,
+    config: TeamConfig,
+  ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
       await live.postUserMessage(message)

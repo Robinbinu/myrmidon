@@ -376,6 +376,7 @@ export function App() {
                         chat={chat}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
+                        sending={busy}
                       />
                       {box}
                     </>
@@ -454,7 +455,10 @@ function Transcript(props: {
   chat: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** A message is on its way to the server; retry stays disabled until it lands. */
+  sending: boolean
 }) {
+  const running = isRunning(props.chat.status)
   const pane = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   // Follow new activity only while the reader is already at the bottom of the conversation.
@@ -474,7 +478,18 @@ function Transcript(props: {
       <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
         {props.chat.rounds.map((r, i) => (
           <div key={r.colonyId} className={cn(i > 0 && 'border-t border-line pt-8')}>
-            <RoundView colonyId={r.colonyId} onOpenColony={props.onOpenColony} onRetry={props.onRetry} />
+            <RoundView
+              colonyId={r.colonyId}
+              onOpenColony={props.onOpenColony}
+              onRetry={props.onRetry}
+              retry={
+                i === props.chat.rounds.length - 1 && !running
+                  ? props.sending
+                    ? 'starting'
+                    : 'ready'
+                  : 'hidden'
+              }
+            />
           </div>
         ))}
       </div>
