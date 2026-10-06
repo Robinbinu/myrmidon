@@ -309,7 +309,7 @@ export class ColonyRun implements ColonyHost {
 
   private async _launch(wallMs: number, resumedBecause?: string) {
     for (const a of this.spec.agents) {
-      const agent = new ColonyAgent(a, this, this.resolver)
+      const agent = new ColonyAgent(a, this, this.resolver, { restore: resumedBecause !== undefined })
       agent.turn = this._state.agents[a.name]?.turns ?? 0
       this._agents.set(a.name, agent)
     }
@@ -352,12 +352,16 @@ export class ColonyRun implements ColonyHost {
     const said = unread.length
       ? `\n\nThe person said, and nobody has read it yet:\n${unread.map((m) => `- ${m.text}${attachedNote(m.attachments)}`).join('\n')}`
       : ''
-    const fresh = `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`
+    // Agents whose transcript was restored remember their own work; the rest start from the recorded state.
+    const fresh = (name: string) =>
+      this._agents.get(name)?.restored
+        ? `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`
+        : `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`
     if (speaker) {
       const request = this.spec.chat ? `The request: ${this.spec.chat.request}\n\n` : ''
       this._wake(
         speaker,
-        `${fresh}\n\n${request}${snapshot(this.spec, s)}${said}\n\nContinue from where things stand.`,
+        `${fresh(speaker)}\n\n${request}${snapshot(this.spec, s)}${said}\n\nContinue from where things stand.`,
         'resume',
       )
     }
@@ -365,7 +369,7 @@ export class ColonyRun implements ColonyHost {
       if (t.status !== 'in_progress' || !t.owner || t.owner === speaker) continue
       this._wake(
         t.owner,
-        `${fresh}\n\nYou hold ${t.id} r${t.revision}: ${t.subject}\n${t.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${snapshot(this.spec, s)}`,
+        `${fresh(t.owner)}\n\nYou hold ${t.id} r${t.revision}: ${t.subject}\n${t.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${snapshot(this.spec, s)}`,
         'resume',
       )
     }

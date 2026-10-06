@@ -487,6 +487,9 @@ test('a stopped round resumes where it left off, with a summary for its fresh ag
   const s = await waitFor(colonyId, (st) => st.status === 'completed')
   expect(calls.at(-1)).toContain('This round was interrupted (stopped by user)')
   expect(calls.at(-1)).toContain('Write the draft')
+  // The lead's own conversation came back from its transcript, not just a summary.
+  expect(calls.at(-1)).toContain('Your conversation so far is restored')
+  expect(calls.at(-1)).toContain('# Draft')
   expect(s.chatMessages.at(-1)?.text).toBe('Finished after the restart.')
   const starts = (await events(colonyId)).filter((e) => e.type === 'colony/started')
   expect(starts.map((e) => (e.payload as { resumed?: boolean }).resumed ?? false)).toEqual([false, true])

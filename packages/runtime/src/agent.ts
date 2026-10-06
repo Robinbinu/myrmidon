@@ -1,5 +1,7 @@
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AgentStatus, EventId } from '@myrmidon/protocol'
-import { Agent, type AgentEvent, type AgentState } from '@oh-my-pi/pi-agent-core'
+import { Agent, type AgentEvent, type AgentMessage, type AgentState } from '@oh-my-pi/pi-agent-core'
 import type { AssistantMessage } from '@oh-my-pi/pi-ai'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
@@ -37,12 +39,20 @@ export class ColonyAgent {
   /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
   private readonly _unread = new Map<number, InboxItem>()
   private _stamp = 0
+  /** Every finished message of this agent's conversation, one JSON line each, like an omp session file. */
+  private readonly _transcript: string
+  /** Messages restored from the transcript when a stopped colony resumed. */
+  readonly restored: number
 
   constructor(
     readonly spec: AgentSpec,
     private readonly host: ColonyHost,
     resolver: ModelResolver,
+    options: { restore?: boolean } = {},
   ) {
+    this._transcript = join(host.workspace.colonyDir, 'agents', `${spec.name}.jsonl`)
+    const history = options.restore ? readTranscript(this._transcript) : []
+    this.restored = history.length
     const resolved = resolver.resolve(spec.model)
     const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
     this._agent = new Agent({
@@ -53,6 +63,7 @@ export class ColonyAgent {
         }),
         model: resolved.model,
         tools,
+        ...(history.length ? { messages: history } : {}),
         ...(resolved.model.reasoning
           ? { thinkingLevel: 'low' as NonNullable<AgentState['thinkingLevel']> }
           : {}),
@@ -185,6 +196,16 @@ export class ColonyAgent {
     })
   }
 
+  private _record(message: AgentMessage) {
+    try {
+      mkdirSync(join(this._transcript, '..'), { recursive: true })
+      appendFileSync(this._transcript, `${JSON.stringify(message)}\n`)
+    } catch (err) {
+      // The log stays authoritative; a lost transcript only means a resume starts from a summary.
+      console.error(`[${this.name}] transcript write failed:`, err)
+    }
+  }
+
   /** Deliveries that arrived as the turn was ending were never injected; they start the next turn instead. */
   private _requeueUnread() {
     if (!this._agent.hasQueuedMessages()) return
@@ -219,6 +240,7 @@ export class ColonyAgent {
   }
 
   private _onEvent(e: AgentEvent) {
+    if (e.type === 'message_end') this._record(e.message)
     if (e.type === 'message_end' && e.message.role === 'user') {
       const item = this._unread.get(e.message.timestamp)
       if (item) {
@@ -271,4 +293,38 @@ export class ColonyAgent {
 
 function render(items: readonly InboxItem[]): string {
   return items.map((i) => (i.trigger === 'kickoff' ? i.text : `[${i.trigger}] ${i.text}`)).join('\n\n')
+}
+
+/**
+ * Reads an agent's transcript for a resume. A crash can leave the last assistant message with tool calls
+ * that never got results; that unfinished step is dropped so the conversation is valid to continue.
+ */
+export function readTranscript(path: string): AgentMessage[] {
+  if (!existsSync(path)) return []
+  const messages: AgentMessage[] = []
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line.trim()) continue
+    try {
+      messages.push(JSON.parse(line) as AgentMessage)
+    } catch {
+      // A torn final line from a crash mid-write.
+    }
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as { role?: string; content?: unknown }
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue
+    const calls = (m.content as { type: string; id?: string }[])
+      .filter((c) => c.type === 'toolCall')
+      .map((c) => c.id)
+    const answered = new Set(
+      messages
+        .slice(i + 1)
+        .flatMap((r) =>
+          (r as { role?: string }).role === 'toolResult' ? [(r as { toolCallId?: string }).toolCallId] : [],
+        ),
+    )
+    if (calls.some((id) => !answered.has(id))) messages.length = i
+    break
+  }
+  return messages
 }
