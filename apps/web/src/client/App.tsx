@@ -53,6 +53,18 @@ function readLocalConfig(): Record<string, unknown> {
   }
 }
 
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+
+/** Reads a file for the send request, which carries attachments as base64. */
+async function encodeFile(file: File): Promise<{ name: string; data: string }> {
+  if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is larger than 10 MB`)
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return { name: file.name, data: btoa(binary) }
+}
+
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
@@ -156,7 +168,12 @@ export function App() {
     { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
   ])
 
-  const send = async (text: string, chatId = activeChat, delivery: Delivery = 'steer') => {
+  const send = async (
+    text: string,
+    chatId = activeChat,
+    delivery: Delivery = 'steer',
+    files: readonly File[] = [],
+  ) => {
     if (!config) return
     if (!config.leadModel) {
       toast('Choose a lead model first', 'error')
@@ -171,16 +188,14 @@ export function App() {
         config,
         chatId,
         delivery,
+        ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
       })
       setActiveChat(r.chatId)
       setView('chat')
       if (r.started) setPending({ text, chatId: r.chatId, colonyId: r.colonyId })
       else {
         setPending(undefined)
-        toast(
-          delivery === 'queue' ? 'Queued for when the lead finishes its step' : 'Steering the lead',
-          'info',
-        )
+        toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the colony', 'info')
       }
       refreshChats()
     } catch (err) {
@@ -189,6 +204,17 @@ export function App() {
       throw err
     } finally {
       setBusy(false)
+    }
+  }
+
+  const resume = async () => {
+    if (!activeChat) return
+    try {
+      await post(`/api/chats/${activeChat}/resume`, {})
+      toast('Resuming where it left off', 'info')
+      refreshChats()
+    } catch (err) {
+      toast(String((err as Error).message ?? err), 'error')
     }
   }
 
@@ -386,11 +412,13 @@ export function App() {
                       placeholder={
                         chat
                           ? running
-                            ? 'Message the lead while it works…'
+                            ? config?.mode === 'swarm'
+                              ? 'Message the peers while they work…'
+                              : 'Message the lead while it works…'
                             : 'Ask a follow-up or request changes…'
                           : 'Describe what you want done…'
                       }
-                      onSend={(t, delivery) => send(t, activeChat, delivery)}
+                      onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
                       onStop={stop}
                     />
                   )
@@ -402,6 +430,7 @@ export function App() {
                         {...(chat ? { chat } : {})}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
+                        onResume={resume}
                         sending={busy}
                         {...(waiting && pending ? { pending: pending.text } : {})}
                       />
@@ -489,6 +518,7 @@ function Transcript(props: {
   chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
+  onResume(): Promise<void>
   /** A message is on its way to the server; retry stays disabled until it lands. */
   sending: boolean
   /** A request whose round has not started yet. */
@@ -519,6 +549,7 @@ function Transcript(props: {
               colonyId={r.colonyId}
               onOpenColony={props.onOpenColony}
               onRetry={props.onRetry}
+              onResume={props.onResume}
               retry={
                 i === rounds.length - 1 && !running && !props.pending
                   ? props.sending

@@ -120,8 +120,9 @@ ${roster(spec, agent)}
   "decision" and "finding" notes.
 - Claim one ready task at a time, do it, publish its outputs, submit it, record what you learned as a "finding"
   note, then stop. Do not duplicate a task someone holds; do not publish another task's outputs.
-- Only the peer holding task-final answers the person (reply_user). Use ask_user only if the whole colony is
-  blocked on something only the person knows.`
+- Only the peer holding task-final answers the person (reply_user). Never create a task for the final answer,
+  review, or reply: once every other task is verified the harness creates task-final and gives it to a peer.
+  Use ask_user only if the whole colony is blocked on something only the person knows.`
   }
   if (isLead(spec, agent)) {
     const extra = (spec.team?.maxWorkers ?? 0) - (spec.agents.length - 1)
@@ -244,13 +245,19 @@ export function startsAwake(spec: ColonySpec, agent: AgentSpec): boolean {
   return isLead(spec, agent)
 }
 
+/** Tells an agent which files the person attached to a message. */
+export function attachedNote(names: readonly string[] | undefined): string {
+  return names?.length ? `\n\nThe person attached ${names.join(', ')}; read them with read_artifact.` : ''
+}
+
 export function kickoff(spec: ColonySpec, state: ColonyState): string {
   if (!spec.chat)
     return `The colony has started. Mission:\n\n${spec.mission}\n\nStart with read_task and read_board, then get to work.`
   const history = spec.chat.history ? `Earlier in this conversation:\n${spec.chat.history}\n\n` : ''
-  const request = `${history}[user] ${spec.chat.request}`
+  const attached = state.chatMessages.find((m) => m.from === 'user')?.attachments
+  const request = `${history}[user] ${spec.chat.request}${attachedNote(attached)}`
   if (spec.tier === 'answer') return request
-  const files = Object.keys(state.artifacts)
+  const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? `\n\nFiles from earlier rounds: ${files.join(', ')}.` : ''
   if (spec.tier !== 'team' || spec.agents.length === 1) return `${request}${carried}`
   if (spec.team?.mode === 'swarm')

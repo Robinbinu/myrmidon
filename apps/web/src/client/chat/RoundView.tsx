@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   MessageCircleQuestion,
   Network,
+  Play,
   RotateCcw,
   TriangleAlert,
 } from 'lucide-react'
@@ -96,6 +97,8 @@ export function RoundView(props: {
   colonyId: string
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Picks a stopped round back up where it left off. */
+  onResume(): Promise<void>
   /** Only the latest finished round offers a retry, and only one at a time. */
   retry: 'ready' | 'starting' | 'hidden'
 }) {
@@ -124,6 +127,8 @@ export function RoundView(props: {
       <UserMessage
         key={m.id}
         text={m.text}
+        attachments={m.attachments}
+        onOpen={setFile}
         mode={m.mode}
         readBy={m.readBy}
         live={state.status === 'running'}
@@ -138,12 +143,12 @@ export function RoundView(props: {
       />
     )
   const files = Object.entries(state.artifacts).filter(([, v]) =>
-    v.some((x) => x.author !== 'previous-round'),
+    v.some((x) => x.author !== 'previous-round' && x.author !== 'user'),
   )
 
   return (
     <section className="flex flex-col gap-4">
-      {opening && <UserMessage text={opening.text} />}
+      {opening && <UserMessage text={opening.text} attachments={opening.attachments} onOpen={setFile} />}
       <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
       <motion.div layout transition={softSpring}>
         <RunCard
@@ -181,7 +186,12 @@ export function RoundView(props: {
           })}
         </motion.div>
       )}
-      <Outcome state={state} retry={props.retry} onRetry={() => opening && props.onRetry(opening.text)} />
+      <Outcome
+        state={state}
+        retry={props.retry}
+        onRetry={() => opening && props.onRetry(opening.text)}
+        onResume={props.onResume}
+      />
       <AnimatePresence>
         {inspect && (
           <AgentSheet
@@ -213,6 +223,8 @@ function UserMessage(props: {
   mode?: 'steer' | 'queue' | undefined
   readBy?: readonly string[] | undefined
   live?: boolean
+  attachments?: readonly string[] | undefined
+  onOpen?(name: string): void
 }) {
   const [copied, copy] = useCopy()
   const read = props.readBy?.length ? props.readBy : undefined
@@ -221,6 +233,21 @@ function UserMessage(props: {
       <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-ink px-4 py-2.5 text-[15px] leading-[1.6] text-on-ink shadow-soft">
         {props.text}
       </div>
+      {props.attachments?.length ? (
+        <div className="flex max-w-[min(85%,640px)] flex-wrap justify-end gap-1.5">
+          {props.attachments.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => props.onOpen?.(name)}
+              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] transition-colors hover:bg-surface-2"
+            >
+              <FileText className="size-3.5 shrink-0 text-muted" />
+              <span className="truncate">{name.replace(/^uploads\//, '')}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1.5">
         {props.mode && (
           <span className="flex items-center gap-1 text-[11.5px] text-muted" aria-live="polite">
@@ -449,11 +476,14 @@ function Outcome({
   state,
   retry,
   onRetry,
+  onResume,
 }: {
   state: ColonyState
   retry: 'ready' | 'starting' | 'hidden'
   onRetry(): void
+  onResume(): Promise<void>
 }) {
+  const [resuming, setResuming] = useState(false)
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
   const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
@@ -512,6 +542,22 @@ function Outcome({
             </details>
           )}
         </div>
+        {retry !== 'hidden' && (
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setResuming(true)
+              void onResume().finally(() => setResuming(false))
+            }}
+            disabled={resuming || retry === 'starting'}
+            icon={
+              resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />
+            }
+          >
+            {resuming ? 'Resuming…' : 'Resume'}
+          </Button>
+        )}
         {retry !== 'hidden' && (
           <Button
             size="sm"

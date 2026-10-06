@@ -10,6 +10,7 @@ type Signal = Omit<EventPayloads['observer/signal'], 'targets'> & { targets?: st
 export class FactualObserver {
   private readonly _fired = new Set<string>()
   private _lastProgressSeq = 0
+  private _lastToolCalls = 0
   private _quietTicks = 0
 
   constructor(private readonly host: ColonyHost) {}
@@ -51,10 +52,13 @@ export class FactualObserver {
       ...s.verdicts.map((v) => v.seq),
       ...Object.values(s.artifacts).flatMap((v) => v.map((x) => x.seq)),
     )
-    if (progress === this._lastProgressSeq) this._quietTicks += 1
+    // An agent deep in research or a long build is working even before it posts or publishes anything.
+    const toolCalls = Object.values(s.agents).reduce((n, a) => n + a.toolCalls, 0)
+    if (progress === this._lastProgressSeq && toolCalls === this._lastToolCalls) this._quietTicks += 1
     else {
       this._quietTicks = 0
       this._lastProgressSeq = progress
+      this._lastToolCalls = toolCalls
     }
     const unclaimed = Object.values(s.tasks).filter(
       (t) =>
@@ -78,7 +82,7 @@ export class FactualObserver {
         this._signal(
           'stall',
           'warn',
-          `No new board posts, artifact versions, or verdicts for two observer intervals. ${this._taskFacts()}`,
+          `No tool calls, board posts, artifact versions, or verdicts for two observer intervals. ${this._taskFacts()}`,
         ),
       )
     }

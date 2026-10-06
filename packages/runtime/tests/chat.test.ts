@@ -408,6 +408,91 @@ test('a message sent mid-turn steers the next step or waits its turn, and shows 
   expect(s.chatMessages.at(-1)?.text).toBe('All done.')
 })
 
+test('attached files land in the workspace and the lead is told to read them', async () => {
+  const resolver = new ModelResolver()
+  const prompts: string[] = []
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      prompts.push(JSON.stringify(ctx.messages))
+      return prompts.length === 1
+        ? { content: [tool('read_artifact', { name: 'uploads/notes.md' })] }
+        : { content: [tool('reply_user', { text: 'Summarised.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send(
+    'Summarise my notes',
+    { ...solo('mock/lead'), judgeModel: 'mock/judge' },
+    undefined,
+    'steer',
+    [{ name: 'notes.md', bytes: new TextEncoder().encode('# Notes\nShip on Friday.') }],
+  )
+  const s = await waitFor(colonyId)
+  expect(s.artifacts['uploads/notes.md']?.[0]?.author).toBe('user')
+  expect(s.artifacts['uploads/notes.md']?.[0]?.mediaType).toBe('text/markdown')
+  expect(s.chatMessages[0]?.attachments).toEqual(['uploads/notes.md'])
+  expect(prompts[0]).toContain('The person attached uploads/notes.md')
+  expect(prompts[1]).toContain('Ship on Friday.')
+})
+
+test('a stopped round resumes where it left off, with a summary for its fresh agents', async () => {
+  const resolver = new ModelResolver()
+  const calls: string[] = []
+  let hold: Promise<void> | undefined = new Promise(() => {})
+  const lead = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      calls.push(JSON.stringify(ctx.messages))
+      if (calls.length === 1) return { content: [tool('fs_write', { path: 'draft.md', content: '# Draft' })] }
+      if (calls.length === 2 && hold) await hold
+      return { content: [tool('reply_user', { text: 'Finished after the restart.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const { chatId, colonyId } = await chats.send('Write the draft', config)
+  await waitFor(colonyId, () => calls.length === 2)
+  await chats.stop(chatId)
+  await waitFor(colonyId)
+  hold = undefined
+
+  const resumed = await chats.resume(chatId)
+  expect(resumed.colonyId).toBe(colonyId)
+  const s = await waitFor(colonyId, (st) => st.status === 'completed')
+  expect(calls.at(-1)).toContain('This round was interrupted (stopped by user)')
+  expect(calls.at(-1)).toContain('Write the draft')
+  expect(s.chatMessages.at(-1)?.text).toBe('Finished after the restart.')
+  const starts = (await events(colonyId)).filter((e) => e.type === 'colony/started')
+  expect(starts.map((e) => (e.payload as { resumed?: boolean }).resumed ?? false)).toEqual([false, true])
+})
+
+test('swarm mode never has a lead: work goes to every peer, a direct answer to one peer', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/peer', [['ok']])
+  const swarm = {
+    mode: 'swarm' as const,
+    leadModel: 'mock/peer',
+    roster: [0, 1, 2].map(() => ({ role: 'peer', model: 'mock/peer' })),
+    judgeModel: 'mock/peer',
+  }
+  const work = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const a = await work.send('Build a small site', swarm)
+  const s1 = foldColony(a.colonyId, await events(a.colonyId))
+  expect(s1.tier).toBe('team')
+  expect(Object.values(s1.agents).map((x) => x.info.role)).toEqual(['peer', 'peer', 'peer'])
+  await work.stopAll()
+
+  const chat = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const b = await chat.send('hi', swarm)
+  const s2 = foldColony(b.colonyId, await events(b.colonyId))
+  expect(Object.values(s2.agents).map((x) => x.info.role)).toEqual(['peer'])
+  expect(Object.keys(s2.agents)).not.toContain('lead')
+  await chat.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

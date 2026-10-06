@@ -27,5 +27,6 @@ coordination (a blackboard).
 - Duplicate tasks are refused, a task's output files can only be published by the peer holding it, and a
   held task is released if its holder goes quiet.
 - When every task is verified, the colony picks a **speaker** (the peer that finished the most tasks) and
-  gives it the `task-final` task: write the final answer from the verified files and notes.
+  gives it the `task-final` task: write the final answer from the verified files and notes. Peers never
+  create their own "final answer" or "final review" task; it would only block `task-final`.
 - Only the speaker may answer the person; any peer may `ask_user` if the whole colony is blocked.

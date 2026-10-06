@@ -1,10 +1,12 @@
 import {
   ArrowUp,
   Crown,
+  FileText,
   Gavel,
   ListEnd,
   Minus,
   Navigation,
+  Paperclip,
   Plus,
   Square,
   Users,
@@ -279,6 +281,14 @@ export interface ComposerHandle {
  */
 export type Delivery = 'steer' | 'queue'
 
+const MAX_FILES = 10
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 const DELIVERIES = [
   { value: 'steer', label: 'Steer', icon: Navigation, hint: 'Read at the next step' },
   { value: 'queue', label: 'Queue', icon: ListEnd, hint: 'Read once the current work is done' },
@@ -292,8 +302,8 @@ interface ComposerProps {
   busy: boolean
   status?: string
   placeholder: string
-  /** `delivery` only matters while a round is running. */
-  onSend(text: string, delivery: Delivery): Promise<void>
+  /** `delivery` only matters while a round is running; `files` are attached to the message. */
+  onSend(text: string, delivery: Delivery, files: readonly File[]): Promise<void>
   onStop(): void
   /** Inline under the empty-state hero rather than docked at the bottom. */
   centered?: boolean
@@ -304,6 +314,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [text, setText] = useState('')
   const [showTeam, setShowTeam] = useState(false)
   const [delivery, setDelivery] = useState<Delivery>('steer')
+  const [files, setFiles] = useState<File[]>([])
+  const [dragging, setDragging] = useState(false)
+  const picker = useRef<HTMLInputElement>(null)
+  const addFiles = (list: Iterable<File>) => {
+    const added = [...list].filter((f) => f.size > 0)
+    if (added.length === 0) return
+    setFiles((prev) => [...prev, ...added].slice(0, MAX_FILES))
+  }
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const { config } = props
@@ -343,20 +361,23 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, [showTeam])
 
   const send = async (how: Delivery = delivery) => {
-    const value = text.trim()
+    const value = text.trim() || (files.length > 0 ? 'See the attached files.' : '')
     if (!value || props.busy) return
+    const sent = files
     setText('')
+    setFiles([])
     setShowTeam(false)
     try {
-      await props.onSend(value, how)
+      await props.onSend(value, how, sent)
     } catch {
-      setText(value)
+      setText(text)
+      setFiles(sent)
     }
   }
 
   const TeamIcon = config.mode === 'swarm' ? Users : Workflow
   const lead = props.models.find((m) => m.ref === config.leadModel)
-  const canSend = text.trim().length > 0 && !props.busy
+  const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-4 pb-4 pt-2 sm:px-6')}>
@@ -383,14 +404,56 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <motion.div
           layout
           transition={spring}
-          className="rounded-[26px] border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]"
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            if (e.dataTransfer.files.length === 0) return
+            e.preventDefault()
+            setDragging(false)
+            addFiles(e.dataTransfer.files)
+          }}
+          className={cn(
+            'rounded-[26px] border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
+            dragging && 'border-accent/60 shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
+          )}
         >
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+              {files.map((f, i) => (
+                <span
+                  key={`${f.name}-${f.size}-${f.lastModified}`}
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-1 pl-2 pr-1 text-[12px]"
+                >
+                  <FileText className="size-3.5 shrink-0 text-muted" />
+                  <span className="truncate">{f.name}</span>
+                  <span className="shrink-0 text-muted">{formatSize(f.size)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${f.name}`}
+                    onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
+                    className="rounded p-0.5 text-muted hover:bg-surface-3 hover:text-fg"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <textarea
             ref={area}
             rows={1}
             value={text}
             placeholder={props.placeholder}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return
+              e.preventDefault()
+              addFiles(e.clipboardData.files)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
@@ -402,6 +465,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-muted"
           />
           <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3 pt-1.5">
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => picker.current?.click()}
+              aria-label="Attach files"
+              title="Attach files (or drop / paste them)"
+              disabled={files.length >= MAX_FILES}
+              className="grid size-8 place-items-center rounded-full border border-line text-fg-2 transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+            >
+              <Paperclip className="size-3.5" />
+            </button>
             <button
               type="button"
               onClick={() => setShowTeam(!showTeam)}
@@ -415,21 +498,23 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             >
               <TeamIcon className="size-3.5" /> {teamLabel(config)}
             </button>
-            <button
-              type="button"
-              onClick={() => setShowTeam(true)}
-              title={config.leadModel}
-              className="inline-flex h-8 max-w-[240px] items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium text-fg-2 transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
-            >
-              <Crown className="size-3.5 shrink-0" />
-              <span className="truncate">{lead?.name ?? (config.leadModel || 'Choose a model')}</span>
-            </button>
+            {config.mode !== 'swarm' && (
+              <button
+                type="button"
+                onClick={() => setShowTeam(true)}
+                title={config.leadModel}
+                className="inline-flex h-8 max-w-[240px] items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium text-fg-2 transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
+              >
+                <Crown className="size-3.5 shrink-0" />
+                <span className="truncate">{lead?.name ?? (config.leadModel || 'Choose a model')}</span>
+              </button>
+            )}
             <AnimatePresence initial={false}>
               {props.running && (
                 <motion.div
                   key="delivery"
                   role="group"
-                  aria-label="How the lead reads your message"
+                  aria-label="How the colony reads your message"
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}

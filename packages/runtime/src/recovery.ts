@@ -23,7 +23,8 @@ export async function recoverOrphans(log: EventLog, now = Date.now()): Promise<s
     const events = await log.read(id)
     const state = foldColony(id, events)
     if (state.status !== 'running' && state.status !== 'created') continue
-    const started = events.find((e) => e.type === 'colony/started')?.payload as
+    // A resumed colony has several starts; the latest names the process running it now.
+    const started = events.findLast((e) => e.type === 'colony/started')?.payload as
       | EventPayloads['colony/started']
       | undefined
     let orphaned: boolean

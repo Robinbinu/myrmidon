@@ -26,9 +26,10 @@ import type { ColonyHost } from './host.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
-import { snapshot, toolsFor } from './patterns.ts'
+import { attachedNote, snapshot, toolsFor } from './patterns.ts'
 import { detectSandbox, type Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
+import { guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
@@ -64,6 +65,8 @@ export interface RunOptions {
   readonly sandbox?: Sandbox
   /** How long all agents may sit idle with empty inboxes before the colony is nudged. */
   readonly quietMs?: number
+  /** Reopen this existing colony (see `resume`) instead of creating a new one. */
+  readonly resumeId?: ColonyId
 }
 
 const QUIET_NUDGES = 2
@@ -75,6 +78,12 @@ const LEASE_MS = 120_000
 const BOOTSTRAP_MS = 60_000
 /** Failed final verifications before a round gives up. */
 const MAX_VERIFY_ROUNDS = 3
+
+/** A file the person attached to a chat message. */
+export interface Attachment {
+  readonly name: string
+  readonly bytes: Uint8Array
+}
 
 /** How a wake is delivered: `mail` is recorded as read when the agent sees it; `queue` waits for the agent's current work. */
 interface Delivery {
@@ -126,7 +135,7 @@ export class ColonyRun implements ColonyHost {
     readonly spec: ColonySpec,
     private readonly options: RunOptions = {},
   ) {
-    this.id = newColonyId(spec.name)
+    this.id = options.resumeId ?? newColonyId(spec.name)
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
     this.workspace = new ColonyWorkspace(dir)
@@ -228,24 +237,62 @@ export class ColonyRun implements ColonyHost {
                 chatId: this.spec.chat.chatId,
                 round: this.spec.chat.round,
                 request: this.spec.chat.request,
+                ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
               },
             }
           : {}),
         ...(this.spec.team ? { team: this.spec.team } : {}),
         ...(this.spec.tier ? { tier: this.spec.tier } : {}),
+        observerMs: this.spec.observer.intervalMs,
+        ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
+        ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
       },
     })
     await this._seed?.()
-    for (const a of this.spec.agents) this._agents.set(a.name, new ColonyAgent(a, this, this.resolver))
-    this._deadline = Date.now() + this.spec.budget.wallMs
+    await this._launch(this.spec.budget.wallMs)
+  }
+
+  /**
+   * Picks up a stopped or interrupted colony (built with `resumeId`) where it left off. Agents start with
+   * fresh context: the durable state (tasks, notes, files, conversation) is all in the log, so the speaker gets
+   * a summary of it plus anything the person said that nobody read, and agents holding tasks are told to
+   * carry on. The wall clock restarts with what was left, or half the budget if less remained.
+   */
+  async resume(reason: string): Promise<void> {
+    if (!this.options.resumeId) throw new Error('resume needs a colony built with resumeId')
+    const past = await this.log.read(this.id)
+    for (const e of past) applyEvent(this._state, e)
+    if (this._state.status === 'completed') throw new Error('this round already completed')
+    const started = past.find((e) => e.type === 'colony/started')
+    const used = started ? Date.parse(past.at(-1)?.time ?? started.time) - Date.parse(started.time) : 0
+    const left = Math.max(this.spec.budget.wallMs - used, this.spec.budget.wallMs / 2)
+    await this.preflight()
+    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
+      if (colonyId !== this.id) return
+      for (const e of events) {
+        applyEvent(this._state, e)
+        this._route(e)
+      }
+    })
+    await this._launch(left, reason)
+  }
+
+  private async _launch(wallMs: number, resumedBecause?: string) {
+    for (const a of this.spec.agents) {
+      const agent = new ColonyAgent(a, this, this.resolver)
+      agent.turn = this._state.agents[a.name]?.turns ?? 0
+      this._agents.set(a.name, agent)
+    }
+    this._deadline = Date.now() + wallMs
     this._bootstrapAt = Date.now()
     await this.append({
       type: 'colony/started',
       actor: SYSTEM,
-      payload: { pid: process.pid, hostname: hostname() },
+      payload: { pid: process.pid, hostname: hostname(), ...(resumedBecause ? { resumed: true } : {}) },
     })
+    if (resumedBecause) this._wakeAfterResume(resumedBecause)
     for (const a of this._agents.values()) {
-      a.run().catch((err) => {
+      a.run(!resumedBecause).catch((err) => {
         console.error(`[${a.name}] crashed:`, err)
         void this.append({
           type: 'agent/status',
@@ -256,6 +303,36 @@ export class ColonyRun implements ColonyHost {
     }
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
     this._timers.push(setInterval(() => void this._watch(), 1000))
+  }
+
+  private _wakeAfterResume(reason: string) {
+    const s = this._state
+    const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team'
+    const speaker = swarm
+      ? (s.tasks['task-final']?.owner ?? this.spec.agents[0]?.name)
+      : (this.spec.agents.find((a) => toolsFor(this.spec, a).includes('reply_user'))?.name ??
+        this.spec.agents[0]?.name)
+    const unread = s.chatMessages.filter((m, i) => i > 0 && m.from === 'user' && !m.readBy?.length)
+    const said = unread.length
+      ? `\n\nThe person said, and nobody has read it yet:\n${unread.map((m) => `- ${m.text}${attachedNote(m.attachments)}`).join('\n')}`
+      : ''
+    const fresh = `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`
+    if (speaker) {
+      const request = this.spec.chat ? `The request: ${this.spec.chat.request}\n\n` : ''
+      this._wake(
+        speaker,
+        `${fresh}\n\n${request}${snapshot(this.spec, s)}${said}\n\nContinue from where things stand.`,
+        'resume',
+      )
+    }
+    for (const t of Object.values(s.tasks)) {
+      if (t.status !== 'in_progress' || !t.owner || t.owner === speaker) continue
+      this._wake(
+        t.owner,
+        `${fresh}\n\nYou hold ${t.id} r${t.revision}: ${t.subject}\n${t.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${snapshot(this.spec, s)}`,
+        'resume',
+      )
+    }
   }
 
   async stop(reason: string): Promise<void> {
@@ -269,9 +346,41 @@ export class ColonyRun implements ColonyHost {
     this._seed = seed
   }
 
-  async postUserMessage(text: string, mode: 'steer' | 'queue' = 'steer'): Promise<void> {
+  async postUserMessage(
+    text: string,
+    mode: 'steer' | 'queue' = 'steer',
+    attachments: readonly Attachment[] = [],
+  ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
-    await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text, mode } })
+    const names = await this.attach(attachments)
+    await this.append({
+      type: 'chat/user',
+      actor: { kind: 'user', id: 'user' },
+      payload: { text, mode, ...(names.length ? { attachments: names } : {}) },
+    })
+  }
+
+  /** Stores files the person attached as `uploads/…` artifacts and returns their names. */
+  async attach(files: readonly Attachment[]): Promise<string[]> {
+    const names: string[] = []
+    for (const file of files) {
+      const base =
+        file.name
+          .replace(/[^A-Za-z0-9._-]+/g, '-')
+          .replace(/^[-.]+/, '')
+          .slice(-120) || 'file'
+      let name = `uploads/${base}`
+      for (let n = 2; this._state.artifacts[name] || names.includes(name); n++)
+        name = `uploads/${base.replace(/(\.[^.]*)?$/, `-${n}$1`)}`
+      const { hash, size } = await this.blobs.put(file.bytes)
+      await this.append({
+        type: 'artifact/versioned',
+        actor: { kind: 'user', id: 'user' },
+        payload: { name, version: 1, blob: hash, size, author: 'user', mediaType: guessMediaType(name) },
+      })
+      names.push(name)
+    }
+    return names
   }
 
   /**
@@ -451,15 +560,16 @@ export class ColonyRun implements ColonyHost {
         const held = this._held.splice(0)
         // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
         const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
+        const text = `${p.text}${attachedNote(p.attachments)}`
         if (swarm) {
           const target = this._state.tasks['task-final']?.owner ?? this.spec.agents[0]?.name
-          if (target) notify(target, `${p.text}\n\n${snapshot(this.spec, this._state)}`, 'user', delivery)
+          if (target) notify(target, `${text}\n\n${snapshot(this.spec, this._state)}`, 'user', delivery)
         } else {
           const talkers = [...this._agents.values()].filter((a) =>
             toolsFor(this.spec, a.spec).includes('reply_user'),
           )
           for (const a of talkers.length > 0 ? talkers : [...this._agents.values()])
-            notify(a.name, p.text, 'user', delivery)
+            notify(a.name, text, 'user', delivery)
         }
         for (const { name, text, trigger, ...rest } of held) notify(name, text, trigger, rest)
         break

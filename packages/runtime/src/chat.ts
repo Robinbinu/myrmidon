@@ -1,12 +1,18 @@
 import { join } from 'node:path'
 import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
-import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
+import {
+  type ColonyId,
+  type ColonyState,
+  type ColonyStatus,
+  type EventPayloads,
+  foldColony,
+} from '@myrmidon/protocol'
 import { completeSimple } from '@oh-my-pi/pi-ai'
-import { ColonyRun, type Runtime } from './colony.ts'
+import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
-import type { AgentSpec, ColonySpec, Tier } from './spec.ts'
+import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
 
 const MAX_WORKERS = 8
@@ -222,13 +228,15 @@ export class ChatService {
     chatId?: string,
     /** For a round already running: steer its next step (default) or queue until the agent finishes. */
     delivery: 'steer' | 'queue' = 'steer',
+    /** Files to put in the round's workspace as `uploads/…` artifacts. */
+    attachments: readonly Attachment[] = [],
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())
       .catch(() => {})
-      .then(() => this.deliver(id, message, config, delivery))
+      .then(() => this.deliver(id, message, config, delivery, attachments))
     this._sending.set(id, turn)
     try {
       return await turn
@@ -242,10 +250,11 @@ export class ChatService {
     message: string,
     config: TeamConfig,
     delivery: 'steer' | 'queue',
+    attachments: readonly Attachment[],
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message, delivery)
+      await live.postUserMessage(message, delivery, attachments)
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = (await this.rounds()).get(id) ?? []
@@ -267,7 +276,12 @@ export class ChatService {
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
       if (prior) await this.carryOver(prior, run)
-      await run.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text: message } })
+      const names = await run.attach(attachments)
+      await run.append({
+        type: 'chat/user',
+        actor: { kind: 'user', id: 'user' },
+        payload: { text: message, ...(names.length ? { attachments: names } : {}) },
+      })
     })
     this._live.set(id, run)
     try {
@@ -304,6 +318,75 @@ export class ChatService {
     await this._live.get(chatId)?.stop('stopped by user')
   }
 
+  /**
+   * Picks a chat's latest round back up where it stopped (a stop, a server restart, a time limit) instead of
+   * starting over. Its agents restart with a summary of everything recorded so far.
+   */
+  async resume(chatId: string): Promise<{ chatId: string; colonyId: string }> {
+    if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
+    const last = (await this.rounds()).get(chatId)?.at(-1)
+    if (!last) throw new Error('no such chat')
+    if (last.state.status === 'completed')
+      throw new Error('the latest round already completed; send a follow-up instead')
+    const created = (await this.store.read(last.id as never)).find((e) => e.type === 'colony/created')
+    if (!created) throw new Error('the round has no colony/created event')
+    const spec = this.specFromLog(created.payload as EventPayloads['colony/created'], last.state)
+    const run = new ColonyRun(this.runtime, spec, {
+      resolver: this.options.resolver,
+      resumeId: last.id as ColonyId,
+      ...(this.options.web ? { web: this.options.web } : {}),
+      ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
+    })
+    this._live.set(chatId, run)
+    try {
+      await run.resume(last.state.statusReason ?? 'the server stopped')
+    } catch (err) {
+      this._live.delete(chatId)
+      throw err
+    }
+    void run.done.finally(() => {
+      if (this._live.get(chatId) === run) this._live.delete(chatId)
+    })
+    return { chatId, colonyId: run.id }
+  }
+
+  /** The spec a round was created with, from its colony/created event, including workers it added later. */
+  private specFromLog(created: EventPayloads['colony/created'], state: ColonyState): ColonySpec {
+    const notes = this.options.settings?.get().instructions
+    const agents = Object.values(state.agents).map(({ info }) => {
+      const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
+      return {
+        name: info.name,
+        role: info.role,
+        model: info.model,
+        ...(info.specialty ? { specialty: info.specialty } : {}),
+        ...(note ? { instructions: note } : {}),
+      }
+    })
+    return {
+      name: created.name,
+      mission: created.mission,
+      pattern: created.pattern as ColonySpec['pattern'],
+      agents,
+      acceptance: created.acceptance as AcceptanceCheck[],
+      budget: { maxTurns: 40, ...created.budget },
+      observer: { intervalMs: created.observerMs ?? 45_000 },
+      ...(created.taskJudge ? { taskJudge: created.taskJudge } : {}),
+      ...(created.chat ? { chat: { ...created.chat, history: created.chat.history ?? '' } } : {}),
+      ...(created.team
+        ? {
+            team: {
+              mode: created.team.mode === 'swarm' ? 'swarm' : 'orchestrated',
+              maxWorkers: created.team.maxWorkers,
+              workerModels: created.team.workerModels,
+            },
+          }
+        : {}),
+      ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
+      ...(created.tier ? { tier: created.tier } : {}),
+    }
+  }
+
   /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */
   async delete(chatId: string): Promise<string[]> {
     const live = this._live.get(chatId)
@@ -334,11 +417,14 @@ export class ChatService {
     const workerNote = s?.instructions.worker?.trim()
     const roster = config.roster.slice(0, MAX_WORKERS)
     const extra = config.mode === 'orchestrated' ? Math.max(0, config.extraWorkers ?? 0) : 0
-    // A team with nobody to delegate to is one agent working alone.
+    // A team with nobody to delegate to is one agent working alone. A swarm the person set up works together
+    // on anything bigger than a direct answer.
     const tier: Tier =
       requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
         ? 'solo'
-        : requested
+        : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
+          ? 'team'
+          : requested
     const taken = new Set(['lead'])
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
       roster.map((r) => {
@@ -359,9 +445,19 @@ export class ChatService {
       ...(leadNote ? { instructions: leadNote } : {}),
     }
     const swarm = tier === 'team' && config.mode === 'swarm'
+    // A swarm has no lead, even when triage gives the request to one agent: that agent is a peer.
+    const alone: AgentSpec =
+      config.mode === 'swarm'
+        ? {
+            name: pickName(taken),
+            role: 'peer',
+            model: roster[0]?.model ?? config.leadModel,
+            ...(workerNote ? { instructions: workerNote } : {}),
+          }
+        : lead
     const agents: AgentSpec[] =
       tier !== 'team'
-        ? [lead]
+        ? [alone]
         : swarm
           ? roster.length > 0
             ? crew('peer')

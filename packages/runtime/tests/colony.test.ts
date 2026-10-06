@@ -158,4 +158,13 @@ test('recovery marks colonies with a dead runner process as stopped', async () =
   const events = await runtime.ctx.log.read(id)
   expect(events.at(-1)?.type).toBe('colony/stopped')
   expect(await recoverOrphans(runtime.ctx.log)).toEqual([])
+  // Resumed by this (live) process: the latest start counts, not the dead first one.
+  await runtime.ctx.log.append(id, [
+    {
+      type: 'colony/started',
+      actor: system,
+      payload: { pid: process.pid, hostname: hostname(), resumed: true },
+    },
+  ])
+  expect(await recoverOrphans(runtime.ctx.log)).toEqual([])
 })

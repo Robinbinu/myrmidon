@@ -18,13 +18,38 @@ const MAX_READ_CHARS = 40_000
 
 type Tier = 'read' | 'write' | 'exec'
 
+/** A tool result with pictures attached, for models that can see them (others get a placeholder). */
+interface ToolOutput {
+  readonly text: string
+  readonly images: readonly { readonly data: string; readonly mimeType: string }[]
+}
+
 interface ToolDef {
   readonly name: string
   readonly tier: Tier
   readonly description: string
   readonly parameters: ReturnType<typeof type>
   // biome-ignore lint/suspicious/noExplicitAny: arguments are validated against `parameters` by the agent loop
-  run(args: any, agent: string, host: ColonyHost): Promise<string>
+  run(args: any, agent: string, host: ColonyHost): Promise<string | ToolOutput>
+}
+
+/** Leading bytes of each raster format, so a text file published under an image name is never sent as one. */
+const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
+  'image/png': (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8,
+  'image/gif': (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46,
+  'image/webp': (b) => b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+}
+
+/** Media types whose bytes are readable text. */
+export function isTextual(mediaType: string): boolean {
+  return (
+    mediaType.startsWith('text/') ||
+    mediaType === 'application/json' ||
+    mediaType === 'image/svg+xml' ||
+    mediaType.endsWith('+xml') ||
+    mediaType === 'application/xml'
+  )
 }
 
 function first<T>(items: readonly T[]): T {
@@ -78,6 +103,10 @@ const FILLER = new Set(
     ' ',
   ),
 )
+
+// A peer-made "final answer" task would block task-final, which only appears once every other task is verified.
+const FINAL_TASK =
+  /\b(final (answer|review|reply|response|summary)|answer the (person|user)|reply to the (person|user)|respond to the (person|user))\b/i
 
 // Numbers and ordinals tell otherwise identical subjects apart ("example app #1" vs "#2").
 const MARKER = /\d+|\b(first|second|third|fourth|fifth|sixth|one|two|three|four|five|six)\b/g
@@ -306,6 +335,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             }
             if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
             if (host.spec.team?.mode === 'swarm') {
+              if (FINAL_TASK.test(args.subject))
+                throw new Error(
+                  'the harness creates task-final for the final answer once every other task is verified; plan only the work',
+                )
               const twin = Object.values(s.tasks).find(
                 (t) =>
                   t.status !== 'deleted' &&
@@ -492,7 +525,22 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (!versions) throw new Error(`no such artifact: ${args.name}`)
       const v = args.version ? versions.find((x) => x.version === args.version) : versions.at(-1)
       if (!v) throw new Error(`${args.name} has no version ${args.version}`)
-      return `${args.name} v${v.version} by ${v.author}:\n${clip(await host.blobs.text(v.blob))}`
+      const head = `${args.name} v${v.version} by ${v.author}`
+      const isImage = IMAGE_MAGIC[v.mediaType]
+      if (isImage) {
+        const bytes = await host.blobs.get(v.blob)
+        if (isImage(bytes)) {
+          const data = Buffer.from(bytes).toString('base64')
+          return {
+            text: `${head}: ${v.mediaType} image, ${v.size} bytes`,
+            images: [{ data, mimeType: v.mediaType }],
+          }
+        }
+        return `${head}:\n${clip(new TextDecoder().decode(bytes))}`
+      }
+      if (!isTextual(v.mediaType))
+        return `${head}: ${v.mediaType}, ${v.size} bytes of binary data (not readable as text)`
+      return `${head}:\n${clip(await host.blobs.text(v.blob))}`
     },
   },
   {
@@ -741,7 +789,7 @@ export function observeFacts(host: ColonyHost): string {
     .join('\n')
 }
 
-function guessMediaType(name: string) {
+export function guessMediaType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase()
   return (
     {
@@ -753,6 +801,13 @@ function guessMediaType(name: string) {
       md: 'text/markdown',
       py: 'text/x-python',
       svg: 'image/svg+xml',
+      csv: 'text/csv',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      pdf: 'application/pdf',
     }[ext ?? ''] ?? 'text/plain'
   )
 }
@@ -781,11 +836,14 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
             payload: { agent, callId, tool: def.name, args: params ?? {} },
           })
           let output: string
+          let images: ToolOutput['images'] = []
           let ok = true
           try {
             if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
             if (host.state().status !== 'running') throw new Error('the colony is no longer running')
-            output = await def.run(params ?? {}, agent, host)
+            const result = await def.run(params ?? {}, agent, host)
+            output = typeof result === 'string' ? result : result.text
+            if (typeof result !== 'string') images = result.images
           } catch (err) {
             ok = false
             output = `ERROR: ${err instanceof Error ? err.message : String(err)}`
@@ -795,7 +853,13 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
             actor,
             payload: { agent, callId, tool: def.name, ok, output: clip(output, 8_000) },
           })
-          return { content: [{ type: 'text', text: output }], isError: !ok }
+          return {
+            content: [
+              { type: 'text', text: output },
+              ...images.map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType })),
+            ],
+            isError: !ok,
+          }
         },
       }),
     )

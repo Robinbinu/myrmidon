@@ -77,6 +77,8 @@ export interface ChatEntry extends Entry {
   readonly mode?: 'steer' | 'queue'
   /** Agents that have read this message (mid-run user messages only). */
   readBy?: string[]
+  /** Artifact names of files the person attached. */
+  readonly attachments?: readonly string[]
 }
 
 export interface SignalEntry extends Entry {
@@ -203,6 +205,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         text: p.text,
         final: false,
         ...(p.mode ? { mode: p.mode } : {}),
+        ...(p.attachments?.length ? { attachments: p.attachments } : {}),
       })
       break
     }
@@ -225,6 +228,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'colony/started':
       state.status = 'running'
+      delete state.statusReason
+      delete state.endedAt
       break
     case 'colony/stopped':
     case 'colony/failed': {

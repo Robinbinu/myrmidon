@@ -57,20 +57,27 @@ export interface EventPayloads {
     acceptance: unknown[]
     budget: { wallMs: number; costUsd?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
-    chat?: { chatId: string; round: number; request: string }
+    chat?: { chatId: string; round: number; request: string; history?: string }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
     tier?: 'answer' | 'solo' | 'team'
+    /** The rest of the spec, so an interrupted colony can be resumed exactly as it was created. */
+    observerMs?: number
+    taskJudge?: string
+    disabledTools?: string[]
   }
-  /** `pid`/`hostname` identify the runner process so orphaned colonies can be detected. */
-  'colony/started': { pid?: number; hostname?: string }
+  /**
+   * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
+   * stopped or interrupted colony picking up where it left off.
+   */
+  'colony/started': { pid?: number; hostname?: string; resumed?: boolean }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
   /**
    * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
    * doing. Only meaningful for messages sent while a round is running.
    */
-  'chat/user': { text: string; mode?: 'steer' | 'queue' }
+  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[] }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   'chat/reply': { agent: string; text: string; final: boolean; question?: boolean }
   /** The user renamed the conversation; the newest rename across its rounds wins. */

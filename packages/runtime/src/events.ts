@@ -46,7 +46,14 @@ const defs: EventTypeDefinition[] = [
         maxTurns: Schema.natural(),
       }),
       unsafeNoSandbox: Schema.boolean().default(false),
-      chat: optional(Schema.object({ chatId: str(), round: Schema.natural().required(), request: str() })),
+      chat: optional(
+        Schema.object({
+          chatId: str(),
+          round: Schema.natural().required(),
+          request: str(),
+          history: Schema.string(),
+        }),
+      ),
       team: optional(
         Schema.object({
           mode: oneOf('orchestrated', 'swarm', 'auto', 'manual'),
@@ -55,13 +62,16 @@ const defs: EventTypeDefinition[] = [
         }),
       ),
       tier: Schema.union(['answer', 'solo', 'team']),
+      observerMs: Schema.natural(),
+      taskJudge: Schema.string(),
+      disabledTools: Schema.array(str()),
     }),
   },
   {
     type: 'colony/started',
     version: 1,
     actors: ['system'],
-    schema: Schema.object({ pid: Schema.natural(), hostname: Schema.string() }),
+    schema: Schema.object({ pid: Schema.natural(), hostname: Schema.string(), resumed: Schema.boolean() }),
   },
   {
     type: 'agent/joined',
@@ -83,7 +93,11 @@ const defs: EventTypeDefinition[] = [
     type: 'chat/user',
     version: 1,
     actors: ['user'],
-    schema: Schema.object({ text: str(), mode: Schema.union(['steer', 'queue']) }),
+    schema: Schema.object({
+      text: str(),
+      mode: Schema.union(['steer', 'queue']),
+      attachments: Schema.array(str()).max(20),
+    }),
   },
   {
     type: 'chat/reply',

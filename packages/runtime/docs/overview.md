@@ -13,6 +13,8 @@ with an independent judge, and shows everything live in the chat.
      a focused research summary). One agent with every tool; the judge checks the result.
    - **team** — multi-part builds or research where parallel specialists help. The configured team runs
      (see `modes.md`); the judge checks the result.
+   - In **swarm** mode there is never a lead: solo work goes to the whole swarm, and a direct answer is
+     given by one peer.
    - If the request is too ambiguous to start, Myrmidon asks a question first and waits.
 2. **The round.** A round is one colony: agents, a shared board, notes, a task graph, versioned files
    ("artifacts"), and an append-only event log. Nothing is ever edited in place.

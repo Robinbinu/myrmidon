@@ -91,9 +91,12 @@ export class ColonyAgent {
     this._wake?.()
   }
 
-  /** Runs until the colony ends. Agents that do not start awake sleep until a task, mail, or mention wakes them. */
-  async run(): Promise<void> {
-    if (startsAwake(this.host.spec, this.spec))
+  /**
+   * Runs until the colony ends. Agents that do not start awake sleep until a task, mail, or mention wakes them.
+   * A resumed colony wakes its agents itself, so `kickoffFirst` is false there.
+   */
+  async run(kickoffFirst = true): Promise<void> {
+    if (kickoffFirst && startsAwake(this.host.spec, this.spec))
       this.notify({ text: kickoff(this.host.spec, this.host.state()), trigger: 'kickoff' })
     while (!this._stopped && this.host.state().status === 'running') {
       if (this.inbox.length === 0) {
