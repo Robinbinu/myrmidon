@@ -133,6 +133,8 @@ export class ColonyRun implements ColonyHost {
   private _bootstrapped = 1
   /** Set while a swarm's peers are proposing how to split the work; `after` is the seq it opened at. */
   private _huddle?: { since: number; after: number; proposed: Set<string> }
+  /** Reminders sent to agents that stopped holding a task, keyed by agent and task. */
+  private readonly _reminded = new Map<string, number>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -705,7 +707,10 @@ export class ColonyRun implements ColonyHost {
         const agent = (e.payload as { agent: string }).agent
         if (e.type === 'llm/response' || (e.payload as EventPayloads['agent/turn']).phase === 'end')
           this.batchEnded(agent)
-        if (e.type === 'agent/turn') break
+        if (e.type === 'agent/turn') {
+          if ((e.payload as EventPayloads['agent/turn']).phase === 'end') this._remindHolder(agent)
+          break
+        }
         const limit = this.spec.budget.costUsd
         if (limit === undefined) break
         const spent = Object.values(this._state.agents).reduce((n, a) => n + a.cost, 0)
@@ -718,6 +723,27 @@ export class ColonyRun implements ColonyHost {
   }
 
   /** Wakes whoever should hear about a task: its assignee, or idle teammates for a new unassigned task. */
+  /**
+   * An agent that ends its turn still holding a task has usually stopped early. It is woken to finish and
+   * submit, or release the task with what blocks it; at most twice per task, so a real blocker cannot loop.
+   */
+  private _remindHolder(agent: string) {
+    if (this._state.status !== 'running' || this._awaiting) return
+    const held = Object.values(this._state.tasks).find(
+      (t) => t.status === 'in_progress' && t.owner === agent && t.id !== 'task-final',
+    )
+    if (!held) return
+    const key = `${agent}:${held.id}`
+    const sent = this._reminded.get(key) ?? 0
+    if (sent >= 2) return
+    this._reminded.set(key, sent + 1)
+    this._wake(
+      agent,
+      `You stopped while holding ${held.id} r${held.revision} (${held.subject}). Finish it: publish its outputs and submit_task. If you truly cannot, release_task and post what blocks you. (Reminder ${sent + 1} of 2)`,
+      'reminder',
+    )
+  }
+
   private _ready(t: TaskSnapshot) {
     return t.blockedBy.every((b) => this._state.tasks[b]?.status === 'verified')
   }

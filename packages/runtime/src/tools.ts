@@ -9,6 +9,7 @@ import limitsDoc from '../docs/limits.md' with { type: 'text' }
 import modesDoc from '../docs/modes.md' with { type: 'text' }
 import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
+import workingDoc from '../docs/working.md' with { type: 'text' }
 import { agentActor, type ColonyHost } from './host.ts'
 import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
@@ -83,8 +84,9 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
 }
 
 /**
- * Tool calls from one assistant message run concurrently, but an agent planning several tasks at once
- * expects them to be created in the order it wrote them, so later ones can name earlier ids in blockedBy.
+ * Tool calls from one assistant message run concurrently, but an agent writing several changes in one step expects
+ * them to happen in the order it wrote them: a task named in a later blockedBy, a file published before the
+ * submit that lists it. Each agent's write calls therefore run one after another; reads stay parallel.
  */
 const creating = new WeakMap<ColonyHost, Map<string, Promise<unknown>>>()
 function inCallOrder<T>(host: ColonyHost, agent: string, run: () => Promise<T>): Promise<T> {
@@ -161,6 +163,7 @@ const DOCS: Record<string, string> = {
   verification: verificationDoc,
   chat: chatDoc,
   limits: limitsDoc,
+  working: workingDoc,
 }
 
 export const TOOL_DEFS: readonly ToolDef[] = [
@@ -195,7 +198,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'post',
     tier: 'write',
-    description: 'Post to the shared board. Mention agents with @name to wake them.',
+    description:
+      'Post a short message everyone on the team can read: announcements, blockers, decisions others need. Mention ' +
+      '@name to wake someone. For one-to-one detail use send_mail; for lasting knowledge use append_note.',
     parameters: type({ text: type('string').describe('Message text').atLeastLength(1) }),
     async run(args, agent, host) {
       const known = new Set(Object.keys(host.state().agents))
@@ -214,8 +219,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'append_note',
     tier: 'write',
     description:
-      'Append to the shared notes. Notes are append-only: to fix a note, append a new one with `corrects` set to its id. ' +
-      'section: "plan" (only one per colony), "decision", "finding", or "status".',
+      'Append to the shared notes, the team\'s lasting memory for this round. Use "finding" for facts others can ' +
+      'reuse (with sources), "decision" for choices and assumptions, "plan" for the single plan (one per colony), ' +
+      '"status" sparingly. Notes are append-only: to fix one, append a new note with `corrects` set to its id.',
     parameters: type({
       text: type('string').atLeastLength(1),
       'section?': type("'plan' | 'decision' | 'finding' | 'status'"),
@@ -268,7 +274,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'send_mail',
     tier: 'write',
-    description: 'Send a direct message to one agent. It wakes the recipient.',
+    description:
+      'Send a direct message to one agent (wakes it). Use for detail only it needs: a handoff, a question about its ' +
+      'output, a correction. Do not use it to ask for status; task changes and verdicts are announced automatically.',
     parameters: type({
       to: type('string'),
       'subject?': type('string'),
@@ -332,8 +340,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'create_task',
     tier: 'write',
     description:
-      'Create a task on the shared task graph. `assignee` wakes only that agent; `outputs` names the files the task ' +
-      'will produce (nobody else may publish them while it is in progress).',
+      'Create a task on the shared task graph. The description is the whole brief the doer gets, so make it stand ' +
+      'alone: Objective, Deliverable (files and format), Approach (steps, sources, constraints, quality bar), Done ' +
+      'when (checks it must pass), Not in scope. `assignee` wakes only that agent; `outputs` names the files it will ' +
+      'produce (nobody else may publish them meanwhile); blockedBy only for real dependencies. Create independent ' +
+      'tasks in the same step so they run in parallel.',
     parameters: type({
       subject: type('string').atLeastLength(1),
       'description?': type('string'),
@@ -343,49 +354,45 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const e = first(
-        await inCallOrder(host, agent, () =>
-          host.appendAtomic((s) => {
-            const blockedBy: string[] = args.blockedBy ?? []
-            for (const b of blockedBy) {
-              if (!s.tasks[b])
-                throw new Error(
-                  `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
-                )
-            }
-            if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
-            if (host.spec.team?.mode === 'swarm') {
-              if (FINAL_TASK.test(args.subject))
-                throw new Error(
-                  'the harness creates task-final for the final answer once every other task is verified; plan only the work',
-                )
-              const twin = Object.values(s.tasks).find(
-                (t) =>
-                  t.status !== 'deleted' &&
-                  t.status !== 'verified' &&
-                  similar(t.subject, args.subject) >= 0.6,
+        await host.appendAtomic((s) => {
+          const blockedBy: string[] = args.blockedBy ?? []
+          for (const b of blockedBy) {
+            if (!s.tasks[b])
+              throw new Error(
+                `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
               )
-              if (twin)
-                throw new Error(
-                  `similar to ${twin.id} (${twin.subject}); claim it, or split it with a more specific task that uses blockedBy`,
-                )
-            }
-            const outputs: string[] = (args.outputs ?? []).map(assertArtifactName)
-            const id = `task-${Object.keys(s.tasks).length + 1}`
-            return [
-              taskEvent(agent, {
-                id,
-                revision: 1,
-                subject: args.subject,
-                description: args.description ?? '',
-                status: 'pending',
-                blockedBy,
-                artifacts: [],
-                ...(args.assignee ? { assignee: args.assignee } : {}),
-                ...(outputs.length ? { outputs } : {}),
-              }),
-            ]
-          }),
-        ),
+          }
+          if (args.assignee && !s.agents[args.assignee]) throw new Error(`no such agent: ${args.assignee}`)
+          if (host.spec.team?.mode === 'swarm') {
+            if (FINAL_TASK.test(args.subject))
+              throw new Error(
+                'the harness creates task-final for the final answer once every other task is verified; plan only the work',
+              )
+            const twin = Object.values(s.tasks).find(
+              (t) =>
+                t.status !== 'deleted' && t.status !== 'verified' && similar(t.subject, args.subject) >= 0.6,
+            )
+            if (twin)
+              throw new Error(
+                `similar to ${twin.id} (${twin.subject}); claim it, or split it with a more specific task that uses blockedBy`,
+              )
+          }
+          const outputs: string[] = (args.outputs ?? []).map(assertArtifactName)
+          const id = `task-${Object.keys(s.tasks).length + 1}`
+          return [
+            taskEvent(agent, {
+              id,
+              revision: 1,
+              subject: args.subject,
+              description: args.description ?? '',
+              status: 'pending',
+              blockedBy,
+              artifacts: [],
+              ...(args.assignee ? { assignee: args.assignee } : {}),
+              ...(outputs.length ? { outputs } : {}),
+            }),
+          ]
+        }),
       )
       const task = (e.payload as EventPayloads['task/changed']).task
       return `created ${taskLine(task)}`
@@ -455,7 +462,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'submit_task',
     tier: 'write',
-    description: 'Submit a task you own for verification, listing the artifacts that complete it.',
+    description:
+      'Submit a task you own for verification, listing the published artifacts that complete it. Check them against ' +
+      'the task first (re-read its Done when); a reviewer verifies them and a rejection comes back with reasons.',
     parameters: type({ id: type('string'), revision: type('number'), artifacts: type('string').array() }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
@@ -484,8 +493,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'publish_artifact',
     tier: 'write',
     description:
-      'Publish a new version of a shared artifact (a file of the colony output). Earlier versions are kept. ' +
-      'Give `content`, or `fromScratch` to publish a file from your scratch directory.',
+      'Publish a deliverable file for the person (a new version if it exists; earlier versions are kept). Publish ' +
+      'finished, working files only, not drafts or notes to yourself; use a clear name with the right extension ' +
+      '(report.md, index.html, src/app.ts). Give `content`, or `fromScratch` to publish a file you built and tested ' +
+      'in your scratch directory.',
     parameters: type({
       name: type('string').describe('Artifact path, e.g. index.html or src/app.ts'),
       'content?': type('string'),
@@ -644,8 +655,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'web_search',
     tier: 'read',
     description:
-      'Search the web. Returns an answer synthesized from current sources with citations, or ranked results ' +
-      'with titles, URLs, and snippets. Use web_fetch to read a source in full.',
+      'Search the web for current information. Returns a synthesized answer with citations, or ranked results with ' +
+      'titles, URLs, dates, and snippets. Start broad (2-6 words), then narrow with what you learn; run several ' +
+      'independent searches in the same step. Use recency for fast-moving topics. Snippets are not enough to cite ' +
+      'numbers or quotes: open the source with web_fetch. Skip it for things you know reliably.',
     parameters: type({
       query: type('string').atLeastLength(2),
       'limit?': type('number').describe('Max results (default 6, max 10)'),
@@ -664,8 +677,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'web_fetch',
     tier: 'read',
     description:
-      'Read a public URL as clean text: web pages, PDFs and documents, GitHub repos/issues, npm/PyPI packages, ' +
-      'arXiv papers, Stack Overflow, and more get dedicated readers.',
+      'Read a public URL in full as clean text. Web pages, PDFs and documents, GitHub repos/issues, npm/PyPI packages, ' +
+      'arXiv papers, Stack Overflow, and more get dedicated readers. Use it to verify a fact or number before you rely ' +
+      'on it, and prefer primary sources (official docs, the original paper or announcement) over summaries.',
     parameters: type({ url: type('string').describe('http(s) URL') }),
     async run(args, _agent, host) {
       const page = await host.web.read(args.url)
@@ -714,8 +728,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'read_docs',
     tier: 'read',
     description:
-      'Read the Myrmidon harness docs: how this colony runs, team modes, tasks and notes, verification, talking to ' +
-      'the person, limits, and every tool. Call with no page to list them.',
+      'Read the Myrmidon harness docs: how this colony runs, how to do excellent work here, team modes, tasks and ' +
+      'notes, verification, talking to the person, limits, and every tool. Call with no page to list them.',
     parameters: type({
       'page?': type('string').describe('overview, modes, coordination, verification, chat, limits, or tools'),
     }),
@@ -767,8 +781,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'shell',
     tier: 'exec',
     description:
-      'Run a shell command in your scratch directory inside the OS sandbox. It may write only to your scratch ' +
-      'directory. The shared artifacts are readable at $MYR_MIRROR/artifacts.',
+      'Run a shell command in your scratch directory inside the OS sandbox (writes are allowed only there). Use it to ' +
+      'build and test what you make: run scripts and tests, install packages locally, check syntax (node --check, ' +
+      'python -m py_compile, bun build), and inspect output. Published artifacts are readable at $MYR_MIRROR/artifacts. ' +
+      'Read errors carefully and fix the cause rather than retrying the same command.',
     parameters: type({ command: type('string'), 'timeoutSeconds?': type('number') }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
@@ -878,7 +894,8 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
               throw new Error(
                 'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
               )
-            const result = await def.run(params ?? {}, agent, host)
+            const run = () => def.run(params ?? {}, agent, host)
+            const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             if (typeof result !== 'string') images = result.images
           } catch (err) {

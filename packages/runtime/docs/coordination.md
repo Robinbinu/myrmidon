@@ -7,7 +7,8 @@ files (`outputs`) it will produce.
 
 - Status flow: `pending` → `in_progress` (claimed) → `submitted` → `verified` or `rejected`.
 - `create_task(subject, description, assignee?, outputs?, blockedBy?)` — `blockedBy` lists task ids that must
-  be verified first. An `assignee` wakes only that agent.
+  be verified first. An `assignee` wakes only that agent. The description is the doer's whole brief: write
+  Objective, Deliverable, Approach, Done when, and Not in scope (see `working`).
 - `claim_task(id, revision)` — pass the revision you read; stale claims are refused, so two agents can never
   hold the same task.
 - `submit_task(id, revision, artifacts)` — the verifier checks the task and reports back.
@@ -23,5 +24,8 @@ Shared, append-only notes with a `section`:
 
 ## Board and mail
 
-- `post` puts a short message on the shared board; `@name` wakes that agent.
-- `send_mail` sends one agent a direct message and wakes it.
+- `post` puts a short message on the shared board; `@name` wakes that agent. Use it for announcements,
+  blockers, and decisions others need.
+- `send_mail` sends one agent a direct message and wakes it: handoffs, questions about its output, corrections.
+- Do not ask anyone for status: task changes and verdicts are announced automatically, and waking an agent
+  costs a turn.

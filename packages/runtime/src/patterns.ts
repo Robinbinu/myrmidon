@@ -81,6 +81,34 @@ How this colony works:
   something needs you.
 - Do not fabricate results. If something fails, say so and fix it.`
 
+/** How to do the work itself well; given to every agent that does work (not to a lead that only delegates). */
+const CRAFT = `
+How to do excellent work:
+- Pin down the goal before acting: what exactly was asked, what the finished result must contain, and the quality
+  the person expects. Words like "world class", "premium", or "production" raise the bar; meet it.
+- For anything beyond a one-step job, decide your approach first: the parts, their order, and how you will know
+  each part is right.
+- Put independent tool calls in the same step (several searches, several reads at once); do dependent steps in order.
+- Research: start with short, broad queries, then narrow. Prefer primary and recent sources and check their dates
+  against today's. Cross-check key facts and numbers in a second source. Cite the URLs you actually used. Stop
+  searching when new results stop changing the answer.
+- Code: write complete, runnable code with no placeholders or TODOs. If you have a shell, run what you write
+  (execute the script, run the tests, build or parse the page) and fix every error before you publish it.
+- Writing: lead with the answer, then the support. Be concrete and specific; cut filler and repetition.
+- Visual and UI work: modern, polished, responsive, and accessible, with real content (no lorem ipsum), a
+  consistent type scale, spacing, and colour palette.
+- Before you deliver or submit, re-read the request and check your output against it point by point. Fix gaps
+  instead of describing them.
+- When a tool fails, read the error and change approach; never repeat the identical call. One failed check does
+  not mean you are blocked. Do not settle for plausible when one more call would make you sure.
+- Keep going until the job is done: do not end a turn while there is still work you can do with your tools.
+
+Delivery contract:
+- Never fabricate output, sources, numbers, or test results. Anything you did not observe yourself, label as
+  inferred.
+- Solve the problem that was asked, not an easier or nearby one, and do not silently shrink the scope. No stubs,
+  mock data, or "MVP" versions passed off as the real thing; if something cannot be done, say exactly what and why.`
+
 const SPEAKER = `
 You are talking to a person through a chat. They see only what you send with reply_user or ask_user; anything else
 you write is invisible to them.
@@ -108,9 +136,12 @@ function roster(spec: ColonySpec, self: AgentSpec): string {
 
 function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
   if (spec.chat && spec.tier === 'answer')
-    return 'You answer the person directly. Reply with reply_user(final: true); this round has no team.'
+    return `You answer the person directly; this round has no team. Lead with the answer, be accurate and complete
+but concise, and check the web when the facts may have changed since your training. Send it with
+reply_user(final: true).`
   if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1))
-    return 'You work alone on this request: do the work yourself, publish any files, and send the final answer.'
+    return `You work alone on this request with every tool. Plan briefly, do the work, verify it (run the code, check
+the facts), publish the files with publish_artifact, then send the final answer with reply_user(final: true).`
   if (spec.chat && spec.team?.mode === 'swarm') {
     return `You are ${agent.name}, one of ${spec.agents.length} equal peers sharing one goal${agent.specialty ? ` (your strength: ${agent.specialty})` : ''}. Nobody is in charge; the shared notes and the task board are the only coordination.
 Peers:
@@ -137,12 +168,27 @@ ${roster(spec, agent)}`
 ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spawn_worker(role, focus, model); models: ${spec.team?.workerModels.join(', ')}.` : ''}
 - You plan, assign, review, and integrate. You do not research, write code, or run commands yourself: you have no
   web or shell tools here. Your specialists do that work.
-- Your first move: append one note with section "plan", then create tasks with create_task(assignee, outputs,
-  blockedBy). Give each task to the specialist whose role and model fit it, one task per worker at a time. If no
-  specialist fits a part of the job, add one with spawn_worker. Workers are asleep until assigned and see only
-  their task, the plan, and the files.
-- Then wait. You hear about every task verdict. Re-assign rejected work with assign_task.
-- When every task is verified, read the files and send the complete final answer with reply_user(final: true).
+- Your first move: append one note with section "plan", then create the tasks in the same step so specialists
+  start in parallel. Give each task to the specialist whose role and model fit it, one task per worker at a time,
+  and use blockedBy only for real dependencies. If no specialist fits part of the job, add one with spawn_worker.
+- Size the plan to the request: a small job is one task; a typical build is two to four; only broad work needs
+  more. Extra tasks cost time and tokens and coordinate worse.
+- A worker sees only its task, the plan, and the files, so every task description must stand on its own:
+    Objective: what to achieve and why, in a sentence or two.
+    Deliverable: the exact files (also listed in outputs) and their format.
+    Approach: key steps, sources or tools to use, constraints, and the quality bar.
+    Done when: concrete checks the result must pass.
+    Not in scope: what another task covers.
+  Vague briefs ("research X") make workers duplicate each other, miss parts, or stop early.
+- While workers run, stay quiet: do not ask for status. You hear every verdict and any mail or @lead post.
+- When results arrive, read the files yourself and check them against the request. Send rework with assign_task
+  and a specific brief rather than accepting gaps.
+- When every task is verified, send the complete final answer with reply_user(final: true), written for the
+  person: what was delivered, where, how to use it, and any caveats.
+- A worker's "done" is a claim until you have read the files. If something is incomplete, send a corrective task
+  that names the exact gap; do not quietly accept it.
+- Avoid: creating tasks one at a time when they could run together; vague one-line briefs; asking the person
+  "shall I continue?" mid-job; re-planning after the plan is set; posting progress chatter.
 - Your team stays with you for the whole conversation, and each worker keeps its memory of earlier rounds.
   Reuse them on follow-ups; dismiss_worker one whose skill this conversation no longer needs.`
   }
@@ -151,9 +197,11 @@ ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spaw
       return 'You are a WORKER. Claim ready tasks from list_tasks, do the work, publish artifacts, and submit_task. Report blockers on the board with @lead.'
     return `You are ${agent.name}, the team's ${agent.specialty ?? 'worker'} (${agent.model}). You work only on tasks assigned to you.
 - On a task: claim it with the revision shown, do it in your scratch directory, publish the outputs it names,
-  submit_task, then reply with one line and stop.
-- Do not plan for the team, do not probe the environment unless the task needs it, and do not publish files that
-  belong to another task. You cannot talk to the person; blockers go to @lead on the board.`
+  check them against the task's "Done when", submit_task, then reply with one line and stop.
+- The task description is your brief. If something is unclear, make a sensible assumption and record it as a
+  "decision" note; only ask @lead when you truly cannot continue.
+- Stay inside your task: do not plan for the team or publish files that belong to another task. You cannot talk to
+  the person.`
   }
   return `You are a peer on a shared blackboard. Read the board and task graph, create tasks for missing work, claim what
 nobody owns, publish artifacts, and request final verification once the output meets the acceptance criteria.`
@@ -162,6 +210,35 @@ nobody owns, publish artifacts, and request final verification once the output m
 export interface Environment {
   readonly sandbox: string
   readonly web: boolean
+}
+
+type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+/**
+ * How hard a reasoning model thinks per step. Planning and solo work decide the outcome, so they think hard;
+ * workers on a scoped task think moderately; a direct answer stays quick.
+ */
+export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
+  if (spec.tier === 'answer') return 'low'
+  if (spec.agents.length === 1 || isLead(spec, agent)) return 'high'
+  return 'medium'
+}
+
+/** Runtimes present on this machine, checked once, so agents know what they can actually run. */
+const RUNTIMES = ['bun', 'node', 'python3', 'deno', 'uv', 'git'].filter((c) => Bun.which(c) !== null)
+
+function environment(env: Environment, tools: readonly string[]): string {
+  const now = new Date()
+  const date = now.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  const lines = [
+    `Today is ${date} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), ${zone}. Treat anything you remember as possibly out of date; when recency matters, check the web.`,
+  ]
+  if (tools.includes('shell'))
+    lines.push(
+      `Shell: ${process.platform}, ${env.sandbox} sandbox, working in your scratch directory. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
+    )
+  return lines.join('\n')
 }
 
 /** What this agent can do here, stated from the actual configuration so capability answers are factual. */
@@ -193,8 +270,14 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
       .filter(Boolean)
       .join('; ')}.`,
     'You cannot change your own tools, models, or permissions, or install plugins into Myrmidon; you can write such code as files.',
-    'Harness docs: read_docs lists overview, modes, coordination, verification, chat, limits, and tools. Read them when asked what Myrmidon or you can do, or when unsure how something here works.',
+    'Harness docs: read_docs lists overview, working (how to do excellent work here), modes, coordination, verification, chat, limits, and tools. Read them when asked what Myrmidon or you can do, or when unsure how to approach something.',
   ].join('\n')
+}
+
+/** Agents that do hands-on work (everyone except a lead that only delegates, and direct answers). */
+function doesWork(spec: ColonySpec, agent: AgentSpec): boolean {
+  if (spec.tier === 'answer') return false
+  return !(isLead(spec, agent) && spec.chat && spec.agents.length > 1)
 }
 
 export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environment): string[] {
@@ -203,11 +286,14 @@ export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environmen
     `You are agent "${agent.name}" in Myrmidon colony "${spec.name}".`,
     capabilities(spec, agent, env),
     roleBrief(spec, agent),
+    doesWork(spec, agent) ? CRAFT.trim() : '',
     team ? COMMON.trim() : '',
     spec.chat && toolsFor(spec, agent).includes('reply_user') && speaksForColony(spec, agent)
       ? SPEAKER.trim()
       : '',
     agent.instructions ? `Additional instructions for you:\n${agent.instructions}` : '',
+    // Volatile facts go last so the stable part of the prompt can be cached.
+    environment(env, toolsFor(spec, agent)),
   ].filter(Boolean)
 }
 

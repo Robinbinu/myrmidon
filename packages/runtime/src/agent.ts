@@ -5,7 +5,7 @@ import { Agent, type AgentEvent, type AgentMessage, type AgentState } from '@oh-
 import type { AssistantMessage } from '@oh-my-pi/pi-ai'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
-import { kickoff, startsAwake, systemPrompt, toolsFor } from './patterns.ts'
+import { kickoff, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools } from './tools.ts'
 import { noWebTools } from './web.ts'
@@ -65,7 +65,7 @@ export class ColonyAgent {
         tools,
         ...(history.length ? { messages: history } : {}),
         ...(resolved.model.reasoning
-          ? { thinkingLevel: 'low' as NonNullable<AgentState['thinkingLevel']> }
+          ? { thinkingLevel: thinkingFor(host.spec, spec) as NonNullable<AgentState['thinkingLevel']> }
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),

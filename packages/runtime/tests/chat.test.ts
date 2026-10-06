@@ -576,6 +576,56 @@ test('a chat keeps its workers and their memory across rounds; the lead can dism
   expect(seenByResearcher.length).toBeGreaterThan(0)
 })
 
+test('a worker that stops while holding its task is reminded to finish it', async () => {
+  const resolver = new ModelResolver()
+  const specialist = (ctx: LlmContext, role: string) =>
+    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => [
+      tool('create_task', {
+        subject: 'Write the notes',
+        assignee: specialist(ctx, 'researcher'),
+        outputs: ['notes.md'],
+      }),
+    ],
+    ['waiting'],
+  ])
+  const seen: string[] = []
+  const worker = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const last = JSON.stringify(ctx.messages.at(-1) ?? '')
+      seen.push(last)
+      const id = /(task-\d+) r1 is yours/.exec(last)?.[1]
+      if (id) return { content: [tool('claim_task', { id, revision: 1 })] }
+      if (last.includes('Reminder 1 of 2'))
+        return {
+          content: [
+            tool('publish_artifact', { name: 'notes.md', content: '# Notes' }),
+            tool('submit_task', { id: 'task-1', revision: 2, artifacts: ['notes.md'] }),
+          ],
+        }
+      return { content: ['I will get to it.'] }
+    },
+  })
+  resolver.register('mock/researcher', { model: worker.model, streamFn: worker.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Take notes', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'researcher', model: 'mock/researcher' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId, (st) => st.tasks['task-1']?.status === 'verified').catch(async (err) => {
+    for (const e of await events(colonyId))
+      console.log(e.seq, e.type, JSON.stringify(e.payload).slice(0, 200))
+    throw err
+  })
+  expect(s.artifacts['notes.md']).toBeDefined()
+  expect(seen.some((m) => m.includes('You stopped while holding task-1'))).toBe(true)
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

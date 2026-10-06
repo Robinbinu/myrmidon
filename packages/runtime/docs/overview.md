@@ -38,5 +38,5 @@ with an independent judge, and shows everything live in the chat.
 - Write outside their scratch directory, or read the person's files unless the person pastes them in.
 - Keep running after the round ends; anything to keep must be published as an artifact.
 
-Read `modes.md` for team modes, `coordination.md` for tasks and notes, `verification.md` for the judge,
+Read `working.md` for how to do excellent work here, `modes.md` for team modes, `coordination.md` for tasks and notes, `verification.md` for the judge,
 `chat.md` for talking to the person, `limits.md` for budgets and the sandbox, and `tools.md` for every tool.
