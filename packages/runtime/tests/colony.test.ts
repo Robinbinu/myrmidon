@@ -266,6 +266,42 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
+test('a running agent can be switched to another model from its next step', async () => {
+  const resolver = new ModelResolver()
+  const calls: string[] = []
+  let run: ColonyRun | undefined
+  const first = createMockModel({
+    handler: () => {
+      calls.push('one')
+      // Switched while this call is in flight: the call finishes here, the next step goes to the new model.
+      void run?.switchModels({ worker: 'mock/two' })
+      return { content: [tool('post', { text: 'step one' })] }
+    },
+  })
+  const second = createMockModel({
+    handler: (ctx: LlmContext) => {
+      calls.push('two')
+      expect(JSON.stringify(ctx.messages)).toContain('step one')
+      return { content: ['done'] }
+    },
+  })
+  resolver.register('mock/one', { model: first.model, streamFn: first.stream })
+  resolver.register('mock/two', { model: second.model, streamFn: second.stream })
+  const spec = parseColonySpec({
+    name: 'Switch',
+    mission: 'Keep going.',
+    agents: [{ name: 'worker', model: 'mock/one' }],
+    budget: { wall: '20s' },
+  })
+  run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  const final = await run.done
+  expect(calls.slice(0, 2)).toEqual(['one', 'two'])
+  expect(final.agents.worker?.info.model).toBe('mock/two')
+  const switched = (await runtime.ctx.log.read(run.id)).find((e) => e.type === 'agent/model')
+  expect(switched?.payload).toEqual({ agent: 'worker', model: 'mock/two', previous: 'mock/one' })
+})
+
 test('recovery marks colonies with a dead runner process as stopped', async () => {
   const { colonyId } = await import('@myrmidon/core')
   const { recoverOrphans } = await import('../src/index.ts')

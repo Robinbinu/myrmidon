@@ -1,8 +1,14 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentStatus, EventId } from '@myrmidon/protocol'
-import { Agent, type AgentEvent, type AgentMessage, type AgentState } from '@oh-my-pi/pi-agent-core'
-import type { AssistantMessage } from '@oh-my-pi/pi-ai'
+import {
+  Agent,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentState,
+  type StreamFn,
+} from '@oh-my-pi/pi-agent-core'
+import { type AssistantMessage, streamSimple } from '@oh-my-pi/pi-ai'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import { kickoff, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
@@ -37,6 +43,8 @@ export class ColonyAgent {
   private _stopped = false
   private _failed = false
   private readonly _agent: Agent
+  /** The current model's own stream function, if it has one (test models); otherwise pi's default. */
+  private _stream?: StreamFn
   /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
   private readonly _unread = new Map<number, InboxItem>()
   private _stamp = 0
@@ -48,13 +56,14 @@ export class ColonyAgent {
   constructor(
     readonly spec: AgentSpec,
     private readonly host: ColonyHost,
-    resolver: ModelResolver,
+    private readonly resolver: ModelResolver,
     options: { restore?: boolean } = {},
   ) {
     this._transcript = join(host.workspace.colonyDir, 'agents', `${spec.name}.jsonl`)
     const history = options.restore ? readTranscript(this._transcript) : []
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
+    this._stream = resolved.streamFn
     const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
     this._agent = new Agent({
       initialState: {
@@ -71,13 +80,28 @@ export class ColonyAgent {
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
-      ...(resolved.streamFn ? { streamFn: resolved.streamFn } : {}),
+      // pi reads the model afresh each step but keeps the stream function for a whole loop; dispatching here lets
+      // a mid-round model switch reach models that bring their own stream too.
+      streamFn: (model, context, options) => (this._stream ?? streamSimple)(model, context, options),
     })
     this._agent.subscribe((e) => this._onEvent(e))
   }
 
   get name() {
     return this.spec.name
+  }
+
+  /** Moves this agent to another model from its next step on; its conversation so far carries over. */
+  switchModel(ref: string) {
+    const resolved = this.resolver.resolve(ref)
+    this._agent.setModel(resolved.model)
+    this._stream = resolved.streamFn
+    this._agent.setThinkingLevel(
+      resolved.model.reasoning
+        ? (thinkingFor(this.host.spec, this.spec) as NonNullable<AgentState['thinkingLevel']>)
+        : undefined,
+    )
+    ;(this.spec as { model: string }).model = ref
   }
 
   /** Picks up tools made since this agent started; takes effect on its next model call. */

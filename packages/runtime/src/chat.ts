@@ -18,6 +18,7 @@ import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
+import { speaksForColony } from './patterns.ts'
 import type { ProjectStore } from './projects.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
@@ -400,6 +401,27 @@ export class ChatService {
 
   async stop(chatId: string): Promise<void> {
     await this._live.get(chatId)?.stop('stopped by user')
+  }
+
+  /**
+   * Switches agents of a running round to another model, from their next step on. Without `agent` it switches
+   * the agent that speaks for the round (the lead, or the single agent), or every peer of a swarm team.
+   */
+  async switchModel(chatId: string, model: string, agent?: string): Promise<{ switched: string[] }> {
+    const run = this._live.get(chatId)
+    if (run?.state().status !== 'running') throw new Error('no round is running in this chat')
+    const state = run.state()
+    // Workers added mid-round are in the state, not the spec it started with.
+    const live = Object.values(state.agents)
+      .filter((a) => !a.dismissed && a.status !== 'failed')
+      .map((a) => a.info)
+    const names = agent
+      ? [agent]
+      : run.spec.team?.mode === 'swarm' && run.spec.tier === 'team'
+        ? live.map((a) => a.name)
+        : live.filter((a) => speaksForColony(run.spec, a as AgentSpec)).map((a) => a.name)
+    await run.switchModels(Object.fromEntries(names.map((n) => [n, model])))
+    return { switched: names }
   }
 
   /**

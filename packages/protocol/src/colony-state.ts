@@ -210,6 +210,12 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (!p.library) touch(state, p.agent, event.seq)
       break
     }
+    case 'agent/model': {
+      const p = event.payload as EventPayloads['agent/model']
+      const view = state.agents[p.agent]
+      if (view) view.info = { ...view.info, model: p.model }
+      break
+    }
     case 'agent/dismissed': {
       const p = event.payload as EventPayloads['agent/dismissed']
       const view = state.agents[p.agent]

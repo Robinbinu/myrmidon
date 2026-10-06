@@ -116,6 +116,8 @@ export interface EventPayloads {
   'agent/error': { agent: string; model: string; kind: 'refusal' | 'error'; message: string }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
+  /** The person switched a running agent to another model; it takes effect on the agent's next step. */
+  'agent/model': { agent: string; model: string; previous: string }
   /**
    * An agent made a tool the colony can call: a script that reads its inputs as JSON from `MYR_INPUT` and prints
    * its result. `library` marks one loaded from the person's tool library rather than made in this colony.

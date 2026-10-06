@@ -187,6 +187,27 @@ export class ColonyRun implements ColonyHost {
     return this.options.mcp?.tools() ?? []
   }
 
+  /**
+   * Switches running agents to another model (agent → model ref). Each takes effect on that agent's next step;
+   * an agent in the middle of a model call finishes it on the old one.
+   */
+  async switchModels(models: Record<string, string>) {
+    if (this._state.status !== 'running') throw new Error('this round is not running')
+    for (const [name, model] of Object.entries(models)) {
+      const agent = this._agents.get(name)
+      if (!agent) throw new Error(`no agent called ${name}`)
+      this.resolver.resolve(model)
+      const previous = agent.spec.model
+      if (previous === model) continue
+      agent.switchModel(model)
+      await this.append({
+        type: 'agent/model',
+        actor: { kind: 'user', id: 'user' },
+        payload: { agent: name, model, previous },
+      })
+    }
+  }
+
   toolsChanged() {
     for (const a of this._agents.values()) a.refreshTools()
   }

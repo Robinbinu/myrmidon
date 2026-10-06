@@ -547,6 +547,27 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/chats/:chatId/model': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { model, agent } = (await req.json().catch(() => ({}))) as {
+            model?: unknown
+            agent?: unknown
+          }
+          if (typeof model !== 'string' || !model) return json({ error: 'model is required' }, 400)
+          try {
+            return json(
+              await options.chats.switchModel(
+                req.params.chatId ?? '',
+                model,
+                typeof agent === 'string' && agent ? agent : undefined,
+              ),
+            )
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {
           await options.chats?.stop(req.params.chatId ?? '')

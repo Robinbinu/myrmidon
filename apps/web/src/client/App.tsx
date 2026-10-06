@@ -311,6 +311,13 @@ export function App() {
           throw new Error('no model')
         }
         updateConfig({ ...config, leadModel: found.ref })
+        // A running round switches now, from each agent's next step; later rounds start on it too.
+        if (chat && running) {
+          const r = await request<{ switched: string[] }>('POST', `/api/chats/${chat.chatId}/model`, {
+            model: found.ref,
+          })
+          return toast(`${r.switched.join(', ')} now on ${found.name}, from the next step`, 'success')
+        }
         return toast(`Lead model: ${found.name}`, 'success')
       }
       case 'thinking': {

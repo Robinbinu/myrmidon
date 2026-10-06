@@ -38,7 +38,12 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     description: 'Lead with specialists, or equal peers',
     needsArg: true,
   },
-  { name: 'model', args: '<name>', description: 'Set the lead model (fuzzy match)', needsArg: true },
+  {
+    name: 'model',
+    args: '<name>',
+    description: 'Switch the lead model, right away if a round is running',
+    needsArg: true,
+  },
   {
     name: 'thinking',
     args: 'low | medium | high | auto',
