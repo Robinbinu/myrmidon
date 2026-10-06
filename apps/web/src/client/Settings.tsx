@@ -19,6 +19,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Plug,
   Plus,
   RefreshCw,
   Search,
@@ -89,7 +90,7 @@ export interface ServerSettings {
     wallMinutes: number
     maxTurns: number
   }
-  tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean }
+  tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
   verification: { threshold: number; rubric?: string }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -1336,6 +1337,12 @@ const TOOL_INFO: {
     hint: 'Board posts, direct mail between agents, and shared notes.',
     icon: MessageSquareText,
   },
+  {
+    key: 'mcp',
+    label: 'MCP servers',
+    hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
+    icon: Plug,
+  },
 ]
 
 function ToolsSection(props: {
@@ -1386,6 +1393,7 @@ function ToolsSection(props: {
           </Row>
         ))}
       </Card>
+      <McpServers />
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
         <Search className="size-4 text-muted" /> Web search
       </h4>
@@ -1411,6 +1419,228 @@ function ToolsSection(props: {
             </Select>
           </Field>
         </Row>
+      </Card>
+    </>
+  )
+}
+
+interface McpServer {
+  name: string
+  transport: 'stdio' | 'http' | 'sse'
+  target: string
+  enabled: boolean
+  status: 'connected' | 'connecting' | 'disconnected' | 'disabled' | 'error'
+  tools: string[]
+  error?: string
+}
+
+const MCP_TONE = {
+  connected: 'ok',
+  connecting: 'work',
+  disconnected: 'neutral',
+  disabled: 'neutral',
+  error: 'bad',
+} as const
+
+/** MCP servers from `mcp.json`: their status and tools, an enable switch each, and a form to add one. */
+function McpServers() {
+  const toast = useToast()
+  const [servers, setServers] = useState<McpServer[]>()
+  const [adding, setAdding] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState({ name: '', transport: 'stdio', command: '', url: '', env: '' })
+
+  useEffect(() => {
+    api<{ servers: McpServer[] }>('/api/mcp')
+      .then((r) => setServers(r.servers))
+      .catch(() => setServers([]))
+  }, [])
+
+  const act = async (run: () => Promise<{ servers: McpServer[] }>, done: string) => {
+    setBusy(true)
+    try {
+      setServers((await run()).servers)
+      toast(done, 'success')
+      return true
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const add = async () => {
+    const [command = '', ...args] = form.command.trim().split(/\s+/)
+    const env = Object.fromEntries(
+      form.env
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.includes('='))
+        .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]),
+    )
+    const config =
+      form.transport === 'stdio'
+        ? { type: 'stdio', command, args, ...(Object.keys(env).length ? { env } : {}) }
+        : { type: form.transport, url: form.url.trim() }
+    const ok = await act(
+      () => send<{ servers: McpServer[] }>('POST', '/api/mcp', { name: form.name.trim(), config }),
+      `Added ${form.name.trim()}`,
+    )
+    if (ok) {
+      setAdding(false)
+      setForm({ name: '', transport: 'stdio', command: '', url: '', env: '' })
+    }
+  }
+
+  return (
+    <>
+      <div className="mb-2 mt-8 flex items-center justify-between">
+        <h4 className="flex items-center gap-2 text-[13px] font-semibold">
+          <Plug className="size-4 text-muted" /> MCP servers
+          <span className="font-normal text-muted">from mcp.json; imported with your omp setup</span>
+        </h4>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => act(() => send('POST', '/api/mcp-reload'), 'Reconnected MCP servers')}
+            icon={<RefreshCw className="size-3.5" />}
+          >
+            Reconnect
+          </Button>
+          {!adding && (
+            <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
+              Add server
+            </Button>
+          )}
+        </div>
+      </div>
+      {adding && (
+        <Card className="mb-3">
+          <div className="grid gap-3 p-4 sm:grid-cols-2">
+            <Field label="Name">
+              <TextInput
+                value={form.name}
+                placeholder="github"
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label="Transport">
+              <Select
+                value={form.transport}
+                onChange={(e) => setForm({ ...form, transport: e.target.value })}
+              >
+                <option value="stdio">Local command (stdio)</option>
+                <option value="http">Remote (HTTP)</option>
+                <option value="sse">Remote (SSE, legacy)</option>
+              </Select>
+            </Field>
+            {form.transport === 'stdio' ? (
+              <>
+                <Field label="Command" hint="The program and its arguments.">
+                  <TextInput
+                    value={form.command}
+                    placeholder="npx -y @modelcontextprotocol/server-filesystem /path"
+                    onChange={(e) => setForm({ ...form, command: e.target.value })}
+                    className="font-mono text-[12px]"
+                  />
+                </Field>
+                <Field
+                  label="Environment"
+                  hint="KEY=value per line. Your own API keys are not passed on otherwise."
+                >
+                  <TextArea
+                    rows={2}
+                    value={form.env}
+                    onChange={(e) => setForm({ ...form, env: e.target.value })}
+                    className="font-mono text-[12px]"
+                  />
+                </Field>
+              </>
+            ) : (
+              <Field label="URL">
+                <TextInput
+                  value={form.url}
+                  placeholder="https://example.com/mcp"
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
+                  className="font-mono text-[12px]"
+                />
+              </Field>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
+            <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={
+                busy ||
+                !form.name.trim() ||
+                (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())
+              }
+              onClick={add}
+              icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+            >
+              Add and connect
+            </Button>
+          </div>
+        </Card>
+      )}
+      <Card>
+        {servers === undefined ? (
+          <Row>
+            <span className="text-[13px] text-muted">Loading…</span>
+          </Row>
+        ) : servers.length === 0 ? (
+          <Row>
+            <span className="text-[13px] text-muted">
+              No MCP servers yet. Add one, or import your omp setup under Models &amp; providers.
+            </span>
+          </Row>
+        ) : (
+          servers.map((m) => (
+            <Row key={m.name}>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                    {m.name}
+                    <Pill tone={MCP_TONE[m.status]}>{m.status}</Pill>
+                    {m.tools.length > 0 && (
+                      <span className="text-[12px] text-muted">{m.tools.length} tools</span>
+                    )}
+                  </div>
+                  <div className="truncate font-mono text-[11.5px] text-muted" title={m.target}>
+                    {m.transport} · {m.target}
+                  </div>
+                  {m.error && <div className="mt-0.5 text-[12px] text-bad">{m.error}</div>}
+                </div>
+                <Switch
+                  checked={m.enabled}
+                  label={`Enable ${m.name}`}
+                  onChange={(v) =>
+                    act(
+                      () => send('PUT', `/api/mcp/${encodeURIComponent(m.name)}`, { enabled: v }),
+                      v ? `Enabled ${m.name}` : `Disabled ${m.name}`,
+                    )
+                  }
+                />
+                <IconButton
+                  label={`Remove ${m.name}`}
+                  size="sm"
+                  onClick={() =>
+                    act(() => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`), `Removed ${m.name}`)
+                  }
+                >
+                  <Trash2 className="size-3.5" />
+                </IconButton>
+              </div>
+            </Row>
+          ))
+        )}
       </Card>
     </>
   )

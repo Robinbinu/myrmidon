@@ -648,6 +648,34 @@ test('agents can call the tools of connected MCP servers, and the calls are logg
   await hub.close()
 })
 
+test('fs_edit changes part of a scratch file instead of rewriting it', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: 'page.html', content: '<h1>Hello</h1>\n<p>draft</p>\n<p>draft</p>\n' })],
+    [
+      tool('fs_edit', { path: 'page.html', old: '<h1>Hello</h1>', new: '<h1>Weather</h1>' }),
+      tool('fs_edit', { path: 'page.html', old: 'draft', new: 'final', all: true }),
+      tool('fs_edit', { path: 'page.html', old: 'missing', new: 'x' }),
+    ],
+    [tool('publish_artifact', { name: 'page.html', fromScratch: 'page.html' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Make a page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .filter((r) => r.tool === 'fs_edit')
+  expect(results.map((r) => r.ok)).toEqual([true, true, false])
+  expect(results[2]?.output).toContain('not found')
+  const blob = s.artifacts['page.html']?.at(-1)?.blob ?? ''
+  const { BlobStore } = await import('@myrmidon/core')
+  const text = await new BlobStore(join(home, 'colonies', colonyId, 'blobs')).text(blob)
+  expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

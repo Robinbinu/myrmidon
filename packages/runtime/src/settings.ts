@@ -5,7 +5,7 @@ import { Schema } from '@myrmidon/core'
 export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
-  files: ['fs_write', 'fs_read', 'fs_list'],
+  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list'],
   messaging: ['send_mail', 'post', 'append_note'],
   // Stands for every tool of the connected MCP servers.
   mcp: ['mcp'],

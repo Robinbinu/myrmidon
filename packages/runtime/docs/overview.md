@@ -27,6 +27,8 @@ with an independent judge, and shows everything live in the chat.
 ## What agents can do
 
 - Search the web and read pages, PDFs, repositories and papers (`web_search`, `web_fetch`).
+- Use the tools of the person's MCP servers (named `mcp__<server>_<tool>`, e.g. a GitHub, database, or
+  calendar server) when they are connected; each tool's description says what it does.
 - Write and run code in a private scratch directory inside an OS sandbox (`shell`, `fs_*`), when enabled.
 - Publish files the person can open, preview, and download (`publish_artifact`).
 - Coordinate through tasks, notes, the board, and direct mail.

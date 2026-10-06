@@ -41,6 +41,8 @@ export interface McpServerInfo {
 }
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/
+/** How long a (re)start waits for servers to list their tools; slower ones are picked up when they finish. */
+const STARTUP_MS = 10_000
 /** Environment variables that look like credentials; MCP server processes do not inherit them. */
 const SECRET = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i
 
@@ -50,6 +52,8 @@ type Manager = {
     sources: Record<string, unknown>,
   ): Promise<{ errors: Map<string, string>; connectedServers: string[] }>
   getTools(): { name: string; label?: string; description: string }[]
+  setOnToolsChanged(handler: () => void): void
+  waitForStartup(timeoutMs: number): Promise<unknown>
   getConnectionStatus(name: string): 'connected' | 'connecting' | 'disconnected'
   disconnectServer(name: string): Promise<void>
   disconnectAll(): Promise<void>
@@ -120,6 +124,8 @@ export class McpHub {
       sources: {},
       exaApiKeys: [],
     })) as unknown as Manager
+    // Slow servers finish loading their tools after connectServers returns; rebuild when they do.
+    this._manager.setOnToolsChanged(() => this._rebuild(CustomToolAdapter))
     const doc = this._read()
     const configs: Record<string, unknown> = {}
     const sources: Record<string, unknown> = {}
@@ -132,7 +138,13 @@ export class McpHub {
     if (Object.keys(configs).length > 0) {
       const result = await this._manager.connectServers(configs, sources)
       for (const [name, error] of result.errors) this._errors.set(name, error)
+      await this._manager.waitForStartup(STARTUP_MS)
     }
+    this._rebuild(CustomToolAdapter)
+  }
+
+  private _rebuild(Adapter: new (tool: never, context: () => never) => unknown) {
+    if (!this._manager) return
     const context = () =>
       ({
         sessionManager: undefined,
@@ -143,9 +155,7 @@ export class McpHub {
         abort: () => {},
       }) as never
     this._adapters = new Map(
-      this._manager
-        .getTools()
-        .map((t) => [t.name, new CustomToolAdapter(t as never, context) as unknown as AgentTool]),
+      this._manager.getTools().map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
     )
   }
 

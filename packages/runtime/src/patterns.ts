@@ -15,7 +15,7 @@ const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs']
 const TALK = ['post', 'append_note', 'send_mail']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 /** `mcp` stands for every tool of the connected MCP servers. */
-const BUILD = ['fs_write', 'fs_read', 'fs_list', 'shell', 'mcp']
+const BUILD = ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', 'mcp']
 const USER = ['reply_user', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
@@ -95,7 +95,8 @@ How to do excellent work:
   against today's. Cross-check key facts and numbers in a second source. Cite the URLs you actually used. Stop
   searching when new results stop changing the answer.
 - Code: write complete, runnable code with no placeholders or TODOs. If you have a shell, run what you write
-  (execute the script, run the tests, build or parse the page) and fix every error before you publish it.
+  (execute the script, run the tests, build or parse the page) and fix every error before you publish it. Fix
+  files with fs_edit (small targeted replacements), not by rewriting them whole.
 - Writing: lead with the answer, then the support. Be concrete and specific; cut filler and repetition.
 - Visual and UI work: modern, polished, responsive, and accessible, with real content (no lorem ipsum), a
   consistent type scale, spacing, and colour palette.

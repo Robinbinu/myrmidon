@@ -622,6 +622,36 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'fs_edit',
+    tier: 'write',
+    description:
+      'Change part of a file in your scratch directory by replacing an exact snippet, instead of rewriting the whole ' +
+      'file. `old` must appear exactly once (copy it from fs_read, with enough surrounding lines to be unique); set ' +
+      '`all` to replace every occurrence. Make several edits in one step for several changes.',
+    parameters: type({
+      path: type('string'),
+      old: type('string').atLeastLength(1),
+      new: type('string'),
+      'all?': type('boolean'),
+    }),
+    async run(args, agent, host) {
+      const path = host.workspace.resolveInScratch(agent, args.path)
+      const text = readFileSync(path, 'utf8')
+      const count = text.split(args.old).length - 1
+      if (count === 0)
+        throw new Error(`old text not found in ${args.path}; re-read the file and copy the snippet exactly`)
+      if (count > 1 && !args.all)
+        throw new Error(
+          `old text appears ${count} times in ${args.path}; include more surrounding lines, or set all`,
+        )
+      writeFileSync(
+        path,
+        args.all ? text.split(args.old).join(args.new) : text.replace(args.old, () => args.new),
+      )
+      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})`
+    },
+  },
+  {
     name: 'fs_read',
     tier: 'read',
     description: 'Read a file in your private scratch directory.',
