@@ -25,7 +25,17 @@ const BROWSER = [
   'browser_eval',
 ]
 /** `mcp` stands for every tool of the connected MCP servers. */
-const BUILD = ['update_todo', 'fs_write', 'fs_edit', 'fs_read', 'fs_list', 'shell', ...BROWSER, 'mcp']
+const BUILD = [
+  'update_todo',
+  'fs_write',
+  'fs_edit',
+  'fs_read',
+  'fs_list',
+  'shell',
+  'create_tool',
+  ...BROWSER,
+  'mcp',
+]
 const USER = ['reply_user', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
@@ -299,13 +309,16 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
           ? 'drive a real headless browser (browser_*), including pages you publish'
           : 'no browser (Chrome not installed)'),
       has('mcp') && 'use the tools of connected MCP servers (named mcp__server_tool)',
+      has('create_tool') &&
+        env.sandbox !== 'none' &&
+        'make your own reusable tools for repeated work (create_tool; they appear as tool_<name>)',
       has('create_task') && 'create tasks',
       has('spawn_worker') && 'add specialist workers',
       has('reply_user') && 'talk to the person',
     ]
       .filter(Boolean)
       .join('; ')}.`,
-    'You cannot change your own tools, models, or permissions, or install plugins into Myrmidon; you can write such code as files.',
+    'You cannot change your models or permissions, or install plugins into Myrmidon itself. Tools you make with create_tool exist in this colony; the person decides whether to keep them for later rounds.',
     'Harness docs: read_docs lists overview, working (how to do excellent work here), modes, coordination, verification, chat, limits, and tools. Read them when asked what Myrmidon or you can do, or when unsure how to approach something.',
   ].join('\n')
 }

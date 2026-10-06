@@ -158,6 +158,71 @@ test('a token budget stops the colony once the models have used it', async () =>
   expect(calls).toBeLessThan(6)
 })
 
+test.skipIf(detectSandbox().kind === 'none')(
+  'an agent makes a tool, it must pass its test run, and the team can call it; kept tools load into new colonies',
+  async () => {
+    const resolver = new ModelResolver()
+    const shout = {
+      name: 'shout',
+      description: 'Upper-cases a phrase and adds an exclamation mark.',
+      inputs: [{ name: 'text', type: 'string', description: 'The phrase' }],
+      language: 'bash',
+      source:
+        'echo "$MYR_INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)[\'text\'].upper() + \'!\')"\n',
+    }
+    scripted(resolver, 'mock/maker', [
+      [tool('create_tool', { ...shout, name: 'broken', source: 'exit 3\n', test: '{"text": "x"}' })],
+      [tool('create_tool', { ...shout, test: '{"text": "test"}' })],
+      [tool('tool_shout', { text: 'made by an agent' })],
+    ])
+    const spec = parseColonySpec({
+      name: 'Maker',
+      mission: 'Make a tool.',
+      agents: [{ name: 'maker', model: 'mock/maker', tools: ['shell', 'create_tool'] }],
+      budget: { wall: '20s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+    await run.start()
+    const final = await run.done
+    const results = (await runtime.ctx.log.read(run.id))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as { tool: string; ok: boolean; output: string })
+    expect(results[0]).toMatchObject({ tool: 'create_tool', ok: false })
+    expect(results[0]?.output).toContain('failed its test run')
+    expect(results[1]).toMatchObject({ tool: 'create_tool', ok: true })
+    expect(results[1]?.output).toContain('TEST!')
+    expect(results[2]).toMatchObject({ tool: 'tool_shout', ok: true, output: 'MADE BY AN AGENT!' })
+    expect(Object.keys(final.madeTools)).toEqual(['shout'])
+
+    // Kept in the library, the tool is there from the start of the next colony.
+    const { ToolLibrary } = await import('../src/index.ts')
+    const library = new ToolLibrary(join(home, 'tools'))
+    const {
+      seq: _s,
+      time: _t,
+      agent: _a,
+      ...made
+    } = final.madeTools.shout as NonNullable<(typeof final.madeTools)['shout']>
+    library.save(made)
+    scripted(resolver, 'mock/user', [[tool('tool_shout', { text: 'again' })]])
+    const next = new ColonyRun(
+      runtime,
+      parseColonySpec({
+        name: 'User',
+        mission: 'Use the tool.',
+        agents: [{ name: 'user', model: 'mock/user', tools: ['shell'] }],
+        budget: { wall: '20s' },
+      }),
+      { resolver, quietMs: 200, library },
+    )
+    await next.start()
+    const after = await next.done
+    expect(after.madeTools.shout?.library).toBe(true)
+    const used = (await runtime.ctx.log.read(next.id)).find((e) => e.type === 'tool/result')
+    expect(used?.payload).toMatchObject({ tool: 'tool_shout', ok: true, output: 'AGAIN!' })
+  },
+)
+
 test('recovery marks colonies with a dead runner process as stopped', async () => {
   const { colonyId } = await import('@myrmidon/core')
   const { recoverOrphans } = await import('../src/index.ts')

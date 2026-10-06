@@ -26,6 +26,7 @@ import {
   type Runtime,
   recoverOrphans,
   SettingsStore,
+  ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
 
@@ -247,6 +248,7 @@ async function main() {
       const mcp = new McpHub(omp.agentDir)
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
+      const library = new ToolLibrary(join(home, 'tools'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
         .start()
@@ -259,6 +261,7 @@ async function main() {
         mcp,
         browser,
         projects,
+        library,
       })
       const server = startServer({
         home,
@@ -270,6 +273,7 @@ async function main() {
         mcp,
         browser,
         projects,
+        library,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })

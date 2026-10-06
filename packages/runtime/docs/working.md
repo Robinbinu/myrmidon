@@ -60,3 +60,16 @@ How strong agents behave here. Read this when you are unsure how to approach a t
 
 - Create independent tasks in one step so they run in parallel; use `blockedBy` only for real dependencies.
 - Do not ask for status; verdicts and mail reach you. Review delivered files yourself before the final answer.
+
+## Making tools
+
+When the same multi-step job comes up more than once (convert a file format, call an API, check a page, score
+output), make it a tool with `create_tool` instead of retyping shell commands:
+
+- The script reads its inputs as JSON from `MYR_INPUT` and prints the result; exit non-zero on failure.
+  TypeScript runs with bun; Python and bash are there too. It runs in the same sandbox as `shell`.
+- Give typed inputs and a `test` input. The tool is created only if the test run succeeds, so fix the error it
+  shows and call `create_tool` again.
+- It appears as `tool_<name>` for everyone with shell in this colony, and carries into later rounds of the chat.
+  The person can keep it in their library so every new round starts with it.
+- Keep tools small and single-purpose; one-off work does not need a tool.

@@ -24,6 +24,7 @@ import { ColonyAgent } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
 import type { ColonyHost, TodoItem } from './host.ts'
+import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -71,6 +72,8 @@ export interface RunOptions {
   readonly resumeId?: ColonyId
   /** Shared MCP connections; their tools are offered to agents allowed `mcp`. */
   readonly mcp?: McpHub
+  /** The person's kept tools, loaded into every fresh round. */
+  readonly library?: ToolLibrary
   /** Shared headless Chrome for the browser_* tools. */
   readonly browser?: BrowserHub
 }
@@ -182,6 +185,10 @@ export class ColonyRun implements ColonyHost {
 
   mcpTools() {
     return this.options.mcp?.tools() ?? []
+  }
+
+  toolsChanged() {
+    for (const a of this._agents.values()) a.refreshTools()
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
@@ -350,6 +357,15 @@ export class ColonyRun implements ColonyHost {
   }
 
   private async _launch(wallMs: number, resumedBecause?: string, models: Record<string, string> = {}) {
+    // The person's kept tools join a fresh round before its agents are built, so they see them from the start.
+    if (!resumedBecause)
+      for (const tool of this.options.library?.list() ?? [])
+        if (!this._state.madeTools[tool.name])
+          await this.append({
+            type: 'tool/created',
+            actor: SYSTEM,
+            payload: { agent: 'library', ...tool, library: true },
+          })
     for (const a of this.spec.agents) {
       const agent = new ColonyAgent(a, this, this.resolver, { restore: true })
       agent.turn = this._state.agents[a.name]?.turns ?? 0

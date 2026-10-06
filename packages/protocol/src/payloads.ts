@@ -3,6 +3,13 @@ import type { EventId } from './event.ts'
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
+export interface MadeToolInput {
+  name: string
+  type: 'string' | 'number' | 'boolean'
+  description: string
+  optional?: boolean
+}
+
 export type SignalKind = 'deadline' | 'budget' | 'stall' | 'unclaimed' | 'blocked' | 'conflict'
 
 export interface AgentInfo {
@@ -109,6 +116,19 @@ export interface EventPayloads {
   'agent/error': { agent: string; model: string; kind: 'refusal' | 'error'; message: string }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
+  /**
+   * An agent made a tool the colony can call: a script that reads its inputs as JSON from `MYR_INPUT` and prints
+   * its result. `library` marks one loaded from the person's tool library rather than made in this colony.
+   */
+  'tool/created': {
+    agent: string
+    name: string
+    description: string
+    inputs: MadeToolInput[]
+    language: 'typescript' | 'python' | 'bash'
+    source: string
+    library?: boolean
+  }
   /**
    * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
    * doing. Only meaningful for messages sent while a round is running.

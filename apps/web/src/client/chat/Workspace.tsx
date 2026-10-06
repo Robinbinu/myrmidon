@@ -24,6 +24,7 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Computer } from './Computer.tsx'
+import { ColonyTools } from './MadeTools.tsx'
 import { deriveSteps } from './steps.ts'
 
 type Tab = 'files' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
@@ -127,7 +128,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
   const counts: Partial<Record<Tab, number>> = {
-    files: files.length,
+    files: files.length + Object.keys(state.madeTools).length,
     tasks: tasks.length,
     team: agents.length,
     mail: messages.length,
@@ -152,11 +153,14 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
+                {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
                 {tab === 'files' &&
                   (files.length === 0 ? (
-                    <Empty icon={<FileCode className="size-5" />} title="No files yet">
-                      Everything the colony publishes appears here, with every version kept.
-                    </Empty>
+                    Object.keys(state.madeTools).length > 0 ? null : (
+                      <Empty icon={<FileCode className="size-5" />} title="No files yet">
+                        Everything the colony publishes appears here, with every version kept.
+                      </Empty>
+                    )
                   ) : (
                     <div className="p-2">
                       {files.map(([name, versions]) => {

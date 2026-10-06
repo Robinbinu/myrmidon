@@ -80,6 +80,11 @@ export class ColonyAgent {
     return this.spec.name
   }
 
+  /** Picks up tools made since this agent started; takes effect on its next model call. */
+  refreshTools() {
+    this._agent.setTools(buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host))
+  }
+
   get idle() {
     return !this.working && this.inbox.length === 0
   }

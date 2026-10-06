@@ -22,6 +22,14 @@ import {
   watched,
 } from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
+import {
+  checkedArgs,
+  checkedTool,
+  inputSchema,
+  MADE_PREFIX,
+  type MadeTool,
+  scriptCommand,
+} from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
 
@@ -1073,6 +1081,59 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'create_tool',
+    tier: 'exec',
+    description:
+      'Make a reusable tool for work you (or your team) will repeat: a short script with typed inputs, which then ' +
+      `appears as ${MADE_PREFIX}<name> for every agent with shell in this colony. Use it when the same multi-step ` +
+      'command or parsing job comes up more than once (convert a CSV, query an API, check a page, score output); ' +
+      'for one-off work just use shell. The script reads its inputs as JSON from the MYR_INPUT environment variable ' +
+      'and prints its result to stdout; a non-zero exit means failure. It runs in the same sandbox as shell. ' +
+      '`test` is a JSON object of example inputs: the tool is run with it once and is only created if that run ' +
+      "succeeds. Calling create_tool again with your own tool's name replaces it.",
+    parameters: type({
+      name: type('string').describe('snake_case, e.g. csv_to_json'),
+      description: type('string').describe('What it does and when to use it'),
+      inputs: type({
+        name: type('string'),
+        type: type('string').describe('string, number or boolean'),
+        'description?': type('string'),
+        'optional?': 'boolean',
+      }).array(),
+      language: type('string').describe('typescript (run with bun), python, or bash'),
+      source: type('string'),
+      test: type('string').describe('JSON object of example inputs, e.g. {"path": "data.csv"}'),
+    }),
+    async run(args, agent, host) {
+      const tool = checkedTool(args)
+      const existing = host.state().madeTools[tool.name]
+      if (existing?.library)
+        throw new Error(`a library tool is already called ${tool.name}; pick another name`)
+      if (existing && existing.agent !== agent)
+        throw new Error(
+          `${existing.agent} already made ${MADE_PREFIX}${tool.name}; use it or pick another name`,
+        )
+      let sample: unknown
+      try {
+        sample = JSON.parse(args.test)
+      } catch {
+        throw new Error('test must be a JSON object of example inputs')
+      }
+      const r = await runMadeTool(tool, checkedArgs(tool.inputs, sample), agent, host)
+      if (!r.ok)
+        throw new Error(
+          `the tool failed its test run, so it was not created. Fix it and try again.\n${r.output}`,
+        )
+      await host.append({
+        type: 'tool/created',
+        actor: agentActor(agent),
+        payload: { agent, ...tool },
+      })
+      host.toolsChanged()
+      return `Created ${MADE_PREFIX}${tool.name}; the team can call it now. Test run:\n${r.output}`
+    },
+  },
+  {
     name: 'shell',
     tier: 'exec',
     description:
@@ -1164,7 +1225,51 @@ export function guessMediaType(name: string): string {
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp') ? host.mcpTools().map((t) => logged(agent, t, host)) : []
-  return [...harnessTools(agent, allow, host), ...mcp]
+  const made =
+    allow.has('shell') && (host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
+      ? Object.values(host.state().madeTools).map((t) => logged(agent, madeTool(agent, t, host), host))
+      : []
+  return [...harnessTools(agent, allow, host), ...mcp, ...made]
+}
+
+/** Runs a made tool's script in the caller's sandbox, with its inputs as JSON in MYR_INPUT. */
+async function runMadeTool(
+  tool: MadeTool,
+  input: Record<string, unknown>,
+  agent: string,
+  host: ColonyHost,
+): Promise<{ ok: boolean; output: string }> {
+  if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error('made tools need the OS sandbox')
+  const cwd = host.workspace.workdir(agent)
+  const r = await host.sandbox.run({
+    command: scriptCommand(join(host.workspace.colonyDir, 'tools', tool.name), tool),
+    cwd,
+    writable: [...new Set([cwd, host.workspace.scratch(agent)])],
+    timeoutMs: 120_000,
+    env: { MYR_INPUT: JSON.stringify(input), MYR_MIRROR: host.workspace.mirrorRoot },
+  })
+  const ok = !r.timedOut && r.code === 0
+  const output = ok
+    ? r.stdout.trim() || '(no output)'
+    : `${r.timedOut ? 'TIMED OUT after 120s' : `exit ${r.code}`}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`
+  return { ok, output: clip(output) }
+}
+
+function madeTool(agent: string, tool: EventPayloads['tool/created'], host: ColonyHost): AgentTool {
+  return {
+    name: `${MADE_PREFIX}${tool.name}`,
+    label: `${MADE_PREFIX}${tool.name}`,
+    description: `${tool.description} (${tool.library ? 'from the library' : `made by ${tool.agent}`})`,
+    parameters: inputSchema(tool.inputs) as never,
+    intent: 'omit',
+    approval: 'exec',
+    async execute(_callId: string, params: unknown) {
+      const r = await inCallOrder(host, agent, () =>
+        runMadeTool(tool, checkedArgs(tool.inputs, params ?? {}), agent, host),
+      )
+      return { content: [{ type: 'text', text: r.output }], isError: !r.ok }
+    },
+  } as AgentTool
 }
 
 /** An MCP tool, recorded in the log like the harness's own tools and refused once the colony has ended. */

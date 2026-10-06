@@ -14,6 +14,7 @@ import { compactTranscript, readTranscript } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -213,6 +214,8 @@ export class ChatService {
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
+      /** The person's kept tools (made by agents), loaded into every round. */
+      library?: ToolLibrary
       /** Shared headless Chrome for the browser_* tools. */
       browser?: BrowserHub
       /** Project folders chats can work in. */
@@ -336,6 +339,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
     })
     const prior = previous.at(-1)
@@ -433,6 +437,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
     })
     this._live.set(chatId, run)
@@ -656,6 +661,13 @@ export class ChatService {
   /** Carries the previous round's files and plan into a new round, so follow-ups build on them. */
   private async carryOver(prior: { state: ColonyState; id: string }, run: ColonyRun) {
     await this.carryArtifacts(prior, run)
+    for (const { seq: _seq, time: _time, ...tool } of Object.values(prior.state.madeTools))
+      if (!tool.library)
+        await run.append({
+          type: 'tool/created',
+          actor: { kind: 'user', id: 'previous-round' },
+          payload: tool,
+        })
     const plan = prior.state.notes.filter((n) => n.section === 'plan').at(-1)
     if (plan)
       await run.append({

@@ -20,6 +20,7 @@ import {
   type OmpRuntime,
   type ProjectStore,
   type SettingsStore,
+  type ToolLibrary,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
@@ -47,6 +48,8 @@ export interface ServeOptions {
   readonly browser?: BrowserHub
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
+  /** Tools agents made that the person chose to keep. */
+  readonly library?: ToolLibrary
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -378,6 +381,37 @@ export function startServer(options: ServeOptions): WebServer {
         DELETE: guard((req) => {
           options.projects?.remove(req.params.id ?? '')
           return json({ projects: options.projects?.list() ?? [] })
+        }),
+      },
+      '/api/tools': {
+        GET: guard(() => json({ tools: options.library?.list() ?? [] })),
+        // Keeps a tool an agent made in a colony, so later rounds start with it. Only the person can do this.
+        POST: guard(async (req) => {
+          if (!options.library) return json({ error: 'the tool library needs the chat runtime' }, 503)
+          const { colonyId: raw, name } = (await req.json()) as { colonyId?: unknown; name?: unknown }
+          if (typeof raw !== 'string' || typeof name !== 'string')
+            return json({ error: 'colonyId and name are required' }, 400)
+          const id = colonyId(raw)
+          if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
+          const made = foldColony(id, await store.read(id)).madeTools[name]
+          if (!made) return json({ error: `no tool called ${name} in that colony` }, 404)
+          const { seq: _seq, time: _time, agent: _agent, library: _library, ...tool } = made
+          try {
+            options.library.save(tool)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+          return json({ tools: options.library.list() })
+        }),
+      },
+      '/api/tools/:name': {
+        DELETE: guard((req) => {
+          try {
+            options.library?.remove(req.params.name ?? '')
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+          return json({ tools: options.library?.list() ?? [] })
         }),
       },
       // Folder names for the project picker; the browser cannot open a native folder dialog.

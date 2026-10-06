@@ -107,6 +107,8 @@ export interface ColonyState {
   mail: MailEntry[]
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
+  /** Tools made by agents (or loaded from the library), latest definition per name. */
+  madeTools: Record<string, EventPayloads['tool/created'] & { seq: number; time: string }>
   verdicts: VerdictEntry[]
   signals: SignalEntry[]
   chatMessages: ChatEntry[]
@@ -137,6 +139,7 @@ export function emptyColonyState(id: string): ColonyState {
     mail: [],
     tasks: {},
     artifacts: {},
+    madeTools: {},
     verdicts: [],
     signals: [],
     chatMessages: [],
@@ -199,6 +202,12 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'tool/created': {
+      const p = event.payload as EventPayloads['tool/created']
+      state.madeTools[p.name] = { ...p, seq: event.seq, time: event.time }
+      if (!p.library) touch(state, p.agent, event.seq)
       break
     }
     case 'agent/dismissed': {

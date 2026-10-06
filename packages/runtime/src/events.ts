@@ -118,6 +118,27 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), by: str(), reason: str() }),
   },
   {
+    type: 'tool/created',
+    version: 1,
+    actors: ['agent', 'system', 'user'],
+    schema: Schema.object({
+      agent: str(),
+      name: str(),
+      description: str(),
+      inputs: Schema.array(
+        Schema.object({
+          name: str(),
+          type: oneOf('string', 'number', 'boolean'),
+          description: Schema.string().default(''),
+          optional: Schema.boolean(),
+        }),
+      ).default([]),
+      language: oneOf('typescript', 'python', 'bash'),
+      source: str(),
+      library: Schema.boolean(),
+    }),
+  },
+  {
     type: 'chat/user',
     version: 1,
     actors: ['user'],

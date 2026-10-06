@@ -47,6 +47,8 @@ export interface ColonyHost {
   readonly web: WebTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
+  /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
+  toolsChanged(): void
   /** A real browser for agents; absent when no Chrome is installed. */
   readonly browser?: BrowserHub
 }

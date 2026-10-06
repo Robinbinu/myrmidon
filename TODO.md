@@ -78,8 +78,9 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Resume after a shutdown or stop** — when the server restarts or a round is stopped, continue from
       where it was (re-create agents from the log, restore tasks/claims/notes/plan, re-deliver pending
       inbox items) instead of marking the round stopped. Explicit "Resume" action in the UI.
-- [ ] **Agents create their own tools/plugins** — sandboxed `create_tool` (script + input schema), usable in
-      the colony that made it; "Add to library" to reuse in future colonies; a gallery to browse them.
+- [x] **Agents create their own tools** — `create_tool` (script + typed inputs, sandboxed, must pass a test run)
+      → `tool_<name>` for the colony, carried into later rounds; "Keep" in the Files view adds it to the library
+      (`<home>/tools`), which every new round loads; library in Settings → Tools.
 - [x] **Eval harness** (`bun run eval`, apps/eval): six cases across the pillars (answer, build, research, coding in
       a fixture project, browser) with code-based checks plus the colony judge; trials → pass@k / pass^k and
       medians; JSON reports, `--compare`; exits 1 on tier mismatch or budget breach. First run (DeepSeek V4 Pro):

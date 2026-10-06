@@ -36,6 +36,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ModelOption, send, type TeamConfig } from './api.ts'
 import { TeamSettings } from './chat/Composer.tsx'
+import { ToolLibraryList } from './chat/MadeTools.tsx'
 import type { ThemeChoice } from './ui/hooks.ts'
 import {
   Button,
@@ -1430,6 +1431,13 @@ function ToolsSection(props: {
         ))}
       </Card>
       <McpServers />
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+        <Wrench className="size-4 text-muted" /> Your tool library
+        <span className="font-normal text-muted">
+          tools agents made that you kept; every new round starts with them
+        </span>
+      </h4>
+      <ToolLibraryList />
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
         <Search className="size-4 text-muted" /> Web search
       </h4>
