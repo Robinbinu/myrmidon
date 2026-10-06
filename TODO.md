@@ -14,7 +14,8 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Smarter harness prompts** — agents (even Opus 5.5) act dumb in Myrmidon. Study the system prompts, tool
+- [x] **Smarter harness prompts** (9440c44: craft + delivery contract, lead brief template, date/env, thinking
+      levels, tool when/when-not, `working` doc, stop-with-task reminder; A/B measured) — agents (even Opus 5.5) act dumb in Myrmidon. Study the system prompts, tool
       descriptions and agent docs of strong harnesses (omp's own prompts in node_modules, Claude Code, Codex,
       OpenHands, Aider) and rewrite ours: role briefs, tool descriptions with when/when-not and examples,
       planning and verification habits, how to read the snapshot, how to use the board/notes/mail well.
@@ -28,6 +29,11 @@ Requests queued while other work is in progress. Top of each section is next.
       forms, screenshots, JS-heavy sites, and dev features for web apps the colony builds (open the built
       page, read console/network errors, run checks, screenshot for the judge). Research options first:
       Playwright, omp's built-in browser relay, browser-use, Stagehand, chrome-devtools MCP.
+      First look (2026-10-06): Playwright's accessibility-snapshot model is the agent-friendly default (text-only,
+      fast, cross-browser; Playwright MCP is built on it); Chrome DevTools MCP is better for debugging (console,
+      network, Web Vitals, traces). Plan: playwright-core in-process (TS, no Python), snapshot/click/type/eval
+      tools, plus CDP for console/network; live view via CDP Page.startScreencast frames over the existing
+      websocket, takeover by forwarding mouse/keyboard (Input.dispatch*).
 - [ ] **Watch and take over the agent's browser** — when an agent browses, the person can see the live page
       in the UI (screencast), follow what the agent clicks, and take control (pause the agent, drive it, hand
       back), like Claude's browser pane.

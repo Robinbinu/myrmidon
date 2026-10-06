@@ -14,7 +14,8 @@ const WEB = ['web_search', 'web_fetch']
 const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs']
 const TALK = ['post', 'append_note', 'send_mail']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
-const BUILD = ['fs_write', 'fs_read', 'fs_list', 'shell']
+/** `mcp` stands for every tool of the connected MCP servers. */
+const BUILD = ['fs_write', 'fs_read', 'fs_list', 'shell', 'mcp']
 const USER = ['reply_user', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
@@ -30,7 +31,8 @@ export function speaksForColony(spec: ColonySpec, agent: AgentSpec): boolean {
 
 function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   if (spec.chat) {
-    if (spec.tier === 'answer') return [...WEB, 'list_artifacts', 'read_artifact', 'read_docs', ...USER]
+    if (spec.tier === 'answer')
+      return [...WEB, 'list_artifacts', 'read_artifact', 'read_docs', 'mcp', ...USER]
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER]
     if (spec.team?.mode === 'swarm')
@@ -263,6 +265,7 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
       has('shell') &&
         (env.sandbox !== 'none' ? `run shell commands in a ${env.sandbox} sandbox` : 'no shell (no sandbox)'),
       has('publish_artifact') && 'publish files for the person',
+      has('mcp') && 'use the tools of connected MCP servers (named mcp__server_tool)',
       has('create_task') && 'create tasks',
       has('spawn_worker') && 'add specialist workers',
       has('reply_user') && 'talk to the person',

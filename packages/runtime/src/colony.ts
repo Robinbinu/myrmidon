@@ -23,6 +23,7 @@ import {
 import { ColonyAgent } from './agent.ts'
 import { registerColonyEvents } from './events.ts'
 import type { ColonyHost } from './host.ts'
+import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
@@ -67,6 +68,8 @@ export interface RunOptions {
   readonly quietMs?: number
   /** Reopen this existing colony (see `resume`) instead of creating a new one. */
   readonly resumeId?: ColonyId
+  /** Shared MCP connections; their tools are offered to agents allowed `mcp`. */
+  readonly mcp?: McpHub
 }
 
 const QUIET_NUDGES = 2
@@ -167,6 +170,10 @@ export class ColonyRun implements ColonyHost {
 
   deadline() {
     return this._deadline
+  }
+
+  mcpTools() {
+    return this.options.mcp?.tools() ?? []
   }
 
   huddling() {

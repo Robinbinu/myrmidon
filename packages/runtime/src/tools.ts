@@ -867,6 +867,50 @@ export function guessMediaType(name: string): string {
  */
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
+  const mcp = allow.has('mcp') ? host.mcpTools().map((t) => logged(agent, t, host)) : []
+  return [...harnessTools(agent, allow, host), ...mcp]
+}
+
+/** An MCP tool, recorded in the log like the harness's own tools and refused once the colony has ended. */
+function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
+  return {
+    name: tool.name,
+    label: tool.label,
+    description: tool.description,
+    parameters: tool.parameters,
+    intent: 'omit',
+    approval: 'write',
+    async execute(callId: string, params: unknown, signal?: AbortSignal) {
+      const actor = agentActor(agent)
+      await host.append({
+        type: 'tool/call',
+        actor,
+        payload: { agent, callId, tool: tool.name, args: params ?? {} },
+      })
+      let result: AgentToolResult
+      try {
+        if (host.state().status !== 'running') throw new Error('the colony is no longer running')
+        if (host.huddling())
+          throw new Error('the swarm is still huddling: post your proposal (post) and stop')
+        result = await tool.execute(callId, params as never, signal)
+      } catch (err) {
+        result = {
+          content: [{ type: 'text', text: `ERROR: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        }
+      }
+      const text = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
+      await host.append({
+        type: 'tool/result',
+        actor,
+        payload: { agent, callId, tool: tool.name, ok: !result.isError, output: clip(text, 8_000) },
+      })
+      return result
+    },
+  } as AgentTool
+}
+
+function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHost): AgentTool[] {
   return TOOL_DEFS.filter((d) => allow.has(d.name))
     .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
     .map(

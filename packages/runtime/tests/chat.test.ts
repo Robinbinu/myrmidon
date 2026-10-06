@@ -627,6 +627,27 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
   await chats.stopAll()
 })
 
+test('agents can call the tools of connected MCP servers, and the calls are logged', async () => {
+  const { McpHub } = await import('../src/mcp.ts')
+  const hub = new McpHub(join(home, 'agent'))
+  await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
+  const echo = hub.tools().find((t) => t.name.endsWith('echo'))?.name ?? 'missing'
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool(echo, { text: 'from the colony' })],
+    [tool('reply_user', { text: 'Echoed.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub })
+  const { colonyId } = await chats.send('Echo something', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results.find((r) => r.tool === echo)).toMatchObject({ ok: true, output: 'echo: from the colony' })
+  await hub.close()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

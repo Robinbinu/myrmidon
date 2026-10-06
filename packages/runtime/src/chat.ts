@@ -12,6 +12,7 @@ import {
 import { completeSimple } from '@oh-my-pi/pi-ai'
 import { compactTranscript, readTranscript } from './agent.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
@@ -184,6 +185,8 @@ export class ChatService {
       web?: WebTools
       /** Defaults to one short call to the lead's model; see `llmClassifier`. */
       classify?: Classify
+      /** MCP servers whose tools colonies may use. */
+      mcp?: McpHub
     },
   ) {}
 
@@ -288,6 +291,7 @@ export class ChatService {
       resolver: this.options.resolver,
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
+      ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
     })
     const prior = previous.at(-1)
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
@@ -354,6 +358,7 @@ export class ChatService {
       resumeId: last.id as ColonyId,
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
+      ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
     })
     this._live.set(chatId, run)
     try {

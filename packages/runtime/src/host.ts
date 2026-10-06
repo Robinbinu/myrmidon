@@ -1,5 +1,6 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
 import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
+import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import type { WebTools } from './web.ts'
@@ -35,6 +36,8 @@ export interface ColonyHost {
   huddling(): boolean
   /** Search and page fetching for agents. */
   readonly web: WebTools
+  /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
+  mcpTools(): AgentTool[]
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

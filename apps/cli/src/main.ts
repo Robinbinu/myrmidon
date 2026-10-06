@@ -17,6 +17,7 @@ import {
   detectSandbox,
   importFromOmp,
   loadColonySpec,
+  McpHub,
   ModelResolver,
   ompWebTools,
   type Runtime,
@@ -240,11 +241,17 @@ async function main() {
       const omp = await bootOmp(home)
       const resolver = new ModelResolver(omp)
       const sandbox = detectSandbox()
+      const mcp = new McpHub(omp.agentDir)
+      // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
+      void mcp
+        .start()
+        .catch((err) => console.error(c.yellow(`MCP: ${err instanceof Error ? err.message : err}`)))
       const chats = new ChatService(runtime, {
         resolver,
         settings,
         web: ompWebTools(omp, () => settings.get().search.provider),
         unsafeNoSandbox: values['unsafe-no-sandbox'],
+        mcp,
       })
       const server = startServer({
         home,
@@ -253,6 +260,7 @@ async function main() {
         settings,
         resolver,
         omp,
+        mcp,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })

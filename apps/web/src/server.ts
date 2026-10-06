@@ -10,6 +10,8 @@ import {
   CUSTOM_APIS,
   type CustomApi,
   importFromOmp,
+  type McpHub,
+  type McpServerConfig,
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
@@ -35,6 +37,8 @@ export interface ServeOptions {
   readonly resolver?: ModelResolver
   /** omp's embedded model registry, credential vault, and web tools. */
   readonly omp?: OmpRuntime
+  /** MCP servers whose tools colonies may use. */
+  readonly mcp?: McpHub
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -85,6 +89,26 @@ const sendSchema = Schema.object({
 const BATCH = 500
 
 /** Local dashboard + API. Binds to 127.0.0.1 only and requires a bearer token for every API call. */
+/** Validates an MCP server config from the settings page. */
+function mcpConfig(raw: Record<string, unknown>): McpServerConfig {
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+  const strings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+  const record = (v: unknown) =>
+    v && typeof v === 'object'
+      ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === 'string'))
+      : undefined
+  const type = raw.type === 'http' || raw.type === 'sse' ? raw.type : 'stdio'
+  const command = str(raw.command)
+  const url = str(raw.url)
+  const args = strings(raw.args)
+  const env = record(raw.env)
+  const headers = record(raw.headers)
+  return type === 'stdio'
+    ? { type, ...(command ? { command } : {}), ...(args?.length ? { args } : {}), ...(env ? { env } : {}) }
+    : { type, ...(url ? { url } : {}), ...(headers ? { headers } : {}) }
+}
+
 export function startServer(options: ServeOptions): WebServer {
   const token = options.noAuth
     ? ''
@@ -326,12 +350,60 @@ export function startServer(options: ServeOptions): WebServer {
           return state ? json(state) : json({ error: 'no such sign-in' }, 404)
         }),
       },
+      '/api/mcp': {
+        GET: guard(() => {
+          if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
+          return json({ servers: options.mcp.servers() })
+        }),
+        POST: guard(async (req) => {
+          if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
+          const body = (await req.json()) as { name?: unknown; config?: unknown }
+          if (typeof body.name !== 'string' || typeof body.config !== 'object' || !body.config)
+            return json({ error: 'name and config are required' }, 400)
+          try {
+            await options.mcp.add(body.name, mcpConfig(body.config as Record<string, unknown>))
+            return json({ servers: options.mcp.servers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/mcp/:name': {
+        PUT: guard(async (req) => {
+          if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
+          const { enabled } = (await req.json()) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled is required' }, 400)
+          try {
+            await options.mcp.setEnabled(req.params.name ?? '', enabled)
+            return json({ servers: options.mcp.servers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard(async (req) => {
+          if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
+          try {
+            await options.mcp.remove(req.params.name ?? '')
+            return json({ servers: options.mcp.servers() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/mcp-reload': {
+        POST: guard(async () => {
+          if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
+          await options.mcp.start()
+          return json({ servers: options.mcp.servers() })
+        }),
+      },
       '/api/import-omp': {
         POST: guard(async () => {
           if (!options.omp) return json({ error: 'import needs the chat runtime' }, 503)
           try {
             const report = importFromOmp(options.home)
             await options.omp.reload()
+            await options.mcp?.start()
             return json({ ok: true, ...report, providers: options.omp.providers() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
