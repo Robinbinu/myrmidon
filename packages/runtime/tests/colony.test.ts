@@ -223,6 +223,49 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
+test.skipIf(detectSandbox().kind === 'none')(
+  'the judge sees what the agents observed and is told its memory may be out of date',
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/looker', [
+      [tool('shell', { command: 'echo the page heading is OBSERVED-HEADING' })],
+      [tool('publish_artifact', { name: 'answer.txt', content: 'The heading is OBSERVED-HEADING.' })],
+      [tool('request_final_verification', { summary: 'answered' })],
+    ])
+    let seen: LlmContext | undefined
+    const judge = createMockModel({
+      handler: (ctx: LlmContext) => {
+        seen = ctx
+        return { content: ['{"score": 1, "reasons": "matches the observation"}'] }
+      },
+    })
+    resolver.register('mock/judge', { model: judge.model, streamFn: judge.stream })
+    const spec = parseColonySpec({
+      name: 'Look',
+      mission: 'Report the heading.',
+      agents: [
+        {
+          name: 'looker',
+          model: 'mock/looker',
+          tools: ['shell', 'publish_artifact', 'request_final_verification'],
+        },
+      ],
+      acceptance: [
+        { verifier: 'llm-judge', model: 'mock/judge', rubric: 'Correct heading.', threshold: 0.7 },
+      ],
+      budget: { wall: '20s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+    await run.start()
+    expect((await run.done).status).toBe('completed')
+    expect(String(seen?.systemPrompt)).toContain(`Today is ${new Date().toISOString().slice(0, 10)}`)
+    const prompt = JSON.stringify(seen?.messages)
+    expect(prompt).toContain('OBSERVED (latest tool results')
+    expect(prompt).toContain('looker shell')
+    expect(prompt).toContain('the page heading is OBSERVED-HEADING')
+  },
+)
+
 test('recovery marks colonies with a dead runner process as stopped', async () => {
   const { colonyId } = await import('@myrmidon/core')
   const { recoverOrphans } = await import('../src/index.ts')

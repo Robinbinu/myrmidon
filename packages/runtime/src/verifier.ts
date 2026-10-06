@@ -183,6 +183,25 @@ export class Verifier {
     }
   }
 
+  /** The latest observing tool calls with their results, so the judge checks claims against what was seen. */
+  private async _observations(): Promise<string> {
+    const events = await this.host.log.read(this.host.id)
+    const calls = new Map<string, EventPayloads['tool/call']>()
+    const seen: string[] = []
+    for (const e of events) {
+      if (e.type === 'tool/call') {
+        const p = e.payload as EventPayloads['tool/call']
+        calls.set(`${p.agent}/${p.callId}`, p)
+      } else if (e.type === 'tool/result') {
+        const p = e.payload as EventPayloads['tool/result']
+        if (!p.ok || !OBSERVING.test(p.tool)) continue
+        const args = JSON.stringify(calls.get(`${p.agent}/${p.callId}`)?.args ?? {}).slice(0, 200)
+        seen.push(`\n----- ${p.agent} ${p.tool} ${args}\n${p.output.slice(0, OBSERVED_CHARS)}`)
+      }
+    }
+    return seen.slice(-OBSERVED_CALLS).join('')
+  }
+
   private async judge(
     modelRef: string,
     rubric: string,
@@ -206,16 +225,21 @@ export class Verifier {
         .join('\n\n')}\n`
     }
     if (!corpus) return { pass: false, score: 0, evidence: 'no artifacts or replies to judge' }
+    const observed = await this._observations()
     const resolved = this.resolver.resolve(modelRef)
     const context: LlmContext = {
       systemPrompt: [
         'You are a strict, independent reviewer. You judge only the artifacts shown, never claims about them.',
+        `Today is ${new Date().toISOString().slice(0, 10)}. Your own memory of websites, prices, versions, and ` +
+          'current events may be out of date. OBSERVED lists what the agents actually saw with their tools during ' +
+          'this round: trust it over your memory. Fail claims that are unsupported or contradict the observations, ' +
+          'not claims that merely differ from what you remember.',
         'Reply with ONLY a JSON object: {"score": number between 0 and 1, "reasons": "short justification"}.',
       ],
       messages: [
         {
           role: 'user',
-          content: `MISSION:\n${state.mission}\n\nRUBRIC:\n${rubric}\n\nARTIFACTS:${corpus.slice(0, MAX_JUDGE_CHARS)}`,
+          content: `MISSION:\n${state.mission}\n\nRUBRIC:\n${rubric}\n\nARTIFACTS:${corpus.slice(0, MAX_JUDGE_CHARS)}${observed ? `\n\nOBSERVED (latest tool results, clipped):${observed}` : ''}`,
           timestamp: Date.now(),
         },
       ],
@@ -240,6 +264,12 @@ export class Verifier {
     }
   }
 }
+
+/** Tools whose results show the world as the agents found it (pages, searches, files, command output). */
+const OBSERVING =
+  /^(web_fetch|web_search|browser_(open|snapshot|eval|console)|shell|fs_read|read_artifact|tool_.+|mcp__.+)$/
+const OBSERVED_CALLS = 8
+const OBSERVED_CHARS = 1_500
 
 function score(o: CheckOutcome): Partial<Pick<EventPayloads['verifier/verdict'], 'score'>> {
   return o.score === undefined ? {} : { score: o.score }

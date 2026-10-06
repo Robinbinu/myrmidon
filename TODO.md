@@ -85,8 +85,9 @@ Requests queued while other work is in progress. Top of each section is next.
       a fixture project, browser) with code-based checks plus the colony judge; trials → pass@k / pass^k and
       medians; JSON reports, `--compare`; exits 1 on tier mismatch or budget breach. First run (DeepSeek V4 Pro):
       3/3 pass, but reading one page heading took 132s and 11 tool calls on the solo tier.
-- [ ] **Fast path for small browser tasks** — "open example.com and tell me the heading" should be an answer-tier
-      round of a few seconds (eval `browser-heading`: 132s, 11 tools, 98k tokens).
+- [x] **Fast path for small browser tasks** — answer tier gets a read-only browser (open + snapshot) and triage
+      routes "open X and tell me Y" there; the judge sees what agents observed and is told its memory may be stale
+      (it had failed a correct answer from memory). Eval `browser-heading`: 132s → 9s, 98k → 6k tokens.
 - [x] Observer counts tool calls as progress (no stall warnings mid-research).
 - [x] Per-round token budget (`budget.tokens`) and, for chat rounds, spend and token limits in Settings → Team &
       budget; at 80% agents are told to wrap up, at 100% the round stops.

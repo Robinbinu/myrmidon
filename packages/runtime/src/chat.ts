@@ -111,8 +111,9 @@ export type Classify = (request: string, history: string) => Promise<Tier>
 
 const TRIAGE = `You route requests for Myrmidon, a system that runs teams of AI agents. Classify the person's newest
 message into exactly one tier and reply with JSON only: {"tier":"answer"} or {"tier":"solo"} or {"tier":"team"}.
-- answer: conversation, greetings, opinions, explanations, definitions, quick facts, short how-to answers, and
-  questions about Myrmidon or what it can do. One agent replies directly, maybe after a quick web search.
+- answer: conversation, greetings, opinions, explanations, definitions, quick facts, short how-to answers,
+  questions about Myrmidon or what it can do, and a quick look at one web page ("open X and tell me Y"). One agent
+  replies directly, maybe after a quick web search or opening the page.
 - solo: one concrete deliverable a single capable agent can finish in a few steps: a small script or page, a short
   document, a focused research summary, a fix to an earlier file.
 - team: large or multi-part work that benefits from several specialists in parallel: an app with several parts,

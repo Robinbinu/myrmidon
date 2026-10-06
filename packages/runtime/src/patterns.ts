@@ -52,7 +52,16 @@ export function speaksForColony(spec: ColonySpec, agent: AgentSpec): boolean {
 function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   if (spec.chat) {
     if (spec.tier === 'answer')
-      return [...WEB, 'list_artifacts', 'read_artifact', 'read_docs', 'mcp', ...USER]
+      return [
+        ...WEB,
+        'browser_open',
+        'browser_snapshot',
+        'list_artifacts',
+        'read_artifact',
+        'read_docs',
+        'mcp',
+        ...USER,
+      ]
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER]
     if (spec.team?.mode === 'swarm')
