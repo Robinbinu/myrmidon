@@ -25,7 +25,7 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Replay the agent's computer** (2a81043) — a timeline scrubber in the Computer view: keyframes per
       browser action (screenshot + cursor + highlight, stored as blobs and logged), step back through what an
       agent did, "jump to live".
-- [ ] **Computer view for non-browser work** — show the agent's terminal and the file it is editing live in the
+- [x] **Computer view for non-browser work** (e919d1a) — show the agent's terminal and the file it is editing live in the
       same panel when it is not browsing (Manus shows the terminal/editor too).
 - [x] **Smarter harness prompts** (9440c44: craft + delivery contract, lead brief template, date/env, thinking
       levels, tool when/when-not, `working` doc, stop-with-task reminder; A/B measured) — agents (even Opus 5.5) act dumb in Myrmidon. Study the system prompts, tool
@@ -87,7 +87,15 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] Observer counts tool calls as progress (no stall warnings mid-research).
 - [ ] Per-colony token budget (`budget.tokens`), enforced like the cost limit.
 - [ ] Global chat/colony index in SQLite so the chat list doesn't open every colony log.
-- [ ] Harden the two timing-sensitive chat tests that failed once under load.
+- [x] Harden the timing-sensitive tests: five tests waited on wall-clock (a 1s stall tick that ignored `quietMs`,
+      and an 8s quiet wait after `ask_user`); the round now pauses as soon as a question is open and everyone is
+      idle. Suite 52s → 18s, passes 3× in parallel.
+- [ ] **Terminal and Git views in the workspace** — for a project chat: a terminal tab the person can type in
+      (shell in the project folder), and a Git tab when the folder is a repo: status (branch, ahead/behind,
+      staged/unstaged/untracked), per-file diffs of working changes, and commit history with each commit's diff.
+- [ ] **Slash menu redesign** — the `/` menu looks plain. Study omp's command UI and make it modern, creative
+      and quick to use: grouped commands with icons, descriptions and argument hints, keyboard-first, recent
+      commands, inline argument pickers (models, modes, thinking levels).
 
 ## Roadmap
 

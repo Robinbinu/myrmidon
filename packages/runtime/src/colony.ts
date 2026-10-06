@@ -384,7 +384,9 @@ export class ColonyRun implements ColonyHost {
       })
     }
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
-    this._timers.push(setInterval(() => void this._watch(), 1000))
+    // A short quiet window (tests) needs a matching tick, or each stall nudge waits a full second.
+    const tick = Math.min(1000, this.options.quietMs ?? 1000)
+    this._timers.push(setInterval(() => void this._watch(), tick))
   }
 
   private _wakeAfterResume(reason: string) {
@@ -876,6 +878,8 @@ export class ColonyRun implements ColonyHost {
       this._quietSince = undefined
       return
     }
+    // A question to the person pauses the round as soon as everyone has stopped; nothing else can move it on.
+    if (this._awaiting && this.spec.chat) return void this.stop(AWAITING_USER)
     this._quietSince ??= now
     if (now - this._quietSince < (this.options.quietMs ?? 8000)) return
     this._quietSince = undefined
