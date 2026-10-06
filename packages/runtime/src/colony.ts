@@ -183,6 +183,11 @@ export class ColonyRun implements ColonyHost {
     return this.options.mcp?.tools() ?? []
   }
 
+  /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
+  nudge(agent: string, text: string) {
+    if (this._state.status === 'running') this._wake(agent, text, 'person')
+  }
+
   huddling() {
     return this._huddle !== undefined
   }

@@ -28,8 +28,9 @@ test('an MCP server in mcp.json becomes agent tools, without inheriting our secr
   const tools = new Map(hub.tools().map((t) => [t.name, t]))
   const echo = [...tools.values()].find((t) => t.name.endsWith('echo'))
   const env = [...tools.values()].find((t) => t.name.endsWith('env'))
-  expect(textOf(await echo!.execute('c1', { text: 'hi' } as never))).toContain('echo: hi')
-  const leaked = textOf(await env!.execute('c2', { name: 'FAKE_PROVIDER_API_KEY' } as never))
+  if (!echo || !env) throw new Error('the echo server tools did not load')
+  expect(textOf(await echo.execute('c1', { text: 'hi' } as never))).toContain('echo: hi')
+  const leaked = textOf(await env.execute('c2', { name: 'FAKE_PROVIDER_API_KEY' } as never))
   expect(leaked).not.toContain('sk-should-not-leak')
 
   await hub.setEnabled('echo', false)

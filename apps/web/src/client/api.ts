@@ -57,6 +57,14 @@ export interface ColonySummary {
 }
 
 /** Streams events from `from` onward, reconnecting with the last seen seq. Returns a closer. */
+/** The live-view socket for one agent's browser tab. */
+export function browserSocket(colony: string, agent: string): WebSocket {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  return new WebSocket(
+    `${proto}://${location.host}/api/colonies/${colony}/browser/${encodeURIComponent(agent)}?token=${encodeURIComponent(token)}`,
+  )
+}
+
 export function streamEvents(
   colony: string,
   from: number,

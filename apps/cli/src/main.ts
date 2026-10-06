@@ -265,6 +265,7 @@ async function main() {
         resolver,
         omp,
         mcp,
+        browser,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })

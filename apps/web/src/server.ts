@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
 import {
+  type BrowserHub,
   buildCatalog,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
   importFromOmp,
+  type LiveInput,
   type McpHub,
   type McpServerConfig,
   type ModelResolver,
@@ -39,6 +41,8 @@ export interface ServeOptions {
   readonly omp?: OmpRuntime
   /** MCP servers whose tools colonies may use. */
   readonly mcp?: McpHub
+  /** The agents' shared headless Chrome, for the live browser view. */
+  readonly browser?: BrowserHub
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -49,10 +53,9 @@ export interface WebServer {
   stop(): Promise<void>
 }
 
-interface StreamData {
-  colony: ColonyId
-  cursor: number
-}
+type StreamData =
+  | { kind: 'events'; colony: ColonyId; cursor: number }
+  | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
 
 const POLL_MS = 400
 
@@ -528,25 +531,76 @@ export function startServer(options: ServeOptions): WebServer {
         if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
         const id = colonyId(req.params.id ?? '')
         const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
-        if (server.upgrade(req, { data: { colony: id, cursor } })) return undefined as unknown as Response
+        if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor } }))
+          return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
+      '/api/colonies/:id/browsers': guard(async (req) => {
+        if (!options.browser) return json({ tabs: [] })
+        return json({ tabs: await options.browser.tabs(req.params.id ?? '') })
+      }),
+      // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
+      '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        if (!options.browser) return json({ error: 'no browser on this server' }, 404)
+        const data = {
+          kind: 'browser' as const,
+          colony: colonyId(req.params.id ?? ''),
+          agent: req.params.agent ?? '',
+        }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
     },
     fetch: () => json({ error: 'not found' }, 404),
     websocket: {
       open(ws) {
+        if (ws.data.kind === 'browser') {
+          const data = ws.data
+          options.browser
+            ?.watch(data.colony, data.agent, (e) => ws.send(JSON.stringify(e)))
+            .then((unwatch) => {
+              data.unwatch = unwatch
+            })
+            .catch((err) => ws.close(1011, err instanceof Error ? err.message.slice(0, 120) : 'no tab'))
+          return
+        }
         sockets.add(ws)
         void pump(ws)
       },
       close(ws) {
-        sockets.delete(ws)
+        if (ws.data.kind === 'browser') ws.data.unwatch?.()
+        else sockets.delete(ws)
       },
-      message() {},
+      message(ws, raw) {
+        if (ws.data.kind !== 'browser' || !options.browser) return
+        const { colony, agent } = ws.data
+        void (async () => {
+          const msg = JSON.parse(String(raw)) as { type: string; by?: unknown }
+          if (msg.type === 'control') {
+            const by = msg.by === 'person' ? 'person' : 'agent'
+            await options.browser?.setControl(colony, agent, by)
+            if (by === 'agent')
+              options.chats?.wakeAgent(
+                colony,
+                agent,
+                'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
+              )
+            return
+          }
+          await options.browser?.input(colony, agent, msg as LiveInput)
+        })().catch((err) =>
+          ws.send(
+            JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : String(err) }),
+          ),
+        )
+      },
     },
   })
 
   async function pump(ws: ServerWebSocket<StreamData>) {
-    if (!(await store.exists(ws.data.colony))) return
+    if (ws.data.kind !== 'events' || !(await store.exists(ws.data.colony))) return
     const events = await store.read(ws.data.colony, { from: ws.data.cursor + 1, limit: BATCH })
     if (events.length === 0) return
     ws.data.cursor = events.at(-1)?.seq ?? ws.data.cursor

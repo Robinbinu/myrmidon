@@ -11,7 +11,7 @@ import modesDoc from '../docs/modes.md' with { type: 'text' }
 import overviewDoc from '../docs/overview.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
-import { type BrowserTab, pageElement, pageSnapshot } from './browser.ts'
+import { assertAgentControl, type BrowserTab, pageElement, pageSnapshot, pointAt } from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
@@ -111,9 +111,11 @@ const FILLER = new Set(
 const FINAL_HINT =
   'task-final is finished by sending the complete answer with reply_user(final: true); it is never claimed, submitted, or released'
 
-function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> {
+async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> {
   if (!host.browser) throw new Error('no browser here: Chrome is not installed on this machine')
-  return host.browser.tab(host.id, agent)
+  const tab = await host.browser.tab(host.id, agent)
+  assertAgentControl(tab)
+  return tab
 }
 
 /** A file URL for a published artifact, after writing the latest files so relative links resolve. */
@@ -866,7 +868,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ ref: type('string').describe('e.g. e12') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      await (await pageElement(tab, args.ref)).click()
+      const at = await pointAt(tab, await pageElement(tab, args.ref), 'click')
+      await tab.page.mouse.click(at.x, at.y)
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
       return pageSnapshot(tab)
     },
@@ -881,7 +884,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const field = await pageElement(tab, args.ref)
-      await field.click({ count: 3 })
+      const at = await pointAt(tab, field, 'type')
+      await tab.page.mouse.click(at.x, at.y, { count: 3 })
       await field.type(args.text)
       if (args.submit) await field.press('Enter')
       await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})

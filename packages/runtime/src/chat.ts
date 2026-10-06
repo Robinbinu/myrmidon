@@ -355,6 +355,11 @@ export class ChatService {
     return clean
   }
 
+  /** Wakes an agent of a running round, if that round is live in this process. */
+  wakeAgent(colonyId: string, agent: string, text: string): void {
+    for (const run of this._live.values()) if (run.id === colonyId) run.nudge(agent, text)
+  }
+
   async stop(chatId: string): Promise<void> {
     await this._live.get(chatId)?.stop('stopped by user')
   }

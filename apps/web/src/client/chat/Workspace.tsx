@@ -8,6 +8,7 @@ import {
   FolderOpen,
   ListChecks,
   Mail,
+  MonitorSmartphone,
   Terminal,
   Users,
   X,
@@ -22,9 +23,10 @@ import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
+import { Computer } from './Computer.tsx'
 import { deriveSteps } from './steps.ts'
 
-type Tab = 'files' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
+type Tab = 'files' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
 
 const ORDER: TaskSnapshot['status'][] = [
   'in_progress',
@@ -129,6 +131,14 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
               </>
             ),
             count: files.length,
+          },
+          {
+            value: 'computer',
+            label: (
+              <>
+                <MonitorSmartphone className="size-3.5" /> Computer
+              </>
+            ),
           },
           {
             value: 'tasks',
@@ -398,6 +408,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                 </div>
               ))}
             {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
+            {tab === 'computer' && <Computer colonyId={colonyId} live={state.status === 'running'} />}
             {tab === 'activity' &&
               (steps.length === 0 ? (
                 <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
