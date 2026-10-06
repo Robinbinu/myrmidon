@@ -10,6 +10,9 @@ import {
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  gitCommit,
+  gitStatus,
+  gitWorkingChanges,
   importFromOmp,
   type LiveInput,
   listFolders,
@@ -63,6 +66,10 @@ export interface WebServer {
 type StreamData =
   | { kind: 'events'; colony: ColonyId; cursor: number }
   | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
+  | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+
+/** Interactive shells open at once; each is a real login shell with the person's own permissions. */
+const MAX_TERMINALS = 8
 
 const POLL_MS = 400
 
@@ -136,6 +143,7 @@ export function startServer(options: ServeOptions): WebServer {
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     })
 
+  let terminals = 0
   const authorized = (req: Request, url: URL) => {
     const host = req.headers.get('host') ?? ''
     if (host !== `127.0.0.1:${server.port}` && host !== `localhost:${server.port}`) return false
@@ -383,6 +391,26 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ projects: options.projects?.list() ?? [] })
         }),
       },
+      // Read-only views of a project's own git repository for the workspace's Git tab.
+      '/api/projects/:id/git': guard(async (req) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        return json(await gitStatus(project.path))
+      }),
+      '/api/projects/:id/git/changes': guard(async (req) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        return json(await gitWorkingChanges(project.path))
+      }),
+      '/api/projects/:id/git/commits/:hash': guard(async (req) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        try {
+          return json(await gitCommit(project.path, req.params.hash ?? ''))
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+        }
+      }),
       '/api/tools': {
         GET: guard(() => json({ tools: options.library?.list() ?? [] })),
         // Keeps a tool an agent made in a colony, so later rounds start with it. Only the person can do this.
@@ -531,7 +559,9 @@ export function startServer(options: ServeOptions): WebServer {
           const deleted = await options.chats.delete(req.params.chatId ?? '')
           if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
           for (const id of deleted) store.forget(id as ColonyId)
-          for (const ws of sockets) if (deleted.includes(ws.data.colony)) ws.close(1000, 'colony deleted')
+          for (const ws of sockets)
+            if (ws.data.kind === 'events' && deleted.includes(ws.data.colony))
+              ws.close(1000, 'colony deleted')
           return json({ ok: true, deleted })
         }),
       },
@@ -648,6 +678,22 @@ export function startServer(options: ServeOptions): WebServer {
         if (!options.browser) return json({ tabs: [] })
         return json({ tabs: await options.browser.tabs(req.params.id ?? '') })
       }),
+      // The person's own shell (not an agent's): a login shell in the chat's project folder, or home.
+      '/api/terminal': (req: Request) => {
+        const url = new URL(req.url)
+        // A shell over a WebSocket must never be reachable from another site: browsers always send Origin, and
+        // authorized() already rejects a foreign one, so require it to be present too.
+        if (!req.headers.get('origin') || !authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        if (terminals >= MAX_TERMINALS) return json({ error: 'too many terminals open' }, 429)
+        const project = url.searchParams.get('project')
+        const path = project ? options.projects?.get(project)?.path : homedir()
+        if (!path) return json({ error: 'no such project' }, 404)
+        const size = (key: string, fallback: number) =>
+          Math.min(500, Math.max(10, Number(url.searchParams.get(key)) || fallback))
+        const data = { kind: 'terminal' as const, cwd: path, cols: size('cols', 100), rows: size('rows', 30) }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
       // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
       '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
@@ -665,6 +711,21 @@ export function startServer(options: ServeOptions): WebServer {
     fetch: () => json({ error: 'not found' }, 404),
     websocket: {
       open(ws) {
+        if (ws.data.kind === 'terminal') {
+          const data = ws.data
+          terminals += 1
+          data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
+            cwd: data.cwd,
+            env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+            terminal: {
+              cols: data.cols,
+              rows: data.rows,
+              data: (_t, chunk) => ws.send(chunk),
+            },
+          })
+          void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -679,10 +740,29 @@ export function startServer(options: ServeOptions): WebServer {
         void pump(ws)
       },
       close(ws) {
+        if (ws.data.kind === 'terminal') {
+          terminals -= 1
+          ws.data.proc?.terminal?.close()
+          ws.data.proc?.kill()
+          return
+        }
         if (ws.data.kind === 'browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'terminal') {
+          const msg = JSON.parse(String(raw)) as {
+            type?: string
+            data?: unknown
+            cols?: unknown
+            rows?: unknown
+          }
+          const term = ws.data.proc?.terminal
+          if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
+          else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
+            term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))
+          return
+        }
         if (ws.data.kind !== 'browser' || !options.browser) return
         const { colony, agent } = ws.data
         void (async () => {

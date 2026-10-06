@@ -96,9 +96,10 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] Harden the timing-sensitive tests: five tests waited on wall-clock (a 1s stall tick that ignored `quietMs`,
       and an 8s quiet wait after `ask_user`); the round now pauses as soon as a question is open and everyone is
       idle. Suite 52s → 18s, passes 3× in parallel.
-- [ ] **Terminal and Git views in the workspace** — for a project chat: a terminal tab the person can type in
-      (shell in the project folder), and a Git tab when the folder is a repo: status (branch, ahead/behind,
-      staged/unstaged/untracked), per-file diffs of working changes, and commit history with each commit's diff.
+- [x] **Terminal and Git views in the workspace** — Terminal: your own login shell in the project folder (Bun PTY +
+      xterm.js; the socket only opens for the dashboard's own origin), kept alive across tabs; the agents' sandboxed
+      commands moved to "Agent commands". Git (project chats): branch, ahead/behind, uncommitted changes with diffs,
+      history with each commit's diff — read-only. Answer-tier agents in a project can now read its files.
 - [ ] **Slash menu redesign** — the `/` menu looks plain. Study omp's command UI and make it modern, creative
       and quick to use: grouped commands with icons, descriptions and argument hints, keyboard-first, recent
       commands, inline argument pickers (models, modes, thinking levels).

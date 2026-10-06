@@ -74,6 +74,20 @@ export function browserSocket(colony: string, agent: string): WebSocket {
   )
 }
 
+/** The person's own login shell, in a project folder (or home); output arrives as binary frames. */
+export function terminalSocket(project: string | undefined, cols: number, rows: number): WebSocket {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const query = new URLSearchParams({
+    token,
+    cols: String(cols),
+    rows: String(rows),
+    ...(project ? { project } : {}),
+  })
+  const ws = new WebSocket(`${proto}://${location.host}/api/terminal?${query}`)
+  ws.binaryType = 'arraybuffer'
+  return ws
+}
+
 export function streamEvents(
   colony: string,
   from: number,

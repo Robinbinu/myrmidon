@@ -6,9 +6,11 @@ import {
   FileCode,
   FileText,
   FolderOpen,
+  GitBranch,
   ListChecks,
   Mail,
   MonitorSmartphone,
+  SquareTerminal,
   Terminal,
   Users,
   X,
@@ -24,19 +26,23 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Computer } from './Computer.tsx'
+import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
+import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps } from './steps.ts'
 
-type Tab = 'files' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
+type Tab = 'files' | 'git' | 'shell' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
 
-/** The panel's views, listed down its activity bar like an IDE's. */
-const VIEWS: { value: Tab; label: string; icon: typeof FileCode }[] = [
+/** The panel's views, listed down its activity bar like an IDE's. `terminal` is the agents' sandboxed commands. */
+const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: boolean }[] = [
   { value: 'files', label: 'Files', icon: FileCode },
+  { value: 'git', label: 'Git', icon: GitBranch, projectOnly: true },
+  { value: 'shell', label: 'Terminal', icon: Terminal },
   { value: 'computer', label: 'Computer', icon: MonitorSmartphone },
   { value: 'tasks', label: 'Tasks', icon: ListChecks },
   { value: 'team', label: 'Team', icon: Users },
   { value: 'mail', label: 'Mail', icon: Mail },
-  { value: 'terminal', label: 'Terminal', icon: Terminal },
+  { value: 'terminal', label: 'Agent commands', icon: SquareTerminal },
   { value: 'activity', label: 'Activity', icon: Activity },
 ]
 
@@ -106,13 +112,16 @@ export function Workspace(props: { chat: ChatSummary; onClose(): void }) {
           <X className="size-4" />
         </IconButton>
       </div>
-      {colonyId && <WorkspaceBody key={colonyId} colonyId={colonyId} />}
+      {colonyId && <WorkspaceBody key={colonyId} colonyId={colonyId} project={props.chat.project} />}
     </motion.aside>
   )
 }
 
-function WorkspaceBody({ colonyId }: { colonyId: string }) {
+function WorkspaceBody({ colonyId, project }: { colonyId: string; project?: { id: string; name: string } }) {
   const { state, events } = useColony(colonyId)
+  const views = VIEWS.filter((v) => !v.projectOnly || project)
+  // The shell keeps running while you look at other views; it starts the first time you open it.
+  const [shellOpened, setShellOpened] = useState(false)
   const [inspect, setInspect] = useState<string>()
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTab] = useState<Tab>('files')
@@ -141,10 +150,18 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line px-4">
             <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted">
-              {VIEWS.find((v) => v.value === tab)?.label}
+              {views.find((v) => v.value === tab)?.label}
             </span>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto">
+          {shellOpened && (
+            <div className={tab === 'shell' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+              <ShellTerminal
+                {...(project ? { project: project.id } : {})}
+                cwdLabel={project ? `${project.name} · your shell` : '~ · your shell'}
+              />
+            </div>
+          )}
+          <div className={tab === 'shell' ? 'hidden' : 'min-h-0 flex-1 overflow-auto'}>
             <AnimatePresence mode="wait">
               <motion.div
                 key={tab}
@@ -153,6 +170,7 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
               >
+                {tab === 'git' && project && <GitView project={project.id} />}
                 {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
                 {tab === 'files' &&
                   (files.length === 0 ? (
@@ -404,13 +422,16 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
           aria-label="Workspace views"
           className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-line py-2"
         >
-          {VIEWS.map((v) => {
+          {views.map((v) => {
             const count = counts[v.value]
             return (
               <button
                 key={v.value}
                 type="button"
-                onClick={() => setTab(v.value)}
+                onClick={() => {
+                  setTab(v.value)
+                  if (v.value === 'shell') setShellOpened(true)
+                }}
                 aria-label={v.label}
                 aria-current={tab === v.value ? 'page' : undefined}
                 title={v.label}

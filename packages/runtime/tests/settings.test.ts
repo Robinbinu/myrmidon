@@ -48,3 +48,16 @@ test('disabled tools are removed from every agent', () => {
   expect(tools).not.toContain('web_search')
   expect(tools).toContain('publish_artifact')
 })
+
+test('a quick answer in a project chat can read the project but not change it', () => {
+  const base = parseColonySpec({ name: 'T', mission: 'm', agents: [{ name: 'lead', model: 'x/y' }] })
+  const chat = { chatId: 'chat-a', round: 1, request: 'what files are here?', history: '' }
+  const answer = { ...base, tier: 'answer' as const, chat }
+  expect(toolsFor(answer, base.agents[0] as never)).not.toContain('fs_read')
+  const inProject = { ...answer, chat: { ...chat, project: { id: 'p', name: 'p', path: '/tmp/p' } } }
+  const tools = toolsFor(inProject, base.agents[0] as never)
+  expect(tools).toContain('fs_read')
+  expect(tools).toContain('fs_list')
+  expect(tools).not.toContain('fs_write')
+  expect(tools).not.toContain('shell')
+})

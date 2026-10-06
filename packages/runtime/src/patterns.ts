@@ -56,6 +56,8 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...WEB,
         'browser_open',
         'browser_snapshot',
+        // In a project, quick questions are often about its code: reading it needs no team.
+        ...(spec.chat.project ? ['fs_read', 'fs_list'] : []),
         'list_artifacts',
         'read_artifact',
         'read_docs',

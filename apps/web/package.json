@@ -12,6 +12,8 @@
     "@myrmidon/core": "workspace:*",
     "@myrmidon/protocol": "workspace:*",
     "@myrmidon/runtime": "workspace:*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "@xyflow/react": "12.12.0",
     "lucide-react": "1.52.0",
     "motion": "14.0.0",
