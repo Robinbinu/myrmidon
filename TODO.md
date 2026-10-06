@@ -12,7 +12,7 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Workers persist across a chat's messages** — later rounds reuse the same workers (names, specialties,
+- [x] **Workers persist across a chat's messages** — later rounds reuse the same workers (names, specialties,
       models, and their transcripts) instead of spawning new ones; the lead keeps or dismisses workers
       (`dismiss_worker`), and spawns new ones when needed.
 - [x] **Swarm negotiates before executing** — on a new request every peer wakes, discovers the others

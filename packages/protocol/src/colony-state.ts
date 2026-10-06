@@ -20,6 +20,8 @@ export interface AgentView {
   costKnown: boolean
   toolCalls: number
   lastSeq: number
+  /** The lead dismissed this worker; later rounds of the chat leave it out. */
+  dismissed?: boolean
 }
 
 export interface Entry {
@@ -195,6 +197,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'agent/dismissed': {
+      const p = event.payload as EventPayloads['agent/dismissed']
+      const view = state.agents[p.agent]
+      if (view) {
+        view.dismissed = true
+        view.status = 'stopped'
+        view.detail = `dismissed by ${p.by}: ${p.reason}`
+      }
       break
     }
     case 'chat/user': {

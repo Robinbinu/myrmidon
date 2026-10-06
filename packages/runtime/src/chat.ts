@@ -1,6 +1,8 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
 import {
+  type AgentInfo,
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
@@ -8,6 +10,7 @@ import {
   foldColony,
 } from '@myrmidon/protocol'
 import { completeSimple } from '@oh-my-pi/pi-ai'
+import { compactTranscript, readTranscript } from './agent.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
@@ -16,6 +19,17 @@ import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
 
 const MAX_WORKERS = 8
+
+/** The team a chat's next round inherits: the latest team round in the same mode, minus dismissed workers. */
+function keptTeam(previous: readonly { state: ColonyState }[], mode: TeamConfig['mode']): AgentInfo[] {
+  const last = [...previous]
+    .reverse()
+    .find((r) => r.state.tier === 'team' && (r.state.team?.mode === 'swarm') === (mode === 'swarm'))
+  if (!last) return []
+  return Object.values(last.state.agents)
+    .filter((a) => a.info.role !== 'lead' && !a.dismissed && a.status !== 'failed')
+    .map((a) => a.info)
+}
 
 export interface RosterEntry {
   /** What this teammate is for, e.g. `researcher`, `coder`, `writer`; `peer` for an unspecialised swarm peer. */
@@ -279,6 +293,7 @@ export class ChatService {
     // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
       if (prior) await this.carryOver(prior, run)
+      await this.carryTranscripts(previous, run)
       const names = await run.attach(attachments)
       await run.append({
         type: 'chat/user',
@@ -429,18 +444,34 @@ export class ChatService {
           ? 'team'
           : requested
     const taken = new Set(['lead'])
+    // A chat keeps its team: the workers (or peers) of its latest team round come back, minus any the lead
+    // dismissed, with their memory. The team picker shapes only a chat's first team.
+    const kept = keptTeam(previous, config.mode).map((info): AgentSpec => {
+      taken.add(info.name)
+      const note = info.focus ? `Your focus: ${info.focus}` : workerNote
+      return {
+        name: info.name,
+        role: info.role,
+        model: info.model,
+        ...(info.specialty ? { specialty: info.specialty } : {}),
+        ...(info.focus ? { focus: info.focus } : {}),
+        ...(note ? { instructions: note } : {}),
+      }
+    })
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
-      roster.map((r) => {
-        const name = pickName(taken)
-        taken.add(name)
-        return {
-          name,
-          role,
-          model: r.model,
-          ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
-          ...(workerNote ? { instructions: workerNote } : {}),
-        }
-      })
+      kept.length > 0
+        ? kept
+        : roster.map((r) => {
+            const name = pickName(taken)
+            taken.add(name)
+            return {
+              name,
+              role,
+              model: r.model,
+              ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
+              ...(workerNote ? { instructions: workerNote } : {}),
+            }
+          })
     const lead: AgentSpec = {
       name: 'lead',
       role: 'lead',
@@ -451,18 +482,18 @@ export class ChatService {
     // A swarm has no lead, even when triage gives the request to one agent: that agent is a peer.
     const alone: AgentSpec =
       config.mode === 'swarm'
-        ? {
+        ? (kept[0] ?? {
             name: pickName(taken),
             role: 'peer',
             model: roster[0]?.model ?? config.leadModel,
             ...(workerNote ? { instructions: workerNote } : {}),
-          }
+          })
         : lead
     const agents: AgentSpec[] =
       tier !== 'team'
         ? [alone]
         : swarm
-          ? roster.length > 0
+          ? roster.length > 0 || kept.length > 0
             ? crew('peer')
             : [0, 1].map(() => {
                 const name = pickName(taken)
@@ -505,9 +536,26 @@ export class ChatService {
       tier,
       team: {
         mode: config.mode,
-        maxWorkers: tier === 'team' && !swarm ? roster.length + extra : 0,
+        maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
         workerModels: models,
       },
+    }
+  }
+
+  /**
+   * Gives each agent of a new round the conversation it had in the chat's earlier rounds (the latest round it
+   * was in), compacted so it stays small: recent turns verbatim, older tool output replaced by placeholders.
+   */
+  private async carryTranscripts(previous: { state: ColonyState; id: string }[], run: ColonyRun) {
+    for (const agent of run.spec.agents) {
+      const source = [...previous].reverse().find((r) => r.state.agents[agent.name])
+      if (!source) continue
+      const from = join(this.store.colonyDir(source.id as never), 'agents', `${agent.name}.jsonl`)
+      const messages = compactTranscript(readTranscript(from))
+      if (messages.length === 0) continue
+      const dir = join(run.workspace.colonyDir, 'agents')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, `${agent.name}.jsonl`), messages.map((m) => `${JSON.stringify(m)}\n`).join(''))
     }
   }
 

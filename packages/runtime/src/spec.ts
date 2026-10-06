@@ -26,6 +26,8 @@ export interface AgentSpec {
   tools?: string[]
   /** What a specialist worker is for, e.g. `researcher`; shown to the lead for routing. */
   specialty?: string
+  /** A spawned worker's brief from the lead. */
+  focus?: string
 }
 
 export interface ColonySpec {

@@ -37,7 +37,14 @@ const defs: EventTypeDefinition[] = [
       mission: str(),
       pattern: str(),
       agents: Schema.array(
-        Schema.object({ name: str(), role: str(), model: str(), tools: strs(), specialty: Schema.string() }),
+        Schema.object({
+          name: str(),
+          role: str(),
+          model: str(),
+          tools: strs(),
+          specialty: Schema.string(),
+          focus: Schema.string(),
+        }),
       ).required(),
       acceptance: Schema.array(Schema.any()).default([]),
       budget: Schema.object({
@@ -84,10 +91,17 @@ const defs: EventTypeDefinition[] = [
         model: str(),
         tools: strs(),
         specialty: Schema.string(),
+        focus: Schema.string(),
       }).required(),
       by: str(),
       focus: Schema.string().default(''),
     }),
+  },
+  {
+    type: 'agent/dismissed',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), by: str(), reason: str() }),
   },
   {
     type: 'chat/user',

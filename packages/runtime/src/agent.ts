@@ -328,3 +328,33 @@ export function readTranscript(path: string): AgentMessage[] {
   }
   return messages
 }
+
+/** Turns kept word for word when a transcript is carried into a later round; older tool output is elided. */
+const KEEP_TURNS = 4
+
+/**
+ * Compacts a transcript at turn boundaries (a turn is a user message and everything after it until the next):
+ * the latest turns stay verbatim, while older turns keep their messages but drop tool output and reasoning,
+ * which is where the bulk is. The agent still sees what it did and decided, without paying for every page it read.
+ */
+export function compactTranscript(messages: readonly AgentMessage[], keepTurns = KEEP_TURNS): AgentMessage[] {
+  const starts = messages.flatMap((m, i) => ((m as { role?: string }).role === 'user' ? [i] : []))
+  const cut = starts.length > keepTurns ? (starts[starts.length - keepTurns] ?? 0) : 0
+  return messages.map((m, i) => {
+    if (i >= cut) return m
+    const msg = m as { role?: string; content?: unknown }
+    if (msg.role === 'toolResult' && Array.isArray(msg.content)) {
+      const size = JSON.stringify(msg.content).length
+      return {
+        ...msg,
+        content: [{ type: 'text', text: `[output from an earlier round elided, ${size} chars]` }],
+      } as AgentMessage
+    }
+    if (msg.role === 'assistant' && Array.isArray(msg.content))
+      return {
+        ...msg,
+        content: (msg.content as { type: string }[]).filter((c) => c.type !== 'thinking'),
+      } as AgentMessage
+    return m
+  })
+}

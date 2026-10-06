@@ -12,6 +12,8 @@ export interface AgentInfo {
   readonly tools: readonly string[]
   /** What a specialist worker is for, e.g. `researcher` or `coder`. */
   readonly specialty?: string
+  /** A spawned worker's brief from the lead, kept so the worker can join later rounds as it was. */
+  readonly focus?: string
 }
 
 /**
@@ -73,6 +75,8 @@ export interface EventPayloads {
   'colony/started': { pid?: number; hostname?: string; resumed?: boolean }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
+  /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
+  'agent/dismissed': { agent: string; by: string; reason: string }
   /**
    * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
    * doing. Only meaningful for messages sent while a round is running.

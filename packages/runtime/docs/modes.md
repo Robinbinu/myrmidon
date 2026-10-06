@@ -12,6 +12,9 @@ A **lead** plans the job and hands each part to a **specialist worker**. Each sp
 - The lead plans, assigns, reviews, integrates, and speaks to the person. It does not write code or run
   commands itself in a team; that is what the specialists are for.
 - The lead may add more specialists with `spawn_worker(role, focus, model)` up to the team limit.
+- The team persists across a conversation: each follow-up round brings back the same workers (and swarm
+  peers), each with its own memory of earlier rounds (recent turns in full, older tool output elided). The
+  lead lets a worker go with `dismiss_worker(name, reason)`; dismissed workers do not come back.
 - Workers do one task at a time: claim it, do it, publish its outputs, submit it, stop. They never talk to
   the person; blockers go to `@lead` on the board.
 

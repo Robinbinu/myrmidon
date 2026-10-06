@@ -519,6 +519,63 @@ test('swarm mode never has a lead: work goes to every peer, a direct answer to o
   await chat.stopAll()
 })
 
+test('a chat keeps its workers and their memory across rounds; the lead can dismiss one', async () => {
+  const resolver = new ModelResolver()
+  const specialist = (ctx: LlmContext, role: string) =>
+    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  let leadCalls = 0
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      leadCalls += 1
+      if (leadCalls === 1)
+        return {
+          content: [
+            tool('create_task', { subject: 'Collect the facts', assignee: specialist(ctx, 'researcher') }),
+            tool('dismiss_worker', {
+              name: specialist(ctx, 'coder'),
+              reason: 'no code in this conversation',
+            }),
+          ],
+        }
+      return { content: [tool('reply_user', { text: `Answer ${leadCalls}.`, final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  const seenByResearcher: string[] = []
+  const researcher = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seenByResearcher.push(JSON.stringify(ctx.messages))
+      return { content: ['Noted: the facts are about tides.'] }
+    },
+  })
+  resolver.register('mock/researcher', { model: researcher.model, streamFn: researcher.stream })
+  scripted(resolver, 'mock/coder', [['should not run']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config: TeamConfig = {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [
+      { role: 'researcher', model: 'mock/researcher' },
+      { role: 'coder', model: 'mock/coder' },
+    ],
+    judgeModel: 'mock/judge',
+  }
+  const first = await chats.send('Explain tides', config)
+  const r1 = await waitFor(first.colonyId)
+  const names = (st: ColonyState) =>
+    Object.values(st.agents).map((a) => `${a.info.name}:${a.info.specialty ?? a.info.role}`)
+  const scout = Object.values(r1.agents).find((a) => a.info.specialty === 'researcher')?.info.name
+  expect(Object.values(r1.agents).find((a) => a.info.specialty === 'coder')?.dismissed).toBe(true)
+
+  const second = await chats.send('Now explain spring tides', config, first.chatId)
+  const r2 = await waitFor(second.colonyId)
+  expect(names(r2)).toEqual(['lead:lead', `${scout}:researcher`])
+  expect(existsSync(join(home, 'colonies', second.colonyId, 'agents', `${scout}.jsonl`))).toBe(true)
+  expect(existsSync(join(home, 'colonies', second.colonyId, 'agents', 'lead.jsonl'))).toBe(true)
+  expect(seenByResearcher.length).toBeGreaterThan(0)
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

@@ -51,6 +51,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'publish_artifact',
         ...USER,
         ...spawn,
+        ...(spec.agents.length > 1 ? ['dismiss_worker'] : []),
       ]
     }
     return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD]
@@ -141,7 +142,9 @@ ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spaw
   specialist fits a part of the job, add one with spawn_worker. Workers are asleep until assigned and see only
   their task, the plan, and the files.
 - Then wait. You hear about every task verdict. Re-assign rejected work with assign_task.
-- When every task is verified, read the files and send the complete final answer with reply_user(final: true).`
+- When every task is verified, read the files and send the complete final answer with reply_user(final: true).
+- Your team stays with you for the whole conversation, and each worker keeps its memory of earlier rounds.
+  Reuse them on follow-ups; dismiss_worker one whose skill this conversation no longer needs.`
   }
   if (spec.pattern === 'lead-workers') {
     if (!spec.chat)

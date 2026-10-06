@@ -253,6 +253,7 @@ export class ColonyRun implements ColonyHost {
           model: a.model,
           tools: toolsFor(this.spec, a),
           ...(a.specialty ? { specialty: a.specialty } : {}),
+          ...(a.focus ? { focus: a.focus } : {}),
         })),
         acceptance: this.spec.acceptance,
         budget: {
@@ -309,7 +310,7 @@ export class ColonyRun implements ColonyHost {
 
   private async _launch(wallMs: number, resumedBecause?: string) {
     for (const a of this.spec.agents) {
-      const agent = new ColonyAgent(a, this, this.resolver, { restore: resumedBecause !== undefined })
+      const agent = new ColonyAgent(a, this, this.resolver, { restore: true })
       agent.turn = this._state.agents[a.name]?.turns ?? 0
       this._agents.set(a.name, agent)
     }
@@ -444,6 +445,7 @@ export class ColonyRun implements ColonyHost {
       role: 'worker',
       model: chosen,
       specialty: label,
+      focus,
       instructions: `Your focus, as defined by ${by}: ${focus}`,
     }
     this.spec.agents.push(spec)
@@ -451,7 +453,14 @@ export class ColonyRun implements ColonyHost {
       type: 'agent/joined',
       actor: SYSTEM,
       payload: {
-        agent: { name, role: 'worker', model: chosen, tools: toolsFor(this.spec, spec), specialty: label },
+        agent: {
+          name,
+          role: 'worker',
+          model: chosen,
+          tools: toolsFor(this.spec, spec),
+          specialty: label,
+          focus,
+        },
         by,
         focus: `${label}: ${focus}`,
       },
@@ -467,6 +476,20 @@ export class ColonyRun implements ColonyHost {
       })
     })
     return `spawned ${name} as ${label} (${chosen}). It is asleep until you give it a task: create_task with assignee "${name}"`
+  }
+
+  async dismissWorker(by: string, name: string, reason: string): Promise<string> {
+    if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
+      throw new Error('only the lead can dismiss workers')
+    const worker = this.spec.agents.find((a) => a.name === name)
+    if (!worker || worker.role === 'lead') throw new Error(`no worker named ${name}`)
+    if (this._state.agents[name]?.dismissed) throw new Error(`${name} was already dismissed`)
+    await this.append({ type: 'agent/dismissed', actor: SYSTEM, payload: { agent: name, by, reason } })
+    this._agents.get(name)?.stop()
+    const held = Object.values(this._state.tasks).filter(
+      (t) => t.status === 'in_progress' && t.owner === name,
+    )
+    return `dismissed ${name}${held.length ? `; ${held.map((t) => t.id).join(', ')} will be released for re-assignment` : ''}`
   }
 
   requestTaskVerification(taskId: string, by: string): void {

@@ -26,6 +26,8 @@ export interface ColonyHost {
   requestFinalVerification(by: string, summary: string): Promise<string>
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
   spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
+  /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
+  dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number
   /** An agent's tool batch has finished (all calls in one model response have results). */
   batchEnded(agent: string): void

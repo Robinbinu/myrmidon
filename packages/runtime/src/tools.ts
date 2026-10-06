@@ -753,6 +753,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'dismiss_worker',
+    tier: 'write',
+    description:
+      'Let a worker go when this conversation no longer needs its skill. It stops now (its open tasks are released) ' +
+      'and does not join later rounds. Workers you keep stay with you, with their memory, across the conversation.',
+    parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
+    async run(args, agent, host) {
+      return host.dismissWorker(agent, args.name, args.reason)
+    },
+  },
+  {
     name: 'shell',
     tier: 'exec',
     description:
