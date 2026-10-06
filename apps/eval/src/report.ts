@@ -122,26 +122,24 @@ export interface Grade {
 
 export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.events)): Grade {
   const tools = view.events.filter((e) => e.type === 'tool/call').map((e) => String(payload(e).tool))
-  const checks = c.checks.map((check): CheckResult => {
+  const passes = (check: Check): boolean => {
     switch (check.kind) {
       case 'reply':
-        return { label: check.label, pass: check.matches.test(m.finalReply ?? '') }
-      case 'artifact': {
-        const hits = Object.entries(view.artifacts).filter(([name]) => check.name.test(name))
-        return {
-          label: check.label,
-          pass: hits.some(([, text]) => !check.contains || check.contains.test(text)),
-        }
-      }
+        return check.matches.test(m.finalReply ?? '')
+      case 'artifact':
+        return Object.entries(view.artifacts).some(
+          ([name, text]) => check.name.test(name) && (!check.contains || check.contains.test(text)),
+        )
       case 'tool':
-        return { label: check.label, pass: tools.some((t) => check.used.test(t)) }
+        return tools.some((t) => check.used.test(t))
       case 'command':
       case 'unchanged':
-        return { label: check.label, pass: view.local[check.label] === true }
+        return view.local[check.label] === true
       case 'judge':
-        return { label: check.label, pass: m.judge?.pass === true }
+        return m.judge?.pass === true
     }
-  })
+  }
+  const checks = c.checks.map((check): CheckResult => ({ label: check.label, pass: passes(check) }))
   const breach =
     m.seconds > c.budget.seconds
       ? `${m.seconds}s > ${c.budget.seconds}s`
