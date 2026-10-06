@@ -1,7 +1,7 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
-import { motion, useReducedMotion } from 'motion/react'
-import { type ReactNode, useEffect, useState } from 'react'
-import { CursorPill, DotMatrix, LEAD_COLOR, type Mood, PixelFace, USER_COLOR } from '../ui/pixel.tsx'
+import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { CursorPill, DotMatrix, JUDGE_COLOR, LEAD_COLOR, type Mood, PixelFace } from '../ui/pixel.tsx'
 import { softSpring } from '../ui/primitives.tsx'
 
 const SUGGESTIONS = [
@@ -27,6 +27,42 @@ const SUGGESTIONS = [
   },
 ]
 
+interface Reaction {
+  mood: Mood
+  label: string
+}
+
+const POKED: Reaction[] = [
+  { mood: 'wink', label: 'wink' },
+  { mood: 'love', label: 'love' },
+  { mood: 'surprised', label: 'oh!' },
+  { mood: 'happy', label: 'hehe' },
+]
+const IDLE_TRICKS: Reaction[] = [
+  { mood: 'wink', label: 'wink' },
+  { mood: 'happy', label: 'hehe' },
+]
+
+/** The crew that hangs around the mascot. Positions are relative to the face's center. */
+const CREW = [
+  { name: 'nova', color: '#ff7eb6', x: -340, y: -70 },
+  { name: 'kai', color: '#4d7cff', x: 320, y: 30 },
+  { name: 'judge', color: JUDGE_COLOR, x: -290, y: 130 },
+]
+
+/** Sleeps after this long without the pointer moving. */
+const DOZE_MS = 45_000
+/** The user's own pointer outranks the crew's for this long after it moves. */
+const USER_FOCUS_MS = 2500
+
+const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)] as T
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+/** Pixel offset from the face's center → where the eyes point, in cells. */
+const gaze = (dx: number, dy: number): [number, number] => [
+  clamp(Math.round(dx / 110), -2, 2),
+  clamp(Math.round(dy / 90), -1, 1),
+]
+
 function Clock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -37,35 +73,163 @@ function Clock() {
   return <DotMatrix text={hhmm} dot={2.4} ghost className="text-white/60" />
 }
 
-/** A collaborator cursor that wanders slowly around its anchor. */
-function Wanderer(props: { children: ReactNode; className: string; delay: number; path: number[][] }) {
-  const reduce = useReducedMotion()
-  const xs = props.path.map((p) => p[0] ?? 0)
-  const ys = props.path.map((p) => p[1] ?? 0)
-  return (
-    <motion.div
-      className={`pointer-events-none absolute ${props.className}`}
-      initial={{ opacity: 0, scale: 0.5 }}
-      animate={reduce ? { opacity: 1, scale: 1 } : { opacity: 1, scale: 1, x: xs, y: ys }}
-      transition={{
-        opacity: { delay: props.delay, duration: 0.3 },
-        scale: { delay: props.delay, ...softSpring },
-        x: { delay: props.delay, duration: 14, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' },
-        y: { delay: props.delay, duration: 14, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' },
-      }}
-    >
-      {props.children}
-    </motion.div>
-  )
+interface CrewState {
+  name: string
+  color: string
+  x: number
+  y: number
+  clicking: boolean
 }
 
 /**
- * The empty state, kept to the essentials: the colony's face, one line, the message box, and a few
- * starters. The face lowers its eyes while the user types and glances around while idle.
+ * The empty state: the colony's mascot on its screen, one line, the message box, and a few starters.
+ * The mascot follows the pointer with its eyes, reacts when clicked or poked by its crew, plays small
+ * tricks when left alone, and dozes off after a while.
  */
 export function Hero(props: { typing: boolean; onPick(text: string): void; children: ReactNode }) {
+  const reduce = useReducedMotion()
+  const [scope, animate] = useAnimate<HTMLButtonElement>()
+  const [reaction, setReaction] = useState<Reaction>()
+  const [asleep, setAsleep] = useState(false)
   const [hover, setHover] = useState(false)
-  const mood: Mood = props.typing ? 'listening' : hover ? 'thinking' : 'idle'
+  const [look, setLook] = useState<[number, number]>()
+  const [crew, setCrew] = useState<CrewState[]>(() => CREW.map((c) => ({ ...c, clicking: false })))
+  const lastUser = useRef(Date.now())
+  const asleepRef = useRef(false)
+  const typingRef = useRef(props.typing)
+  typingRef.current = props.typing
+  const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const busy = useRef(false)
+  /** Where each crew cursor is heading, so new targets can keep their distance. */
+  const positions = useRef(CREW.map((c) => ({ x: c.x, y: c.y })))
+
+  const react = useCallback(
+    (r: Reaction) => {
+      asleepRef.current = false
+      setAsleep(false)
+      setReaction(r)
+      busy.current = true
+      if (!reduce && scope.current)
+        void animate(scope.current, { scale: [1, 0.965, 1.012, 1] }, { duration: 0.45, ease: 'easeOut' })
+      clearTimeout(reactionTimer.current)
+      reactionTimer.current = setTimeout(() => {
+        setReaction(undefined)
+        busy.current = false
+      }, 1600)
+    },
+    [animate, reduce, scope],
+  )
+  useEffect(() => () => clearTimeout(reactionTimer.current), [])
+
+  // Eyes follow the user's pointer; moving it also wakes a sleeping mascot.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const el = scope.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      lastUser.current = Date.now()
+      const g = gaze(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2))
+      setLook((l) => (l && l[0] === g[0] && l[1] === g[1] ? l : g))
+      if (asleepRef.current) react({ mood: 'surprised', label: 'oh!' })
+    }
+    window.addEventListener('pointermove', onMove)
+    return () => window.removeEventListener('pointermove', onMove)
+  }, [react, scope])
+
+  // Dozing off, and the occasional trick while nobody is around.
+  useEffect(() => {
+    if (reduce) return
+    const t = setInterval(() => {
+      const quiet = Date.now() - lastUser.current
+      if (quiet > USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
+      if (typingRef.current || busy.current || asleepRef.current) return
+      if (quiet > DOZE_MS) {
+        asleepRef.current = true
+        setAsleep(true)
+      } else if (Math.random() < 0.12) {
+        react(pick(IDLE_TRICKS))
+      }
+    }, 1000)
+    return () => clearInterval(t)
+  }, [react, reduce])
+
+  // The crew wanders the canvas and now and then flies over to poke the mascot.
+  useEffect(() => {
+    if (reduce) return
+    let alive = true
+    let poking = false
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const wait = (ms: number) =>
+      new Promise<void>((done) => {
+        timers.push(setTimeout(done, ms))
+      })
+    const update = (i: number, patch: Partial<CrewState>) => {
+      if (patch.x !== undefined && patch.y !== undefined) positions.current[i] = { x: patch.x, y: patch.y }
+      setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+    }
+    const follow = (x: number, y: number) => {
+      if (Date.now() - lastUser.current > USER_FOCUS_MS) setLook(gaze(x, y))
+    }
+    const size = () => {
+      const r = scope.current?.getBoundingClientRect()
+      return { hw: (r?.width ?? 450) / 2, hh: (r?.height ?? 320) / 2 }
+    }
+    // Somewhere around the screen, away from the headline below it and from the other cursors.
+    const roam = (i: number) => {
+      const { hw, hh } = size()
+      const others = positions.current.filter((_, j) => j !== i)
+      let best = { x: 0, y: 0 }
+      let bestGap = -1
+      for (let k = 0; k < 6; k++) {
+        const side = Math.random() < 0.5 ? -1 : 1
+        const c = { x: side * (hw + 50 + Math.random() * 170), y: -hh * 0.9 + Math.random() * hh * 1.6 }
+        const gap = Math.min(...others.map((o) => Math.hypot(o.x - c.x, o.y - c.y)), Number.POSITIVE_INFINITY)
+        if (gap > bestGap) {
+          best = c
+          bestGap = gap
+        }
+      }
+      return best
+    }
+    const run = async (i: number) => {
+      await wait(1200 + i * 1100)
+      while (alive) {
+        if (!poking && !typingRef.current && Math.random() < 0.4) {
+          poking = true
+          const { hw, hh } = size()
+          const x = (Math.random() * 2 - 1) * hw * 0.55
+          const y = (Math.random() * 2 - 1) * hh * 0.45
+          update(i, { x, y })
+          follow(x, y)
+          await wait(1350)
+          if (!alive) return
+          update(i, { clicking: true })
+          react(pick(POKED))
+          await wait(240)
+          update(i, { clicking: false })
+          await wait(650)
+          poking = false
+          update(i, roam(i))
+        } else {
+          const to = roam(i)
+          update(i, to)
+          if (Math.random() < 0.5) follow(to.x, to.y)
+        }
+        await wait(2800 + Math.random() * 4200)
+      }
+    }
+    for (const i of CREW.keys()) void run(i)
+    return () => {
+      alive = false
+      for (const t of timers) clearTimeout(t)
+    }
+  }, [react, reduce, scope])
+
+  const mood: Mood = props.typing
+    ? 'listening'
+    : (reaction?.mood ?? (asleep ? 'sleep' : hover ? 'thinking' : 'idle'))
+  const label = props.typing ? 'listening' : (reaction?.label ?? (asleep ? 'zzz' : 'ready'))
+
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
       <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-4 py-8 sm:px-6">
@@ -74,62 +238,79 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             initial={{ opacity: 0, y: 12, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={softSpring}
-            className="rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06]"
           >
-            <PixelFace
-              mood={mood}
-              color={LEAD_COLOR}
-              cols={15}
-              rows={9}
-              cell={20}
-              gap={6}
-              glow
-              className="h-auto w-[min(400px,calc(100vw-96px))]"
-            />
-            <div className="mt-5 flex items-center justify-between px-1">
-              <span className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.2em] text-white/35">
-                <span className="size-1 rounded-full bg-[#3ddc84]" />
-                {props.typing ? 'listening' : 'ready'}
-              </span>
-              <Clock />
-            </div>
+            <button
+              ref={scope}
+              type="button"
+              onClick={() => react(pick(POKED))}
+              aria-label="Poke the colony"
+              className="block cursor-pointer rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
+            >
+              <PixelFace
+                mood={mood}
+                color={LEAD_COLOR}
+                cols={15}
+                rows={8}
+                cell={20}
+                gap={6}
+                glow
+                {...(look ? { look } : {})}
+                className="h-auto w-[min(400px,calc(100vw-96px))]"
+              />
+              <div className="mt-5 flex items-center justify-between px-1">
+                <span className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.2em] text-white/35">
+                  <span className={`size-1 rounded-full ${asleep ? 'bg-white/30' : 'bg-[#3ddc84]'}`} />
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={label}
+                      initial={{ opacity: 0, y: 3 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -3 }}
+                      transition={{ duration: 0.14 }}
+                    >
+                      {label}
+                    </motion.span>
+                  </AnimatePresence>
+                </span>
+                <Clock />
+              </div>
+            </button>
           </motion.div>
-          <Wanderer
-            className="-left-28 top-10 hidden lg:block"
-            delay={0.4}
-            path={[
-              [0, 0],
-              [10, 14],
-              [-6, 22],
-              [0, 0],
-            ]}
-          >
-            <CursorPill name="lead" color={LEAD_COLOR} />
-          </Wanderer>
-          <Wanderer
-            className="-right-28 top-32 hidden lg:block"
-            delay={0.7}
-            path={[
-              [0, 0],
-              [-12, -10],
-              [6, -18],
-              [0, 0],
-            ]}
-          >
-            <CursorPill name="nova" color="#ff7eb6" />
-          </Wanderer>
-          <Wanderer
-            className="-bottom-8 -right-16 hidden lg:block"
-            delay={1}
-            path={[
-              [0, 0],
-              [8, 6],
-              [-4, 12],
-              [0, 0],
-            ]}
-          >
-            <CursorPill name="You" color={USER_COLOR} size="md" />
-          </Wanderer>
+
+          <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block" aria-hidden>
+            {crew.map((c) => (
+              <motion.div
+                key={c.name}
+                className="absolute left-0 top-0"
+                initial={{ opacity: 0, x: c.x, y: c.y }}
+                animate={{ opacity: 1, x: c.x, y: c.y }}
+                transition={{
+                  opacity: { delay: 0.4, duration: 0.3 },
+                  default: { duration: 1.25, ease: [0.45, 0, 0.2, 1] },
+                }}
+              >
+                <AnimatePresence>
+                  {c.clicking && (
+                    <motion.span
+                      className="absolute -left-3 -top-3 size-7 rounded-full border-2"
+                      style={{ borderColor: c.color }}
+                      initial={{ scale: 0.2, opacity: 0.9 }}
+                      animate={{ scale: 1.8, opacity: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                    />
+                  )}
+                </AnimatePresence>
+                <motion.div
+                  animate={{ scale: c.clicking ? 0.82 : 1 }}
+                  transition={{ type: 'spring', stiffness: 700, damping: 20 }}
+                  style={{ originX: 0, originY: 0 }}
+                >
+                  <CursorPill name={c.name} color={c.color} />
+                </motion.div>
+              </motion.div>
+            ))}
+          </div>
         </div>
 
         <motion.h1

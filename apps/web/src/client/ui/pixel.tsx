@@ -28,8 +28,22 @@ export function inkOn(hex: string): string {
 
 /* ------------------------------------------------------------------ pixel face */
 
-/** `listening`: eyes lowered toward the message box while the user types. */
-export type Mood = 'idle' | 'listening' | 'thinking' | 'working' | 'happy' | 'error' | 'sleep' | 'waiting'
+/**
+ * `listening`: eyes lowered toward the message box while the user types. `wink`, `surprised`, and
+ * `love` are short reactions the mascot plays when poked.
+ */
+export type Mood =
+  | 'idle'
+  | 'listening'
+  | 'thinking'
+  | 'working'
+  | 'happy'
+  | 'error'
+  | 'sleep'
+  | 'waiting'
+  | 'wink'
+  | 'surprised'
+  | 'love'
 
 export function moodFor(status: string): Mood {
   switch (status) {
@@ -56,38 +70,58 @@ export function moodFor(status: string): Mood {
 
 type Cell = readonly [number, number]
 
+const HEART = ['.#.#.', '#####', '.###.', '..#..']
+
+/** Moods whose eyes are open and can follow something. */
+const OPEN: ReadonlySet<Mood> = new Set(['idle', 'listening', 'waiting', 'wink', 'surprised', 'love'])
+
 function eyeCells(
   mood: Mood,
   cols: number,
   rows: number,
   frame: number,
   blinking: boolean,
-  glance: readonly [number, number],
+  look: readonly [number, number],
 ): Cell[] {
   const ew = Math.max(1, Math.round(cols * 0.24))
   const eh = Math.max(2, Math.round(rows * 0.46))
-  const between = Math.max(1, Math.round(cols * 0.16))
+  // Keep the pair dead center: the leftover columns must split evenly on both sides.
+  const spread = Math.max(1, Math.round(cols * 0.16))
+  const between = (cols - ew * 2 - spread) % 2 === 0 ? spread : spread + 1
   const top = Math.round((rows - eh) / 2)
   const left = Math.floor((cols - (ew * 2 + between)) / 2)
-  const look = {
+  const scan = {
     thinking: [0, 0, -1, -1, 0, 1, 1, 0][frame % 8] ?? 0,
     working: [-1, 0, 1, 0][frame % 4] ?? 0,
   }
-  const idle = mood === 'idle' || mood === 'waiting'
-  const dx = mood === 'thinking' ? look.thinking : mood === 'working' ? look.working : idle ? glance[0] : 0
+  const open = OPEN.has(mood)
+  const dx = mood === 'thinking' ? scan.thinking : mood === 'working' ? scan.working : open ? look[0] : 0
   const dy =
     mood === 'thinking'
       ? -Math.min(1, Math.floor(rows / 8))
       : mood === 'listening'
-        ? Math.min(1, Math.floor(rows / 6))
-        : idle
-          ? glance[1]
+        ? Math.min(1, Math.floor(rows / 6)) + Math.min(0, look[1])
+        : open
+          ? look[1]
           : 0
   const out: Cell[] = []
-  for (const x0 of [left + dx, left + ew + between + dx]) {
+  const line = (x0: number, y: number) => {
+    for (let i = 0; i < ew; i++) out.push([x0 + i, y])
+  }
+  const blob = (x0: number, yStart: number, yEnd: number) => {
+    for (let y = yStart; y < yEnd; y++) {
+      for (let x = x0; x < x0 + ew; x++) {
+        const corner =
+          ew >= 4 && yEnd - yStart >= 4 && (x === x0 || x === x0 + ew - 1) && (y === yStart || y === yEnd - 1)
+        if (!corner) out.push([x, y])
+      }
+    }
+  }
+  for (const [eye, base] of [left, left + ew + between].entries()) {
+    const x0 = base + dx
     const y0 = top + dy
     const mid = y0 + Math.floor(eh / 2)
-    if (mood === 'happy') {
+    if (mood === 'happy' || (mood === 'love' && ew < 4)) {
       // ^ ^ : each eye becomes an upturned arc.
       const aw = Math.max(3, ew)
       for (let i = 0; i < aw; i++) out.push([x0 + i, mid - Math.min(i, aw - 1 - i)])
@@ -99,26 +133,45 @@ function eyeCells(
       for (let i = 0; i < s; i++) out.push([x0 + i, sy + i], [x0 + s - 1 - i, sy + i])
       continue
     }
-    if (mood === 'sleep' || blinking) {
-      for (let i = 0; i < ew; i++) out.push([x0 + i, mood === 'sleep' ? y0 + eh - 2 : mid])
+    if (mood === 'sleep') {
+      line(x0, y0 + eh - 2)
       continue
     }
-    const h = mood === 'working' ? Math.max(2, Math.round(eh * 0.62)) : eh
-    const yStart = mood === 'waiting' ? mid : mood === 'working' ? y0 + Math.floor((eh - h) / 2) : y0
-    const yEnd = mood === 'waiting' ? y0 + eh : yStart + h
-    for (let y = yStart; y < yEnd; y++) {
-      for (let x = x0; x < x0 + ew; x++) {
-        const corner =
-          ew >= 4 && yEnd - yStart >= 4 && (x === x0 || x === x0 + ew - 1) && (y === yStart || y === yEnd - 1)
-        if (!corner) out.push([x, y])
-      }
+    if (mood === 'love') {
+      // Hearts are one cell wider than an eye; shift them outward so the pair stays symmetric.
+      const hx = eye === 0 ? x0 - 1 : x0
+      for (const [ry, row] of HEART.entries())
+        for (const [rx, ch] of [...row].entries()) if (ch === '#') out.push([hx + rx, y0 + ry])
+      continue
     }
+    if (blinking || (mood === 'wink' && eye === 1)) {
+      line(x0, mid)
+      continue
+    }
+    if (mood === 'surprised') {
+      blob(x0, y0 - 1, y0 + eh + 1)
+      continue
+    }
+    if (mood === 'working') {
+      const h = Math.max(2, Math.round(eh * 0.62))
+      const ys = y0 + Math.floor((eh - h) / 2)
+      blob(x0, ys, ys + h)
+      continue
+    }
+    if (mood === 'waiting') {
+      blob(x0, mid, y0 + eh)
+      continue
+    }
+    blob(x0, y0, y0 + eh)
   }
   return out
 }
 
 const TICK: Record<Mood, number> = {
   idle: 0,
+  wink: 0,
+  surprised: 0,
+  love: 0,
   listening: 0,
   waiting: 0,
   sleep: 0,
@@ -142,6 +195,8 @@ export function PixelFace(props: {
   gap?: number
   className?: string
   glow?: boolean
+  /** Where the eyes look, in cells (x, y). Omit to let an idle face glance around on its own. */
+  look?: readonly [number, number]
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
@@ -151,10 +206,11 @@ export function PixelFace(props: {
   const [frame, setFrame] = useState(0)
   const [blinking, setBlinking] = useState(false)
   const [glance, setGlance] = useState<readonly [number, number]>([0, 0])
+  const following = props.look !== undefined
 
   // Idle faces glance around now and then, so the screen never looks frozen.
   useEffect(() => {
-    if (reduce || (props.mood !== 'idle' && props.mood !== 'waiting')) return
+    if (reduce || following || (props.mood !== 'idle' && props.mood !== 'waiting')) return
     const spots = [
       [0, 0],
       [0, 0],
@@ -179,7 +235,7 @@ export function PixelFace(props: {
       clearTimeout(timer)
       setGlance([0, 0])
     }
-  }, [props.mood, reduce])
+  }, [props.mood, reduce, following])
 
   useEffect(() => {
     const ms = TICK[props.mood]
@@ -207,12 +263,14 @@ export function PixelFace(props: {
     return () => clearTimeout(timer)
   }, [props.mood, reduce])
 
+  const lookX = props.look?.[0] ?? glance[0]
+  const lookY = props.look?.[1] ?? glance[1]
   const lit = useMemo(() => {
     const set = new Set<string>()
-    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, glance))
+    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY]))
       if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
     return set
-  }, [props.mood, cols, rows, frame, blinking, glance])
+  }, [props.mood, cols, rows, frame, blinking, lookX, lookY])
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap

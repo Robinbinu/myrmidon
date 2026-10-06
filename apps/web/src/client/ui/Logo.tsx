@@ -1,31 +1,23 @@
-const COLS = 7
-const ROWS = 5
-const CELL = 2.9
-const GAP = 1
-const EYES = new Set(['1,1', '2,1', '1,2', '2,2', '1,3', '2,3', '4,1', '5,1', '4,2', '5,2', '4,3', '5,3'])
+import { useId } from 'react'
 
-/** The Myrmidon mark: the colony's face, two signal-amber eyes on a dark dot-matrix screen. */
+const CELL = 2.05
+const PITCH = 2.65
+/** One eye: a 4×4 pixel blob with its corners trimmed, exactly like the mascot's. */
+const EYE = ['.##.', '####', '####', '.##.']
+const EYE_W = 3 * PITCH + CELL
+const SPACING = 3.4
+const X0 = (32 - (EYE_W * 2 + SPACING)) / 2
+const Y0 = (32 - EYE_W) / 2 + 0.4
+
+const CELLS = [X0, X0 + EYE_W + SPACING].flatMap((ex) =>
+  EYE.flatMap((row, y) =>
+    [...row].flatMap((ch, x) => (ch === '#' ? [{ x: ex + x * PITCH, y: Y0 + y * PITCH }] : [])),
+  ),
+)
+
+/** The Myrmidon mark: the mascot's two pixel eyes on a dark glass tile. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
-  const x0 = (32 - (COLS * CELL + (COLS - 1) * GAP)) / 2
-  const y0 = (32 - (ROWS * CELL + (ROWS - 1) * GAP)) / 2
-  const cells = []
-  for (let y = 0; y < ROWS; y++) {
-    for (let x = 0; x < COLS; x++) {
-      const eye = EYES.has(`${x},${y}`)
-      cells.push(
-        <rect
-          key={`${x},${y}`}
-          x={x0 + x * (CELL + GAP)}
-          y={y0 + y * (CELL + GAP)}
-          width={CELL}
-          height={CELL}
-          rx={0.85}
-          fill={eye ? '#ffb31a' : '#ffffff'}
-          opacity={eye ? 1 : 0.07}
-        />,
-      )
-    }
-  }
+  const id = useId()
   return (
     <svg
       width={size}
@@ -35,7 +27,20 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
       role="img"
       aria-label="Myrmidon"
     >
-      <rect width="32" height="32" rx="9" fill="#0b0b0d" />
+      <defs>
+        <linearGradient id={`${id}t`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1d1d22" />
+          <stop offset="1" stopColor="#09090b" />
+        </linearGradient>
+        <linearGradient id={`${id}e`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffc847" />
+          <stop offset="1" stopColor="#ff9d0a" />
+        </linearGradient>
+        <filter id={`${id}g`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="1.6" />
+        </filter>
+      </defs>
+      <rect width="32" height="32" rx="9" fill={`url(#${id}t)`} />
       <rect
         x="0.5"
         y="0.5"
@@ -44,9 +49,24 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
         rx="8.5"
         fill="none"
         stroke="#ffffff"
-        strokeOpacity="0.1"
+        strokeOpacity="0.09"
       />
-      {cells}
+      <g filter={`url(#${id}g)`} opacity="0.55">
+        {CELLS.map((c) => (
+          <rect key={`g${c.x},${c.y}`} x={c.x} y={c.y} width={CELL} height={CELL} rx={0.55} fill="#ffb31a" />
+        ))}
+      </g>
+      {CELLS.map((c) => (
+        <rect
+          key={`${c.x},${c.y}`}
+          x={c.x}
+          y={c.y}
+          width={CELL}
+          height={CELL}
+          rx={0.55}
+          fill={`url(#${id}e)`}
+        />
+      ))}
     </svg>
   )
 }
