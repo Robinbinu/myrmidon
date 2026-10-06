@@ -89,6 +89,8 @@ export interface ServerSettings {
     judgeModel?: string
     wallMinutes: number
     maxTurns: number
+    costUsd: number
+    tokens: number
   }
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
   verification: { threshold: number; rubric?: string }
@@ -1251,6 +1253,38 @@ function TeamSection(props: {
           </Field>
         </Row>
         <Row>
+          <Field
+            label="Spend limit per round"
+            hint="The round stops at this cost; at 80% agents are told to wrap up. 0 means no limit."
+            inline
+          >
+            <NumberField
+              value={t.costUsd}
+              min={0}
+              max={1000}
+              step={0.1}
+              suffix="$"
+              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field
+            label="Token limit per round"
+            hint="Counts every token the models process, cached input included. 0 means no limit."
+            inline
+          >
+            <NumberField
+              value={t.tokens}
+              min={0}
+              max={1_000_000_000}
+              suffix="tok"
+              wide
+              onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
+            />
+          </Field>
+        </Row>
+        <Row>
           <Field label="Turns per agent" hint="Each agent stops after this many turns." inline>
             <NumberField
               value={t.maxTurns}
@@ -1286,6 +1320,8 @@ function NumberField(props: {
   max: number
   suffix?: string
   step?: number
+  /** For values with many digits, such as token counts. */
+  wide?: boolean
   onChange(v: number): void
 }) {
   return (
@@ -1300,7 +1336,7 @@ function NumberField(props: {
           const v = Number(e.target.value)
           if (Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
         }}
-        className="w-24 text-right tabular-nums"
+        className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
       />
       {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
     </div>

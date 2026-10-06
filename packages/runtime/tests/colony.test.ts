@@ -134,6 +134,30 @@ test('agents cannot escape their scratch directory', async () => {
   expect(outputs[1]?.output).toContain('invalid artifact name')
 })
 
+test('a token budget stops the colony once the models have used it', async () => {
+  const resolver = new ModelResolver()
+  let calls = 0
+  const mock = createMockModel({
+    handler: () => {
+      calls += 1
+      return { content: [tool('post', { text: `step ${calls}` })], usage: { input: 400, output: 100 } }
+    },
+  })
+  resolver.register('mock/hungry', { model: mock.model, streamFn: mock.stream })
+  const spec = parseColonySpec({
+    name: 'Tokens',
+    mission: 'Keep going.',
+    agents: [{ name: 'hungry', model: 'mock/hungry' }],
+    budget: { wall: '20s', tokens: 1200 },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  const final = await run.done
+  expect(final.status).toBe('stopped')
+  expect(final.statusReason).toContain('tokens reached limit 1,200')
+  expect(calls).toBeLessThan(6)
+})
+
 test('recovery marks colonies with a dead runner process as stopped', async () => {
   const { colonyId } = await import('@myrmidon/core')
   const { recoverOrphans } = await import('../src/index.ts')

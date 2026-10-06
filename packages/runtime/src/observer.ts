@@ -46,6 +46,16 @@ export class FactualObserver {
         })
       }
     }
+    if (s.budget.tokens !== undefined) {
+      const used = Object.values(s.agents).reduce((n, a) => n + a.tokens, 0)
+      if (used >= 0.8 * s.budget.tokens && this._once('tokens-0.8')) {
+        out.push({
+          kind: 'budget',
+          severity: 'warn',
+          facts: `${used.toLocaleString('en-US')} of ${s.budget.tokens.toLocaleString('en-US')} tokens used. Finish and deliver what is done; say what is missing.`,
+        })
+      }
+    }
     const progress = Math.max(
       0,
       ...s.board.map((b) => b.seq),

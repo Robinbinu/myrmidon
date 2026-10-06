@@ -297,6 +297,7 @@ export class ColonyRun implements ColonyHost {
           wallMs: this.spec.budget.wallMs,
           maxTurns: this.spec.budget.maxTurns,
           ...(this.spec.budget.costUsd !== undefined ? { costUsd: this.spec.budget.costUsd } : {}),
+          ...(this.spec.budget.tokens !== undefined ? { tokens: this.spec.budget.tokens } : {}),
         },
         unsafeNoSandbox: this.unsafeNoSandbox,
         ...(this.spec.chat
@@ -756,10 +757,16 @@ export class ColonyRun implements ColonyHost {
           if ((e.payload as EventPayloads['agent/turn']).phase === 'end') this._remindHolder(agent)
           break
         }
-        const limit = this.spec.budget.costUsd
-        if (limit === undefined) break
-        const spent = Object.values(this._state.agents).reduce((n, a) => n + a.cost, 0)
-        if (spent >= limit) void this.stop(`budget: cost $${spent.toFixed(3)} reached limit $${limit}`)
+        const { costUsd, tokens } = this.spec.budget
+        const agents = Object.values(this._state.agents)
+        const spent = agents.reduce((n, a) => n + a.cost, 0)
+        const used = agents.reduce((n, a) => n + a.tokens, 0)
+        if (costUsd !== undefined && spent >= costUsd)
+          void this.stop(`budget: cost $${spent.toFixed(3)} reached limit $${costUsd}`)
+        else if (tokens !== undefined && used >= tokens)
+          void this.stop(
+            `budget: ${used.toLocaleString('en-US')} tokens reached limit ${tokens.toLocaleString('en-US')}`,
+          )
         break
       }
     }

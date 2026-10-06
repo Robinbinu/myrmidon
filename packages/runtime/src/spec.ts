@@ -36,7 +36,7 @@ export interface ColonySpec {
   pattern: 'blackboard' | 'lead-workers'
   agents: AgentSpec[]
   acceptance: AcceptanceCheck[]
-  budget: { wallMs: number; costUsd?: number; maxTurns: number }
+  budget: { wallMs: number; costUsd?: number; tokens?: number; maxTurns: number }
   observer: { intervalMs: number }
   /** Model used to review individual task submissions; omit to accept tasks whose artifacts exist. */
   taskJudge?: string
@@ -105,6 +105,7 @@ const rawSchema = Schema.object({
   budget: Schema.object({
     wall: Schema.union([String, Number]).default('15m'),
     costUsd: Schema.number(),
+    tokens: Schema.natural(),
     maxTurns: Schema.natural().default(40),
   }).default({ wall: '15m', maxTurns: 40 }),
   observer: Schema.object({ interval: Schema.union([String, Number]).default('30s') }).default({
@@ -152,6 +153,7 @@ export function parseColonySpec(input: unknown, readFile: (path: string) => stri
     budget: {
       wallMs: parseDuration(raw.budget.wall),
       ...(raw.budget.costUsd !== undefined ? { costUsd: raw.budget.costUsd } : {}),
+      ...(raw.budget.tokens !== undefined ? { tokens: raw.budget.tokens } : {}),
       maxTurns: raw.budget.maxTurns,
     },
     observer: { intervalMs: parseDuration(raw.observer.interval) },

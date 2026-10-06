@@ -85,7 +85,8 @@ Requests queued while other work is in progress. Top of each section is next.
       in both modes; record wall time, tokens, tool calls, workers spawned, worker turns before first task,
       verification rounds, judge score; fail on tier mismatch or budget breach.
 - [x] Observer counts tool calls as progress (no stall warnings mid-research).
-- [ ] Per-colony token budget (`budget.tokens`), enforced like the cost limit.
+- [x] Per-round token budget (`budget.tokens`) and, for chat rounds, spend and token limits in Settings → Team &
+      budget; at 80% agents are told to wrap up, at 100% the round stops.
 - [ ] Global chat/colony index in SQLite so the chat list doesn't open every colony log.
 - [x] Harden the timing-sensitive tests: five tests waited on wall-clock (a 1s stall tick that ignored `quietMs`,
       and an 8s quiet wait after `ask_user`); the round now pauses as soon as a question is open and everyone is

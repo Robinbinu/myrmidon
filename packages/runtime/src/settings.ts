@@ -36,6 +36,9 @@ export interface MyrSettings {
     judgeModel?: string
     wallMinutes: number
     maxTurns: number
+    /** Per-round limits; 0 means no limit. */
+    costUsd: number
+    tokens: number
   }
   tools: Record<ToolGroup, boolean>
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
@@ -57,6 +60,8 @@ export const settingsSchema = Schema.object({
     judgeModel: Schema.string(),
     wallMinutes: Schema.number().min(1).max(240).default(30),
     maxTurns: Schema.natural().min(1).max(200).default(40),
+    costUsd: Schema.number().min(0).max(1000).default(0),
+    tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
   tools: Schema.object({
     shell: Schema.boolean().default(true),

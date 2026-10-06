@@ -583,6 +583,10 @@ export class ChatService {
           .flatMap((g) => [...TOOL_GROUPS[g]])
       : []
     const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
+    const limits = {
+      ...(s?.team.costUsd ? { costUsd: s.team.costUsd } : {}),
+      ...(s?.team.tokens ? { tokens: s.team.tokens } : {}),
+    }
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     return {
       name: title(request),
@@ -604,8 +608,8 @@ export class ChatService {
             ],
       budget:
         tier === 'answer'
-          ? { wallMs: Math.min(wallMs, 4 * 60_000), maxTurns: 4 }
-          : { wallMs, maxTurns: s?.team.maxTurns ?? 40 },
+          ? { wallMs: Math.min(wallMs, 4 * 60_000), maxTurns: 4, ...limits }
+          : { wallMs, maxTurns: s?.team.maxTurns ?? 40, ...limits },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
       chat: { chatId, round: previous.length + 1, request, history },

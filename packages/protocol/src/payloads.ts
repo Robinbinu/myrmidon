@@ -57,7 +57,8 @@ export interface EventPayloads {
     pattern: string
     agents: AgentInfo[]
     acceptance: unknown[]
-    budget: { wallMs: number; costUsd?: number; maxTurns?: number }
+    /** `tokens` counts every token the models process, cached input included (what the run card shows). */
+    budget: { wallMs: number; costUsd?: number; tokens?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
     chat?: {
       chatId: string

@@ -50,6 +50,7 @@ const defs: EventTypeDefinition[] = [
       budget: Schema.object({
         wallMs: Schema.natural().required(),
         costUsd: Schema.number(),
+        tokens: Schema.natural(),
         maxTurns: Schema.natural(),
       }),
       unsafeNoSandbox: Schema.boolean().default(false),
