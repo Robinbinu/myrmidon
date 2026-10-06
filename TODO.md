@@ -2,13 +2,15 @@
 
 Requests queued while other work is in progress. Top of each section is next.
 
-## In progress
+## Done this session (not listed below)
 
-- [ ] **Two team modes + Fable's orchestration fixes** — Orchestrated (lead + specialist roster, per-role
-      models, dormant workers, assigned tasks, lead has no shell/fs) and Swarm (seeded peers, one plan note,
-      task dedupe, output ownership, lease release, speaker on `task-final`); triage tiers (answer / solo /
-      team); auto-verify on the final answer; `ask_user` pause; harness docs + `read_docs` + capability
-      summary in prompts. Runtime done; tests, team picker UI, and run/workspace views remaining.
+- [x] **Two team modes + Fable's orchestration fixes** — orchestrated (lead + specialist roster, per-role models,
+      dormant workers, lead has no web/shell/fs) and swarm; triage tiers; auto-verify; `ask_user`; harness docs,
+      `read_docs`, capability summary; team picker UI; run/workspace views.
+- [x] **Swarm never spins up a lead** — one-agent swarm rounds use a peer; solo-tier work goes to the whole swarm.
+- [x] **Context stored and reused on resume** — per-agent JSONL transcripts (like omp/Claude Code sessions).
+- [x] Live-run fixes: ordered `create_task` in one batch, blocked tasks don't wake assignees, numbered tasks not
+      deduped, no peer-made "final answer" task, `task-final` points to `reply_user`.
 
 ## Next
 
@@ -72,17 +74,17 @@ Reviewer's top three: escalation (2), judging by type of work (1), budget visibi
       (overlaps "per-colony token budget" above); cap spawn_worker per round with a cost check; graceful
       wind-down near the limit (publish what is done, say what is missing). Have: `observe` for team agents,
       wall-time and cost limits, maxWorkers.
-- [ ] **Coordination hardening** — wake the lead (or requeue) when a task is released; `reject_task` with a
-      required reason; restrict `request_final_verification` to the lead/speaker. Have: claim leases expire
-      after 120s idle (LEASE_MS).
+- [ ] **Coordination hardening** — `reject_task` with a required reason; restrict `request_final_verification` to
+      the lead/speaker. Have: claim leases expire after 120s idle (LEASE_MS), and a released task wakes the lead
+      (orchestrated) or the idle peers (swarm).
 - [ ] **Use the event log** — read-only filtered log view for agents; replay/step-through and run diff in the
       UI (Compare runs exists, extend it); replay saved rounds against new models/prompts as an eval set
       (ties into the eval harness above).
 - [ ] **Memory across rounds** — per-user preferences/decisions store with provenance and an editor; per-chat
       "lessons learned" note the lead reads at kickoff. Have: plan note and files carry between rounds.
 - [ ] **Stronger tools** — code execution wherever needed; CSV/JSON/spreadsheet tools; browser automation for
-      dynamic pages (omp has a browser); MCP + plugins with per-round permissions (MCP item above); file
-      uploads (in progress).
+      dynamic pages (omp has a browser); MCP + plugins with per-round permissions (MCP item above). Have: file
+      uploads.
 - [ ] **Human in the loop** — non-blocking `check_in` alongside blocking `ask_user`; show the plan before an
       expensive team round for approve/edit (fits plan mode in the omp-features item); live board streaming.
 - [ ] **Public benchmarks** — SWE-bench, GAIA, BrowseComp + own suite; report accuracy and cost per solved
