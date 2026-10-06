@@ -1,0 +1,7 @@
+{
+  "name": "@myrmidon/protocol",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": { ".": "./src/index.ts" }
+}

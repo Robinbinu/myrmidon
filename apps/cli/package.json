@@ -1,0 +1,14 @@
+{
+  "name": "@myrmidon/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "myrmidon": "./src/main.ts"
+  },
+  "dependencies": {
+    "@myrmidon/core": "workspace:*",
+    "@myrmidon/runtime": "workspace:*",
+    "@myrmidon/web": "workspace:*"
+  }
+}
