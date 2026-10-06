@@ -17,9 +17,21 @@ export interface SandboxResult {
   readonly timedOut: boolean
 }
 
+/** A long-running confined process, such as a dev server. */
+export interface SandboxProcess {
+  readonly pid: number
+  /** The latest output (stdout and stderr interleaved), up to 64 KB. */
+  output(): string
+  /** Resolves with the exit code once the process ends. */
+  readonly exited: Promise<number | null>
+  stop(): void
+}
+
 export interface Sandbox {
   readonly kind: 'sandbox-exec' | 'bubblewrap' | 'none'
   run(spec: SandboxRun): Promise<SandboxResult>
+  /** Starts a process that keeps running (no timeout) until stopped; same confinement as `run`. */
+  start(spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess
 }
 
 const MAX_OUTPUT = 64 * 1024
@@ -46,12 +58,56 @@ function macProfile(writable: readonly string[]) {
   ].join('\n')
 }
 
-async function spawnConfined(argv: string[], spec: SandboxRun): Promise<SandboxResult> {
+function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
   const tmp = join(spec.writable[0] ?? spec.cwd, '.tmp')
   mkdirSync(tmp, { recursive: true })
+  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: spec.cwd, TMPDIR: tmp, ...spec.env }
+}
+
+function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess {
+  const proc = Bun.spawn(argv, { cwd: spec.cwd, env: confinedEnv(spec), stdout: 'pipe', stderr: 'pipe' })
+  let output = ''
+  const drain = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder()
+    for await (const chunk of stream) {
+      output += decoder.decode(chunk, { stream: true })
+      if (output.length > MAX_OUTPUT) output = output.slice(-MAX_OUTPUT)
+    }
+  }
+  void drain(proc.stdout)
+  void drain(proc.stderr)
+  return {
+    pid: proc.pid,
+    output: () => output,
+    exited: proc.exited.then((code) => (proc.signalCode ? null : code)),
+    stop: () => {
+      killTree(proc.pid, 'SIGTERM')
+      setTimeout(() => {
+        if (proc.exitCode === null && !proc.signalCode) killTree(proc.pid, 'SIGKILL')
+      }, 3000).unref()
+    },
+  }
+}
+
+/** Signals a process and all its descendants: a dev server is usually a shell running npm running the real server. */
+function killTree(pid: number, signal: 'SIGTERM' | 'SIGKILL') {
+  const children = new TextDecoder()
+    .decode(Bun.spawnSync(['pgrep', '-P', String(pid)]).stdout)
+    .split('\n')
+    .map(Number)
+    .filter((n) => n > 0)
+  for (const child of children) killTree(child, signal)
+  try {
+    process.kill(pid, signal)
+  } catch {
+    // Already gone.
+  }
+}
+
+async function spawnConfined(argv: string[], spec: SandboxRun): Promise<SandboxResult> {
   const proc = Bun.spawn(argv, {
     cwd: spec.cwd,
-    env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: spec.cwd, TMPDIR: tmp, ...spec.env },
+    env: confinedEnv(spec),
     stdout: 'pipe',
     stderr: 'pipe',
     timeout: spec.timeoutMs,
@@ -69,39 +125,49 @@ async function spawnConfined(argv: string[], spec: SandboxRun): Promise<SandboxR
 /** Picks the OS confinement backend. Returns `none` when no backend exists; callers must refuse exec tools then. */
 export function detectSandbox(): Sandbox {
   if (process.platform === 'darwin' && Bun.which('sandbox-exec')) {
+    const argv = (spec: Omit<SandboxRun, 'timeoutMs'>) => [
+      'sandbox-exec',
+      '-p',
+      macProfile(spec.writable),
+      '/bin/sh',
+      '-c',
+      spec.command,
+    ]
     return {
       kind: 'sandbox-exec',
-      run: (spec) =>
-        spawnConfined(['sandbox-exec', '-p', macProfile(spec.writable), '/bin/sh', '-c', spec.command], spec),
+      run: (spec) => spawnConfined(argv(spec), spec),
+      start: (spec) => startConfined(argv(spec), spec),
     }
   }
   const bwrap = process.platform === 'linux' ? Bun.which('bwrap') : null
   if (bwrap) {
+    const argv = (spec: Omit<SandboxRun, 'timeoutMs'>) => [
+      bwrap,
+      '--ro-bind',
+      '/',
+      '/',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      ...spec.writable.flatMap((d) => ['--bind', d, d]),
+      '--unshare-pid',
+      '--die-with-parent',
+      '--chdir',
+      spec.cwd,
+      '/bin/sh',
+      '-c',
+      spec.command,
+    ]
     return {
       kind: 'bubblewrap',
-      run: (spec) =>
-        spawnConfined(
-          [
-            bwrap,
-            '--ro-bind',
-            '/',
-            '/',
-            '--dev',
-            '/dev',
-            '--proc',
-            '/proc',
-            ...spec.writable.flatMap((d) => ['--bind', d, d]),
-            '--unshare-pid',
-            '--die-with-parent',
-            '--chdir',
-            spec.cwd,
-            '/bin/sh',
-            '-c',
-            spec.command,
-          ],
-          spec,
-        ),
+      run: (spec) => spawnConfined(argv(spec), spec),
+      start: (spec) => startConfined(argv(spec), spec),
     }
   }
-  return { kind: 'none', run: (spec) => spawnConfined(['/bin/sh', '-c', spec.command], spec) }
+  return {
+    kind: 'none',
+    run: (spec) => spawnConfined(['/bin/sh', '-c', spec.command], spec),
+    start: (spec) => startConfined(['/bin/sh', '-c', spec.command], spec),
+  }
 }

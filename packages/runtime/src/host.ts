@@ -59,6 +59,14 @@ export interface ColonyHost {
    * it, it times out, or the round stops first.
    */
   requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
+  /**
+   * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if
+   * given, else at the first local URL it prints. Returns that URL.
+   */
+  startServer(agent: string, name: string, command: string, port?: number): Promise<string>
+  /** The latest output of a server this colony started. */
+  serverLogs(name: string): string
+  stopServer(name: string, reason: string): Promise<void>
   /** What this round changed in its project folder, as a unified diff; undefined outside projects. */
   projectDiff(): Promise<string | undefined>
 }

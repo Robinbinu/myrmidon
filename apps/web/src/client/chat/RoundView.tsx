@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleStop,
   Copy,
+  ExternalLink,
   FileCode,
   FileText,
   LoaderCircle,
@@ -163,6 +164,7 @@ export function RoundView(props: {
           onInspect={setInspect}
         />
       </motion.div>
+      <LiveServers state={state} />
       <ApprovalCards colonyId={props.colonyId} state={state} />
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
       {files.length > 0 && (
@@ -321,6 +323,34 @@ function AgentMessage(props: { from: string; text: string; final: boolean; onIns
         </div>
       </div>
     </motion.div>
+  )
+}
+
+/** Dev servers the agents started that are still running, with a link to open each in your browser. */
+function LiveServers({ state }: { state: ColonyState }) {
+  const live = Object.values(state.servers).filter((s) => !s.stopped)
+  if (live.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-[13px]">
+      <span className="relative flex size-2">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
+        <span className="relative inline-flex size-2 rounded-full bg-ok" />
+      </span>
+      {live.map((s) => (
+        <a
+          key={s.name}
+          href={s.url}
+          target="_blank"
+          rel="noreferrer"
+          title={`${s.command} (started by ${s.agent})`}
+          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 hover:bg-surface-2"
+        >
+          <span className="font-medium">{s.name}</span>
+          <span className="font-mono text-[12px] text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
+          <ExternalLink className="size-3.5 text-muted" />
+        </a>
+      ))}
+    </div>
   )
 }
 

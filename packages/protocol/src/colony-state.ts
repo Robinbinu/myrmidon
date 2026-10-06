@@ -107,6 +107,8 @@ export interface ColonyState {
   mail: MailEntry[]
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
+  /** Dev servers agents started, by name; `stopped` is set once one ends. */
+  servers: Record<string, EventPayloads['server/started'] & { time: string; stopped?: string }>
   /** Tool calls waiting for the person, and how earlier ones were decided. */
   approvals: Record<
     string,
@@ -153,6 +155,7 @@ export function emptyColonyState(id: string): ColonyState {
     madeTools: {},
     checkpoints: {},
     approvals: {},
+    servers: {},
     verdicts: [],
     signals: [],
     chatMessages: [],
@@ -215,6 +218,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'server/started': {
+      const p = event.payload as EventPayloads['server/started']
+      state.servers[p.name] = { ...p, time: event.time }
+      break
+    }
+    case 'server/stopped': {
+      const p = event.payload as EventPayloads['server/stopped']
+      const server = state.servers[p.name]
+      if (server) server.stopped = p.reason
       break
     }
     case 'approval/requested': {

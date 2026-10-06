@@ -152,6 +152,23 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'server/started': {
+        const p = e.payload as EventPayloads['server/started']
+        out.push({
+          ...base,
+          kind: 'shell',
+          agent: p.agent,
+          lead: `Started ${p.name} at`,
+          strong: p.url,
+          tail: cut(p.command, 80),
+        })
+        break
+      }
+      case 'server/stopped': {
+        const p = e.payload as EventPayloads['server/stopped']
+        out.push({ ...base, kind: 'shell', agent: 'system', lead: `Stopped ${p.name}`, tail: p.reason })
+        break
+      }
       case 'approval/requested': {
         const p = e.payload as EventPayloads['approval/requested']
         asked.set(p.id, p)

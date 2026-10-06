@@ -360,6 +360,54 @@ test('a running agent can be switched to another model from its next step', asyn
   expect(switched?.payload).toEqual({ agent: 'worker', model: 'mock/two', previous: 'mock/one' })
 })
 
+test.skipIf(detectSandbox().kind === 'none')(
+  'dev servers start in the sandbox, are reachable, log, and stop with their children',
+  async () => {
+    const port = 41000 + Math.floor(Math.random() * 2000)
+    const other = port + 1
+    const serve = (p: number, print: boolean) =>
+      `bun -e "Bun.serve({ port: ${p}, fetch: () => new Response('hello from ${p}') }); ${print ? `console.log('Local: http://localhost:${p}/')` : ''}"`
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/dev', [
+      [tool('start_server', { command: serve(port, false), port })],
+      [tool('start_server', { command: serve(other, true), name: 'api' })],
+      [
+        tool('shell', {
+          command: `curl -s http://localhost:${port}/ && echo && curl -s http://localhost:${other}/`,
+        }),
+      ],
+      [tool('server_logs', { name: 'api' })],
+      [tool('stop_server', {})],
+    ])
+    const spec = parseColonySpec({
+      name: 'Dev',
+      mission: 'Serve.',
+      agents: [
+        { name: 'dev', model: 'mock/dev', tools: ['start_server', 'server_logs', 'stop_server', 'shell'] },
+      ],
+      budget: { wall: '30s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+    await run.start()
+    const final = await run.done
+    const results = (await runtime.ctx.log.read(run.id))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as { tool: string; ok: boolean; output: string })
+    expect(results[0]?.output).toContain(`dev is serving at http://localhost:${port}`)
+    expect(results[1]?.output).toContain(`api is serving at http://localhost:${other}`)
+    expect(results[2]?.output).toContain(`hello from ${port}`)
+    expect(results[2]?.output).toContain(`hello from ${other}`)
+    expect(results[3]?.output).toContain(`Local: http://localhost:${other}/`)
+    expect(results[4]?.output).toBe('stopped dev')
+    expect(final.servers.dev?.stopped).toBe('stopped by dev')
+    // The round ending stopped the other one too, and nothing is left listening.
+    expect(final.servers.api?.stopped).toBe('the round ended')
+    await Bun.sleep(500)
+    for (const p of [port, other])
+      await expect(fetch(`http://localhost:${p}/`, { signal: AbortSignal.timeout(1000) })).rejects.toThrow()
+  },
+)
+
 test('recovery marks colonies with a dead runner process as stopped', async () => {
   const { colonyId } = await import('@myrmidon/core')
   const { recoverOrphans } = await import('../src/index.ts')

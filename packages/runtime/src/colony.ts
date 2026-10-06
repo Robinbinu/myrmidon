@@ -31,7 +31,7 @@ import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
 import { attachedNote, snapshot, toolsFor } from './patterns.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
-import { detectSandbox, type Sandbox } from './sandbox.ts'
+import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import { guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
@@ -82,6 +82,21 @@ export interface RunOptions {
 }
 
 const QUIET_NUDGES = 2
+/** Dev servers one colony may run at once, and how long one gets to start serving. */
+const MAX_SERVERS = 3
+const SERVER_START_MS = 60_000
+
+/** Whether something accepts TCP connections on this local port. */
+async function listening(port: number): Promise<boolean> {
+  try {
+    const socket = await Bun.connect({ hostname: '127.0.0.1', port, socket: { data() {} } })
+    socket.end()
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** How long a tool call waits for the person's approval before it is denied. */
 const APPROVAL_MS = 15 * 60_000
 /** Stop reason for a chat round that ended with a question or update for the human. */
@@ -151,6 +166,7 @@ export class ColonyRun implements ColonyHost {
   /** Reminders sent to agents that stopped with work open, keyed by agent and task (or todo list). */
   private readonly _reminded = new Map<string, number>()
   private readonly _approvals = new Map<string, (approved: boolean) => void>()
+  private readonly _servers = new Map<string, SandboxProcess>()
   private readonly _todos = new Map<string, readonly TodoItem[]>()
 
   constructor(
@@ -250,6 +266,72 @@ export class ColonyRun implements ColonyHost {
       payload: { id, approved, by },
     })
     done(approved)
+  }
+
+  async startServer(agent: string, name: string, command: string, port?: number): Promise<string> {
+    if (this._servers.has(name)) throw new Error(`a server called ${name} is already running; stop it first`)
+    if (this._servers.size >= MAX_SERVERS) throw new Error(`at most ${MAX_SERVERS} servers may run at once`)
+    const cwd = this.workspace.workdir(agent)
+    const scratch = this.workspace.scratch(agent)
+    const readOnly = this.spec.chat?.project?.permissions?.mode === 'read-only'
+    const proc = this.sandbox.start({
+      command,
+      cwd,
+      writable: readOnly ? [scratch] : [...new Set([cwd, scratch])],
+      ...(port ? { env: { PORT: String(port) } } : {}),
+    })
+    this._servers.set(name, proc)
+    let ended = false
+    void proc.exited.then(() => {
+      ended = true
+      if (this._servers.get(name) === proc) {
+        this._servers.delete(name)
+        if (this._state.servers[name] && !this._state.servers[name]?.stopped)
+          void this.append({
+            type: 'server/stopped',
+            actor: SYSTEM,
+            payload: { name, reason: 'the process exited' },
+          })
+      }
+    })
+    const deadline = Date.now() + SERVER_START_MS
+    let url: string | undefined
+    while (!url && !ended && Date.now() < deadline) {
+      await Bun.sleep(300)
+      if (port) url = (await listening(port)) ? `http://localhost:${port}` : undefined
+      else {
+        const m = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{2,5})/.exec(proc.output())
+        if (m && (await listening(Number(m[1])))) url = `http://localhost:${m[1]}`
+      }
+    }
+    if (!url) {
+      proc.stop()
+      this._servers.delete(name)
+      const tail = proc.output().trim().split('\n').slice(-30).join('\n')
+      throw new Error(
+        `${ended ? 'the command exited' : `nothing served within ${SERVER_START_MS / 1000}s`}${port ? ` on port ${port}` : ' (no local URL printed; pass port)'}\n${tail}`,
+      )
+    }
+    await this.append({
+      type: 'server/started',
+      actor: agentActor(agent),
+      payload: { agent, name, command, url },
+    })
+    return url
+  }
+
+  serverLogs(name: string): string {
+    const proc = this._servers.get(name)
+    if (!proc) throw new Error(`no running server called ${name}`)
+    return proc.output()
+  }
+
+  async stopServer(name: string, reason: string): Promise<void> {
+    const proc = this._servers.get(name)
+    if (!proc) throw new Error(`no running server called ${name}`)
+    this._servers.delete(name)
+    proc.stop()
+    await this.append({ type: 'server/stopped', actor: SYSTEM, payload: { name, reason } })
   }
 
   projectDiff(): Promise<string | undefined> {
@@ -1128,6 +1210,8 @@ export class ColonyRun implements ColonyHost {
   }
 
   private async _end() {
+    for (const name of [...this._servers.keys()])
+      await this.stopServer(name, 'the round ended').catch(() => {})
     // Nothing may stay waiting on the person once the round is over.
     for (const id of [...this._approvals.keys()])
       await this.decideApproval(id, false, 'stopped').catch(() => {})

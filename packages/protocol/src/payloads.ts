@@ -136,6 +136,9 @@ export interface EventPayloads {
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
   'approval/requested': ApprovalRequest
+  /** An agent started a long-running process (a dev server) reachable at `url` on this machine. */
+  'server/started': { agent: string; name: string; command: string; url: string }
+  'server/stopped': { name: string; reason: string }
   'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
   'checkpoint/created': { commit: string; phase: 'start' | 'end' }

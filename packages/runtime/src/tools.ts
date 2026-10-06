@@ -1240,6 +1240,55 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'start_server',
+    tier: 'exec',
+    description:
+      "Start a long-running process, usually the project's dev server (e.g. `bun run dev`, `npm run dev`, " +
+      '`python -m http.server 8000`), in the sandbox. It returns once the server answers: on `port` if you give one ' +
+      '(it is also passed as $PORT), otherwise at the first local URL the command prints. Then open that URL with ' +
+      'browser_open to check the app the way a person would; the person can watch it in the Computer view. Read ' +
+      'output with server_logs; stop it with stop_server. Never use shell for servers: shell waits for commands to end.',
+    parameters: type({
+      command: type('string').atLeastLength(1),
+      'name?': type('string').describe('Short name, e.g. "web" (default "dev")'),
+      'port?': type('number').describe('Port it listens on, if known'),
+    }),
+    async run(args, agent, host) {
+      if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
+        throw new Error('servers need the OS sandbox')
+      const name = (args.name ?? 'dev').trim()
+      if (!/^[a-z0-9][a-z0-9-]{0,20}$/i.test(name))
+        throw new Error('name: letters, digits and dashes, up to 21')
+      if (args.port !== undefined && (!Number.isInteger(args.port) || args.port < 1024 || args.port > 65535))
+        throw new Error('port must be between 1024 and 65535')
+      await guardProjectCommand(host, agent, 'start_server', args.command)
+      const url = await host.startServer(agent, name, args.command, args.port)
+      return `${name} is serving at ${url}. Open it with browser_open; read its output with server_logs.`
+    },
+  },
+  {
+    name: 'server_logs',
+    tier: 'read',
+    description:
+      'The latest output (stdout and stderr) of a server you started with start_server: build errors, requests, crashes.',
+    parameters: type({ 'name?': type('string').describe('Default "dev"') }),
+    async run(args, _agent, host) {
+      const out = host.serverLogs((args.name ?? 'dev').trim())
+      return clip(out.trim().split('\n').slice(-200).join('\n') || '(no output yet)')
+    },
+  },
+  {
+    name: 'stop_server',
+    tier: 'exec',
+    description: 'Stop a server you started with start_server. Servers also stop when the round ends.',
+    parameters: type({ 'name?': type('string').describe('Default "dev"') }),
+    async run(args, agent, host) {
+      const name = (args.name ?? 'dev').trim()
+      await host.stopServer(name, `stopped by ${agent}`)
+      return `stopped ${name}`
+    },
+  },
+  {
     name: 'run_checks',
     tier: 'exec',
     description:
