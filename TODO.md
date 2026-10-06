@@ -18,6 +18,13 @@ Requests queued while other work is in progress. Top of each section is next.
 - [ ] **Steer vs queue for messages to a running colony** — like Claude Code: a message can *steer*
       (interrupt the current turn and be read immediately, top priority) or *queue* (wait until the agent
       finishes its current step, like omp). Composer control + `chat/user` payload flag; agent.ts steer vs inbox.
+- [ ] **Read receipts for messages sent mid-run** — when a steer/queued message is delivered to the lead, show it
+      as read, and move the live run card below it in the transcript (chronological interleave of user messages,
+      replies, and the run card); the lead can reply to it directly.
+- [ ] **Attach files as context** (like omp) — attach files/images in the composer; carried into the round as
+      artifacts or context the agents can read.
+- [ ] **Markdown artifacts** — render `.md` artifacts as markdown in the artifact viewer, with a Source toggle
+      to see the raw text and a copy button.
 - [ ] **MCP support** — let colonies use MCP servers (stdio/HTTP) as tools: config in Settings (import from
       omp's mcp.json), tool discovery, per-server enable, sandbox/approval rules, docs for agents.
 

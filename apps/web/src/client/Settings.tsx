@@ -79,7 +79,7 @@ interface ProviderBody {
 export interface ServerSettings {
   version: 1
   team: {
-    mode: 'auto' | 'manual'
+    mode: 'orchestrated' | 'swarm'
     workers: number
     leadModel?: string
     workerModel?: string
@@ -1031,9 +1031,9 @@ function TeamSection(props: {
                   s.team = {
                     ...s.team,
                     mode: c.mode,
-                    workers: c.workers,
+                    workers: c.roster.length,
                     leadModel: c.leadModel,
-                    workerModel: c.workerModel,
+                    ...(c.roster[0] ? { workerModel: c.roster[0].model } : {}),
                     judgeModel: c.judgeModel,
                   }
                   return s

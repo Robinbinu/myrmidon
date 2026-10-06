@@ -15,7 +15,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { compact, duration, useCopy } from '../ui/hooks.ts'
 import {
   AgentAvatar,
@@ -37,11 +37,58 @@ import { currentStep, deriveSteps } from './steps.ts'
 
 export const AWAITING = 'awaiting your reply'
 
+/** How a round was run: the triage tier, and for team rounds the team mode. */
+export function modeLabel(state: ColonyState): string {
+  if (state.tier === 'answer') return 'Direct answer'
+  if (state.tier === 'solo') return 'Solo'
+  if (state.team?.mode === 'swarm') return 'Swarm'
+  return 'Orchestrated'
+}
+
 export function isRunning(status: string) {
   return status === 'running' || status === 'created'
 }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
+
+const STARTING = ['Reading your request', 'Choosing the right team', 'Starting the colony']
+
+/** Shown the moment a request is sent, until its round exists: the message and a thinking lead. */
+export function PendingRound({ text }: { text: string }) {
+  const [phase, setPhase] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setPhase((p) => Math.min(p + 1, STARTING.length - 1)), 2200)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <section className="flex flex-col gap-4" aria-busy="true">
+      <UserMessage text={text} />
+      <motion.div
+        {...enter}
+        className="flex items-center gap-3 rounded-2xl border border-work/35 bg-surface p-3 shadow-soft"
+      >
+        <span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-screen">
+          <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={phase}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18 }}
+              className="block text-[13.5px] font-semibold"
+            >
+              {STARTING[phase]}…
+            </motion.span>
+          </AnimatePresence>
+          <span className="block text-[12px] text-muted">The colony is getting ready</span>
+        </span>
+      </motion.div>
+    </section>
+  )
+}
 
 /** One round of a conversation: the request, live run card, files, replies, and verified outcome. */
 export function RoundView(props: {
@@ -259,7 +306,8 @@ function RunCard(props: {
           <span className="min-w-0 flex-1">
             <span className="block text-[13.5px] font-semibold">{head.title}</span>
             <span className="block truncate text-[12px] tabular-nums text-muted">
-              {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length} steps
+              {modeLabel(state)} · {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length}{' '}
+              steps
               {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {compact(m.tokens)} tokens
             </span>
           </span>
@@ -313,7 +361,7 @@ function RunCard(props: {
                     name={a.info.name}
                     status={a.status}
                     active={a.status === 'working'}
-                    detail={a.info.model.split('/').pop()}
+                    detail={a.info.specialty ?? a.info.model.split('/').pop()}
                   />
                 ))}
               </div>

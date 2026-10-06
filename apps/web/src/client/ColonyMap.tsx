@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useMemo } from 'react'
+import { AgentAvatar } from './ui/pixel.tsx'
 
 type AgentNodeData = { view: AgentView; task?: string; selected: boolean }
 
@@ -20,9 +21,9 @@ function AgentNode({ data }: NodeProps<Node<AgentNodeData>>) {
     <div className={`agent-node status-${view.status}${selected ? ' selected' : ''}`}>
       <Handle type="target" position={Position.Top} className="handle" />
       <div className="agent-node-head">
-        <span className={`dot status-${view.status}`} />
+        <AgentAvatar name={view.info.name} status={view.status} size={28} />
         <strong>{view.info.name}</strong>
-        <span className="muted">{view.info.role}</span>
+        <span className="muted">{view.info.specialty ?? view.info.role}</span>
       </div>
       <div className="agent-node-model">{view.info.model}</div>
       <div className="agent-node-meta">

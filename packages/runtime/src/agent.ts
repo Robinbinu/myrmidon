@@ -122,10 +122,12 @@ export class ColonyAgent {
     await this._status('working')
     await this._markDelivered(items)
     const timer = setTimeout(() => this._agent.abort('turn timeout'), TURN_TIMEOUT_MS)
+    const from = this._agent.state.messages.length
     try {
       await this._agent.prompt(render(items))
       const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
       this._failures = last?.role === 'assistant' && last.stopReason === 'error' ? this._failures + 1 : 0
+      await this._deliverUnsentAnswer(from)
     } catch (err) {
       this._failures += 1
       await this._status('working', `turn error: ${err instanceof Error ? err.message : String(err)}`)
@@ -141,6 +143,33 @@ export class ColonyAgent {
       type: 'agent/turn',
       actor: SYS,
       payload: { agent: this.name, phase: 'end', turn: this.turn, trigger },
+    })
+  }
+
+  /**
+   * A one-agent chat round whose turn ends in plain text, without reply_user or ask_user, has written its
+   * answer where the person cannot see it. Deliver that text as the final answer.
+   */
+  private async _deliverUnsentAnswer(from: number) {
+    const spec = this.host.spec
+    if (!spec.chat || spec.agents.length !== 1 || this._stopped) return
+    const turn = this._agent.state.messages
+      .slice(from)
+      .filter((m) => m.role === 'assistant') as AssistantMessage[]
+    const spoke = turn.some((m) =>
+      m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
+    )
+    const last = turn.at(-1)
+    const text =
+      last?.content
+        .flatMap((c) => (c.type === 'text' ? [c.text] : []))
+        .join('\n')
+        .trim() ?? ''
+    if (spoke || !last || last.stopReason !== 'stop' || text.length < 20) return
+    await this.host.append({
+      type: 'chat/reply',
+      actor: agentActor(this.name),
+      payload: { agent: this.name, text, final: true },
     })
   }
 
@@ -164,6 +193,10 @@ export class ColonyAgent {
   }
 
   private _onEvent(e: AgentEvent) {
+    if (e.type === 'turn_end') {
+      this.host.batchEnded(this.name)
+      return
+    }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
     const m = e.message as AssistantMessage
     // The abort that ends a stopped colony is not a model failure.

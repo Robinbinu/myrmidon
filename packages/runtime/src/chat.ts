@@ -96,9 +96,12 @@ export function llmClassifier(resolver: ModelResolver, model: () => string): Cla
       ),
       Bun.sleep(25_000).then(() => undefined),
     ])
-    const text = reply?.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('') ?? ''
+    if (!reply) throw new Error('triage timed out')
+    if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'triage call failed')
+    const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
     const tier = /"tier"\s*:\s*"(answer|solo|team)"/.exec(text)?.[1]
-    return (tier as Tier | undefined) ?? 'team'
+    if (!tier) throw new Error(`triage gave no tier: ${text.slice(0, 120)}`)
+    return tier as Tier
   }
 }
 
@@ -245,8 +248,13 @@ export class ChatService {
     const previous = (await this.rounds()).get(id) ?? []
     const history = conversation(previous)
     const classify = this.options.classify ?? llmClassifier(this.options.resolver, () => config.leadModel)
-    // A failed classification falls back to the full team: slower, but it can do anything.
-    const tier = await classify(message, history).catch(() => 'team' as const)
+    // One retry, then one agent with every tool: it can do anything a single agent can without waking a team.
+    const tier = await classify(message, history)
+      .catch(() => classify(message, history))
+      .catch((err) => {
+        console.warn(`triage failed, running solo: ${err instanceof Error ? err.message : String(err)}`)
+        return 'solo' as const
+      })
     const run = new ColonyRun(this.runtime, this.buildSpec(id, message, config, previous, history, tier), {
       resolver: this.options.resolver,
       ...(this.options.web ? { web: this.options.web } : {}),

@@ -37,8 +37,21 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
       return [...READ, ...TALK, 'create_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
     if (isLead(spec, agent)) {
       const spawn = (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 ? ['spawn_worker'] : []
-      // A lead that can do the work itself never delegates; in a team it plans, assigns, and integrates.
-      return [...READ, ...TALK, 'create_task', 'assign_task', ...HOLD, 'publish_artifact', ...USER, ...spawn]
+      // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
+      // It plans, assigns, reviews, integrates, and speaks; specialists research and build.
+      return [
+        'read_task',
+        ...LOOK,
+        'observe',
+        'read_docs',
+        ...TALK,
+        'create_task',
+        'assign_task',
+        ...HOLD,
+        'publish_artifact',
+        ...USER,
+        ...spawn,
+      ]
     }
     return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD]
   }
@@ -68,7 +81,8 @@ How this colony works:
 - Do not fabricate results. If something fails, say so and fix it.`
 
 const SPEAKER = `
-You are talking to a person through a chat.
+You are talking to a person through a chat. They see only what you send with reply_user or ask_user; anything else
+you write is invisible to them.
 - Work out what they actually want. Simple, conversational, or explanatory questions get a direct answer with
   reply_user(final: true): no research project, no files. Use web_search only when the answer depends on facts you
   do not reliably know, and keep it to one or two searches.
@@ -117,10 +131,12 @@ announce them on the board, review what workers publish, and integrate the final
 ${roster(spec, agent)}`
     return `You are the LEAD of an orchestrated team and you speak for it. Your specialists:
 ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spawn_worker(role, focus, model); models: ${spec.team?.workerModels.join(', ')}.` : ''}
-- You plan and integrate; you do not write code or run commands yourself.
-- For a job worth a team: append one note with section "plan", then create tasks with create_task(assignee,
-  outputs, blockedBy). Give each task to the specialist whose role and model fit it, one task per worker at a
-  time. Workers are asleep until assigned and see only their task, the plan, and the files.
+- You plan, assign, review, and integrate. You do not research, write code, or run commands yourself: you have no
+  web or shell tools here. Your specialists do that work.
+- Your first move: append one note with section "plan", then create tasks with create_task(assignee, outputs,
+  blockedBy). Give each task to the specialist whose role and model fit it, one task per worker at a time. If no
+  specialist fits a part of the job, add one with spawn_worker. Workers are asleep until assigned and see only
+  their task, the plan, and the files.
 - Then wait. You hear about every task verdict. Re-assign rejected work with assign_task.
 - When every task is verified, read the files and send the complete final answer with reply_user(final: true).`
   }

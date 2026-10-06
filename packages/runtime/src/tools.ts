@@ -59,15 +59,23 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
 
 const MENTION = /@([a-z][a-z0-9-]{0,31})/g
 
-/** Word-overlap similarity of two task subjects, 0 to 1; catches peers proposing the same task twice. */
+// Words every task subject shares; they say nothing about which task it is.
+const FILLER = new Set(
+  'the and for with from into about this that each all its are using use write build create make research draft add implement framework frameworks task tasks report file files code page'.split(
+    ' ',
+  ),
+)
+
+/** Content-word overlap (Jaccard) of two task subjects, 0 to 1; catches peers proposing the same task twice. */
 function similar(a: string, b: string): number {
-  const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+  const words = (s: string) =>
+    new Set((s.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter((w) => !FILLER.has(w)))
   const x = words(a)
   const y = words(b)
   if (x.size === 0 || y.size === 0) return 0
   let shared = 0
   for (const w of x) if (y.has(w)) shared += 1
-  return shared / Math.min(x.size, y.size)
+  return shared / (x.size + y.size - shared)
 }
 
 /** The swarm peer that currently speaks for the colony: whoever holds task-final. */

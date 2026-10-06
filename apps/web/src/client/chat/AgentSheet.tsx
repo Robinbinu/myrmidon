@@ -96,7 +96,7 @@ export function AgentSheet(props: {
             <div className="flex items-center gap-2">
               <h2 className="text-[20px] font-semibold tracking-tight">{props.name}</h2>
               <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
-                {lead ? 'lead' : agent.info.role}
+                {lead ? 'lead' : (agent.info.specialty ?? agent.info.role)}
               </span>
             </div>
             <div className="mt-1 flex items-center gap-1.5 text-[13px] text-fg-2">

@@ -6,6 +6,7 @@ import {
   type ChatSummary,
   type ColonySummary,
   type ModelOption,
+  normalizeConfig,
   post,
   send as request,
   type TeamConfig,
@@ -14,7 +15,7 @@ import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle } from './chat/Composer.tsx'
 import { Hero } from './chat/Hero.tsx'
-import { isRunning, RoundView } from './chat/RoundView.tsx'
+import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { Settings } from './Settings.tsx'
@@ -44,9 +45,9 @@ function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, strin
   return [data, load, error]
 }
 
-function readLocalConfig(): Partial<TeamConfig> {
+function readLocalConfig(): Record<string, unknown> {
   try {
-    return JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}') as Partial<TeamConfig>
+    return JSON.parse(localStorage.getItem(CONFIG_KEY) ?? '{}') as Record<string, unknown>
   } catch {
     return {}
   }
@@ -71,6 +72,8 @@ export function App() {
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** A request on its way: shown at once, until its round appears in the chat list. */
+  const [pending, setPending] = useState<{ text: string; chatId?: string; colonyId?: string }>()
   const [draft, setDraft] = useState('')
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
@@ -84,22 +87,18 @@ export function App() {
   }, [])
 
   const loadModels = useCallback(() => {
-    api<{ models: ModelOption[]; default?: string; defaults?: Partial<TeamConfig> }>('/api/models?hidden=1')
+    api<{ models: ModelOption[]; default?: string; defaults?: Record<string, unknown> }>(
+      '/api/models?hidden=1',
+    )
       .then((r) => {
         setModels(r.models)
         setConfig((current) => {
           if (current) return current
           const fallback = r.default ?? r.models[0]?.ref ?? ''
-          const server = r.defaults ?? {}
-          return {
-            mode: 'auto',
-            workers: 3,
-            leadModel: fallback,
-            workerModel: server.workerModel ?? fallback,
-            judgeModel: server.judgeModel ?? fallback,
-            ...Object.fromEntries(Object.entries(server).filter(([, v]) => v !== undefined)),
-            ...readLocalConfig(),
-          } as TeamConfig
+          const server = Object.fromEntries(
+            Object.entries(r.defaults ?? {}).filter(([, v]) => v !== undefined),
+          )
+          return normalizeConfig({ ...server, ...readLocalConfig() }, fallback)
         })
       })
       .catch((err) => toast(String(err.message ?? err), 'error'))
@@ -135,6 +134,12 @@ export function App() {
   const chat = chats.find((c) => c.chatId === activeChat)
   const running = !!chat && isRunning(chat.status)
 
+  // The pending card gives way once the chat list shows the round it started.
+  useEffect(() => {
+    if (pending?.colonyId && chats.some((c) => c.rounds.some((r) => r.colonyId === pending.colonyId)))
+      setPending(undefined)
+  }, [chats, pending])
+
   const newTask = useCallback(() => {
     setActiveChat(undefined)
     setView('chat')
@@ -158,6 +163,8 @@ export function App() {
       throw new Error('no model')
     }
     setBusy(true)
+    const startsRound = !chat || !running
+    if (startsRound) setPending({ text, ...(chatId ? { chatId } : {}) })
     try {
       const r = await post<{ chatId: string; colonyId: string; started: boolean }>('/api/chats', {
         text,
@@ -166,9 +173,14 @@ export function App() {
       })
       setActiveChat(r.chatId)
       setView('chat')
-      if (!r.started) toast('Sent to the lead', 'info')
+      if (r.started) setPending({ text, chatId: r.chatId, colonyId: r.colonyId })
+      else {
+        setPending(undefined)
+        toast('Sent to the lead', 'info')
+      }
       refreshChats()
     } catch (err) {
+      setPending(undefined)
       toast(String((err as Error).message ?? err), 'error')
       throw err
     } finally {
@@ -378,13 +390,16 @@ export function App() {
                       onStop={stop}
                     />
                   )
-                  return chat ? (
+                  const waiting =
+                    pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
+                  return chat || waiting ? (
                     <>
                       <Transcript
-                        chat={chat}
+                        {...(chat ? { chat } : {})}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
                         sending={busy}
+                        {...(waiting && pending ? { pending: pending.text } : {})}
                       />
                       {box}
                     </>
@@ -467,13 +482,16 @@ export function App() {
 }
 
 function Transcript(props: {
-  chat: ChatSummary
+  chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
   /** A message is on its way to the server; retry stays disabled until it lands. */
   sending: boolean
+  /** A request whose round has not started yet. */
+  pending?: string
 }) {
-  const running = isRunning(props.chat.status)
+  const running = !!props.chat && isRunning(props.chat.status)
+  const rounds = props.chat?.rounds ?? []
   const pane = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   // Follow new activity only while the reader is already at the bottom of the conversation.
@@ -491,14 +509,14 @@ function Transcript(props: {
       }}
     >
       <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
-        {props.chat.rounds.map((r, i) => (
+        {rounds.map((r, i) => (
           <div key={r.colonyId} className={cn(i > 0 && 'border-t border-line pt-8')}>
             <RoundView
               colonyId={r.colonyId}
               onOpenColony={props.onOpenColony}
               onRetry={props.onRetry}
               retry={
-                i === props.chat.rounds.length - 1 && !running
+                i === rounds.length - 1 && !running && !props.pending
                   ? props.sending
                     ? 'starting'
                     : 'ready'
@@ -507,6 +525,11 @@ function Transcript(props: {
             />
           </div>
         ))}
+        {props.pending && (
+          <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
+            <PendingRound text={props.pending} />
+          </div>
+        )}
       </div>
     </div>
   )

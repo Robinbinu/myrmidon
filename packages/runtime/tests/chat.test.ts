@@ -71,6 +71,13 @@ async function waitFor(
   throw new Error('colony did not reach the expected state')
 }
 
+const solo = (model: string): TeamConfig => ({
+  mode: 'orchestrated',
+  leadModel: model,
+  roster: [],
+  judgeModel: model,
+})
+
 const events = (colonyId: string) => runtime.ctx.log.read(colonyId as never)
 const turnsOf = (log: readonly MyrEvent[], agent: string) =>
   log.filter((e) => e.type === 'agent/turn' && (e.payload as EventPayloads['agent/turn']).agent === agent)
@@ -107,6 +114,7 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   expect(CALL_SIGNS as readonly string[]).toContain(writer)
   expect(round1.agents[writer]?.info.specialty).toBe('writer')
   expect(round1.agents.lead?.info.tools).not.toContain('shell')
+  expect(round1.agents.lead?.info.tools).not.toContain('web_search')
 
   const log = await events(first.colonyId)
   const firstTask = log.findIndex((e) => e.type === 'task/changed')
@@ -264,6 +272,20 @@ test('answer tier: one agent replies directly, with no team and no judge', async
   expect(s.agents.lead?.turns).toBe(1)
 })
 
+test('an answer written as plain text still reaches the person', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [['Life is self-sustaining chemistry capable of evolution.']])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const { colonyId } = await chats.send('what is life', solo('mock/lead'))
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.chatMessages.at(-1)).toMatchObject({
+    from: 'lead',
+    final: true,
+    text: 'Life is self-sustaining chemistry capable of evolution.',
+  })
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [
@@ -306,13 +328,6 @@ test('older auto/manual team configs still work', () => {
     { role: 'worker', model: 'c/d' },
     { role: 'worker', model: 'c/d' },
   ])
-})
-
-const solo = (model: string): TeamConfig => ({
-  mode: 'orchestrated',
-  leadModel: model,
-  roster: [],
-  judgeModel: model,
 })
 
 test('deleting a chat removes every round and its data', async () => {

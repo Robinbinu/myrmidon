@@ -417,6 +417,13 @@ export class ColonyRun implements ColonyHost {
     })
   }
 
+  batchEnded(agent: string): void {
+    const queued = this._afterBatch.get(agent)
+    if (!queued) return
+    this._afterBatch.delete(agent)
+    for (const announce of queued) announce()
+  }
+
   private _wake(name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) {
     // While the person is being asked something, nobody acts on anything else.
     if (this._awaiting) {
@@ -469,7 +476,9 @@ export class ColonyRun implements ColonyHost {
       }
       case 'observer/signal': {
         const p = e.payload as EventPayloads['observer/signal']
-        const targets = p.targets.length > 0 ? p.targets : [...this._agents.keys()]
+        const everyone =
+          this.spec.chat && this.spec.tier === 'team' ? this._stallTargets() : [...this._agents.keys()]
+        const targets = p.targets.length > 0 ? p.targets : everyone
         for (const t of targets) notify(t, `${p.kind} (${p.severity}): ${p.facts}`, `observer:${p.kind}`)
         break
       }
@@ -505,15 +514,10 @@ export class ColonyRun implements ColonyHost {
       }
       case 'agent/turn':
       case 'llm/response': {
+        // Fallback for wakes held past a batch: release them when the creator speaks again or ends its turn.
         const agent = (e.payload as { agent: string }).agent
-        const queued = this._afterBatch.get(agent)
-        if (
-          queued &&
-          (e.type === 'llm/response' || (e.payload as EventPayloads['agent/turn']).phase === 'end')
-        ) {
-          this._afterBatch.delete(agent)
-          for (const announce of queued) announce()
-        }
+        if (e.type === 'llm/response' || (e.payload as EventPayloads['agent/turn']).phase === 'end')
+          this.batchEnded(agent)
         if (e.type === 'agent/turn') break
         const limit = this.spec.budget.costUsd
         if (limit === undefined) break
@@ -597,12 +601,28 @@ export class ColonyRun implements ColonyHost {
       type: 'observer/signal',
       actor: { kind: 'observer', id: 'factual' },
       payload: {
+        targets: this._stallTargets(),
         kind: 'stall',
         severity: this._nudges === QUIET_NUDGES ? 'critical' : 'warn',
         facts: `Every agent is idle and the work is not finished. ${QUIET_NUDGES - this._nudges + 1} nudge(s) left before the colony stops. Check list_tasks and observe, then continue the work${this.spec.chat ? ' or send the final answer' : ' or request_final_verification'}.`,
-        targets: [],
       },
     })
+  }
+
+  /**
+   * Who a stall nudge should wake. In a chat team, only the agents who can move things on: the speaker (lead,
+   * swarm seed, or task-final holder) and anyone holding a task. Sleeping specialists stay asleep.
+   */
+  private _stallTargets(): string[] {
+    if (!this.spec.chat || this.spec.tier !== 'team') return []
+    const holders = Object.values(this._state.tasks)
+      .filter((t) => t.status === 'in_progress' && t.owner)
+      .map((t) => t.owner as string)
+    const speaker =
+      this.spec.team?.mode === 'swarm'
+        ? (this._state.tasks['task-final']?.owner ?? this.spec.agents[0]?.name)
+        : this.spec.agents.find((a) => a.role === 'lead')?.name
+    return [...new Set([...(speaker ? [speaker] : []), ...holders])]
   }
 
   /** Puts tasks back in the pool when their holder has stopped, failed, or sat idle past the lease. */

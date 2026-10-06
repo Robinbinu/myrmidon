@@ -126,12 +126,52 @@ export async function send<T>(
   return data as T
 }
 
+export interface RosterEntry {
+  /** What this teammate is for, e.g. `researcher`; `peer` for an unspecialised swarm peer. */
+  role: string
+  model: string
+}
+
 export interface TeamConfig {
-  mode: 'auto' | 'manual'
+  /** `orchestrated`: a lead assigns tasks to specialists; `swarm`: equal peers share notes and tasks. */
+  mode: 'orchestrated' | 'swarm'
   leadModel: string
-  workerModel: string
-  workers: number
+  /** Specialists (orchestrated) or peers (swarm). */
+  roster: RosterEntry[]
+  /** Orchestrated: how many more specialists the lead may add. */
+  extraWorkers: number
   judgeModel: string
+}
+
+export const SPECIALISTS = ['researcher', 'coder', 'writer', 'reviewer', 'designer', 'analyst'] as const
+
+/** A usable team config from saved preferences, including the older `auto`/`manual` shape. */
+export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: string): TeamConfig {
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
+  const leadModel = str(raw.leadModel) ?? fallbackModel
+  const workerModel = str(raw.workerModel) ?? leadModel
+  const judgeModel = str(raw.judgeModel) ?? leadModel
+  const roster = Array.isArray(raw.roster)
+    ? (raw.roster as RosterEntry[]).filter((r) => typeof r?.role === 'string' && str(r?.model)).slice(0, 8)
+    : undefined
+  if (raw.mode === 'swarm')
+    return {
+      mode: 'swarm',
+      leadModel,
+      roster: roster?.length ? roster : [0, 1, 2].map(() => ({ role: 'peer', model: workerModel })),
+      extraWorkers: 0,
+      judgeModel,
+    }
+  return {
+    mode: 'orchestrated',
+    leadModel,
+    roster: roster ?? [
+      { role: 'researcher', model: workerModel },
+      { role: 'coder', model: workerModel },
+    ],
+    extraWorkers: typeof raw.extraWorkers === 'number' ? raw.extraWorkers : 2,
+    judgeModel,
+  }
 }
 
 export interface ChatRound {

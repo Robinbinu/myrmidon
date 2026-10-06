@@ -27,6 +27,8 @@ export interface ColonyHost {
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
   spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
   deadline(): number
+  /** An agent's tool batch has finished (all calls in one model response have results). */
+  batchEnded(agent: string): void
   /** Search and page fetching for agents. */
   readonly web: WebTools
 }

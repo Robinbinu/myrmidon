@@ -99,6 +99,7 @@ export function Workspace(props: { chat: ChatSummary; onClose(): void }) {
 function WorkspaceBody({ colonyId }: { colonyId: string }) {
   const { state, events } = useColony(colonyId)
   const [inspect, setInspect] = useState<string>()
+  const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTab] = useState<Tab>('files')
   const [file, setFile] = useState<string>()
   const steps = useMemo(() => deriveSteps(events), [events])
@@ -209,10 +210,20 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
             {tab === 'tasks' &&
               (tasks.length === 0 ? (
                 <Empty icon={<ListChecks className="size-5" />} title="No tasks">
-                  The lead creates tasks when the work has several parts.
+                  Tasks appear when a team splits the work into parts.
                 </Empty>
               ) : (
                 <>
+                  {plan && (
+                    <details className="group border-b border-line px-4 py-3" open>
+                      <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted">
+                        Plan · {plan.agent}
+                      </summary>
+                      <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
+                        {plan.text}
+                      </p>
+                    </details>
+                  )}
                   <div className="border-b border-line px-4 py-3.5">
                     <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
                       <span className="font-semibold">
@@ -290,6 +301,11 @@ function WorkspaceBody({ colonyId }: { colonyId: string }) {
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{a.info.name}</span>
                             {lead && <Crown className="size-3.5 text-signal" />}
+                            {a.info.specialty && (
+                              <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
+                                {a.info.specialty}
+                              </span>
+                            )}
                             <Pill tone={toneFor(a.status)}>
                               <Dot status={a.status} /> {a.status}
                             </Pill>

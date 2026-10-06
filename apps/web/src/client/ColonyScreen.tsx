@@ -2,10 +2,8 @@ import { type ColonyState, colonyMetrics, type EventPayloads, type MyrEvent } fr
 import {
   Activity,
   BadgeCheck,
-  Bot,
   ChevronRight,
   CircleDot,
-  Crown,
   FileCode,
   Gavel,
   ListChecks,
@@ -30,6 +28,7 @@ import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
 import { describeEvent } from './describe.ts'
 import { compact, duration } from './ui/hooks.ts'
+import { AgentAvatar } from './ui/pixel.tsx'
 import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
 import { useColony } from './use-colony.ts'
 
@@ -303,9 +302,9 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
               key={a.info.name}
               active={agent === a.info.name}
               onClick={() => setAgent(a.info.name)}
-              icon={a.info.role === 'lead' ? <Crown className="size-4" /> : <Bot className="size-4" />}
+              icon={<AgentAvatar name={a.info.name} status={a.status} size={32} />}
               name={a.info.name}
-              detail={a.info.model.split('/').pop() ?? a.info.model}
+              detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
               status={a.status}
               meta={`${a.turns}t · ${compact(a.tokens)}`}
             />
@@ -440,7 +439,7 @@ function AgentButton(props: {
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
         />
       )}
-      <span className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-surface-2">
+      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2">
         {props.icon}
       </span>
       <span className="relative min-w-0 flex-1">
@@ -567,7 +566,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
       )}
     >
       <div className="mb-1 flex items-center gap-2 text-[12px]">
-        <Bot className="size-3.5 text-muted" />
+        <AgentAvatar name={item.agent} status="idle" size={18} />
         <span className="font-semibold">{item.agent}</span>
         <RowMeta agent="" time={item.time} />
       </div>
