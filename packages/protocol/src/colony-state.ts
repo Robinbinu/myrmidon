@@ -107,6 +107,11 @@ export interface ColonyState {
   mail: MailEntry[]
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
+  /** Tool calls waiting for the person, and how earlier ones were decided. */
+  approvals: Record<
+    string,
+    EventPayloads['approval/requested'] & { time: string; decided?: EventPayloads['approval/decided'] }
+  >
   /** Project folder snapshots of this round, and the latest rewind (if any). */
   checkpoints: {
     start?: string
@@ -147,6 +152,7 @@ export function emptyColonyState(id: string): ColonyState {
     artifacts: {},
     madeTools: {},
     checkpoints: {},
+    approvals: {},
     verdicts: [],
     signals: [],
     chatMessages: [],
@@ -209,6 +215,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         lastSeq: event.seq,
       }
       link(state, p.by, p.agent.name)
+      break
+    }
+    case 'approval/requested': {
+      const p = event.payload as EventPayloads['approval/requested']
+      state.approvals[p.id] = { ...p, time: event.time }
+      break
+    }
+    case 'approval/decided': {
+      const p = event.payload as EventPayloads['approval/decided']
+      const request = state.approvals[p.id]
+      if (request) request.decided = p
       break
     }
     case 'checkpoint/created': {

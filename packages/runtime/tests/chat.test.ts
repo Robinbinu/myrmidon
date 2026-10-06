@@ -1069,6 +1069,67 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
+test.skipIf(detectSandbox().kind === 'none')(
+  'project permissions: ask mode waits for the person, read-only keeps the folder untouched',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-perm-'))
+    const projects = new ProjectStore(home)
+    const project = projects.add(folder)
+    projects.setPermissions(project.id, { mode: 'ask', allow: ['echo'] })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/careful', [
+      [tool('shell', { command: 'echo allowed' })],
+      [tool('shell', { command: 'echo chained && touch chained.txt' })],
+      [tool('fs_write', { path: 'denied.txt', content: 'no' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const config = { ...solo('mock/careful'), judgeModel: 'mock/judge' }
+    const { chatId, colonyId } = await chats.send('Try things', config, undefined, { project: project.id })
+    const pending = async () => {
+      const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+      return Object.values(s.approvals).find((a) => !a.decided)
+    }
+    const first = await pending()
+    expect(first).toMatchObject({ tool: 'shell', summary: 'echo chained && touch chained.txt' })
+    await chats.decideApproval(colonyId, first?.id ?? '', true)
+    const second = await pending()
+    expect(second).toMatchObject({ tool: 'fs_write', summary: 'write denied.txt' })
+    await chats.decideApproval(colonyId, second?.id ?? '', false)
+    const s = await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(results[0]?.output).toContain('allowed')
+    expect(results[1]?.ok).toBe(true)
+    expect(existsSync(join(folder, 'chained.txt'))).toBe(true)
+    expect(results[2]?.ok).toBe(false)
+    expect(results[2]?.output).toContain('did not approve changing denied.txt')
+    expect(existsSync(join(folder, 'denied.txt'))).toBe(false)
+    expect(Object.values(s.approvals).map((a) => a.decided?.approved)).toEqual([true, false])
+
+    // Read-only: no file tool writes, and the sandbox stops the shell from writing to the project.
+    projects.setPermissions(project.id, { mode: 'read-only', allow: [] })
+    scripted(resolver, 'mock/reader', [
+      [tool('fs_write', { path: 'nope.txt', content: 'x' })],
+      [tool('shell', { command: 'touch sneaky.txt' })],
+      [tool('reply_user', { text: 'Read only.', final: true })],
+    ])
+    const next = await chats.send('Try again', { ...solo('mock/reader'), judgeModel: 'mock/judge' }, chatId)
+    await waitFor(next.colonyId)
+    const after = (await events(next.colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(after[0]?.output).toContain('is read-only for agents')
+    expect(after[1]?.output).not.toMatch(/^exit 0/)
+    expect(existsSync(join(folder, 'nope.txt'))).toBe(false)
+    expect(existsSync(join(folder, 'sneaky.txt'))).toBe(false)
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

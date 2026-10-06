@@ -390,6 +390,37 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/projects/:id/permissions': {
+        PUT: guard(async (req) => {
+          if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { mode?: unknown; allow?: unknown }
+          const allow = Array.isArray(body.allow)
+            ? body.allow.filter((a): a is string => typeof a === 'string')
+            : []
+          try {
+            const project = options.projects.setPermissions(req.params.id ?? '', {
+              mode: body.mode as 'auto' | 'ask' | 'read-only',
+              allow,
+            })
+            return json({ project, projects: options.projects.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/colonies/:id/approvals/:approval': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { approved } = (await req.json().catch(() => ({}))) as { approved?: unknown }
+          if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
+          try {
+            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved)
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+      },
       '/api/projects/:id': {
         DELETE: guard((req) => {
           options.projects?.remove(req.params.id ?? '')

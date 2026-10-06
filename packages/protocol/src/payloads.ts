@@ -3,6 +3,25 @@ import type { EventId } from './event.ts'
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
+/**
+ * How freely agents may change a project folder. `auto`: anything the sandbox allows (checkpoints can rewind it);
+ * `ask`: edits to project files and shell commands wait for the person, except commands starting with an `allow`
+ * prefix; `read-only`: agents read the project but cannot change it.
+ */
+export interface ProjectPermissions {
+  mode: 'auto' | 'ask' | 'read-only'
+  allow: string[]
+}
+
+/** A tool call waiting for the person to approve or deny it. */
+export interface ApprovalRequest {
+  id: string
+  agent: string
+  tool: string
+  /** What the call would do, in one line (a command, or "edit src/app.ts"). */
+  summary: string
+}
+
 export interface MadeToolInput {
   name: string
   type: 'string' | 'number' | 'boolean'
@@ -72,7 +91,7 @@ export interface EventPayloads {
       round: number
       request: string
       history?: string
-      project?: { id: string; name: string; path: string }
+      project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
     }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
@@ -116,6 +135,8 @@ export interface EventPayloads {
   'agent/error': { agent: string; model: string; kind: 'refusal' | 'error'; message: string }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
+  'approval/requested': ApprovalRequest
+  'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
   'checkpoint/created': { commit: string; phase: 'start' | 'end' }
   /** The person rewound the project folder to `commit`; `undo` is the snapshot taken just before. */

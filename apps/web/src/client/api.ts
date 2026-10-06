@@ -236,4 +236,6 @@ export interface Project {
   name: string
   path: string
   addedAt: string
+  /** How freely agents may change the folder; absent means autonomous. */
+  permissions?: { mode: 'auto' | 'ask' | 'read-only'; allow: string[] }
 }

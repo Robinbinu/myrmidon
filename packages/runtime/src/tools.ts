@@ -260,6 +260,49 @@ const DOCS: Record<string, string> = {
   working: workingDoc,
 }
 
+/**
+ * Folders a command may write: the working directory and scratch, except in a read-only project, where the sandbox
+ * keeps the project itself untouchable and only scratch is writable.
+ */
+function writableFor(host: ColonyHost, agent: string): string[] {
+  const scratch = host.workspace.scratch(agent)
+  if (host.spec.chat?.project?.permissions?.mode === 'read-only') return [scratch]
+  return [...new Set([host.workspace.workdir(agent), scratch])]
+}
+
+/** A write to a file in the project folder (not scratch) follows the project's permissions. */
+async function guardProjectEdit(host: ColonyHost, agent: string, tool: string, path: string) {
+  const project = host.spec.chat?.project
+  const mode = project?.permissions?.mode ?? 'auto'
+  if (!project || mode === 'auto') return
+  const scratch = host.workspace.scratch(agent)
+  const inProject =
+    (path === project.path || path.startsWith(`${project.path}/`)) && !path.startsWith(`${scratch}/`)
+  if (!inProject) return
+  const where = relative(project.path, path)
+  if (mode === 'read-only')
+    throw new Error(
+      `${project.name} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
+    )
+  if (!(await host.requestApproval(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${where}`)))
+    throw new Error(
+      `the person did not approve changing ${where}; ask them (ask_user) or take another approach`,
+    )
+}
+
+/** In an "ask" project, a command runs only if it starts with an allowed prefix or the person approves it. */
+async function guardProjectCommand(host: ColonyHost, agent: string, tool: string, command: string) {
+  const permissions = host.spec.chat?.project?.permissions
+  if (permissions?.mode !== 'ask') return
+  const line = command.trim()
+  // "bun test && rm -rf src" starts with an allowed prefix but runs more: anything chained, piped, substituted or
+  // redirected always asks.
+  const simple = !/[;&|`<>\n]|\$\(/.test(line)
+  if (simple && permissions.allow.some((prefix) => line === prefix || line.startsWith(`${prefix} `))) return
+  if (!(await host.requestApproval(agent, tool, line.length > 300 ? `${line.slice(0, 300)}…` : line)))
+    throw new Error('the person did not approve this command; ask them (ask_user) or take another approach')
+}
+
 /** The checks run by default: the project's `check` script if it has one, otherwise everything but build. */
 export function pickChecks(all: readonly ProjectCheck[], only?: string): ProjectCheck[] {
   if (only) return all.filter((c) => c.name === only)
@@ -755,6 +798,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ path: type('string'), content: type('string') }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
+      await guardProjectEdit(host, agent, 'fs_write', path)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, args.content)
       return `wrote ${args.path} (${Buffer.byteLength(args.content)} bytes)`
@@ -775,6 +819,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
+      await guardProjectEdit(host, agent, 'fs_edit', path)
       const text = readFileSync(path, 'utf8')
       const count = text.split(args.old).length - 1
       if (count === 0)
@@ -1216,7 +1261,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             : 'this project defines no checks (no scripts in package.json, no Cargo.toml, go.mod or pyproject); use shell',
         )
       const cwd = host.workspace.workdir(agent)
-      return clip((await runProjectChecks(host, cwd, [cwd, host.workspace.scratch(agent)], picked)).report)
+      return clip((await runProjectChecks(host, cwd, writableFor(host, agent), picked)).report)
     },
   },
   {
@@ -1286,10 +1331,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('shell is disabled: no OS sandbox')
       const cwd = host.workspace.workdir(agent)
+      await guardProjectCommand(host, agent, 'shell', args.command)
       const r = await host.sandbox.run({
         command: args.command,
         cwd,
-        writable: [...new Set([cwd, host.workspace.scratch(agent)])],
+        writable: writableFor(host, agent),
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
         env: { MYR_MIRROR: host.workspace.mirrorRoot },
       })
@@ -1383,7 +1429,7 @@ async function runMadeTool(
   const r = await host.sandbox.run({
     command: scriptCommand(join(host.workspace.colonyDir, 'tools', tool.name), tool),
     cwd,
-    writable: [...new Set([cwd, host.workspace.scratch(agent)])],
+    writable: writableFor(host, agent),
     timeoutMs: 120_000,
     env: { MYR_INPUT: JSON.stringify(input), MYR_MIRROR: host.workspace.mirrorRoot },
   })
@@ -1403,9 +1449,16 @@ function madeTool(agent: string, tool: EventPayloads['tool/created'], host: Colo
     intent: 'omit',
     approval: 'exec',
     async execute(_callId: string, params: unknown) {
-      const r = await inCallOrder(host, agent, () =>
-        runMadeTool(tool, checkedArgs(tool.inputs, params ?? {}), agent, host),
-      )
+      const r = await inCallOrder(host, agent, async () => {
+        const input = checkedArgs(tool.inputs, params ?? {})
+        await guardProjectCommand(
+          host,
+          agent,
+          `${MADE_PREFIX}${tool.name}`,
+          `${MADE_PREFIX}${tool.name} ${JSON.stringify(input)}`,
+        )
+        return runMadeTool(tool, input, agent, host)
+      })
       return { content: [{ type: 'text', text: r.output }], isError: !r.ok }
     },
   } as AgentTool

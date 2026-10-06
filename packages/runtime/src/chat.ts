@@ -8,6 +8,7 @@ import {
   type ColonyStatus,
   type EventPayloads,
   foldColony,
+  type ProjectPermissions,
 } from '@myrmidon/protocol'
 import { completeSimple } from '@oh-my-pi/pi-ai'
 import { compactTranscript, readTranscript } from './agent.ts'
@@ -336,7 +337,9 @@ export class ChatService {
       })
     const spec = this.buildSpec(id, message, config, previous, history, tier)
     // A chat keeps the project it started in; only a new chat can pick one.
-    const project = previous.at(-1)?.state.chat?.project ?? this._project(options.project)
+    // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
+    const earlier = previous.at(-1)?.state.chat?.project
+    const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
@@ -393,11 +396,22 @@ export class ChatService {
     return clean
   }
 
-  private _project(id: string | undefined): { id: string; name: string; path: string } | undefined {
+  private _project(
+    id: string | undefined,
+    required = true,
+  ): { id: string; name: string; path: string; permissions?: ProjectPermissions } | undefined {
     if (!id) return undefined
     const project = this.options.projects?.get(id)
-    if (!project) throw new Error(`no such project: ${id}`)
-    return { id: project.id, name: project.name, path: project.path }
+    if (!project) {
+      if (required) throw new Error(`no such project: ${id}`)
+      return undefined
+    }
+    return {
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      ...(project.permissions ? { permissions: project.permissions } : {}),
+    }
   }
 
   /** Wakes an agent of a running round, if that round is live in this process. */
@@ -429,6 +443,13 @@ export class ChatService {
         `checkpoint (${phase}) of ${project.path} failed: ${err instanceof Error ? err.message : err}`,
       )
     }
+  }
+
+  /** The person's answer to a tool call waiting for approval in a running round. */
+  async decideApproval(colonyId: string, id: string, approved: boolean): Promise<void> {
+    const run = [...this._live.values()].find((r) => r.id === colonyId)
+    if (!run) throw new Error('that round is not running')
+    await run.decideApproval(id, approved)
   }
 
   /** The round's changes to its project since its start checkpoint, for the judge. */

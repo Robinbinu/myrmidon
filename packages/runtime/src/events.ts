@@ -60,7 +60,19 @@ const defs: EventTypeDefinition[] = [
           round: Schema.natural().required(),
           request: str(),
           history: Schema.string(),
-          project: optional(Schema.object({ id: str(), name: str(), path: str() })),
+          project: optional(
+            Schema.object({
+              id: str(),
+              name: str(),
+              path: str(),
+              permissions: optional(
+                Schema.object({
+                  mode: oneOf('auto', 'ask', 'read-only'),
+                  allow: Schema.array(Schema.string()).default([]),
+                }),
+              ),
+            }),
+          ),
         }),
       ),
       team: optional(
@@ -116,6 +128,22 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({ agent: str(), by: str(), reason: str() }),
+  },
+  {
+    type: 'approval/requested',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({ id: str(), agent: str(), tool: str(), summary: str() }),
+  },
+  {
+    type: 'approval/decided',
+    version: 1,
+    actors: ['user', 'system'],
+    schema: Schema.object({
+      id: str(),
+      approved: Schema.boolean().required(),
+      by: oneOf('person', 'timeout', 'stopped'),
+    }),
   },
   {
     type: 'checkpoint/created',

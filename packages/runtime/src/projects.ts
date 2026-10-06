@@ -9,6 +9,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
+import type { ProjectPermissions } from '@myrmidon/protocol'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -22,6 +23,7 @@ export interface Project {
   /** Absolute, symlink-resolved path. */
   readonly path: string
   readonly addedAt: string
+  readonly permissions?: ProjectPermissions
 }
 
 export class ProjectStore {
@@ -64,6 +66,20 @@ export class ProjectStore {
     }
     this._write([...this.list(), project])
     return project
+  }
+
+  /** Sets how freely agents may change the project; applies from the chat's next round. */
+  setPermissions(id: string, permissions: ProjectPermissions): Project {
+    const mode = permissions.mode
+    if (mode !== 'auto' && mode !== 'ask' && mode !== 'read-only')
+      throw new Error('mode is auto, ask or read-only')
+    const allow = [...new Set(permissions.allow.map((a) => a.trim()).filter(Boolean))].slice(0, 50)
+    const list = this.list()
+    const project = list.find((p) => p.id === id)
+    if (!project) throw new Error('no such project')
+    const next = { ...project, permissions: { mode, allow } }
+    this._write(list.map((p) => (p.id === id ? next : p)))
+    return next
   }
 
   /** Forgets a project. Its folder and its chats are untouched; the chats just stop being grouped under it. */

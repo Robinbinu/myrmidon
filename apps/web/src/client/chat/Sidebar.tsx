@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Sun,
   Trash2,
   X,
@@ -21,6 +22,7 @@ import type { ChatSummary, Project } from '../api.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { cn, Dot, IconButton, spring } from '../ui/primitives.tsx'
+import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
 
@@ -52,6 +54,7 @@ export function Sidebar(props: {
   onNewInProject(project: Project): void
   onAddProject(): void
   onRemoveProject(project: Project): void
+  onProjectPermissions(project: Project): void
   onView(v: View): void
   onSettings(): void
   onCollapse(): void
@@ -263,13 +266,23 @@ export function Sidebar(props: {
                   onClick={() => toggle(p.id)}
                   aria-expanded={open}
                   title={p.path}
-                  className="flex w-full items-center gap-2 rounded-lg py-2 pl-2 pr-16 text-left text-[13.5px] text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="flex w-full items-center gap-2 rounded-lg py-2 pl-2 pr-24 text-left text-[13.5px] text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
                 >
                   <ChevronRight
                     className={cn('size-3.5 shrink-0 text-muted transition-transform', open && 'rotate-90')}
                   />
                   <Folder className="size-4 shrink-0 text-muted" />
                   <span className="truncate font-medium">{p.name}</span>
+                  <PermissionMark {...(p.permissions ? { mode: p.permissions.mode } : {})} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onProjectPermissions(p)}
+                  aria-label={`Permissions for ${p.name}`}
+                  title="What agents may do in this folder"
+                  className="absolute right-[4.25rem] top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  <ShieldCheck className="size-3.5" />
                 </button>
                 <button
                   type="button"

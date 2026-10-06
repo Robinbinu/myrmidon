@@ -54,6 +54,11 @@ export interface ColonyHost {
   readonly browser?: BrowserHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
+  /**
+   * Asks the person to approve one tool call (an "ask" project's edits and commands); resolves false if they deny
+   * it, it times out, or the round stops first.
+   */
+  requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
   /** What this round changed in its project folder, as a unified diff; undefined outside projects. */
   projectDiff(): Promise<string | undefined>
 }

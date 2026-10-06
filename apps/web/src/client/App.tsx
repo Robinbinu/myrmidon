@@ -18,6 +18,7 @@ import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
+import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
@@ -120,6 +121,7 @@ export function App() {
   /** The project a new chat will work in. */
   const [newProject, setNewProject] = useState<string>()
   const [picking, setPicking] = useState(false)
+  const [permissionsFor, setPermissionsFor] = useState<Project>()
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
 
@@ -393,6 +395,7 @@ export function App() {
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
       onAddProject={() => setPicking(true)}
+      onProjectPermissions={setPermissionsFor}
       onRemoveProject={async (p) => {
         try {
           const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
@@ -640,6 +643,14 @@ export function App() {
               </div>
             </div>
           </Modal>
+        )}
+        {permissionsFor && (
+          <ProjectPermissions
+            key="permissions"
+            project={permissionsFor}
+            onClose={() => setPermissionsFor(undefined)}
+            onSaved={setProjects}
+          />
         )}
         {picking && (
           <FolderPicker

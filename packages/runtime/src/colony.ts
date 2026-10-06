@@ -23,7 +23,7 @@ import {
 import { ColonyAgent } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
-import type { ColonyHost, TodoItem } from './host.ts'
+import { agentActor, type ColonyHost, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
@@ -82,6 +82,8 @@ export interface RunOptions {
 }
 
 const QUIET_NUDGES = 2
+/** How long a tool call waits for the person's approval before it is denied. */
+const APPROVAL_MS = 15 * 60_000
 /** Stop reason for a chat round that ended with a question or update for the human. */
 export const AWAITING_USER = 'awaiting your reply'
 /** A claimed task whose holder sits idle this long goes back to the pool. */
@@ -148,6 +150,7 @@ export class ColonyRun implements ColonyHost {
   private _huddle?: { since: number; after: number; proposed: Set<string> }
   /** Reminders sent to agents that stopped with work open, keyed by agent and task (or todo list). */
   private readonly _reminded = new Map<string, number>()
+  private readonly _approvals = new Map<string, (approved: boolean) => void>()
   private readonly _todos = new Map<string, readonly TodoItem[]>()
 
   constructor(
@@ -213,6 +216,40 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, model, previous },
       })
     }
+  }
+
+  async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
+    if (this._state.status !== 'running') return false
+    const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    const decided = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(
+        () => void this.decideApproval(id, false, 'timeout').catch(() => {}),
+        APPROVAL_MS,
+      )
+      this._approvals.set(id, (approved) => {
+        clearTimeout(timer)
+        resolve(approved)
+      })
+    })
+    await this.append({
+      type: 'approval/requested',
+      actor: agentActor(agent),
+      payload: { id, agent, tool, summary },
+    })
+    return decided
+  }
+
+  /** The person's answer to an approval request (or a timeout, or the round stopping). */
+  async decideApproval(id: string, approved: boolean, by: 'person' | 'timeout' | 'stopped' = 'person') {
+    const done = this._approvals.get(id)
+    if (!done) throw new Error('that request is no longer waiting')
+    this._approvals.delete(id)
+    await this.append({
+      type: 'approval/decided',
+      actor: by === 'person' ? { kind: 'user', id: 'user' } : SYSTEM,
+      payload: { id, approved, by },
+    })
+    done(approved)
   }
 
   projectDiff(): Promise<string | undefined> {
@@ -1091,6 +1128,9 @@ export class ColonyRun implements ColonyHost {
   }
 
   private async _end() {
+    // Nothing may stay waiting on the person once the round is over.
+    for (const id of [...this._approvals.keys()])
+      await this.decideApproval(id, false, 'stopped').catch(() => {})
     for (const t of this._timers) clearInterval(t)
     this._timers.length = 0
     clearTimeout(this._mirrorTimer)

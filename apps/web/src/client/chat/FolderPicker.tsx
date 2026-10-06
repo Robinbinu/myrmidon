@@ -4,6 +4,7 @@ import { api, type Project, send } from '../api.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
+import { PermissionMark } from './ProjectPermissions.tsx'
 
 interface Listing {
   path: string
@@ -132,13 +133,19 @@ export function ProjectPill(props: {
 }) {
   const pill =
     'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted'
-  if (props.fixed)
+  if (props.fixed) {
+    const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (
-      <span className={pill} title={`Works in ${props.fixed.name}`}>
+      <span
+        className={pill}
+        title={`Works in ${props.fixed.name}${mode && mode !== 'auto' ? ` (${mode})` : ''}`}
+      >
         <Folder className="size-3.5 shrink-0" />
         <span className="truncate">{props.fixed.name}</span>
+        <PermissionMark {...(mode ? { mode } : {})} />
       </span>
     )
+  }
   const current = props.projects.find((p) => p.id === props.value)
   return (
     <label
@@ -147,6 +154,7 @@ export function ProjectPill(props: {
     >
       <Folder className="size-3.5 shrink-0" />
       <span className="truncate">{current?.name ?? 'No project'}</span>
+      <PermissionMark {...(current?.permissions ? { mode: current.permissions.mode } : {})} />
       <select
         aria-label="Project folder"
         value={current?.id ?? ''}

@@ -39,6 +39,7 @@ function hostPath(url: string) {
 /** Turns raw colony events into a human-readable activity feed. Routine bookkeeping is skipped. */
 export function deriveSteps(events: readonly MyrEvent[]): Step[] {
   const out: Step[] = []
+  const asked = new Map<string, EventPayloads['approval/requested']>()
   for (const e of events) {
     const base = { id: e.id, time: e.time }
     switch (e.type) {
@@ -148,6 +149,30 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           lead: 'Brought in',
           strong: p.agent.name,
           tail: `${p.agent.model.split('/').pop()} — ${cut(p.focus, 80)}`,
+        })
+        break
+      }
+      case 'approval/requested': {
+        const p = e.payload as EventPayloads['approval/requested']
+        asked.set(p.id, p)
+        out.push({
+          ...base,
+          kind: 'signal',
+          agent: p.agent,
+          lead: 'Asked you to approve',
+          tail: cut(p.summary, 120),
+        })
+        break
+      }
+      case 'approval/decided': {
+        const p = e.payload as EventPayloads['approval/decided']
+        const req = asked.get(p.id)
+        out.push({
+          ...base,
+          kind: p.approved ? 'verdict' : 'error',
+          agent: req?.agent ?? 'you',
+          lead: p.approved ? 'Approved' : p.by === 'timeout' ? 'Not approved in time' : 'Denied',
+          tail: cut(req?.summary ?? '', 120),
         })
         break
       }

@@ -291,6 +291,15 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     lines.push(
       `Project: "${project.name}" at ${project.path}. This is the person's real folder: your file tools and shell work here, and changes are real. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory, not the project.`,
     )
+  const permissions = project?.permissions
+  if (permissions?.mode === 'read-only')
+    lines.push(
+      `Permissions: ${project?.name} is read-only for agents. Read and analyse it freely; you cannot change its files or write there from the shell. Propose changes in your reply (or as drafts in your scratch directory) instead.`,
+    )
+  else if (permissions?.mode === 'ask')
+    lines.push(
+      `Permissions: the person approves each change to ${project?.name}'s files and each shell command${permissions.allow.length ? ` (except commands starting with ${permissions.allow.map((a) => `\`${a}\``).join(', ')})` : ''}. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
+    )
   const guide = env.project?.instructions
   if (project && env.project?.layout) lines.push(`Project layout:\n${env.project.layout}`)
   if (project && env.project?.checks.length)
