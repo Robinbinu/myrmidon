@@ -131,7 +131,7 @@ export function ProjectPill(props: {
   onAdd(): void
 }) {
   const pill =
-    'inline-flex h-8 max-w-[200px] items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium text-fg-2'
+    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted'
   if (props.fixed)
     return (
       <span className={pill} title={`Works in ${props.fixed.name}`}>
@@ -142,7 +142,7 @@ export function ProjectPill(props: {
   const current = props.projects.find((p) => p.id === props.value)
   return (
     <label
-      className={`${pill} relative cursor-pointer transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg`}
+      className={`${pill} relative cursor-pointer transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
       title={current ? current.path : 'Work in a project folder'}
     >
       <Folder className="size-3.5 shrink-0" />

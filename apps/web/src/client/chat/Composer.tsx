@@ -290,6 +290,10 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
+const CHIP =
+  'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
+
 const DELIVERIES = [
   { value: 'steer', label: 'Steer', icon: Navigation, hint: 'Read at the next step' },
   { value: 'queue', label: 'Queue', icon: ListEnd, hint: 'Read once the current work is done' },
@@ -548,7 +552,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             aria-label="Message"
             className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-muted"
           />
-          <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3 pt-1.5">
+          <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
             <input
               ref={picker}
               type="file"
@@ -559,121 +563,101 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 e.target.value = ''
               }}
             />
-            <button
-              type="button"
-              onClick={() => picker.current?.click()}
-              aria-label="Attach files"
-              title="Attach files (or drop / paste them)"
-              disabled={files.length >= MAX_FILES}
-              className="grid size-8 place-items-center rounded-full border border-line text-fg-2 transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg disabled:opacity-40"
-            >
-              <Paperclip className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTeam(!showTeam)}
-              aria-expanded={showTeam}
-              className={cn(
-                'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-all duration-150',
-                showTeam
-                  ? 'border-accent/40 bg-accent-soft text-accent'
-                  : 'border-line text-fg-2 hover:border-line-strong hover:bg-surface-2 hover:text-fg',
-              )}
-            >
-              <TeamIcon className="size-3.5" /> {teamLabel(config)}
-            </button>
-            {config.mode !== 'swarm' && (
+            <div className="flex min-w-0 flex-1 items-center gap-0.5">
               <button
                 type="button"
-                onClick={() => setShowTeam(true)}
-                title={config.leadModel}
-                className="inline-flex h-8 max-w-[240px] items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] font-medium text-fg-2 transition-all duration-150 hover:border-line-strong hover:bg-surface-2 hover:text-fg"
+                onClick={() => picker.current?.click()}
+                aria-label="Attach files"
+                title="Attach files (or drop / paste them)"
+                disabled={files.length >= MAX_FILES}
+                className={cn(CHIP, 'w-8 shrink-0 justify-center px-0')}
               >
-                <Crown className="size-3.5 shrink-0" />
-                <span className="truncate">{lead?.name ?? (config.leadModel || 'Choose a model')}</span>
+                <Paperclip className="size-4" />
               </button>
-            )}
-            {props.project}
-            <AnimatePresence initial={false}>
-              {props.running && (
-                <motion.div
-                  key="delivery"
-                  role="group"
-                  aria-label="How the colony reads your message"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={spring}
-                  className="inline-flex h-8 items-center rounded-full border border-line p-0.5"
-                >
-                  {DELIVERIES.map((d) => (
-                    <button
-                      key={d.value}
-                      type="button"
-                      aria-pressed={delivery === d.value}
-                      title={`${d.hint} (Alt+Enter sends the other way)`}
-                      onClick={() => setDelivery(d.value)}
-                      className={cn(
-                        'inline-flex h-full items-center gap-1 rounded-full px-2.5 text-[12px] font-medium transition-colors duration-150',
-                        delivery === d.value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
-                      )}
-                    >
-                      <d.icon className="size-3.5" /> {d.label}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <span className="flex-1" />
-            <AnimatePresence>
-              {props.status && (
-                <motion.span
-                  initial={{ opacity: 0, x: 6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="hidden max-w-[300px] truncate text-[12.5px] text-muted sm:inline"
-                >
-                  {props.status}
-                </motion.span>
-              )}
-            </AnimatePresence>
-            <AnimatePresence mode="popLayout" initial={false}>
-              {props.running && !text.trim() ? (
-                <motion.button
-                  key="stop"
-                  type="button"
-                  initial={{ scale: 0.6, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.6, opacity: 0 }}
-                  transition={spring}
-                  onClick={props.onStop}
-                  aria-label="Stop the colony"
-                  title="Stop"
-                  className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
-                >
-                  <Square className="size-3.5" fill="currentColor" />
-                </motion.button>
-              ) : (
-                <motion.button
-                  key="send"
-                  type="button"
-                  initial={{ scale: 0.6, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.6, opacity: 0 }}
-                  transition={spring}
-                  onClick={() => void send()}
-                  disabled={!canSend}
-                  aria-label="Send"
-                  title="Send (Enter)"
-                  className={cn(
-                    'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
-                    canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',
-                  )}
-                >
-                  <ArrowUp className="size-4" strokeWidth={2.5} />
-                </motion.button>
-              )}
-            </AnimatePresence>
+              <button
+                type="button"
+                onClick={() => setShowTeam(!showTeam)}
+                aria-expanded={showTeam}
+                title={`${teamLabel(config)}${config.mode === 'swarm' ? '' : ` · lead: ${config.leadModel}`}`}
+                className={cn(
+                  CHIP,
+                  'min-w-0',
+                  showTeam && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent',
+                )}
+              >
+                <TeamIcon className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {config.mode === 'swarm'
+                    ? teamLabel(config)
+                    : `${lead?.name ?? (config.leadModel || 'Choose a model')} · ${config.roster.length} specialist${config.roster.length === 1 ? '' : 's'}`}
+                </span>
+              </button>
+              {props.project}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <AnimatePresence initial={false}>
+                {props.running && (
+                  <motion.button
+                    key="delivery"
+                    type="button"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={spring}
+                    onClick={() => setDelivery(delivery === 'steer' ? 'queue' : 'steer')}
+                    title={`${DELIVERIES.find((d) => d.value === delivery)?.hint}. Click to switch (Alt+Enter sends the other way).`}
+                    aria-label={`Delivery: ${delivery}. Switch to ${delivery === 'steer' ? 'queue' : 'steer'}`}
+                    className={CHIP}
+                  >
+                    {(() => {
+                      const d = DELIVERIES.find((x) => x.value === delivery) ?? DELIVERIES[0]
+                      return (
+                        <>
+                          <d.icon className="size-3.5" /> {d.label}
+                        </>
+                      )
+                    })()}
+                  </motion.button>
+                )}
+              </AnimatePresence>
+              <AnimatePresence mode="popLayout" initial={false}>
+                {props.running && !text.trim() ? (
+                  <motion.button
+                    key="stop"
+                    type="button"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.6, opacity: 0 }}
+                    transition={spring}
+                    onClick={props.onStop}
+                    aria-label="Stop the colony"
+                    title={props.status ? `${props.status} Click to stop.` : 'Stop'}
+                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
+                  >
+                    <Square className="size-3.5" fill="currentColor" />
+                  </motion.button>
+                ) : (
+                  <motion.button
+                    key="send"
+                    type="button"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.6, opacity: 0 }}
+                    transition={spring}
+                    onClick={() => void send()}
+                    disabled={!canSend}
+                    aria-label="Send"
+                    title="Send (Enter)"
+                    className={cn(
+                      'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
+                      canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',
+                    )}
+                  >
+                    <ArrowUp className="size-4" strokeWidth={2.5} />
+                  </motion.button>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </motion.div>
       </div>
