@@ -1,5 +1,5 @@
 import { foldColony, type MyrEvent } from '@myrmidon/protocol'
-import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
+import { Network, PanelLeft, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -519,14 +519,6 @@ export function App() {
                     >
                       <span className="hidden sm:inline">Colony</span>
                     </Button>
-                    <IconButton
-                      label="Toggle workspace"
-                      title="Workspace (⌘J)"
-                      active={workspaceOpen}
-                      onClick={() => setWorkspaceOpen(!workspaceOpen)}
-                    >
-                      <PanelRight className="size-4" />
-                    </IconButton>
                   </>
                 )}
               </header>
@@ -609,8 +601,8 @@ export function App() {
         </main>
 
         <AnimatePresence>
-          {!settingsOpen && view === 'chat' && chat && workspaceOpen && (
-            <Workspace key="workspace" chat={chat} onClose={() => setWorkspaceOpen(false)} />
+          {!settingsOpen && view === 'chat' && chat && (
+            <Workspace key="workspace" chat={chat} open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
           )}
         </AnimatePresence>
       </div>

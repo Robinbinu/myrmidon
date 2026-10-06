@@ -100,7 +100,7 @@ Requests queued while other work is in progress. Top of each section is next.
       xterm.js; the socket only opens for the dashboard's own origin), kept alive across tabs; the agents' sandboxed
       commands moved to "Agent commands". Git (project chats): branch, ahead/behind, uncommitted changes with diffs,
       history with each commit's diff — read-only. Answer-tier agents in a project can now read its files.
-- [ ] **Workspace bar always visible** — the right icon rail stays on screen even when the panel is closed;
+- [x] **Workspace bar always visible** — the right icon rail stays on screen even when the panel is closed;
       clicking an icon opens that view's panel, and the panel has a close button that collapses back to the rail.
 - [ ] **Git view, advanced** — collapsible Uncommitted changes and History sections; VS Code Source Control
       (staged / unstaged / untracked groups, file tree, inline diff) meets GitLab (commit graph-like history with
