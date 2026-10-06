@@ -1,7 +1,8 @@
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
 import { join } from 'node:path'
-import { BlobStore, colonyId, MyrError, SqliteLogStore } from '@myrmidon/core'
+import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
+import { type ChatService, listAvailableModels, ompDefaultModel } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
 
@@ -10,6 +11,8 @@ export interface ServeOptions {
   /** 0 picks a free port. */
   readonly port?: number
   readonly token?: string
+  /** Enables the chat API; without it the server is a read-only dashboard. */
+  readonly chats?: ChatService
 }
 
 export interface WebServer {
@@ -24,6 +27,19 @@ interface StreamData {
 }
 
 const POLL_MS = 400
+
+const sendSchema = Schema.object({
+  text: Schema.string().min(1).max(20_000).required(),
+  chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
+  config: Schema.object({
+    mode: Schema.union(['auto', 'manual']).default('auto'),
+    leadModel: Schema.string().required(),
+    workerModel: Schema.string().required(),
+    workers: Schema.natural().max(8).default(2),
+    judgeModel: Schema.string().required(),
+    wallMinutes: Schema.number().min(1).max(240),
+  }).required(),
+})
 const BATCH = 500
 
 /** Local dashboard + API. Binds to 127.0.0.1 only and requires a bearer token for every API call. */
@@ -109,6 +125,36 @@ export function startServer(options: ServeOptions): WebServer {
     routes: {
       '/': index,
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
+      '/api/models': guard(async (_req, url) => {
+        const models = await listAvailableModels(url.searchParams.get('refresh') === '1')
+        return json({ models, default: ompDefaultModel() ?? models[0]?.ref })
+      }),
+      '/api/chats': {
+        GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          let body: ReturnType<typeof sendSchema>
+          try {
+            body = sendSchema((await req.json()) as never)
+          } catch (err) {
+            return json(
+              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
+              400,
+            )
+          }
+          try {
+            return json(await options.chats.send(body.text, body.config, body.chatId))
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/chats/:chatId/stop': {
+        POST: guard(async (req) => {
+          await options.chats?.stop(req.params.chatId ?? '')
+          return json({ ok: true })
+        }),
+      },
       '/api/colonies': guard(async () => {
         const ids = await store.colonies()
         const rows = []

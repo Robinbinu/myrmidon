@@ -64,6 +64,13 @@ export interface VerdictEntry extends Entry {
   readonly evidence: string
 }
 
+export interface ChatEntry extends Entry {
+  /** `user` for the human; otherwise the replying agent's name. */
+  readonly from: string
+  readonly text: string
+  readonly final: boolean
+}
+
 export interface SignalEntry extends Entry {
   readonly kind: SignalKind
   readonly severity: string
@@ -90,6 +97,9 @@ export interface ColonyState {
   artifacts: Record<string, ArtifactVersion[]>
   verdicts: VerdictEntry[]
   signals: SignalEntry[]
+  chatMessages: ChatEntry[]
+  chat?: EventPayloads['colony/created']['chat']
+  team?: EventPayloads['colony/created']['team']
   /** Communication counts keyed `from→to`; drives the colony map edges. */
   links: Record<string, number>
   lastSeq: number
@@ -112,6 +122,7 @@ export function emptyColonyState(id: string): ColonyState {
     artifacts: {},
     verdicts: [],
     signals: [],
+    chatMessages: [],
     links: {},
     lastSeq: 0,
   }
@@ -140,6 +151,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.budget = p.budget
       state.unsafeNoSandbox = p.unsafeNoSandbox
       state.createdAt = event.time
+      state.chat = p.chat
+      state.team = p.team
       for (const info of p.agents) {
         state.agents[info.name] = {
           info,
@@ -152,6 +165,33 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
           lastSeq: event.seq,
         }
       }
+      break
+    }
+    case 'agent/joined': {
+      const p = event.payload as EventPayloads['agent/joined']
+      state.agents[p.agent.name] = {
+        info: p.agent,
+        status: 'provisioning',
+        detail: p.focus,
+        turns: 0,
+        tokens: 0,
+        cost: 0,
+        costKnown: true,
+        toolCalls: 0,
+        lastSeq: event.seq,
+      }
+      link(state, p.by, p.agent.name)
+      break
+    }
+    case 'chat/user': {
+      const p = event.payload as EventPayloads['chat/user']
+      state.chatMessages.push({ ...base, from: 'user', text: p.text, final: false })
+      break
+    }
+    case 'chat/reply': {
+      const p = event.payload as EventPayloads['chat/reply']
+      state.chatMessages.push({ ...base, from: p.agent, text: p.text, final: p.final })
+      touch(state, p.agent, event.seq)
       break
     }
     case 'colony/started':

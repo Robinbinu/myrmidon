@@ -198,7 +198,14 @@ export class Verifier {
       corpus += `\n===== ${name} (v${latest.version}, ${latest.mediaType}) =====\n${await this.host.blobs.text(latest.blob)}\n`
       if (corpus.length > MAX_JUDGE_CHARS) break
     }
-    if (!corpus) return { pass: false, score: 0, evidence: 'no artifacts to judge' }
+    const replies = state.chatMessages.filter((m) => m.from !== 'user')
+    if (state.chat && replies.length > 0) {
+      corpus += `\n===== replies to the user (latest last) =====\n${replies
+        .slice(-6)
+        .map((m) => `[${m.from}${m.final ? ', final' : ''}] ${m.text}`)
+        .join('\n\n')}\n`
+    }
+    if (!corpus) return { pass: false, score: 0, evidence: 'no artifacts or replies to judge' }
     const resolved = this.resolver.resolve(modelRef)
     const context: LlmContext = {
       systemPrompt: [

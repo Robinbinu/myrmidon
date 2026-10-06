@@ -41,10 +41,15 @@ export interface EventPayloads {
     acceptance: unknown[]
     budget: { wallMs: number; costUsd?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
+    chat?: { chatId: string; round: number; request: string }
+    team?: { mode: 'auto' | 'manual'; maxWorkers: number; workerModels: string[] }
   }
   /** `pid`/`hostname` identify the runner process so orphaned colonies can be detected. */
   'colony/started': { pid?: number; hostname?: string }
   'colony/stopped': { reason: string }
+  'agent/joined': { agent: AgentInfo; by: string; focus: string }
+  'chat/user': { text: string }
+  'chat/reply': { agent: string; text: string; final: boolean }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

@@ -36,6 +36,18 @@ export interface ColonySpec {
   observer: { intervalMs: number }
   /** Model used to review individual task submissions; omit to accept tasks whose artifacts exist. */
   taskJudge?: string
+  /** Set when the colony is one round of a chat conversation. */
+  chat?: { chatId: string; round: number; request: string; history: string }
+  /** How the team may grow at run time. */
+  team?: TeamPolicy
+}
+
+export interface TeamPolicy {
+  /** `auto`: the lead spawns workers as it sees fit; `manual`: the configured agents are the whole team. */
+  mode: 'auto' | 'manual'
+  maxWorkers: number
+  /** Models the lead may assign to spawned workers; the first is the default. */
+  workerModels: string[]
 }
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/

@@ -62,6 +62,8 @@ export interface RunOptions {
 }
 
 const QUIET_NUDGES = 2
+/** Stop reason for a chat round that ended with a question or update for the human. */
+export const AWAITING_USER = 'awaiting your reply'
 
 export class ColonyRun implements ColonyHost {
   readonly id: ColonyId
@@ -85,6 +87,8 @@ export class ColonyRun implements ColonyHost {
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
+  private _seed?: () => Promise<void>
+  private _spawned = 0
 
   constructor(
     private readonly runtime: Runtime,
@@ -141,6 +145,7 @@ export class ColonyRun implements ColonyHost {
     const refs = new Set(this.spec.agents.map((a) => a.model))
     for (const c of this.spec.acceptance) if (c.verifier === 'llm-judge') refs.add(c.model)
     if (this.spec.taskJudge) refs.add(this.spec.taskJudge)
+    for (const m of this.spec.team?.workerModels ?? []) refs.add(m)
     await Promise.all([...refs].map((ref) => this.resolver.probe(ref)))
     const needsExec =
       this.spec.acceptance.some((c) => c.verifier === 'command') ||
@@ -184,8 +189,19 @@ export class ColonyRun implements ColonyHost {
           ...(this.spec.budget.costUsd !== undefined ? { costUsd: this.spec.budget.costUsd } : {}),
         },
         unsafeNoSandbox: this.unsafeNoSandbox,
+        ...(this.spec.chat
+          ? {
+              chat: {
+                chatId: this.spec.chat.chatId,
+                round: this.spec.chat.round,
+                request: this.spec.chat.request,
+              },
+            }
+          : {}),
+        ...(this.spec.team ? { team: this.spec.team } : {}),
       },
     })
+    await this._seed?.()
     for (const a of this.spec.agents) this._agents.set(a.name, new ColonyAgent(a, this, this.resolver))
     this._deadline = Date.now() + this.spec.budget.wallMs
     await this.append({
@@ -211,6 +227,60 @@ export class ColonyRun implements ColonyHost {
     if (this._state.status !== 'running') return
     await this.append({ type: 'colony/stopped', actor: SYSTEM, payload: { reason } })
     await this._end()
+  }
+
+  /** Runs `seed` right after colony/created, before any agent starts (used to carry files between chat rounds). */
+  beforeStart(seed: () => Promise<void>) {
+    this._seed = seed
+  }
+
+  async postUserMessage(text: string): Promise<void> {
+    if (this._state.status !== 'running') throw new Error('this colony is not running')
+    await this.append({ type: 'chat/user', actor: { kind: 'user', id: 'user' }, payload: { text } })
+  }
+
+  async spawnWorker(by: string, name: string, focus: string, model?: string): Promise<string> {
+    const team = this.spec.team
+    if (team?.mode !== 'auto') throw new Error('this colony has a fixed team; spawning is disabled')
+    if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
+      throw new Error('only the lead can spawn workers')
+    if (this._spawned >= team.maxWorkers) throw new Error(`worker limit reached (${team.maxWorkers})`)
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(name))
+      throw new Error('worker names are lowercase letters, digits, and dashes')
+    if (this._agents.has(name)) throw new Error(`an agent named ${name} already exists`)
+    const chosen = model ?? team.workerModels[0]
+    if (!chosen || !team.workerModels.includes(chosen)) {
+      throw new Error(`model must be one of: ${team.workerModels.join(', ')}`)
+    }
+    const spec = {
+      name,
+      role: 'worker',
+      model: chosen,
+      instructions: `Your focus, assigned by ${by}: ${focus}`,
+    }
+    this._spawned += 1
+    this.spec.agents.push(spec)
+    await this.append({
+      type: 'agent/joined',
+      actor: SYSTEM,
+      payload: {
+        agent: { name, role: 'worker', model: chosen, tools: toolsFor(this.spec, spec) },
+        by,
+        focus,
+      },
+    })
+    const agent = new ColonyAgent(spec, this, this.resolver)
+    this._agents.set(name, agent)
+    agent.run().catch((err) => {
+      console.error(`[${name}] crashed:`, err)
+      void this.append({
+        type: 'agent/status',
+        actor: SYSTEM,
+        payload: { agent: name, status: 'failed', detail: String(err) },
+      })
+    })
+    agent.notify({ trigger: 'assignment', text: `You were spawned by ${by}. Your focus: ${focus}` })
+    return `spawned ${name} (${chosen}); it has been told its focus and can see the board and task graph`
   }
 
   requestTaskVerification(taskId: string, by: string): void {
@@ -267,6 +337,15 @@ export class ColonyRun implements ColonyHost {
     const notify = (name: string, text: string, trigger: string, extra: { mail?: MyrEvent['id'] } = {}) =>
       this._agents.get(name)?.notify({ text, trigger, ...extra })
     switch (e.type) {
+      case 'chat/user': {
+        const p = e.payload as EventPayloads['chat/user']
+        const talkers = [...this._agents.values()].filter((a) =>
+          toolsFor(this.spec, a.spec).includes('reply_user'),
+        )
+        for (const a of talkers.length > 0 ? talkers : [...this._agents.values()])
+          notify(a.name, p.text, 'user')
+        break
+      }
       case 'mail/sent': {
         const p = e.payload as EventPayloads['mail/sent']
         notify(p.to, `mail from ${p.from}${p.subject ? ` [${p.subject}]` : ''}: ${p.body}`, 'mail', {
@@ -355,6 +434,9 @@ export class ColonyRun implements ColonyHost {
     this._quietSince ??= Date.now()
     if (Date.now() - this._quietSince < (this.options.quietMs ?? 8000)) return
     this._quietSince = undefined
+    // In a chat, a colony that spoke last and then went quiet is waiting on the human, not stuck.
+    const lastChat = this._state.chatMessages.at(-1)
+    if (this.spec.chat && lastChat && lastChat.from !== 'user') return void this.stop(AWAITING_USER)
     if (this._nudges >= QUIET_NUDGES)
       return void this.stop('stalled: every agent is idle and verification has not passed')
     this._nudges += 1

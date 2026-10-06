@@ -50,6 +50,56 @@ function blockersDone(state: ColonyState, task: TaskSnapshot) {
   return task.blockedBy.every((b) => state.tasks[b]?.status === 'verified')
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escape sequences is the point
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
+const BOX_EDGE = /^[\s│┃|]+|[\s│┃|]+$/g
+const BOX_RULE = /^[\s╭╮╰╯├┤┌┐└┘─━┬┴┼]+$/
+
+/** Runs an omp subcommand and returns its output as plain text (omp renders boxes for terminals). */
+async function ompText(args: string[]): Promise<string> {
+  const omp = Bun.which('omp')
+  if (!omp) throw new Error('web tools need the omp CLI on PATH')
+  const proc = Bun.spawn([omp, ...args], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+    timeout: 90_000,
+    env: { ...process.env, NO_COLOR: '1', COLUMNS: '160' },
+  })
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  const text = out
+    .replace(ANSI, '')
+    .split('\n')
+    .filter((line) => !BOX_RULE.test(line))
+    .map((line) => line.replace(BOX_EDGE, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (code !== 0) throw new Error(`omp ${args[0]} failed: ${(err || text).slice(0, 300)}`)
+  return text || '(no results)'
+}
+
+// Agents must not use web_fetch to reach the dashboard or other local services.
+const PRIVATE_HOST =
+  /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?$|\[?f[cd])/i
+
+function assertPublicUrl(raw: string): string {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`not a URL: ${raw}`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new Error('only http(s) URLs can be fetched')
+  if (PRIVATE_HOST.test(url.hostname))
+    throw new Error('local and private network addresses cannot be fetched')
+  return url.href
+}
+
 const MENTION = /@([a-z][a-z0-9-]{0,31})/g
 
 export const TOOL_DEFS: readonly ToolDef[] = [
@@ -209,7 +259,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const e = first(
         await host.appendAtomic((s) => {
           const blockedBy: string[] = args.blockedBy ?? []
-          for (const b of blockedBy) requireTask(s, b)
+          for (const b of blockedBy) {
+            if (!s.tasks[b])
+              throw new Error(
+                `blockedBy ${b} does not exist yet: create the blocking task first, then use the id it returns`,
+              )
+          }
           const id = `task-${Object.keys(s.tasks).length + 1}`
           return [
             taskEvent(agent, {
@@ -432,6 +487,59 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       }
       walk(dir)
       return out.join('\n') || '(empty)'
+    },
+  },
+  {
+    name: 'web_search',
+    tier: 'read',
+    description: 'Search the web. Returns a synthesized answer with cited source URLs.',
+    parameters: type({
+      query: type('string').atLeastLength(2),
+      'limit?': type('number').describe('Max sources (default 5, max 10)'),
+    }),
+    async run(args) {
+      const limit = Math.min(Math.max(1, args.limit ?? 5), 10)
+      return clip(await ompText(['search', args.query, '--limit', String(limit)]))
+    },
+  },
+  {
+    name: 'web_fetch',
+    tier: 'read',
+    description: 'Fetch a public web page, PDF, or document URL as readable text.',
+    parameters: type({ url: type('string').describe('http(s) URL') }),
+    async run(args) {
+      return clip(await ompText(['read', assertPublicUrl(args.url)]))
+    },
+  },
+  {
+    name: 'reply_user',
+    tier: 'write',
+    description:
+      'Send a message to the human in the chat. Use it to confirm your plan, ask a blocking question, ' +
+      'and give the final answer (set final: true) before requesting final verification.',
+    parameters: type({ text: type('string').atLeastLength(1), 'final?': type('boolean') }),
+    async run(args, agent, host) {
+      await host.append({
+        type: 'chat/reply',
+        actor: agentActor(agent),
+        payload: { agent, text: args.text, final: args.final === true },
+      })
+      return args.final ? 'final answer sent to the user' : 'message sent to the user'
+    },
+  },
+  {
+    name: 'spawn_worker',
+    tier: 'write',
+    description:
+      'Add a worker agent to the colony for a focused part of the job. Give it a short lowercase name and a ' +
+      'precise focus. Only spawn when parallel or specialised work clearly helps.',
+    parameters: type({
+      name: type('string').describe('lowercase, e.g. researcher or frontend'),
+      focus: type('string').atLeastLength(10).describe('What this worker is responsible for'),
+      'model?': type('string').describe('One of the allowed worker models; defaults to the first'),
+    }),
+    async run(args, agent, host) {
+      return host.spawnWorker(agent, args.name, args.focus, args.model)
     },
   },
   {

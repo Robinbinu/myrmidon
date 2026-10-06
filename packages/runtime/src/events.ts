@@ -1,7 +1,10 @@
+import type SchemaType from '@deepseek-ai/schemastery'
 import { type EventLog, type EventTypeDefinition, Schema } from '@myrmidon/core'
 
 const str = () => Schema.string().required()
 const strs = () => Schema.array(Schema.string()).default([])
+// A nested object that may be absent; a bare Schema.object would fill in {} and then fail its required fields.
+const optional = <S, T>(schema: SchemaType<S, T>) => Schema.union([schema, Schema.const(undefined as never)])
 const oneOf = (...values: string[]) => Schema.union(values).required()
 
 const usage = Schema.object({
@@ -41,6 +44,14 @@ const defs: EventTypeDefinition[] = [
         maxTurns: Schema.natural(),
       }),
       unsafeNoSandbox: Schema.boolean().default(false),
+      chat: optional(Schema.object({ chatId: str(), round: Schema.natural().required(), request: str() })),
+      team: optional(
+        Schema.object({
+          mode: oneOf('auto', 'manual'),
+          maxWorkers: Schema.natural().required(),
+          workerModels: strs(),
+        }),
+      ),
     }),
   },
   {
@@ -48,6 +59,23 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['system'],
     schema: Schema.object({ pid: Schema.natural(), hostname: Schema.string() }),
+  },
+  {
+    type: 'agent/joined',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      agent: Schema.object({ name: str(), role: str(), model: str(), tools: strs() }).required(),
+      by: str(),
+      focus: Schema.string().default(''),
+    }),
+  },
+  { type: 'chat/user', version: 1, actors: ['user'], schema: Schema.object({ text: str() }) },
+  {
+    type: 'chat/reply',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({ agent: str(), text: str(), final: Schema.boolean().default(false) }),
   },
   {
     type: 'colony/stopped',
@@ -143,7 +171,7 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'artifact/versioned',
     version: 1,
-    actors: ['agent'],
+    actors: ['agent', 'user'],
     schema: Schema.object({
       name: str(),
       version: Schema.natural().required(),

@@ -88,3 +88,46 @@ export function streamEvents(
     ws?.close()
   }
 }
+
+export async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${path}`)
+  return data as T
+}
+
+export interface ModelOption {
+  ref: string
+  provider: string
+  id: string
+  name: string
+  reasoning: boolean
+  contextWindow?: number
+}
+
+export interface TeamConfig {
+  mode: 'auto' | 'manual'
+  leadModel: string
+  workerModel: string
+  workers: number
+  judgeModel: string
+}
+
+export interface ChatRound {
+  colonyId: string
+  round: number
+  status: string
+  request: string
+}
+
+export interface ChatSummary {
+  chatId: string
+  title: string
+  updatedAt: string
+  status: string
+  rounds: ChatRound[]
+}

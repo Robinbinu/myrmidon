@@ -12,9 +12,11 @@ import {
 } from '@myrmidon/protocol'
 import {
   bootRuntime,
+  ChatService,
   ColonyRun,
   detectSandbox,
   loadColonySpec,
+  ModelResolver,
   type Runtime,
   recoverOrphans,
 } from '@myrmidon/runtime'
@@ -217,12 +219,20 @@ async function main() {
       if (!arg) throw new Error('usage: myrmidon run <colony.yaml>')
       return run(arg)
     case 'serve': {
-      await recoverOnly()
-      const server = startServer({ home, port: Number(values.port ?? 0) })
-      console.log(`${c.bold('Myrmidon UI')} ${server.url}`)
-      console.log(c.dim(`data ${home} · Ctrl-C to stop`))
+      const runtime = await bootRuntime(home)
+      await recover(runtime)
+      const chats = new ChatService(runtime, {
+        resolver: new ModelResolver(),
+        unsafeNoSandbox: values['unsafe-no-sandbox'],
+      })
+      const server = startServer({ home, port: Number(values.port ?? 0), chats })
+      console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      console.log(c.dim(`data ${home} · sandbox ${detectSandbox().kind} · Ctrl-C to stop`))
       process.on('SIGINT', async () => {
+        console.log(c.yellow('\nstopping running colonies…'))
+        await chats.stopAll()
         await server.stop()
+        await runtime.dispose()
         process.exit(0)
       })
       return

@@ -1,6 +1,7 @@
 import type { StreamFn } from '@oh-my-pi/pi-agent-core'
 import { completeSimple, getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
 import { getBundledModel, getBundledModels, getBundledProviders } from '@oh-my-pi/pi-catalog'
+import { buildCustomModel, readCustomProviders } from './omp-config.ts'
 
 export interface ResolvedModel {
   readonly ref: string
@@ -14,6 +15,13 @@ export class ModelResolver {
   private readonly _custom = new Map<string, ResolvedModel>()
   private readonly _tokens = new Map<string, { value: string; at: number }>()
 
+  private _providers?: ReturnType<typeof readCustomProviders>
+
+  private _customProviders() {
+    this._providers ??= readCustomProviders()
+    return this._providers
+  }
+
   register(ref: string, resolved: Omit<ResolvedModel, 'ref'>): () => void {
     this._custom.set(ref, { ref, ...resolved })
     return () => this._custom.delete(ref)
@@ -26,6 +34,12 @@ export class ModelResolver {
     if (slash <= 0) throw new Error(`model must be "provider/model-id", got ${JSON.stringify(ref)}`)
     const provider = ref.slice(0, slash)
     const id = ref.slice(slash + 1)
+    const ompProvider = this._customProviders().get(provider)
+    if (ompProvider) {
+      const model = buildCustomModel(provider, ompProvider, id)
+      if (!model) throw new Error(`unknown model ${JSON.stringify(id)} for ${provider} in omp models.yml`)
+      return { ref, model }
+    }
     if (!(getBundledProviders() as string[]).includes(provider)) {
       throw new Error(`unknown model provider ${JSON.stringify(provider)}`)
     }
@@ -46,6 +60,7 @@ export class ModelResolver {
    */
   async apiKey(model: Model): Promise<string | undefined> {
     if (model.api === 'mock') return 'mock'
+    if (this._customProviders().get(model.provider)?.auth === 'none') return 'none'
     const env = getEnvApiKey(model.provider)
     if (env) return env
     const cached = this._tokens.get(model.provider)

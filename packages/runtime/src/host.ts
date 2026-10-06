@@ -23,6 +23,8 @@ export interface ColonyHost {
   appendAtomic(build: (state: ColonyState) => EventDraft[]): Promise<MyrEvent[]>
   requestTaskVerification(taskId: string, by: string): void
   requestFinalVerification(by: string, summary: string): Promise<string>
+  /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
+  spawnWorker(by: string, name: string, focus: string, model?: string): Promise<string>
   deadline(): number
 }
 

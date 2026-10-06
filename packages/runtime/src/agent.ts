@@ -13,7 +13,8 @@ export interface InboxItem {
   readonly mail?: EventId
 }
 
-const TURN_TIMEOUT_MS = 5 * 60_000
+// A safety net only: one turn can include many model calls and large file writes.
+const TURN_TIMEOUT_MS = 15 * 60_000
 const MAX_CONSECUTIVE_FAILURES = 3
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
