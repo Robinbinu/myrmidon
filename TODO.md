@@ -4,6 +4,11 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Done this session (not listed below)
 
+- [x] **Manus-style research habits** (00fead2, d04e3cb): update_todo recitation, long pages saved to scratch with
+      an excerpt, scripts/APIs for bulk data, stale-knowledge guard (remembered models/prices lose to sources,
+      past-year search note), stop/publish discipline.
+- [x] **Model errors** (af3abfd): refusals and hard errors pause the round with the error shown and "Continue with
+      <model>"; failed replies never enter context; transient errors retry quietly.
 - [x] **Two team modes + Fable's orchestration fixes** — orchestrated (lead + specialist roster, per-role models,
       dormant workers, lead has no web/shell/fs) and swarm; triage tiers; auto-verify; `ask_user`; harness docs,
       `read_docs`, capability summary; team picker UI; run/workspace views.
@@ -14,7 +19,7 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Replay the agent's computer** (like Manus) — a timeline scrubber in the Computer view: keyframes per
+- [x] **Replay the agent's computer** (2a81043) — a timeline scrubber in the Computer view: keyframes per
       browser action (screenshot + cursor + highlight, stored as blobs and logged), step back through what an
       agent did, "jump to live".
 - [ ] **Computer view for non-browser work** — show the agent's terminal and the file it is editing live in the
