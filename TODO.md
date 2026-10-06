@@ -14,6 +14,23 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Smarter harness prompts** — agents (even Opus 5.5) act dumb in Myrmidon. Study the system prompts, tool
+      descriptions and agent docs of strong harnesses (omp's own prompts in node_modules, Claude Code, Codex,
+      OpenHands, Aider) and rewrite ours: role briefs, tool descriptions with when/when-not and examples,
+      planning and verification habits, how to read the snapshot, how to use the board/notes/mail well.
+      Update the harness docs (`packages/runtime/docs/*.md`) agents read via `read_docs` to match.
+      Measure before/after with the eval prompts.
+- [ ] **Slash commands and omp's controls** — slash commands in the composer (/plan, /model, /team, /mode,
+      /stop, /retry, /resume, /thinking, /attach, /clear …) with an autocomplete menu; plan mode (show the plan
+      for approve/edit before an expensive team round); per-agent thinking level; other omp session controls
+      worth copying (compaction, checkpoints/rewind, model switch mid-chat). Agents learn them from the docs.
+- [ ] **Real browser for agents (Playwright or alternative)** — proper web access: rendered pages, clicking,
+      forms, screenshots, JS-heavy sites, and dev features for web apps the colony builds (open the built
+      page, read console/network errors, run checks, screenshot for the judge). Research options first:
+      Playwright, omp's built-in browser relay, browser-use, Stagehand, chrome-devtools MCP.
+- [ ] **Watch and take over the agent's browser** — when an agent browses, the person can see the live page
+      in the UI (screencast), follow what the agent clicks, and take control (pause the agent, drive it, hand
+      back), like Claude's browser pane.
 - [x] **Workers persist across a chat's messages** — later rounds reuse the same workers (names, specialties,
       models, and their transcripts) instead of spawning new ones; the lead keeps or dismisses workers
       (`dismiss_worker`), and spawns new ones when needed.
@@ -42,9 +59,6 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Resume after a shutdown or stop** — when the server restarts or a round is stopped, continue from
       where it was (re-create agents from the log, restore tasks/claims/notes/plan, re-deliver pending
       inbox items) instead of marking the round stopped. Explicit "Resume" action in the UI.
-- [ ] **Bring over omp's harness features** — slash commands in the composer (e.g. /plan, /model, /team,
-      /stop, /retry), modes (plan mode etc.), per-agent thinking level, and other controls; models should
-      know how to use these (docs + prompts).
 - [ ] **Agents create their own tools/plugins** — sandboxed `create_tool` (script + input schema), usable in
       the colony that made it; "Add to library" to reuse in future colonies; a gallery to browse them.
 - [ ] **Eval harness** (`scripts/eval.ts`, real models, opt-in) — run the standard prompts ("what is life",
