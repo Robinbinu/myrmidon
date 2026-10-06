@@ -69,8 +69,10 @@ function argSummary(tool: string, args: Record<string, unknown>): string {
 }
 
 function agentOf(e: MyrEvent): string | undefined {
-  const p = e.payload as { agent?: string; from?: string; author?: string; by?: string }
-  return p.agent ?? p.from ?? p.author ?? p.by
+  // `agent/joined` carries the whole agent record; everything else names the agent directly.
+  const p = e.payload as { agent?: string | { name: string }; from?: string; author?: string; by?: string }
+  const agent = typeof p.agent === 'object' ? p.agent.name : p.agent
+  return agent ?? p.from ?? p.author ?? p.by
 }
 
 /** Builds the activity stream (newest first) from the log up to the replay cursor. */
