@@ -830,6 +830,71 @@ test('searching for a past year gets a note that the results may be stale', asyn
   expect(outputs.filter((o) => o === 'some results')).toHaveLength(1)
 })
 
+test('a model refusal pauses the round, stays out of context, and the round continues on another model', async () => {
+  const resolver = new ModelResolver()
+  let calls = 0
+  const refusing = createMockModel({
+    handler: () => {
+      calls += 1
+      return calls === 1
+        ? { content: [tool('fs_write', { path: 'notes.md', content: '# Notes' })] }
+        : {
+            stopReason: 'error',
+            errorMessage: 'Refusal (cyber): This request triggered restrictions on violative cyber content.',
+          }
+    },
+  })
+  resolver.register('mock/refuser', { model: refusing.model, streamFn: refusing.stream })
+  const seen: string[] = []
+  const backup = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen.push(JSON.stringify(ctx.messages))
+      return { content: [tool('reply_user', { text: 'Done on the backup model.', final: true })] }
+    },
+  })
+  resolver.register('mock/backup', { model: backup.model, streamFn: backup.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send('Write the notes', {
+    ...solo('mock/refuser'),
+    judgeModel: 'mock/judge',
+  })
+  const paused = await waitFor(colonyId)
+  expect(paused.status).toBe('stopped')
+  expect(paused.statusReason).toContain('model refused')
+  expect(paused.modelError).toMatchObject({ agent: 'lead', kind: 'refusal' })
+  expect(paused.modelError?.message).toContain('Refusal (cyber)')
+
+  await chats.resume(chatId, 'mock/backup')
+  const done = await waitFor(colonyId, (st) => st.status === 'completed')
+  expect(done.agents.lead?.info.model).toBe('mock/backup')
+  expect(done.modelError).toBeUndefined()
+  // The backup model sees the work so far, but never the refusal.
+  expect(seen[0]).toContain('# Notes')
+  expect(seen[0]).not.toContain('Refusal')
+})
+
+test('a transient model error is retried quietly and never enters the context', async () => {
+  const resolver = new ModelResolver()
+  const seen: string[] = []
+  const flaky = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen.push(JSON.stringify(ctx.messages))
+      return seen.length === 1
+        ? { stopReason: 'error', errorMessage: 'Overloaded: the server is temporarily busy' }
+        : { content: [tool('reply_user', { text: 'Answered after a retry.', final: true })] }
+    },
+  })
+  resolver.register('mock/flaky', { model: flaky.model, streamFn: flaky.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Answer me', { ...solo('mock/flaky'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.modelError).toBeUndefined()
+  expect(seen[1]).not.toContain('Overloaded')
+}, 20_000)
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

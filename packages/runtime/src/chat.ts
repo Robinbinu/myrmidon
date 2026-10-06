@@ -368,7 +368,11 @@ export class ChatService {
    * Picks a chat's latest round back up where it stopped (a stop, a server restart, a time limit) instead of
    * starting over. Its agents restart with a summary of everything recorded so far.
    */
-  async resume(chatId: string): Promise<{ chatId: string; colonyId: string }> {
+  /**
+   * `model` continues on another model: the agent whose model failed (and any other agent on that same model)
+   * switches to it. Without a failure, it switches the lead (or the one agent).
+   */
+  async resume(chatId: string, model?: string): Promise<{ chatId: string; colonyId: string }> {
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
     const last = (await this.rounds()).get(chatId)?.at(-1)
     if (!last) throw new Error('no such chat')
@@ -377,6 +381,19 @@ export class ChatService {
     const created = (await this.store.read(last.id as never)).find((e) => e.type === 'colony/created')
     if (!created) throw new Error('the round has no colony/created event')
     const spec = this.specFromLog(created.payload as EventPayloads['colony/created'], last.state)
+    const models: Record<string, string> = {}
+    if (model) {
+      this.options.resolver.resolve(model)
+      const failed = last.state.modelError
+      const target = failed
+        ? failed.model
+        : (spec.agents.find((a) => a.role === 'lead')?.model ?? spec.agents[0]?.model)
+      for (const agent of spec.agents) {
+        if (agent.model !== target && agent.name !== failed?.agent) continue
+        agent.model = model
+        models[agent.name] = model
+      }
+    }
     const run = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       resumeId: last.id as ColonyId,
@@ -387,7 +404,12 @@ export class ChatService {
     })
     this._live.set(chatId, run)
     try {
-      await run.resume(last.state.statusReason ?? 'the server stopped')
+      await run.resume(
+        model
+          ? `${last.state.statusReason ?? 'stopped'}; continuing on ${model}`
+          : (last.state.statusReason ?? 'the server stopped'),
+        models,
+      )
     } catch (err) {
       this._live.delete(chatId)
       throw err

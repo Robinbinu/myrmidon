@@ -189,6 +189,16 @@ export class ColonyRun implements ColonyHost {
     if (this._state.status === 'running') this._wake(agent, text, 'person')
   }
 
+  async modelFailed(agent: string, model: string, error: { kind: 'refusal' | 'error'; message: string }) {
+    if (this._state.status !== 'running') return
+    await this.append({
+      type: 'agent/error',
+      actor: SYSTEM,
+      payload: { agent, model, kind: error.kind, message: error.message.slice(0, 2_000) },
+    })
+    await this.stop(`model ${error.kind === 'refusal' ? 'refused' : 'failed'}: ${agent} on ${model}`)
+  }
+
   setTodos(agent: string, items: readonly TodoItem[]) {
     this._todos.set(agent, items)
     this._reminded.delete(`${agent}:todo`)
@@ -317,7 +327,8 @@ export class ColonyRun implements ColonyHost {
    * a summary of it plus anything the person said that nobody read, and agents holding tasks are told to
    * carry on. The wall clock restarts with what was left, or half the budget if less remained.
    */
-  async resume(reason: string): Promise<void> {
+  /** `models` switches agents to another model (agent → model), e.g. after one refused or failed. */
+  async resume(reason: string, models: Record<string, string> = {}): Promise<void> {
     if (!this.options.resumeId) throw new Error('resume needs a colony built with resumeId')
     const past = await this.log.read(this.id)
     for (const e of past) applyEvent(this._state, e)
@@ -333,10 +344,10 @@ export class ColonyRun implements ColonyHost {
         this._route(e)
       }
     })
-    await this._launch(left, reason)
+    await this._launch(left, reason, models)
   }
 
-  private async _launch(wallMs: number, resumedBecause?: string) {
+  private async _launch(wallMs: number, resumedBecause?: string, models: Record<string, string> = {}) {
     for (const a of this.spec.agents) {
       const agent = new ColonyAgent(a, this, this.resolver, { restore: true })
       agent.turn = this._state.agents[a.name]?.turns ?? 0
@@ -353,7 +364,12 @@ export class ColonyRun implements ColonyHost {
     await this.append({
       type: 'colony/started',
       actor: SYSTEM,
-      payload: { pid: process.pid, hostname: hostname(), ...(resumedBecause ? { resumed: true } : {}) },
+      payload: {
+        pid: process.pid,
+        hostname: hostname(),
+        ...(resumedBecause ? { resumed: true } : {}),
+        ...(Object.keys(models).length ? { models } : {}),
+      },
     })
     if (resumedBecause) this._wakeAfterResume(resumedBecause)
     for (const a of this._agents.values()) {

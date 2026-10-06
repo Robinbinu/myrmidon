@@ -79,7 +79,12 @@ const defs: EventTypeDefinition[] = [
     type: 'colony/started',
     version: 1,
     actors: ['system'],
-    schema: Schema.object({ pid: Schema.natural(), hostname: Schema.string(), resumed: Schema.boolean() }),
+    schema: Schema.object({
+      pid: Schema.natural(),
+      hostname: Schema.string(),
+      resumed: Schema.boolean(),
+      models: Schema.dict(Schema.string()),
+    }),
   },
   {
     type: 'agent/joined',
@@ -97,6 +102,12 @@ const defs: EventTypeDefinition[] = [
       by: str(),
       focus: Schema.string().default(''),
     }),
+  },
+  {
+    type: 'agent/error',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), model: str(), kind: oneOf('refusal', 'error'), message: str() }),
   },
   {
     type: 'agent/dismissed',

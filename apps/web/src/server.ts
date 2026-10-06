@@ -474,7 +474,9 @@ export function startServer(options: ServeOptions): WebServer {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           try {
-            return json(await options.chats.resume(req.params.chatId ?? ''))
+            const body = (await req.json().catch(() => ({}))) as { model?: unknown }
+            const model = typeof body.model === 'string' && body.model ? body.model : undefined
+            return json(await options.chats.resume(req.params.chatId ?? '', model))
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }

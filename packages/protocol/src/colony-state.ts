@@ -10,7 +10,7 @@ import type {
 } from './payloads.ts'
 
 export interface AgentView {
-  readonly info: AgentInfo
+  info: AgentInfo
   status: AgentStatus
   detail?: string
   turns: number
@@ -113,6 +113,8 @@ export interface ColonyState {
   chat?: EventPayloads['colony/created']['chat']
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string }
+  /** The model failure that paused the round, until it resumes. */
+  modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
   tier?: EventPayloads['colony/created']['tier']
   /** Communication counts keyed `from→to`; drives the colony map edges. */
@@ -238,11 +240,23 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chatTitle = { title: p.title, at: event.time }
       break
     }
-    case 'colony/started':
+    case 'colony/started': {
+      const p = event.payload as EventPayloads['colony/started']
       state.status = 'running'
       delete state.statusReason
       delete state.endedAt
+      delete state.modelError
+      for (const [name, model] of Object.entries(p.models ?? {})) {
+        const view = state.agents[name]
+        if (view) view.info = { ...view.info, model }
+      }
       break
+    }
+    case 'agent/error': {
+      const p = event.payload as EventPayloads['agent/error']
+      state.modelError = { ...p, time: event.time }
+      break
+    }
     case 'colony/stopped':
     case 'colony/failed': {
       const p = event.payload as { reason: string }

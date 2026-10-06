@@ -20,7 +20,8 @@ export interface InboxItem {
 
 // A safety net only: one turn can include many model calls and large file writes.
 const TURN_TIMEOUT_MS = 15 * 60_000
-const MAX_CONSECUTIVE_FAILURES = 3
+/** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
+const MODEL_RETRIES = 2
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
 
@@ -34,7 +35,7 @@ export class ColonyAgent {
   working = false
   private _wake?: () => void
   private _stopped = false
-  private _failures = 0
+  private _failed = false
   private readonly _agent: Agent
   /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
   private readonly _unread = new Map<number, InboxItem>()
@@ -125,10 +126,7 @@ export class ColonyAgent {
       }
       const items = this.inbox.splice(0)
       await this._turn(items)
-      if (this._failures >= MAX_CONSECUTIVE_FAILURES) {
-        await this._status('failed', `${this._failures} consecutive failed turns`)
-        return
-      }
+      if (this._failed) return
     }
     if (this.host.state().status !== 'running') await this._status('stopped', this.host.state().status)
   }
@@ -148,26 +146,47 @@ export class ColonyAgent {
     const from = this._agent.state.messages.length
     try {
       await this._agent.prompt(render(items))
-      const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
-      this._failures = last?.role === 'assistant' && last.stopReason === 'error' ? this._failures + 1 : 0
-      await this._deliverUnsentAnswer(from)
+      if (await this._recover()) this._failed = true
+      else await this._deliverUnsentAnswer(from)
     } catch (err) {
-      this._failures += 1
-      await this._status('working', `turn error: ${err instanceof Error ? err.message : String(err)}`)
+      if (!this._stopped) {
+        this._failed = true
+        await this.host.modelFailed(this.name, this.spec.model, {
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
     } finally {
       clearTimeout(timer)
       this._requeueUnread()
       this.working = false
-    }
-    if (this._failures > 0 && this._failures < MAX_CONSECUTIVE_FAILURES) {
-      await Bun.sleep(1000 * 2 ** this._failures)
-      this.inbox.push({ text: 'Your previous turn failed. Check observe and continue.', trigger: 'retry' })
     }
     await this.host.append({
       type: 'agent/turn',
       actor: SYS,
       payload: { agent: this.name, phase: 'end', turn: this.turn, trigger },
     })
+  }
+
+  /**
+   * A failed model reply never stays in the agent's context: it is removed, and the turn either continues after a
+   * short wait (transient failures) or stops so the person can choose another model. Returns true if it stopped.
+   */
+  private async _recover(): Promise<boolean> {
+    for (let attempt = 0; ; attempt++) {
+      const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
+      if (last?.role !== 'assistant' || last.stopReason !== 'error' || this._stopped) return false
+      this._agent.popMessage()
+      const error = classifyModelError(last)
+      if (error.transient && attempt < MODEL_RETRIES) {
+        await Bun.sleep(2_000 * 2 ** attempt)
+        await this._agent.continue()
+        continue
+      }
+      // The configured ref, not the provider's internal id, so the person sees the model they chose.
+      await this.host.modelFailed(this.name, this.spec.model, error)
+      return true
+    }
   }
 
   /**
@@ -198,6 +217,12 @@ export class ColonyAgent {
   }
 
   private _record(message: AgentMessage) {
+    // Failed replies are never part of the conversation, so they are not kept for a resume either.
+    if (
+      (message as AssistantMessage).role === 'assistant' &&
+      (message as AssistantMessage).stopReason === 'error'
+    )
+      return
     try {
       mkdirSync(join(this._transcript, '..'), { recursive: true })
       appendFileSync(this._transcript, `${JSON.stringify(message)}\n`)
@@ -358,4 +383,22 @@ export function compactTranscript(messages: readonly AgentMessage[], keepTurns =
       } as AgentMessage
     return m
   })
+}
+
+export interface ModelError {
+  /** A refusal is the model declining (a policy filter); `error` is anything else that went wrong. */
+  readonly kind: 'refusal' | 'error'
+  readonly message: string
+  readonly transient?: boolean
+}
+
+const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
+
+export function classifyModelError(m: AssistantMessage): ModelError {
+  const message = m.errorMessage?.trim() || 'the model returned an error with no message'
+  if (/refus/i.test(message)) return { kind: 'refusal', message }
+  const transient =
+    (m.errorStatus !== undefined && TRANSIENT_STATUS.has(m.errorStatus)) ||
+    /timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|overloaded|rate.?limit|temporar|try again/i.test(message)
+  return { kind: 'error', message, transient }
 }

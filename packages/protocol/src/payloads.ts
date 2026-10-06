@@ -73,7 +73,13 @@ export interface EventPayloads {
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
    * stopped or interrupted colony picking up where it left off.
    */
-  'colony/started': { pid?: number; hostname?: string; resumed?: boolean }
+  'colony/started': {
+    pid?: number
+    hostname?: string
+    resumed?: boolean
+    /** Agents switched to another model on resume (agent → model). */
+    models?: Record<string, string>
+  }
   'colony/stopped': { reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
   /**
@@ -92,6 +98,8 @@ export interface EventPayloads {
     width: number
     height: number
   }
+  /** An agent's model refused or failed; the round pauses so the person can continue with another model. */
+  'agent/error': { agent: string; model: string; kind: 'refusal' | 'error'; message: string }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
   /**

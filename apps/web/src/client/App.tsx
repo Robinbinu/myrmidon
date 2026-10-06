@@ -236,11 +236,11 @@ export function App() {
     }
   }
 
-  const resume = async () => {
+  const resume = async (model?: string) => {
     if (!activeChat) return
     try {
-      await post(`/api/chats/${activeChat}/resume`, {})
-      toast('Resuming where it left off', 'info')
+      await post(`/api/chats/${activeChat}/resume`, model ? { model } : {})
+      toast(model ? 'Continuing on the new model' : 'Resuming where it left off', 'info')
       refreshChats()
     } catch (err) {
       toast(String((err as Error).message ?? err), 'error')
@@ -533,6 +533,7 @@ export function App() {
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
                         onResume={resume}
+                        models={models}
                         sending={busy}
                         {...(waiting && pending ? { pending: pending.text } : {})}
                       />
@@ -620,7 +621,8 @@ function Transcript(props: {
   chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
-  onResume(): Promise<void>
+  onResume(model?: string): Promise<void>
+  models: ModelOption[]
   /** A message is on its way to the server; retry stays disabled until it lands. */
   sending: boolean
   /** A request whose round has not started yet. */
@@ -652,6 +654,7 @@ function Transcript(props: {
               onOpenColony={props.onOpenColony}
               onRetry={props.onRetry}
               onResume={props.onResume}
+              models={props.models}
               retry={
                 i === rounds.length - 1 && !running && !props.pending
                   ? props.sending

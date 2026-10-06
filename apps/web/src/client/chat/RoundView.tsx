@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
+import type { ModelOption } from '../api.ts'
 import { compact, duration, useCopy } from '../ui/hooks.ts'
 import {
   AgentAvatar,
@@ -34,6 +35,7 @@ import { useColony } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
+import { ModelPicker } from './ModelPicker.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
 
@@ -97,8 +99,9 @@ export function RoundView(props: {
   colonyId: string
   onOpenColony(id: string): void
   onRetry(text: string): void
-  /** Picks a stopped round back up where it left off. */
-  onResume(): Promise<void>
+  /** Picks a stopped round back up where it left off, optionally on another model. */
+  onResume(model?: string): Promise<void>
+  models: ModelOption[]
   /** Only the latest finished round offers a retry, and only one at a time. */
   retry: 'ready' | 'starting' | 'hidden'
 }) {
@@ -191,6 +194,7 @@ export function RoundView(props: {
         retry={props.retry}
         onRetry={() => opening && props.onRetry(opening.text)}
         onResume={props.onResume}
+        models={props.models}
       />
       <AnimatePresence>
         {inspect && (
@@ -477,13 +481,17 @@ function Outcome({
   retry,
   onRetry,
   onResume,
+  models,
 }: {
   state: ColonyState
   retry: 'ready' | 'starting' | 'hidden'
   onRetry(): void
-  onResume(): Promise<void>
+  onResume(model?: string): Promise<void>
+  models: ModelOption[]
 }) {
   const [resuming, setResuming] = useState(false)
+  const failed = state.status === 'stopped' ? state.modelError : undefined
+  const [nextModel, setNextModel] = useState('')
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
   const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
@@ -508,6 +516,57 @@ function Outcome({
             </details>
           )}
         </div>
+      </motion.div>
+    )
+  }
+  if (failed) {
+    const pick = nextModel || models.find((m) => m.ref !== failed.model)?.ref || ''
+    const name = (ref: string) => models.find((m) => m.ref === ref)?.name ?? ref
+    return (
+      <motion.div {...enter} className={cn(box, 'flex-col border-bad/25 bg-bad-soft')} role="alert">
+        <div className="flex items-start gap-3 text-bad">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">
+              {failed.kind === 'refusal' ? `${name(failed.model)} refused` : `${name(failed.model)} failed`}
+              <span className="font-normal text-fg-2"> · {failed.agent}</span>
+            </div>
+            <p className="mt-1 whitespace-pre-wrap break-words text-[12.5px] text-fg-2">{failed.message}</p>
+            <p className="mt-1 text-[12px] text-muted">
+              The work so far is kept, and the failed reply is not shown to the next model.
+            </p>
+          </div>
+        </div>
+        {retry !== 'hidden' && (
+          <div className="flex flex-wrap items-end gap-2 pl-7">
+            <div className="min-w-[220px] flex-1">
+              <ModelPicker
+                label="Continue with"
+                value={pick}
+                models={models}
+                onChange={setNextModel}
+                placement="up"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!pick || resuming}
+              onClick={() => {
+                setResuming(true)
+                void onResume(pick).finally(() => setResuming(false))
+              }}
+              icon={
+                resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />
+              }
+            >
+              {resuming ? 'Continuing…' : `Continue with ${name(pick)}`}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={resuming} onClick={() => void onResume()}>
+              Retry same model
+            </Button>
+          </div>
+        )}
       </motion.div>
     )
   }
