@@ -24,6 +24,7 @@ import { ColonyAgent } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
 import type { ColonyHost, TodoItem } from './host.ts'
+import { type ProjectInstructions, readProjectInstructions } from './instructions.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
@@ -106,6 +107,7 @@ export class ColonyRun implements ColonyHost {
   readonly id: ColonyId
   readonly blobs: BlobStore
   readonly workspace: ColonyWorkspace
+  readonly instructions?: ProjectInstructions
   readonly sandbox: Sandbox
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
@@ -155,6 +157,10 @@ export class ColonyRun implements ColonyHost {
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
     this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path)
+    const project = spec.chat?.project?.path
+    // Read once per round, so every agent works from the same rules even if the file changes mid-round.
+    const instructions = project ? readProjectInstructions(project) : undefined
+    if (instructions) this.instructions = instructions
     this.sandbox = options.sandbox ?? detectSandbox()
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()

@@ -123,3 +123,17 @@ export class ColonyWorkspace {
     return missing
   }
 }
+
+/** Folders file listings and searches do not descend into: dependencies, VCS data, and build output. */
+export const SKIP_DIRS: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.cache',
+])

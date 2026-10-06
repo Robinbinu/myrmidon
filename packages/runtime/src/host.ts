@@ -2,6 +2,7 @@ import type { BlobStore, EventLog } from '@myrmidon/core'
 import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { BrowserHub } from './browser.ts'
+import type { ProjectInstructions } from './instructions.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
 import type { WebTools } from './web.ts'
@@ -51,6 +52,8 @@ export interface ColonyHost {
   toolsChanged(): void
   /** A real browser for agents; absent when no Chrome is installed. */
   readonly browser?: BrowserHub
+  /** The project's AGENTS.md / CLAUDE.md, read when the round started; absent outside projects. */
+  readonly instructions?: ProjectInstructions
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

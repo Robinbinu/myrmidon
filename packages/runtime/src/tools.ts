@@ -31,22 +31,9 @@ import {
   scriptCommand,
 } from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
-import { assertArtifactName } from './workspace.ts'
+import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
-/** Folders fs_list does not descend into: dependencies, VCS data, and build output. */
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  '.next',
-  'target',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.cache',
-])
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 const PAGE_EXCERPT = 8_000
 

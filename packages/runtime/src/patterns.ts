@@ -1,4 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
+import type { ProjectInstructions } from './instructions.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
 
 const LOOK = [
@@ -256,6 +257,7 @@ export interface Environment {
   readonly sandbox: string
   readonly web: boolean
   readonly browser: boolean
+  readonly instructions?: ProjectInstructions
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -286,9 +288,22 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     lines.push(
       `Project: "${project.name}" at ${project.path}. This is the person's real folder: your file tools and shell work here, and changes are real. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory, not the project.`,
     )
+  const guide = env.instructions
+  if (project && guide) {
+    if (guide.text)
+      lines.push(
+        `Project instructions (${guide.files.join(', ')}): the person's rules for this codebase. Follow them; they override general habits.\n${guide.text}`,
+      )
+    if (guide.nested.length)
+      lines.push(
+        `More instructions in sub-folders: ${guide.nested.slice(0, 30).join(', ')}${guide.nested.length > 30 ? ', …' : ''}. Before working in one of those folders, read the nearest file; it refines the ones above it.`,
+      )
+  }
   if (tools.includes('shell'))
     lines.push(
-      `Shell: ${process.platform}, ${env.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
+      project
+        ? `Shell: ${process.platform}, ${env.sandbox} sandbox; commands start in the project folder and may write there and in your scratch directory. Use paths relative to the project, never guessed absolute ones. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`
+        : `Shell: ${process.platform}, ${env.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
     )
   return lines.join('\n')
 }
