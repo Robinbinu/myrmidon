@@ -63,6 +63,7 @@ const sendSchema = Schema.object({
   text: Schema.string().min(1).max(20_000).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
+  plan: Schema.boolean(),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -84,6 +85,7 @@ const sendSchema = Schema.object({
     workerModel: Schema.string(),
     workers: Schema.natural().max(8),
     wallMinutes: Schema.number().min(1).max(240),
+    thinking: Schema.union(['low', 'medium', 'high']),
   }).required(),
 })
 const BATCH = 500
@@ -430,7 +432,16 @@ export function startServer(options: ServeOptions): WebServer {
               if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${a.name} is larger than 10 MB`)
               return { name: a.name, bytes }
             })
-            return json(await options.chats.send(body.text, config, body.chatId, body.delivery, attachments))
+            return json(
+              await options.chats.send(
+                body.text,
+                config,
+                body.chatId,
+                body.delivery,
+                attachments,
+                body.plan === true,
+              ),
+            )
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }

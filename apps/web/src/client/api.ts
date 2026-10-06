@@ -141,6 +141,8 @@ export interface TeamConfig {
   /** Orchestrated: how many more specialists the lead may add. */
   extraWorkers: number
   judgeModel: string
+  /** How hard reasoning models think in work rounds; omitted lets each role decide. */
+  thinking?: 'low' | 'medium' | 'high'
 }
 
 export const SPECIALISTS = ['researcher', 'coder', 'writer', 'reviewer', 'designer', 'analyst'] as const
@@ -151,6 +153,9 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
   const leadModel = str(raw.leadModel) ?? fallbackModel
   const workerModel = str(raw.workerModel) ?? leadModel
   const judgeModel = str(raw.judgeModel) ?? leadModel
+  const thinking = ['low', 'medium', 'high'].includes(raw.thinking as string)
+    ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
+    : {}
   const roster = Array.isArray(raw.roster)
     ? (raw.roster as RosterEntry[]).filter((r) => typeof r?.role === 'string' && str(r?.model)).slice(0, 8)
     : undefined
@@ -161,6 +166,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
       roster: roster?.length ? roster : [0, 1, 2].map(() => ({ role: 'peer', model: workerModel })),
       extraWorkers: 0,
       judgeModel,
+      ...thinking,
     }
   return {
     mode: 'orchestrated',
@@ -171,6 +177,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
     ],
     extraWorkers: typeof raw.extraWorkers === 'number' ? raw.extraWorkers : 2,
     judgeModel,
+    ...thinking,
   }
 }
 

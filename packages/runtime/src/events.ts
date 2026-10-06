@@ -70,6 +70,7 @@ const defs: EventTypeDefinition[] = [
       ),
       tier: Schema.union(['answer', 'solo', 'team']),
       observerMs: Schema.natural(),
+      thinking: Schema.union(['low', 'medium', 'high']),
       taskJudge: Schema.string(),
       disabledTools: Schema.array(str()),
     }),

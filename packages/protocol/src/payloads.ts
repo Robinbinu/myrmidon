@@ -65,6 +65,7 @@ export interface EventPayloads {
     tier?: 'answer' | 'solo' | 'team'
     /** The rest of the spec, so an interrupted colony can be resumed exactly as it was created. */
     observerMs?: number
+    thinking?: 'low' | 'medium' | 'high'
     taskJudge?: string
     disabledTools?: string[]
   }

@@ -284,6 +284,7 @@ export class ColonyRun implements ColonyHost {
         ...(this.spec.team ? { team: this.spec.team } : {}),
         ...(this.spec.tier ? { tier: this.spec.tier } : {}),
         observerMs: this.spec.observer.intervalMs,
+        ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
         ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
         ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
       },

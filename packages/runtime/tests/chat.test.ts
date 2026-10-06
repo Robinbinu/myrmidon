@@ -676,6 +676,29 @@ test('fs_edit changes part of a scratch file instead of rewriting it', async () 
   expect(text).toBe('<h1>Weather</h1>\n<p>final</p>\n<p>final</p>\n')
 })
 
+test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
+  const resolver = new ModelResolver()
+  const prompts: string[] = []
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      prompts.push(JSON.stringify(ctx.messages))
+      return prompts.length === 1
+        ? { content: [tool('ask_user', { question: 'Plan: one page, three sections. Approve?' })] }
+        : { content: ['Waiting for approval.'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config: TeamConfig = { ...solo('mock/lead'), thinking: 'low' }
+  const { colonyId } = await chats.send('Make a landing page', config, undefined, 'steer', [], true)
+  const s = await waitFor(colonyId)
+  expect(prompts[0]).toContain('Plan first')
+  expect(s.statusReason).toBe('awaiting your reply')
+  expect(s.artifacts).toEqual({})
+  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+  expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

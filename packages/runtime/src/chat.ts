@@ -49,14 +49,24 @@ export interface TeamConfig {
   readonly extraWorkers?: number
   readonly judgeModel: string
   readonly wallMinutes?: number
+  /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
+  readonly thinking?: Thinking
 }
+
+export type Thinking = 'low' | 'medium' | 'high'
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
 export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
   const str = (v: unknown, fallback = '') => (typeof v === 'string' && v ? v : fallback)
   const leadModel = str(raw.leadModel)
   const judgeModel = str(raw.judgeModel, leadModel)
-  const wall = typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}
+  const thinking = ['low', 'medium', 'high'].includes(raw.thinking as string)
+    ? (raw.thinking as Thinking)
+    : undefined
+  const wall = {
+    ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
+    ...(thinking ? { thinking } : {}),
+  }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
       .filter(
@@ -250,13 +260,15 @@ export class ChatService {
     delivery: 'steer' | 'queue' = 'steer',
     /** Files to put in the round's workspace as `uploads/…` artifacts. */
     attachments: readonly Attachment[] = [],
+    /** Plan mode: the round presents its plan for approval before doing any work. */
+    planFirst = false,
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())
       .catch(() => {})
-      .then(() => this.deliver(id, message, config, delivery, attachments))
+      .then(() => this.deliver(id, message, config, delivery, attachments, planFirst))
     this._sending.set(id, turn)
     try {
       return await turn
@@ -271,6 +283,7 @@ export class ChatService {
     config: TeamConfig,
     delivery: 'steer' | 'queue',
     attachments: readonly Attachment[],
+    planFirst: boolean,
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
@@ -287,7 +300,9 @@ export class ChatService {
         console.warn(`triage failed, running solo: ${err instanceof Error ? err.message : String(err)}`)
         return 'solo' as const
       })
-    const run = new ColonyRun(this.runtime, this.buildSpec(id, message, config, previous, history, tier), {
+    const spec = this.buildSpec(id, message, config, previous, history, tier)
+    if (planFirst && spec.tier !== 'answer') spec.planFirst = true
+    const run = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
@@ -394,6 +409,7 @@ export class ChatService {
       acceptance: created.acceptance as AcceptanceCheck[],
       budget: { maxTurns: 40, ...created.budget },
       observer: { intervalMs: created.observerMs ?? 45_000 },
+      ...(created.thinking ? { thinking: created.thinking } : {}),
       ...(created.taskJudge ? { taskJudge: created.taskJudge } : {}),
       ...(created.chat ? { chat: { ...created.chat, history: created.chat.history ?? '' } } : {}),
       ...(created.team
@@ -539,6 +555,7 @@ export class ChatService {
       ...(disabledTools.length ? { disabledTools } : {}),
       chat: { chatId, round: previous.length + 1, request, history },
       tier,
+      ...(config.thinking ? { thinking: config.thinking } : {}),
       team: {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,

@@ -223,6 +223,7 @@ type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
  */
 export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
   if (spec.tier === 'answer') return 'low'
+  if (spec.thinking) return spec.thinking
   if (spec.agents.length === 1 || isLead(spec, agent)) return 'high'
   return 'medium'
 }
@@ -351,7 +352,10 @@ export function kickoff(spec: ColonySpec, state: ColonyState): string {
     return `The colony has started. Mission:\n\n${spec.mission}\n\nStart with read_task and read_board, then get to work.`
   const history = spec.chat.history ? `Earlier in this conversation:\n${spec.chat.history}\n\n` : ''
   const attached = state.chatMessages.find((m) => m.from === 'user')?.attachments
-  const request = `${history}[user] ${spec.chat.request}${attachedNote(attached)}`
+  const plan = spec.planFirst
+    ? '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), present it with ask_user, and stop. Do not create tasks, publish files, or start the work until they approve.'
+    : ''
+  const request = `${history}[user] ${spec.chat.request}${attachedNote(attached)}${plan}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? `\n\nFiles from earlier rounds: ${files.join(', ')}.` : ''

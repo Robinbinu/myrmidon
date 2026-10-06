@@ -48,6 +48,10 @@ export interface ColonySpec {
   disabledTools?: string[]
   /** Chat rounds: how much machinery this request gets (decided by triage). */
   tier?: Tier
+  /** How hard reasoning models think in work rounds; omitted lets each role decide. */
+  thinking?: 'low' | 'medium' | 'high'
+  /** Plan mode: present the plan for approval (ask_user) before any work. */
+  planFirst?: boolean
 }
 
 /** `answer`: one agent replies directly; `solo`: one agent with every tool; `team`: the configured team. */

@@ -1,3 +1,4 @@
+import { foldColony, type MyrEvent } from '@myrmidon/protocol'
 import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -65,6 +66,31 @@ async function encodeFile(file: File): Promise<{ name: string; data: string }> {
   return { name: file.name, data: btoa(binary) }
 }
 
+/** Downloads a chat as Markdown: each round's request, the colony's replies, and the files it delivered. */
+async function exportChat(chat: ChatSummary) {
+  const lines = [`# ${chat.title}`, '']
+  for (const round of chat.rounds) {
+    const events = await api<MyrEvent[]>(`/api/colonies/${round.colonyId}/events`)
+    const state = foldColony(round.colonyId, events)
+    lines.push(`## Round ${round.round}`, '')
+    for (const m of state.chatMessages)
+      lines.push(`**${m.from === 'user' ? 'You' : m.from}:**`, '', m.text, '')
+    const files = Object.keys(state.artifacts)
+    if (files.length) lines.push(`Files: ${files.join(', ')}`, '')
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${
+    chat.title
+      .replace(/[^\w -]+/g, '')
+      .trim()
+      .slice(0, 60) || 'chat'
+  }.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
@@ -81,6 +107,7 @@ export function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'general' | 'tools'>('general')
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -173,6 +200,7 @@ export function App() {
     chatId = activeChat,
     delivery: Delivery = 'steer',
     files: readonly File[] = [],
+    plan = false,
   ) => {
     if (!config) return
     if (!config.leadModel) {
@@ -188,6 +216,7 @@ export function App() {
         config,
         chatId,
         delivery,
+        ...(plan ? { plan: true } : {}),
         ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
       })
       setActiveChat(r.chatId)
@@ -215,6 +244,76 @@ export function App() {
       refreshChats()
     } catch (err) {
       toast(String((err as Error).message ?? err), 'error')
+    }
+  }
+
+  /** Slash commands from the composer (the ones it does not handle itself). */
+  const command = async (name: string, arg: string) => {
+    const last = chat?.rounds.at(-1)
+    switch (name) {
+      case 'plan':
+        return send(arg, activeChat, 'steer', [], true)
+      case 'steer':
+      case 'queue':
+        if (!running) {
+          toast('Nothing is running; send it as a normal message', 'info')
+          throw new Error('not running')
+        }
+        return send(arg, activeChat, name)
+      case 'stop':
+        return running ? stop() : toast('Nothing is running', 'info')
+      case 'resume':
+        return resume()
+      case 'retry':
+        if (!last || running) return toast(running ? 'Still running' : 'Nothing to retry yet', 'info')
+        return send(last.request).catch(() => {})
+      case 'new':
+        return newTask()
+      case 'rename':
+        if (!activeChat) return toast('Open a chat to rename it', 'info')
+        await request('PATCH', `/api/chats/${activeChat}`, { title: arg })
+        refreshChats()
+        return toast('Renamed', 'success')
+      case 'mode':
+        if (!config || (arg !== 'orchestrated' && arg !== 'swarm')) {
+          toast('Use /mode orchestrated or /mode swarm', 'error')
+          throw new Error('bad mode')
+        }
+        updateConfig(normalizeConfig({ ...config, mode: arg }, config.leadModel))
+        return toast(
+          arg === 'swarm' ? 'Swarm: equal peers' : 'Orchestrated: a lead with specialists',
+          'success',
+        )
+      case 'model': {
+        const q = arg.toLowerCase()
+        const found =
+          models.find((m) => m.ref.toLowerCase() === q) ??
+          models.find((m) => m.name.toLowerCase().includes(q) || m.ref.toLowerCase().includes(q))
+        if (!config || !found) {
+          toast(`No model matches “${arg}”`, 'error')
+          throw new Error('no model')
+        }
+        updateConfig({ ...config, leadModel: found.ref })
+        return toast(`Lead model: ${found.name}`, 'success')
+      }
+      case 'thinking': {
+        if (!config || !['low', 'medium', 'high', 'auto'].includes(arg)) {
+          toast('Use /thinking low, medium, high, or auto', 'error')
+          throw new Error('bad thinking')
+        }
+        const { thinking: _old, ...rest } = config
+        updateConfig(arg === 'auto' ? rest : { ...rest, thinking: arg as 'low' | 'medium' | 'high' })
+        return toast(
+          arg === 'auto' ? 'Thinking: each role decides' : `Thinking: ${arg} for work rounds`,
+          'success',
+        )
+      }
+      case 'export':
+        return chat ? exportChat(chat) : toast('Open a chat to export it', 'info')
+      case 'mcp':
+      case 'settings':
+        setSettingsSection(name === 'mcp' ? 'tools' : 'general')
+        return setSettingsOpen(true)
     }
   }
 
@@ -331,6 +430,8 @@ export function App() {
         <main className="flex min-w-0 flex-1 flex-col">
           {settingsOpen ? (
             <Settings
+              key={settingsSection}
+              initialSection={settingsSection}
               onClose={() => setSettingsOpen(false)}
               theme={theme}
               onTheme={setTheme}
@@ -419,6 +520,7 @@ export function App() {
                           : 'Describe what you want done…'
                       }
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
+                      onCommand={command}
                       onStop={stop}
                     />
                   )
