@@ -25,6 +25,13 @@
         "@myrmidon/web": "workspace:*",
       },
     },
+    "apps/eval": {
+      "name": "@myrmidon/eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@myrmidon/protocol": "workspace:*",
+      },
+    },
     "apps/web": {
       "name": "@myrmidon/web",
       "version": "0.0.0",
@@ -179,6 +186,8 @@
     "@myrmidon/cli": ["@myrmidon/cli@workspace:apps/cli"],
 
     "@myrmidon/core": ["@myrmidon/core@workspace:packages/core"],
+
+    "@myrmidon/eval": ["@myrmidon/eval@workspace:apps/eval"],
 
     "@myrmidon/protocol": ["@myrmidon/protocol@workspace:packages/protocol"],
 

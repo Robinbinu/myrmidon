@@ -17,6 +17,9 @@ coverage/
 *.sqlite-shm
 *.db
 
+# Eval reports (apps/eval)
+evals/results/
+
 # Python
 __pycache__/
 *.py[cod]
