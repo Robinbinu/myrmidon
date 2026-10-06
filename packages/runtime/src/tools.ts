@@ -26,6 +26,19 @@ import { toolsFor } from './patterns.ts'
 import { assertArtifactName } from './workspace.ts'
 
 const MAX_ARTIFACT_BYTES = 512 * 1024
+/** Folders fs_list does not descend into: dependencies, VCS data, and build output. */
+const SKIP_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.cache',
+])
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 const PAGE_EXCERPT = 8_000
 
@@ -581,7 +594,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({
       name: type('string').describe('Artifact path, e.g. index.html or src/app.ts'),
       'content?': type('string'),
-      'fromScratch?': type('string').describe('Path inside your scratch directory'),
+      'fromScratch?': type('string').describe(
+        'Path of a file in your working directory (or scratch) to publish',
+      ),
       'mediaType?': type('string'),
     }),
     async run(args, agent, host) {
@@ -593,7 +608,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       let bytes: Uint8Array
       if (content !== undefined) bytes = new TextEncoder().encode(content)
       else if (args.fromScratch)
-        bytes = readFileSync(host.workspace.resolveInScratch(agent, args.fromScratch))
+        bytes = readFileSync(host.workspace.resolveInWorkdir(agent, args.fromScratch))
       else throw new Error('give non-empty content or fromScratch')
       if (bytes.byteLength === 0) throw new Error('refusing to publish an empty artifact')
       if (bytes.byteLength > MAX_ARTIFACT_BYTES)
@@ -693,10 +708,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_write',
     tier: 'write',
-    description: 'Write a file in your private scratch directory.',
+    description:
+      'Write a whole file in your working directory (the project, when the chat has one; otherwise your scratch). ' +
+      'To change part of an existing file, use fs_edit.',
     parameters: type({ path: type('string'), content: type('string') }),
     async run(args, agent, host) {
-      const path = host.workspace.resolveInScratch(agent, args.path)
+      const path = host.workspace.resolveInWorkdir(agent, args.path)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, args.content)
       return `wrote ${args.path} (${Buffer.byteLength(args.content)} bytes)`
@@ -706,7 +723,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'fs_edit',
     tier: 'write',
     description:
-      'Change part of a file in your scratch directory by replacing an exact snippet, instead of rewriting the whole ' +
+      'Change part of a file in your working directory by replacing an exact snippet, instead of rewriting the whole ' +
       'file. `old` must appear exactly once (copy it from fs_read, with enough surrounding lines to be unique); set ' +
       '`all` to replace every occurrence. Make several edits in one step for several changes.',
     parameters: type({
@@ -716,7 +733,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'all?': type('boolean'),
     }),
     async run(args, agent, host) {
-      const path = host.workspace.resolveInScratch(agent, args.path)
+      const path = host.workspace.resolveInWorkdir(agent, args.path)
       const text = readFileSync(path, 'utf8')
       const count = text.split(args.old).length - 1
       if (count === 0)
@@ -735,24 +752,27 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_read',
     tier: 'read',
-    description: 'Read a file in your private scratch directory.',
+    description:
+      'Read a file in your working directory (the project, when the chat has one) or your scratch directory.',
     parameters: type({ path: type('string') }),
     async run(args, agent, host) {
-      return clip(readFileSync(host.workspace.resolveInScratch(agent, args.path), 'utf8'))
+      return clip(readFileSync(host.workspace.resolveInWorkdir(agent, args.path), 'utf8'))
     },
   },
   {
     name: 'fs_list',
     tier: 'read',
-    description: 'List files in your private scratch directory.',
+    description:
+      'List files in your working directory (the project, when the chat has one; otherwise your scratch directory). ' +
+      'Dependency and build folders (node_modules, .git, dist, ...) are skipped.',
     parameters: type({ 'path?': type('string') }),
     async run(args, agent, host) {
-      const root = host.workspace.scratch(agent)
-      const dir = host.workspace.resolveInScratch(agent, args.path ?? '.')
+      const root = host.workspace.workdir(agent)
+      const dir = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
       const out: string[] = []
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
-          if (entry.name === '.tmp' || out.length > 500) continue
+          if (entry.name === '.tmp' || SKIP_DIRS.has(entry.name) || out.length > 500) continue
           const full = `${d}/${entry.name}`
           if (entry.isDirectory()) walk(full)
           else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
@@ -811,7 +831,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const path = host.workspace.resolveInScratch(agent, name)
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, `${head}\n\n${page.output}`)
-      return `${head}\n(${page.output.length} chars; the full text is saved as ${name} in your scratch directory: fs_read("${name}"), or in the shell, which starts in that directory, grep -n "term" ${name})\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
+      // In a project the shell starts in the project, so point at the scratch copy by its full path.
+      const where = host.workspace.project ? path : name
+      return `${head}\n(${page.output.length} chars; the full text is saved as ${where}: fs_read it, or grep -n "term" ${where} in the shell)\n\n${page.output.slice(0, PAGE_EXCERPT)}\n…`
     },
   },
   {
@@ -1054,7 +1076,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'shell',
     tier: 'exec',
     description:
-      'Run a shell command in your scratch directory inside the OS sandbox (writes are allowed only there). Use it to ' +
+      'Run a shell command in the OS sandbox. It starts in your working directory (the project, when the chat has ' +
+      'one; otherwise your scratch) and may write only there and in your scratch. Use it to ' +
       'build and test what you make: run scripts and tests, install packages locally, check syntax (node --check, ' +
       'python -m py_compile, bun build), and inspect output. Published artifacts are readable at $MYR_MIRROR/artifacts. ' +
       'Read errors carefully and fix the cause rather than retrying the same command.',
@@ -1062,11 +1085,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('shell is disabled: no OS sandbox')
-      const cwd = host.workspace.scratch(agent)
+      const cwd = host.workspace.workdir(agent)
       const r = await host.sandbox.run({
         command: args.command,
         cwd,
-        writable: [cwd],
+        writable: [...new Set([cwd, host.workspace.scratch(agent)])],
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
         env: { MYR_MIRROR: host.workspace.mirrorRoot },
       })

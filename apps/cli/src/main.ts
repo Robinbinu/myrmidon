@@ -22,6 +22,7 @@ import {
   McpHub,
   ModelResolver,
   ompWebTools,
+  ProjectStore,
   type Runtime,
   recoverOrphans,
   SettingsStore,
@@ -245,6 +246,7 @@ async function main() {
       const sandbox = detectSandbox()
       const mcp = new McpHub(omp.agentDir)
       const browser = new BrowserHub(join(home, 'browser'))
+      const projects = new ProjectStore(home)
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
         .start()
@@ -256,6 +258,7 @@ async function main() {
         unsafeNoSandbox: values['unsafe-no-sandbox'],
         mcp,
         browser,
+        projects,
       })
       const server = startServer({
         home,
@@ -266,6 +269,7 @@ async function main() {
         omp,
         mcp,
         browser,
+        projects,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })

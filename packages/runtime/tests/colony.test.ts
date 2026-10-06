@@ -130,7 +130,7 @@ test('agents cannot escape their scratch directory', async () => {
   const results = (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'tool/result')
   const outputs = results.map((e) => e.payload as { ok: boolean; output: string })
   expect(outputs.every((o) => !o.ok)).toBe(true)
-  expect(outputs[0]?.output).toContain('escapes your scratch directory')
+  expect(outputs[0]?.output).toContain('outside your scratch directory')
   expect(outputs[1]?.output).toContain('invalid artifact name')
 })
 

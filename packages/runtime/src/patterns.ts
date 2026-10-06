@@ -253,13 +253,18 @@ export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
 /** Runtimes present on this machine, checked once, so agents know what they can actually run. */
 const RUNTIMES = ['bun', 'node', 'python3', 'deno', 'uv', 'git'].filter((c) => Bun.which(c) !== null)
 
-function environment(env: Environment, tools: readonly string[]): string {
+function environment(spec: ColonySpec, env: Environment, tools: readonly string[]): string {
   const now = new Date()
   const date = now.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const lines = [
     `Today is ${date} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), ${zone}. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
   ]
+  const project = spec.chat?.project
+  if (project)
+    lines.push(
+      `Project: "${project.name}" at ${project.path}. This is the person's real folder: your file tools and shell work here, and changes are real. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory, not the project.`,
+    )
   if (tools.includes('shell'))
     lines.push(
       `Shell: ${process.platform}, ${env.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${RUNTIMES.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
@@ -324,7 +329,7 @@ export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environmen
       : '',
     agent.instructions ? `Additional instructions for you:\n${agent.instructions}` : '',
     // Volatile facts go last so the stable part of the prompt can be cached.
-    environment(env, toolsFor(spec, agent)),
+    environment(spec, env, toolsFor(spec, agent)),
   ].filter(Boolean)
 }
 

@@ -151,7 +151,7 @@ export class ColonyRun implements ColonyHost {
     this.id = options.resumeId ?? newColonyId(spec.name)
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
-    this.workspace = new ColonyWorkspace(dir)
+    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path)
     this.sandbox = options.sandbox ?? detectSandbox()
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
@@ -306,6 +306,7 @@ export class ColonyRun implements ColonyHost {
                 round: this.spec.chat.round,
                 request: this.spec.chat.request,
                 ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
+                ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
               },
             }
           : {}),

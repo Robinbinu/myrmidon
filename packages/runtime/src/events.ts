@@ -59,6 +59,7 @@ const defs: EventTypeDefinition[] = [
           round: Schema.natural().required(),
           request: str(),
           history: Schema.string(),
+          project: optional(Schema.object({ id: str(), name: str(), path: str() })),
         }),
       ),
       team: optional(

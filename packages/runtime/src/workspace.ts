@@ -14,12 +14,19 @@ export function assertArtifactName(name: string): string {
   return name
 }
 
-/** On-disk layout of one colony: scratch directories per agent plus a read-only mirror. */
+/**
+ * On-disk layout of one colony: scratch directories per agent plus a read-only mirror. With a project, agents
+ * work in the project folder instead (shared by the team) and keep their scratch for private files.
+ */
 export class ColonyWorkspace {
   readonly scratchRoot: string
   readonly mirrorRoot: string
 
-  constructor(readonly colonyDir: string) {
+  constructor(
+    readonly colonyDir: string,
+    /** The person's project folder (absolute, real path), when the chat belongs to one. */
+    readonly project?: string,
+  ) {
     this.scratchRoot = join(colonyDir, 'scratch')
     this.mirrorRoot = join(colonyDir, 'mirror')
     mkdirSync(this.scratchRoot, { recursive: true })
@@ -30,6 +37,28 @@ export class ColonyWorkspace {
     const dir = join(this.scratchRoot, agent)
     mkdirSync(dir, { recursive: true })
     return realpathSync(dir)
+  }
+
+  /** Where an agent's shell starts and its file tools work: the project, or its scratch directory. */
+  workdir(agent: string): string {
+    return this.project ?? this.scratch(agent)
+  }
+
+  /**
+   * Resolves an agent-supplied path for the file tools: relative paths are in its working directory; absolute
+   * paths may point into the project or its own scratch, and nowhere else.
+   */
+  resolveInWorkdir(agent: string, path: string): string {
+    const roots = [...new Set([this.workdir(agent), this.scratch(agent)])]
+    const target = isAbsolute(path) ? path : resolve(roots[0] as string, path)
+    let probe = target
+    while (!existsSync(probe)) probe = dirname(probe)
+    const real = join(realpathSync(probe), relative(probe, target))
+    if (!roots.some((root) => real === root || real.startsWith(root + sep)))
+      throw new Error(
+        `path is outside your ${this.project ? 'project and scratch directories' : 'scratch directory'}: ${path}`,
+      )
+    return real
   }
 
   /**

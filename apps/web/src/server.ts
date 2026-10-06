@@ -12,11 +12,13 @@ import {
   type CustomApi,
   importFromOmp,
   type LiveInput,
+  listFolders,
   type McpHub,
   type McpServerConfig,
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
+  type ProjectStore,
   type SettingsStore,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
@@ -43,6 +45,8 @@ export interface ServeOptions {
   readonly mcp?: McpHub
   /** The agents' shared headless Chrome, for the live browser view. */
   readonly browser?: BrowserHub
+  /** Project folders chats can work in. */
+  readonly projects?: ProjectStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -67,6 +71,7 @@ const sendSchema = Schema.object({
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
+  project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -355,6 +360,34 @@ export function startServer(options: ServeOptions): WebServer {
           return state ? json(state) : json({ error: 'no such sign-in' }, 404)
         }),
       },
+      '/api/projects': {
+        GET: guard(() => json({ projects: options.projects?.list() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
+          const { path, name } = (await req.json()) as { path?: unknown; name?: unknown }
+          if (typeof path !== 'string') return json({ error: 'path is required' }, 400)
+          try {
+            const project = options.projects.add(path, typeof name === 'string' ? name : undefined)
+            return json({ project, projects: options.projects.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/projects/:id': {
+        DELETE: guard((req) => {
+          options.projects?.remove(req.params.id ?? '')
+          return json({ projects: options.projects?.list() ?? [] })
+        }),
+      },
+      // Folder names for the project picker; the browser cannot open a native folder dialog.
+      '/api/folders': guard((_req, url) => {
+        try {
+          return json(listFolders(url.searchParams.get('path') ?? '~'))
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+        }
+      }),
       '/api/mcp': {
         GET: guard(() => {
           if (!options.mcp) return json({ error: 'MCP needs the chat runtime' }, 503)
@@ -436,14 +469,12 @@ export function startServer(options: ServeOptions): WebServer {
               return { name: a.name, bytes }
             })
             return json(
-              await options.chats.send(
-                body.text,
-                config,
-                body.chatId,
-                body.delivery,
+              await options.chats.send(body.text, config, body.chatId, {
+                ...(body.delivery ? { delivery: body.delivery } : {}),
                 attachments,
-                body.plan === true,
-              ),
+                planFirst: body.plan === true,
+                ...(body.project ? { project: body.project } : {}),
+              }),
             )
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)

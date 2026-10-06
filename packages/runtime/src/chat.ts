@@ -16,6 +16,7 @@ import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { McpHub } from './mcp.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
+import type { ProjectStore } from './projects.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
@@ -55,6 +56,17 @@ export interface TeamConfig {
 }
 
 export type Thinking = 'low' | 'medium' | 'high'
+
+export interface SendOptions {
+  /** For a round already running: steer its next step (default) or queue until the agent finishes. */
+  readonly delivery?: 'steer' | 'queue'
+  /** Files to put in the round's workspace as `uploads/…` artifacts. */
+  readonly attachments?: readonly Attachment[]
+  /** Plan mode: the round presents its plan for approval before doing any work. */
+  readonly planFirst?: boolean
+  /** A new chat's project; later rounds stay in the chat's project. */
+  readonly project?: string
+}
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
 export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
@@ -152,6 +164,8 @@ export interface ChatSummary {
   readonly updatedAt: string
   readonly status: ColonyStatus
   readonly rounds: ChatRound[]
+  /** The project folder the chat works in, if any. */
+  readonly project?: { readonly id: string; readonly name: string }
 }
 
 const RUBRIC = `Judge whether the colony did what the person asked, completely and correctly.
@@ -200,6 +214,8 @@ export class ChatService {
       mcp?: McpHub
       /** Shared headless Chrome for the browser_* tools. */
       browser?: BrowserHub
+      /** Project folders chats can work in. */
+      projects?: ProjectStore
     },
   ) {}
 
@@ -236,6 +252,9 @@ export class ChatService {
       out.push({
         chatId,
         title: renamed?.title ?? title(first.state.chat?.request ?? first.state.name),
+        ...(first.state.chat?.project
+          ? { project: { id: first.state.chat.project.id, name: first.state.chat.project.name } }
+          : {}),
         updatedAt: last.state.endedAt ?? last.state.createdAt ?? '',
         status: last.state.status,
         rounds: list.map((r) => ({
@@ -259,19 +278,14 @@ export class ChatService {
     text: string,
     config: TeamConfig,
     chatId?: string,
-    /** For a round already running: steer its next step (default) or queue until the agent finishes. */
-    delivery: 'steer' | 'queue' = 'steer',
-    /** Files to put in the round's workspace as `uploads/…` artifacts. */
-    attachments: readonly Attachment[] = [],
-    /** Plan mode: the round presents its plan for approval before doing any work. */
-    planFirst = false,
+    options: SendOptions = {},
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())
       .catch(() => {})
-      .then(() => this.deliver(id, message, config, delivery, attachments, planFirst))
+      .then(() => this.deliver(id, message, config, options))
     this._sending.set(id, turn)
     try {
       return await turn
@@ -284,10 +298,9 @@ export class ChatService {
     id: string,
     message: string,
     config: TeamConfig,
-    delivery: 'steer' | 'queue',
-    attachments: readonly Attachment[],
-    planFirst: boolean,
+    options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
+    const { delivery = 'steer', attachments = [], planFirst = false } = options
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
       await live.postUserMessage(message, delivery, attachments)
@@ -304,6 +317,9 @@ export class ChatService {
         return 'solo' as const
       })
     const spec = this.buildSpec(id, message, config, previous, history, tier)
+    // A chat keeps the project it started in; only a new chat can pick one.
+    const project = previous.at(-1)?.state.chat?.project ?? this._project(options.project)
+    if (project && spec.chat) spec.chat.project = project
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     const run = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
@@ -353,6 +369,13 @@ export class ChatService {
     if (live?.id === latest.id) await live.append(draft)
     else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
     return clean
+  }
+
+  private _project(id: string | undefined): { id: string; name: string; path: string } | undefined {
+    if (!id) return undefined
+    const project = this.options.projects?.get(id)
+    if (!project) throw new Error(`no such project: ${id}`)
+    return { id: project.id, name: project.name, path: project.path }
   }
 
   /** Wakes an agent of a running round, if that round is live in this process. */

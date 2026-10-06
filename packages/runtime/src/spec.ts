@@ -41,7 +41,14 @@ export interface ColonySpec {
   /** Model used to review individual task submissions; omit to accept tasks whose artifacts exist. */
   taskJudge?: string
   /** Set when the colony is one round of a chat conversation. */
-  chat?: { chatId: string; round: number; request: string; history: string }
+  chat?: {
+    chatId: string
+    round: number
+    request: string
+    history: string
+    /** The project folder this chat works in, if any. */
+    project?: { id: string; name: string; path: string }
+  }
   /** How the team may grow at run time. */
   team?: TeamPolicy
   /** Tools removed from every agent regardless of role. */

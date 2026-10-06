@@ -59,7 +59,13 @@ export interface EventPayloads {
     acceptance: unknown[]
     budget: { wallMs: number; costUsd?: number; maxTurns?: number }
     unsafeNoSandbox: boolean
-    chat?: { chatId: string; round: number; request: string; history?: string }
+    chat?: {
+      chatId: string
+      round: number
+      request: string
+      history?: string
+      project?: { id: string; name: string; path: string }
+    }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
     tier?: 'answer' | 'solo' | 'team'

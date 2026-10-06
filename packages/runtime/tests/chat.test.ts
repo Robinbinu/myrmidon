@@ -417,8 +417,8 @@ test('a message sent mid-turn steers the next step or waits its turn, and shows 
   const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
   const { chatId, colonyId } = await chats.send('Tidy the files', config)
   await waitFor(colonyId, () => calls.length === 1)
-  await chats.send('STEER-NOTE use tabs', config, chatId, 'steer')
-  await chats.send('QUEUED-NOTE also add a README', config, chatId, 'queue')
+  await chats.send('STEER-NOTE use tabs', config, chatId, { delivery: 'steer' })
+  await chats.send('QUEUED-NOTE also add a README', config, chatId, { delivery: 'queue' })
   release()
   const s = await waitFor(colonyId)
   // The steer joined the step right after the running tool batch; the queued note waited until the
@@ -451,8 +451,7 @@ test('attached files land in the workspace and the lead is told to read them', a
     'Summarise my notes',
     { ...solo('mock/lead'), judgeModel: 'mock/judge' },
     undefined,
-    'steer',
-    [{ name: 'notes.md', bytes: new TextEncoder().encode('# Notes\nShip on Friday.') }],
+    { attachments: [{ name: 'notes.md', bytes: new TextEncoder().encode('# Notes\nShip on Friday.') }] },
   )
   const s = await waitFor(colonyId)
   expect(s.artifacts['uploads/notes.md']?.[0]?.author).toBe('user')
@@ -692,7 +691,7 @@ test('plan mode presents the plan for approval before any work, and thinking can
   resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
   const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
   const config: TeamConfig = { ...solo('mock/lead'), thinking: 'low' }
-  const { colonyId } = await chats.send('Make a landing page', config, undefined, 'steer', [], true)
+  const { colonyId } = await chats.send('Make a landing page', config, undefined, { planFirst: true })
   const s = await waitFor(colonyId)
   expect(prompts[0]).toContain('Plan first')
   expect(s.statusReason).toBe('awaiting your reply')
@@ -894,6 +893,43 @@ test('a transient model error is retried quietly and never enters the context', 
   expect(s.modelError).toBeUndefined()
   expect(seen[1]).not.toContain('Overloaded')
 }, 20_000)
+
+test('a chat in a project works in that folder, and follow-ups stay in it', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
+  await Bun.write(join(folder, 'README.md'), '# Demo project')
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [
+      tool('fs_read', { path: 'README.md' }),
+      tool('fs_write', { path: 'src/hello.ts', content: 'export const hi = 1\n' }),
+      tool('fs_read', { path: '../outside.txt' }),
+    ],
+    [tool('reply_user', { text: 'Added src/hello.ts.', final: true })],
+    ['done'],
+    [tool('reply_user', { text: 'Still here.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Add a hello module', config, undefined, { project: project.id })
+  const s = await waitFor(first.colonyId)
+  const results = (await events(first.colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results[0]?.output).toContain('# Demo project')
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
+  expect(results[2]?.output).toContain('outside your project')
+  expect(s.chat?.project?.id).toBe(project.id)
+
+  const second = await chats.send('And now?', config, first.chatId)
+  const s2 = await waitFor(second.colonyId)
+  expect(s2.chat?.project?.path).toBe(project.path)
+  expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
+  rmSync(folder, { recursive: true, force: true })
+})
 
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
