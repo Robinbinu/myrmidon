@@ -34,7 +34,7 @@ function Clock() {
     return () => clearInterval(t)
   }, [])
   const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return <DotMatrix text={hhmm} dot={1.8} ghost className="text-white/60" />
+  return <DotMatrix text={hhmm} dot={2.4} ghost className="text-white/60" />
 }
 
 /** A collaborator cursor that wanders slowly around its anchor. */
@@ -68,17 +68,26 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
   const mood: Mood = props.typing ? 'listening' : hover ? 'thinking' : 'idle'
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-4 py-10 sm:px-6">
+      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-4 py-8 sm:px-6">
         <div className="relative">
           <motion.div
             initial={{ opacity: 0, y: 12, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={softSpring}
-            className="rounded-[26px] bg-screen p-4 pb-3 shadow-pop ring-1 ring-white/[0.06]"
+            className="rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06]"
           >
-            <PixelFace mood={mood} color={LEAD_COLOR} cols={15} rows={9} cell={9} gap={3} glow />
-            <div className="mt-3 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.2em] text-white/35">
+            <PixelFace
+              mood={mood}
+              color={LEAD_COLOR}
+              cols={15}
+              rows={9}
+              cell={20}
+              gap={6}
+              glow
+              className="h-auto w-[min(400px,calc(100vw-96px))]"
+            />
+            <div className="mt-5 flex items-center justify-between px-1">
+              <span className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.2em] text-white/35">
                 <span className="size-1 rounded-full bg-[#3ddc84]" />
                 {props.typing ? 'listening' : 'ready'}
               </span>
@@ -86,7 +95,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             </div>
           </motion.div>
           <Wanderer
-            className="-left-24 top-2 hidden md:block"
+            className="-left-28 top-10 hidden lg:block"
             delay={0.4}
             path={[
               [0, 0],
@@ -98,7 +107,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             <CursorPill name="lead" color={LEAD_COLOR} />
           </Wanderer>
           <Wanderer
-            className="-right-24 top-16 hidden md:block"
+            className="-right-28 top-32 hidden lg:block"
             delay={0.7}
             path={[
               [0, 0],
@@ -110,7 +119,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
             <CursorPill name="nova" color="#ff7eb6" />
           </Wanderer>
           <Wanderer
-            className="-bottom-6 -right-14 hidden md:block"
+            className="-bottom-8 -right-16 hidden lg:block"
             delay={1}
             path={[
               [0, 0],
@@ -127,7 +136,7 @@ export function Hero(props: { typing: boolean; onPick(text: string): void; child
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...softSpring, delay: 0.06 }}
-          className="display mb-7 mt-10 text-center text-[32px] sm:text-[40px]"
+          className="display mb-7 mt-12 text-center text-[30px] sm:text-[38px]"
         >
           What should the colony build?
         </motion.h1>

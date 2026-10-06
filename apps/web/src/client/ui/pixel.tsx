@@ -240,7 +240,9 @@ export function PixelFace(props: {
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       className={props.className}
-      style={props.glow ? { filter: `drop-shadow(0 0 ${cell * 1.4}px ${props.color}66)` } : undefined}
+      style={
+        props.glow ? { filter: `drop-shadow(0 0 ${Math.min(cell * 1.4, 18)}px ${props.color}66)` } : undefined
+      }
       aria-hidden
     >
       {cells}
