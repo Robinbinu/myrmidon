@@ -340,8 +340,8 @@ export function gradedFindings(
 
 /** Tools whose results show the world as the agents found it (pages, searches, files, command output). */
 const OBSERVING =
-  /^(web_fetch|web_search|browser_(open|snapshot|eval|console)|shell|fs_read|read_artifact|tool_.+|mcp__.+)$/
-const OBSERVED_CALLS = 8
+  /^(web_fetch|web_search|browser_.+|shell|fs_read|read_artifact|grep|glob|run_checks|start_server|server_logs|tool_.+|mcp__.+)$/
+const OBSERVED_CALLS = 12
 const OBSERVED_CHARS = 1_500
 
 function score(o: CheckOutcome): Partial<Pick<EventPayloads['verifier/verdict'], 'score'>> {
