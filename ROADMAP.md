@@ -152,6 +152,13 @@ Status: 2 (self-made tools) done; the rest open.
 7. **Benchmarks.** SWE-bench Verified, GAIA, BrowseComp subsets, plus our own suite. Report accuracy and $
    per solved task, with replays.
 
+## Later: native apps
+
+The browser app is the first client, not the last: OS-agnostic native UIs come later. So the server's HTTP and
+WebSocket API and the event protocol (`@myrmidon/protocol`) are the contract every client builds on. Behaviour
+belongs in the runtime and server, not in web-only client code, and new features should be reachable through
+that API so a native client gets them too.
+
 ## Order and why
 
 - Milestone 0 comes first because the A/B on prompts showed how easily changes trade quality for time; we
