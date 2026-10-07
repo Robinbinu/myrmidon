@@ -1029,6 +1029,18 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'request_review',
+    tier: 'write',
+    description:
+      'Ask the independent reviewer to check your work against the request before you send the final answer: worth ' +
+      'it for code, files, or research with sources; skip it for simple answers. It returns the verdict and what to ' +
+      'fix; the round goes on until you send the final answer.',
+    parameters: type({ summary: type('string').describe('What you did and where (files, sources)') }),
+    async run(args, agent, host) {
+      return host.requestReview(agent, args.summary)
+    },
+  },
+  {
     name: 'request_final_verification',
     tier: 'write',
     description:

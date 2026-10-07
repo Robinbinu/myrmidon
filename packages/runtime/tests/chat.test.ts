@@ -2209,3 +2209,52 @@ test('renaming a chat sticks, survives a restart, and rejects empty titles', asy
   const reopened = new ChatService(runtime, { resolver })
   expect((await reopened.list())[0]?.title).toBe('Quarterly report')
 })
+
+async function reviewerRound(mode: 'off' | 'auto' | 'always', script: Step[]) {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), verification: { ...settings.get().verification, reviewer: mode } })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', script)
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Write a poem', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  const log = await events(colonyId)
+  await chats.stopAll()
+  const reviews = log.filter((e) => e.type === 'verifier/requested').map((e) => e.seq)
+  const final = log.find((e) => e.type === 'chat/reply')?.seq ?? 0
+  return { s, reviews, final }
+}
+
+test('reviewer off: the final answer completes the round unreviewed', async () => {
+  const { s, reviews } = await reviewerRound('off', [[tool('reply_user', { text: 'A poem.', final: true })]])
+  expect(s.status).toBe('completed')
+  expect(reviews).toEqual([])
+  expect(s.agents.lead?.info.tools).not.toContain('request_review')
+  expect(s.verdicts.map((v) => v.verifierId)).toEqual(['delivered'])
+})
+
+test('reviewer auto: the lead asks for a review when it wants one, and the final answer completes the round', async () => {
+  const asked = await reviewerRound('auto', [
+    [tool('request_review', { summary: 'the poem is in the reply' })],
+    [tool('reply_user', { text: 'A poem.', final: true })],
+  ])
+  expect(asked.s.status).toBe('completed')
+  expect(asked.s.agents.lead?.info.tools).toContain('request_review')
+  expect(asked.reviews).toHaveLength(1)
+  expect(asked.reviews[0]).toBeLessThan(asked.final)
+  const skipped = await reviewerRound('auto', [[tool('reply_user', { text: 'Hi.', final: true })]])
+  expect(skipped.s.status).toBe('completed')
+  expect(skipped.reviews).toEqual([])
+})
+
+test('reviewer always: every final answer is reviewed before the round completes', async () => {
+  const { s, reviews, final } = await reviewerRound('always', [
+    [tool('reply_user', { text: 'A poem.', final: true })],
+  ])
+  expect(s.status).toBe('completed')
+  expect(s.agents.lead?.info.tools).not.toContain('request_review')
+  expect(reviews).toHaveLength(1)
+  expect(reviews[0]).toBeGreaterThan(final)
+})

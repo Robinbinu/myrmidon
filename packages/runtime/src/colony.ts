@@ -1054,14 +1054,42 @@ export class ColonyRun implements ColonyHost {
     )
   }
 
-  async requestFinalVerification(by: string, summary: string): Promise<string> {
-    if (this._finalRunning) return 'a final verification is already running; wait for its verdicts'
-    // The judge checks the project folder, so every worker's changes land there first.
+  /** The judge checks the project folder, so every worker's changes land there first; returns what failed to merge. */
+  private async _mergeWorktrees(): Promise<string | undefined> {
     const conflicts: string[] = []
     for (const name of Object.keys(this._state.worktrees))
       await this.mergeWork(name).catch((err: Error) => conflicts.push(`${name}: ${err.message}`))
-    if (conflicts.length)
-      return `NOT VERIFIED: workers' changes could not be merged into the project yet.\n${conflicts.join('\n')}\nAsk those workers to resolve the conflicts in their worktrees and submit again, then request verification.`
+    return conflicts.length ? conflicts.join('\n') : undefined
+  }
+
+  async requestReview(by: string, summary: string): Promise<string> {
+    if (this._finalRunning) return 'a review is already running; wait for its verdict'
+    const conflicts = await this._mergeWorktrees()
+    if (conflicts)
+      return `NOT REVIEWED: workers' changes could not be merged into the project yet.\n${conflicts}`
+    this._finalRunning = true
+    this._verifying += 1
+    try {
+      await this.append({
+        type: 'verifier/requested',
+        actor: { kind: 'agent', id: by },
+        payload: { target: 'colony', by },
+      })
+      const result = await this._verifier.verifyColony()
+      return result.pass
+        ? `REVIEW PASSED.\n${result.report}\nSend the final answer with reply_user(final: true).`
+        : `THE REVIEWER FOUND PROBLEMS (your summary: ${summary.slice(0, 300)}):\n${result.report}\nFix them, then ask for another review or send the final answer.`
+    } finally {
+      this._finalRunning = false
+      this._verifying -= 1
+    }
+  }
+
+  async requestFinalVerification(by: string, summary: string): Promise<string> {
+    if (this._finalRunning) return 'a final verification is already running; wait for its verdicts'
+    const conflicts = await this._mergeWorktrees()
+    if (conflicts)
+      return `NOT VERIFIED: workers' changes could not be merged into the project yet.\n${conflicts}\nAsk those workers to resolve the conflicts in their worktrees and submit again, then request verification.`
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1095,7 +1123,7 @@ export class ColonyRun implements ColonyHost {
 
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
   private async _verifyFinalAnswer(by: string) {
-    if (this.spec.acceptance.length === 0) {
+    if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
       // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
       const verdict = await this.append({
         type: 'verifier/verdict',
@@ -1104,7 +1132,10 @@ export class ColonyRun implements ColonyHost {
           target: 'colony',
           verifierId: 'delivered',
           pass: true,
-          evidence: 'Direct answer delivered; answer-tier rounds are not judged.',
+          evidence:
+            this.spec.review === 'auto'
+              ? 'Final answer delivered; the agent asks for a review when the work needs one.'
+              : 'Final answer delivered; this round is not reviewed.',
         },
       })
       await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: [verdict.id] } })

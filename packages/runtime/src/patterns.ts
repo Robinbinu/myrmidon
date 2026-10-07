@@ -66,6 +66,11 @@ export function speaksForColony(spec: ColonySpec, agent: AgentSpec): boolean {
 function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   if (spec.chat) {
     const escalation = spec.chat.escalate?.length && speaksForColony(spec, agent) ? ['escalate'] : []
+    // In auto review the speaking agent decides when the reviewer looks at the work.
+    const review =
+      spec.review === 'auto' && spec.acceptance.length > 0 && speaksForColony(spec, agent)
+        ? ['request_review']
+        : []
     if (spec.tier === 'answer')
       return [
         ...WEB,
@@ -80,9 +85,10 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'mcp',
         ...USER,
         ...escalation,
+        ...review,
       ]
     if (spec.tier !== 'team' || spec.agents.length === 1)
-      return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER, ...escalation]
+      return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER, ...escalation, ...review]
     if (spec.team?.mode === 'swarm')
       return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
     if (isLead(spec, agent)) {
@@ -101,6 +107,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...HOLD,
         'publish_artifact',
         ...USER,
+        ...review,
         ...spawn,
         ...(spec.agents.length > 1 ? ['dismiss_worker'] : []),
       ]
@@ -487,6 +494,15 @@ function doesWork(spec: ColonySpec, agent: AgentSpec): boolean {
   return !(isLead(spec, agent) && spec.chat && spec.agents.length > 1)
 }
 
+/** What happens to the speaking agent's final answer under this round's reviewer setting. */
+function reviewNote(spec: ColonySpec): string {
+  if (spec.acceptance.length === 0 || spec.review === 'off')
+    return 'Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.'
+  if (spec.review === 'auto')
+    return 'Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers.'
+  return 'An independent reviewer then checks the work; if it finds problems, fix them and send an updated final answer.'
+}
+
 export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environment): string[] {
   const team = spec.agents.length > 1
   return [
@@ -496,11 +512,7 @@ export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environmen
     doesWork(spec, agent) ? CRAFT.trim() : '',
     team ? COMMON.trim() : '',
     spec.chat && toolsFor(spec, agent).includes('reply_user') && speaksForColony(spec, agent)
-      ? `${SPEAKER.trim()}\n- ${
-          spec.tier === 'answer'
-            ? 'A direct answer is not reviewed: it completes the round as soon as you send it, so get it right first.'
-            : 'An independent judge then reviews the work; if it finds problems, fix them and send an updated final answer.'
-        }`
+      ? `${SPEAKER.trim()}\n- ${reviewNote(spec)}`
       : '',
     agent.instructions ? `Additional instructions for you:\n${agent.instructions}` : '',
     // Volatile facts go last so the stable part of the prompt can be cached.

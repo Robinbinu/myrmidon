@@ -86,7 +86,7 @@ export interface SendOptions {
   readonly planFirst?: boolean
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
-  /** Skips triage: an escalated round reruns its request at the tier its agent asked for. */
+  /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
   readonly tier?: Tier
 }
 
@@ -790,7 +790,7 @@ export class ChatService {
       ...(tier === 'answer' ? (['solo'] as const) : []),
       ...(tier !== 'team' && teamSize > 1 ? (['team'] as const) : []),
     ]
-    // A swarm has no lead, even when triage gives the request to one agent: that agent is a peer.
+    // A swarm has no lead, even when a round has one agent: that agent is a peer.
     const alone: AgentSpec =
       config.mode === 'swarm'
         ? (kept[0] ?? {

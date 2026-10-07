@@ -27,6 +27,8 @@ export interface ColonyHost {
   appendAtomic(build: (state: ColonyState) => EventDraft[]): Promise<MyrEvent[]>
   requestTaskVerification(taskId: string, by: string): void
   requestFinalVerification(by: string, summary: string): Promise<string>
+  /** Auto review: runs the reviewer on the work so far and returns its verdict, without ending the round. */
+  requestReview(by: string, summary: string): Promise<string>
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
   spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */

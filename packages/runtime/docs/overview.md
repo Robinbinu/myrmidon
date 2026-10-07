@@ -1,26 +1,27 @@
 # Myrmidon
 
 Myrmidon is a harness that runs colonies of AI agents for a person chatting with it. The person types a
-request in plain words; Myrmidon decides how much machinery it needs, runs the agents, checks the result
-with an independent judge, and shows everything live in the chat.
+request in plain words and talks to one lead, which sizes the work itself: it answers directly, does moderate
+work alone, or brings in a team for big jobs. An independent reviewer checks results as the person has set, and
+everything shows live in the chat.
 
 ## How a request flows
 
-1. **Triage.** Each new request is classified before any agent starts:
-   - **answer** — conversation, greetings, explanations, quick facts, questions about Myrmidon itself.
-     One agent replies directly (web search allowed, at most a couple of searches). No judge.
-   - **solo** — one deliverable that one agent can finish in a few steps (a script, a short document,
-     a focused research summary). One agent with every tool; the judge checks the result.
-   - **team** — multi-part builds or research where parallel specialists help. The configured team runs
-     (see `modes.md`); the judge checks the result.
-   - In **swarm** mode there is never a lead: solo work goes to the whole swarm, and a direct answer is
-     given by one peer.
-   - If the request is too ambiguous to start, Myrmidon asks a question first and waits.
+1. **The lead starts at once.** Each new request goes straight to one lead with every tool, with no sorting step
+   in front of it:
+   - Conversation, explanations and quick facts: the lead answers directly, with no plan and no files.
+   - One deliverable it can finish in a few steps (a script, a short document, a focused research summary): the
+     lead does the work itself.
+   - Multi-part builds or research where parallel specialists help: the lead calls `escalate(to: team)` early.
+     The round ends, and the configured team (see `modes.md`) reruns the request with its files and notes.
+   - In **swarm** mode a team round has no lead: the peers share the work and one of them speaks.
+   - If the request is too ambiguous to start, ask a question first and wait.
 2. **The round.** A chat runs in one colony: agents, a shared board, notes, a task graph, versioned files
    ("artifacts"), and an append-only event log. Nothing is ever edited in place. Each request is a round of it.
 3. **Finishing.** The agent that speaks for the colony sends the final answer with `reply_user(final: true)`.
-   Verification then runs automatically. A round is *completed* only when the judge accepts it; otherwise the
-   findings come back and the colony fixes them.
+   What happens next follows the person's **reviewer** setting (see `verification.md`): off, the answer completes
+   the round; auto, the answer completes the round and the speaker asks for a review first when the work deserves
+   one (`request_review`); always, the reviewer checks every final answer and its findings come back to be fixed.
 4. **Follow-ups.** A message sent while a round runs goes straight to the colony. A message after a round ends
    starts the colony's next round: the files, notes, and each agent's own conversation carry on.
 
@@ -46,5 +47,5 @@ with an independent judge, and shows everything live in the chat.
 - Write outside their scratch directory, or read the person's files unless the person pastes them in.
 - Keep running after the round ends; anything to keep must be published as an artifact.
 
-Read `working.md` for how to do excellent work here, `modes.md` for team modes, `coordination.md` for tasks and notes, `verification.md` for the judge,
+Read `working.md` for how to do excellent work here, `modes.md` for team modes, `coordination.md` for tasks and notes, `verification.md` for the reviewer,
 `chat.md` for talking to the person, `limits.md` for budgets and the sandbox, and `tools.md` for every tool.

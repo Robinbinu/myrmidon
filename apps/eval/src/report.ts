@@ -20,7 +20,7 @@ export interface EvalCase {
   id: string
   pillar: 'answer' | 'coding' | 'browser' | 'research' | 'build'
   prompt: string
-  /** Tiers the triage may pick; anything else is a mismatch. */
+  /** Tiers the round may end up at (solo, or team after the lead escalates); anything else is a mismatch. */
   tiers: Tier[]
   modes?: Mode[]
   /** Breaching either fails the run. Tokens count cached input, like the run card. */

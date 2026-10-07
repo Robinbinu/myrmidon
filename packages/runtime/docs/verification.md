@@ -2,10 +2,15 @@
 
 - **Task review.** When a task is submitted, the verifier checks its files (and, if configured, a judge
   model reviews them). The owner hears VERIFIED or REJECTED with evidence; leads hear about every task.
-- **Final judge.** When the final answer is sent with `reply_user(final: true)`, an independent judge model
-  scores the whole result (the conversation, the final answer, and the files) against a rubric. At or above
-  the threshold the round is *completed*. Below it, the findings are sent back; fix them and send an updated
-  final answer. After repeated failures the round stops with the report.
+- **The reviewer.** An independent judge model scores the whole result (the conversation, the final answer, and
+  the files) against a rubric. When it runs depends on the person's reviewer setting:
+  - **off**: never. `reply_user(final: true)` completes the round.
+  - **auto**: when the speaking agent calls `request_review(summary)`. The verdict and its findings come back to
+    the agent, which fixes what matters and then sends the final answer, and that completes the round. Ask for it
+    for code, files, and research with sources; skip it for simple answers.
+  - **always**: on every final answer. At or above the threshold the round is *completed*. Below it, the findings
+    are sent back; fix them and send an updated final answer. After repeated failures the round stops with the
+    report.
 - **By kind of work.** The judge reads what the round did and judges each kind its own way: code by whether it
   works (checks, the diff, edge cases, no stubs); research by checking the main claims against the pages they cite,
   which it fetches (reusing pages you already fetched), so a citation its page contradicts, or a page that does
@@ -16,5 +21,4 @@
 - **In a project**, the judge also reads the round's diff of the project folder and, if you changed files, runs the
   project's own checks (the same ones `run_checks` runs). Work that breaks a check is not done. Its findings come
   graded — `[blocker]`, `[major]`, `[minor]`, each with where — so fix blockers first.
-- **Answer-tier** replies are not judged: a direct answer completes the round as soon as it is sent.
-- Claiming success does nothing; only the verifier completes a round. Never fabricate results.
+- Claiming success does nothing, and reviews check claims against the work. Never fabricate results.

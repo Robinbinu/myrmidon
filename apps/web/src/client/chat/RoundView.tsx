@@ -50,7 +50,7 @@ import { currentStep, deriveSteps } from './steps.ts'
 
 export const AWAITING = 'awaiting your reply'
 
-/** How a round was run: the triage tier, and for team rounds the team mode. */
+/** How a round was run: its tier, and for team rounds the team mode. */
 export function modeLabel(state: ColonyState): string {
   if (state.tier === 'answer') return 'Direct answer'
   if (state.tier === 'solo') return 'Solo'

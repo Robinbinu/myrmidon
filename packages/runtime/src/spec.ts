@@ -62,7 +62,7 @@ export interface ColonySpec {
   askTools?: string[]
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
-  /** Chat rounds: how much machinery this request gets (decided by triage). */
+  /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */
   tier?: Tier
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */
   thinking?: 'low' | 'medium' | 'high'
