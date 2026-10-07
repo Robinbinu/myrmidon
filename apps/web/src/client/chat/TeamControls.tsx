@@ -31,6 +31,8 @@ function ChipMenu(props: {
   children(close: () => void): ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  // A menu that would run past the window's right edge opens leftward from the chip instead.
+  const [alignRight, setAlignRight] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -48,14 +50,18 @@ function ChipMenu(props: {
     }
   }, [open])
   return (
-    <div className="relative min-w-0" ref={box}>
+    <div className="relative shrink-0" ref={box}>
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={props.label}
         title={props.label}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          const left = box.current?.getBoundingClientRect().left ?? 0
+          setAlignRight(left + (props.width ?? 300) > window.innerWidth - 16)
+          setOpen(!open)
+        }}
         className={cn(PILL, open && 'bg-fill text-fg')}
       >
         {props.icon}
@@ -71,7 +77,10 @@ function ChipMenu(props: {
             exit={{ opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.1 } }}
             transition={spring}
             style={{ width: props.width ?? 300 }}
-            className="material-menu absolute bottom-[calc(100%+8px)] left-0 z-40 origin-bottom-left rounded-[14px] border border-line p-1.5"
+            className={cn(
+              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-[14px] border border-line p-1.5',
+              alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
+            )}
           >
             {props.children(() => setOpen(false))}
           </motion.div>
@@ -308,7 +317,7 @@ export function HelpersChip(props: {
             <Switch checked={on} onChange={toggle} label="Bring in helpers" />
           </div>
           {on && (
-            <div className="overflow-hidden rounded-[10px] border border-line bg-surface/60">
+            <div className="rounded-[10px] border border-line bg-surface/60">
               <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
             </div>
           )}

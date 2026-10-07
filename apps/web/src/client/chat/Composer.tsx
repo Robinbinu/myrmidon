@@ -526,7 +526,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 e.target.value = ''
               }}
             />
-            <div className="flex min-w-0 flex-1 items-center gap-0.5">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
               <button
                 type="button"
                 onClick={() => picker.current?.click()}

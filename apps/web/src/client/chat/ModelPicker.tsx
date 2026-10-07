@@ -63,12 +63,22 @@ export function ModelPicker(props: {
     if (open) list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
   })
 
-  const up = (props.placement ?? 'up') === 'up'
+  // The list opens the preferred way when it fits, otherwise toward the larger space, and never past the window.
+  const [fit, setFit] = useState({ up: (props.placement ?? 'up') === 'up', max: 400 })
+  const up = fit.up
   return (
     <div className="relative min-w-0" ref={box}>
       <button
         type="button"
         onClick={() => {
+          const rect = box.current?.getBoundingClientRect()
+          if (rect) {
+            const above = rect.top - 12
+            const below = window.innerHeight - rect.bottom - 12
+            const preferUp = (props.placement ?? 'up') === 'up'
+            const goUp = preferUp ? above >= Math.min(400, below) : below < Math.min(400, above)
+            setFit({ up: goUp, max: Math.max(160, Math.min(400, goUp ? above : below)) })
+          }
           setOpen(!open)
           setActive(
             Math.max(
@@ -84,7 +94,7 @@ export function ModelPicker(props: {
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                'group inline-flex h-8 w-full min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'
@@ -123,8 +133,9 @@ export function ModelPicker(props: {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
             transition={spring}
+            style={{ maxHeight: fit.max }}
             className={cn(
-              'absolute z-50 flex max-h-[400px] w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
               variant === 'compact' ? 'right-0' : 'left-0',
               variant === 'chip' && 'material-menu border-line',
               up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',

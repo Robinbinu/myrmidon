@@ -42,6 +42,9 @@ const CREW = [
   { name: 'judge', color: agentColor('judge'), x: -290, y: 130 },
 ]
 
+/** Where each cursor last was, so coming back to this screen finds them where they left off, not at their start. */
+let lastPositions: { x: number; y: number }[] | undefined
+
 const readToken = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#ffffff'
 
@@ -120,7 +123,9 @@ export function Hero(props: {
   const [asleep, setAsleep] = useState(false)
   const [hover, setHover] = useState(false)
   const [look, setLook] = useState<[number, number]>()
-  const [crew, setCrew] = useState<CrewState[]>(() => CREW.map((c) => ({ ...c, clicking: false })))
+  const [crew, setCrew] = useState<CrewState[]>(() =>
+    CREW.map((c, i) => ({ ...c, ...lastPositions?.[i], clicking: false })),
+  )
   const ink = useToken('--text')
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
@@ -130,7 +135,7 @@ export function Hero(props: {
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const busy = useRef(false)
   /** Where each crew cursor is heading, so new targets can keep their distance. */
-  const positions = useRef(CREW.map((c) => ({ x: c.x, y: c.y })))
+  const positions = useRef(lastPositions ?? CREW.map((c) => ({ x: c.x, y: c.y })))
 
   const react = useCallback(
     (r: Emotion) => {
@@ -217,7 +222,10 @@ export function Hero(props: {
         timers.push(setTimeout(done, ms))
       })
     const update = (i: number, patch: Partial<CrewState>) => {
-      if (patch.x !== undefined && patch.y !== undefined) positions.current[i] = { x: patch.x, y: patch.y }
+      if (patch.x !== undefined && patch.y !== undefined) {
+        positions.current[i] = { x: patch.x, y: patch.y }
+        lastPositions = [...positions.current]
+      }
       setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
     }
     const follow = (x: number, y: number) => {
