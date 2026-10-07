@@ -2,12 +2,14 @@ import {
   type ChatEntry,
   type ColonyMetrics,
   type ColonyState,
+  type EventPayloads,
   type MyrEvent,
   roundSlice,
 } from '@myrmidon/protocol'
 import {
   ArrowUpRight,
   BadgeCheck,
+  Brain,
   Check,
   CheckCheck,
   ChevronDown,
@@ -169,6 +171,7 @@ export function RoundView(props: {
     <section className="flex flex-col gap-4">
       {opening && <UserMessage text={opening.text} attachments={opening.attachments} onOpen={setFile} />}
       <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
+      {solo && <Thoughts events={events} running={isRunning(state.status)} />}
       {!solo && (
         <motion.div layout transition={softSpring}>
           <RunCard
@@ -402,6 +405,65 @@ function AgentMessage(props: {
 }
 
 /**
+ * The lead's thinking in a one-on-one round, as chat apps show it: "Thought for 8s" above the reply, opening to what it
+ * thought. Each thought's time runs from the event before it to the reply that carried it.
+ */
+function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
+  const [open, setOpen] = useState(false)
+  const thoughts = useMemo(() => {
+    const out: { id: string; text: string; ms: number }[] = []
+    props.events.forEach((e, i) => {
+      if (e.type !== 'llm/response') return
+      const text = (e.payload as EventPayloads['llm/response']).thinking?.trim()
+      if (!text) return
+      const before = props.events[i - 1]
+      out.push({ id: e.id, text, ms: before ? Math.max(0, Date.parse(e.time) - Date.parse(before.time)) : 0 })
+    })
+    return out
+  }, [props.events])
+  if (thoughts.length === 0) return null
+  const total = thoughts.reduce((sum, t) => sum + t.ms, 0)
+  return (
+    <motion.div {...enter} className="flex flex-col gap-1.5 pl-11">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[12.5px] text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
+      >
+        <Brain className="size-3.5" />
+        <span className="tabular-nums">
+          {props.running ? 'Thinking' : 'Thought'} for {duration(Math.max(1000, total))}
+          {thoughts.length > 1 && ` · ${thoughts.length} times`}
+        </span>
+        <motion.span animate={{ rotate: open ? 0 : -90 }} transition={spring}>
+          <ChevronDown className="size-3.5" />
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={softSpring}
+            className="overflow-hidden"
+          >
+            <div className="flex max-h-96 flex-col gap-3 overflow-y-auto overscroll-contain border-l-2 border-line pl-3 text-[13px] text-fg-2">
+              {thoughts.map((t) => (
+                <div key={t.id} className="select-text">
+                  <Markdown text={t.text} />
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+/**
  * What the lead is doing in a one-on-one round, in one quiet line: while it works, its face, the current step and a
  * clock; once it is done, a footer with the time, tokens and steps. The steps open underneath on a click.
  */
@@ -419,6 +481,15 @@ function LeadActivity(props: {
   const awaiting = state.statusReason === AWAITING
   const m = props.metrics
   const visible = steps.slice(-30).reverse()
+  // The clock ticks on its own while the lead works; the log only moves when something happens.
+  const [clock, setClock] = useState(Date.now())
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setClock(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [running])
+  const started = events[0] ? Date.parse(events[0].time) : clock
+  const elapsed = running ? Math.max(0, clock - started) : m.wallMs
   // Steps are phrased for a team ("lead is searching…"); one-on-one, the name goes without saying.
   const doing = now?.replace(/^lead is /, '')
   const label = running
@@ -454,7 +525,7 @@ function LeadActivity(props: {
             {running ? <span className="font-medium text-fg-2">{label}</span> : label}
           </motion.span>
           <span className="shrink-0 tabular-nums">
-            {running ? ` · ${(m.wallMs / 1000).toFixed(0)}s` : ` · ${compact(m.tokens)} tokens`}
+            {running ? ` · ${duration(elapsed)}` : ` · ${compact(m.tokens)} tokens`}
             {steps.length > 0 && ` · ${steps.length} step${steps.length === 1 ? '' : 's'}`}
           </span>
           {steps.length > 0 && (

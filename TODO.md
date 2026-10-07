@@ -22,7 +22,10 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Chat first, colony on demand** — a message should get a plain chat reply, not a colony run card every
+- [x] **Thinking time + thinking transcripts** ("Thought for 7s" above the reply; live clock) — the person reports the thinking timer not working and the model's
+      thinking not visible (check the new one-on-one chat view's clock and where thinking text shows).
+
+- [x] **Chat first, colony on demand** (2809593) — a message should get a plain chat reply, not a colony run card every
       time. The lead decides later to spin up a colony (a tool it calls) or the person opts in (an option). Needs a
       short design before building (extends lead-first steps 2-3: streamed reply, quiet helpers).
 - [ ] **Rename "colony" in the UI** — the person finds it boring; offer name options with the chat-first design.
