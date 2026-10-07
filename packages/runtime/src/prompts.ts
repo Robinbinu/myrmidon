@@ -290,6 +290,11 @@ nobody owns, publish artifacts, and request final verification once the output m
     resumedFresh: (reason: string) =>
       `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`,
     resumeRequest: (request: string) => `The request: ${request}\n\n`,
+    resumeEffects: (lines: readonly string[]) =>
+      lines.length
+        ? `\n\nBefore it stopped, this round already did these outside Myrmidon, which cannot be undone: check whether ` +
+          `each one took effect before doing it again.\n${lines.map((l) => `- ${l}`).join('\n')}`
+        : '',
     resumeSpeaker: (p: { fresh: string; request: string; snapshot: string; said: string }) =>
       `${p.fresh}\n\n${p.request}${p.snapshot}${p.said}\n\nContinue from where things stand.`,
     resumeHolder: (p: {

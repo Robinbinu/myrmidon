@@ -13,10 +13,12 @@ import {
   applyEvent,
   type ColonyId,
   type ColonyState,
+  describeEffect,
   type EventDraft,
   type EventPayloads,
   emptyColonyState,
   type MyrEvent,
+  outsideEffects,
   type ProjectPermissions,
   SYSTEM,
   type TaskSnapshot,
@@ -865,7 +867,7 @@ export class ColonyRun implements ColonyHost {
         ...(Object.keys(models).length ? { models } : {}),
       },
     })
-    if (resumedBecause) this._wakeAfterResume(resumedBecause)
+    if (resumedBecause) await this._wakeAfterResume(resumedBecause)
     this.runtime.track?.(this.done)
     for (const a of this._agents.values()) this._runAgent(a, !resumedBecause)
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
@@ -874,8 +876,12 @@ export class ColonyRun implements ColonyHost {
     this._timers.push(setInterval(() => void this._watch(), tick))
   }
 
-  private _wakeAfterResume(reason: string) {
+  private async _wakeAfterResume(reason: string) {
     const s = this._state
+    const since = s.rounds.at(-1)?.startSeq ?? 0
+    const effects = outsideEffects((await this.log.read(this.id)).filter((e) => e.seq >= since))
+    const done = (agent: string) =>
+      prompts.colony.resumeEffects(effects.filter((e) => e.agent === agent).map(describeEffect))
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team'
     const speaker = swarm
       ? (s.tasks['task-final']?.owner ?? this.spec.agents[0]?.name)
@@ -897,7 +903,7 @@ export class ColonyRun implements ColonyHost {
         prompts.colony.resumeSpeaker({
           fresh: fresh(speaker),
           request,
-          snapshot: snapshot(this.spec, s),
+          snapshot: `${snapshot(this.spec, s)}${done(speaker)}`,
           said,
         }),
         'resume',
@@ -913,7 +919,7 @@ export class ColonyRun implements ColonyHost {
           revision: t.revision,
           subject: t.subject,
           description: t.description,
-          snapshot: snapshot(this.spec, s),
+          snapshot: `${snapshot(this.spec, s)}${done(t.owner)}`,
         }),
         'resume',
       )

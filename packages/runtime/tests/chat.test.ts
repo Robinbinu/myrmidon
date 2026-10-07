@@ -2491,6 +2491,50 @@ test('tightening permissions mid-turn stops the agent at once and tells it what 
   await plugins.stop()
 })
 
+test('a round stopped after reaching outside Myrmidon tells its agents what was already done when it resumes', async () => {
+  const { McpHub } = await import('../src/mcp.ts')
+  const { SettingsStore } = await import('../src/settings.ts')
+  const hub = new McpHub(join(home, 'agent'))
+  await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
+  const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { [shout]: 'allow' } })
+  const resolver = new ModelResolver()
+  const seen: string[] = []
+  // The second step hangs, so the round is still working when the person stops it.
+  let calls = 0
+  const lead = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      calls += 1
+      if (calls === 1) return { content: [tool(shout, { text: 'order placed' })] }
+      if (calls === 2) {
+        await Bun.sleep(3000)
+        return { content: ['waiting for the supplier'] }
+      }
+      seen.push(JSON.stringify(ctx.messages.at(-1)))
+      return { content: [tool('reply_user', { text: 'Done; the order was already placed.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub, settings })
+  const { chatId, colonyId } = await chats.send('Place the order', {
+    ...solo('mock/lead'),
+    judgeModel: 'mock/judge',
+  })
+  for (let i = 0; i < 100; i++) {
+    if ((await events(colonyId)).some((e) => e.type === 'tool/result')) break
+    await Bun.sleep(20)
+  }
+  await chats.stop(chatId)
+  await waitFor(colonyId, (x) => x.status === 'stopped')
+  await chats.resume(chatId)
+  await waitFor(colonyId, (x) => x.status === 'completed')
+  expect(seen[0]).toContain('already did these outside Myrmidon')
+  expect(seen[0]).toContain(`called ${shout} {\\"text\\":\\"order placed\\"}`)
+  await hub.close()
+})
+
 test('older auto/manual team configs still work', () => {
   expect(
     normalizeTeamConfig({

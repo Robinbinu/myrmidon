@@ -2298,7 +2298,13 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
       await host.append({
         type: 'tool/call',
         actor,
-        payload: { agent, callId, tool: tool.name, args: params ?? {} },
+        payload: {
+          agent,
+          callId,
+          tool: tool.name,
+          args: params ?? {},
+          ...(tool.name.startsWith('mcp__') && host.mcpReadOnly(tool.name) ? { readOnly: true } : {}),
+        },
       })
       let result: AgentToolResult
       const breaker = mcpBreaker(host, tool.name)

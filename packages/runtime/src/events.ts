@@ -413,7 +413,13 @@ const defs: EventTypeDefinition[] = [
     type: 'tool/call',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ agent: str(), callId: str(), tool: str(), args: Schema.any() }),
+    schema: Schema.object({
+      agent: str(),
+      callId: str(),
+      tool: str(),
+      args: Schema.any(),
+      readOnly: Schema.boolean(),
+    }),
   },
   {
     type: 'browser/keyframe',

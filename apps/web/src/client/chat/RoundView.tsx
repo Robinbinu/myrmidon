@@ -2,8 +2,10 @@ import {
   type ChatEntry,
   type ColonyMetrics,
   type ColonyState,
+  describeEffect,
   type EventPayloads,
   type MyrEvent,
+  outsideEffects,
   roundSlice,
 } from '@myrmidon/protocol'
 import {
@@ -221,6 +223,7 @@ export function RoundView(props: {
       {state.status !== 'completed' && (
         <Outcome
           state={state}
+          events={events}
           retry={props.retry}
           onRetry={() => opening && props.onRetry(opening.text)}
           onResume={props.onResume}
@@ -235,6 +238,7 @@ export function RoundView(props: {
         {state.status === 'completed' && (
           <Outcome
             state={state}
+            events={events}
             retry={props.retry}
             onRetry={() => opening && props.onRetry(opening.text)}
             onResume={props.onResume}
@@ -942,6 +946,28 @@ function ModelFailure(props: {
   )
 }
 
+/**
+ * What a stopped round already did outside Myrmidon (commands, MCP calls, actions on web pages), which a rewind
+ * cannot undo; resuming tells the agents the same, so they check before repeating any.
+ */
+function AlreadyDone(props: { events: readonly MyrEvent[] }) {
+  const effects = useMemo(() => outsideEffects(props.events), [props.events])
+  if (effects.length === 0) return null
+  return (
+    <details className="mt-1.5 text-fg-2">
+      <summary className="text-[12.5px]">{copy.outcome.effects(effects.length)}</summary>
+      <ul className="mt-1.5 flex max-h-48 flex-col gap-0.5 overflow-auto font-mono text-[12px]">
+        {effects.map((e) => (
+          <li key={e.id} className="truncate" title={describeEffect(e)}>
+            <span className="text-muted">{e.agent}:</span> {describeEffect(e)}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[12px] text-muted">{copy.outcome.effectsHint}</p>
+    </details>
+  )
+}
+
 /** Live elapsed time on the run card, as an LED readout. */
 function Elapsed({ ms }: { ms: number }) {
   const s = Math.floor(ms / 1000)
@@ -951,12 +977,14 @@ function Elapsed({ ms }: { ms: number }) {
 
 function Outcome({
   state,
+  events,
   retry,
   onRetry,
   onResume,
   models,
 }: {
   state: ColonyState
+  events: readonly MyrEvent[]
   retry: 'ready' | 'starting' | 'hidden'
   onRetry(): void
   onResume(model?: string): Promise<void>
@@ -1041,6 +1069,7 @@ function Outcome({
             </span>
             <span className="text-[12.5px]"> · {state.statusReason}</span>
           </div>
+          <AlreadyDone events={events} />
           {last && !last.pass && (
             <details className="mt-1 text-fg-2">
               <summary className="text-[12.5px]">{copy.outcome.lastVerification}</summary>

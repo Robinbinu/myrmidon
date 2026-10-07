@@ -278,7 +278,8 @@ export interface EventPayloads {
     stopReason: string
     error?: string
   }
-  'tool/call': { agent: string; callId: string; tool: string; args: unknown }
+  /** `readOnly`: an MCP tool its server marks read-only, so the call changes nothing. */
+  'tool/call': { agent: string; callId: string; tool: string; args: unknown; readOnly?: boolean }
   'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
   'board/posted': { agent: string; text: string; mentions: string[] }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }

@@ -757,6 +757,9 @@ export const copy = {
     aTeam: 'a team',
     oneAgent: 'one agent with every tool',
     escalatedNext: 'The next round picks it up with these files and notes.',
+    effects: (n: number) => `Already done before it stopped (${n})`,
+    effectsHint:
+      'These reached outside Myrmidon and a rewind cannot undo them. Resuming tells the agents, so they check before repeating any.',
     waiting: 'Waiting for your reply',
     waitingHint: 'Answer below and the crew continues where it left off, with its files.',
     failed: 'Failed',
