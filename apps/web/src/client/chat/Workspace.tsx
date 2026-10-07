@@ -25,6 +25,7 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Computer } from './Computer.tsx'
+import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
 import { ShellTerminal } from './ShellTerminal.tsx'
@@ -190,6 +191,12 @@ function WorkspaceBody({
   const agents = Object.values(state.agents)
   const messages = useMemo(() => conversation(state), [state])
   const by = (s: string) => tasks.filter((t) => t.status === s).length
+  // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
+  const newestShell = shells.at(-1)?.id
+  const shellFolds = useFolds((id) => id === newestShell || shells.find((r) => r.id === id)?.ok === undefined)
+  const taskFolds = useFolds((id) =>
+    ['in_progress', 'submitted', 'rejected'].includes(state.tasks[id]?.status ?? ''),
+  )
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
   const counts: Partial<Record<Tab, number>> = {
     files: files.length + Object.keys(state.madeTools).length,
@@ -339,40 +346,57 @@ function WorkspaceBody({
                               />
                             </div>
                           </div>
+                          <FoldAll ids={tasks.map((t) => t.id)} folds={taskFolds} />
                           <ul className="divide-y divide-line">
-                            {tasks.map((t) => (
-                              <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
-                                  <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                                  {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
-                                </div>
-                                <span className="sr-only">{t.subject}</span>
-                                {/* Agents complete tasks, so the check is a live readout, not a control. */}
-                                <div inert className="-my-1.5" title={t.subject}>
-                                  <SpringCheck
-                                    label={<span className="block truncate">{t.subject}</span>}
-                                    className="check-line"
-                                    checked={t.status === 'verified'}
-                                    color="var(--text)"
-                                    fillColor="var(--ok)"
-                                    checkColor="var(--bg)"
-                                    boxSize={18}
-                                    boxRadius={6}
-                                    fontSize={13.5}
-                                    doneOpacity={0.5}
-                                  />
-                                </div>
-                                {t.description && (
-                                  <div className="text-[12.5px] text-muted">{t.description}</div>
-                                )}
-                                {t.blockedBy.length > 0 && (
-                                  <div className="text-[11.5px] text-muted">
-                                    after {t.blockedBy.join(', ')}
+                            {tasks.map((t) => {
+                              const open = taskFolds.isOpen(t.id)
+                              const details = !!t.description || t.blockedBy.length > 0
+                              return (
+                                <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => taskFolds.toggle(t.id)}
+                                    aria-expanded={details ? open : undefined}
+                                    disabled={!details}
+                                    className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-surface-2"
+                                  >
+                                    <FoldChevron
+                                      open={open && details}
+                                      className={details ? 'text-muted' : 'invisible'}
+                                    />
+                                    <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
+                                    <span className="font-mono text-[11px] text-muted">{t.id}</span>
+                                    {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                                  </button>
+                                  <span className="sr-only">{t.subject}</span>
+                                  {/* Agents complete tasks, so the check is a live readout, not a control. */}
+                                  <div inert className="-my-1.5" title={t.subject}>
+                                    <SpringCheck
+                                      label={<span className="block truncate">{t.subject}</span>}
+                                      className="check-line"
+                                      checked={t.status === 'verified'}
+                                      color="var(--text)"
+                                      fillColor="var(--ok)"
+                                      checkColor="var(--bg)"
+                                      boxSize={18}
+                                      boxRadius={6}
+                                      fontSize={13.5}
+                                      doneOpacity={0.5}
+                                    />
                                   </div>
-                                )}
-                              </motion.li>
-                            ))}
+                                  {open && t.description && (
+                                    <div className="whitespace-pre-wrap text-[12.5px] text-muted">
+                                      {t.description}
+                                    </div>
+                                  )}
+                                  {open && t.blockedBy.length > 0 && (
+                                    <div className="text-[11.5px] text-muted">
+                                      after {t.blockedBy.join(', ')}
+                                    </div>
+                                  )}
+                                </motion.li>
+                              )
+                            })}
                           </ul>
                         </>
                       ))}
@@ -444,45 +468,64 @@ function WorkspaceBody({
                           Agents run commands in a sandbox that can only write to their own scratch folder.
                         </Empty>
                       ) : (
-                        <div className="m-3 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
-                          {[...shells].reverse().map((s) => (
-                            <div key={s.id} className="border-b border-white/5 px-3.5 py-3 last:border-0">
-                              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                                <span>{s.agent}</span>
-                                <span>·</span>
-                                <span>{s.time.slice(11, 19)}</span>
-                                <span className="flex-1" />
-                                {s.ok === undefined ? (
-                                  <span className="text-work">running…</span>
-                                ) : (
-                                  <span
-                                    className={
-                                      s.ok && /^exit 0/.test(s.output ?? '')
-                                        ? 'text-emerald-400'
-                                        : 'text-amber-400'
-                                    }
+                        <>
+                          <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
+                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
+                            {[...shells].reverse().map((s) => {
+                              const open = shellFolds.isOpen(s.id)
+                              return (
+                                <div key={s.id} className="border-b border-white/5 last:border-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => shellFolds.toggle(s.id)}
+                                    aria-expanded={open}
+                                    className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
-                                    {(s.output ?? '').split('\n')[0]}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-1.5 whitespace-pre-wrap break-all">
-                                <span className="select-none text-emerald-400">$ </span>
-                                {s.command}
-                              </div>
-                              {s.output && (
-                                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
-                                  {s.output
-                                    .split('\n')
-                                    .slice(1)
-                                    .join('\n')
-                                    .replace(/--- (stdout|stderr)\n?/g, '')
-                                    .trim() || '(no output)'}
-                                </pre>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                                    <span className="flex items-center gap-2 text-[11px] text-slate-400">
+                                      <FoldChevron open={open} />
+                                      <span>{s.agent}</span>
+                                      <span>·</span>
+                                      <span>{s.time.slice(11, 19)}</span>
+                                      <span className="flex-1" />
+                                      {s.ok === undefined ? (
+                                        <span className="text-work">running…</span>
+                                      ) : (
+                                        <span
+                                          className={
+                                            s.ok && /^exit 0/.test(s.output ?? '')
+                                              ? 'text-emerald-400'
+                                              : 'text-amber-400'
+                                          }
+                                        >
+                                          {(s.output ?? '').split('\n')[0]}
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        'mt-1.5 block break-all',
+                                        open ? 'whitespace-pre-wrap' : 'truncate',
+                                      )}
+                                    >
+                                      <span className="select-none text-emerald-400">$ </span>
+                                      {s.command}
+                                    </span>
+                                  </button>
+                                  {open && s.output && (
+                                    <pre className="mx-3.5 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
+                                      {s.output
+                                        .split('\n')
+                                        .slice(1)
+                                        .join('\n')
+                                        .replace(/--- (stdout|stderr)\n?/g, '')
+                                        .trim() || '(no output)'}
+                                    </pre>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
                       ))}
                     {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
                     {tab === 'computer' && (

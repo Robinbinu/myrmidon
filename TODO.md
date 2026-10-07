@@ -22,6 +22,10 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Web UI crash** — "Uncaught TypeError: q is not a function" in React's effect cleanup (an effect's
+      cleanup that is not a function), reported 2026-10-07.
+- [x] **Collapsible terminal tabs and task tabs** — each agent command and each task folds (newest/running commands
+      and active tasks start open), with Expand all / Collapse all, like the Git view.
 - [x] **Design fixes** (ui-ux-pro-max audit; web-artifacts-builder's anti-slop rules) — AA contrast for muted and
       status text in both themes, stronger control borders, an 11px floor for tiny text, hover-only actions visible
       on touch, reduced-motion for pulsing animations, a dark-mode bubble instead of a white slab, one result card
