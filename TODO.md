@@ -22,6 +22,14 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Rewind only undoes the round's own files** — rewinding the crew round that edited Myrmidon restored the whole
+      project snapshot and rolled back unrelated, newer commits (5d75622's files). Restore only files the round
+      changed; ask before overwriting files changed after it.
+- [ ] **Plugins, like DeepSeek Harness** (approved: spec first) — ~/.myrmidon/plugins/<name>/ with plugin.json;
+      contributes tools, skills, hooks, prompt sections, settings, UI in defined slots; hot reload; Settings →
+      Plugins; agents asked for a Myrmidon feature build a plugin with create_plugin instead of patching source (Myrmidon
+      will ship compiled, so plugins are the only way to extend it).
+
 - [ ] **Interactive agent questions + ask before building** (approved design): `ask_user` takes 1-4 questions
       (header, 2-4 options with descriptions, single/multi select); the chat shows option cards with "Other…" for a
       custom answer and Skip ("use your judgment"), one Send answers all; the round waits. The lead asks scoping
