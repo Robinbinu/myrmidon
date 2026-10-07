@@ -1197,6 +1197,12 @@ export function startServer(options: ServeOptions): WebServer {
     for (const ws of sockets) void pump(ws).catch(() => ws.close(1011, 'stream error'))
   }, POLL_MS)
 
+  // A reply as it is written goes straight to whoever watches that round; it is never logged.
+  const stopStreaming = options.chats?.onStream((colony, agent, text, done) => {
+    const message = JSON.stringify({ type: 'stream', agent, text, done })
+    for (const ws of sockets) if (ws.data.kind === 'events' && ws.data.colony === colony) ws.send(message)
+  })
+
   return {
     url: options.noAuth
       ? `http://127.0.0.1:${server.port}/`
@@ -1205,6 +1211,7 @@ export function startServer(options: ServeOptions): WebServer {
     async stop() {
       stopScheduler?.()
       clearInterval(poll)
+      stopStreaming?.()
       for (const ws of sockets) ws.close(1001, 'server stopping')
       await server.stop(true)
       await preview.stop(true)

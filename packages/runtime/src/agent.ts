@@ -409,7 +409,37 @@ export class ColonyAgent {
     })
   }
 
+  /** When the last piece of a reply was streamed, and what it said, so updates go out at most every 100ms. */
+  private _streamedAt = 0
+  private _streamedText = ''
+
+  /**
+   * The reply as it is written, for the person watching: the text of reply_user (read from the tool call's
+   * arguments, which the model streams) or the plain text of a direct answer. Only the agent that speaks streams.
+   */
+  private _streamReply(m: AssistantMessage, done: boolean) {
+    if (!speaksForColony(this.host.spec, this.spec)) return
+    const reply = m.content.flatMap((c) =>
+      c.type === 'toolCall' && c.name === 'reply_user' && typeof c.arguments?.text === 'string'
+        ? [c.arguments.text]
+        : [],
+    )
+    const text = (reply.length ? reply : m.content.flatMap((c) => (c.type === 'text' ? [c.text] : []))).join(
+      '\n',
+    )
+    const now = Date.now()
+    if (!done && (text === this._streamedText || now - this._streamedAt < 100)) return
+    if (!text && !this._streamedText) return
+    this._streamedAt = now
+    this._streamedText = done ? '' : text
+    this.host.streamed(this.name, text, done)
+  }
+
   private _onEvent(e: AgentEvent) {
+    if (e.type === 'message_update' && e.message.role === 'assistant')
+      return this._streamReply(e.message as AssistantMessage, false)
+    if (e.type === 'message_end' && e.message.role === 'assistant')
+      this._streamReply(e.message as AssistantMessage, true)
     if (e.type === 'message_end') this._record(e.message)
     if (e.type === 'message_end' && e.message.role === 'user') {
       const item = this._unread.get(e.message.timestamp)

@@ -474,6 +474,22 @@ test('an answer written as plain text still reaches the person', async () => {
   })
 })
 
+test("the speaker's reply streams to listeners as it is written, and never into the log", async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [['Let me check.', tool('reply_user', { text: 'It is 4.', final: true })]])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const seen: { colonyId: string; agent: string; text: string; done: boolean }[] = []
+  const stop = chats.onStream((colonyId, agent, text, done) => seen.push({ colonyId, agent, text, done }))
+  const { colonyId } = await chats.send('What is 2+2?', solo('mock/lead'))
+  const s = await waitFor(colonyId)
+  stop()
+  expect(s.chatMessages.at(-1)?.text).toBe('It is 4.')
+  // The reply_user text is what streams, not the words around the call.
+  expect(seen.filter((x) => !x.done).map((x) => x.text)).toContain('It is 4.')
+  expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true })
+  expect((await events(colonyId)).some((e) => (e.type as string).includes('stream'))).toBe(false)
+})
+
 test('a short remark after the final answer is not taken for a second answer', async () => {
   const resolver = new ModelResolver()
   let judged = 0

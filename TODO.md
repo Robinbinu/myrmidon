@@ -34,7 +34,7 @@ Open work, in the order it will be done:
       aborts the agent's in-flight turn at once.
 5. - [x] **Interrupted runs: review before retry** (done) (OpenDots) — a round stopped mid-way after side effects outside
       Myrmidon (MCP writes, shell) shows what it already did before resuming.
-6. - [ ] **Streaming replies** (lead-first step 2) — the lead's text appears as it is written.
+6. - [x] **Streaming replies** (lead-first step 2) — the lead's text appears as it is written.
 7. - [ ] **Helpers appear quietly** (lead-first step 3 remainder) — "Brought in nova (research) and kai (frontend)"
       as one compact line when the lead adds agents.
 8. - [ ] **Personal entry page + mascot customisation** — headline personalised to the person; mascot eyes,

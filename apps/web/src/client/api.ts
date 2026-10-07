@@ -103,10 +103,18 @@ export function terminalSocket(project: string | undefined, cols: number, rows: 
   return ws
 }
 
+/** A speaking agent's reply as it is being written; `done` when that model message has ended. */
+export interface ReplyStream {
+  agent: string
+  text: string
+  done: boolean
+}
+
 export function streamEvents(
   colony: string,
   from: number,
   onEvents: (events: MyrEvent[]) => void,
+  onStream?: (stream: ReplyStream) => void,
 ): () => void {
   let cursor = from
   let ws: WebSocket | undefined
@@ -118,7 +126,12 @@ export function streamEvents(
       `${proto}://${location.host}/api/colonies/${colony}/stream?from=${cursor}&token=${encodeURIComponent(token)}`,
     )
     ws.onmessage = (msg) => {
-      const events = JSON.parse(String(msg.data)) as MyrEvent[]
+      const data = JSON.parse(String(msg.data)) as MyrEvent[] | ({ type: 'stream' } & ReplyStream)
+      if (!Array.isArray(data)) {
+        if (data.type === 'stream') onStream?.({ agent: data.agent, text: data.text, done: data.done })
+        return
+      }
+      const events = data
       if (events.length === 0) return
       cursor = (events.at(-1)?.seq ?? cursor - 1) + 1
       onEvents(events)

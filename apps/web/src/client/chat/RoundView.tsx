@@ -211,6 +211,13 @@ export function RoundView(props: {
         </>
       )}
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
+      {latest &&
+        isRunning(state.status) &&
+        Object.entries(colony.streams).map(([agent, live]) =>
+          live.text && !state.chatMessages.some((m) => m.from === agent && m.seq > live.since) ? (
+            <StreamingReply key={agent} from={agent} text={live.text} plain={solo} />
+          ) : null,
+        )}
       <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
       {solo && (
         <LeadActivity
@@ -422,6 +429,27 @@ function AgentMessage(props: {
         </div>
       </div>
     </motion.div>
+  )
+}
+
+/** A reply as the model writes it; the finished one replaces it once it is in the log. */
+function StreamingReply(props: { from: string; text: string; plain: boolean }) {
+  return (
+    <div className="flex gap-3" aria-live="polite" aria-busy="true">
+      <AgentAvatar name={props.from} status="running" size={32} awake />
+      <div className="min-w-0 flex-1">
+        {!props.plain && (
+          <div className="mb-1 flex items-center gap-2 text-[12.5px]">
+            <span className="font-semibold text-fg">{props.from}</span>
+            <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
+          </div>
+        )}
+        <div className={cn(props.plain && 'pt-1')}>
+          <Markdown text={props.text} />
+          <span className="caret text-muted">▍</span>
+        </div>
+      </div>
+    </div>
   )
 }
 

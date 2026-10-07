@@ -54,6 +54,11 @@ export interface ColonyHost {
   pluginTools(agent: string): AgentTool[]
   /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */
   pluginPrompts(role: 'lead' | 'worker'): string[]
+  /**
+   * The speaking agent's reply as it is being written (`done` when the model message ends). Live only: shown to
+   * whoever is watching, never logged; the finished reply arrives as chat/reply.
+   */
+  streamed(agent: string, text: string, done: boolean): void
   /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
   readonly plugins?: PluginHost
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */

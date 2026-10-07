@@ -62,7 +62,10 @@ use 1 agent; complex ones use 10+"). Reviews follow a setting the person chooses
 - The live updates travel on the colony's existing WebSocket as short-lived messages. They are not events and never
   enter the log, which still stores only the finished `chat/reply`. A client that reconnects simply waits for the
   finished reply.
-- This gets its own plan once step 1 is in, after reading how pi-agent-core reports partial messages.
+- Built: pi-agent-core emits `message_update` with the partial assistant message, and providers parse partial
+  tool-call arguments while streaming. The speaking agent forwards the `reply_user` text (or a plain-text answer) at
+  most every 100 ms and once more at `message_end` (`ColonyHost.streamed` → `ChatService.onStream` → a
+  `{type: 'stream'}` socket message). The page shows it with a caret until the finished reply lands in the log.
 
 ### Step 3: helpers appear quietly
 

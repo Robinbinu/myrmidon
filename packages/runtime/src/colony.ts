@@ -128,6 +128,8 @@ export interface RunOptions {
   readonly mcp?: McpHub
   /** The person's plugins with code: their tools and prompt sections reach agents. */
   readonly plugins?: PluginHost
+  /** Receives the speaking agent's reply as it is written, for live display. */
+  readonly onStream?: (agent: string, text: string, done: boolean) => void
   /** The person's kept tools, loaded into every fresh round. */
   readonly library?: ToolLibrary
   /** The round's changes to its project folder so far, as a unified diff (from the start checkpoint). */
@@ -286,6 +288,10 @@ export class ColonyRun implements ColonyHost {
 
   get plugins() {
     return this.options.plugins
+  }
+
+  streamed(agent: string, text: string, done: boolean) {
+    this.options.onStream?.(agent, text, done)
   }
 
   /**

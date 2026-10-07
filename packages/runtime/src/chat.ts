@@ -368,6 +368,7 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
+      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -677,6 +678,7 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
+      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -785,6 +787,20 @@ export class ChatService {
       const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
       await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}) })
     }
+  }
+
+  private readonly _streams = new Set<
+    (colonyId: string, agent: string, text: string, done: boolean) => void
+  >()
+
+  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
+  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
+    this._streams.add(listener)
+    return () => this._streams.delete(listener)
+  }
+
+  private _streamed(colonyId: string, agent: string, text: string, done: boolean) {
+    for (const listener of this._streams) listener(colonyId, agent, text, done)
   }
 
   async stopAll(): Promise<void> {
