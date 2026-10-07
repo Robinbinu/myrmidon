@@ -39,6 +39,8 @@ export interface McpServerInfo {
   readonly status: 'connected' | 'connecting' | 'disconnected' | 'disabled' | 'error'
   readonly tools: string[]
   readonly error?: string
+  /** Set for a server an enabled plugin adds; it is switched with its plugin, not on its own. */
+  readonly plugin?: boolean
 }
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/
@@ -65,7 +67,14 @@ export class McpHub {
   private readonly _errors = new Map<string, string>()
   private _starting?: Promise<void>
 
-  constructor(readonly agentDir: string) {
+  /** Servers connected by the last start, so ones that went away (a plugin switched off) can be dropped. */
+  private _connected = new Set<string>()
+
+  constructor(
+    readonly agentDir: string,
+    /** Servers the person's enabled plugins add, already named apart from their own. */
+    private readonly plugins: () => Record<string, McpServerConfig> = () => ({}),
+  ) {
     this._file = join(agentDir, 'mcp.json')
   }
 
@@ -133,6 +142,19 @@ export class McpHub {
       configs[name] = this._launchConfig(config)
       sources[name] = { provider: 'myrmidon', providerName: 'Myrmidon', path: this._file, level: 'user' }
     }
+    for (const [name, config] of Object.entries(this.plugins())) {
+      if (name in configs || config.enabled === false) continue
+      configs[name] = this._launchConfig(config)
+      sources[name] = {
+        provider: 'myrmidon',
+        providerName: 'Myrmidon plugin',
+        path: this._file,
+        level: 'user',
+      }
+    }
+    for (const gone of [...this._connected].filter((n) => !(n in configs)))
+      await this._manager.disconnectServer(gone)
+    this._connected = new Set(Object.keys(configs))
     this._errors.clear()
     if (Object.keys(configs).length > 0) {
       const result = await this._manager.connectServers(configs, sources)
@@ -166,9 +188,12 @@ export class McpHub {
   servers(): McpServerInfo[] {
     const doc = this._read()
     const toolNames = [...this._adapters.keys()]
-    return Object.entries(doc.mcpServers ?? {}).map(([name, config]) => {
+    const fromPlugins = Object.entries(this.plugins()).filter(([name]) => !doc.mcpServers?.[name])
+    const all = [...Object.entries(doc.mcpServers ?? {}), ...fromPlugins]
+    const plugin = new Set(fromPlugins.map(([name]) => name))
+    return all.map(([name, config]) => {
       const transport = config.type ?? 'stdio'
-      const enabled = this._enabled(doc, name)
+      const enabled = plugin.has(name) ? config.enabled !== false : this._enabled(doc, name)
       const error = this._errors.get(name)
       const live = this._manager?.getConnectionStatus(name) ?? 'disconnected'
       const prefix = `mcp__${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
@@ -181,6 +206,7 @@ export class McpHub {
         status: !enabled ? 'disabled' : error ? 'error' : live,
         tools: toolNames.filter((t) => t.startsWith(prefix)),
         ...(error ? { error } : {}),
+        ...(plugin.has(name) ? { plugin: true } : {}),
       }
     })
   }

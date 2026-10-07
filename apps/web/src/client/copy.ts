@@ -293,7 +293,8 @@ export const copy = {
 
   commands: {
     /** Section headings in the slash menu, keyed by command group id. */
-    groups: { Round: 'Round', 'Team & model': 'Team & model', Chat: 'Chat', App: 'App' },
+    groups: { Round: 'Round', 'Team & model': 'Team & model', Chat: 'Chat', App: 'App', Plugins: 'Plugins' },
+    fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
       steer: { args: '<message>', description: 'Send to the running round, read at its next step' },
@@ -1194,6 +1195,7 @@ export const copy = {
       team: { label: 'Team & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
       skills: { label: 'Skills', hint: 'Playbooks agents load' },
+      plugins: { label: 'Plugins', hint: 'Skills, commands, hooks, servers' },
       hooks: { label: 'Hooks', hint: 'Commands around every tool' },
       schedules: { label: 'Schedules', hint: 'Requests that run on their own' },
       verification: { label: 'Reviewer', hint: 'Off, auto or always' },
@@ -1517,10 +1519,34 @@ export const copy = {
       commandPlaceholder: 'e.g. jq -r .tool_input.file_path | xargs npx prettier --write',
       add: 'Add hook',
     },
+    plugins: {
+      title: 'Plugins',
+      intro:
+        'A plugin adds skills, slash commands, hooks and MCP servers in one go, and switches on and off as one. Plugins use Claude Code’s layout, so Claude Code plugins work here unchanged. Add one from a folder or a git URL; it runs as you, so add only plugins you trust.',
+      sourcePlaceholder: 'Folder path or git URL, e.g. ~/code/my-plugin or https://github.com/you/plugin',
+      sourceLabel: 'Plugin folder or git URL',
+      add: 'Add plugin',
+      adding: 'Adding…',
+      added: (name: string) => `Added ${name}`,
+      loading: 'Loading plugins…',
+      emptyTitle: 'No plugins yet',
+      emptyBody: 'Add one above. It can be a Claude Code plugin folder or repository.',
+      canUse: (name: string) => `Use the ${name} plugin`,
+      by: (author: string) => `by ${author}`,
+      skills: (n: number) => `${n} skill${n === 1 ? '' : 's'}`,
+      commands: (n: number) => `${n} command${n === 1 ? '' : 's'}`,
+      hooks: (n: number) => `${n} hook${n === 1 ? '' : 's'}`,
+      servers: (n: number) => `${n} MCP server${n === 1 ? '' : 's'}`,
+      remove: 'Remove',
+      confirmRemove: 'Remove for good',
+      removed: (name: string) => `Removed ${name}`,
+      applies: 'Skills, commands and hooks apply from the next message; MCP servers connect now.',
+    },
     skills: {
       sources: {
         myrmidon: 'Myrmidon',
         claude: 'Claude Code',
+        plugin: 'plugin',
         project: 'project',
       },
       title: 'Skills',

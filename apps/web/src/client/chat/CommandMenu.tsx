@@ -27,10 +27,10 @@ import { cn, Kbd } from '../ui/primitives.tsx'
 import { spring } from '../ui-config.ts'
 import {
   type ArgOption,
+  allCommands,
   GROUPS,
   rankCommands,
   rankOptions,
-  SLASH_COMMANDS,
   type SlashCommand,
   type SlashContext,
   slashStage,
@@ -185,13 +185,13 @@ export function buildMenu(input: {
 
   const items: MenuItem[] = []
   const recent = recentCommands()
-    .map((n) => SLASH_COMMANDS.find((c) => c.name === n))
+    .map((n) => allCommands().find((c) => c.name === n))
     .filter((c): c is SlashCommand => !!c && !unavailable(c, input.ctx))
   recent.forEach((c, i) => {
     items.push(item(c, [], i === 0 ? copy.commandMenu.recent : undefined))
   })
   for (const group of GROUPS) {
-    const inGroup = SLASH_COMMANDS.filter((c) => c.group === group)
+    const inGroup = allCommands().filter((c) => c.group === group)
     inGroup.forEach((c, i) => {
       items.push(item(c, [], i === 0 ? copy.commands.groups[group] : undefined))
     })

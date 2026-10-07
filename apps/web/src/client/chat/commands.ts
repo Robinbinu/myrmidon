@@ -3,10 +3,11 @@
  * can offer completions for its argument (`/model ` lists models, `/mode ` the two modes).
  */
 
+import type { PluginCommand } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
 
-export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App'
-export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App']
+export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App' | 'Plugins'
+export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App', 'Plugins']
 
 export interface ArgOption {
   readonly value: string
@@ -26,6 +27,8 @@ export interface SlashCommand {
   readonly when?: 'running' | 'idle' | 'chat' | 'resumable'
   /** Fixed choices for the argument; commands with dynamic ones (models) get them from the composer. */
   readonly options?: readonly ArgOption[]
+  /** A plugin's command: sends this prompt, with the argument in place, instead of running app code. */
+  readonly prompt?: string
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -139,6 +142,27 @@ export interface SlashContext {
   readonly resumable: boolean
 }
 
+let fromPlugins: SlashCommand[] = []
+
+/** The enabled plugins' commands join the menu; a built-in command keeps its name. */
+export function setPluginCommands(commands: readonly PluginCommand[]) {
+  const taken = new Set(SLASH_COMMANDS.map((c) => c.name))
+  fromPlugins = commands
+    .filter((c) => !taken.has(c.name))
+    .map((c) => ({
+      name: c.name,
+      description: c.description || copy.commands.fromPlugin(c.plugin),
+      ...(c.argumentHint ? { args: c.argumentHint, needsArg: true } : {}),
+      group: 'Plugins' as const,
+      prompt: c.prompt,
+    }))
+}
+
+/** Every command the menu offers: the app's own, then the plugins'. */
+export function allCommands(): readonly SlashCommand[] {
+  return [...SLASH_COMMANDS, ...fromPlugins]
+}
+
 /** Why a command can't run now, or undefined when it can. */
 export function unavailable(command: SlashCommand, ctx: SlashContext): string | undefined {
   switch (command.when) {
@@ -161,8 +185,8 @@ export function unavailable(command: SlashCommand, ctx: SlashContext): string | 
 
 /** `/name rest` → the command and its argument; undefined for ordinary text or an unknown name. */
 export function parseSlash(text: string): { command: SlashCommand; arg: string } | undefined {
-  const m = /^\/([a-z]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
-  const command = m && SLASH_COMMANDS.find((c) => c.name === m[1])
+  const m = /^\/([a-z][a-z0-9-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
+  const command = m && allCommands().find((c) => c.name === m[1])
   return command ? { command, arg: (m?.[2] ?? '').trim() } : undefined
 }
 
@@ -173,10 +197,10 @@ export function parseSlash(text: string): { command: SlashCommand; arg: string }
 export function slashStage(
   text: string,
 ): { stage: 'name'; query: string } | { stage: 'arg'; command: SlashCommand; query: string } | undefined {
-  const name = /^\/([a-z]*)$/.exec(text)
+  const name = /^\/([a-z0-9-]*)$/.exec(text)
   if (name) return { stage: 'name', query: name[1] ?? '' }
-  const arg = /^\/([a-z]+) ([^\n]*)$/.exec(text)
-  const command = arg && SLASH_COMMANDS.find((c) => c.name === arg[1])
+  const arg = /^\/([a-z][a-z0-9-]*) ([^\n]*)$/.exec(text)
+  const command = arg && allCommands().find((c) => c.name === arg[1])
   return command?.needsArg ? { stage: 'arg', command, query: arg?.[2] ?? '' } : undefined
 }
 
@@ -209,7 +233,7 @@ export interface RankedCommand {
  */
 export function rankCommands(query: string, ctx: SlashContext): RankedCommand[] {
   const scored: { ranked: RankedCommand; score: number }[] = []
-  for (const command of SLASH_COMMANDS) {
+  for (const command of allCommands()) {
     const reason = unavailable(command, ctx)
     const prefix = command.name.startsWith(query)
     const inName = prefix ? undefined : fuzzy(query, command.name)

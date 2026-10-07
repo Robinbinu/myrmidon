@@ -24,6 +24,7 @@ import {
   Palette,
   Plug,
   Plus,
+  Puzzle,
   RefreshCw,
   Search,
   Server,
@@ -127,6 +128,7 @@ export type Section =
   | 'team'
   | 'tools'
   | 'skills'
+  | 'plugins'
   | 'hooks'
   | 'schedules'
   | 'verification'
@@ -163,6 +165,12 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
     label: copy.settings.sections.skills.label,
     hint: copy.settings.sections.skills.hint,
     icon: GraduationCap,
+  },
+  {
+    id: 'plugins',
+    label: copy.settings.sections.plugins.label,
+    hint: copy.settings.sections.plugins.hint,
+    icon: Puzzle,
   },
   {
     id: 'hooks',
@@ -446,6 +454,7 @@ export function Settings(props: {
               )}
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
+              {section === 'plugins' && <PluginsSection />}
               {section === 'hooks' && <HooksSection />}
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
@@ -2480,14 +2489,167 @@ interface SkillEntry {
   name: string
   description: string
   dir: string
-  source: 'myrmidon' | 'claude' | 'project'
+  source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
 }
 
 const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
   myrmidon: copy.settings.skills.sources.myrmidon,
   claude: copy.settings.skills.sources.claude,
+  plugin: copy.settings.skills.sources.plugin,
   project: copy.settings.skills.sources.project,
+}
+
+interface PluginEntry {
+  name: string
+  version?: string
+  description?: string
+  author?: string
+  dir: string
+  enabled: boolean
+  skills: string[]
+  commands: { name: string }[]
+  hooks: number
+  mcpServers: string[]
+  error?: string
+}
+
+/** The person's plugins: add one from a folder or git URL, switch each on or off, remove it. */
+function PluginsSection() {
+  const toast = useToast()
+  const [data, setData] = useState<{ plugins: PluginEntry[]; dir?: string }>()
+  const [source, setSource] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [removing, setRemoving] = useState<string>()
+  const load = () =>
+    api<{ plugins: PluginEntry[]; dir?: string }>('/api/plugins')
+      .then(setData)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  const add = async () => {
+    setAdding(true)
+    try {
+      const r = await send<{ plugin: PluginEntry }>('POST', '/api/plugins', { source })
+      toast(copy.settings.plugins.added(r.plugin.name), 'success')
+      setSource('')
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+  const parts = (p: PluginEntry) =>
+    [
+      p.skills.length ? copy.settings.plugins.skills(p.skills.length) : '',
+      p.commands.length ? copy.settings.plugins.commands(p.commands.length) : '',
+      p.hooks ? copy.settings.plugins.hooks(p.hooks) : '',
+      p.mcpServers.length ? copy.settings.plugins.servers(p.mcpServers.length) : '',
+    ].filter(Boolean)
+  return (
+    <>
+      <Heading title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</Heading>
+      <form
+        className="mb-4 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (source.trim() && !adding) void add()
+        }}
+      >
+        <TextInput
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          placeholder={copy.settings.plugins.sourcePlaceholder}
+          aria-label={copy.settings.plugins.sourceLabel}
+          className="flex-1 font-mono text-[12.5px]"
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!source.trim() || adding}
+          icon={adding ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+        >
+          {adding ? copy.settings.plugins.adding : copy.settings.plugins.add}
+        </Button>
+      </form>
+      {!data ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.plugins.loading}
+        </div>
+      ) : data.plugins.length === 0 ? (
+        <Empty icon={<Puzzle className="size-5" />} title={copy.settings.plugins.emptyTitle}>
+          {copy.settings.plugins.emptyBody}
+        </Empty>
+      ) : (
+        <>
+          <Card>
+            {data.plugins.map((p) => (
+              <Row key={p.name}>
+                <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[13.5px] font-medium">{p.name}</span>
+                      {p.version && <span className="text-[12px] text-muted">v{p.version}</span>}
+                      {p.author && (
+                        <span className="text-[12px] text-muted">{copy.settings.plugins.by(p.author)}</span>
+                      )}
+                    </div>
+                    {p.description && (
+                      <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{p.description}</p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {parts(p).map((part) => (
+                        <Pill key={part} tone="neutral">
+                          {part}
+                        </Pill>
+                      ))}
+                    </div>
+                    {p.error && <p className="mt-1.5 text-[12.5px] text-bad-ink">{p.error}</p>}
+                    <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={p.dir}>
+                      {p.dir}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (removing !== p.name) return setRemoving(p.name)
+                        setRemoving(undefined)
+                        void send('DELETE', `/api/plugins/${p.name}`)
+                          .then(() => toast(copy.settings.plugins.removed(p.name), 'success'))
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }}
+                      onBlur={() => setRemoving(undefined)}
+                      className={cn(removing === p.name && 'text-bad-ink')}
+                    >
+                      {removing === p.name
+                        ? copy.settings.plugins.confirmRemove
+                        : copy.settings.plugins.remove}
+                    </Button>
+                    <Switch
+                      checked={p.enabled}
+                      label={copy.settings.plugins.canUse(p.name)}
+                      onChange={(enabled) =>
+                        void send('PUT', `/api/plugins/${p.name}`, { enabled })
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                  </div>
+                </div>
+              </Row>
+            ))}
+          </Card>
+          <p className="mt-2 text-[12px] text-muted">{copy.settings.plugins.applies}</p>
+        </>
+      )}
+    </>
+  )
 }
 
 /** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */

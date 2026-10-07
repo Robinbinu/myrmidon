@@ -19,7 +19,7 @@ import { prompts } from './prompts.ts'
  * instructions, then a bundled file only when they ask for it.
  */
 
-export type SkillSource = 'myrmidon' | 'claude' | 'project'
+export type SkillSource = 'myrmidon' | 'claude' | 'plugin' | 'project'
 
 export interface Skill {
   readonly name: string
@@ -65,17 +65,20 @@ export class SkillLibrary {
     home: string,
     /** Where the person's Claude Code skills live; read in place, never written. */
     private readonly claudeDir = join(homedir(), '.claude', 'skills'),
+    /** The skills folders of the person's enabled plugins. */
+    private readonly pluginRoots: () => readonly string[] = () => [],
   ) {
     this.dir = join(home, 'skills')
     this._state = join(home, 'skills.json')
   }
 
-  /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, and the project's. */
+  /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', and the project's. */
   list(project?: string): Skill[] {
     const disabled = new Set(this._disabled())
     const sources: [string, SkillSource][] = [
       [this.dir, 'myrmidon'],
       [this.claudeDir, 'claude'],
+      ...this.pluginRoots().map((root): [string, SkillSource] => [root, 'plugin']),
       ...(project
         ? ([
             [join(project, '.myrmidon', 'skills'), 'project'],

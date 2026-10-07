@@ -28,6 +28,7 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  PluginStore,
   ProjectStore,
   type Runtime,
   recoverOrphans,
@@ -270,13 +271,14 @@ async function main() {
       const omp = await bootOmp(home)
       const resolver = new ModelResolver(omp, contextWindows(settings))
       const sandbox = detectSandbox()
-      const mcp = new McpHub(omp.agentDir)
+      const plugins = new PluginStore(home)
+      const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
-      const skills = new SkillLibrary(home)
-      const hooks = new HookStore(home)
+      const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
+      const hooks = new HookStore(home, () => plugins.hooks())
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
@@ -310,6 +312,7 @@ async function main() {
         memory,
         skills,
         hooks,
+        plugins,
         schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,

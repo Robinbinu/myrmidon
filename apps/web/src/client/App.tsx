@@ -1,4 +1,11 @@
-import { type ColonyState, foldColony, type MyrEvent, roundSlice } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  expandCommand,
+  foldColony,
+  type MyrEvent,
+  type PluginCommand,
+  roundSlice,
+} from '@myrmidon/protocol'
 import { Network, PanelLeft, PanelRight, SquarePen, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
@@ -17,6 +24,7 @@ import {
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
+import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
@@ -148,6 +156,13 @@ export function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Plugin commands join the slash menu; reloaded when Settings closes, where plugins are switched.
+  useEffect(() => {
+    if (settingsOpen) return
+    api<{ plugins: { enabled: boolean; commands: PluginCommand[] }[] }>('/api/plugins')
+      .then((r) => setPluginCommands(r.plugins.filter((p) => p.enabled).flatMap((p) => p.commands)))
+      .catch(() => {})
+  }, [settingsOpen])
   const [settingsSection, setSettingsSection] = useState<'general' | 'tools'>('general')
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -398,6 +413,10 @@ export function App() {
       case 'settings':
         setSettingsSection(name === 'mcp' ? 'tools' : 'general')
         return setSettingsOpen(true)
+      default: {
+        const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
+        if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
+      }
     }
   }
 

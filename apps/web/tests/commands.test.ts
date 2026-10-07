@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test'
 import {
+  allCommands,
   parseSlash,
   rankCommands,
   rankOptions,
   SLASH_COMMANDS,
+  setPluginCommands,
   slashStage,
   unavailable,
 } from '../src/client/chat/commands.ts'
@@ -66,4 +68,29 @@ test('argument choices match labels, values and descriptions', () => {
     { value: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5', description: 'anthropic' },
   ]
   expect(rankOptions('op', mixed)[0]?.label).toBe('Claude Opus 5.5')
+})
+
+test("plugins' commands join the menu, take their arguments, and never shadow a built-in command", () => {
+  setPluginCommands([
+    {
+      name: 'review-ui',
+      plugin: 'nova-kit',
+      description: 'Review a screen',
+      argumentHint: '<file>',
+      prompt: 'Review $1',
+    },
+    { name: 'plan', plugin: 'nova-kit', description: 'A plugin trying to take /plan', prompt: 'nope' },
+  ])
+  expect(parseSlash('/review-ui home.tsx')).toMatchObject({
+    command: { name: 'review-ui', group: 'Plugins', prompt: 'Review $1', needsArg: true },
+    arg: 'home.tsx',
+  })
+  expect(slashStage('/review-ui ho')).toMatchObject({ stage: 'arg', query: 'ho' })
+  expect(rankCommands('rev', { chat: false, running: false, resumable: false })[0]?.command.name).toBe(
+    'review-ui',
+  )
+  expect(allCommands().filter((c) => c.name === 'plan')).toHaveLength(1)
+  expect(parseSlash('/plan a site')?.command.prompt).toBeUndefined()
+  setPluginCommands([])
+  expect(parseSlash('/review-ui x')).toBeUndefined()
 })

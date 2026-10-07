@@ -25,7 +25,7 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Rewind only undoes the round's own files** (done) — rewinding the crew round that edited Myrmidon restored the whole
       project snapshot and rolled back unrelated, newer commits (5d75622's files). Restore only files the round
       changed; ask before overwriting files changed after it.
-- [ ] **Plugins, like DeepSeek Harness** (approved: spec first) — ~/.myrmidon/plugins/<name>/ with plugin.json;
+- [ ] **Plugins, like DeepSeek Harness** (spec approved; phase 1 done: folders, Claude Code parts, Settings → Plugins; next: phase 2 runtime code) — ~/.myrmidon/plugins/<name>/ with plugin.json;
       contributes tools, skills, hooks, prompt sections, settings, UI in defined slots; hot reload; Settings →
       Plugins; agents asked for a Myrmidon feature build a plugin with create_plugin instead of patching source (Myrmidon
       will ship compiled, so plugins are the only way to extend it).

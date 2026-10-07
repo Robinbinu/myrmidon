@@ -415,7 +415,7 @@ export class ColonyRun implements ColonyHost {
       MYRMIDON_PROJECT_DIR: this.spec.chat?.project?.path ?? cwd,
     }
     const outcome = await runHooks(
-      store.read(),
+      store.active(),
       event,
       tool,
       { hook_event_name: event, session_id: this.id, cwd, ...(agent ? { agent } : {}), ...input },

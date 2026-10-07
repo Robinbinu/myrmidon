@@ -28,6 +28,7 @@ import {
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
+  type PluginStore,
   type ProjectStore,
   type ScheduleStore,
   type SettingsStore,
@@ -75,6 +76,7 @@ export interface ServeOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
+  readonly plugins?: PluginStore
   /** Rounds that start on a schedule; the server starts the due ones. */
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
@@ -532,6 +534,46 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.hooks) return json({ error: 'hooks need the chat runtime' }, 503)
           return json(options.hooks.write(await req.json().catch(() => ({}))))
+        }),
+      },
+      '/api/plugins': {
+        GET: guard(() => json({ plugins: options.plugins?.list() ?? [], dir: options.plugins?.dir })),
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
+          if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
+          try {
+            const plugin = await options.plugins.install(source)
+            await options.mcp?.start()
+            return json({ plugin, plugins: options.plugins.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name': {
+        PUT: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
+          try {
+            options.plugins.setEnabled(req.params.name ?? '', enabled)
+            // Its MCP servers connect or drop now; skills, commands and hooks apply from the next round.
+            await options.mcp?.start()
+            return json({ plugins: options.plugins.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.remove(req.params.name ?? '')
+            await options.mcp?.start()
+            return json({ plugins: options.plugins.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
         }),
       },
       '/api/skills': guard((_req, url) => {
