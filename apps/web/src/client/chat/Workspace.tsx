@@ -22,11 +22,12 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { compact, usePersistentFlag } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, toneFor } from '../ui/primitives.tsx'
+import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -174,6 +175,7 @@ function WorkspaceBody({
   roundPicker: ReactNode
 }) {
   const colony = useColony(colonyId)
+  const split = useSplitWidth('myr-inspector-width', { min: 320, max: 640, initial: 440 })
   const { state, events } = useMemo(
     () => (round === undefined ? colony : roundSlice(colony.state, colony.events, round)),
     [colony, round],
@@ -246,18 +248,30 @@ function WorkspaceBody({
   return (
     <>
       <div className="flex h-full min-h-0">
+        {open && (
+          <SplitDivider
+            split={split}
+            side="right"
+            label="Resize workspace"
+            className="hidden min-[1100px]:block"
+          />
+        )}
         <div
+          style={{ '--inspector-w': `${split.width}px` } as CSSProperties}
           className={cn(
             'flex-col border-l border-line bg-surface',
             // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail;
             // phones have no rail and give the panel the whole width.
-            'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(460px,calc(100vw-3rem))] xl:static xl:z-auto xl:w-[440px] xl:shadow-none',
+            'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(440px,calc(100vw-3rem))] min-[1100px]:static min-[1100px]:z-auto min-[1100px]:w-[var(--inspector-w)] min-[1100px]:shadow-none',
             open ? 'flex' : 'hidden',
           )}
         >
           {mounted && (
             <>
-              <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line pl-4 pr-2">
+              <div
+                data-toolbar
+                className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-line pl-4 pr-2"
+              >
                 <View className="size-4 text-muted" />
                 <span className="hidden min-w-0 flex-1 truncate text-[14px] font-semibold md:block">
                   {views.find((v) => v.value === tab)?.label}
@@ -642,8 +656,9 @@ function WorkspaceBody({
         </div>
         <nav
           aria-label="Workspace views"
-          className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface py-2 md:flex"
+          className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface pb-2 md:flex"
         >
+          <div data-toolbar className="drag-region mb-1 h-[52px] w-full shrink-0 border-b border-line" />
           {views.map((v) => {
             const count = counts[v.value]
             return (
@@ -661,7 +676,7 @@ function WorkspaceBody({
                 aria-pressed={open && tab === v.value}
                 title={v.label}
                 className={cn(
-                  'relative grid size-9 place-items-center rounded-lg transition-colors',
+                  'relative grid size-8 place-items-center rounded-md transition-colors',
                   open && tab === v.value
                     ? 'bg-surface-2 text-fg'
                     : 'text-muted hover:bg-surface-2/60 hover:text-fg',

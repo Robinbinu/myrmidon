@@ -229,13 +229,16 @@ export function Settings(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="glass flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
+      <header
+        data-toolbar
+        className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
+      >
         <Button variant="ghost" size="sm" onClick={props.onClose} icon={<ArrowLeft className="size-4" />}>
           Back
         </Button>
-        <span className="text-[14px] font-semibold">Settings</span>
+        <span className="text-[13px] font-semibold">Settings</span>
         <span className="text-muted">/</span>
-        <span className="truncate text-[14px] text-fg-2">{current?.label}</span>
+        <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
         <span className="flex-1" />
         <AnimatePresence>
           {saving !== 'idle' && (

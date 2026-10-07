@@ -1,5 +1,5 @@
 import { type ColonyState, foldColony, type MyrEvent, roundSlice } from '@myrmidon/protocol'
-import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
+import { Network, PanelLeft, PanelRight, SquarePen, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -26,8 +26,12 @@ import { Workspace } from './chat/Workspace.tsx'
 import { Settings } from './Settings.tsx'
 import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
+import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/primitives.tsx'
+import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
+import { comboLabel } from './ui/shortcuts.ts'
 import { useToast } from './ui/Toast.tsx'
+import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
 import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
@@ -135,10 +139,11 @@ export function App() {
   )
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
+  const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
   // Below the docking width the panel covers the chat, so it never reopens on its own there.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
   useEffect(() => {
-    if (window.innerWidth < 1280) setWorkspaceOpen(false)
+    if (window.innerWidth < 1100) setWorkspaceOpen(false)
   }, [])
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
@@ -254,6 +259,7 @@ export function App() {
 
   useHotkeys([
     { combo: 'mod+k', run: () => newTask(), inInputs: true },
+    { combo: 'mod+n', run: () => newTask(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     { combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true },
@@ -482,15 +488,18 @@ export function App() {
             <motion.div
               key="sidebar"
               initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 272, opacity: 1 }}
+              animate={{ width: sidebarSplit.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              transition={softSpring}
+              transition={sidebarSplit.dragging ? { duration: 0 } : softSpring}
               className="hidden shrink-0 overflow-hidden md:block"
             >
               {sidebar}
             </motion.div>
           )}
         </AnimatePresence>
+        {!collapsed && (
+          <SplitDivider split={sidebarSplit} side="left" label="Resize sidebar" className="hidden md:block" />
+        )}
         <AnimatePresence>
           {mobileNav && (
             <motion.div
@@ -535,21 +544,30 @@ export function App() {
             />
           ) : (
             <>
-              <header className="glass relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line px-3">
+              <Toolbar inset={collapsed}>
                 <IconButton
-                  label="Toggle sidebar"
-                  title="Toggle sidebar (⌘B)"
+                  label="Show sidebar"
+                  title={`Show sidebar (${comboLabel('mod+b', isMac)})`}
                   onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setCollapsed(!collapsed))}
                   className={cn(!collapsed && 'md:hidden')}
                 >
                   <PanelLeft className="size-4" />
                 </IconButton>
-                <div className="flex min-w-0 flex-1 items-center gap-2">
+                {collapsed && (
+                  <IconButton
+                    label="New task"
+                    title={`New task (${comboLabel('mod+n', isMac)})`}
+                    onClick={() => newTask()}
+                  >
+                    <SquarePen className="size-4" />
+                  </IconButton>
+                )}
+                <ToolbarTitle>
                   <motion.span
                     key={title}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="truncate text-[14.5px] font-semibold tracking-tight"
+                    className="truncate"
                   >
                     {title}
                   </motion.span>
@@ -558,7 +576,7 @@ export function App() {
                       {running ? 'working' : chat.status}
                     </Pill>
                   )}
-                </div>
+                </ToolbarTitle>
                 {view === 'chat' && chat && (
                   <IconButton
                     label="Workspace"
@@ -572,7 +590,7 @@ export function App() {
                 )}
                 {view === 'chat' && chat && (
                   <Button
-                    variant="ghost"
+                    variant="toolbar"
                     size="sm"
                     icon={<Network className="size-4" />}
                     onClick={() => {
@@ -584,7 +602,7 @@ export function App() {
                     <span className="hidden sm:inline">Colony</span>
                   </Button>
                 )}
-              </header>
+              </Toolbar>
               {chatsError && (
                 <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad">{chatsError}</div>
               )}
