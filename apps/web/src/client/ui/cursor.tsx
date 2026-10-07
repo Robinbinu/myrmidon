@@ -15,14 +15,15 @@ import { inkOn } from './pixel.tsx'
  * Cursor physics, tuned against React Bits Pro's User Cursor:
  * - the arrow rides a stiff spring, the name tag a softer one, so the tag trails behind;
  * - while moving, the arrow turns its tip toward the direction of travel, weighted by speed, on its own
- *   softer spring, then settles back to a resting tilt;
+ *   softer spring, and keeps whatever heading it had when it stops;
  * - the tag swings by how far it lags behind; the arrow pops in on arrival and dips when it clicks.
  */
 const ARROW_SPRING = { stiffness: 380, damping: 32, mass: 0.6 }
 const LABEL_SPRING = { stiffness: 220, damping: 26, mass: 0.7 }
 const TURN_SPRING = { stiffness: 170, damping: 20, mass: 0.8 }
 const SIZE = 22
-const REST_TILT = -14
+/** The tilt a cursor starts with before it has ever moved. */
+const START_TILT = -14
 const PRESS_SCALE = 0.92
 /** Speed (px/s) at which the arrow points fully along its path. */
 const FULL_TURN_SPEED = 1400
@@ -35,6 +36,9 @@ const LABEL_OFFSET = { x: SIZE * 0.9, y: SIZE * 0.2 + 6 }
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Signed difference between two angles in degrees, in (-180, 180]. */
 const turn = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180
+
+/** Each cursor's last angle by name, so one that comes back into view faces the way it did, not a default. */
+const lastAngle = new Map<string, number>()
 
 /** A symmetric arrowhead, tip at the top-left; rotates about its tip. */
 function Arrowhead({ color }: { color: string }) {
@@ -70,7 +74,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
   const ly = useSpring(py, LABEL_SPRING)
   const labelX = useTransform(lx, (v) => v + LABEL_OFFSET.x)
   const labelY = useTransform(ly, (v) => v + LABEL_OFFSET.y)
-  const aim = useMotionValue(REST_TILT)
+  const aim = useMotionValue(lastAngle.get(props.name) ?? START_TILT)
   const rotate = useSpring(aim, TURN_SPRING)
   const swing = useMotionValue(0)
   const bend = useRef(1)
@@ -107,10 +111,10 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
     const vy = ay.getVelocity()
     const weight = clamp(Math.hypot(vx, vy) / FULL_TURN_SPEED, 0, 1)
     const pointing = (Math.atan2(vy, vx) * 180) / Math.PI - TIP_HEADING
-    const target = REST_TILT + turn(REST_TILT, pointing) * weight
-    // Aim relative to where the arrow is now, so it never spins the long way round.
+    // Aim relative to where the arrow is now, so it never spins the long way round; at rest it holds still.
     const current = rotate.get()
-    aim.set(current + turn(current, target))
+    aim.set(current + turn(current, pointing) * weight)
+    lastAngle.set(props.name, current)
     swing.set(clamp(-(lx.get() - ax.get()) * LABEL_TILT_PER_PX, -LABEL_TILT_MAX, LABEL_TILT_MAX))
   })
 
