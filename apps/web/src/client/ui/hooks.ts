@@ -3,7 +3,7 @@ import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
 
-function readStored<T extends string>(key: string, fallback: T): T {
+export function readStored<T extends string>(key: string, fallback: T): T {
   try {
     return (localStorage.getItem(key) as T | null) ?? fallback
   } catch {
@@ -11,7 +11,7 @@ function readStored<T extends string>(key: string, fallback: T): T {
   }
 }
 
-function store(key: string, value: string) {
+export function store(key: string, value: string) {
   try {
     localStorage.setItem(key, value)
   } catch {
