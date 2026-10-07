@@ -66,6 +66,40 @@
   --screen-frame:
     0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
     0 24px 48px -12px rgb(0 0 0 / 0.22), 0 8px 16px -8px rgb(0 0 0 / 0.12);
+  /* Colours drawn on surfaces that stay dark in both themes (the mascot's screen, the logo tile, terminals), or on
+     an agent's own colour, so they are the same in both themes and the dark blocks below don't repeat them. */
+  /* The mascot's eyes, one colour per emotion, and the live light on its status line. */
+  --mood-listening: #ffe2a8;
+  --mood-curious: #7fdcff;
+  --mood-focused: #f4f4f6;
+  --mood-concerned: #ff8a4c;
+  --mood-love: #ff7eb6;
+  --mood-happy: #c6f432;
+  --mood-wink: #ffcf5c;
+  --mood-sad: #ff6369;
+  --mood-sleepy: #6f7fb8;
+  --mood-night: #8fa0d8;
+  --mood-failed: #ff6369;
+  --mood-stopped: #8a8a94;
+  --screen-live: #3ddc84;
+  /* Worker characters' eyes, and text on an agent's colour: dark on bright fills, white on deep ones. */
+  --character-ink: #16161a;
+  --on-bright: #0b0b0d;
+  --on-deep: #ffffff;
+  /* The Myrmidon mark: amber pixel eyes on a dark glass tile. */
+  --logo-tile-top: #1d1d22;
+  --logo-tile-bottom: #09090b;
+  --logo-rim: #ffffff;
+  --logo-eye-top: #ffc847;
+  --logo-eye-bottom: #ff9d0a;
+  --logo-glow: #ffb31a;
+  /* Terminal panes: an agent's terminal on its computer, and the workspace's shell log. */
+  --terminal-bg: #0b0b0d;
+  --terminal-text: #d7d7de;
+  --terminal-command: #9be37a;
+  --terminal-muted: #6b6b78;
+  --terminal-error: #ff8a8a;
+  --shell-log-bg: #0b0f17;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.05), 0 28px 64px -12px rgb(0 0 0 / 0.24);

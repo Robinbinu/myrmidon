@@ -18,8 +18,10 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
-import { Button, cn, Segmented, Select, spring } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { copy } from '../copy.ts'
+import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
+import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
+import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
   'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
@@ -165,14 +167,32 @@ function EffortRuler(props: { level: number }) {
 const EFFORT = [
   {
     key: 'auto',
-    title: 'Auto',
-    hint: 'Quick for questions, deeper for real work',
+    title: copy.teamControls.effort.auto.title,
+    hint: copy.teamControls.effort.auto.hint,
     icon: Sparkles,
     level: 0.5,
   },
-  { key: 'low', title: 'Fast', hint: 'Answers right away', icon: Zap, level: 0.2 },
-  { key: 'medium', title: 'Balanced', hint: 'Thinks before it acts', icon: Gauge, level: 0.6 },
-  { key: 'high', title: 'Deep', hint: 'Thinks hard at every step; slower', icon: Brain, level: 1 },
+  {
+    key: 'low',
+    title: copy.teamControls.effort.low.title,
+    hint: copy.teamControls.effort.low.hint,
+    icon: Zap,
+    level: 0.2,
+  },
+  {
+    key: 'medium',
+    title: copy.teamControls.effort.medium.title,
+    hint: copy.teamControls.effort.medium.hint,
+    icon: Gauge,
+    level: 0.6,
+  },
+  {
+    key: 'high',
+    title: copy.teamControls.effort.high.title,
+    hint: copy.teamControls.effort.high.hint,
+    icon: Brain,
+    level: 1,
+  },
 ] as const
 
 /** How hard the lead thinks per step. */
@@ -180,13 +200,13 @@ export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig
   const current = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
   return (
     <ChipMenu
-      label="Thinking"
+      label={copy.teamControls.thinking.label}
       icon={<current.icon className="size-3.5 shrink-0" />}
-      value={current.key === 'auto' ? 'Thinking' : current.title}
+      value={current.key === 'auto' ? copy.teamControls.thinking.label : current.title}
     >
       {(close) => (
         <>
-          <MenuHead title="Thinking" note={current.title} />
+          <MenuHead title={copy.teamControls.thinking.label} note={current.title} />
           <EffortRuler level={current.level} />
           {EFFORT.map((e) => (
             <Option
@@ -209,17 +229,22 @@ export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig
 }
 
 const REVIEW = [
-  { key: 'off', title: 'Off', hint: 'The lead’s answer completes the task', icon: ShieldOff },
+  {
+    key: 'off',
+    title: copy.teamControls.review.off.title,
+    hint: copy.teamControls.review.off.hint,
+    icon: ShieldOff,
+  },
   {
     key: 'auto',
-    title: 'Auto',
-    hint: 'The lead asks for a check when the work deserves it',
+    title: copy.teamControls.review.auto.title,
+    hint: copy.teamControls.review.auto.hint,
     icon: ShieldQuestion,
   },
   {
     key: 'always',
-    title: 'Always',
-    hint: 'Every final answer is checked before it is done',
+    title: copy.teamControls.review.always.title,
+    hint: copy.teamControls.review.always.hint,
     icon: ShieldCheck,
   },
 ] as const
@@ -236,13 +261,19 @@ export function ReviewChip(props: {
   const Icon = current?.icon ?? ShieldCheck
   return (
     <ChipMenu
-      label="Reviewer"
+      label={copy.teamControls.reviewer.label}
       icon={<Icon className="size-3.5 shrink-0" />}
-      value={props.review === 'off' ? 'No review' : props.review === 'always' ? 'Always review' : 'Review'}
+      value={
+        props.review === 'off'
+          ? copy.teamControls.reviewer.valueOff
+          : props.review === 'always'
+            ? copy.teamControls.reviewer.valueAlways
+            : copy.teamControls.reviewer.valueAuto
+      }
     >
       {() => (
         <>
-          <MenuHead title="Reviewer" />
+          <MenuHead title={copy.teamControls.reviewer.label} />
           {REVIEW.map((r) => (
             <Option
               key={r.key}
@@ -255,11 +286,13 @@ export function ReviewChip(props: {
           ))}
           {props.review !== 'off' && (
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-2 pb-1 pt-2.5">
-              <span className="whitespace-nowrap text-[12.5px] text-fg-2">Reviewer model</span>
+              <span className="whitespace-nowrap text-[12.5px] text-fg-2">
+                {copy.teamControls.reviewer.model}
+              </span>
               <ModelPicker
                 variant="compact"
                 placement="up"
-                label="Reviewer"
+                label={copy.teamControls.reviewer.label}
                 value={props.config.judgeModel}
                 models={props.models}
                 onChange={(judgeModel) => props.onConfig({ ...props.config, judgeModel })}
@@ -306,17 +339,23 @@ export function HelpersChip(props: {
     })
   }
   const size = n || config.extraWorkers
-  const who = config.mode === 'swarm' ? 'peers' : 'helpers'
+  const who = config.mode === 'swarm' ? copy.teamControls.helpers.peers : copy.teamControls.helpers.helpers
   return (
     <ChipMenu
-      label="Helpers"
+      label={copy.teamControls.helpers.label}
       icon={<Users className="size-3.5 shrink-0" />}
-      value={mode === 'never' ? 'Solo' : mode === 'always' ? `Team of ${size + 1}` : `${size} ${who}`}
+      value={
+        mode === 'never'
+          ? copy.teamControls.helpers.solo
+          : mode === 'always'
+            ? copy.teamControls.helpers.teamOf(size + 1)
+            : copy.teamControls.helpers.count(size, who)
+      }
       width={380}
     >
       {() => (
         <>
-          <MenuHead title="Helpers" />
+          <MenuHead title={copy.teamControls.helpers.label} />
           {HELPER_MODES.map((h) => (
             <Option
               key={h.key}
@@ -339,9 +378,24 @@ export function HelpersChip(props: {
 }
 
 const HELPER_MODES = [
-  { key: 'never', title: 'Never', hint: 'The lead works alone, like a chat', icon: User },
-  { key: 'auto', title: 'Auto', hint: 'The lead brings helpers in when a job needs them', icon: Users },
-  { key: 'always', title: 'Always', hint: 'Every message starts with the whole team', icon: UsersRound },
+  {
+    key: 'never',
+    title: copy.teamControls.helperModes.never.title,
+    hint: copy.teamControls.helperModes.never.hint,
+    icon: User,
+  },
+  {
+    key: 'auto',
+    title: copy.teamControls.helperModes.auto.title,
+    hint: copy.teamControls.helperModes.auto.hint,
+    icon: Users,
+  },
+  {
+    key: 'always',
+    title: copy.teamControls.helperModes.always.title,
+    hint: copy.teamControls.helperModes.always.hint,
+    icon: UsersRound,
+  },
 ] as const
 
 function Stepper(props: {
@@ -359,7 +413,7 @@ function Stepper(props: {
         type="button"
         disabled={props.value <= props.min}
         onClick={() => props.onChange(props.value - 1)}
-        aria-label={`Fewer ${props.label}`}
+        aria-label={copy.teamControls.stepper.fewer(props.label)}
         className={step}
       >
         <Minus className="size-3" />
@@ -371,7 +425,7 @@ function Stepper(props: {
         type="button"
         disabled={props.value >= props.max}
         onClick={() => props.onChange(props.value + 1)}
-        aria-label={`More ${props.label}`}
+        aria-label={copy.teamControls.stepper.more(props.label)}
         className={step}
       >
         <Plus className="size-3" />
@@ -431,13 +485,13 @@ export function HelpersEditor(props: {
   const unused = SPECIALISTS.filter((r) => !config.roster.some((x) => x.role === r))
   return (
     <div className="divide-y divide-line">
-      <Row label="Style">
+      <Row label={copy.teamControls.editor.style}>
         <Segmented
           id="composer-mode"
           value={config.mode}
           options={[
-            { value: 'orchestrated', label: 'Lead + helpers' },
-            { value: 'swarm', label: 'Equal peers' },
+            { value: 'orchestrated', label: copy.teamControls.editor.orchestrated },
+            { value: 'swarm', label: copy.teamControls.editor.swarm },
           ]}
           onChange={switchMode}
         />
@@ -452,12 +506,12 @@ export function HelpersEditor(props: {
             className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
           >
             {swarm ? (
-              <span className="flex-1 text-[13px] text-fg-2">Peer {i + 1}</span>
+              <span className="flex-1 text-[13px] text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
             ) : (
               <input
                 value={r.role}
                 maxLength={40}
-                aria-label={`Role of helper ${i + 1}`}
+                aria-label={copy.teamControls.editor.roleOf(i + 1)}
                 onChange={(e) => setRow(i, { role: e.target.value.toLowerCase() })}
                 className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[13px] capitalize outline-none hover:bg-fill focus:bg-fill"
               />
@@ -465,18 +519,20 @@ export function HelpersEditor(props: {
             <ModelPicker
               variant="compact"
               placement={props.placement}
-              label={swarm ? `Peer ${i + 1}` : r.role || 'Helper'}
+              label={swarm ? copy.teamControls.editor.peer(i + 1) : r.role || copy.teamControls.editor.helper}
               value={r.model}
               models={props.models}
               minWindow={AGENT_MIN_WINDOW}
-              minReason={`Under ${windowLabel(AGENT_MIN_WINDOW)}: too small for a helper's tools`}
+              minReason={copy.teamControls.editor.minReason(windowLabel(AGENT_MIN_WINDOW))}
               onChange={(model) => setRow(i, { model })}
             />
             <button
               type="button"
               onClick={() => removeRow(i)}
               disabled={swarm && config.roster.length <= 2}
-              aria-label={`Remove ${swarm ? `peer ${i + 1}` : r.role}`}
+              aria-label={copy.teamControls.editor.remove(
+                swarm ? copy.teamControls.editor.peerLower(i + 1) : r.role,
+              )}
               className="grid size-6 place-items-center rounded-md text-muted opacity-0 transition-opacity hover:bg-fill hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 disabled:hidden"
             >
               <X className="size-3.5" />
@@ -493,35 +549,38 @@ export function HelpersEditor(props: {
               icon={<Plus className="size-3" />}
               onClick={() => addRow('peer')}
             >
-              Add peer
+              {copy.teamControls.editor.addPeer}
             </Button>
           ) : (
             <Select
               value=""
-              aria-label="Add a helper"
+              aria-label={copy.teamControls.editor.addHelperLabel}
               onChange={(e) => e.target.value && addRow(e.target.value)}
               className="h-[26px] text-[12.5px]"
             >
-              <option value="">Add helper…</option>
+              <option value="">{copy.teamControls.editor.addHelper}</option>
               {unused.map((role) => (
                 <option key={role} value={role}>
                   {role[0]?.toUpperCase()}
                   {role.slice(1)}
                 </option>
               ))}
-              <option value="specialist">Custom</option>
+              <option value="specialist">{copy.teamControls.editor.custom}</option>
             </Select>
           )}
         </div>
       )}
       {!swarm && (
-        <Row label="More on demand" hint="Extra helpers the lead may add when the job needs them">
+        <Row
+          label={copy.teamControls.editor.moreOnDemand.label}
+          hint={copy.teamControls.editor.moreOnDemand.hint}
+        >
           <Stepper
             value={config.extraWorkers}
             min={0}
             max={Math.max(0, 8 - config.roster.length)}
             onChange={(extraWorkers) => set({ extraWorkers })}
-            label="extra helpers"
+            label={copy.teamControls.editor.moreOnDemand.stepper}
           />
         </Row>
       )}

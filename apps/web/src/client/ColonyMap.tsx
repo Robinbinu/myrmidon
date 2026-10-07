@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useMemo } from 'react'
+import { copy } from './copy.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 
 type AgentNodeData = { view: AgentView; task?: string; selected: boolean }
@@ -28,8 +29,8 @@ function AgentNode({ data }: NodeProps<Node<AgentNodeData>>) {
       <div className="agent-node-model">{view.info.model}</div>
       <div className="agent-node-meta">
         <span>{view.status}</span>
-        <span>turn {view.turns}</span>
-        <span>{view.tokens.toLocaleString()} tok</span>
+        <span>{copy.colonyMap.turn(view.turns)}</span>
+        <span>{copy.colonyMap.tokens(view.tokens.toLocaleString())}</span>
       </div>
       {task ? <div className="agent-node-task">{task}</div> : null}
       {view.detail ? <div className="agent-node-detail">{view.detail}</div> : null}
@@ -97,7 +98,7 @@ export function ColonyMap(props: {
     return { nodes, edges }
   }, [state, events, cursor, selected, names])
 
-  if (names.length === 0) return <div className="empty">No agents yet.</div>
+  if (names.length === 0) return <div className="empty">{copy.colonyMap.noAgents}</div>
   return (
     <ReactFlow
       nodes={nodes}

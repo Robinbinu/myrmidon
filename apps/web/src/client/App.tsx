@@ -23,15 +23,17 @@ import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
+import { copy } from './copy.ts'
 import { Settings } from './Settings.tsx'
 import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/primitives.tsx'
+import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
+import { MAX_FILE_BYTES, softSpring } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
@@ -63,11 +65,9 @@ function readLocalConfig(): Record<string, unknown> {
   }
 }
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024
-
 /** Reads a file for the send request, which carries attachments as base64. */
 async function encodeFile(file: File): Promise<{ name: string; data: string }> {
-  if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is larger than 10 MB`)
+  if (file.size > MAX_FILE_BYTES) throw new Error(copy.app.fileTooLarge(file.name))
   const bytes = new Uint8Array(await file.arrayBuffer())
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000)
@@ -87,14 +87,14 @@ async function exportChat(chat: ChatSummary) {
       loaded.set(round.colonyId, colony)
     }
     const { state, info } = roundSlice(colony.state, colony.events, round.round)
-    lines.push(`## Round ${round.round}`, '')
+    lines.push(`## ${copy.app.export.round(round.round)}`, '')
     for (const m of state.chatMessages)
-      lines.push(`**${m.from === 'user' ? 'You' : m.from}:**`, '', m.text, '')
+      lines.push(`**${m.from === 'user' ? copy.app.export.you : m.from}:**`, '', m.text, '')
     const from = info?.startSeq ?? 0
     const files = Object.entries(state.artifacts)
       .filter(([, v]) => v.some((x) => x.seq >= from && x.author !== 'user'))
       .map(([name]) => name)
-    if (files.length) lines.push(`Files: ${files.join(', ')}`, '')
+    if (files.length) lines.push(copy.app.export.files(files.join(', ')), '')
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
   const a = document.createElement('a')
@@ -103,7 +103,7 @@ async function exportChat(chat: ChatSummary) {
     chat.title
       .replace(/[^\w -]+/g, '')
       .trim()
-      .slice(0, 60) || 'chat'
+      .slice(0, 60) || copy.app.export.fallbackName
   }.md`
   a.click()
   URL.revokeObjectURL(url)
@@ -114,7 +114,7 @@ function notify(text: string, chatId: string) {
   try {
     if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted' || !document.hidden) return
-    const n = new Notification('Myrmidon', { body: text, tag: chatId })
+    const n = new Notification(copy.brand.name, { body: text, tag: chatId })
     n.onclick = () => {
       window.focus()
       const url = new URL(location.href)
@@ -209,8 +209,8 @@ export function App() {
       if (before && isRunning(before) && !isRunning(c.status)) {
         const text =
           c.status === 'completed'
-            ? `“${c.title}” is done`
-            : `“${c.title}” ${c.status === 'stopped' ? 'paused' : c.status}`
+            ? copy.app.toasts.roundDone(c.title)
+            : copy.app.toasts.roundEnded(c.title, c.status === 'stopped' ? copy.app.toasts.paused : c.status)
         toast(text, c.status === 'completed' ? 'success' : 'info')
         notify(text, c.chatId)
       }
@@ -275,7 +275,7 @@ export function App() {
   ) => {
     if (!config) return
     if (!config.leadModel) {
-      toast('Choose a lead model first', 'error')
+      toast(copy.app.toasts.chooseLeadModel, 'error')
       throw new Error('no model')
     }
     setBusy(true)
@@ -300,7 +300,7 @@ export function App() {
         setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
       else {
         setPending(undefined)
-        toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the crew', 'info')
+        toast(delivery === 'queue' ? copy.app.toasts.queued : copy.app.toasts.steering, 'info')
       }
       refreshChats()
     } catch (err) {
@@ -316,7 +316,7 @@ export function App() {
     if (!activeChat) return
     try {
       await post(`/api/chats/${activeChat}/resume`, model ? { model } : {})
-      toast(model ? 'Continuing on the new model' : 'Resuming where it left off', 'info')
+      toast(model ? copy.app.toasts.continuingOnNewModel : copy.app.toasts.resuming, 'info')
       refreshChats()
     } catch (err) {
       toast(String((err as Error).message ?? err), 'error')
@@ -332,32 +332,33 @@ export function App() {
       case 'steer':
       case 'queue':
         if (!running) {
-          toast('Nothing is running; send it as a normal message', 'info')
+          toast(copy.app.toasts.notRunningSendNormally, 'info')
           throw new Error('not running')
         }
         return send(arg, activeChat, name)
       case 'stop':
-        return running ? stop() : toast('Nothing is running', 'info')
+        return running ? stop() : toast(copy.app.toasts.notRunning, 'info')
       case 'resume':
         return resume()
       case 'retry':
-        if (!last || running) return toast(running ? 'Still running' : 'Nothing to retry yet', 'info')
+        if (!last || running)
+          return toast(running ? copy.app.toasts.stillRunning : copy.app.toasts.nothingToRetry, 'info')
         return send(last.request).catch(() => {})
       case 'new':
         return newTask()
       case 'rename':
-        if (!activeChat) return toast('Open a chat to rename it', 'info')
+        if (!activeChat) return toast(copy.app.toasts.openChatToRename, 'info')
         await request('PATCH', `/api/chats/${activeChat}`, { title: arg })
         refreshChats()
-        return toast('Renamed', 'success')
+        return toast(copy.app.toasts.renamed, 'success')
       case 'mode':
         if (!config || (arg !== 'orchestrated' && arg !== 'swarm')) {
-          toast('Use /mode orchestrated or /mode swarm', 'error')
+          toast(copy.app.toasts.modeUsage, 'error')
           throw new Error('bad mode')
         }
         updateConfig(normalizeConfig({ ...config, mode: arg }, config.leadModel))
         return toast(
-          arg === 'swarm' ? 'Swarm: equal peers' : 'Orchestrated: a lead with specialists',
+          arg === 'swarm' ? copy.app.toasts.modeSwarm : copy.app.toasts.modeOrchestrated,
           'success',
         )
       case 'model': {
@@ -366,7 +367,7 @@ export function App() {
           models.find((m) => m.ref.toLowerCase() === q) ??
           models.find((m) => m.name.toLowerCase().includes(q) || m.ref.toLowerCase().includes(q))
         if (!config || !found) {
-          toast(`No model matches “${arg}”`, 'error')
+          toast(copy.app.toasts.noModelMatches(arg), 'error')
           throw new Error('no model')
         }
         updateConfig({ ...config, leadModel: found.ref })
@@ -375,24 +376,24 @@ export function App() {
           const r = await request<{ switched: string[] }>('POST', `/api/chats/${chat.chatId}/model`, {
             model: found.ref,
           })
-          return toast(`${r.switched.join(', ')} now on ${found.name}, from the next step`, 'success')
+          return toast(copy.app.toasts.modelSwitched(r.switched.join(', '), found.name), 'success')
         }
-        return toast(`Lead model: ${found.name}`, 'success')
+        return toast(copy.app.toasts.leadModel(found.name), 'success')
       }
       case 'thinking': {
         if (!config || !['low', 'medium', 'high', 'auto'].includes(arg)) {
-          toast('Use /thinking low, medium, high, or auto', 'error')
+          toast(copy.app.toasts.thinkingUsage, 'error')
           throw new Error('bad thinking')
         }
         const { thinking: _old, ...rest } = config
         updateConfig(arg === 'auto' ? rest : { ...rest, thinking: arg as 'low' | 'medium' | 'high' })
         return toast(
-          arg === 'auto' ? 'Thinking: each role decides' : `Thinking: ${arg} for work rounds`,
+          arg === 'auto' ? copy.app.toasts.thinkingAuto : copy.app.toasts.thinkingLevel(arg),
           'success',
         )
       }
       case 'export':
-        return chat ? exportChat(chat) : toast('Open a chat to export it', 'info')
+        return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
       case 'mcp':
       case 'settings':
         setSettingsSection(name === 'mcp' ? 'tools' : 'general')
@@ -404,7 +405,7 @@ export function App() {
     if (!activeChat) return
     post(`/api/chats/${activeChat}/stop`, {})
       .then(() => {
-        toast('Stopping the crew…', 'info')
+        toast(copy.app.toasts.stopping, 'info')
         refreshChats()
       })
       .catch((err) => toast(String(err.message ?? err), 'error'))
@@ -415,7 +416,7 @@ export function App() {
     setDeleteBusy(true)
     try {
       await request('DELETE', `/api/chats/${deleting.chatId}`)
-      toast(`Deleted “${deleting.title}”`, 'success')
+      toast(copy.app.toasts.deleted(deleting.title), 'success')
       if (deleting.chatId === activeChat) newTask()
       setDeleting(undefined)
       refreshChats()
@@ -458,7 +459,7 @@ export function App() {
           const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
           setProjects(r.projects)
           if (newProject === p.id) setNewProject(undefined)
-          toast(`Removed ${p.name} from projects; its folder and chats are untouched`, 'info')
+          toast(copy.app.toasts.projectRemoved(p.name), 'info')
         } catch (err) {
           toast(String((err as Error).message ?? err), 'error')
         }
@@ -476,7 +477,12 @@ export function App() {
     />
   )
 
-  const title = view === 'chat' ? (chat?.title ?? 'New task') : view === 'colonies' ? 'Crews' : 'Compare runs'
+  const title =
+    view === 'chat'
+      ? (chat?.title ?? copy.app.titles.newTask)
+      : view === 'colonies'
+        ? copy.app.titles.crews
+        : copy.app.titles.compare
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -497,7 +503,12 @@ export function App() {
           )}
         </AnimatePresence>
         {!collapsed && (
-          <SplitDivider split={sidebarSplit} side="left" label="Resize sidebar" className="hidden md:block" />
+          <SplitDivider
+            split={sidebarSplit}
+            side="left"
+            label={copy.app.resizeSidebar}
+            className="hidden md:block"
+          />
         )}
         <AnimatePresence>
           {mobileNav && (
@@ -509,7 +520,7 @@ export function App() {
             >
               <button
                 type="button"
-                aria-label="Close menu"
+                aria-label={copy.app.closeMenu}
                 className="absolute inset-0 bg-black/40"
                 onClick={() => setMobileNav(false)}
               />
@@ -545,8 +556,8 @@ export function App() {
             <>
               <Toolbar inset={collapsed}>
                 <IconButton
-                  label="Show sidebar"
-                  title={`Show sidebar (${comboLabel('mod+b', isMac)})`}
+                  label={copy.app.showSidebar}
+                  title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
                   onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setCollapsed(!collapsed))}
                   className={cn(!collapsed && 'md:hidden')}
                 >
@@ -554,8 +565,8 @@ export function App() {
                 </IconButton>
                 {collapsed && (
                   <IconButton
-                    label="New task"
-                    title={`New task (${comboLabel('mod+n', isMac)})`}
+                    label={copy.app.newTask}
+                    title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}
                     onClick={() => newTask()}
                   >
                     <SquarePen className="size-4" />
@@ -572,14 +583,14 @@ export function App() {
                   </motion.span>
                   {view === 'chat' && chat && (
                     <Pill tone={toneFor(running ? 'running' : chat.status)}>
-                      {running ? 'working' : chat.status}
+                      {running ? copy.app.working : chat.status}
                     </Pill>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && chat && (
                   <IconButton
-                    label="Workspace"
-                    title="Workspace (⌘J)"
+                    label={copy.app.workspace}
+                    title={copy.app.workspaceTitle}
                     active={workspaceOpen}
                     onClick={() => setWorkspaceOpen(!workspaceOpen)}
                     className="md:hidden"
@@ -596,9 +607,9 @@ export function App() {
                       const latest = chat.rounds.at(-1)
                       if (latest) setColonyModal(latest.colonyId)
                     }}
-                    title="Crew console: agents, tool calls, tasks, replay"
+                    title={copy.app.crewButtonTitle}
                   >
-                    <span className="hidden sm:inline">Crew</span>
+                    <span className="hidden sm:inline">{copy.app.crewButton}</span>
                   </Button>
                 )}
               </Toolbar>
@@ -618,15 +629,15 @@ export function App() {
                       busy={busy}
                       centered={!chat}
                       onTextChange={setDraft}
-                      status={running ? 'Crew is working…' : undefined}
+                      status={running ? copy.app.composer.status : undefined}
                       placeholder={
                         chat
                           ? running
                             ? chat.rounds.at(-1)?.swarm
-                              ? 'Message the peers while they work…'
-                              : 'Message the lead while it works…'
-                            : 'Ask a follow-up or request changes…'
-                          : 'Describe what you want done…'
+                              ? copy.app.composer.messagePeers
+                              : copy.app.composer.messageLead
+                            : copy.app.composer.followUp
+                          : copy.app.composer.newTask
                       }
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
                       onCommand={command}
@@ -691,25 +702,25 @@ export function App() {
         {deleting && (
           <Modal
             key="delete"
-            title="Delete chat?"
+            title={copy.app.deleteChat.title}
             onClose={() => !deleteBusy && setDeleting(undefined)}
             size="sm"
           >
             <div className="flex flex-col gap-4">
               <p className="text-[14px] leading-relaxed text-fg-2">
-                <span className="font-semibold text-fg">“{deleting.title}”</span> and its{' '}
-                {deleting.rounds.length === 1 ? 'round' : `${deleting.rounds.length} rounds`} will be
-                permanently removed from this machine: messages, files, logs, and agent transcripts. This
-                can’t be undone.
+                <span className="font-semibold text-fg">
+                  {copy.app.deleteChat.quotedTitle(deleting.title)}
+                </span>
+                {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
               {isRunning(deleting.status) && (
                 <p className="rounded-xl bg-warn-soft px-3 py-2 text-[13px] text-warn-ink">
-                  This chat is still running. It will be stopped first.
+                  {copy.app.deleteChat.stillRunning}
                 </p>
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
-                  Cancel
+                  {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
                   variant="destructive"
@@ -717,7 +728,7 @@ export function App() {
                   disabled={deleteBusy}
                   icon={<Trash2 className="size-3.5" />}
                 >
-                  {deleteBusy ? 'Deleting…' : 'Delete chat'}
+                  {deleteBusy ? copy.app.deleteChat.deleting : copy.app.deleteChat.confirm}
                 </Button>
               </div>
             </div>
@@ -745,7 +756,7 @@ export function App() {
         {colonyModal && (
           <Modal
             key="colony"
-            title="Crew console"
+            title={copy.app.crewConsole}
             onClose={() => setColonyModal(undefined)}
             size="full"
             flush
@@ -857,14 +868,14 @@ function ColoniesPane() {
   const [colonies] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
   const [selected, setSelected] = useState<string>()
   const active = selected ?? colonies[0]?.id
-  if (!active) return <div className="flex-1 p-10 text-center text-muted">No crews yet.</div>
+  if (!active) return <div className="flex-1 p-10 text-center text-muted">{copy.app.noCrews}</div>
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
         <Select
           value={active}
           onChange={(e) => setSelected(e.target.value)}
-          aria-label="Crew"
+          aria-label={copy.app.crewSelect}
           className="max-w-full"
         >
           {colonies.map((c) => (

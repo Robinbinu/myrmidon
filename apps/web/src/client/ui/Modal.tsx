@@ -1,7 +1,9 @@
 import { X } from 'lucide-react'
 import { motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef } from 'react'
-import { cn, IconButton, spring } from './primitives.tsx'
+import { copy } from '../copy.ts'
+import { spring } from '../ui-config.ts'
+import { cn, IconButton } from './primitives.tsx'
 
 /** Accessible dialog: Escape and the backdrop close it; focus moves in and returns afterwards. */
 export function Modal(props: {
@@ -60,7 +62,7 @@ export function Modal(props: {
         <div className="flex shrink-0 items-center gap-2 border-b border-line py-2.5 pl-5 pr-2.5">
           <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">{props.title}</h2>
           {props.actions}
-          <IconButton label="Close" onClick={props.onClose}>
+          <IconButton label={copy.common.close} onClick={props.onClose}>
             <X className="size-4" />
           </IconButton>
         </div>

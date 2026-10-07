@@ -1,15 +1,15 @@
+import { DIFF_MAX_CELLS } from './ui-config.ts'
+
 export interface DiffLine {
   readonly kind: 'same' | 'add' | 'del'
   readonly text: string
 }
 
-const MAX_CELLS = 4_000_000
-
 /** Line diff by longest common subsequence; falls back to a full replace for very large inputs. */
 export function diffLines(before: string, after: string): DiffLine[] {
   const a = before.split('\n')
   const b = after.split('\n')
-  if (a.length * b.length > MAX_CELLS) {
+  if (a.length * b.length > DIFF_MAX_CELLS) {
     return [
       ...a.map((text) => ({ kind: 'del' as const, text })),
       ...b.map((text) => ({ kind: 'add' as const, text })),

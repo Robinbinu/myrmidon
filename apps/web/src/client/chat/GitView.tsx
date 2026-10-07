@@ -16,6 +16,7 @@ import {
 import { AnimatePresence } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { api, send } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -62,10 +63,10 @@ type Target = { kind: 'working' } | { kind: 'commit'; commit: Commit }
 
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000)
-  if (s < 90) return 'just now'
-  if (s < 5400) return `${Math.round(s / 60)}m ago`
-  if (s < 129600) return `${Math.round(s / 3600)}h ago`
-  return `${Math.round(s / 86400)}d ago`
+  if (s < 90) return copy.time.justNow
+  if (s < 5400) return copy.time.minutesAgo(Math.round(s / 60))
+  if (s < 129600) return copy.time.hoursAgo(Math.round(s / 3600))
+  return copy.time.daysAgo(Math.round(s / 86400))
 }
 
 const initials = (name: string) =>
@@ -275,9 +276,8 @@ export function GitView({ project }: { project: string }) {
     )
   if (!status.repo)
     return (
-      <Empty icon={<GitBranch className="size-5" />} title="Not a git repository">
-        This project folder has no git repository. Each round’s changes are still checkpointed and can be
-        rewound from the chat.
+      <Empty icon={<GitBranch className="size-5" />} title={copy.git.notRepo}>
+        {copy.git.notRepoHint}
       </Empty>
     )
 
@@ -286,7 +286,7 @@ export function GitView({ project }: { project: string }) {
   const untracked = status.files.filter((f) => f.index === '?')
   const paths = (list: { path: string }[]) => list.map((f) => f.path)
   const commit = async () => {
-    if (await act('commit', { message, all: staged.length === 0 }, 'Committed')) setMessage('')
+    if (await act('commit', { message, all: staged.length === 0 }, copy.git.committed)) setMessage('')
   }
   const nothing = status.files.length === 0
 
@@ -295,7 +295,7 @@ export function GitView({ project }: { project: string }) {
       <div className="flex items-center gap-1.5">
         <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-[12.5px]">
           <GitBranch className="size-3.5 shrink-0 text-muted" />
-          <span className="truncate font-medium">{status.branch ?? 'detached HEAD'}</span>
+          <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
             <span
               className="flex shrink-0 items-center gap-1 font-mono text-[11px] text-muted"
@@ -309,14 +309,10 @@ export function GitView({ project }: { project: string }) {
           )}
         </span>
         <span className="flex-1" />
-        <IconButton label="Refresh" size="sm" onClick={load}>
+        <IconButton label={copy.git.refresh} size="sm" onClick={load}>
           <RefreshCw className="size-3.5" />
         </IconButton>
-        <IconButton
-          label="Open all changes in the full view"
-          size="sm"
-          onClick={() => setFull({ kind: 'working' })}
-        >
+        <IconButton label={copy.git.openAll} size="sm" onClick={() => setFull({ kind: 'working' })}>
           <Maximize2 className="size-3.5" />
         </IconButton>
       </div>
@@ -332,8 +328,8 @@ export function GitView({ project }: { project: string }) {
             }
           }}
           rows={2}
-          placeholder={`Message (⌘↵ to commit on “${status.branch ?? 'HEAD'}”)`}
-          aria-label="Commit message"
+          placeholder={copy.git.messagePlaceholder(status.branch ?? 'HEAD')}
+          aria-label={copy.git.messageLabel}
           className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-muted focus:border-line-strong"
         />
         <Button
@@ -342,22 +338,25 @@ export function GitView({ project }: { project: string }) {
           disabled={busy || nothing || !message.trim()}
           onClick={() => void commit()}
           icon={<Check className="size-3.5" />}
-          title={staged.length ? 'Commit the staged changes' : 'Stage every change and commit'}
+          title={staged.length ? copy.git.commitStagedTitle : copy.git.commitAllTitle}
         >
-          {staged.length ? `Commit ${staged.length} staged` : 'Commit all'}
+          {staged.length ? copy.git.commitStaged(staged.length) : copy.git.commitAll}
         </Button>
       </div>
 
-      {nothing && <p className="px-1 text-[12.5px] text-muted">No uncommitted changes.</p>}
+      {nothing && <p className="px-1 text-[12.5px] text-muted">{copy.git.noChanges}</p>}
       {staged.length > 0 && (
         <Section
           id="staged"
-          title="Staged"
+          title={copy.git.sections.staged}
           count={staged.length}
           closed={closed.has('staged')}
           onToggle={() => toggle('staged')}
           actions={
-            <RowAction label="Unstage all" onClick={() => void act('unstage', { paths: paths(staged) })}>
+            <RowAction
+              label={copy.git.unstageAll}
+              onClick={() => void act('unstage', { paths: paths(staged) })}
+            >
               <Minus className="size-3.5" />
             </RowAction>
           }
@@ -371,7 +370,7 @@ export function GitView({ project }: { project: string }) {
               kind="staged"
               version={version}
               actions={
-                <RowAction label="Unstage" onClick={() => void act('unstage', { paths: [f.path] })}>
+                <RowAction label={copy.git.unstage} onClick={() => void act('unstage', { paths: [f.path] })}>
                   <Minus className="size-3.5" />
                 </RowAction>
               }
@@ -382,21 +381,21 @@ export function GitView({ project }: { project: string }) {
       {unstaged.length > 0 && (
         <Section
           id="changes"
-          title="Changes"
+          title={copy.git.sections.changes}
           count={unstaged.length}
           closed={closed.has('changes')}
           onToggle={() => toggle('changes')}
           actions={
             <>
               <RowAction
-                label="Discard all changes"
+                label={copy.git.discardAll}
                 danger
                 onClick={() => setDiscard({ paths: paths(unstaged), untracked: 0 })}
               >
                 <Undo2 className="size-3.5" />
               </RowAction>
               <RowAction
-                label="Stage all changes"
+                label={copy.git.stageAll}
                 onClick={() => void act('stage', { paths: paths(unstaged) })}
               >
                 <Plus className="size-3.5" />
@@ -415,13 +414,13 @@ export function GitView({ project }: { project: string }) {
               actions={
                 <>
                   <RowAction
-                    label="Discard changes"
+                    label={copy.git.discardChanges}
                     danger
                     onClick={() => setDiscard({ paths: [f.path], untracked: 0 })}
                   >
                     <Undo2 className="size-3.5" />
                   </RowAction>
-                  <RowAction label="Stage" onClick={() => void act('stage', { paths: [f.path] })}>
+                  <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
                     <Plus className="size-3.5" />
                   </RowAction>
                 </>
@@ -433,13 +432,13 @@ export function GitView({ project }: { project: string }) {
       {untracked.length > 0 && (
         <Section
           id="untracked"
-          title="Untracked"
+          title={copy.git.sections.untracked}
           count={untracked.length}
           closed={closed.has('untracked')}
           onToggle={() => toggle('untracked')}
           actions={
             <RowAction
-              label="Stage all untracked"
+              label={copy.git.stageAllUntracked}
               onClick={() => void act('stage', { paths: paths(untracked) })}
             >
               <Plus className="size-3.5" />
@@ -457,13 +456,13 @@ export function GitView({ project }: { project: string }) {
               actions={
                 <>
                   <RowAction
-                    label="Delete file"
+                    label={copy.git.deleteFile}
                     danger
                     onClick={() => setDiscard({ paths: [f.path], untracked: 1 })}
                   >
                     <Undo2 className="size-3.5" />
                   </RowAction>
-                  <RowAction label="Stage" onClick={() => void act('stage', { paths: [f.path] })}>
+                  <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
                     <Plus className="size-3.5" />
                   </RowAction>
                 </>
@@ -475,13 +474,13 @@ export function GitView({ project }: { project: string }) {
 
       <Section
         id="history"
-        title="History"
+        title={copy.git.sections.history}
         count={status.log.length}
         closed={closed.has('history')}
         onToggle={() => toggle('history')}
       >
         {status.log.length === 0 ? (
-          <p className="px-2 text-[12.5px] text-muted">No commits yet.</p>
+          <p className="px-2 text-[12.5px] text-muted">{copy.git.noCommits}</p>
         ) : (
           <ol className="relative ml-[15px] border-l border-line">
             {status.log.map((c, i) => (
@@ -519,27 +518,36 @@ export function GitView({ project }: { project: string }) {
 
       <AnimatePresence>
         {discard && (
-          <Modal title="Discard changes?" onClose={() => !busy && setDiscard(undefined)} size="sm">
+          <Modal
+            title={copy.git.discardDialog.title}
+            onClose={() => !busy && setDiscard(undefined)}
+            size="sm"
+          >
             <div className="flex flex-col gap-4">
               <p className="text-[13.5px] leading-relaxed text-fg-2">
                 {discard.untracked
-                  ? `${discard.paths[0]} is not tracked by git, so it will be deleted.`
-                  : `${discard.paths.length === 1 ? discard.paths[0] : `${discard.paths.length} files`} go back to their last staged or committed content.`}{' '}
-                Git cannot bring this work back.
+                  ? copy.git.discardDialog.untracked(discard.paths[0])
+                  : copy.git.discardDialog.tracked(
+                      discard.paths.length === 1
+                        ? discard.paths[0]
+                        : copy.git.discardDialog.fileCount(discard.paths.length),
+                    )}{' '}
+                {copy.git.discardDialog.cannotUndo}
               </p>
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setDiscard(undefined)} disabled={busy}>
-                  Cancel
+                  {copy.git.discardDialog.cancel}
                 </Button>
                 <Button
                   variant="destructive"
                   disabled={busy}
                   icon={<Undo2 className="size-3.5" />}
                   onClick={async () => {
-                    if (await act('discard', { paths: discard.paths }, 'Discarded')) setDiscard(undefined)
+                    if (await act('discard', { paths: discard.paths }, copy.git.discarded))
+                      setDiscard(undefined)
                   }}
                 >
-                  {discard.untracked ? 'Delete file' : 'Discard'}
+                  {discard.untracked ? copy.git.discardDialog.deleteFile : copy.git.discardDialog.discard}
                 </Button>
               </div>
             </div>
@@ -646,7 +654,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
 
   return (
     <Modal
-      title={target.kind === 'working' ? 'Uncommitted changes' : target.commit.subject}
+      title={target.kind === 'working' ? copy.git.full.uncommitted : target.commit.subject}
       onClose={props.onClose}
       size="full"
       flush
@@ -662,17 +670,17 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                 >
                   {initials(target.commit.author)}
                 </span>
-                <span className="text-fg">{data?.author ?? target.commit.author}</span> committed{' '}
-                {ago(target.commit.date)}
+                <span className="text-fg">{data?.author ?? target.commit.author}</span>
+                {copy.git.full.committedAgo(ago(target.commit.date))}
               </span>
               <button
                 type="button"
                 onClick={() => {
                   void navigator.clipboard.writeText(target.commit.hash)
-                  toast('Copied the commit SHA', 'success')
+                  toast(copy.git.full.copiedSha, 'success')
                 }}
                 className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2 hover:text-fg"
-                title="Copy the full SHA"
+                title={copy.git.full.copySha}
               >
                 {target.commit.short} <Copy className="size-3" />
               </button>
@@ -680,7 +688,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           )}
           {data && (
             <span className="flex items-center gap-2">
-              {data.files.length} file{data.files.length === 1 ? '' : 's'}
+              {copy.git.full.fileCount(data.files.length)}
               <span className="font-mono text-ok-ink">+{added}</span>
               <span className="font-mono text-bad-ink">−{removed}</span>
               <StatBar added={added} removed={removed} />
@@ -694,7 +702,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
               setClosed(closed.size === 0 ? new Set((data?.files ?? []).map((f) => f.path)) : new Set())
             }
           >
-            {closed.size === 0 ? 'Collapse all' : 'Expand all'}
+            {closed.size === 0 ? copy.git.full.collapseAll : copy.git.full.expandAll}
           </button>
           <DiffModeToggle mode={mode} onMode={setMode} />
         </div>
@@ -708,11 +716,11 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
             <LoaderCircle className="size-5 animate-spin text-muted" />
           </div>
         ) : data.files.length === 0 ? (
-          <p className="p-5 text-[13px] text-muted">No changes.</p>
+          <p className="p-5 text-[13px] text-muted">{copy.git.full.noChanges}</p>
         ) : (
           <div className="flex min-h-0 flex-1">
             <nav
-              aria-label="Changed files"
+              aria-label={copy.git.full.changedFiles}
               className="hidden w-64 shrink-0 overflow-y-auto border-r border-line p-2 md:block"
             >
               <Tree
@@ -743,9 +751,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                   }
                 />
               ))}
-              {data.truncated && (
-                <p className="text-[12px] text-muted">The diff is large; only its first 512 KB is shown.</p>
-              )}
+              {data.truncated && <p className="text-[12px] text-muted">{copy.git.full.truncated}</p>}
             </div>
           </div>
         )}

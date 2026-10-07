@@ -3,6 +3,8 @@
  * can offer completions for its argument (`/model ` lists models, `/mode ` the two modes).
  */
 
+import { copy } from '../copy.ts'
+
 export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App'
 export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App']
 
@@ -29,89 +31,105 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: 'plan',
-    args: '<request>',
-    description: 'Plan first: see the plan and approve it before any work',
+    args: copy.commands.list.plan.args,
+    description: copy.commands.list.plan.description,
     needsArg: true,
     group: 'Round',
   },
   {
     name: 'steer',
-    args: '<message>',
-    description: 'Send to the running round, read at its next step',
+    args: copy.commands.list.steer.args,
+    description: copy.commands.list.steer.description,
     needsArg: true,
     group: 'Round',
     when: 'running',
   },
   {
     name: 'queue',
-    args: '<message>',
-    description: 'Send to the running round, read when it finishes its current work',
+    args: copy.commands.list.queue.args,
+    description: copy.commands.list.queue.description,
     needsArg: true,
     group: 'Round',
     when: 'running',
   },
-  { name: 'stop', description: 'Stop the running round', group: 'Round', when: 'running' },
+  { name: 'stop', description: copy.commands.list.stop.description, group: 'Round', when: 'running' },
   {
     name: 'resume',
-    description: 'Pick a stopped round back up where it left off',
+    description: copy.commands.list.resume.description,
     group: 'Round',
     when: 'resumable',
   },
-  { name: 'retry', description: 'Run the last request again as a new round', group: 'Round', when: 'idle' },
+  { name: 'retry', description: copy.commands.list.retry.description, group: 'Round', when: 'idle' },
   {
     name: 'model',
-    args: '<name>',
-    description: 'Switch the lead model, right away if a round is running',
+    args: copy.commands.list.model.args,
+    description: copy.commands.list.model.description,
     needsArg: true,
     group: 'Team & model',
   },
   {
     name: 'mode',
     args: 'orchestrated | swarm',
-    description: 'Lead with specialists, or equal peers',
+    description: copy.commands.list.mode.description,
     needsArg: true,
     group: 'Team & model',
     options: [
       {
         value: 'orchestrated',
-        label: 'Orchestrated',
-        description: 'A lead plans and assigns work to specialists',
+        label: copy.commands.list.mode.options.orchestrated.label,
+        description: copy.commands.list.mode.options.orchestrated.description,
       },
-      { value: 'swarm', label: 'Swarm', description: 'Equal peers agree a plan and claim the work' },
+      {
+        value: 'swarm',
+        label: copy.commands.list.mode.options.swarm.label,
+        description: copy.commands.list.mode.options.swarm.description,
+      },
     ],
   },
   {
     name: 'thinking',
     args: 'low | medium | high | auto',
-    description: 'How hard reasoning models think in work rounds',
+    description: copy.commands.list.thinking.description,
     needsArg: true,
     group: 'Team & model',
     options: [
       {
         value: 'auto',
-        label: 'Auto',
-        description: 'Each role decides: leads think hard, quick answers think less',
+        label: copy.commands.list.thinking.options.auto.label,
+        description: copy.commands.list.thinking.options.auto.description,
       },
-      { value: 'low', label: 'Low', description: 'Fastest and cheapest' },
-      { value: 'medium', label: 'Medium', description: 'Balanced' },
-      { value: 'high', label: 'High', description: 'Most careful; slower' },
+      {
+        value: 'low',
+        label: copy.commands.list.thinking.options.low.label,
+        description: copy.commands.list.thinking.options.low.description,
+      },
+      {
+        value: 'medium',
+        label: copy.commands.list.thinking.options.medium.label,
+        description: copy.commands.list.thinking.options.medium.description,
+      },
+      {
+        value: 'high',
+        label: copy.commands.list.thinking.options.high.label,
+        description: copy.commands.list.thinking.options.high.description,
+      },
     ],
   },
-  { name: 'team', description: 'Open the team and model picker', group: 'Team & model' },
-  { name: 'new', description: 'Start a new chat', group: 'Chat' },
+  { name: 'team', description: copy.commands.list.team.description, group: 'Team & model' },
+  { name: 'new', description: copy.commands.list.new.description, group: 'Chat' },
   {
     name: 'rename',
-    args: '<title>',
-    description: 'Rename this chat',
+    args: copy.commands.list.rename.args,
+    description: copy.commands.list.rename.description,
     needsArg: true,
     group: 'Chat',
     when: 'chat',
   },
-  { name: 'attach', description: 'Attach files to your next message', group: 'Chat' },
-  { name: 'export', description: 'Download this chat as Markdown', group: 'Chat', when: 'chat' },
-  { name: 'mcp', description: 'Manage MCP servers', group: 'App' },
-  { name: 'settings', description: 'Open settings', group: 'App' },
-  { name: 'help', description: 'Show every command', group: 'App' },
+  { name: 'attach', description: copy.commands.list.attach.description, group: 'Chat' },
+  { name: 'export', description: copy.commands.list.export.description, group: 'Chat', when: 'chat' },
+  { name: 'mcp', description: copy.commands.list.mcp.description, group: 'App' },
+  { name: 'settings', description: copy.commands.list.settings.description, group: 'App' },
+  { name: 'help', description: copy.commands.list.help.description, group: 'App' },
 ]
 
 export interface SlashContext {
@@ -125,13 +143,17 @@ export interface SlashContext {
 export function unavailable(command: SlashCommand, ctx: SlashContext): string | undefined {
   switch (command.when) {
     case 'running':
-      return ctx.running ? undefined : 'Nothing is running'
+      return ctx.running ? undefined : copy.commands.unavailable.notRunning
     case 'idle':
-      return !ctx.chat ? 'Open a chat first' : ctx.running ? 'Wait for the round to finish' : undefined
+      return !ctx.chat
+        ? copy.commands.unavailable.noChat
+        : ctx.running
+          ? copy.commands.unavailable.waitForRound
+          : undefined
     case 'chat':
-      return ctx.chat ? undefined : 'Open a chat first'
+      return ctx.chat ? undefined : copy.commands.unavailable.noChat
     case 'resumable':
-      return ctx.resumable && !ctx.running ? undefined : 'No stopped round to resume'
+      return ctx.resumable && !ctx.running ? undefined : copy.commands.unavailable.nothingToResume
     default:
       return undefined
   }

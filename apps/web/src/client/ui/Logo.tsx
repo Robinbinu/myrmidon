@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { copy } from '../copy.ts'
 
 const CELL = 2.05
 const PITCH = 2.65
@@ -25,16 +26,16 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
       viewBox="0 0 32 32"
       className={className}
       role="img"
-      aria-label="Myrmidon"
+      aria-label={copy.brand.name}
     >
       <defs>
         <linearGradient id={`${id}t`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#1d1d22" />
-          <stop offset="1" stopColor="#09090b" />
+          <stop offset="0" style={{ stopColor: 'var(--logo-tile-top)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--logo-tile-bottom)' }} />
         </linearGradient>
         <linearGradient id={`${id}e`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ffc847" />
-          <stop offset="1" stopColor="#ff9d0a" />
+          <stop offset="0" style={{ stopColor: 'var(--logo-eye-top)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--logo-eye-bottom)' }} />
         </linearGradient>
         <filter id={`${id}g`} x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="1.6" />
@@ -48,12 +49,20 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
         height="31"
         rx="8.5"
         fill="none"
-        stroke="#ffffff"
+        style={{ stroke: 'var(--logo-rim)' }}
         strokeOpacity="0.09"
       />
       <g filter={`url(#${id}g)`} opacity="0.55">
         {CELLS.map((c) => (
-          <rect key={`g${c.x},${c.y}`} x={c.x} y={c.y} width={CELL} height={CELL} rx={0.55} fill="#ffb31a" />
+          <rect
+            key={`g${c.x},${c.y}`}
+            x={c.x}
+            y={c.y}
+            width={CELL}
+            height={CELL}
+            rx={0.55}
+            style={{ fill: 'var(--logo-glow)' }}
+          />
         ))}
       </g>
       {CELLS.map((c) => (

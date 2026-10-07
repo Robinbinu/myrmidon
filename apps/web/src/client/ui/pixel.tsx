@@ -1,6 +1,8 @@
 import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotion } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
+import { AGENT_DOZE_MS } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -17,7 +19,7 @@ export function agentColor(name: string): string {
 export function inkOn(hex: string): string {
   const n = Number.parseInt(hex.slice(1), 16)
   const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-  return lum > 0.6 ? '#0b0b0d' : '#ffffff'
+  return lum > 0.6 ? 'var(--on-bright)' : 'var(--on-deep)'
 }
 
 /* ------------------------------------------------------------------ pixel face */
@@ -62,9 +64,6 @@ export function moodFor(status: string): Mood {
   }
 }
 
-/** How long an agent sits idle before its face dozes off. */
-export const DOZE_MS = 15_000
-
 /**
  * The mood an agent's face shows: its status, except that an agent left idle for a while falls asleep.
  * `awake` keeps the face open for avatars used as static icons rather than live agents.
@@ -76,7 +75,7 @@ export function useAgentMood(status: string, awake = false): Mood {
   useEffect(() => {
     setDozing(false)
     if (!resting) return
-    const t = setTimeout(() => setDozing(true), DOZE_MS)
+    const t = setTimeout(() => setDozing(true), AGENT_DOZE_MS)
     return () => clearTimeout(t)
   }, [resting])
   return resting && dozing ? 'sleep' : mood
@@ -487,7 +486,7 @@ export function AgentChip(props: {
     <motion.button
       type="button"
       onClick={props.onClick}
-      aria-label={`What ${props.name} is doing`}
+      aria-label={copy.agentChip.label(props.name)}
       layout
       initial={{ opacity: 0, scale: 0.3 }}
       animate={{ opacity: 1, scale: 1 }}

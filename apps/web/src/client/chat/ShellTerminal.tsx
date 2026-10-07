@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { terminalSocket } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Button } from '../ui/primitives.tsx'
 
 /**
@@ -34,7 +35,7 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
     fit.fit()
     const ws = terminalSocket(props.project, term.cols, term.rows)
     ws.onmessage = (e) => term.write(new Uint8Array(e.data as ArrayBuffer))
-    ws.onclose = (e) => setEnded(e.reason || 'The shell closed.')
+    ws.onclose = (e) => setEnded(e.reason || copy.shellTerminal.closed)
     const input = term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
     })
@@ -64,7 +65,7 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
             onClick={() => setSession(session + 1)}
             icon={<RotateCcw className="size-3.5" />}
           >
-            New shell
+            {copy.shellTerminal.newShell}
           </Button>
         )}
       </div>

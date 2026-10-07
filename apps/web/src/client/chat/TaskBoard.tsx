@@ -1,16 +1,18 @@
 import type { ColonyState, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import { LayoutGroup, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
 import { duration } from '../ui/hooks.ts'
 import { AgentAvatar } from '../ui/pixel.tsx'
-import { cn, softSpring } from '../ui/primitives.tsx'
+import { cn } from '../ui/primitives.tsx'
+import { softSpring } from '../ui-config.ts'
 
 const LANES: { status: TaskSnapshot['status']; label: string; dot: string }[] = [
-  { status: 'in_progress', label: 'Working', dot: 'bg-work' },
-  { status: 'submitted', label: 'In review', dot: 'bg-warn' },
-  { status: 'rejected', label: 'Needs rework', dot: 'bg-bad' },
-  { status: 'pending', label: 'Waiting', dot: 'bg-surface-3' },
-  { status: 'verified', label: 'Done', dot: 'bg-ok' },
+  { status: 'in_progress', label: copy.taskBoard.lanes.inProgress, dot: 'bg-work' },
+  { status: 'submitted', label: copy.taskBoard.lanes.submitted, dot: 'bg-warn' },
+  { status: 'rejected', label: copy.taskBoard.lanes.rejected, dot: 'bg-bad' },
+  { status: 'pending', label: copy.taskBoard.lanes.pending, dot: 'bg-surface-3' },
+  { status: 'verified', label: copy.taskBoard.lanes.verified, dot: 'bg-ok' },
 ]
 
 /**
@@ -76,7 +78,7 @@ export function TaskBoard(props: {
                           <span className="flex-1" />
                           {at && lane.status !== 'verified' && (
                             <span className="tabular-nums">
-                              for {duration(Math.max(0, now - Date.parse(at)))}
+                              {copy.taskBoard.inLaneFor(duration(Math.max(0, now - Date.parse(at))))}
                             </span>
                           )}
                         </div>
@@ -97,7 +99,7 @@ export function TaskBoard(props: {
                             </button>
                           )}
                           {lane.status === 'pending' && t.blockedBy.length > 0 && (
-                            <span>after {t.blockedBy.join(', ')}</span>
+                            <span>{copy.taskBoard.after(t.blockedBy.join(', '))}</span>
                           )}
                         </div>
                       </motion.li>

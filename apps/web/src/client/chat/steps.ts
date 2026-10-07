@@ -1,4 +1,5 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import { copy } from '../copy.ts'
 
 export type StepKind =
   | 'search'
@@ -51,7 +52,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'think',
           agent: p.agent,
-          lead: 'Thought',
+          lead: copy.steps.thought,
           strong: cut(
             thinking
               .split('\n')
@@ -71,7 +72,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'search',
             agent: p.agent,
-            lead: 'Searched the web for',
+            lead: copy.steps.searched,
             strong: cut(String(args.query ?? ''), 90),
           })
         } else if (p.tool === 'web_fetch') {
@@ -79,7 +80,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'fetch',
             agent: p.agent,
-            lead: 'Read',
+            lead: copy.steps.read,
             strong: hostPath(String(args.url ?? '')),
           })
         } else if (p.tool === 'shell') {
@@ -87,7 +88,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'shell',
             agent: p.agent,
-            lead: 'Ran',
+            lead: copy.steps.ran,
             strong: cut(String(args.command ?? ''), 80),
           })
         }
@@ -100,7 +101,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'error',
             agent: p.agent,
-            lead: `${p.tool} failed:`,
+            lead: copy.steps.toolFailed(p.tool),
             tail: cut(p.output.replace(/^ERROR:\s*/, ''), 140),
           })
         break
@@ -112,7 +113,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'file',
           agent: p.author,
-          lead: p.version === 1 ? 'Created' : 'Updated',
+          lead: p.version === 1 ? copy.steps.created : copy.steps.updated,
           strong: p.name,
           tail: p.version === 1 ? undefined : `v${p.version}`,
         })
@@ -121,13 +122,19 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       case 'task/changed': {
         const p = e.payload as EventPayloads['task/changed']
         if (p.task.revision === 1)
-          out.push({ ...base, kind: 'task', agent: p.by, lead: 'Planned', strong: cut(p.task.subject, 90) })
+          out.push({
+            ...base,
+            kind: 'task',
+            agent: p.by,
+            lead: copy.steps.planned,
+            strong: cut(p.task.subject, 90),
+          })
         else if (p.task.status === 'verified')
           out.push({
             ...base,
             kind: 'verdict',
             agent: p.by,
-            lead: 'Task done:',
+            lead: copy.steps.taskDone,
             strong: cut(p.task.subject, 90),
           })
         else if (p.task.status === 'rejected')
@@ -135,7 +142,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'error',
             agent: p.by,
-            lead: p.reason ? `Sent ${p.task.id} back:` : 'Task needs rework:',
+            lead: p.reason ? copy.steps.sentBack(p.task.id) : copy.steps.needsRework,
             strong: cut(p.task.subject, 90),
             ...(p.reason ? { tail: cut(p.reason, 140) } : {}),
           })
@@ -147,7 +154,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'team',
           agent: p.by,
-          lead: 'Brought in',
+          lead: copy.steps.broughtIn,
           strong: p.agent.name,
           tail: `${p.agent.model.split('/').pop()} — ${cut(p.focus, 80)}`,
         })
@@ -159,8 +166,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'error',
           agent: p.agent,
-          lead: 'Possible prompt injection:',
-          tail: cut(`${p.reason} (from ${p.source})`, 160),
+          lead: copy.steps.promptInjection,
+          tail: cut(copy.steps.injectionSource(p.reason, p.source), 160),
         })
         break
       }
@@ -170,7 +177,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'shell',
           agent: p.agent,
-          lead: `Started ${p.name} at`,
+          lead: copy.steps.startedServer(p.name),
           strong: p.url,
           tail: cut(p.command, 80),
         })
@@ -178,7 +185,13 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'server/stopped': {
         const p = e.payload as EventPayloads['server/stopped']
-        out.push({ ...base, kind: 'shell', agent: 'system', lead: `Stopped ${p.name}`, tail: p.reason })
+        out.push({
+          ...base,
+          kind: 'shell',
+          agent: 'system',
+          lead: copy.steps.stoppedServer(p.name),
+          tail: p.reason,
+        })
         break
       }
       case 'colony/escalated': {
@@ -187,7 +200,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'team',
           agent: p.by,
-          lead: `Handed the request to ${p.to === 'team' ? 'a team' : 'one agent with every tool'}:`,
+          lead: copy.steps.handedTo(p.to === 'team'),
           tail: cut(p.reason, 140),
         })
         break
@@ -202,12 +215,12 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           agent: p.agent ?? 'system',
           lead:
             p.outcome === 'blocked'
-              ? `A hook blocked ${p.tool ?? 'a call'}:`
+              ? copy.steps.hookBlocked(p.tool)
               : p.outcome === 'asked'
-                ? `A hook asked you about ${p.tool ?? 'a call'}:`
+                ? copy.steps.hookAsked(p.tool)
                 : p.outcome === 'feedback'
-                  ? `A hook flagged ${p.tool ?? 'the result'}:`
-                  : `A ${p.event} hook failed (exit ${p.code}):`,
+                  ? copy.steps.hookFlagged(p.tool)
+                  : copy.steps.hookFailed(p.event, p.code),
           tail: cut(p.message ?? p.command, 140),
         })
         break
@@ -218,7 +231,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'search',
           agent: p.agent,
-          lead: p.file ? `Read ${p.file} from skill` : 'Used skill',
+          lead: p.file ? copy.steps.readSkillFile(p.file) : copy.steps.usedSkill,
           strong: p.name,
         })
         break
@@ -229,14 +242,14 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'signal',
           agent: p.agent,
-          lead: 'Proposed to remember:',
+          lead: copy.steps.proposedMemory,
           tail: cut(p.text, 140),
         })
         break
       }
       case 'worktree/created': {
         const p = e.payload as EventPayloads['worktree/created']
-        out.push({ ...base, kind: 'file', agent: p.agent, lead: 'Works on its own branch', strong: p.branch })
+        out.push({ ...base, kind: 'file', agent: p.agent, lead: copy.steps.ownBranch, strong: p.branch })
         break
       }
       case 'worktree/merged': {
@@ -245,7 +258,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'file',
           agent: p.agent,
-          lead: `Merged ${p.files.length} file${p.files.length === 1 ? '' : 's'} into the project`,
+          lead: copy.steps.merged(p.files.length),
           tail: cut(p.files.join(', '), 120),
         })
         break
@@ -256,7 +269,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'file',
           agent: p.agent,
-          lead: `Brought ${p.files.length} changed file${p.files.length === 1 ? '' : 's'} from the project into its branch`,
+          lead: copy.steps.broughtChanges(p.files.length),
           tail: cut(p.files.join(', '), 120),
         })
         break
@@ -267,7 +280,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'error',
           agent: p.agent,
-          lead: 'Merge conflict, sent back to resolve:',
+          lead: copy.steps.mergeConflict,
           tail: cut(p.files.join(', '), 120),
         })
         break
@@ -279,7 +292,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'error',
             agent: p.agent,
-            lead: 'Kept its branch: it holds changes that were not merged',
+            lead: copy.steps.keptBranch,
           })
         break
       }
@@ -290,7 +303,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'signal',
           agent: p.agent,
-          lead: 'Asked you to approve',
+          lead: copy.steps.askedApproval,
           tail: cut(p.summary, 120),
         })
         break
@@ -302,7 +315,11 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: p.approved ? 'verdict' : 'error',
           agent: req?.agent ?? 'you',
-          lead: p.approved ? 'Approved' : p.by === 'timeout' ? 'Not approved in time' : 'Denied',
+          lead: p.approved
+            ? copy.steps.approved
+            : p.by === 'timeout'
+              ? copy.steps.notApprovedInTime
+              : copy.steps.denied,
           tail: cut(req?.summary ?? '', 120),
         })
         break
@@ -313,8 +330,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'think',
           agent: p.agent,
-          lead: 'Compacted its context',
-          tail: `summarized ${p.messages} earlier messages at ~${Math.round(p.tokens / 1000)}k tokens`,
+          lead: copy.steps.compacted,
+          tail: copy.steps.compactedTail(p.messages, Math.round(p.tokens / 1000)),
         })
         break
       }
@@ -324,15 +341,15 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'team',
           agent: p.agent,
-          lead: 'Switched to',
+          lead: copy.steps.switchedTo,
           strong: p.model.split('/').pop() ?? p.model,
-          tail: `from ${p.previous.split('/').pop()}, by you`,
+          tail: copy.steps.switchedFrom(p.previous.split('/').pop()),
         })
         break
       }
       case 'verifier/requested': {
         const p = e.payload as EventPayloads['verifier/requested']
-        out.push({ ...base, kind: 'verdict', agent: p.by, lead: 'Asked the judge to verify the result' })
+        out.push({ ...base, kind: 'verdict', agent: p.by, lead: copy.steps.askedJudge })
         break
       }
       case 'verifier/verdict': {
@@ -342,8 +359,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: p.pass ? 'verdict' : 'error',
           agent: 'judge',
-          lead: p.pass ? 'Judge approved' : 'Judge rejected',
-          strong: p.score !== undefined ? `score ${p.score.toFixed(2)}` : undefined,
+          lead: p.pass ? copy.steps.judgeApproved : copy.steps.judgeRejected,
+          strong: p.score !== undefined ? copy.steps.score(p.score.toFixed(2)) : undefined,
           tail: p.pass
             ? undefined
             : cut(p.evidence.replace(/^score [\d.]+ \(threshold [\d.]+\):\s*/, ''), 160),
@@ -356,14 +373,14 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           ...base,
           kind: 'talk',
           agent: p.from,
-          lead: `Messaged ${p.to}:`,
+          lead: copy.steps.messaged(p.to),
           tail: cut(p.subject || p.body, 100),
         })
         break
       }
       case 'board/posted': {
         const p = e.payload as EventPayloads['board/posted']
-        out.push({ ...base, kind: 'talk', agent: p.agent, lead: 'Posted:', tail: cut(p.text, 120) })
+        out.push({ ...base, kind: 'talk', agent: p.agent, lead: copy.steps.posted, tail: cut(p.text, 120) })
         break
       }
       case 'observer/signal': {
@@ -373,7 +390,7 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'signal',
             agent: 'observer',
-            lead: `Observer (${p.kind}):`,
+            lead: copy.steps.observer(p.kind),
             tail: cut(p.facts, 120),
           })
         break
@@ -392,21 +409,21 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
       const p = e.payload as EventPayloads['tool/call']
       const args = (p.args ?? {}) as Record<string, unknown>
       const what: Record<string, string> = {
-        web_search: `searching "${cut(String(args.query ?? ''), 50)}"`,
-        web_fetch: `reading ${hostPath(String(args.url ?? ''))}`,
-        publish_artifact: `writing ${String(args.name ?? 'a file')}`,
-        fs_write: `drafting ${String(args.path ?? 'a file')}`,
-        shell: 'running a command',
-        request_final_verification: 'waiting for the judge',
-        spawn_worker: `bringing in ${String(args.name ?? 'a worker')}`,
-        create_task: 'planning tasks',
-        reply_user: 'writing a reply',
+        web_search: copy.steps.now.searching(cut(String(args.query ?? ''), 50)),
+        web_fetch: copy.steps.now.reading(hostPath(String(args.url ?? ''))),
+        publish_artifact: copy.steps.now.writing(args.name),
+        fs_write: copy.steps.now.drafting(args.path),
+        shell: copy.steps.now.runningCommand,
+        request_final_verification: copy.steps.now.waitingForJudge,
+        spawn_worker: copy.steps.now.bringingIn(args.name),
+        create_task: copy.steps.now.planningTasks,
+        reply_user: copy.steps.now.writingReply,
       }
-      return `${p.agent} is ${what[p.tool] ?? `using ${p.tool}`}`
+      return copy.steps.now.doing(p.agent, what[p.tool] ?? copy.steps.now.using(p.tool))
     }
     if (e.type === 'agent/turn') {
       const p = e.payload as EventPayloads['agent/turn']
-      if (p.phase === 'start') return `${p.agent} is thinking`
+      if (p.phase === 'start') return copy.steps.now.thinking(p.agent)
     }
   }
   return undefined

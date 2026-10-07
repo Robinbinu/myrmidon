@@ -2,14 +2,10 @@ import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelOption } from '../api.ts'
+import { copy } from '../copy.ts'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
-import { cn, spring } from '../ui/primitives.tsx'
-
-/**
- * Below this many tokens a model cannot hold an agent's instructions and tools with room left to work: a lead's first
- * request is 9–12k tokens, a helper's up to 26k.
- */
-export const AGENT_MIN_WINDOW = 32_000
+import { cn } from '../ui/primitives.tsx'
+import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
 
 /** A context window the way people say it: 8K, 200K, 1M. */
 export function windowLabel(tokens: number): string {
@@ -17,10 +13,10 @@ export function windowLabel(tokens: number): string {
 }
 
 function windowHint(m: ModelOption): string {
-  if (!m.contextWindow) return 'Context window unknown'
-  const size = `${m.contextWindow.toLocaleString()} tokens of context`
-  if (!m.windowSource) return `${size}, a guess: set the real size in Settings → Models`
-  if (m.contextWindow < AGENT_MIN_WINDOW) return `${size}: too small for agent work, fine for short chats`
+  if (!m.contextWindow) return copy.modelPicker.windowUnknown
+  const size = copy.modelPicker.windowSize(m.contextWindow.toLocaleString())
+  if (!m.windowSource) return copy.modelPicker.windowGuess(size)
+  if (m.contextWindow < AGENT_MIN_WINDOW) return copy.modelPicker.windowTooSmall(size)
   return size
 }
 
@@ -116,8 +112,12 @@ export function ModelPicker(props: {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={variant === 'field' ? undefined : `${props.label} model`}
-        title={variant === 'chip' ? `${props.label}: ${current?.name ?? props.value}` : undefined}
+        aria-label={variant === 'field' ? undefined : copy.modelPicker.buttonLabel(props.label)}
+        title={
+          variant === 'chip'
+            ? copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
+            : undefined
+        }
         className={
           variant === 'chip'
             ? cn(
@@ -132,12 +132,12 @@ export function ModelPicker(props: {
         {variant === 'chip' ? (
           <>
             <ProviderGlyph model={`${props.value} ${current?.name ?? ''}`} />
-            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
             <ChevronDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : variant === 'compact' ? (
           <>
-            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : (
@@ -147,7 +147,7 @@ export function ModelPicker(props: {
               {props.label}
             </span>
             <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
-              <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+              <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
               <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
             </span>
           </>
@@ -174,7 +174,7 @@ export function ModelPicker(props: {
                 type="search"
                 // biome-ignore lint/a11y/noAutofocus: the popover exists to search
                 autoFocus
-                placeholder={`Search ${visible.length} models…`}
+                placeholder={copy.modelPicker.search(visible.length)}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value)
@@ -194,7 +194,7 @@ export function ModelPicker(props: {
                     if (hit) choose(hit.ref)
                   }
                 }}
-                aria-label={`Search ${props.label} models`}
+                aria-label={copy.modelPicker.searchLabel(props.label)}
                 className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-[13px] outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
@@ -202,10 +202,12 @@ export function ModelPicker(props: {
               className="overflow-auto p-1.5"
               role="listbox"
               ref={list}
-              aria-label={`${props.label} model`}
+              aria-label={copy.modelPicker.buttonLabel(props.label)}
             >
               {groups.length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-muted">No models match “{query}”.</div>
+                <div className="px-3 py-6 text-center text-[13px] text-muted">
+                  {copy.modelPicker.noMatch(query)}
+                </div>
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
@@ -239,7 +241,7 @@ export function ModelPicker(props: {
                         <span className="flex min-w-0 flex-1 flex-col">
                           <span className="truncate text-[13px] font-medium">{m.name}</span>
                           <span className="truncate font-mono text-[11px] text-muted">
-                            {blocked ? props.minReason : small ? 'Too small for agent work' : m.id}
+                            {blocked ? props.minReason : small ? copy.modelPicker.tooSmall : m.id}
                           </span>
                         </span>
                         {m.contextWindow !== undefined && (
@@ -255,13 +257,13 @@ export function ModelPicker(props: {
                           </span>
                         )}
                         {m.reasoning && (
-                          <span title="Supports extended thinking" className="text-muted">
+                          <span title={copy.modelPicker.thinking} className="text-muted">
                             <Brain className="size-3.5" />
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (
                           <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
-                            {m.source === 'custom' ? 'custom' : 'key'}
+                            {m.source === 'custom' ? copy.modelPicker.custom : copy.modelPicker.key}
                           </span>
                         )}
                         {m.ref === props.value && <Check className="size-4 shrink-0" />}

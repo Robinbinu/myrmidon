@@ -1,39 +1,22 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { copy } from '../copy.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
 import { agentColor, DotMatrix, PixelFace } from '../ui/pixel.tsx'
-import { softSpring } from '../ui/primitives.tsx'
+import { MASCOT_DOZE_MS, MASCOT_PAT_MS, MASCOT_USER_FOCUS_MS, softSpring } from '../ui-config.ts'
 import TechText from '../vendor/react-bits/TechText'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
 const SUGGESTIONS = [
-  {
-    icon: Search,
-    label: 'Research',
-    text: 'Compare the three most popular Rust web frameworks this year and write a report with a source for every claim.',
-  },
-  {
-    icon: Gamepad2,
-    label: 'Build an app',
-    text: 'Build a single-file HTML snake game with keyboard and touch controls, levels, and a saved high score.',
-  },
-  {
-    icon: Code2,
-    label: 'Tested code',
-    text: 'Write a Python CLI that converts CSV files to Parquet, with type hints, error handling, and pytest tests.',
-  },
-  {
-    icon: BookOpen,
-    label: 'Explain',
-    text: 'Explain how transformers handle long context today, with a short glossary and further reading.',
-  },
+  { icon: Search, ...copy.hero.suggestions.research },
+  { icon: Gamepad2, ...copy.hero.suggestions.app },
+  { icon: Code2, ...copy.hero.suggestions.code },
+  { icon: BookOpen, ...copy.hero.suggestions.explain },
 ]
 
 const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
 const IDLE_TRICKS: Emotion[] = [EMOTIONS.wink, EMOTIONS.happy]
-/** Resting the pointer on the screen this long counts as a pat. */
-const PAT_MS = 700
 
 /** The crew that hangs around the mascot. Positions are relative to the face's center. */
 const CREW = [
@@ -66,10 +49,11 @@ function useToken(name: string): string {
   return value
 }
 
-/** Sleeps after this long without the pointer moving. */
-const DOZE_MS = 45_000
-/** The user's own pointer outranks the crew's for this long after it moves. */
-const USER_FOCUS_MS = 2500
+/** A colour canvas can draw with: a `var(--token)` resolves to the token's value, anything else passes through. */
+const resolveColor = (color: string) => {
+  const token = /^var\((--[\w-]+)\)$/.exec(color)?.[1]
+  return token ? readToken(token) : color
+}
 
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)] as T
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
@@ -199,9 +183,9 @@ export function Hero(props: {
     if (reduce) return
     const t = setInterval(() => {
       const quiet = Date.now() - lastUser.current
-      if (quiet > USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
+      if (quiet > MASCOT_USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
       if (typingRef.current || busy.current || asleepRef.current) return
-      if (quiet > DOZE_MS) {
+      if (quiet > MASCOT_DOZE_MS) {
         asleepRef.current = true
         setAsleep(true)
       } else if (Math.random() < 0.12) {
@@ -229,7 +213,7 @@ export function Hero(props: {
       setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
     }
     const follow = (x: number, y: number) => {
-      if (Date.now() - lastUser.current > USER_FOCUS_MS) setLook(gaze(x, y))
+      if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
     }
     const size = () => {
       const r = scope.current?.getBoundingClientRect()
@@ -310,6 +294,7 @@ export function Hero(props: {
                 hour: new Date(now).getHours(),
               }))
   const label = emotion.label
+  const eyes = useMemo(() => resolveColor(emotion.color), [emotion.color])
 
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
@@ -326,18 +311,18 @@ export function Hero(props: {
               onClick={() => react(pick(POKED))}
               onPointerEnter={() => {
                 clearTimeout(patTimer.current)
-                patTimer.current = setTimeout(() => setPetted(true), PAT_MS)
+                patTimer.current = setTimeout(() => setPetted(true), MASCOT_PAT_MS)
               }}
               onPointerLeave={() => {
                 clearTimeout(patTimer.current)
                 setPetted(false)
               }}
-              aria-label="Poke the crew"
+              aria-label={copy.hero.poke}
               className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
             >
               <PixelFace
                 mood={emotion.mood}
-                color={emotion.color}
+                color={eyes}
                 cols={15}
                 rows={8}
                 cell={20}
@@ -349,7 +334,7 @@ export function Hero(props: {
               <div className="mt-5 flex items-center justify-between px-1">
                 <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
                   <span
-                    className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[#3ddc84]'}`}
+                    className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
                   />
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
@@ -381,7 +366,7 @@ export function Hero(props: {
           </motion.div>
         </div>
 
-        <h1 className="sr-only">What should the crew build?</h1>
+        <h1 className="sr-only">{copy.hero.headline}</h1>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -390,12 +375,12 @@ export function Hero(props: {
           aria-hidden
         >
           <TechText
-            text="What should the crew build?"
+            text={copy.hero.headline}
             fontSize={40}
             fontWeight={600}
             letterSpacing={-0.03}
             color={ink}
-            accentColor={emotion.color}
+            accentColor={eyes}
             reveal="letter"
             dashLength={4}
             dashGap={2}

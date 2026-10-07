@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { copy } from '../copy.ts'
 import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -93,10 +94,10 @@ export function useHotkeys(keys: readonly Hotkey[]) {
 export function ago(iso?: string): string {
   if (!iso) return ''
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000))
-  if (s < 45) return 'just now'
-  if (s < 3600) return `${Math.round(s / 60)}m ago`
-  if (s < 86_400) return `${Math.round(s / 3600)}h ago`
-  return `${Math.round(s / 86_400)}d ago`
+  if (s < 45) return copy.time.justNow
+  if (s < 3600) return copy.time.minutesAgo(Math.round(s / 60))
+  if (s < 86_400) return copy.time.hoursAgo(Math.round(s / 3600))
+  return copy.time.daysAgo(Math.round(s / 86_400))
 }
 
 export function duration(ms: number): string {

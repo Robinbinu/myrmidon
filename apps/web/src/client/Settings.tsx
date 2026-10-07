@@ -41,7 +41,8 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ModelOption, send, type TeamConfig } from './api.ts'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
-import { AGENT_MIN_WINDOW, windowLabel } from './chat/ModelPicker.tsx'
+import { windowLabel } from './chat/ModelPicker.tsx'
+import { copy } from './copy.ts'
 import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
 import {
   Button,
@@ -55,12 +56,11 @@ import {
   Segmented,
   Select,
   Switch,
-  softSpring,
-  spring,
   TextArea,
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
+import { AGENT_MIN_WINDOW, softSpring, spring } from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -134,23 +134,73 @@ export type Section =
   | 'memory'
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
-  { id: 'general', label: 'General', hint: 'Theme, motion, shortcuts', icon: Palette },
-  { id: 'models', label: 'Models & providers', hint: 'Models, API keys, endpoints', icon: Brain },
-  { id: 'team', label: 'Team & budget', hint: 'Defaults and limits', icon: Users },
-  { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
-  { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
-  { id: 'hooks', label: 'Hooks', hint: 'Commands around every tool', icon: Webhook },
-  { id: 'schedules', label: 'Schedules', hint: 'Requests that run on their own', icon: CalendarClock },
-  { id: 'verification', label: 'Reviewer', hint: 'Off, auto or always', icon: Gavel },
-  { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
-  { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
+  {
+    id: 'general',
+    label: copy.settings.sections.general.label,
+    hint: copy.settings.sections.general.hint,
+    icon: Palette,
+  },
+  {
+    id: 'models',
+    label: copy.settings.sections.models.label,
+    hint: copy.settings.sections.models.hint,
+    icon: Brain,
+  },
+  {
+    id: 'team',
+    label: copy.settings.sections.team.label,
+    hint: copy.settings.sections.team.hint,
+    icon: Users,
+  },
+  {
+    id: 'tools',
+    label: copy.settings.sections.tools.label,
+    hint: copy.settings.sections.tools.hint,
+    icon: Wrench,
+  },
+  {
+    id: 'skills',
+    label: copy.settings.sections.skills.label,
+    hint: copy.settings.sections.skills.hint,
+    icon: GraduationCap,
+  },
+  {
+    id: 'hooks',
+    label: copy.settings.sections.hooks.label,
+    hint: copy.settings.sections.hooks.hint,
+    icon: Webhook,
+  },
+  {
+    id: 'schedules',
+    label: copy.settings.sections.schedules.label,
+    hint: copy.settings.sections.schedules.hint,
+    icon: CalendarClock,
+  },
+  {
+    id: 'verification',
+    label: copy.settings.sections.verification.label,
+    hint: copy.settings.sections.verification.hint,
+    icon: Gavel,
+  },
+  {
+    id: 'instructions',
+    label: copy.settings.sections.instructions.label,
+    hint: copy.settings.sections.instructions.hint,
+    icon: MessageSquareText,
+  },
+  {
+    id: 'memory',
+    label: copy.settings.sections.memory.label,
+    hint: copy.settings.sections.memory.hint,
+    icon: BookMarked,
+  },
 ]
 
 const API_LABELS: Record<Api, string> = {
-  'openai-completions': 'OpenAI-compatible (chat completions)',
-  'openai-responses': 'OpenAI Responses API',
-  'anthropic-messages': 'Anthropic Messages API',
-  'google-generative-ai': 'Google Gemini API',
+  'openai-completions': copy.settings.providerForm.apiLabels['openai-completions'],
+  'openai-responses': copy.settings.providerForm.apiLabels['openai-responses'],
+  'anthropic-messages': copy.settings.providerForm.apiLabels['anthropic-messages'],
+  'google-generative-ai': copy.settings.providerForm.apiLabels['google-generative-ai'],
 }
 
 const API_HINT_URL: Record<Api, string> = {
@@ -236,9 +286,9 @@ export function Settings(props: {
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
         <Button variant="ghost" size="sm" onClick={props.onClose} icon={<ArrowLeft className="size-4" />}>
-          Back
+          {copy.settings.page.back}
         </Button>
-        <span className="text-[13px] font-semibold">Settings</span>
+        <span className="text-[13px] font-semibold">{copy.settings.page.title}</span>
         <span className="text-muted">/</span>
         <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
         <span className="flex-1" />
@@ -255,12 +305,13 @@ export function Settings(props: {
               ) : (
                 <Check className="size-3.5 text-ok-ink" />
               )}
-              {saving === 'saving' ? 'Saving…' : 'All changes saved'}
+              {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
             </motion.span>
           )}
         </AnimatePresence>
         <span className="hidden text-[11.5px] text-muted md:inline">
-          <Kbd>Esc</Kbd> to close
+          <Kbd>Esc</Kbd>
+          {copy.settings.page.escToClose}
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -304,7 +355,7 @@ export function Settings(props: {
               value={section}
               onChange={(e) => setSection(e.target.value as Section)}
               className="w-full"
-              aria-label="Section"
+              aria-label={copy.settings.page.sectionPicker}
             >
               {SECTIONS.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -349,7 +400,7 @@ export function Settings(props: {
                           value: 'models',
                           label: (
                             <>
-                              <Brain className="size-3.5" /> Your models
+                              <Brain className="size-3.5" /> {copy.settings.page.modelsTab}
                             </>
                           ),
                         },
@@ -357,7 +408,7 @@ export function Settings(props: {
                           value: 'providers',
                           label: (
                             <>
-                              <KeyRound className="size-3.5" /> Keys &amp; providers
+                              <KeyRound className="size-3.5" /> {copy.settings.page.providersTab}
                             </>
                           ),
                         },
@@ -399,7 +450,7 @@ export function Settings(props: {
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
-                  <LoaderCircle className="size-4 animate-spin" /> Loading settings…
+                  <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
                 </div>
               )}
             </motion.div>
@@ -439,24 +490,19 @@ function NotifyToggle() {
   const granted = supported && Notification.permission === 'granted'
   return (
     <Field
-      label="Notify me when a round finishes"
-      hint={
-        supported
-          ? 'A desktop notification when a round is done (or stops) while Myrmidon is in the background, including scheduled ones.'
-          : 'This browser does not support notifications.'
-      }
+      label={copy.settings.notify.label}
+      hint={supported ? copy.settings.notify.hint : copy.settings.notify.unsupported}
       inline
     >
       <Switch
         checked={on && granted}
         disabled={!supported}
-        label="Notify me when a round finishes"
+        label={copy.settings.notify.label}
         onChange={(v) => {
           if (!v) return setOn(false)
           void Notification.requestPermission().then((p) => {
             setOn(p === 'granted')
-            if (p !== 'granted')
-              toast('Notifications are blocked for this site in your browser settings', 'error')
+            if (p !== 'granted') toast(copy.settings.notify.blocked, 'error')
           })
         }}
       />
@@ -472,10 +518,10 @@ function General(props: {
 }) {
   return (
     <>
-      <Heading title="General">How Myrmidon looks and feels on this device.</Heading>
+      <Heading title={copy.settings.general.title}>{copy.settings.general.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Theme" hint="System follows your operating system." inline>
+          <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
             <Segmented
               id="theme"
               value={props.theme}
@@ -485,7 +531,7 @@ function General(props: {
                   value: 'system',
                   label: (
                     <>
-                      <Monitor className="size-3.5" /> System
+                      <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
                     </>
                   ),
                 },
@@ -493,7 +539,7 @@ function General(props: {
                   value: 'light',
                   label: (
                     <>
-                      <Sun className="size-3.5" /> Light
+                      <Sun className="size-3.5" /> {copy.settings.general.themeLight}
                     </>
                   ),
                 },
@@ -501,7 +547,7 @@ function General(props: {
                   value: 'dark',
                   label: (
                     <>
-                      <Moon className="size-3.5" /> Dark
+                      <Moon className="size-3.5" /> {copy.settings.general.themeDark}
                     </>
                   ),
                 },
@@ -510,8 +556,16 @@ function General(props: {
           </Field>
         </Row>
         <Row>
-          <Field label="Reduce motion" hint="Turn off animations and transitions." inline>
-            <Switch checked={props.reduceMotion} onChange={props.onReduceMotion} label="Reduce motion" />
+          <Field
+            label={copy.settings.general.reduceMotion}
+            hint={copy.settings.general.reduceMotionHint}
+            inline
+          >
+            <Switch
+              checked={props.reduceMotion}
+              onChange={props.onReduceMotion}
+              label={copy.settings.general.reduceMotion}
+            />
           </Field>
         </Row>
         <Row>
@@ -551,7 +605,13 @@ function ModelsSection(props: {
     setTests((t) => ({ ...t, [ref]: 'running' }))
     try {
       const r = await send<{ ok: boolean; ms?: number; error?: string }>('POST', '/api/models/test', { ref })
-      setTests((t) => ({ ...t, [ref]: { ok: r.ok, text: r.ok ? `${r.ms} ms` : (r.error ?? 'failed') } }))
+      setTests((t) => ({
+        ...t,
+        [ref]: {
+          ok: r.ok,
+          text: r.ok ? copy.settings.models.testMs(r.ms) : (r.error ?? copy.settings.models.testFailed),
+        },
+      }))
     } catch (err) {
       setTests((t) => ({ ...t, [ref]: { ok: false, text: String((err as Error).message) } }))
     }
@@ -567,19 +627,18 @@ function ModelsSection(props: {
 
   return (
     <>
-      <Heading title="Models">
-        {props.models.length} models you can call right now, {shown} shown in pickers. Switch off whole
-        providers you don’t use, hide single models, and test any model with a one-line request.
+      <Heading title={copy.settings.models.title}>
+        {copy.settings.models.intro(props.models.length, shown)}
       </Heading>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
           <TextInput
-            placeholder="Search models"
+            placeholder={copy.settings.models.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
-            aria-label="Search models"
+            aria-label={copy.settings.models.search}
           />
         </div>
         <Button
@@ -588,23 +647,23 @@ function ModelsSection(props: {
             api('/api/models?refresh=1')
               .then(() => {
                 props.onRefresh()
-                toast('Model lists refreshed from providers', 'success')
+                toast(copy.settings.models.refreshed, 'success')
               })
               .catch((err) => toast(String(err.message ?? err), 'error'))
               .finally(() => setRefreshing(false))
           }}
           icon={<RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />}
         >
-          Refresh
+          {copy.settings.models.refresh}
         </Button>
         <Button variant="soft" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
-          Add models
+          {copy.settings.models.addModels}
         </Button>
       </div>
       <div className="flex flex-col gap-2">
         {groups.length === 0 && (
           <Card>
-            <Empty title={q ? 'No models match' : 'No models yet'} />
+            <Empty title={q ? copy.settings.models.noMatch : copy.settings.models.none} />
           </Card>
         )}
         {groups.map(([provider, models]) => {
@@ -625,10 +684,12 @@ function ModelsSection(props: {
                   <span className="font-mono text-[13px] font-medium">{provider}</span>
                   <span className="text-[12px] tabular-nums text-muted">{models.length}</span>
                 </button>
-                <span className="text-[12px] text-muted">{off ? 'Off' : 'In pickers'}</span>
+                <span className="text-[12px] text-muted">
+                  {off ? copy.settings.shared.off : copy.settings.models.inPickers}
+                </span>
                 <Switch
                   checked={!off}
-                  label={`Show ${provider} models in pickers`}
+                  label={copy.settings.models.showProvider(provider)}
                   onChange={() => toggleSet('hiddenProviders', provider)}
                 />
               </div>
@@ -656,7 +717,9 @@ function ModelsSection(props: {
                               )}
                             >
                               {t.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
-                              <span className="truncate">{t.ok ? `Responded in ${t.text}` : t.text}</span>
+                              <span className="truncate">
+                                {t.ok ? copy.settings.models.respondedIn(t.text) : t.text}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -681,11 +744,15 @@ function ModelsSection(props: {
                             t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined
                           }
                         >
-                          Test
+                          {copy.settings.models.test}
                         </Button>
                         <IconButton
                           size="sm"
-                          label={isHidden ? `Show ${m.name}` : `Hide ${m.name}`}
+                          label={
+                            isHidden
+                              ? copy.settings.models.showModel(m.name)
+                              : copy.settings.models.hideModel(m.name)
+                          }
                           onClick={() => toggleSet('hidden', m.ref)}
                         >
                           {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -704,10 +771,10 @@ function ModelsSection(props: {
 }
 
 const WINDOW_SOURCES = {
-  set: 'set by you',
-  provider: 'from the provider',
-  catalog: 'from models.dev',
-  name: "from the model's name",
+  set: copy.settings.models.windowSources.set,
+  provider: copy.settings.models.windowSources.provider,
+  catalog: copy.settings.models.windowSources.catalog,
+  name: copy.settings.models.windowSources.name,
 } as const
 
 /**
@@ -740,8 +807,8 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
       <input
         ref={field}
         value={draft}
-        placeholder="e.g. 32k"
-        aria-label={`Context window of ${props.model.name}`}
+        placeholder={copy.settings.models.windowPlaceholder}
+        aria-label={copy.settings.models.windowLabel(props.model.name)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -760,8 +827,11 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
       }}
       title={
         tokens
-          ? `${tokens.toLocaleString()} tokens of context, ${source ? WINDOW_SOURCES[source] : 'a guess'}. Click to change; clear it to go back to automatic.`
-          : 'Context window unknown. Click to set it.'
+          ? copy.settings.models.windowTitle(
+              tokens.toLocaleString(),
+              source ? WINDOW_SOURCES[source] : copy.settings.models.windowGuess,
+            )
+          : copy.settings.models.windowUnknown
       }
       className={cn(
         'h-7 min-w-14 rounded-md px-2 text-right font-mono text-[12px] tabular-nums transition-colors hover:bg-fill',
@@ -831,12 +901,12 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
       setSession(next)
       if (next.status === 'done') {
         const who = next.result?.email ?? next.result?.orgName
-        toast(`Signed in${who ? ` as ${who}` : ''}`, 'success')
+        toast(copy.settings.signIns.signedInToast(who), 'success')
         void load()
         api<{ providers: ProviderInfo[] }>('/api/settings')
           .then((r) => props.onProviders(r.providers))
           .catch(() => {})
-      } else if (next.status === 'failed') toast(next.error ?? 'Sign-in failed', 'error')
+      } else if (next.status === 'failed') toast(next.error ?? copy.settings.signIns.failed, 'error')
     }, 1500)
     return () => clearInterval(t)
   }, [waiting, sessionId])
@@ -863,10 +933,8 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   return (
     <div className="mb-8">
       <h4 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
-        <LogIn className="size-4 text-muted" /> Sign in with a subscription
-        <span className="font-normal text-muted">
-          use Claude, ChatGPT or Gemini plans instead of API keys
-        </span>
+        <LogIn className="size-4 text-muted" /> {copy.settings.signIns.title}
+        <span className="font-normal text-muted">{copy.settings.signIns.subtitle}</span>
       </h4>
       <Card>
         {shown.map((l) => {
@@ -877,7 +945,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13.5px] font-medium">
                     {l.name}
-                    {l.ready ? <Pill tone="ok">signed in</Pill> : null}
+                    {l.ready ? <Pill tone="ok">{copy.settings.signIns.signedIn}</Pill> : null}
                   </div>
                   <div className="font-mono text-[11.5px] text-muted">{l.provider}</div>
                 </div>
@@ -889,7 +957,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                       send('DELETE', `/api/logins/${active.id}`).then(() => setSession(undefined))
                     }
                   >
-                    Cancel
+                    {copy.settings.shared.cancel}
                   </Button>
                 ) : (
                   <Button
@@ -898,7 +966,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                     disabled={waiting}
                     icon={<LogIn className="size-3.5" />}
                   >
-                    {l.ready ? 'Sign in again' : 'Sign in'}
+                    {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
                   </Button>
                 )}
               </div>
@@ -906,7 +974,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-[12.5px]">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
-                    {active.progress ?? 'Finish signing in in the browser tab; this updates by itself.'}
+                    {active.progress ?? copy.settings.signIns.finishInBrowser}
                   </div>
                   {active.instructions && <div className="text-muted">{active.instructions}</div>}
                   {active.url && (
@@ -916,7 +984,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                       rel="noreferrer"
                       className="inline-flex items-center gap-1.5 font-medium text-accent-fg hover:underline"
                     >
-                      <ExternalLink className="size-3.5" /> Open the sign-in page
+                      <ExternalLink className="size-3.5" /> {copy.settings.signIns.openPage}
                     </a>
                   )}
                   {active.prompt && (
@@ -937,7 +1005,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                         className="font-mono text-[12px]"
                       />
                       <Button size="sm" type="submit" disabled={!answer.trim()}>
-                        Submit
+                        {copy.settings.signIns.submit}
                       </Button>
                     </form>
                   )}
@@ -954,7 +1022,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
           onClick={() => setMore(true)}
           className="mt-2 text-[12.5px] font-medium text-muted hover:text-fg"
         >
-          Show {sorted.length - shown.length} more sign-ins
+          {copy.settings.signIns.showMore(sorted.length - shown.length)}
         </button>
       )}
     </div>
@@ -1003,10 +1071,12 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title="Providers & keys">
-        Myrmidon runs omp’s provider stack in-process: every built-in provider, OAuth logins, and custom
-        endpoints from <span className="font-mono">models.yml</span>. Keys stay in owner-only files under{' '}
-        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span> and never reach the browser.
+      <Heading title={copy.settings.providers.title}>
+        {copy.settings.providers.introBeforeFile}
+        <span className="font-mono">models.yml</span>
+        {copy.settings.providers.introBeforeDir}
+        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span>
+        {copy.settings.providers.introAfterDir}
       </Heading>
 
       {props.data.ompSetup && (
@@ -1016,17 +1086,17 @@ function Providers(props: {
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-[13.5px] font-medium">Import your omp setup</div>
+              <div className="text-[13.5px] font-medium">{copy.settings.providers.importTitle}</div>
               <div className="text-[12.5px] text-muted">
                 {importing === 'confirm'
-                  ? 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.'
-                  : 'Copy keys, OAuth logins, and custom providers from ~/.omp/agent. The omp CLI is not needed.'}
+                  ? copy.settings.providers.importConfirm
+                  : copy.settings.providers.importHint}
               </div>
             </div>
             {importing === 'confirm' ? (
               <div className="flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setImporting('idle')}>
-                  Cancel
+                  {copy.settings.shared.cancel}
                 </Button>
                 <Button
                   size="sm"
@@ -1039,11 +1109,11 @@ function Providers(props: {
                         '/api/import-omp',
                       )
                       return r
-                    }, 'Imported your omp setup')
+                    }, copy.settings.providers.imported)
                     setImporting('idle')
                   }}
                 >
-                  Replace and import
+                  {copy.settings.providers.replaceAndImport}
                 </Button>
               </div>
             ) : (
@@ -1053,7 +1123,7 @@ function Providers(props: {
                 disabled={importing === 'busy'}
                 icon={importing === 'busy' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
               >
-                Import
+                {copy.settings.providers.import}
               </Button>
             )}
           </div>
@@ -1064,14 +1134,14 @@ function Providers(props: {
 
       <div className="mb-2 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">
-          <KeyRound className="size-4 text-muted" /> Providers
+          <KeyRound className="size-4 text-muted" /> {copy.settings.providers.heading}
           <span className="font-normal text-muted">
-            {providers.filter((p) => p.ready).length} ready of {providers.length}
+            {copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
           </span>
         </h4>
         {!adding && (
           <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-            Custom endpoint
+            {copy.settings.providers.customEndpoint}
           </Button>
         )}
       </div>
@@ -1092,7 +1162,7 @@ function Providers(props: {
                 if (
                   await act(
                     () => send<{ providers: ProviderInfo[] }>('POST', '/api/providers', body),
-                    `Connected ${body.name}`,
+                    copy.settings.providers.connected(body.name),
                   )
                 )
                   setAdding(false)
@@ -1103,9 +1173,8 @@ function Providers(props: {
       </AnimatePresence>
       <Card>
         {shown.length === 0 && (
-          <Empty icon={<Server className="size-5" />} title="No providers ready yet">
-            Import your omp setup, add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any
-            OpenAI, Anthropic, or Gemini-compatible endpoint.
+          <Empty icon={<Server className="size-5" />} title={copy.settings.providers.emptyTitle}>
+            {copy.settings.providers.emptyBody}
           </Empty>
         )}
         {shown.map((p) => (
@@ -1115,9 +1184,9 @@ function Providers(props: {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[13px]">{p.id}</span>
-                  {p.custom && <Pill tone="accent">custom</Pill>}
+                  {p.custom && <Pill tone="accent">{copy.settings.providers.custom}</Pill>}
                   <span className="text-[12px] text-muted">
-                    {p.models} model{p.models === 1 ? '' : 's'}
+                    {copy.settings.providers.modelCount(p.models)}
                   </span>
                 </div>
                 {p.baseUrl && <div className="truncate font-mono text-[11.5px] text-muted">{p.baseUrl}</div>}
@@ -1127,29 +1196,32 @@ function Providers(props: {
                 variant="ghost"
                 onClick={() => setEditing(editing === p.id ? undefined : p.id)}
               >
-                {p.custom ? 'Edit' : p.ready ? 'Replace key' : 'Add key'}
+                {p.custom
+                  ? copy.settings.providers.edit
+                  : p.ready
+                    ? copy.settings.providers.replaceKey
+                    : copy.settings.providers.addKey}
               </Button>
               {p.ready && !p.custom && !p.stored && (
-                <span
-                  className="flex items-center gap-2"
-                  title="Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models."
-                >
-                  <span className="text-[11.5px] text-muted">{off.has(p.id) ? 'Off' : 'On'}</span>
+                <span className="flex items-center gap-2" title={copy.settings.providers.externalCredentials}>
+                  <span className="text-[11.5px] text-muted">
+                    {off.has(p.id) ? copy.settings.shared.off : copy.settings.shared.on}
+                  </span>
                   <Switch
                     checked={!off.has(p.id)}
                     onChange={(on) => setOff(p.id, !on)}
-                    label={`Use ${p.id}`}
+                    label={copy.settings.providers.use(p.id)}
                   />
                 </span>
               )}
               {p.stored && !p.custom && (
                 <IconButton
                   size="sm"
-                  label={`Remove ${p.id} credentials`}
+                  label={copy.settings.providers.removeCredentials(p.id)}
                   onClick={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
-                      `Removed ${p.id} credentials`,
+                      copy.settings.providers.removedCredentials(p.id),
                     )
                   }
                 >
@@ -1159,11 +1231,11 @@ function Providers(props: {
               {p.custom && (
                 <IconButton
                   size="sm"
-                  label={`Remove ${p.id}`}
+                  label={copy.settings.providers.remove(p.id)}
                   onClick={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
-                      `Removed ${p.id}`,
+                      copy.settings.providers.removed(p.id),
                     )
                   }
                 >
@@ -1182,7 +1254,7 @@ function Providers(props: {
                     if (
                       await act(
                         () => send<{ providers: ProviderInfo[] }>('PUT', `/api/providers/${p.id}`, body),
-                        `Updated ${p.id}`,
+                        copy.settings.providers.updated(p.id),
                       )
                     )
                       setEditing(undefined)
@@ -1198,7 +1270,7 @@ function Providers(props: {
                     await act(
                       () =>
                         send<{ providers: ProviderInfo[] }>('PUT', `/api/credentials/${p.id}`, { apiKey }),
-                      `Saved the ${p.id} key`,
+                      copy.settings.providers.savedKey(p.id),
                     )
                   )
                     setEditing(undefined)
@@ -1213,12 +1285,14 @@ function Providers(props: {
             onClick={() => setShowAll(true)}
             className="w-full px-4 py-2.5 text-left text-[12.5px] text-muted hover:text-fg"
           >
-            Show {hiddenCount} more built-in providers
+            {copy.settings.providers.showMore(hiddenCount)}
           </button>
         )}
       </Card>
       <p className="mt-2 text-[12px] text-muted">
-        Environment variables such as <span className="font-mono">ANTHROPIC_API_KEY</span> also work.
+        {copy.settings.providers.envBefore}
+        <span className="font-mono">ANTHROPIC_API_KEY</span>
+        {copy.settings.providers.envAfter}
       </p>
     </>
   )
@@ -1238,14 +1312,14 @@ function KeyForm(props: { provider: string; onSave(key: string): Promise<void> }
         type="password"
         autoComplete="off"
         autoFocus
-        placeholder={`${props.provider} API key`}
+        placeholder={copy.settings.providers.apiKeyFor(props.provider)}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         className="flex-1"
-        aria-label={`${props.provider} API key`}
+        aria-label={copy.settings.providers.apiKeyFor(props.provider)}
       />
       <Button type="submit" variant="primary" disabled={!value.trim()}>
-        Save
+        {copy.settings.shared.save}
       </Button>
     </form>
   )
@@ -1277,12 +1351,8 @@ function ProviderForm(props: {
       <div className="grid gap-4 p-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="Name"
-            hint={
-              editing
-                ? 'The model prefix; fixed once created.'
-                : 'Lowercase. Becomes the model prefix, e.g. lmstudio/qwen3'
-            }
+            label={copy.settings.providerForm.name}
+            hint={editing ? copy.settings.providerForm.nameFixed : copy.settings.providerForm.nameHint}
           >
             <TextInput
               value={name}
@@ -1292,7 +1362,7 @@ function ProviderForm(props: {
               aria-invalid={!!name && !nameOk}
             />
           </Field>
-          <Field label="API type">
+          <Field label={copy.settings.providerForm.apiType}>
             <Select value={apiType} onChange={(e) => setApiType(e.target.value as Api)} className="w-full">
               {props.apis.map((a) => (
                 <option key={a} value={a}>
@@ -1302,7 +1372,7 @@ function ProviderForm(props: {
             </Select>
           </Field>
         </div>
-        <Field label="Base URL">
+        <Field label={copy.settings.providerForm.baseUrl}>
           <TextInput
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
@@ -1310,14 +1380,14 @@ function ProviderForm(props: {
           />
         </Field>
         <div className="flex flex-wrap items-end gap-4">
-          <Field label="Authentication">
+          <Field label={copy.settings.providerForm.authentication}>
             <Segmented
               id={`auth-${init?.id ?? 'new'}`}
               value={auth}
               onChange={setAuth}
               options={[
-                { value: 'key', label: 'API key' },
-                { value: 'none', label: 'None (local)' },
+                { value: 'key', label: copy.settings.providerForm.apiKey },
+                { value: 'none', label: copy.settings.providerForm.keyless },
               ]}
             />
           </Field>
@@ -1328,31 +1398,33 @@ function ProviderForm(props: {
                 autoComplete="off"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder={editing && init?.hasKey ? 'Key saved · type to replace' : 'API key'}
-                aria-label="API key"
+                placeholder={
+                  editing && init?.hasKey
+                    ? copy.settings.providerForm.keySaved
+                    : copy.settings.providerForm.apiKey
+                }
+                aria-label={copy.settings.providerForm.apiKey}
               />
             </div>
           )}
         </div>
         <Field
-          label="Models"
+          label={copy.settings.providerForm.models}
           hint={
-            discovers
-              ? 'Model ids, separated by commas. Leave empty to discover them from the endpoint’s model list.'
-              : 'Model ids, separated by commas.'
+            discovers ? copy.settings.providerForm.modelsDiscoverHint : copy.settings.providerForm.modelsHint
           }
         >
           <TextArea
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
-            aria-label="Model ids"
+            aria-label={copy.settings.providerForm.modelIds}
             className="min-h-16 font-mono text-[12.5px]"
           />
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={props.onCancel}>
-            Cancel
+            {copy.settings.shared.cancel}
           </Button>
           <Button
             variant="primary"
@@ -1371,8 +1443,8 @@ function ProviderForm(props: {
               setBusy(false)
             }}
           >
-            {editing ? 'Save changes' : 'Connect'}
-            {models.length ? ` · ${models.length} model${models.length === 1 ? '' : 's'}` : ''}
+            {editing ? copy.settings.providerForm.saveChanges : copy.settings.providerForm.connect}
+            {models.length ? copy.settings.providerForm.modelCount(models.length) : ''}
           </Button>
         </div>
       </div>
@@ -1390,9 +1462,7 @@ function TeamSection(props: {
   const t = props.data.settings.team
   return (
     <>
-      <Heading title="Team & budget">
-        Defaults for every new task. You can still change the team per message.
-      </Heading>
+      <Heading title={copy.settings.team.title}>{copy.settings.team.intro}</Heading>
       {props.config && (
         <Card className="mb-6">
           <div className="p-4">
@@ -1420,54 +1490,42 @@ function TeamSection(props: {
       )}
       <Card>
         <Row>
-          <Field
-            label="Time limit per round"
-            hint="The crew stops when this runs out, verified or not."
-            inline
-          >
+          <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
               value={t.wallMinutes}
               min={1}
               max={240}
-              suffix="min"
+              suffix={copy.settings.team.units.minutes}
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Spend limit per round"
-            hint="The round stops at this cost; at 80% agents are told to wrap up. 0 means no limit."
-            inline
-          >
+          <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
               value={t.costUsd}
               min={0}
               max={1000}
               step={0.1}
-              suffix="$"
+              suffix={copy.settings.team.units.dollars}
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Token limit per round"
-            hint="Counts every token the models process, cached input included. 0 means no limit."
-            inline
-          >
+          <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
               value={t.tokens}
               min={0}
               max={1_000_000_000}
-              suffix="tok"
+              suffix={copy.settings.team.units.tokens}
               wide
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field label="Turns per agent" hint="Each agent stops after this many turns." inline>
+          <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
               value={t.maxTurns}
               min={1}
@@ -1477,16 +1535,12 @@ function TeamSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Observer interval"
-            hint="How often the observer checks time, idle agents, and stalls."
-            inline
-          >
+          <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
               value={props.data.settings.observer.intervalSeconds}
               min={10}
               max={600}
-              suffix="s"
+              suffix={copy.settings.team.units.seconds}
               onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
             />
           </Field>
@@ -1533,32 +1587,32 @@ const TOOL_INFO: {
 }[] = [
   {
     key: 'shell',
-    label: 'Shell',
-    hint: 'Run commands in a sandbox that can only write to the agent’s scratch folder.',
+    label: copy.settings.tools.groups.shell.label,
+    hint: copy.settings.tools.groups.shell.hint,
     icon: Terminal,
   },
   {
     key: 'web',
-    label: 'Web search & fetch',
-    hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
+    label: copy.settings.tools.groups.web.label,
+    hint: copy.settings.tools.groups.web.hint,
     icon: Globe,
   },
   {
     key: 'files',
-    label: 'Scratch files',
-    hint: 'Private working files for drafts before publishing artifacts.',
+    label: copy.settings.tools.groups.files.label,
+    hint: copy.settings.tools.groups.files.hint,
     icon: SlidersHorizontal,
   },
   {
     key: 'messaging',
-    label: 'Messaging',
-    hint: 'Board posts, direct mail between agents, and shared notes.',
+    label: copy.settings.tools.groups.messaging.label,
+    hint: copy.settings.tools.groups.messaging.hint,
     icon: MessageSquareText,
   },
   {
     key: 'mcp',
-    label: 'MCP servers',
-    hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
+    label: copy.settings.tools.groups.mcp.label,
+    hint: copy.settings.tools.groups.mcp.hint,
     icon: Plug,
   },
 ]
@@ -1585,18 +1639,16 @@ function ToolRules(props: {
   return (
     <>
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <ShieldCheck className="size-4 text-muted" /> Per-tool rules
-        <span className="font-normal text-muted">
-          ask before each call, or turn one tool off; applies to new rounds
-        </span>
+        <ShieldCheck className="size-4 text-muted" /> {copy.settings.tools.rulesTitle}
+        <span className="font-normal text-muted">{copy.settings.tools.rulesSubtitle}</span>
       </h4>
       <Card>
         <Row>
           <TextInput
-            aria-label="Find a tool"
+            aria-label={copy.settings.tools.findTool}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a tool, e.g. browser, shell, mcp"
+            placeholder={copy.settings.tools.findToolPlaceholder}
           />
         </Row>
         <div className="max-h-80 overflow-y-auto">
@@ -1610,13 +1662,13 @@ function ToolRules(props: {
                   </div>
                 </div>
                 <Select
-                  aria-label={`Rule for ${t.name}`}
+                  aria-label={copy.settings.tools.ruleFor(t.name)}
                   value={rules[t.name] ?? 'allow'}
                   onChange={(e) => set(t.name, e.target.value)}
                 >
-                  <option value="allow">Allow</option>
-                  <option value="ask">Ask first</option>
-                  <option value="off">Off</option>
+                  <option value="allow">{copy.settings.tools.allow}</option>
+                  <option value="ask">{copy.settings.tools.askFirst}</option>
+                  <option value="off">{copy.settings.shared.off}</option>
                 </Select>
               </div>
             </Row>
@@ -1634,9 +1686,7 @@ function ToolsSection(props: {
   const sandboxed = props.data.sandbox !== 'none'
   return (
     <>
-      <Heading title="Tools">
-        Capabilities agents get in new tasks. Publishing, tasks, and verification are always on.
-      </Heading>
+      <Heading title={copy.settings.tools.title}>{copy.settings.tools.intro}</Heading>
       <div
         className={cn(
           'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13px]',
@@ -1646,12 +1696,12 @@ function ToolsSection(props: {
         <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
         <div>
           <div className="font-semibold">
-            {sandboxed ? `Sandbox active: ${props.data.sandbox}` : 'No OS sandbox found'}
+            {sandboxed
+              ? copy.settings.tools.sandboxActive(props.data.sandbox)
+              : copy.settings.tools.noSandbox}
           </div>
           <div className="text-fg-2">
-            {sandboxed
-              ? 'Shell commands and command checks cannot write outside the agent’s scratch folder.'
-              : 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.'}
+            {sandboxed ? copy.settings.tools.sandboxedHint : copy.settings.tools.unsandboxedHint}
           </div>
         </div>
       </div>
@@ -1678,29 +1728,27 @@ function ToolsSection(props: {
       <ToolRules data={props.data} update={props.update} />
       <McpServers />
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <Wrench className="size-4 text-muted" /> Your tool library
-        <span className="font-normal text-muted">
-          tools agents made that you kept; every new round starts with them
-        </span>
+        <Wrench className="size-4 text-muted" /> {copy.settings.tools.libraryTitle}
+        <span className="font-normal text-muted">{copy.settings.tools.librarySubtitle}</span>
       </h4>
       <ToolLibraryList />
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <Search className="size-4 text-muted" /> Web search
+        <Search className="size-4 text-muted" /> {copy.settings.tools.webSearch}
       </h4>
       <Card>
         <Row>
           <Field
-            label="Search provider"
-            hint="Auto tries omp’s chain: providers you have keys for first, then keyless ones like DuckDuckGo."
+            label={copy.settings.tools.searchProvider}
+            hint={copy.settings.tools.searchProviderHint}
             inline
           >
             <Select
               value={props.data.settings.search.provider}
               onChange={(e) => props.update((s) => ({ ...s, search: { provider: e.target.value } }), true)}
-              aria-label="Search provider"
+              aria-label={copy.settings.tools.searchProvider}
               className="min-w-44"
             >
-              <option value="auto">Auto</option>
+              <option value="auto">{copy.settings.tools.searchAuto}</option>
               {props.data.searchProviders.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -1775,7 +1823,7 @@ function McpServers() {
         : { type: form.transport, url: form.url.trim() }
     const ok = await act(
       () => send<{ servers: McpServer[] }>('POST', '/api/mcp', { name: form.name.trim(), config }),
-      `Added ${form.name.trim()}`,
+      copy.settings.mcp.added(form.name.trim()),
     )
     if (ok) {
       setAdding(false)
@@ -1787,22 +1835,22 @@ function McpServers() {
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">
-          <Plug className="size-4 text-muted" /> MCP servers
-          <span className="font-normal text-muted">from mcp.json; imported with your omp setup</span>
+          <Plug className="size-4 text-muted" /> {copy.settings.mcp.title}
+          <span className="font-normal text-muted">{copy.settings.mcp.subtitle}</span>
         </h4>
         <div className="flex gap-2">
           <Button
             size="sm"
             variant="ghost"
             disabled={busy}
-            onClick={() => act(() => send('POST', '/api/mcp-reload'), 'Reconnected MCP servers')}
+            onClick={() => act(() => send('POST', '/api/mcp-reload'), copy.settings.mcp.reconnected)}
             icon={<RefreshCw className="size-3.5" />}
           >
-            Reconnect
+            {copy.settings.mcp.reconnect}
           </Button>
           {!adding && (
             <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-              Add server
+              {copy.settings.mcp.addServer}
             </Button>
           )}
         </div>
@@ -1810,26 +1858,26 @@ function McpServers() {
       {adding && (
         <Card className="mb-3">
           <div className="grid gap-3 p-4 sm:grid-cols-2">
-            <Field label="Name">
+            <Field label={copy.settings.mcp.name}>
               <TextInput
                 value={form.name}
                 placeholder="github"
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </Field>
-            <Field label="Transport">
+            <Field label={copy.settings.mcp.transport}>
               <Select
                 value={form.transport}
                 onChange={(e) => setForm({ ...form, transport: e.target.value })}
               >
-                <option value="stdio">Local command (stdio)</option>
-                <option value="http">Remote (HTTP)</option>
-                <option value="sse">Remote (SSE, legacy)</option>
+                <option value="stdio">{copy.settings.mcp.transportStdio}</option>
+                <option value="http">{copy.settings.mcp.transportHttp}</option>
+                <option value="sse">{copy.settings.mcp.transportSse}</option>
               </Select>
             </Field>
             {form.transport === 'stdio' ? (
               <>
-                <Field label="Command" hint="The program and its arguments.">
+                <Field label={copy.settings.mcp.command} hint={copy.settings.mcp.commandHint}>
                   <TextInput
                     value={form.command}
                     placeholder="npx -y @modelcontextprotocol/server-filesystem /path"
@@ -1837,10 +1885,7 @@ function McpServers() {
                     className="font-mono text-[12px]"
                   />
                 </Field>
-                <Field
-                  label="Environment"
-                  hint="KEY=value per line. Your own API keys are not passed on otherwise."
-                >
+                <Field label={copy.settings.mcp.environment} hint={copy.settings.mcp.environmentHint}>
                   <TextArea
                     rows={2}
                     value={form.env}
@@ -1850,7 +1895,7 @@ function McpServers() {
                 </Field>
               </>
             ) : (
-              <Field label="URL">
+              <Field label={copy.settings.mcp.url}>
                 <TextInput
                   value={form.url}
                   placeholder="https://example.com/mcp"
@@ -1862,7 +1907,7 @@ function McpServers() {
           </div>
           <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
             <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-              Cancel
+              {copy.settings.shared.cancel}
             </Button>
             <Button
               size="sm"
@@ -1875,7 +1920,7 @@ function McpServers() {
               onClick={add}
               icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             >
-              Add and connect
+              {copy.settings.mcp.addAndConnect}
             </Button>
           </div>
         </Card>
@@ -1883,13 +1928,11 @@ function McpServers() {
       <Card>
         {servers === undefined ? (
           <Row>
-            <span className="text-[13px] text-muted">Loading…</span>
+            <span className="text-[13px] text-muted">{copy.settings.shared.loading}</span>
           </Row>
         ) : servers.length === 0 ? (
           <Row>
-            <span className="text-[13px] text-muted">
-              No MCP servers yet. Add one, or import your omp setup under Models &amp; providers.
-            </span>
+            <span className="text-[13px] text-muted">{copy.settings.mcp.empty}</span>
           </Row>
         ) : (
           servers.map((m) => (
@@ -1898,9 +1941,11 @@ function McpServers() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-[13.5px] font-medium">
                     {m.name}
-                    <Pill tone={MCP_TONE[m.status]}>{m.status}</Pill>
+                    <Pill tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Pill>
                     {m.tools.length > 0 && (
-                      <span className="text-[12px] text-muted">{m.tools.length} tools</span>
+                      <span className="text-[12px] text-muted">
+                        {copy.settings.mcp.toolCount(m.tools.length)}
+                      </span>
                     )}
                   </div>
                   <div className="truncate font-mono text-[11.5px] text-muted" title={m.target}>
@@ -1910,19 +1955,22 @@ function McpServers() {
                 </div>
                 <Switch
                   checked={m.enabled}
-                  label={`Enable ${m.name}`}
+                  label={copy.settings.mcp.enable(m.name)}
                   onChange={(v) =>
                     act(
                       () => send('PUT', `/api/mcp/${encodeURIComponent(m.name)}`, { enabled: v }),
-                      v ? `Enabled ${m.name}` : `Disabled ${m.name}`,
+                      v ? copy.settings.mcp.enabled(m.name) : copy.settings.mcp.disabled(m.name),
                     )
                   }
                 />
                 <IconButton
-                  label={`Remove ${m.name}`}
+                  label={copy.settings.mcp.remove(m.name)}
                   size="sm"
                   onClick={() =>
-                    act(() => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`), `Removed ${m.name}`)
+                    act(
+                      () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
+                      copy.settings.mcp.removed(m.name),
+                    )
                   }
                 >
                   <Trash2 className="size-3.5" />
@@ -1937,9 +1985,9 @@ function McpServers() {
 }
 
 const REVIEWER_HINT = {
-  off: "Never. The lead's final answer completes the task.",
-  auto: 'When the lead decides the work deserves it: code, files, research with sources.',
-  always: 'Every final answer, before the task completes; findings go back to the lead to fix.',
+  off: copy.settings.reviewer.hints.off,
+  auto: copy.settings.reviewer.hints.auto,
+  always: copy.settings.reviewer.hints.always,
 } as const
 
 function VerificationSection(props: {
@@ -1950,20 +1998,17 @@ function VerificationSection(props: {
   const off = v.reviewer === 'off'
   return (
     <>
-      <Heading title="Reviewer">
-        An independent model checks the work against your request. Choose its model under Team &amp; budget;
-        one from another provider than the team catches more.
-      </Heading>
+      <Heading title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</Heading>
       <Card>
         <Row>
-          <Field label="When to review" hint={REVIEWER_HINT[v.reviewer]} inline>
+          <Field label={copy.settings.reviewer.when} hint={REVIEWER_HINT[v.reviewer]} inline>
             <Segmented
               id="reviewer"
               value={v.reviewer}
               options={[
-                { value: 'off', label: 'Off' },
-                { value: 'auto', label: 'Auto' },
-                { value: 'always', label: 'Always' },
+                { value: 'off', label: copy.settings.shared.off },
+                { value: 'auto', label: copy.settings.reviewer.auto },
+                { value: 'always', label: copy.settings.reviewer.always },
               ]}
               onChange={(reviewer) =>
                 props.update((s) => ({ ...s, verification: { ...s.verification, reviewer } }))
@@ -1972,7 +2017,7 @@ function VerificationSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field label="Pass threshold" hint="Reviewer score from 0 to 1 needed for the work to pass." inline>
+          <Field label={copy.settings.reviewer.threshold} hint={copy.settings.reviewer.thresholdHint} inline>
             <div className="flex items-center gap-3">
               <input
                 type="range"
@@ -1987,7 +2032,7 @@ function VerificationSection(props: {
                   }))
                 }
                 className="w-40 accent-[var(--accent)]"
-                aria-label="Pass threshold"
+                aria-label={copy.settings.reviewer.threshold}
                 disabled={off}
               />
               <span className="w-10 text-right font-mono text-[13px] tabular-nums">
@@ -1997,16 +2042,13 @@ function VerificationSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Custom rubric"
-            hint="Optional. Replaces the default rubric the reviewer scores against."
-          >
+          <Field label={copy.settings.reviewer.rubric} hint={copy.settings.reviewer.rubricHint}>
             <TextArea
               value={v.rubric ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, verification: { ...s.verification, rubric: e.target.value } }))
               }
-              placeholder="e.g. Code must include tests that pass; reports must cite a primary source for every number."
+              placeholder={copy.settings.reviewer.rubricPlaceholder}
               rows={5}
               disabled={off}
             />
@@ -2024,30 +2066,28 @@ function InstructionsSection(props: {
   const i = props.settings.instructions
   return (
     <>
-      <Heading title="Agent instructions">
-        Added to the system prompt of every agent in new tasks. Use it for your house rules.
-      </Heading>
+      <Heading title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Lead" hint="Planning, delegation, and how to talk to you.">
+          <Field label={copy.settings.instructions.lead} hint={copy.settings.instructions.leadHint}>
             <TextArea
               value={i.lead ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, instructions: { ...s.instructions, lead: e.target.value } }))
               }
-              placeholder="e.g. Prefer TypeScript. Keep plans to three bullets. Always cite sources."
+              placeholder={copy.settings.instructions.leadPlaceholder}
               rows={5}
             />
           </Field>
         </Row>
         <Row>
-          <Field label="Workers" hint="How workers should do and report their part.">
+          <Field label={copy.settings.instructions.workers} hint={copy.settings.instructions.workersHint}>
             <TextArea
               value={i.worker ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, instructions: { ...s.instructions, worker: e.target.value } }))
               }
-              placeholder="e.g. Write tests first. Report blockers immediately."
+              placeholder={copy.settings.instructions.workersPlaceholder}
               rows={5}
             />
           </Field>
@@ -2069,10 +2109,10 @@ interface ScheduleEntry {
 }
 
 const CRON_PRESETS: { cron: string; label: string }[] = [
-  { cron: '0 * * * *', label: 'Every hour' },
-  { cron: '0 9 * * *', label: 'Every day at 9:00' },
-  { cron: '0 9 * * 1-5', label: 'Weekdays at 9:00' },
-  { cron: '0 9 * * 1', label: 'Mondays at 9:00' },
+  { cron: '0 * * * *', label: copy.settings.schedules.presets.hourly },
+  { cron: '0 9 * * *', label: copy.settings.schedules.presets.daily },
+  { cron: '0 9 * * 1-5', label: copy.settings.schedules.presets.weekdays },
+  { cron: '0 9 * * 1', label: copy.settings.schedules.presets.mondays },
 ]
 
 const when = (iso?: string) =>
@@ -2113,24 +2153,20 @@ function SchedulesSection() {
   const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
   return (
     <>
-      <Heading title="Schedules">
-        Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new
-        chat with your default team, verified like any other; turn on notifications in General to hear when
-        one finishes. The server has to be running for a schedule to fire.
-      </Heading>
+      <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
       <Card className="mb-6">
         <Row>
-          <Field label="Request">
+          <Field label={copy.settings.schedules.request}>
             <TextArea
               rows={2}
               value={draft.request}
               onChange={(e) => setDraft({ ...draft, request: e.target.value })}
-              placeholder="e.g. Summarize what changed in this repo since yesterday and flag anything risky."
+              placeholder={copy.settings.schedules.requestPlaceholder}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label="When"
+              aria-label={copy.settings.schedules.when}
               value={draft.custom ? 'custom' : draft.cron}
               onChange={(e) =>
                 setDraft(
@@ -2145,25 +2181,25 @@ function SchedulesSection() {
                   {p.label}
                 </option>
               ))}
-              <option value="custom">Custom (cron)</option>
+              <option value="custom">{copy.settings.schedules.custom}</option>
             </Select>
             {draft.custom && (
               <div className="w-40">
                 <TextInput
-                  aria-label="Cron expression"
+                  aria-label={copy.settings.schedules.cronExpression}
                   value={draft.cron}
                   onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
-                  placeholder="m h dom mon dow"
+                  placeholder={copy.settings.schedules.cronPlaceholder}
                   className="font-mono text-[12.5px]"
                 />
               </div>
             )}
             <Select
-              aria-label="Project"
+              aria-label={copy.settings.schedules.project}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">No project</option>
+              <option value="">{copy.settings.schedules.noProject}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -2184,21 +2220,21 @@ function SchedulesSection() {
                     ...(draft.project ? { project: draft.project } : {}),
                   })
                   setDraft({ ...draft, request: '' })
-                }, 'Scheduled')
+                }, copy.settings.schedules.scheduled)
               }
             >
-              Schedule
+              {copy.settings.schedules.schedule}
             </Button>
           </div>
         </Row>
       </Card>
       {!list ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading schedules…
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.schedules.loading}
         </div>
       ) : list.length === 0 ? (
-        <Empty icon={<CalendarClock className="size-5" />} title="Nothing scheduled">
-          Add a request above and it runs on its own at the times you pick.
+        <Empty icon={<CalendarClock className="size-5" />} title={copy.settings.schedules.emptyTitle}>
+          {copy.settings.schedules.emptyBody}
         </Empty>
       ) : (
         <Card>
@@ -2210,12 +2246,20 @@ function SchedulesSection() {
                   <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-muted">
                     <span>{label(s.cron)}</span>
                     {s.project && (
-                      <span>in {projects.find((p) => p.id === s.project)?.name ?? s.project}</span>
+                      <span>
+                        {copy.settings.schedules.inProject(
+                          projects.find((p) => p.id === s.project)?.name ?? s.project,
+                        )}
+                      </span>
                     )}
-                    <span>{s.enabled ? `next ${when(s.nextRun)}` : 'paused'}</span>
+                    <span>
+                      {s.enabled
+                        ? copy.settings.schedules.next(when(s.nextRun))
+                        : copy.settings.schedules.paused}
+                    </span>
                     {s.lastRun && (
                       <span className={s.lastRun.error ? 'text-bad-ink' : ''}>
-                        last {when(s.lastRun.at)}
+                        {copy.settings.schedules.last(when(s.lastRun.at))}
                         {s.lastRun.error ? `: ${s.lastRun.error}` : ''}
                       </span>
                     )}
@@ -2224,17 +2268,19 @@ function SchedulesSection() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => act(() => send('POST', `/api/schedules/${s.id}/run`), 'Started a run')}
+                  onClick={() =>
+                    act(() => send('POST', `/api/schedules/${s.id}/run`), copy.settings.schedules.started)
+                  }
                 >
-                  Run now
+                  {copy.settings.schedules.runNow}
                 </Button>
                 <Switch
                   checked={s.enabled}
-                  label={`Run ${s.name} on schedule`}
+                  label={copy.settings.schedules.runOnSchedule(s.name)}
                   onChange={(enabled) => act(() => send('PATCH', `/api/schedules/${s.id}`, { enabled }))}
                 />
                 <IconButton
-                  label="Delete this schedule"
+                  label={copy.settings.schedules.delete}
                   onClick={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
                 >
                   <Trash2 className="size-4" />
@@ -2262,9 +2308,9 @@ type HooksFile = {
 }
 
 const HOOK_EVENTS: { value: HookEvent; label: string }[] = [
-  { value: 'PreToolUse', label: 'Before a tool' },
-  { value: 'PostToolUse', label: 'After a tool' },
-  { value: 'Stop', label: 'When a round ends' },
+  { value: 'PreToolUse', label: copy.settings.hooks.events.PreToolUse },
+  { value: 'PostToolUse', label: copy.settings.hooks.events.PostToolUse },
+  { value: 'Stop', label: copy.settings.hooks.events.Stop },
 ]
 
 function rowsOf(file: HooksFile): HookRow[] {
@@ -2318,32 +2364,33 @@ function HooksSection() {
       const saved = await send<HooksFile>('PUT', '/api/hooks', fileOf(rows ?? []))
       setRows(rowsOf(saved))
       setDirty(false)
-      toast('Hooks saved: they apply to every tool call from now on', 'success')
+      toast(copy.settings.hooks.saved, 'success')
     } catch (err) {
       toast((err as Error).message, 'error')
     }
   }
   return (
     <>
-      <Heading title="Hooks">
-        Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent:
-        format after every edit, refuse commands that touch secrets, notify you when a round ends. Same format
-        as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool
-        tells the agent. Tool names match Myrmidon's (<code className="font-mono text-[12.5px]">fs_edit</code>
-        , <code className="font-mono text-[12.5px]">shell</code>) or Claude Code's (
-        <code className="font-mono text-[12.5px]">Edit|Write</code>,{' '}
+      <Heading title={copy.settings.hooks.title}>
+        {copy.settings.hooks.introBeforeFsEdit}
+        <code className="font-mono text-[12.5px]">fs_edit</code>
+        {copy.settings.hooks.introBeforeShell}
+        <code className="font-mono text-[12.5px]">shell</code>
+        {copy.settings.hooks.introBeforeEditWrite}
+        <code className="font-mono text-[12.5px]">Edit|Write</code>
+        {copy.settings.hooks.introBeforeBash}
         <code className="font-mono text-[12.5px]">Bash</code>
-        ). Hooks run as you, outside the sandbox.
+        {copy.settings.hooks.introAfterBash}
       </Heading>
       {!rows ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading hooks…
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
         </div>
       ) : (
         <Card>
           {rows.length === 0 && (
             <Row>
-              <p className="text-[13px] text-muted">No hooks yet.</p>
+              <p className="text-[13px] text-muted">{copy.settings.hooks.empty}</p>
             </Row>
           )}
           {rows.map((r, i) => (
@@ -2352,7 +2399,7 @@ function HooksSection() {
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Select
-                    aria-label="When"
+                    aria-label={copy.settings.hooks.when}
                     value={r.event}
                     onChange={(e) => change(i, { event: e.target.value as HookEvent })}
                   >
@@ -2365,24 +2412,24 @@ function HooksSection() {
                   {r.event !== 'Stop' && (
                     <div className="w-56">
                       <TextInput
-                        aria-label="Tools"
+                        aria-label={copy.settings.hooks.tools}
                         value={r.matcher}
                         onChange={(e) => change(i, { matcher: e.target.value })}
-                        placeholder="Tools, e.g. Edit|Write (empty: all)"
+                        placeholder={copy.settings.hooks.toolsPlaceholder}
                       />
                     </div>
                   )}
                   <div className="w-20">
                     <TextInput
-                      aria-label="Timeout in seconds"
+                      aria-label={copy.settings.hooks.timeout}
                       value={r.timeout}
                       onChange={(e) => change(i, { timeout: e.target.value.replace(/[^\d.]/g, '') })}
-                      placeholder="60s"
+                      placeholder={copy.settings.hooks.timeoutPlaceholder}
                     />
                   </div>
                   <span className="flex-1" />
                   <IconButton
-                    label="Remove this hook"
+                    label={copy.settings.hooks.remove}
                     onClick={() => {
                       setRows((rs) => rs?.filter((_, j) => j !== i))
                       setDirty(true)
@@ -2392,10 +2439,10 @@ function HooksSection() {
                   </IconButton>
                 </div>
                 <TextInput
-                  aria-label="Command"
+                  aria-label={copy.settings.hooks.command}
                   value={r.command}
                   onChange={(e) => change(i, { command: e.target.value })}
-                  placeholder={`e.g. jq -r .tool_input.file_path | xargs npx prettier --write`}
+                  placeholder={copy.settings.hooks.commandPlaceholder}
                   className="font-mono text-[12.5px]"
                 />
               </div>
@@ -2415,11 +2462,11 @@ function HooksSection() {
                   setDirty(true)
                 }}
               >
-                Add hook
+                {copy.settings.hooks.add}
               </Button>
               <span className="flex-1" />
               <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>
-                Save
+                {copy.settings.shared.save}
               </Button>
             </div>
           </Row>
@@ -2438,9 +2485,9 @@ interface SkillEntry {
 }
 
 const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
-  myrmidon: 'Myrmidon',
-  claude: 'Claude Code',
-  project: 'project',
+  myrmidon: copy.settings.skills.sources.myrmidon,
+  claude: copy.settings.skills.sources.claude,
+  project: copy.settings.skills.sources.project,
 }
 
 /** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
@@ -2457,20 +2504,22 @@ function SkillsSection() {
   }, [])
   return (
     <>
-      <Heading title="Skills">
-        Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents
-        see each skill's name and description, and load the full skill when a task matches. Add one by putting
-        its folder in <code className="font-mono text-[12.5px]">{data?.dir ?? 'skills/'}</code> or{' '}
-        <code className="font-mono text-[12.5px]">~/.claude/skills</code>; a project's{' '}
-        <code className="font-mono text-[12.5px]">.claude/skills</code> apply to its chats.
+      <Heading title={copy.settings.skills.title}>
+        {copy.settings.skills.introBeforeDir}
+        <code className="font-mono text-[12.5px]">{data?.dir ?? 'skills/'}</code>
+        {copy.settings.skills.introBeforeUserDir}
+        <code className="font-mono text-[12.5px]">~/.claude/skills</code>
+        {copy.settings.skills.introBeforeProjectDir}
+        <code className="font-mono text-[12.5px]">.claude/skills</code>
+        {copy.settings.skills.introAfterProjectDir}
       </Heading>
       {!data ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading skills…
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}
         </div>
       ) : data.skills.length === 0 ? (
-        <Empty icon={<GraduationCap className="size-5" />} title="No skills yet">
-          Put a skill folder in one of the places above and it appears here.
+        <Empty icon={<GraduationCap className="size-5" />} title={copy.settings.skills.emptyTitle}>
+          {copy.settings.skills.emptyBody}
         </Empty>
       ) : (
         <Card>
@@ -2491,7 +2540,7 @@ function SkillsSection() {
                 </div>
                 <Switch
                   checked={s.enabled}
-                  label={`Agents can use ${s.name}`}
+                  label={copy.settings.skills.canUse(s.name)}
                   onChange={(enabled) =>
                     void send('PUT', `/api/skills/${s.name}`, { enabled })
                       .then(load)
@@ -2546,47 +2595,44 @@ function MemorySection() {
     }
   }
   const scopeName = (project?: string) =>
-    project ? (projects.find((p) => p.id === project)?.name ?? project) : 'Every chat'
+    project ? (projects.find((p) => p.id === project)?.name ?? project) : copy.settings.memory.everyChat
   const groups = [...new Set((memories ?? []).map((m) => m.project ?? ''))].sort((a, b) =>
     a === '' ? -1 : b === '' ? 1 : scopeName(a).localeCompare(scopeName(b)),
   )
   return (
     <>
-      <Heading title="Memory">
-        What every new chat starts knowing: your preferences and decisions, and lessons about each project.
-        Agents propose memories during a chat; nothing is kept until you keep it.
-      </Heading>
+      <Heading title={copy.settings.memory.title}>{copy.settings.memory.intro}</Heading>
       <Card className="mb-6">
         <Row>
-          <Field label="Remember something" hint="One fact per memory, in a sentence.">
+          <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
             <TextArea
               value={draft.text}
               onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder="e.g. I prefer pnpm over npm. Reports go in docs/reports/."
+              placeholder={copy.settings.memory.rememberPlaceholder}
               rows={2}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label="Kind"
+              aria-label={copy.settings.memory.kind}
               value={draft.kind}
               onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
             >
               {MEMORY_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {copy.settings.memory.kinds[k]}
                 </option>
               ))}
             </Select>
             <Select
-              aria-label="Applies to"
+              aria-label={copy.settings.memory.appliesTo}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">Every chat</option>
+              <option value="">{copy.settings.memory.everyChat}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  Only {p.name}
+                  {copy.settings.memory.onlyProject(p.name)}
                 </option>
               ))}
             </Select>
@@ -2603,18 +2649,18 @@ function MemorySection() {
                 })
               }
             >
-              Remember
+              {copy.settings.memory.rememberButton}
             </Button>
           </div>
         </Row>
       </Card>
       {!memories ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading memory…
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
         </div>
       ) : memories.length === 0 ? (
-        <Empty icon={<BookMarked className="size-5" />} title="Nothing remembered yet">
-          Add something above, or keep a memory an agent proposes in a chat.
+        <Empty icon={<BookMarked className="size-5" />} title={copy.settings.memory.emptyTitle}>
+          {copy.settings.memory.emptyBody}
         </Empty>
       ) : (
         groups.map((g) => (
@@ -2639,7 +2685,7 @@ function MemorySection() {
                         ) : (
                           <button
                             type="button"
-                            title="Edit"
+                            title={copy.settings.memory.edit}
                             onClick={() => setEditing({ id: m.id, text: m.text })}
                             className="w-full text-left text-[13.5px] leading-relaxed hover:text-fg-2"
                           >
@@ -2648,7 +2694,7 @@ function MemorySection() {
                         )}
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-muted">
                           <Select
-                            aria-label="Kind"
+                            aria-label={copy.settings.memory.kind}
                             value={m.kind}
                             onChange={(e) =>
                               void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
@@ -2656,12 +2702,12 @@ function MemorySection() {
                           >
                             {MEMORY_KINDS.map((k) => (
                               <option key={k} value={k}>
-                                {k}
+                                {copy.settings.memory.kinds[k]}
                               </option>
                             ))}
                           </Select>
                           <Select
-                            aria-label="Applies to"
+                            aria-label={copy.settings.memory.appliesTo}
                             value={m.project ?? ''}
                             onChange={(e) =>
                               void act(() =>
@@ -2669,22 +2715,26 @@ function MemorySection() {
                               )
                             }
                           >
-                            <option value="">Every chat</option>
+                            <option value="">{copy.settings.memory.everyChat}</option>
                             {projects.map((p) => (
                               <option key={p.id} value={p.id}>
-                                Only {p.name}
+                                {copy.settings.memory.onlyProject(p.name)}
                               </option>
                             ))}
                           </Select>
                           <span>
                             {m.source.by === 'agent'
-                              ? `from ${m.source.agent ?? 'an agent'}`
-                              : 'added by you'}{' '}
+                              ? copy.settings.memory.fromAgent(m.source.agent ?? copy.settings.memory.anAgent)
+                              : copy.settings.memory.addedByYou}{' '}
                             · {m.updatedAt.slice(0, 10)}
                           </span>
-                          {m.status === 'proposed' && <Pill tone="warn">waiting for you</Pill>}
+                          {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
                         </div>
-                        {m.source.why && <p className="mt-1 text-[12px] text-muted">Why: {m.source.why}</p>}
+                        {m.source.why && (
+                          <p className="mt-1 text-[12px] text-muted">
+                            {copy.settings.memory.why(m.source.why)}
+                          </p>
+                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {editing?.id === m.id ? (
@@ -2698,7 +2748,7 @@ function MemorySection() {
                               })
                             }
                           >
-                            Save
+                            {copy.settings.shared.save}
                           </Button>
                         ) : m.status === 'proposed' ? (
                           <Button
@@ -2709,11 +2759,11 @@ function MemorySection() {
                               void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
                             }
                           >
-                            Keep
+                            {copy.settings.memory.keep}
                           </Button>
                         ) : null}
                         <IconButton
-                          label="Forget this"
+                          label={copy.settings.memory.forget}
                           onClick={() =>
                             void act(() =>
                               m.status === 'proposed'
@@ -2737,20 +2787,20 @@ function MemorySection() {
 }
 
 const SHORTCUTS: [string, string[]][] = [
-  ['New task', ['⌘', 'K']],
-  ['Focus the message box', ['/']],
-  ['Toggle sidebar', ['⌘', 'B']],
-  ['Toggle workspace', ['⌘', 'J']],
-  ['Open settings', ['⌘', ',']],
-  ['Send message', ['Enter']],
-  ['New line', ['Shift', 'Enter']],
-  ['Close dialogs and panels', ['Esc']],
+  [copy.settings.shortcuts.newTask, ['⌘', 'K']],
+  [copy.settings.shortcuts.focusComposer, ['/']],
+  [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
+  [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
+  [copy.settings.shortcuts.openSettings, ['⌘', ',']],
+  [copy.settings.shortcuts.send, ['Enter']],
+  [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
+  [copy.settings.shortcuts.close, ['Esc']],
 ]
 
 function Shortcuts() {
   return (
     <>
-      <Heading title="Keyboard shortcuts" />
+      <Heading title={copy.settings.shortcuts.title} />
       <Card>
         {SHORTCUTS.map(([label, keys]) => (
           <div key={label} className="flex items-center justify-between px-4 py-3 text-[13.5px]">
@@ -2770,37 +2820,35 @@ function Shortcuts() {
 function About({ data }: { data?: SettingsResponse }) {
   return (
     <>
-      <Heading title="About Myrmidon">
-        Crews of agents that plan, research, build, and verify on your machine.
-      </Heading>
+      <Heading title={copy.settings.about.title}>{copy.settings.about.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Data directory" inline>
+          <Field label={copy.settings.about.dataDirectory} inline>
             <span className="font-mono text-[12.5px] text-muted">{data?.home ?? '…'}</span>
           </Field>
         </Row>
         <Row>
-          <Field label="Providers ready" hint="Through the embedded omp provider stack." inline>
+          <Field
+            label={copy.settings.about.providersReady}
+            hint={copy.settings.about.providersReadyHint}
+            inline
+          >
             <span className="font-mono text-[12.5px] text-muted">
               {data ? data.providers.filter((p) => p.ready).length : '…'}
             </span>
           </Field>
         </Row>
         <Row>
-          <Field label="Sandbox" inline>
+          <Field label={copy.settings.about.sandbox} inline>
             <span className="font-mono text-[12.5px] text-muted">{data?.sandbox ?? '…'}</span>
           </Field>
         </Row>
         <Row>
-          <p className="text-[12.5px] text-muted">
-            Every crew's work is an append-only event log; agents never edit your files directly. Licensed
-            under Apache-2.0.
-          </p>
+          <p className="text-[12.5px] text-muted">{copy.settings.about.eventLog}</p>
         </Row>
       </Card>
       <div className="mt-4 flex items-center gap-2 text-[12px] text-muted">
-        <Bot className="size-3.5" /> Built on oh-my-pi (providers, search, readers), pi-agent-core, and
-        Cordis.
+        <Bot className="size-3.5" /> {copy.settings.about.builtOn}
       </div>
     </>
   )

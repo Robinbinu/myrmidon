@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, browserSocket, keyframeImage } from '../api.ts'
+import { copy } from '../copy.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
@@ -84,9 +85,9 @@ function keyframesOf(events: readonly MyrEvent[]): Map<string, Keyframe[]> {
 type Mode = 'follow' | Activity['kind']
 
 const MODE_LABEL: Record<Activity['kind'], string> = {
-  browser: 'Browser',
-  terminal: 'Terminal',
-  editor: 'Editor',
+  browser: copy.computer.modes.browser,
+  terminal: copy.computer.modes.terminal,
+  editor: copy.computer.modes.editor,
 }
 
 export function Computer({
@@ -140,9 +141,8 @@ export function Computer({
   const current = known.find((t) => t.agent === agent) ?? known[0]
   if (!current)
     return (
-      <Empty icon={<MonitorSmartphone className="size-5" />} title="Nothing on screen yet">
-        When an agent browses, runs commands, or writes files, you can watch it here, follow its cursor, and
-        take control of its browser.
+      <Empty icon={<MonitorSmartphone className="size-5" />} title={copy.computer.emptyTitle}>
+        {copy.computer.emptyBody}
       </Empty>
     )
   return (
@@ -209,7 +209,9 @@ function AgentScreen(props: {
                 mode === m ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
               )}
             >
-              {m === 'follow' ? `Follow${latest ? ` · ${MODE_LABEL[latest]}` : ''}` : MODE_LABEL[m]}
+              {m === 'follow'
+                ? `${copy.computer.follow}${latest ? ` · ${MODE_LABEL[latest]}` : ''}`
+                : MODE_LABEL[m]}
             </button>
           ))}
         </div>
@@ -242,19 +244,27 @@ function TerminalScreen(props: { agent: string; activity: readonly Activity[]; l
   }, [runs.length, runs.at(-1)?.output])
   return (
     <div className="flex flex-col gap-1.5">
-      <ScreenTitle agent={props.agent} what="Terminal" />
-      <div className="max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-[#0b0b0d] p-3 font-mono text-[11.5px] leading-relaxed text-[#d7d7de]">
+      <ScreenTitle agent={props.agent} what={copy.computer.terminal} />
+      <div className="max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-[color:var(--terminal-bg)] p-3 font-mono text-[11.5px] leading-relaxed text-[color:var(--terminal-text)]">
         {runs.map((r, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: runs are positional and append-only
           <div key={i} className="mb-2">
-            <div className="text-[#9be37a]">
-              <span className="select-none text-[#6b6b78]">$ </span>
+            <div className="text-[color:var(--terminal-command)]">
+              <span className="select-none text-[color:var(--terminal-muted)]">$ </span>
               {r.command}
             </div>
             {r.output === undefined ? (
-              props.live && i === runs.length - 1 && <div className="text-[#6b6b78]">running…</div>
+              props.live &&
+              i === runs.length - 1 && (
+                <div className="text-[color:var(--terminal-muted)]">{copy.computer.running}</div>
+              )
             ) : (
-              <pre className={cn('m-0 whitespace-pre-wrap break-words', r.ok === false && 'text-[#ff8a8a]')}>
+              <pre
+                className={cn(
+                  'm-0 whitespace-pre-wrap break-words',
+                  r.ok === false && 'text-[color:var(--terminal-error)]',
+                )}
+              >
                 {r.output.length > 4_000
                   ? `${r.output.slice(0, 4_000)}
 …`
@@ -280,12 +290,15 @@ function EditorScreen(props: { agent: string; activity: readonly Activity[] }) {
         ...last.edit.old.split('\n').map((t) => ({ t, kind: 'del' as const })),
         ...last.edit.new.split('\n').map((t) => ({ t, kind: 'add' as const })),
       ]
-    : (last.content ?? '(published from a file in its scratch directory)')
+    : (last.content ?? copy.computer.publishedFromScratch)
         .split('\n')
         .map((t) => ({ t, kind: 'same' as const }))
   return (
     <div className="flex flex-col gap-1.5">
-      <ScreenTitle agent={props.agent} what={`Editor · ${last.path}${last.edit ? ' (edit)' : ''}`} />
+      <ScreenTitle
+        agent={props.agent}
+        what={`${copy.computer.editor(last.path)}${last.edit ? copy.computer.edited : ''}`}
+      />
       <pre className="m-0 max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-code py-2 font-mono text-[11.5px] leading-[1.6]">
         {lines.slice(0, 600).map((l, i) => (
           <div
@@ -309,7 +322,7 @@ function ScreenTitle(props: { agent: string; what: string }) {
     <div className="flex items-center gap-2">
       <AgentAvatar name={props.agent} status="working" size={26} awake />
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-semibold">{props.agent}’s computer</div>
+        <div className="text-[13px] font-semibold">{copy.computer.agentsComputer(props.agent)}</div>
         <div className="truncate text-[11.5px] text-muted">{props.what}</div>
       </div>
     </div>
@@ -382,7 +395,7 @@ function LiveTab({
           clickTimer = setTimeout(() => setCursor((c) => ({ ...c, clicking: false })), 450)
       }
     }
-    ws.onclose = (e) => setError(e.reason || 'The session ended. This is the last screen.')
+    ws.onclose = (e) => setError(e.reason || copy.computer.sessionEnded)
     return () => {
       clearTimeout(clickTimer)
       ws.close()
@@ -435,18 +448,19 @@ function LiveTab({
       <div className="flex items-center gap-2">
         <AgentAvatar name={agent} status={controlling ? 'idle' : 'working'} size={26} awake />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold">{agent}’s computer</div>
+          <div className="text-[13px] font-semibold">{copy.computer.agentsComputer(agent)}</div>
           <div className="flex items-center gap-1 truncate text-[11.5px] text-muted">
             <Globe className="size-3 shrink-0" />{' '}
-            {(replaying ? replaying.title || replaying.url : page.title || page.url) || 'blank page'}
+            {(replaying ? replaying.title || replaying.url : page.title || page.url) ||
+              copy.computer.blankPage}
           </div>
         </div>
         {controlling ? (
-          <Pill tone="warn">you have control</Pill>
+          <Pill tone="warn">{copy.computer.youHaveControl}</Pill>
         ) : live ? (
-          <Pill tone="work">agent browsing</Pill>
+          <Pill tone="work">{copy.computer.agentBrowsing}</Pill>
         ) : (
-          <Pill>ended</Pill>
+          <Pill>{copy.computer.ended}</Pill>
         )}
         {live && (
           <Button
@@ -455,11 +469,11 @@ function LiveTab({
             onClick={() => send({ type: 'control', by: controlling ? 'agent' : 'person' })}
             icon={controlling ? <Undo2 className="size-3.5" /> : <Hand className="size-3.5" />}
           >
-            {controlling ? `Hand back to ${agent}` : 'Take control'}
+            {controlling ? copy.computer.handBack(agent) : copy.computer.takeControl}
           </Button>
         )}
         <IconButton
-          label={full ? 'Exit full screen' : 'Full screen'}
+          label={full ? copy.computer.exitFullScreen : copy.computer.fullScreen}
           size="sm"
           onClick={() => setFull(!full)}
         >
@@ -473,7 +487,7 @@ function LiveTab({
         ref={screen}
         tabIndex={controlling ? 0 : -1}
         role="img"
-        aria-label={`${agent}'s browser: ${page.title || page.url}`}
+        aria-label={copy.computer.browserLabel(agent, page.title || page.url)}
         className={cn(
           'relative mx-auto w-full overflow-hidden rounded-xl border bg-black outline-none',
           full && 'max-w-[calc((100dvh-140px)*1.6)]',
@@ -524,7 +538,7 @@ function LiveTab({
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-[12.5px] text-white/50">
-            {error ?? 'Connecting to the browser…'}
+            {error ?? copy.computer.connecting}
           </div>
         )}
         {!controlling && (replaying || frame) && (replaying ? replaying.box : highlight) && (
@@ -564,7 +578,12 @@ function LiveTab({
       {frames.length > 0 && !controlling && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5">
-            <IconButton label="Previous step" size="sm" onClick={() => step(-1)} disabled={at === 0}>
+            <IconButton
+              label={copy.computer.previousStep}
+              size="sm"
+              onClick={() => step(-1)}
+              disabled={at === 0}
+            >
               <ChevronLeft className="size-3.5" />
             </IconButton>
             <div className="flex h-6 min-w-0 flex-1 items-center gap-[3px] overflow-x-auto">
@@ -573,8 +592,8 @@ function LiveTab({
                   key={f.seq}
                   type="button"
                   onClick={() => setAt(i)}
-                  title={`${f.action}${f.label ? ` · ${f.label}` : ''} · ${f.time.slice(11, 19)}`}
-                  aria-label={`Step ${i + 1}: ${f.action}`}
+                  title={`${copy.computer.actions[f.action]}${f.label ? ` · ${f.label}` : ''} · ${f.time.slice(11, 19)}`}
+                  aria-label={copy.computer.stepLabel(i + 1, copy.computer.actions[f.action])}
                   className={cn(
                     'h-4 min-w-[6px] flex-1 rounded-sm transition-colors',
                     at === i
@@ -587,7 +606,7 @@ function LiveTab({
               ))}
             </div>
             <IconButton
-              label="Next step"
+              label={copy.computer.nextStep}
               size="sm"
               onClick={() => step(1)}
               disabled={at === 'live' || (!live && at === frames.length - 1)}
@@ -601,22 +620,18 @@ function LiveTab({
                 onClick={() => setAt('live')}
                 icon={<Radio className="size-3.5" />}
               >
-                Live
+                {copy.computer.live}
               </Button>
             )}
           </div>
           <div className="truncate text-[11.5px] text-muted">
             {replaying
-              ? `Step ${(at as number) + 1} of ${frames.length} · ${replaying.action}${replaying.label ? ` · ${replaying.label}` : ''} · ${replaying.time.slice(11, 19)}`
-              : `${frames.length} recorded step${frames.length === 1 ? '' : 's'} · scrub back to replay what ${agent} did`}
+              ? `${copy.computer.stepOf((at as number) + 1, frames.length)} · ${copy.computer.actions[replaying.action]}${replaying.label ? ` · ${replaying.label}` : ''} · ${replaying.time.slice(11, 19)}`
+              : copy.computer.recorded(frames.length, agent)}
           </div>
         </div>
       )}
-      {controlling && (
-        <p className="text-[12px] text-muted">
-          Click and type in the page as usual. {agent} waits until you hand it back.
-        </p>
-      )}
+      {controlling && <p className="text-[12px] text-muted">{copy.computer.controlHint(agent)}</p>}
       {error && frame && <p className="text-[12px] text-bad-ink">{error}</p>}
     </div>
   )

@@ -1,5 +1,6 @@
 import { ChevronRight, Columns2, Rows2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
 import { cn } from '../ui/primitives.tsx'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
 
@@ -14,11 +15,31 @@ export interface DiffFile {
 export type DiffMode = 'unified' | 'split'
 
 export const STATUS: Record<string, { label: string; className: string; title: string }> = {
-  A: { label: 'A', className: 'text-ok-ink', title: 'Added' },
-  M: { label: 'M', className: 'text-warn-ink', title: 'Modified' },
-  D: { label: 'D', className: 'text-bad-ink', title: 'Deleted' },
-  R: { label: 'R', className: 'text-accent-fg', title: 'Renamed' },
-  '?': { label: 'U', className: 'text-ok-ink', title: 'Untracked' },
+  A: {
+    label: copy.diffView.status.added.label,
+    className: 'text-ok-ink',
+    title: copy.diffView.status.added.title,
+  },
+  M: {
+    label: copy.diffView.status.modified.label,
+    className: 'text-warn-ink',
+    title: copy.diffView.status.modified.title,
+  },
+  D: {
+    label: copy.diffView.status.deleted.label,
+    className: 'text-bad-ink',
+    title: copy.diffView.status.deleted.title,
+  },
+  R: {
+    label: copy.diffView.status.renamed.label,
+    className: 'text-accent-fg',
+    title: copy.diffView.status.renamed.title,
+  },
+  '?': {
+    label: copy.diffView.status.untracked.label,
+    className: 'text-ok-ink',
+    title: copy.diffView.status.untracked.title,
+  },
 }
 
 const MODE_KEY = 'myr-diff-mode'
@@ -68,13 +89,13 @@ export function StatBar({ added = 0, removed = 0 }: { added?: number; removed?: 
 export function DiffModeToggle({ mode, onMode }: { mode: DiffMode; onMode(m: DiffMode): void }) {
   return (
     <fieldset
-      aria-label="Diff layout"
+      aria-label={copy.diffView.layout}
       className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
     >
       {(
         [
-          ['unified', Rows2, 'Unified'],
-          ['split', Columns2, 'Side by side'],
+          ['unified', Rows2, copy.diffView.unified],
+          ['split', Columns2, copy.diffView.split],
         ] as const
       ).map(([value, Icon, label]) => (
         <button
@@ -140,8 +161,7 @@ function Code({ line, wrap }: { line?: DiffLine; wrap?: boolean }) {
 /** One file's hunks with old/new line numbers, unified or side by side. */
 export function FilePatch({ text, mode }: { text: string; mode: DiffMode }) {
   const hunks = useMemo(() => parseFilePatch(text), [text])
-  if (hunks.length === 0)
-    return <p className="px-3 py-2 text-[12px] text-muted">Binary file, or nothing to show line by line.</p>
+  if (hunks.length === 0) return <p className="px-3 py-2 text-[12px] text-muted">{copy.diffView.binary}</p>
   return (
     <div className="overflow-x-auto">
       <table
@@ -260,7 +280,8 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
   const sections = useMemo(() => splitPatch(props.patch), [props.patch])
   const [mode, setMode] = useDiffMode()
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(props.open ? [props.open] : []))
-  if (props.files.length === 0) return <p className="px-1 py-2 text-[12.5px] text-muted">No file changes.</p>
+  if (props.files.length === 0)
+    return <p className="px-1 py-2 text-[12.5px] text-muted">{copy.diffView.noChanges}</p>
   const added = props.files.reduce((n, f) => n + (f.added ?? 0), 0)
   const removed = props.files.reduce((n, f) => n + (f.removed ?? 0), 0)
   const allOpen = open.size === props.files.length
@@ -268,7 +289,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
         <span>
-          {props.files.length} file{props.files.length === 1 ? '' : 's'} ·{' '}
+          {copy.diffView.fileCount(props.files.length)} ·{' '}
           <span className="font-mono text-ok-ink">+{added}</span>{' '}
           <span className="font-mono text-bad-ink">−{removed}</span>
         </span>
@@ -278,7 +299,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
           className="rounded-md px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg"
           onClick={() => setOpen(allOpen ? new Set() : new Set(props.files.map((f) => f.path)))}
         >
-          {allOpen ? 'Collapse all' : 'Expand all'}
+          {allOpen ? copy.diffView.collapseAll : copy.diffView.expandAll}
         </button>
         <DiffModeToggle mode={mode} onMode={setMode} />
       </div>
@@ -299,9 +320,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
           }
         />
       ))}
-      {props.truncated && (
-        <p className="px-1 text-[12px] text-muted">The diff is large; only its first 512 KB is shown.</p>
-      )}
+      {props.truncated && <p className="px-1 text-[12px] text-muted">{copy.diffView.truncated}</p>}
     </div>
   )
 }

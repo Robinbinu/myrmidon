@@ -24,10 +24,12 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
+import { copy } from '../copy.ts'
 import { compact, usePersistentFlag } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
-import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, toneFor } from '../ui/primitives.tsx'
+import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
+import { softSpring } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -55,16 +57,16 @@ type Tab =
 
 /** The panel's views, listed down its activity bar like an IDE's. `terminal` is the agents' sandboxed commands. */
 const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: boolean }[] = [
-  { value: 'files', label: 'Files', icon: FileCode },
-  { value: 'git', label: 'Git', icon: GitBranch, projectOnly: true },
-  { value: 'shell', label: 'Terminal', icon: Terminal },
-  { value: 'computer', label: 'Computer', icon: MonitorSmartphone },
-  { value: 'tasks', label: 'Tasks', icon: ListChecks },
-  { value: 'team', label: 'Team', icon: Users },
-  { value: 'mail', label: 'Mail', icon: Mail },
-  { value: 'terminal', label: 'Agent commands', icon: SquareTerminal },
-  { value: 'activity', label: 'Activity', icon: Activity },
-  { value: 'audit', label: 'Audit', icon: ShieldCheck },
+  { value: 'files', label: copy.workspace.views.files, icon: FileCode },
+  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, projectOnly: true },
+  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal },
+  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone },
+  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks },
+  { value: 'team', label: copy.workspace.views.team, icon: Users },
+  { value: 'mail', label: copy.workspace.views.mail, icon: Mail },
+  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal },
+  { value: 'activity', label: copy.workspace.views.activity, icon: Activity },
+  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck },
 ]
 
 const ORDER: TaskSnapshot['status'][] = [
@@ -121,17 +123,17 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
       <Select
         value={current ? keyOf(current) : ''}
         onChange={(e) => setPicked(e.target.value)}
-        aria-label="Round"
+        aria-label={copy.workspace.roundLabel}
       >
         {rounds.map((r) => (
           <option key={keyOf(r)} value={keyOf(r)}>
-            Round {r.round}
+            {copy.workspace.roundOption(r.round)}
           </option>
         ))}
       </Select>
     ) : null
   return (
-    <aside aria-label="Workspace" className="flex h-full shrink-0">
+    <aside aria-label={copy.workspace.label} className="flex h-full shrink-0">
       {colonyId && (
         <WorkspaceBody
           key={colonyId}
@@ -249,7 +251,12 @@ function WorkspaceBody({
     <>
       <div className="flex h-full min-h-0">
         {open && (
-          <SplitDivider split={split} side="right" label="Resize workspace" className="hidden xl:block" />
+          <SplitDivider
+            split={split}
+            side="right"
+            label={copy.workspace.resize}
+            className="hidden xl:block"
+          />
         )}
         <div
           style={{ '--inspector-w': `${split.width}px` } as CSSProperties}
@@ -279,7 +286,7 @@ function WorkspaceBody({
                     setTab(next)
                     if (next === 'shell') setShellOpened(true)
                   }}
-                  aria-label="Workspace view"
+                  aria-label={copy.workspace.viewLabel}
                   className="min-w-0 flex-1 md:hidden"
                 >
                   {views.map((v) => (
@@ -289,7 +296,11 @@ function WorkspaceBody({
                   ))}
                 </Select>
                 {roundPicker}
-                <IconButton label="Close panel" title="Close panel (⌘J)" onClick={() => onOpenChange(false)}>
+                <IconButton
+                  label={copy.workspace.close}
+                  title={copy.workspace.closeTitle}
+                  onClick={() => onOpenChange(false)}
+                >
                   <X className="size-4" />
                 </IconButton>
               </div>
@@ -297,7 +308,7 @@ function WorkspaceBody({
                 <div className={tab === 'shell' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
                   <ShellTerminal
                     {...(project ? { project: project.id } : {})}
-                    cwdLabel={project ? `${project.name} · your shell` : '~ · your shell'}
+                    cwdLabel={project ? copy.workspace.shellCwd(project.name) : copy.workspace.shellCwd('~')}
                   />
                 </div>
               )}
@@ -315,8 +326,11 @@ function WorkspaceBody({
                     {tab === 'files' &&
                       (files.length === 0 ? (
                         Object.keys(state.madeTools).length > 0 ? null : (
-                          <Empty icon={<FileCode className="size-5" />} title="No files yet">
-                            Everything the crew publishes appears here, with every version kept.
+                          <Empty
+                            icon={<FileCode className="size-5" />}
+                            title={copy.workspace.files.emptyTitle}
+                          >
+                            {copy.workspace.files.emptyBody}
                           </Empty>
                         )
                       ) : (
@@ -337,8 +351,8 @@ function WorkspaceBody({
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-[13.5px] font-medium">{name}</span>
                                   <span className="text-[11.5px] text-muted">
-                                    {versions.length} version{versions.length === 1 ? '' : 's'} ·{' '}
-                                    {compact(latest?.size ?? 0)}B · {latest?.author}
+                                    {copy.workspace.files.meta(versions.length, compact(latest?.size ?? 0))} ·{' '}
+                                    {latest?.author}
                                   </span>
                                 </span>
                                 <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
@@ -349,15 +363,18 @@ function WorkspaceBody({
                       ))}
                     {tab === 'tasks' &&
                       (tasks.length === 0 ? (
-                        <Empty icon={<ListChecks className="size-5" />} title="No tasks">
-                          Tasks appear when a team splits the work into parts.
+                        <Empty
+                          icon={<ListChecks className="size-5" />}
+                          title={copy.workspace.tasks.emptyTitle}
+                        >
+                          {copy.workspace.tasks.emptyBody}
                         </Empty>
                       ) : (
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
                               <summary className="flex list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
-                                Plan · {plan.agent}
+                                {copy.workspace.tasks.plan(plan.agent)}
                               </summary>
                               <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
                                 {plan.text}
@@ -367,11 +384,14 @@ function WorkspaceBody({
                           <div className="border-b border-line px-4 py-3.5">
                             <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
                               <span className="font-semibold">
-                                {by('verified')} of {tasks.length} done
+                                {copy.workspace.tasks.done(by('verified'), tasks.length)}
                               </span>
                               <span className="text-muted">
-                                {by('in_progress')} active · {by('submitted')} in review · {by('pending')}{' '}
-                                waiting
+                                {copy.workspace.tasks.progress(
+                                  by('in_progress'),
+                                  by('submitted'),
+                                  by('pending'),
+                                )}
                               </span>
                             </div>
                             <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
@@ -394,13 +414,13 @@ function WorkspaceBody({
                           </div>
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <fieldset
-                              aria-label="Task layout"
+                              aria-label={copy.workspace.tasks.layout}
                               className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
                             >
                               {(
                                 [
-                                  [false, 'List'],
-                                  [true, 'Board'],
+                                  [false, copy.workspace.tasks.list],
+                                  [true, copy.workspace.tasks.board],
                                 ] as const
                               ).map(([value, label]) => (
                                 <button
@@ -446,7 +466,9 @@ function WorkspaceBody({
                                         open={open && details}
                                         className={details ? 'text-muted' : 'invisible'}
                                       />
-                                      <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
+                                      <Pill tone={toneFor(t.status)}>
+                                        {copy.workspace.taskStatus[t.status]}
+                                      </Pill>
                                       <span className="font-mono text-[11px] text-muted">{t.id}</span>
                                       {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
                                     </button>
@@ -473,7 +495,7 @@ function WorkspaceBody({
                                     )}
                                     {open && t.blockedBy.length > 0 && (
                                       <div className="text-[11.5px] text-muted">
-                                        after {t.blockedBy.join(', ')}
+                                        {copy.workspace.tasks.after(t.blockedBy.join(', '))}
                                       </div>
                                     )}
                                   </motion.li>
@@ -508,7 +530,7 @@ function WorkspaceBody({
                                       </span>
                                     )}
                                     <Pill tone={toneFor(a.status)}>
-                                      <Dot status={a.status} /> {a.status}
+                                      <Dot status={a.status} /> {copy.workspace.agentStatus[a.status]}
                                     </Pill>
                                   </div>
                                   <div className="truncate font-mono text-[11.5px] text-muted">
@@ -516,14 +538,14 @@ function WorkspaceBody({
                                   </div>
                                   {(task || a.detail) && (
                                     <div className="text-[12.5px]">
-                                      {task ? `Working on ${task.subject}` : a.detail}
+                                      {task ? copy.workspace.team.workingOn(task.subject) : a.detail}
                                     </div>
                                   )}
                                   <div className="mt-1 flex flex-wrap gap-4">
                                     {[
-                                      ['turns', String(a.turns)],
-                                      ['tokens', compact(a.tokens)],
-                                      ['tools', String(a.toolCalls)],
+                                      [copy.workspace.team.turns, String(a.turns)],
+                                      [copy.workspace.team.tokens, compact(a.tokens)],
+                                      [copy.workspace.team.tools, String(a.toolCalls)],
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
@@ -547,15 +569,15 @@ function WorkspaceBody({
                     )}
                     {tab === 'terminal' &&
                       (shells.length === 0 ? (
-                        <Empty icon={<Terminal className="size-5" />} title="No shell commands yet">
-                          Agents run commands in a sandbox that can only write to their own scratch folder.
+                        <Empty icon={<Terminal className="size-5" />} title={copy.workspace.shell.emptyTitle}>
+                          {copy.workspace.shell.emptyBody}
                         </Empty>
                       ) : (
                         <>
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-[12px] text-slate-200">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -573,7 +595,7 @@ function WorkspaceBody({
                                       <span>{s.time.slice(11, 19)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
-                                        <span className="text-work-ink">running…</span>
+                                        <span className="text-work-ink">{copy.workspace.shell.running}</span>
                                       ) : (
                                         <span
                                           className={
@@ -603,7 +625,7 @@ function WorkspaceBody({
                                         .slice(1)
                                         .join('\n')
                                         .replace(/--- (stdout|stderr)\n?/g, '')
-                                        .trim() || '(no output)'}
+                                        .trim() || copy.workspace.shell.noOutput}
                                     </pre>
                                   )}
                                 </div>
@@ -624,7 +646,7 @@ function WorkspaceBody({
                     )}
                     {tab === 'activity' &&
                       (steps.length === 0 ? (
-                        <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
+                        <Empty icon={<Activity className="size-5" />} title={copy.workspace.activityEmpty} />
                       ) : (
                         <ol className="flex flex-col px-4 py-2">
                           {[...steps].reverse().map((s) => (
@@ -650,7 +672,7 @@ function WorkspaceBody({
           )}
         </div>
         <nav
-          aria-label="Workspace views"
+          aria-label={copy.workspace.viewsLabel}
           className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface pb-2 md:flex"
         >
           <div data-toolbar className="drag-region mb-1 h-[52px] w-full shrink-0 border-b border-line" />
@@ -765,18 +787,20 @@ function MailTab(props: { messages: readonly Message[]; onInspect(name: string):
   const shown = who ? props.messages.filter((m) => m.from === who || m.to === who) : props.messages
   if (props.messages.length === 0)
     return (
-      <Empty icon={<Mail className="size-5" />} title="No messages yet">
-        Board posts and mail between agents show up here.
+      <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
+        {copy.workspace.mail.emptyBody}
       </Empty>
     )
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <span className="text-[12px] text-muted">
-          {shown.length} message{shown.length === 1 ? '' : 's'}
-        </span>
-        <Select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Show messages for">
-          <option value="">Everyone</option>
+        <span className="text-[12px] text-muted">{copy.workspace.mail.count(shown.length)}</span>
+        <Select
+          value={who}
+          onChange={(e) => setWho(e.target.value)}
+          aria-label={copy.workspace.mail.filterLabel}
+        >
+          <option value="">{copy.workspace.mail.everyone}</option>
           {names.map((n) => (
             <option key={n} value={n}>
               {n}
@@ -790,7 +814,7 @@ function MailTab(props: { messages: readonly Message[]; onInspect(name: string):
             <button
               type="button"
               onClick={() => props.onInspect(m.from)}
-              aria-label={`Open ${m.from}`}
+              aria-label={copy.workspace.mail.open(m.from)}
               className="h-fit rounded-lg transition-transform hover:scale-105"
             >
               <AgentAvatar name={m.from} status="idle" size={26} awake />
@@ -798,8 +822,12 @@ function MailTab(props: { messages: readonly Message[]; onInspect(name: string):
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-1.5 text-[12px]">
                 <span className="font-semibold text-fg">{m.from}</span>
-                <span className="text-muted">→ {m.to === 'board' ? 'everyone' : m.to}</span>
-                {m.to !== 'board' && m.read === false && <Pill tone="warn">unread</Pill>}
+                <span className="text-muted">
+                  → {m.to === 'board' ? copy.workspace.mail.toEveryone : m.to}
+                </span>
+                {m.to !== 'board' && m.read === false && (
+                  <Pill tone="warn">{copy.workspace.mail.unread}</Pill>
+                )}
                 <time className="ml-auto shrink-0 tabular-nums text-muted">{m.time.slice(11, 16)}</time>
               </div>
               <div className="mt-1 rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">

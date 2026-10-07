@@ -3,16 +3,18 @@ import { BookmarkPlus, Check, KeyRound, MonitorSmartphone, ShieldQuestion, X } f
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { send } from '../api.ts'
-import { Button, spring } from '../ui/primitives.tsx'
+import { copy } from '../copy.ts'
+import { Button } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
+import { spring } from '../ui-config.ts'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
   tool === 'shell'
-    ? 'run a command'
+    ? copy.approvals.actions.shell
     : tool === 'fs_write' || tool === 'fs_edit'
-      ? 'change a file'
-      : `use ${tool.replace(/^mcp__/, '').replaceAll('_', ' ')}`
+      ? copy.approvals.actions.file
+      : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
 /** Tool calls waiting for the person in an "Ask first" project: Approve or Deny each, right in the chat. */
 export function ApprovalCards({ colonyId, state }: { colonyId: string; state: ColonyState }) {
@@ -45,7 +47,8 @@ export function ApprovalCards({ colonyId, state }: { colonyId: string; state: Co
           <div className="flex items-center gap-2 text-[13.5px]">
             <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
             <span>
-              <span className="font-semibold">{a.agent}</span> wants to {action(a.tool)}
+              <span className="font-semibold">{a.agent}</span>{' '}
+              {copy.approvals.approval.wantsTo(action(a.tool))}
             </span>
           </div>
           <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12.5px]">
@@ -59,7 +62,7 @@ export function ApprovalCards({ colonyId, state }: { colonyId: string; state: Co
               onClick={() => void decide(a.id, false)}
               icon={<X className="size-3.5" />}
             >
-              Deny
+              {copy.approvals.approval.deny}
             </Button>
             <Button
               size="sm"
@@ -68,7 +71,7 @@ export function ApprovalCards({ colonyId, state }: { colonyId: string; state: Co
               onClick={() => void decide(a.id, true)}
               icon={<Check className="size-3.5" />}
             >
-              Approve
+              {copy.approvals.approval.approve}
             </Button>
           </div>
         </motion.div>
@@ -99,13 +102,12 @@ export function LoginCards({ state }: { state: ColonyState }) {
           <div className="flex items-center gap-2 text-[13.5px]">
             <KeyRound className="size-4 shrink-0 text-accent-fg" />
             <span>
-              <span className="font-semibold">{l.agent}</span> needs you to sign in to{' '}
+              <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
             </span>
           </div>
           <p className="text-[12.5px] leading-relaxed text-fg-2">
-            {l.reason} Open {l.agent}’s browser, choose Take control, sign in, then Hand back. The agent never
-            sees what you type, and the sign-in is kept for later rounds.
+            {l.reason} {copy.approvals.login.instructions(l.agent)}
           </p>
           <div className="flex justify-end">
             <Button
@@ -118,7 +120,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
                 )
               }
             >
-              Open {l.agent}’s browser
+              {copy.approvals.login.openBrowser(l.agent)}
             </Button>
           </div>
         </motion.div>
@@ -139,7 +141,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
     setBusy(id)
     try {
       await send('POST', `/api/memory/${id}/decide`, { keep })
-      if (keep) toast('Kept: later chats start with it', 'success')
+      if (keep) toast(copy.approvals.memory.kept, 'success')
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -161,8 +163,8 @@ export function MemoryCards({ state }: { state: ColonyState }) {
           <div className="flex items-center gap-2 text-[13.5px]">
             <BookmarkPlus className="size-4 shrink-0 text-accent-fg" />
             <span>
-              <span className="font-semibold">{m.agent}</span> wants to remember
-              {m.project ? ' for this project' : ' in every chat'}
+              <span className="font-semibold">{m.agent}</span> {copy.approvals.memory.wantsToRemember}
+              {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
             </span>
           </div>
           <p className="rounded-lg bg-surface px-3 py-2 text-[13.5px]">
@@ -171,7 +173,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
             </span>
             {m.text}
           </p>
-          {m.why && <p className="text-[12px] text-muted">Why: {m.why}</p>}
+          {m.why && <p className="text-[12px] text-muted">{copy.approvals.memory.why(m.why)}</p>}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -180,7 +182,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
               onClick={() => void decide(m.id, false)}
               icon={<X className="size-3.5" />}
             >
-              Discard
+              {copy.approvals.memory.discard}
             </Button>
             <Button
               size="sm"
@@ -189,7 +191,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
               onClick={() => void decide(m.id, true)}
               icon={<Check className="size-3.5" />}
             >
-              Keep
+              {copy.approvals.memory.keep}
             </Button>
           </div>
         </motion.div>

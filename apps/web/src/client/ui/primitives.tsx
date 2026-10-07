@@ -7,13 +7,11 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
+import { spring } from '../ui-config.ts'
 
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
 }
-
-export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
-export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as const
 
 type Variant =
   | 'primary'

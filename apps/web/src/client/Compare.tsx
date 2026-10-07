@@ -2,6 +2,7 @@ import type { RunDiff, RunSide } from '@myrmidon/protocol'
 import { X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type ColonySummary } from './api.ts'
+import { copy } from './copy.ts'
 import { cn, IconButton, Pill } from './ui/primitives.tsx'
 
 const secs = (ms: number) => `${Math.round(ms / 1000)}s`
@@ -30,36 +31,35 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id].slice(-2)))
 
-  if (props.colonies.length === 0)
-    return <div className="empty">No crews yet. Run one with `myrmidon run`.</div>
+  if (props.colonies.length === 0) return <div className="empty">{copy.compare.noCrews}</div>
   return (
     <div className="compare">
       {picked.length < 2 ? (
-        <p className="mb-3 text-[12.5px] text-muted">Tick two runs to see what differs between them.</p>
+        <p className="mb-3 text-[12.5px] text-muted">{copy.compare.tickTwo}</p>
       ) : diff ? (
         <RunDiffView diff={diff} onOpen={props.onOpen} onClose={() => setPicked([])} />
       ) : (
-        <p className="mb-3 text-[12.5px] text-muted">{error ?? 'Comparing…'}</p>
+        <p className="mb-3 text-[12.5px] text-muted">{error ?? copy.compare.comparing}</p>
       )}
       <table>
         <thead>
           <tr>
             <th>
-              <span className="sr-only">Compare</span>
+              <span className="sr-only">{copy.compare.columns.compare}</span>
             </th>
-            <th>Crew</th>
-            <th>Status</th>
-            <th>Pattern</th>
-            <th>Models</th>
-            <th className="num">Wall</th>
-            <th className="num">Tokens</th>
-            <th className="num">Cost</th>
-            <th className="num">Turns</th>
-            <th className="num">Tool calls</th>
-            <th className="num">Messages</th>
-            <th className="num">Artifact versions</th>
-            <th className="num">Rejections</th>
-            <th className="num">Best score</th>
+            <th>{copy.compare.columns.crew}</th>
+            <th>{copy.compare.columns.status}</th>
+            <th>{copy.compare.columns.pattern}</th>
+            <th>{copy.compare.columns.models}</th>
+            <th className="num">{copy.compare.columns.wall}</th>
+            <th className="num">{copy.compare.columns.tokens}</th>
+            <th className="num">{copy.compare.columns.cost}</th>
+            <th className="num">{copy.compare.columns.turns}</th>
+            <th className="num">{copy.compare.columns.toolCalls}</th>
+            <th className="num">{copy.compare.columns.messages}</th>
+            <th className="num">{copy.compare.columns.artifactVersions}</th>
+            <th className="num">{copy.compare.columns.rejections}</th>
+            <th className="num">{copy.compare.columns.bestScore}</th>
           </tr>
         </thead>
         <tbody>
@@ -68,7 +68,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
               <td>
                 <input
                   type="checkbox"
-                  aria-label={`Compare ${c.name}`}
+                  aria-label={copy.compare.pick(c.name)}
                   checked={picked.includes(c.id)}
                   onChange={() => toggle(c.id)}
                 />
@@ -109,12 +109,24 @@ type Metric = { label: string; a?: number; b?: number; format(n: number): string
 function metricRows(a: RunSide, b: RunSide): Metric[] {
   const n = (x: number) => x.toLocaleString()
   return [
-    { label: 'Wall time', a: a.metrics.wallMs, b: b.metrics.wallMs, format: secs, better: 'lower' },
-    { label: 'Tokens', a: a.metrics.tokens, b: b.metrics.tokens, format: n, better: 'lower' },
+    {
+      label: copy.compare.metrics.wallTime,
+      a: a.metrics.wallMs,
+      b: b.metrics.wallMs,
+      format: secs,
+      better: 'lower',
+    },
+    {
+      label: copy.compare.metrics.tokens,
+      a: a.metrics.tokens,
+      b: b.metrics.tokens,
+      format: n,
+      better: 'lower',
+    },
     ...(a.metrics.cost !== undefined || b.metrics.cost !== undefined
       ? [
           {
-            label: 'Cost',
+            label: copy.compare.metrics.cost,
             a: a.metrics.cost,
             b: b.metrics.cost,
             format: (x: number) => `$${x.toFixed(3)}`,
@@ -122,11 +134,23 @@ function metricRows(a: RunSide, b: RunSide): Metric[] {
           },
         ]
       : []),
-    { label: 'Turns', a: a.metrics.turns, b: b.metrics.turns, format: n, better: 'lower' },
-    { label: 'Tool calls', a: a.metrics.toolCalls, b: b.metrics.toolCalls, format: n, better: 'lower' },
-    { label: 'Rejections', a: a.metrics.rejections, b: b.metrics.rejections, format: n, better: 'lower' },
+    { label: copy.compare.metrics.turns, a: a.metrics.turns, b: b.metrics.turns, format: n, better: 'lower' },
     {
-      label: 'Judge score',
+      label: copy.compare.metrics.toolCalls,
+      a: a.metrics.toolCalls,
+      b: b.metrics.toolCalls,
+      format: n,
+      better: 'lower',
+    },
+    {
+      label: copy.compare.metrics.rejections,
+      a: a.metrics.rejections,
+      b: b.metrics.rejections,
+      format: n,
+      better: 'lower',
+    },
+    {
+      label: copy.compare.metrics.judgeScore,
       a: a.judge?.score ?? a.metrics.bestScore,
       b: b.judge?.score ?? b.metrics.bestScore,
       format: (x: number) => x.toFixed(2),
@@ -173,7 +197,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
         {run.mode && <span>· {run.mode}</span>}
         {run.judge && (
           <span>
-            · judge {run.judge.pass ? 'passed' : 'failed'}
+            {copy.compare.judge(run.judge.pass)}
             {run.judge.score !== undefined ? ` ${run.judge.score.toFixed(2)}` : ''}
           </span>
         )}
@@ -192,7 +216,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
   const cell = 'px-2 py-1.5 tabular-nums'
   return (
     <section
-      aria-label="Run diff"
+      aria-label={copy.compare.runDiff}
       className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-surface-2/40 p-4"
     >
       <div className="flex items-start gap-3">
@@ -200,7 +224,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
           <SideHead label="A" run={a} onOpen={props.onOpen} />
           <SideHead label="B" run={b} onOpen={props.onOpen} />
         </div>
-        <IconButton label="Close the comparison" onClick={props.onClose}>
+        <IconButton label={copy.compare.close} onClick={props.onClose}>
           <X className="size-4" />
         </IconButton>
       </div>
@@ -209,10 +233,10 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
         <table className="w-full text-[12.5px]">
           <thead>
             <tr>
-              <th className={head}>Measure</th>
+              <th className={head}>{copy.compare.measure}</th>
               <th className={cn(head, 'text-right')}>A</th>
               <th className={cn(head, 'text-right')}>B</th>
-              <th className={cn(head, 'text-right')}>B vs A</th>
+              <th className={cn(head, 'text-right')}>{copy.compare.versus}</th>
             </tr>
           </thead>
           <tbody>
@@ -232,7 +256,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
 
       {tools.length > 0 && (
         <div>
-          <h3 className={cn(head, 'px-0')}>Tool calls</h3>
+          <h3 className={cn(head, 'px-0')}>{copy.compare.toolCalls}</h3>
           <ul className="mt-1 flex flex-col gap-1">
             {shownTools.map((t) => (
               <li
@@ -261,7 +285,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
               onClick={() => setAllTools(!allTools)}
               className="mt-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-fg"
             >
-              {allTools ? 'Show fewer' : `Show all ${tools.length} tools`}
+              {allTools ? copy.compare.showFewer : copy.compare.showAllTools(tools.length)}
             </button>
           )}
         </div>
@@ -269,7 +293,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
 
       {files.length > 0 && (
         <div>
-          <h3 className={cn(head, 'px-0')}>Files</h3>
+          <h3 className={cn(head, 'px-0')}>{copy.compare.files}</h3>
           <ul className="mt-1 flex flex-wrap gap-1.5">
             {files.map((f) => (
               <li
@@ -278,7 +302,11 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
               >
                 <span className="font-mono">{f.name}</span>
                 <Pill tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
-                  {f.in === 'both' ? (f.same ? 'same' : 'differs') : `only ${f.in.toUpperCase()}`}
+                  {f.in === 'both'
+                    ? f.same
+                      ? copy.compare.same
+                      : copy.compare.differs
+                    : copy.compare.onlyIn(f.in.toUpperCase())}
                 </Pill>
               </li>
             ))}
@@ -291,7 +319,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
           <table className="w-full text-[12.5px]">
             <thead>
               <tr>
-                <th className={head}>Agent</th>
+                <th className={head}>{copy.compare.agent}</th>
                 <th className={head}>A</th>
                 <th className={head}>B</th>
               </tr>
@@ -305,8 +333,8 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
                     <td key={i} className="px-2 py-1.5 text-muted">
                       {x ? (
                         <>
-                          <span className="font-mono text-[11.5px]">{x.model}</span> · {x.turns} turns ·{' '}
-                          {x.tokens.toLocaleString()} tok · {x.toolCalls} tools
+                          <span className="font-mono text-[11.5px]">{x.model}</span>
+                          {copy.compare.agentStats(x.turns, x.tokens.toLocaleString(), x.toolCalls)}
                         </>
                       ) : (
                         '—'
@@ -322,7 +350,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
 
       {(a.finalReply || b.finalReply) && (
         <details>
-          <summary className={cn(head, 'px-0')}>Final answers</summary>
+          <summary className={cn(head, 'px-0')}>{copy.compare.finalAnswers}</summary>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[a, b].map((r, i) => (
               <p
@@ -330,7 +358,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
                 className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-3 text-[12.5px] text-fg-2"
               >
                 <span className="mr-1 font-mono text-[11px] font-bold">{i === 0 ? 'A' : 'B'}</span>
-                {r.finalReply ?? '(no answer)'}
+                {r.finalReply ?? copy.compare.noAnswer}
               </p>
             ))}
           </div>

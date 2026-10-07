@@ -28,6 +28,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
+import { copy } from '../copy.ts'
 import { compact, duration, useCopy } from '../ui/hooks.ts'
 import {
   AgentAvatar,
@@ -39,13 +40,14 @@ import {
   type Mood,
   PixelFace,
 } from '../ui/pixel.tsx'
-import { Button, cn, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
+import { Button, cn, Pill, Skeleton } from '../ui/primitives.tsx'
+import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
-import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
@@ -54,10 +56,10 @@ export const AWAITING = 'awaiting your reply'
 
 /** How a round was run: its tier, and for team rounds the team mode. */
 export function modeLabel(state: ColonyState): string {
-  if (state.tier === 'answer') return 'Direct answer'
-  if (state.tier === 'solo') return 'Solo'
-  if (state.team?.mode === 'swarm') return 'Swarm'
-  return 'Orchestrated'
+  if (state.tier === 'answer') return copy.round.mode.answer
+  if (state.tier === 'solo') return copy.round.mode.solo
+  if (state.team?.mode === 'swarm') return copy.round.mode.swarm
+  return copy.round.mode.orchestrated
 }
 
 export function isRunning(status: string) {
@@ -85,10 +87,11 @@ export function PendingRound({ text }: { text: string }) {
           <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
         </span>
         <span className="text-[13px] font-medium text-fg-2">
-          Thinking<span className="caret">…</span>
+          {copy.round.pending.thinking}
+          <span className="caret">…</span>
         </span>
         <span className="font-mono text-[11.5px] tabular-nums text-muted">
-          {(elapsed / 1000).toFixed(1)}s
+          {copy.round.pending.seconds((elapsed / 1000).toFixed(1))}
         </span>
       </motion.div>
     </section>
@@ -225,7 +228,7 @@ export function RoundView(props: {
         )}
         {files.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
-            <span className="mr-1 text-[12.5px] text-muted">Files</span>
+            <span className="mr-1 text-[12.5px] text-muted">{copy.round.files}</span>
             {files.map(([name, versions]) => {
               const latest = versions.at(-1)
               const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
@@ -234,13 +237,13 @@ export function RoundView(props: {
                   key={name}
                   type="button"
                   onClick={() => setFile(name)}
-                  title={`v${latest?.version} · ${compact(latest?.size ?? 0)}B · ${latest?.author}`}
+                  title={copy.round.fileTitle(latest?.version, compact(latest?.size ?? 0), latest?.author)}
                   className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-[12.5px] font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{name}</span>
                   {(latest?.version ?? 1) > 1 && (
-                    <span className="text-[11px] text-muted">v{latest?.version}</span>
+                    <span className="text-[11px] text-muted">{copy.round.fileVersion(latest?.version)}</span>
                   )}
                 </button>
               )
@@ -289,7 +292,7 @@ function UserMessage(props: {
   attachments?: readonly string[] | undefined
   onOpen?(name: string): void
 }) {
-  const [copied, copy] = useCopy()
+  const [copied, copyText] = useCopy()
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
@@ -314,26 +317,26 @@ function UserMessage(props: {
       <div className="flex items-center gap-1.5">
         {props.mode && (
           <span className="flex items-center gap-1 text-[11.5px] text-muted" aria-live="polite">
-            {props.mode === 'steer' ? 'Steer' : 'Queued'}
+            {props.mode === 'steer' ? copy.round.message.steer : copy.round.message.queued}
             <span aria-hidden>·</span>
             {read ? (
               <>
-                <CheckCheck className="size-3.5 text-ok-ink" /> Read by {read.join(', ')}
+                <CheckCheck className="size-3.5 text-ok-ink" /> {copy.round.message.readBy(read.join(', '))}
               </>
             ) : props.live ? (
               <>
                 <LoaderCircle className="size-3 animate-spin" />
-                {props.mode === 'steer' ? 'joins the next step' : 'waits until the current work is done'}
+                {props.mode === 'steer' ? copy.round.message.steerLive : copy.round.message.queueLive}
               </>
             ) : (
-              'not read before the round ended'
+              copy.round.message.notRead
             )}
           </span>
         )}
         <button
           type="button"
-          onClick={() => copy(props.text)}
-          aria-label="Copy message"
+          onClick={() => copyText(props.text)}
+          aria-label={copy.round.message.copyMessage}
           className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -353,13 +356,13 @@ function AgentMessage(props: {
   assumption?: string
   onInspect(): void
 }) {
-  const [copied, copy] = useCopy()
+  const [copied, copyText] = useCopy()
   return (
     <motion.div {...enter} className="group flex gap-3">
       <button
         type="button"
         onClick={props.onInspect}
-        aria-label={`What ${props.from} is doing`}
+        aria-label={copy.round.agent.inspect(props.from)}
         className="h-fit rounded-[10px] transition-transform hover:scale-105"
       >
         <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} awake />
@@ -369,8 +372,8 @@ function AgentMessage(props: {
           <div className="mb-1 flex items-center gap-2 text-[12.5px]">
             <span className="font-semibold text-fg">{props.from}</span>
             <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
-            {props.final && !props.plain && <Pill tone="ok">final answer</Pill>}
-            {props.assumption && <Pill tone="accent">check-in</Pill>}
+            {props.final && !props.plain && <Pill tone="ok">{copy.round.agent.finalAnswer}</Pill>}
+            {props.assumption && <Pill tone="accent">{copy.round.agent.checkIn}</Pill>}
           </div>
         )}
         <div
@@ -383,9 +386,8 @@ function AgentMessage(props: {
           <Markdown text={props.text} />
           {props.assumption && (
             <p className="mt-2 border-t border-accent/20 pt-2 text-[12.5px] text-fg-2">
-              <span className="font-medium text-fg">Meanwhile: </span>
-              {props.assumption}{' '}
-              <span className="text-muted">Reply below to change it; the work keeps going.</span>
+              <span className="font-medium text-fg">{copy.round.agent.meanwhile}</span>
+              {props.assumption} <span className="text-muted">{copy.round.agent.meanwhileHint}</span>
             </p>
           )}
         </div>
@@ -393,10 +395,10 @@ function AgentMessage(props: {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => copy(props.text)}
+            onClick={() => copyText(props.text)}
             icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           >
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? copy.round.agent.copied : copy.round.agent.copy}
           </Button>
         </div>
       </div>
@@ -433,8 +435,10 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
       >
         <Brain className="size-3.5" />
         <span className="tabular-nums">
-          {props.running ? 'Thinking' : 'Thought'} for {duration(Math.max(1000, total))}
-          {thoughts.length > 1 && ` · ${thoughts.length} times`}
+          {props.running
+            ? copy.round.thoughts.thinkingFor(duration(Math.max(1000, total)))
+            : copy.round.thoughts.thoughtFor(duration(Math.max(1000, total)))}
+          {thoughts.length > 1 && ` · ${copy.round.thoughts.times(thoughts.length)}`}
         </span>
         <motion.span animate={{ rotate: open ? 0 : -90 }} transition={spring}>
           <ChevronDown className="size-3.5" />
@@ -493,18 +497,18 @@ function LeadActivity(props: {
   // Steps are phrased for a team ("lead is searching…"); one-on-one, the name goes without saying.
   const doing = now?.replace(/^lead is /, '')
   const label = running
-    ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : 'Thinking'}…`
+    ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : copy.round.lead.thinking}…`
     : awaiting
-      ? 'Waiting for your reply'
+      ? copy.round.lead.waiting
       : state.escalated
         ? state.escalated.to === 'team'
-          ? 'Bringing in helpers'
-          : 'Handing this to one agent with every tool'
+          ? copy.round.lead.toTeam
+          : copy.round.lead.toAgent
         : state.status === 'completed'
-          ? `Done in ${duration(m.wallMs)}`
+          ? copy.round.lead.doneIn(duration(m.wallMs))
           : state.status === 'failed'
-            ? 'Failed'
-            : 'Stopped'
+            ? copy.round.lead.failed
+            : copy.round.lead.stopped
   return (
     // Once done it tucks under the reply, in line with its text (past the 32px avatar and its gap).
     <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
@@ -525,8 +529,8 @@ function LeadActivity(props: {
             {running ? <span className="font-medium text-fg-2">{label}</span> : label}
           </motion.span>
           <span className="shrink-0 tabular-nums">
-            {running ? ` · ${duration(elapsed)}` : ` · ${compact(m.tokens)} tokens`}
-            {steps.length > 0 && ` · ${steps.length} step${steps.length === 1 ? '' : 's'}`}
+            {running ? ` · ${duration(elapsed)}` : ` · ${copy.round.lead.tokens(compact(m.tokens))}`}
+            {steps.length > 0 && ` · ${copy.round.lead.steps(steps.length)}`}
           </span>
           {steps.length > 0 && (
             <motion.span animate={{ rotate: open ? 0 : -90 }} transition={spring} className="shrink-0">
@@ -538,8 +542,8 @@ function LeadActivity(props: {
           <button
             type="button"
             onClick={props.onOpenColony}
-            title="Map, replay and transcripts of this round"
-            aria-label="Open the round's details"
+            title={copy.round.lead.detailsTitle}
+            aria-label={copy.round.lead.detailsLabel}
             className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
           >
             <Network className="size-3.5" />
@@ -581,7 +585,7 @@ function LiveServers({ state }: { state: ColonyState }) {
           href={s.url}
           target="_blank"
           rel="noreferrer"
-          title={`${s.command} (started by ${s.agent})`}
+          title={copy.round.serverTitle(s.command, s.agent)}
           className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 hover:bg-surface-2"
         >
           <span className="font-medium">{s.name}</span>
@@ -596,10 +600,12 @@ function LiveServers({ state }: { state: ColonyState }) {
 /** Tokens, cost and time against the round's limits, e.g. "120k / 500k tokens · $0.84 / $2 · 12m left". */
 function spend(state: ColonyState, m: ColonyMetrics, running: boolean): string {
   const { tokens: tokenLimit, costUsd, wallMs } = state.budget
-  const parts = [`${compact(m.tokens)}${tokenLimit ? ` / ${compact(tokenLimit)}` : ''} tokens`]
+  const parts = [
+    copy.round.spend.tokens(`${compact(m.tokens)}${tokenLimit ? ` / ${compact(tokenLimit)}` : ''}`),
+  ]
   if (m.cost !== undefined && (m.cost > 0 || costUsd))
     parts.push(`$${m.cost < 0.1 ? m.cost.toFixed(3) : m.cost.toFixed(2)}${costUsd ? ` / $${costUsd}` : ''}`)
-  if (running && wallMs > 0) parts.push(`${duration(Math.max(0, wallMs - m.wallMs))} left`)
+  if (running && wallMs > 0) parts.push(copy.round.spend.left(duration(Math.max(0, wallMs - m.wallMs))))
   return parts.join(' · ')
 }
 
@@ -627,22 +633,21 @@ function RunCard(props: {
   const visible = (showAll ? steps : steps.slice(-6)).slice().reverse()
 
   const head: { title: string; mood: Mood; color: string } = running
-    ? { title: 'Working on it', mood: 'working', color: LEAD_COLOR }
+    ? { title: copy.round.run.working, mood: 'working', color: LEAD_COLOR }
     : state.status === 'completed'
-      ? { title: `Done in ${duration(m.wallMs)}`, mood: 'happy', color: JUDGE_COLOR }
+      ? { title: copy.round.run.doneIn(duration(m.wallMs)), mood: 'happy', color: JUDGE_COLOR }
       : awaiting
-        ? { title: 'Paused for your reply', mood: 'waiting', color: LEAD_COLOR }
+        ? { title: copy.round.run.paused, mood: 'waiting', color: LEAD_COLOR }
         : state.escalated
           ? {
-              title:
-                state.escalated.to === 'team' ? 'Handed to a team' : 'Handed to one agent with every tool',
+              title: state.escalated.to === 'team' ? copy.round.run.toTeam : copy.round.run.toAgent,
               mood: 'happy',
               color: LEAD_COLOR,
             }
           : {
-              title: state.status === 'failed' ? 'Run failed' : 'Run stopped',
+              title: state.status === 'failed' ? copy.round.run.failed : copy.round.run.stopped,
               mood: state.status === 'failed' ? 'error' : 'sleep',
-              color: state.status === 'failed' ? '#ff6369' : '#8a8a94',
+              color: state.status === 'failed' ? 'var(--mood-failed)' : 'var(--mood-stopped)',
             }
 
   return (
@@ -666,9 +671,10 @@ function RunCard(props: {
           <span className="min-w-0 flex-1">
             <span className="block text-[13.5px] font-semibold">{head.title}</span>
             <span className="block truncate text-[12px] tabular-nums text-muted">
-              {modeLabel(state)} · {agents.length} agent{agents.length === 1 ? '' : 's'} · {steps.length}{' '}
-              steps
-              {tasks.length > 0 && ` · ${done}/${tasks.length} tasks`} · {spend(state, m, running)}
+              {modeLabel(state)} · {copy.round.run.agents(agents.length)} ·{' '}
+              {copy.round.run.steps(steps.length)}
+              {tasks.length > 0 && ` · ${copy.round.run.tasks(done, tasks.length)}`} ·{' '}
+              {spend(state, m, running)}
             </span>
           </span>
           {running && <Elapsed ms={m.wallMs} />}
@@ -681,9 +687,9 @@ function RunCard(props: {
           size="sm"
           onClick={props.onOpenColony}
           icon={<Network className="size-3.5" />}
-          title="Crew map, replay, and agent transcripts"
+          title={copy.round.run.crewTitle}
         >
-          <span className="hidden sm:inline">Crew</span>
+          <span className="hidden sm:inline">{copy.round.run.crew}</span>
         </Button>
       </div>
       {running && (
@@ -742,7 +748,7 @@ function RunCard(props: {
                   onClick={() => setShowAll(!showAll)}
                   className="self-start text-[12.5px] font-medium text-accent-fg hover:underline"
                 >
-                  {showAll ? 'Show fewer steps' : `Show all ${steps.length} steps`}
+                  {showAll ? copy.round.run.showFewer : copy.round.run.showAll(steps.length)}
                 </button>
               )}
               {now && (
@@ -787,19 +793,27 @@ function ModelFailure(props: {
   // Folding again only helps a model with room for the agent's own instructions and tools.
   const canRetry = !overflow || (failed.window ?? 0) >= AGENT_MIN_WINDOW
   const title = overflow
-    ? `Too long for ${name(failed.model)}`
+    ? copy.modelFailure.tooLong(name(failed.model))
     : failed.kind === 'refusal'
-      ? `${name(failed.model)} declined to continue`
-      : `${name(failed.model)} couldn't answer`
+      ? copy.modelFailure.declined(name(failed.model))
+      : copy.modelFailure.couldntAnswer(name(failed.model))
   const explain = overflow
     ? failed.tokens && failed.window && failed.tokens < failed.window
-      ? `${name(failed.model)} turned down about ${windowLabel(failed.tokens)} tokens, though its window is listed as ${windowLabel(failed.window)}. Its real window is probably smaller: correct it in Settings → Models, or continue on another model.`
+      ? copy.modelFailure.windowTooSmall(
+          name(failed.model),
+          windowLabel(failed.tokens),
+          windowLabel(failed.window),
+        )
       : failed.tokens && failed.window
-        ? `This conversation is about ${windowLabel(failed.tokens)} tokens, and ${name(failed.model)} holds ${windowLabel(failed.window)}, even after older messages were summarized. Continue on a model with a bigger window.`
-        : `The conversation no longer fits ${name(failed.model)}'s context window, even after older messages were summarized.`
+        ? copy.modelFailure.conversationTooLong(
+            windowLabel(failed.tokens),
+            name(failed.model),
+            windowLabel(failed.window),
+          )
+        : copy.modelFailure.noLongerFits(name(failed.model))
     : failed.kind === 'refusal'
-      ? "The provider's safety filter stopped this reply. Another model can pick up from here."
-      : 'The provider returned an error. Another model can pick up from here, or try again.'
+      ? copy.modelFailure.refusal
+      : copy.modelFailure.error
   const go = (which: 'same' | 'other') => {
     setResuming(which)
     void props.onResume(which === 'other' ? pick : undefined).finally(() => setResuming(undefined))
@@ -823,7 +837,7 @@ function ModelFailure(props: {
           <details className="group mt-1.5">
             <summary className="cursor-default list-none text-[12px] text-muted hover:text-fg-2">
               <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
-              Provider message
+              {copy.modelFailure.providerMessage}
             </summary>
             <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-[11.5px] text-fg-2">
               {failed.message}
@@ -836,7 +850,7 @@ function ModelFailure(props: {
           <div className="min-w-0 max-w-[260px] flex-1">
             <ModelPicker
               variant="chip"
-              label="Continue with"
+              label={copy.modelFailure.continueWith}
               value={pick}
               models={models}
               onChange={setNextModel}
@@ -844,7 +858,7 @@ function ModelFailure(props: {
               {...(needed
                 ? {
                     minWindow: needed,
-                    minReason: `Under ${windowLabel(needed)}: this conversation won't fit`,
+                    minReason: copy.modelFailure.wontFit(windowLabel(needed)),
                   }
                 : {})}
             />
@@ -862,21 +876,23 @@ function ModelFailure(props: {
               )
             }
           >
-            {resuming === 'other' ? 'Continuing…' : 'Continue'}
+            {resuming === 'other' ? copy.modelFailure.continuing : copy.modelFailure.continue}
           </Button>
           {canRetry && (
             <Button size="sm" variant="ghost" disabled={resuming !== undefined} onClick={() => go('same')}>
-              {resuming === 'same' ? 'Retrying…' : overflow ? 'Summarize and retry' : 'Try again'}
+              {resuming === 'same'
+                ? copy.modelFailure.retrying
+                : overflow
+                  ? copy.modelFailure.summarizeAndRetry
+                  : copy.modelFailure.tryAgain}
             </Button>
           )}
           {!pick && needed && (
-            <span className="text-[12px] text-muted">
-              No model with {windowLabel(needed)} or more is set up. Add one in Settings → Models.
-            </span>
+            <span className="text-[12px] text-muted">{copy.modelFailure.noModel(windowLabel(needed))}</span>
           )}
         </div>
       )}
-      <p className="pl-10 text-[12px] text-muted">The work so far is kept; the failed reply is not.</p>
+      <p className="pl-10 text-[12px] text-muted">{copy.modelFailure.kept}</p>
     </motion.div>
   )
 }
@@ -915,13 +931,13 @@ function Outcome({
         <BadgeCheck className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
-            Reviewed
+            {copy.outcome.reviewed}
             {judge.score !== undefined && (
-              <span className="tabular-nums"> · score {judge.score.toFixed(2)}</span>
+              <span className="tabular-nums"> · {copy.outcome.score(judge.score.toFixed(2))}</span>
             )}
           </div>
           <details className="mt-1 text-fg-2">
-            <summary className="text-[12.5px]">Why it passed</summary>
+            <summary className="text-[12.5px]">{copy.outcome.whyPassed}</summary>
             <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
               {judge.evidence}
             </pre>
@@ -942,10 +958,10 @@ function Outcome({
         <ArrowUpRight className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0">
           <div className="font-semibold">
-            Moved to {state.escalated.to === 'team' ? 'a team' : 'one agent with every tool'}
+            {copy.outcome.movedTo(state.escalated.to === 'team' ? copy.outcome.aTeam : copy.outcome.oneAgent)}
           </div>
           <div className="text-[12.5px] text-fg-2">
-            {state.escalated.reason} The next round picks it up with these files and notes.
+            {state.escalated.reason} {copy.outcome.escalatedNext}
           </div>
         </div>
       </motion.div>
@@ -960,10 +976,8 @@ function Outcome({
       >
         <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
         <div>
-          <div className="font-semibold">Waiting for your reply</div>
-          <div className="text-[12.5px] text-fg-2">
-            Answer below and the crew continues where it left off, with its files.
-          </div>
+          <div className="font-semibold">{copy.outcome.waiting}</div>
+          <div className="text-[12.5px] text-fg-2">{copy.outcome.waitingHint}</div>
         </div>
       </motion.div>
     )
@@ -974,12 +988,14 @@ function Outcome({
         <CircleStop className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div>
-            <span className="font-semibold">{state.status === 'failed' ? 'Failed' : 'Stopped'}</span>
+            <span className="font-semibold">
+              {state.status === 'failed' ? copy.outcome.failed : copy.outcome.stopped}
+            </span>
             <span className="text-[12.5px]"> · {state.statusReason}</span>
           </div>
           {last && !last.pass && (
             <details className="mt-1 text-fg-2">
-              <summary className="text-[12.5px]">Last verification</summary>
+              <summary className="text-[12.5px]">{copy.outcome.lastVerification}</summary>
               <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
                 {last.evidence}
               </pre>
@@ -999,7 +1015,7 @@ function Outcome({
               resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />
             }
           >
-            {resuming ? 'Resuming…' : 'Resume'}
+            {resuming ? copy.outcome.resuming : copy.outcome.resume}
           </Button>
         )}
         {retry !== 'hidden' && (
@@ -1015,7 +1031,7 @@ function Outcome({
               )
             }
           >
-            {retry === 'starting' ? 'Starting…' : 'Retry'}
+            {retry === 'starting' ? copy.outcome.starting : copy.outcome.retry}
           </Button>
         )}
       </motion.div>
@@ -1025,10 +1041,10 @@ function Outcome({
     <motion.div {...enter} className={cn(box, 'border-warn/25 bg-warn-soft text-warn-ink')} role="status">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1">
-        <span className="font-semibold">The reviewer asked for changes</span>
-        <span className="text-[12.5px]"> · the crew is fixing them</span>
+        <span className="font-semibold">{copy.outcome.changesAsked}</span>
+        <span className="text-[12.5px]"> · {copy.outcome.fixing}</span>
         <details className="mt-1 text-fg-2">
-          <summary className="text-[12.5px]">Feedback</summary>
+          <summary className="text-[12.5px]">{copy.outcome.feedback}</summary>
           <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
             {last.evidence}
           </pre>

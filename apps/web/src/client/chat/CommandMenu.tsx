@@ -22,7 +22,9 @@ import {
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useEffect, useRef } from 'react'
-import { cn, Kbd, spring } from '../ui/primitives.tsx'
+import { copy } from '../copy.ts'
+import { cn, Kbd } from '../ui/primitives.tsx'
+import { spring } from '../ui-config.ts'
 import {
   type ArgOption,
   GROUPS,
@@ -132,10 +134,12 @@ export function buildMenu(input: {
         items: [
           {
             key: 'hint',
-            title: stage.query ? `Run /${command.name}` : `Type ${command.args ?? 'the argument'}`,
+            title: stage.query
+              ? copy.commandMenu.argHint.run(command.name)
+              : copy.commandMenu.argHint.type(command.args ?? copy.commandMenu.argHint.theArgument),
             description: command.description,
             icon: ICONS[command.name] ?? CornerDownLeft,
-            ...(stage.query ? {} : { disabled: 'Type first' }),
+            ...(stage.query ? {} : { disabled: copy.commandMenu.argHint.typeFirst }),
             run: input.submit,
           },
         ],
@@ -184,12 +188,12 @@ export function buildMenu(input: {
     .map((n) => SLASH_COMMANDS.find((c) => c.name === n))
     .filter((c): c is SlashCommand => !!c && !unavailable(c, input.ctx))
   recent.forEach((c, i) => {
-    items.push(item(c, [], i === 0 ? 'Recent' : undefined))
+    items.push(item(c, [], i === 0 ? copy.commandMenu.recent : undefined))
   })
   for (const group of GROUPS) {
     const inGroup = SLASH_COMMANDS.filter((c) => c.group === group)
     inGroup.forEach((c, i) => {
-      items.push(item(c, [], i === 0 ? group : undefined))
+      items.push(item(c, [], i === 0 ? copy.commands.groups[group] : undefined))
     })
   }
   return { items }
@@ -226,7 +230,11 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
   return (
     <motion.div
       role="listbox"
-      aria-label={command ? `Choose ${command.args ?? 'an argument'} for /${command.name}` : 'Commands'}
+      aria-label={
+        command
+          ? copy.commandMenu.chooseFor(command.args ?? copy.commandMenu.anArgument, command.name)
+          : copy.commandMenu.label
+      }
       initial={{ opacity: 0, y: 6, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 4, transition: { duration: 0.1 } }}
@@ -244,7 +252,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
       )}
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {props.menu.items.length === 0 && (
-          <p className="px-3 py-3 text-[12.5px] text-muted">No matches. Esc to close.</p>
+          <p className="px-3 py-3 text-[12.5px] text-muted">{copy.commandMenu.noMatches}</p>
         )}
         {props.menu.items.map((it, i) => {
           const active = i === props.active
@@ -317,18 +325,18 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
       <div className="flex items-center gap-3 border-t border-line px-3.5 py-1.5 text-[11px] text-muted">
         <span className="flex items-center gap-1">
           <Kbd>↑</Kbd>
-          <Kbd>↓</Kbd> move
+          <Kbd>↓</Kbd> {copy.commandMenu.footer.move}
         </span>
         <span className="flex items-center gap-1">
-          <Kbd>↵</Kbd> {command ? 'choose' : 'run'}
+          <Kbd>↵</Kbd> {command ? copy.commandMenu.footer.choose : copy.commandMenu.footer.run}
         </span>
         {!command && (
           <span className="flex items-center gap-1">
-            <Kbd>Tab</Kbd> complete
+            <Kbd>Tab</Kbd> {copy.commandMenu.footer.complete}
           </span>
         )}
         <span className="flex items-center gap-1">
-          <Kbd>Esc</Kbd> close
+          <Kbd>Esc</Kbd> {copy.commandMenu.footer.close}
         </span>
       </div>
     </motion.div>

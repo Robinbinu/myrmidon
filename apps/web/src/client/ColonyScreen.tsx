@@ -26,15 +26,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { ColonyMap } from './ColonyMap.tsx'
 import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
+import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { compact, duration } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
+import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
 type Tab = 'activity' | 'board' | 'tasks' | 'files' | 'map' | 'verdicts'
-
-const MAX_ITEMS = 500
 
 type Item =
   | { kind: 'say'; id: string; time: string; agent: string; text: string; thinking?: string; error?: string }
@@ -79,7 +79,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
   const calls = new Map<string, Item & { kind: 'tool' }>()
   const items: Item[] = []
   for (const e of events.slice(0, cursor)) {
-    const who = agentOf(e) ?? 'system'
+    const who = agentOf(e) ?? copy.colonyScreen.agents.system
     if (
       agent &&
       who !== agent &&
@@ -138,7 +138,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: Megaphone,
           tone: 'text-fg-2',
-          text: 'posted to the board',
+          text: copy.colonyScreen.activity.postedToBoard,
           body: p.text,
         })
         break
@@ -147,11 +147,11 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         const p = e.payload as EventPayloads['chat/user']
         items.push({
           ...base,
-          agent: 'you',
+          agent: copy.colonyScreen.agents.you,
           kind: 'event',
           icon: MessageSquare,
           tone: 'text-accent-fg',
-          text: 'message from you',
+          text: copy.colonyScreen.activity.messageFromYou,
           body: p.text,
         })
         break
@@ -163,7 +163,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: MessageSquare,
           tone: 'text-accent-fg',
-          text: p.final ? 'final answer to you' : 'replied to you',
+          text: p.final ? copy.colonyScreen.activity.finalAnswer : copy.colonyScreen.activity.replied,
           body: p.text,
         })
         break
@@ -186,7 +186,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: FileCode,
           tone: 'text-accent-fg',
-          text: `published ${p.name} v${p.version} (${compact(p.size)}B)`,
+          text: copy.colonyScreen.activity.published(p.name, p.version, compact(p.size)),
         })
         break
       }
@@ -198,7 +198,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: Gavel,
           tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
-          text: `${p.pass ? 'PASS' : 'FAIL'} on ${p.target}${p.score !== undefined ? ` · score ${p.score.toFixed(2)}` : ''}`,
+          text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, p.target)}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
           body: p.evidence,
         })
         break
@@ -210,7 +210,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: UserPlus,
           tone: 'text-work-ink',
-          text: `brought in ${p.agent.name} (${p.agent.model})`,
+          text: copy.colonyScreen.activity.broughtIn(p.agent.name, p.agent.model),
           body: p.focus,
         })
         break
@@ -219,7 +219,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         const p = e.payload as EventPayloads['observer/signal']
         items.push({
           ...base,
-          agent: 'observer',
+          agent: copy.colonyScreen.agents.observer,
           kind: 'event',
           icon: TriangleAlert,
           tone: 'text-warn-ink',
@@ -233,7 +233,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
       case 'colony/stopped': {
         items.push({
           ...base,
-          agent: 'colony',
+          agent: copy.colonyScreen.agents.colony,
           kind: 'event',
           icon: CircleDot,
           tone: 'text-muted',
@@ -243,7 +243,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
       }
     }
   }
-  return items.slice(-MAX_ITEMS).reverse()
+  return items.slice(-MAX_ACTIVITY_ITEMS).reverse()
 }
 
 /** Full colony view in the style of a coding-agent console: agents, a live activity stream, and a replay bar. */
@@ -276,13 +276,16 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
           {state.statusReason && <p className="truncate text-[12.5px] text-muted">{state.statusReason}</p>}
         </div>
         <div className="flex flex-wrap gap-4 text-[12.5px] tabular-nums text-muted">
-          <Stat label="Time" value={duration(m.wallMs)} />
-          <Stat label="Tokens" value={compact(m.tokens)} />
-          <Stat label="Cost" value={m.cost === undefined ? 'n/a' : `$${m.cost.toFixed(3)}`} />
-          <Stat label="Tool calls" value={String(m.toolCalls)} />
-          <Stat label="Files" value={String(Object.keys(state.artifacts).length)} />
+          <Stat label={copy.colonyScreen.stats.time} value={duration(m.wallMs)} />
+          <Stat label={copy.colonyScreen.stats.tokens} value={compact(m.tokens)} />
           <Stat
-            label="Verdicts"
+            label={copy.colonyScreen.stats.cost}
+            value={m.cost === undefined ? copy.colonyScreen.stats.noCost : `$${m.cost.toFixed(3)}`}
+          />
+          <Stat label={copy.colonyScreen.stats.toolCalls} value={String(m.toolCalls)} />
+          <Stat label={copy.colonyScreen.stats.files} value={String(Object.keys(state.artifacts).length)} />
+          <Stat
+            label={copy.colonyScreen.stats.verdicts}
             value={`${state.verdicts.filter((v) => v.pass).length}/${state.verdicts.length}`}
           />
         </div>
@@ -290,14 +293,14 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 flex-col overflow-auto border-r border-line p-2 md:flex">
           <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-            Agents
+            {copy.colonyScreen.agentsHeading}
           </div>
           <AgentButton
             active={!agent}
             onClick={() => setAgent(undefined)}
             icon={<Users className="size-4" />}
-            name="Everyone"
-            detail={`${agents.length} agents`}
+            name={copy.colonyScreen.everyone}
+            detail={copy.colonyScreen.agentCount(agents.length)}
           />
           {agents.map((a) => (
             <AgentButton
@@ -308,7 +311,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
               name={a.info.name}
               detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
               status={a.status}
-              meta={`${a.turns}t · ${compact(a.tokens)}`}
+              meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
             />
           ))}
         </aside>
@@ -322,7 +325,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'activity',
                 label: (
                   <>
-                    <Activity className="size-3.5" /> Activity
+                    <Activity className="size-3.5" /> {copy.colonyScreen.tabs.activity}
                   </>
                 ),
               },
@@ -330,7 +333,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'board',
                 label: (
                   <>
-                    <Megaphone className="size-3.5" /> Board
+                    <Megaphone className="size-3.5" /> {copy.colonyScreen.tabs.board}
                   </>
                 ),
                 count: state.board.length,
@@ -339,7 +342,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'tasks',
                 label: (
                   <>
-                    <ListChecks className="size-3.5" /> Tasks
+                    <ListChecks className="size-3.5" /> {copy.colonyScreen.tabs.tasks}
                   </>
                 ),
                 count: tasks.length,
@@ -348,7 +351,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'files',
                 label: (
                   <>
-                    <FileCode className="size-3.5" /> Files
+                    <FileCode className="size-3.5" /> {copy.colonyScreen.tabs.files}
                   </>
                 ),
                 count: Object.keys(state.artifacts).length,
@@ -357,7 +360,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'map',
                 label: (
                   <>
-                    <Network className="size-3.5" /> Map
+                    <Network className="size-3.5" /> {copy.colonyScreen.tabs.map}
                   </>
                 ),
               },
@@ -365,7 +368,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'verdicts',
                 label: (
                   <>
-                    <BadgeCheck className="size-3.5" /> Verdicts
+                    <BadgeCheck className="size-3.5" /> {copy.colonyScreen.tabs.verdicts}
                   </>
                 ),
                 count: state.verdicts.length,
@@ -461,7 +464,7 @@ function ActivityStream({ items, filtered }: { items: Item[]; filtered: boolean 
     return (
       <Empty
         icon={<Activity className="size-5" />}
-        title={filtered ? 'Nothing from this agent yet' : 'No activity yet'}
+        title={filtered ? copy.colonyScreen.noAgentActivity : copy.colonyScreen.noActivity}
       />
     )
   return (
@@ -528,7 +531,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
             <div className="grid gap-2 border-t border-line bg-code px-3 py-2.5 font-mono text-[12px]">
               <div>
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-                  Input
+                  {copy.colonyScreen.toolInput}
                 </div>
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">
                   {JSON.stringify(item.args, null, 2)}
@@ -542,7 +545,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
                       item.ok ? 'text-muted' : 'text-bad-ink',
                     )}
                   >
-                    Output
+                    {copy.colonyScreen.toolOutput}
                   </div>
                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-fg-2">
                     {item.output}
@@ -582,14 +585,14 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
               onClick={() => setMore(!more)}
               className="mt-1 text-[12px] font-medium text-accent-fg hover:underline"
             >
-              {more ? 'Show less' : 'Show more'}
+              {more ? copy.colonyScreen.showLess : copy.colonyScreen.showMore}
             </button>
           )}
         </div>
       )}
       {item.thinking && (
         <details className="mt-1.5">
-          <summary className="text-[12px] text-muted">Thinking</summary>
+          <summary className="text-[12px] text-muted">{copy.colonyScreen.thinking}</summary>
           <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-[12px] text-muted">
             {item.thinking}
           </pre>
@@ -618,7 +621,7 @@ function EventRow({ item }: { item: Item & { kind: 'event' } }) {
 
 function Board({ state }: { state: ColonyState }) {
   if (state.board.length === 0)
-    return <Empty icon={<Megaphone className="size-5" />} title="Nobody has posted yet" />
+    return <Empty icon={<Megaphone className="size-5" />} title={copy.colonyScreen.noPosts} />
   return (
     <div className="h-full overflow-auto px-4 py-3">
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
@@ -640,18 +643,18 @@ function Board({ state }: { state: ColonyState }) {
 }
 
 const COLUMNS: { title: string; statuses: string[]; tone: string }[] = [
-  { title: 'To do', statuses: ['pending', 'rejected'], tone: 'bg-muted/50' },
-  { title: 'In progress', statuses: ['in_progress'], tone: 'bg-work' },
-  { title: 'In review', statuses: ['submitted'], tone: 'bg-warn' },
-  { title: 'Done', statuses: ['verified'], tone: 'bg-ok' },
+  { title: copy.colonyScreen.columns.todo, statuses: ['pending', 'rejected'], tone: 'bg-muted/50' },
+  { title: copy.colonyScreen.columns.inProgress, statuses: ['in_progress'], tone: 'bg-work' },
+  { title: copy.colonyScreen.columns.inReview, statuses: ['submitted'], tone: 'bg-warn' },
+  { title: copy.colonyScreen.columns.done, statuses: ['verified'], tone: 'bg-ok' },
 ]
 
 function Kanban({ state }: { state: ColonyState }) {
   const tasks = Object.values(state.tasks)
   if (tasks.length === 0)
     return (
-      <Empty icon={<ListChecks className="size-5" />} title="No tasks">
-        The lead creates tasks when the work has several parts.
+      <Empty icon={<ListChecks className="size-5" />} title={copy.colonyScreen.noTasks}>
+        {copy.colonyScreen.noTasksHint}
       </Empty>
     )
   return (
@@ -675,7 +678,7 @@ function Kanban({ state }: { state: ColonyState }) {
                 >
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                    {t.status === 'rejected' && <Pill tone="bad">rework</Pill>}
+                    {t.status === 'rejected' && <Pill tone="bad">{copy.colonyScreen.rework}</Pill>}
                     {t.owner && <span className="ml-auto text-[11.5px] text-muted">{t.owner}</span>}
                   </div>
                   <p className="text-[13px] font-medium">{t.subject}</p>
@@ -689,7 +692,9 @@ function Kanban({ state }: { state: ColonyState }) {
                   )}
                 </motion.div>
               ))}
-              {list.length === 0 && <p className="px-2 py-3 text-[12px] text-muted">Empty</p>}
+              {list.length === 0 && (
+                <p className="px-2 py-3 text-[12px] text-muted">{copy.colonyScreen.emptyColumn}</p>
+              )}
             </div>
           </div>
         )
@@ -700,7 +705,8 @@ function Kanban({ state }: { state: ColonyState }) {
 
 function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): void }) {
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
-  if (files.length === 0) return <Empty icon={<FileCode className="size-5" />} title="No files yet" />
+  if (files.length === 0)
+    return <Empty icon={<FileCode className="size-5" />} title={copy.colonyScreen.noFiles} />
   return (
     <div className="h-full overflow-auto p-3">
       <div className="mx-auto grid max-w-3xl gap-1">
@@ -719,8 +725,8 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-medium">{name}</span>
                 <span className="text-[11.5px] text-muted">
-                  {versions.length} version{versions.length === 1 ? '' : 's'} · {compact(latest?.size ?? 0)}B
-                  · {latest?.author}
+                  {copy.colonyScreen.versions(versions.length)} · {compact(latest?.size ?? 0)}B ·{' '}
+                  {latest?.author}
                 </span>
               </span>
               <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
@@ -734,7 +740,7 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
 
 function Verdicts({ state }: { state: ColonyState }) {
   if (state.verdicts.length === 0)
-    return <Empty icon={<Gavel className="size-5" />} title="No verdicts yet" />
+    return <Empty icon={<Gavel className="size-5" />} title={copy.colonyScreen.noVerdicts} />
   return (
     <div className="h-full overflow-auto p-4">
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
@@ -747,11 +753,15 @@ function Verdicts({ state }: { state: ColonyState }) {
             )}
           >
             <div className="mb-1 flex flex-wrap items-center gap-2 text-[12.5px]">
-              <Pill tone={v.pass ? 'ok' : 'bad'}>{v.pass ? 'PASS' : 'FAIL'}</Pill>
+              <Pill tone={v.pass ? 'ok' : 'bad'}>
+                {v.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail}
+              </Pill>
               <span className="font-mono">{v.verifierId}</span>
-              <span className="text-muted">on {v.target}</span>
+              <span className="text-muted">{copy.colonyScreen.verdictTarget(v.target)}</span>
               {v.score !== undefined && (
-                <span className="font-semibold tabular-nums">score {v.score.toFixed(2)}</span>
+                <span className="font-semibold tabular-nums">
+                  {copy.colonyScreen.score(v.score.toFixed(2))}
+                </span>
               )}
               <RowMeta agent="" time={v.time} />
             </div>
@@ -764,8 +774,6 @@ function Verdicts({ state }: { state: ColonyState }) {
     </div>
   )
 }
-
-const SPEEDS = [1, 4, 16, 64]
 
 function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
   const { cursor, head, live, events, setCursor, setLive } = colony
@@ -788,7 +796,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         type="button"
         className={btn}
         onClick={() => setCursor(Math.max(1, cursor - 1))}
-        aria-label="Step back"
+        aria-label={copy.colonyScreen.replay.stepBack}
       >
         <SkipBack className="size-4" />
       </button>
@@ -797,7 +805,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         className={btn}
         onClick={() => setPlaying(!playing)}
         disabled={cursor >= head && !playing}
-        aria-label={playing ? 'Pause replay' : 'Play replay'}
+        aria-label={playing ? copy.colonyScreen.replay.pause : copy.colonyScreen.replay.play}
       >
         {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
       </button>
@@ -805,17 +813,17 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         type="button"
         className={btn}
         onClick={() => setCursor(Math.min(head, cursor + 1))}
-        aria-label="Step forward"
+        aria-label={copy.colonyScreen.replay.stepForward}
       >
         <SkipForward className="size-4" />
       </button>
       <select
         value={speed}
         onChange={(e) => setSpeed(Number(e.target.value))}
-        aria-label="Replay speed"
+        aria-label={copy.colonyScreen.replay.speed}
         className="h-8 rounded-lg border border-line bg-surface px-1.5 text-[12px]"
       >
-        {SPEEDS.map((s) => (
+        {REPLAY_SPEEDS.map((s) => (
           <option key={s} value={s}>
             {s}×
           </option>
@@ -827,7 +835,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         max={Math.max(1, head)}
         value={cursor}
         onChange={(e) => setCursor(Number(e.target.value))}
-        aria-label="Replay position"
+        aria-label={copy.colonyScreen.replay.position}
         className="mx-1 min-w-32 flex-1 accent-[var(--accent)]"
       />
       <span className="hidden max-w-[40%] truncate font-mono text-[11.5px] text-muted lg:inline">
@@ -841,7 +849,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
           live ? 'border-bad/40 bg-bad-soft text-bad-ink' : 'border-line text-muted hover:text-fg',
         )}
       >
-        <Radio className={cn('size-3.5', live && 'animate-pulse')} /> Live
+        <Radio className={cn('size-3.5', live && 'animate-pulse')} /> {copy.colonyScreen.replay.live}
       </button>
     </div>
   )

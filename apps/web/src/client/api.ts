@@ -1,4 +1,5 @@
 import type { ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
+import { copy } from './copy.ts'
 
 function readToken(): string {
   const fromHash = new URLSearchParams(location.hash.slice(1)).get('token')
@@ -30,10 +31,7 @@ export async function previewUrl(colony: string, artifact: string): Promise<stri
 
 export async function api<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { authorization: `Bearer ${token}` } })
-  if (!res.ok)
-    throw new ApiError(
-      res.status === 401 ? 'Not authorized: open the link printed by the CLI.' : `${res.status} ${path}`,
-    )
+  if (!res.ok) throw new ApiError(res.status === 401 ? copy.auth.notAuthorized : `${res.status} ${path}`)
   return res.json() as Promise<T>
 }
 

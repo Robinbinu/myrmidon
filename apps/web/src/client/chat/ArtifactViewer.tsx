@@ -2,6 +2,7 @@ import type { ArtifactVersion } from '@myrmidon/protocol'
 import { BookOpen, Check, Copy, Download, ExternalLink, FileCode, GitCompare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { blobText, previewUrl } from '../api.ts'
+import { copy } from '../copy.ts'
 import { diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
 import { Modal } from '../ui/Modal.tsx'
@@ -30,7 +31,7 @@ export function ArtifactViewer(props: {
   const [prev, setPrev] = useState<string>()
   const [preview, setPreview] = useState<string>()
   const [error, setError] = useState<string>()
-  const [copied, copy] = useCopy()
+  const [copied, copyText] = useCopy()
 
   const blob = selected?.blob
   const prevBlob = previous?.blob
@@ -59,7 +60,7 @@ export function ArtifactViewer(props: {
     const url = URL.createObjectURL(new Blob([text], { type: selected?.mediaType ?? 'text/plain' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = props.name.split('/').pop() ?? 'artifact'
+    a.download = props.name.split('/').pop() ?? copy.artifactViewer.downloadName
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -71,7 +72,7 @@ export function ArtifactViewer(props: {
             value: 'preview' as const,
             label: (
               <>
-                <Monitor className="size-3.5" /> Preview
+                <Monitor className="size-3.5" /> {copy.artifactViewer.tabs.preview}
               </>
             ),
           },
@@ -82,7 +83,7 @@ export function ArtifactViewer(props: {
               value: 'preview' as const,
               label: (
                 <>
-                  <BookOpen className="size-3.5" /> Rendered
+                  <BookOpen className="size-3.5" /> {copy.artifactViewer.tabs.rendered}
                 </>
               ),
             },
@@ -92,7 +93,8 @@ export function ArtifactViewer(props: {
       value: 'code' as const,
       label: (
         <>
-          <FileCode className="size-3.5" /> {isMarkdown ? 'Source' : 'Code'}
+          <FileCode className="size-3.5" />{' '}
+          {isMarkdown ? copy.artifactViewer.tabs.source : copy.artifactViewer.tabs.code}
         </>
       ),
     },
@@ -102,7 +104,7 @@ export function ArtifactViewer(props: {
             value: 'diff' as const,
             label: (
               <>
-                <GitCompare className="size-3.5" /> Changes from v{previous.version}
+                <GitCompare className="size-3.5" /> {copy.artifactViewer.tabs.changesFrom(previous.version)}
               </>
             ),
           },
@@ -119,21 +121,29 @@ export function ArtifactViewer(props: {
       actions={
         <div className="flex items-center gap-1.5">
           {props.versions.length > 1 && (
-            <Select value={version} onChange={(e) => setVersion(Number(e.target.value))} aria-label="Version">
+            <Select
+              value={version}
+              onChange={(e) => setVersion(Number(e.target.value))}
+              aria-label={copy.artifactViewer.version}
+            >
               {props.versions.map((v) => (
                 <option key={v.version} value={v.version}>
-                  v{v.version} · {v.author}
+                  {copy.artifactViewer.versionOption(v.version, v.author)}
                 </option>
               ))}
             </Select>
           )}
           <Button
             size="sm"
-            onClick={() => text !== undefined && copy(text)}
+            onClick={() => text !== undefined && copyText(text)}
             disabled={text === undefined}
             icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           >
-            {copied ? 'Copied' : isMarkdown ? 'Copy markdown' : 'Copy'}
+            {copied
+              ? copy.artifactViewer.copied
+              : isMarkdown
+                ? copy.artifactViewer.copyMarkdown
+                : copy.artifactViewer.copy}
           </Button>
           <Button
             size="sm"
@@ -141,7 +151,7 @@ export function ArtifactViewer(props: {
             disabled={text === undefined}
             icon={<Download className="size-3.5" />}
           >
-            Download
+            {copy.artifactViewer.download}
           </Button>
           {preview && (
             <a
@@ -150,7 +160,7 @@ export function ArtifactViewer(props: {
               rel="noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[12.5px] font-medium transition-colors hover:bg-surface-2"
             >
-              <ExternalLink className="size-3.5" /> Open
+              <ExternalLink className="size-3.5" /> {copy.artifactViewer.open}
             </a>
           )}
         </div>
@@ -159,7 +169,8 @@ export function ArtifactViewer(props: {
       <div className="flex items-center justify-between border-b border-line pr-4">
         <Tabs id="viewer" value={view} onChange={setView} tabs={tabs} className="border-0" />
         <span className="shrink-0 text-[12px] text-muted">
-          {compact(selected?.size ?? 0)}B · {selected?.mediaType} · by {selected?.author}
+          {compact(selected?.size ?? 0)}B · {selected?.mediaType} · {copy.artifactViewer.by}{' '}
+          {selected?.author}
         </span>
       </div>
       {error && <div className="bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{error}</div>}
@@ -167,7 +178,7 @@ export function ArtifactViewer(props: {
         <iframe
           className="min-h-[60vh] w-full flex-1 border-0 bg-white"
           src={preview}
-          title={`Preview of ${props.name}`}
+          title={copy.artifactViewer.previewOf(props.name)}
           sandbox="allow-scripts allow-forms allow-same-origin"
         />
       ) : text === undefined ? (

@@ -1,5 +1,6 @@
 import { Check, Copy } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
+import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
 
 const INLINE =
@@ -62,18 +63,18 @@ function inline(text: string): ReactNode[] {
 }
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
-  const [copied, copy] = useCopy()
+  const [copied, copyCode] = useCopy()
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-code">
       <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-[11.5px] text-muted">
-        <span className="font-mono">{lang || 'code'}</span>
+        <span className="font-mono">{lang || copy.markdown.codeFallback}</span>
         <button
           type="button"
-          onClick={() => copy(code)}
+          onClick={() => copyCode(code)}
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors hover:bg-surface-3 hover:text-fg"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? copy.markdown.copied : copy.markdown.copy}
         </button>
       </div>
       <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-[12.5px] leading-relaxed">

@@ -20,8 +20,10 @@ import {
   setReviewMode,
   type TeamConfig,
 } from '../api.ts'
+import { copy } from '../copy.ts'
 import { usePersistentFlag } from '../ui/hooks.ts'
-import { cn, Segmented, spring } from '../ui/primitives.tsx'
+import { cn, Segmented } from '../ui/primitives.tsx'
+import { MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { ModelPicker } from './ModelPicker.tsx'
@@ -30,38 +32,34 @@ import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './Tea
 export const MODES = [
   {
     id: 'orchestrated',
-    name: 'Orchestrated',
-    hint: 'A lead assigns tasks to specialists, each on the model that fits',
+    ...copy.composer.modes.orchestrated,
     icon: Workflow,
   },
   {
     id: 'swarm',
-    name: 'Swarm',
-    hint: 'Equal peers share one plan, notes, and tasks; no boss',
+    ...copy.composer.modes.swarm,
     icon: Users,
   },
 ] as const
 
 export function teamLabel(config: TeamConfig): string {
   const n = config.roster.length
-  return config.mode === 'swarm'
-    ? `Swarm · ${n} peer${n === 1 ? '' : 's'}`
-    : `Orchestrated · ${n} specialist${n === 1 ? '' : 's'}`
+  return copy.composer.teamLabel(config.mode === 'swarm', n)
 }
 
 const GROUP = 'divide-y divide-line overflow-visible rounded-[10px] border border-line bg-surface'
 
 const THINKING = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'auto', label: copy.composer.thinking.auto },
+  { value: 'low', label: copy.composer.thinking.low },
+  { value: 'medium', label: copy.composer.thinking.medium },
+  { value: 'high', label: copy.composer.thinking.high },
 ] as const
 
 const REVIEW = [
-  { value: 'off', label: 'Off' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'always', label: 'Always' },
+  { value: 'off', label: copy.composer.review.off },
+  { value: 'auto', label: copy.composer.review.auto },
+  { value: 'always', label: copy.composer.review.always },
 ] as const
 
 /**
@@ -88,18 +86,18 @@ export function TeamSettings(props: {
       (m) => m && providerOf(m) === judging,
     ) && props.models.some((m) => !m.hidden && m.provider !== judging)
   const n = config.roster.length
-  const summary = n === 0 ? 'None' : `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'}`
+  const summary = n === 0 ? copy.composer.helpersNone : copy.composer.helpersCount(n, swarm)
   const reviewOff = props.review === 'off'
 
   return (
     <div className="flex flex-col gap-3">
       <div className={GROUP}>
         {!swarm && (
-          <Row label="Lead" hint="Who you talk to">
+          <Row label={copy.composer.lead} hint={copy.composer.leadHint}>
             <ModelPicker
               variant="compact"
               placement={props.placement}
-              label="Lead"
+              label={copy.composer.lead}
               value={config.leadModel}
               models={props.models}
               onChange={(leadModel) => set({ leadModel })}
@@ -107,15 +105,15 @@ export function TeamSettings(props: {
           </Row>
         )}
         <Row
-          label="Reviewer"
+          label={copy.composer.reviewer}
           hint={
             props.review === 'off'
-              ? 'Answers are not reviewed'
+              ? copy.composer.reviewerHint.off
               : props.review === 'always'
-                ? 'Checks every final answer'
+                ? copy.composer.reviewerHint.always
                 : props.review === 'auto'
-                  ? 'When the lead asks for a check'
-                  : 'Checks the work'
+                  ? copy.composer.reviewerHint.auto
+                  : copy.composer.reviewerHint.unknown
           }
         >
           {props.review && props.onReview && (
@@ -130,14 +128,14 @@ export function TeamSettings(props: {
             <ModelPicker
               variant="compact"
               placement={props.placement}
-              label="Reviewer"
+              label={copy.composer.reviewer}
               value={config.judgeModel}
               models={props.models}
               onChange={(judgeModel) => set({ judgeModel })}
             />
           )}
         </Row>
-        <Row label="Thinking" hint="Auto: quick for questions, deeper for work">
+        <Row label={copy.composer.thinkingLabel} hint={copy.composer.thinkingHint}>
           <Segmented
             id="composer-thinking"
             value={config.thinking ?? 'auto'}
@@ -150,10 +148,7 @@ export function TeamSettings(props: {
         </Row>
       </div>
       {sameJudge && !reviewOff && (
-        <p className="-mt-1 px-1 text-[11.5px] leading-snug text-muted">
-          The reviewer shares a provider with the team; one from another provider catches more of its blind
-          spots.
-        </p>
+        <p className="-mt-1 px-1 text-[11.5px] leading-snug text-muted">{copy.composer.sameProvider}</p>
       )}
 
       <div className={GROUP}>
@@ -166,9 +161,9 @@ export function TeamSettings(props: {
           <ChevronRight
             className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
           />
-          <span className="flex-1 text-[13px]">Helpers</span>
+          <span className="flex-1 text-[13px]">{copy.composer.helpers}</span>
           <span className="text-[12px] text-muted">
-            {summary} · {swarm ? 'equal peers' : 'called by the lead'}
+            {summary} · {copy.composer.helpersMode(swarm)}
           </span>
         </button>
         <AnimatePresence initial={false}>
@@ -192,9 +187,7 @@ export function TeamSettings(props: {
           )}
         </AnimatePresence>
       </div>
-      <p className="px-1 text-[11.5px] leading-snug text-muted">
-        The lead answers itself and calls helpers only for big jobs.
-      </p>
+      <p className="px-1 text-[11.5px] leading-snug text-muted">{copy.composer.helpersNote}</p>
     </div>
   )
 }
@@ -210,8 +203,6 @@ export interface ComposerHandle {
  */
 export type Delivery = 'steer' | 'queue'
 
-const MAX_FILES = 10
-
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
@@ -223,8 +214,8 @@ const CHIP =
   'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
 
 const DELIVERIES = [
-  { value: 'steer', label: 'Steer', icon: Navigation, hint: 'Read at the next step' },
-  { value: 'queue', label: 'Queue', icon: ListEnd, hint: 'Read once the current work is done' },
+  { value: 'steer', icon: Navigation, ...copy.composer.deliveries.steer },
+  { value: 'queue', icon: ListEnd, ...copy.composer.deliveries.queue },
 ] as const
 
 interface ComposerProps {
@@ -343,7 +334,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const send = async (how: Delivery = delivery) => {
     const slash = parseSlash(text)
     if (slash && files.length === 0) return runCommand(slash.command, slash.arg)
-    const value = text.trim() || (files.length > 0 ? 'See the attached files.' : '')
+    const value = text.trim() || (files.length > 0 ? copy.composer.attachedOnly : '')
     if (!value || props.busy) return
     const sent = files
     setText('')
@@ -368,7 +359,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             .map((m) => ({
               value: m.ref,
               label: m.name,
-              description: `${m.provider}${m.reasoning ? ' · reasoning' : ''}`,
+              description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
             }))
         : undefined,
     current: (c) =>
@@ -378,8 +369,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           : (props.models.find((m) => m.ref === config.leadModel)?.name ?? config.leadModel)
         : c.name === 'mode'
           ? config.mode === 'swarm'
-            ? 'Swarm'
-            : 'Orchestrated'
+            ? copy.composer.modes.swarm.name
+            : copy.composer.modes.orchestrated.name
           : c.name === 'thinking'
             ? (config.thinking ?? 'auto')
             : undefined,
@@ -405,7 +396,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           {showTeam && (
             <motion.div
               role="dialog"
-              aria-label="Team and models"
+              aria-label={copy.composer.teamDialog}
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.12 } }}
@@ -413,8 +404,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
             >
               <div className="mb-3 flex items-baseline justify-between px-1">
-                <h3 className="text-[13px] font-semibold">Lead &amp; helpers</h3>
-                <span className="text-[11.5px] text-muted">Applies to your next messages</span>
+                <h3 className="text-[13px] font-semibold">{copy.composer.teamHeading}</h3>
+                <span className="text-[11.5px] text-muted">{copy.composer.teamApplies}</span>
               </div>
               <TeamSettings
                 models={props.models}
@@ -458,7 +449,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   <span className="shrink-0 text-muted">{formatSize(f.size)}</span>
                   <button
                     type="button"
-                    aria-label={`Remove ${f.name}`}
+                    aria-label={copy.composer.removeFile(f.name)}
                     onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
                     className="rounded p-0.5 text-muted hover:bg-surface-3 hover:text-fg"
                   >
@@ -512,7 +503,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 void send(e.altKey && props.running ? (delivery === 'steer' ? 'queue' : 'steer') : delivery)
               }
             }}
-            aria-label="Message"
+            aria-label={copy.composer.message}
             className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
@@ -530,8 +521,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <button
                 type="button"
                 onClick={() => picker.current?.click()}
-                aria-label="Attach files"
-                title="Attach files (or drop / paste them)"
+                aria-label={copy.composer.attach}
+                title={copy.composer.attachTitle}
                 disabled={files.length >= MAX_FILES}
                 className={cn(CHIP, 'w-8 shrink-0 justify-center px-0')}
               >
@@ -540,7 +531,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <ModelPicker
                 variant="chip"
                 placement="up"
-                label="Lead"
+                label={copy.composer.lead}
                 value={config.leadModel}
                 models={props.models}
                 onChange={(leadModel) => props.onConfig({ ...config, leadModel })}
@@ -567,8 +558,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={spring}
                     onClick={() => setDelivery(delivery === 'steer' ? 'queue' : 'steer')}
-                    title={`${DELIVERIES.find((d) => d.value === delivery)?.hint}. Click to switch (Alt+Enter sends the other way).`}
-                    aria-label={`Delivery: ${delivery}. Switch to ${delivery === 'steer' ? 'queue' : 'steer'}`}
+                    title={copy.composer.deliveryTitle(DELIVERIES.find((d) => d.value === delivery)?.hint)}
+                    aria-label={copy.composer.deliveryLabel(
+                      delivery,
+                      delivery === 'steer' ? 'queue' : 'steer',
+                    )}
                     className={CHIP}
                   >
                     {(() => {
@@ -592,8 +586,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     exit={{ scale: 0.6, opacity: 0 }}
                     transition={spring}
                     onClick={props.onStop}
-                    aria-label="Stop the crew"
-                    title={props.status ? `${props.status} Click to stop.` : 'Stop'}
+                    aria-label={copy.composer.stopLabel}
+                    title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
                     className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
                   >
                     <Square className="size-3.5" fill="currentColor" />
@@ -608,8 +602,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     transition={spring}
                     onClick={() => void send()}
                     disabled={!canSend}
-                    aria-label="Send"
-                    title="Send (Enter)"
+                    aria-label={copy.composer.send}
+                    title={copy.composer.sendTitle}
                     className={cn(
                       'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
                       canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',

@@ -12,7 +12,8 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { cn, softSpring } from '../ui/primitives.tsx'
+import { cn } from '../ui/primitives.tsx'
+import { softSpring } from '../ui-config.ts'
 import type { Step, StepKind } from './steps.ts'
 
 const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {

@@ -1,6 +1,7 @@
 import { Lock, ShieldCheck, ShieldQuestion, Zap } from 'lucide-react'
 import { useState } from 'react'
 import { type Project, send } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, TextArea } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -10,30 +11,30 @@ export type PermissionMode = 'auto' | 'ask' | 'read-only'
 const MODES: { value: PermissionMode; label: string; icon: typeof Zap; hint: string }[] = [
   {
     value: 'auto',
-    label: 'Autonomous',
+    label: copy.permissions.modes.auto.label,
     icon: Zap,
-    hint: 'Agents edit files and run commands in the sandbox without asking. Every round is checkpointed, so you can rewind it.',
+    hint: copy.permissions.modes.auto.hint,
   },
   {
     value: 'ask',
-    label: 'Ask first',
+    label: copy.permissions.modes.ask.label,
     icon: ShieldQuestion,
-    hint: 'Each change to a project file and each shell command waits for your Approve in the chat, except the commands you allow below.',
+    hint: copy.permissions.modes.ask.hint,
   },
   {
     value: 'read-only',
-    label: 'Read-only',
+    label: copy.permissions.modes.readOnly.label,
     icon: Lock,
-    hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched. They propose changes instead.',
+    hint: copy.permissions.modes.readOnly.hint,
   },
 ]
 
 /** The small mark shown beside a project's name for its mode; nothing for autonomous. */
 export function PermissionMark({ mode }: { mode?: PermissionMode }) {
   if (mode === 'read-only')
-    return <Lock className="size-3 shrink-0 text-muted" aria-label="Read-only for agents" />
+    return <Lock className="size-3 shrink-0 text-muted" aria-label={copy.permissions.mark.readOnly} />
   if (mode === 'ask')
-    return <ShieldQuestion className="size-3 shrink-0 text-warn-ink" aria-label="Agents ask before changes" />
+    return <ShieldQuestion className="size-3 shrink-0 text-warn-ink" aria-label={copy.permissions.mark.ask} />
   return null
 }
 
@@ -65,7 +66,7 @@ export function ProjectPermissions(props: {
   }
   return (
     <Modal
-      title={`Permissions · ${props.project.name}`}
+      title={copy.permissions.title(props.project.name)}
       onClose={props.onClose}
       size="sm"
       actions={
@@ -76,12 +77,15 @@ export function ProjectPermissions(props: {
           onClick={() => void save()}
           icon={<ShieldCheck className="size-3.5" />}
         >
-          Save
+          {copy.permissions.save}
         </Button>
       }
     >
       <div className="flex flex-col gap-3">
-        <fieldset aria-label="What agents may do" className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+        <fieldset
+          aria-label={copy.permissions.modesLabel}
+          className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
+        >
           {MODES.map((m) => (
             <label
               key={m.value}
@@ -111,7 +115,7 @@ export function ProjectPermissions(props: {
         {mode === 'ask' && (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="allow-commands" className="text-[12.5px] text-muted">
-              Commands that run without asking, one prefix per line (chained or piped commands always ask)
+              {copy.permissions.allow.label}
             </label>
             <TextArea
               id="allow-commands"
@@ -123,7 +127,7 @@ export function ProjectPermissions(props: {
             />
           </div>
         )}
-        <p className="text-[12px] text-muted">Applies from each chat’s next message in this project.</p>
+        <p className="text-[12px] text-muted">{copy.permissions.appliesFrom}</p>
       </div>
     </Modal>
   )

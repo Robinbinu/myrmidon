@@ -1,7 +1,9 @@
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react'
-import { cn, spring } from './primitives.tsx'
+import { copy } from '../copy.ts'
+import { spring } from '../ui-config.ts'
+import { cn } from './primitives.tsx'
 
 type Kind = 'info' | 'success' | 'error'
 interface Toast {
@@ -63,7 +65,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   type="button"
                   className="text-muted transition-colors hover:text-fg"
                   onClick={() => dismiss(t.id)}
-                  aria-label="Dismiss"
+                  aria-label={copy.common.dismiss}
                 >
                   <X className="size-4" />
                 </button>

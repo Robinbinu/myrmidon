@@ -20,21 +20,23 @@ import {
 import { motion } from 'motion/react'
 import { useMemo, useRef, useState } from 'react'
 import type { ChatSummary, Project } from '../api.ts'
+import { copy } from '../copy.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, IconButton, spring } from '../ui/primitives.tsx'
+import { cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
+import { spring } from '../ui-config.ts'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
 
 const GROUPS: { label: string; maxAgeDays: number }[] = [
-  { label: 'Today', maxAgeDays: 1 },
-  { label: 'Yesterday', maxAgeDays: 2 },
-  { label: 'Previous 7 days', maxAgeDays: 7 },
-  { label: 'Older', maxAgeDays: Number.POSITIVE_INFINITY },
+  { label: copy.sidebar.groups.today, maxAgeDays: 1 },
+  { label: copy.sidebar.groups.yesterday, maxAgeDays: 2 },
+  { label: copy.sidebar.groups.previous7Days, maxAgeDays: 7 },
+  { label: copy.sidebar.groups.older, maxAgeDays: Number.POSITIVE_INFINITY },
 ]
 
 function ageDays(iso: string) {
@@ -100,7 +102,8 @@ export function Sidebar(props: {
     for (const c of hits) {
       if (c.project && known.has(c.project.id)) continue
       const label =
-        GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ?? 'Older'
+        GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ??
+        copy.sidebar.groups.older
       const group = out.find((g) => g.label === label)
       if (group) group.chats.push(c)
       else out.push({ label, chats: [c] })
@@ -125,7 +128,7 @@ export function Sidebar(props: {
             autoFocus
             value={draft}
             maxLength={120}
-            aria-label="Chat title"
+            aria-label={copy.sidebar.chat.titleField}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={() => finishRename(c, !cancelled.current)}
@@ -168,8 +171,8 @@ export function Sidebar(props: {
           <button
             type="button"
             onClick={() => startRename(c)}
-            aria-label={`Rename “${c.title}”`}
-            title="Rename chat"
+            aria-label={copy.sidebar.chat.renameLabel(c.title)}
+            title={copy.sidebar.chat.rename}
             className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <Pencil className="size-3.5" />
@@ -179,8 +182,8 @@ export function Sidebar(props: {
           type="button"
           hidden={editing === c.chatId}
           onClick={() => props.onDelete(c)}
-          aria-label={`Delete “${c.title}”`}
-          title="Delete chat"
+          aria-label={copy.sidebar.chat.deleteLabel(c.title)}
+          title={copy.sidebar.chat.delete}
           className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Trash2 className="size-3.5" />
@@ -201,22 +204,26 @@ export function Sidebar(props: {
   return (
     <aside
       className="material-sidebar flex h-full w-full flex-col border-r border-line"
-      aria-label="Conversations"
+      aria-label={copy.sidebar.label}
     >
       <Toolbar inset material={false} className="border-b-0">
         <span className="hidden items-center gap-2 pl-1 text-[13px] font-semibold tracking-[-0.01em] browser:flex">
           <Logo size={20} />
-          Myrmidon
+          {copy.brand.name}
         </span>
         <span className="flex-1" />
         <IconButton
-          label="Hide sidebar"
-          title={`Hide sidebar (${comboLabel('mod+b', isMac)})`}
+          label={copy.sidebar.hide}
+          title={copy.sidebar.withShortcut(copy.sidebar.hide, comboLabel('mod+b', isMac))}
           onClick={props.onCollapse}
         >
           <PanelLeft className="size-4" />
         </IconButton>
-        <IconButton label="New task" title={`New task (${comboLabel('mod+n', isMac)})`} onClick={props.onNew}>
+        <IconButton
+          label={copy.sidebar.newTask}
+          title={copy.sidebar.withShortcut(copy.sidebar.newTask, comboLabel('mod+n', isMac))}
+          onClick={props.onNew}
+        >
           <SquarePen className="size-4" />
         </IconButton>
       </Toolbar>
@@ -225,22 +232,22 @@ export function Sidebar(props: {
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <input
             type="search"
-            placeholder="Search"
+            placeholder={copy.sidebar.search.placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search chats"
+            aria-label={copy.sidebar.search.label}
             className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
           />
         </div>
       </div>
       <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
         <div className="group/projects flex items-center px-2 pb-1 pt-3">
-          <span className="flex-1 text-[11px] font-semibold text-muted">Projects</span>
+          <span className="flex-1 text-[11px] font-semibold text-muted">{copy.sidebar.projects.heading}</span>
           <button
             type="button"
             onClick={props.onAddProject}
-            aria-label="Add a project folder"
-            title="Add a project folder"
+            aria-label={copy.sidebar.projects.add}
+            title={copy.sidebar.projects.add}
             className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
           >
             <FolderPlus className="size-3.5" />
@@ -252,7 +259,7 @@ export function Sidebar(props: {
             onClick={props.onAddProject}
             className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] text-muted hover:bg-fill/70 hover:text-fg"
           >
-            <Folder className="size-4" /> Open a folder to work in
+            <Folder className="size-4" /> {copy.sidebar.projects.empty}
           </button>
         )}
         {props.projects.map((p) => {
@@ -278,8 +285,8 @@ export function Sidebar(props: {
                 <button
                   type="button"
                   onClick={() => props.onProjectPermissions(p)}
-                  aria-label={`Permissions for ${p.name}`}
-                  title="What agents may do in this folder"
+                  aria-label={copy.sidebar.projects.permissionsLabel(p.name)}
+                  title={copy.sidebar.projects.permissionsTitle}
                   className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <ShieldCheck className="size-3.5" />
@@ -287,8 +294,8 @@ export function Sidebar(props: {
                 <button
                   type="button"
                   onClick={() => props.onNewInProject(p)}
-                  aria-label={`New chat in ${p.name}`}
-                  title={`New chat in ${p.name}`}
+                  aria-label={copy.sidebar.projects.newChatIn(p.name)}
+                  title={copy.sidebar.projects.newChatIn(p.name)}
                   className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <Plus className="size-3.5" />
@@ -296,8 +303,8 @@ export function Sidebar(props: {
                 <button
                   type="button"
                   onClick={() => props.onRemoveProject(p)}
-                  aria-label={`Remove ${p.name} from projects`}
-                  title="Remove from projects (the folder and its chats stay)"
+                  aria-label={copy.sidebar.projects.removeLabel(p.name)}
+                  title={copy.sidebar.projects.removeTitle}
                   className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <X className="size-3.5" />
@@ -306,17 +313,19 @@ export function Sidebar(props: {
               {open && (
                 <div className="pl-5">
                   {chats.map(row)}
-                  {chats.length === 0 && <p className="px-2 py-1 text-[12px] text-muted">No chats yet</p>}
+                  {chats.length === 0 && (
+                    <p className="px-2 py-1 text-[12px] text-muted">{copy.sidebar.projects.noChats}</p>
+                  )}
                 </div>
               )}
             </div>
           )
         })}
         {props.chats.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">Your conversations will appear here.</p>
+          <p className="px-2 py-4 text-[12.5px] text-muted">{copy.sidebar.empty}</p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">No chats match “{query}”.</p>
+          <p className="px-2 py-4 text-[12.5px] text-muted">{copy.sidebar.noMatches(query)}</p>
         )}
         {grouped.map((g) => (
           <div key={g.label}>
@@ -331,21 +340,21 @@ export function Sidebar(props: {
           className={navItem(props.view === 'colonies')}
           onClick={() => props.onView('colonies')}
         >
-          <Network className="size-4" /> Crews
+          <Network className="size-4" /> {copy.sidebar.nav.crews}
         </button>
         <button
           type="button"
           className={navItem(props.view === 'compare')}
           onClick={() => props.onView('compare')}
         >
-          <BarChart3 className="size-4" /> Compare runs
+          <BarChart3 className="size-4" /> {copy.sidebar.nav.compare}
         </button>
         <div className="flex items-center gap-1">
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
-            <Settings className="size-4" /> Settings
+            <Settings className="size-4" /> {copy.sidebar.nav.settings}
           </button>
           <IconButton
-            label={`Theme: ${props.theme}. Switch to ${nextTheme}`}
+            label={copy.sidebar.theme(props.theme, nextTheme)}
             onClick={() => props.onTheme(nextTheme)}
           >
             <motion.span
