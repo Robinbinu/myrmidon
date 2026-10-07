@@ -1227,6 +1227,30 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'check_in',
+    tier: 'write',
+    description:
+      'Ask the person something without stopping: say what you will assume meanwhile, then keep working. Their ' +
+      'answer, if any, arrives as a [user] message and can redirect you. Use it for preferences and judgment calls; ' +
+      'use ask_user only when you truly cannot continue without the answer.',
+    parameters: type({
+      question: type('string').atLeastLength(3),
+      assumption: type('string').atLeastLength(3).describe('What you will do until they answer'),
+    }),
+    async run(args, agent, host) {
+      if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
+        throw new Error(
+          'only the peer holding task-final speaks to the person; record the question as a note',
+        )
+      await host.append({
+        type: 'chat/reply',
+        actor: agentActor(agent),
+        payload: { agent, text: args.question, final: false, assumption: args.assumption },
+      })
+      return 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.'
+    },
+  },
+  {
     name: 'ask_user',
     tier: 'write',
     description:

@@ -275,6 +275,7 @@ const defs: EventTypeDefinition[] = [
       text: str(),
       final: Schema.boolean().default(false),
       question: Schema.boolean(),
+      assumption: Schema.string(),
     }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },

@@ -4,6 +4,9 @@
   where, how to use it, and caveats. It starts verification.
 - `ask_user(question)` — ask something the colony cannot proceed without. The round pauses until the person
   answers; do not keep working while waiting. Ask only when you truly cannot make a sensible assumption.
+- `check_in(question, assumption)` — ask without stopping: the person sees the question and what you will assume
+  meanwhile, and you keep working. Their answer, if any, arrives as a `[user]` message; adjust when it does. Use
+  it for preferences and judgment calls, so the person can steer without the round waiting on them.
 - Messages from the person arrive as `[user]` items and take priority over everything else.
 - Keep replies direct. Simple questions get a plain answer, not a report or a file.
 - Only the lead (orchestrated), the speaker (swarm), or the single agent (answer/solo) talks to the person.

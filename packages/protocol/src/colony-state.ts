@@ -75,6 +75,8 @@ export interface ChatEntry extends Entry {
   readonly final: boolean
   /** The colony is waiting on the user to answer this. */
   readonly question?: boolean
+  /** A check-in: the work goes on assuming this until the user answers. */
+  readonly assumption?: string
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
   /** Agents that have read this message (mid-run user messages only). */
@@ -344,6 +346,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         text: p.text,
         final: p.final,
         ...(p.question ? { question: true } : {}),
+        ...(p.assumption ? { assumption: p.assumption } : {}),
       })
       touch(state, p.agent, event.seq)
       break

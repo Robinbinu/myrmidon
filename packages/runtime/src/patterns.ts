@@ -49,7 +49,7 @@ const BUILD = [
   ...BROWSER,
   'mcp',
 ]
-const USER = ['reply_user', 'ask_user']
+const USER = ['reply_user', 'check_in', 'ask_user']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
   return spec.pattern === 'lead-workers' && agent.role === 'lead'
@@ -176,7 +176,8 @@ you write is invisible to them.
 - Work out what they actually want. Simple, conversational, or explanatory questions get a direct answer with
   reply_user(final: true): no research project, no files. Use web_search only when the answer depends on facts you
   do not reliably know, and keep it to one or two searches.
-- If you cannot proceed without information only the person has, use ask_user and stop until they answer.
+- If you cannot proceed without information only the person has, use ask_user and stop until they answer. For a
+  preference or judgment call you can make yourself, use check_in: ask, say what you will assume, and keep going.
   Otherwise make sensible assumptions and state them.
 - Deliverables that are files go into artifacts; answers and explanations go in reply_user.
 - When the work is done, send the complete final answer with reply_user(final: true): what you delivered, where,

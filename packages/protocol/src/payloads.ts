@@ -187,7 +187,11 @@ export interface EventPayloads {
    */
   'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[] }
   /** `question` marks a reply that waits on the user before the colony can continue. */
-  'chat/reply': { agent: string; text: string; final: boolean; question?: boolean }
+  /**
+   * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the
+   * work goes on; until they do, the agent proceeds on this assumption (check_in).
+   */
+  'chat/reply': { agent: string; text: string; final: boolean; question?: boolean; assumption?: string }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   'chat/renamed': { title: string }
   'colony/failed': { reason: string }

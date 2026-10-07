@@ -1702,6 +1702,32 @@ test('the lead sends verified work back with a reason, and its owner redoes it',
   await chats.stopAll()
 })
 
+test('check_in asks without pausing: the work goes on under the stated assumption', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [
+      tool('check_in', {
+        question: 'Dark or light theme?',
+        assumption: 'Dark, since the rest of the app is dark.',
+      }),
+    ],
+    [tool('publish_artifact', { name: 'theme.css', content: 'body { background: #000 }\n' })],
+    [tool('reply_user', { text: 'theme.css is in, dark as assumed.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Style the page', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.chatMessages.find((m) => m.assumption)).toMatchObject({
+    from: 'lead',
+    text: 'Dark or light theme?',
+    assumption: 'Dark, since the rest of the app is dark.',
+  })
+  expect(s.artifacts['theme.css']).toBeDefined()
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

@@ -145,6 +145,7 @@ export function RoundView(props: {
         from={m.from}
         text={m.text}
         final={m.final}
+        {...(m.assumption ? { assumption: m.assumption } : {})}
         onInspect={() => setInspect(m.from)}
       />
     )
@@ -305,7 +306,14 @@ function UserMessage(props: {
   )
 }
 
-function AgentMessage(props: { from: string; text: string; final: boolean; onInspect(): void }) {
+function AgentMessage(props: {
+  from: string
+  text: string
+  final: boolean
+  /** A check-in: the work continues on this assumption until the person answers. */
+  assumption?: string
+  onInspect(): void
+}) {
   const [copied, copy] = useCopy()
   return (
     <motion.div {...enter} className="group flex gap-3">
@@ -322,9 +330,22 @@ function AgentMessage(props: { from: string; text: string; final: boolean; onIns
           <span className="font-semibold text-fg">{props.from}</span>
           <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
           {props.final && <Pill tone="ok">final answer</Pill>}
+          {props.assumption && <Pill tone="accent">check-in</Pill>}
         </div>
-        <div className={cn(props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3')}>
+        <div
+          className={cn(
+            props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3',
+            props.assumption && 'rounded-2xl border border-accent/25 bg-accent-soft/40 px-4 py-3',
+          )}
+        >
           <Markdown text={props.text} />
+          {props.assumption && (
+            <p className="mt-2 border-t border-accent/20 pt-2 text-[12.5px] text-fg-2">
+              <span className="font-medium text-fg">Meanwhile: </span>
+              {props.assumption}{' '}
+              <span className="text-muted">Reply below to change it; the work keeps going.</span>
+            </p>
+          )}
         </div>
         <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-within:opacity-100">
           <Button
