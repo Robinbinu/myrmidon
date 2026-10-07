@@ -15,23 +15,41 @@ export function cn(...parts: (string | false | null | undefined)[]) {
 export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
 export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as const
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'destructive' | 'soft'
+type Variant =
+  | 'primary'
+  | 'push'
+  | 'borderless'
+  | 'toolbar'
+  | 'destructive'
+  | 'danger'
+  // Older names, kept until every screen uses the ones above.
+  | 'secondary'
+  | 'ghost'
+  | 'soft'
 type Size = 'sm' | 'md'
 
+const PUSH =
+  'border border-line-strong/70 bg-control text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] hover:bg-control-hover active:bg-control-active'
+const BORDERLESS = 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong'
+
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-accent text-on-accent hover:bg-accent-hover shadow-soft',
-  secondary: 'bg-surface text-fg border border-line hover:bg-surface-2 hover:border-line-strong',
-  ghost: 'text-fg-2 hover:bg-surface-2 hover:text-fg',
-  danger: 'text-bad border border-bad/30 hover:bg-bad-soft',
-  destructive: 'bg-bad text-white shadow-soft hover:brightness-110',
-  soft: 'bg-accent-soft text-accent-fg hover:brightness-110',
+  primary:
+    'bg-accent text-on-accent shadow-[inset_0_0.5px_0_rgb(255_255_255/0.4),0_0.5px_1px_rgb(0_0_0/0.2)] hover:bg-accent-hover active:brightness-95',
+  push: PUSH,
+  borderless: BORDERLESS,
+  toolbar: BORDERLESS,
+  destructive: 'bg-bad text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
+  danger: 'border border-bad/35 text-bad hover:bg-bad-soft',
+  secondary: PUSH,
+  ghost: BORDERLESS,
+  soft: 'bg-accent-soft text-accent-fg hover:brightness-105',
 }
 
 export const Button = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size; icon?: ReactNode }
 >(function Button(
-  { variant = 'secondary', size = 'md', icon, className, children, type = 'button', ...rest },
+  { variant = 'push', size = 'md', icon, className, children, type = 'button', ...rest },
   ref,
 ) {
   return (
@@ -39,8 +57,8 @@ export const Button = forwardRef<
       ref={ref}
       type={type}
       className={cn(
-        'inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-all duration-150 ease-fluid active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45',
-        size === 'sm' ? 'h-8 px-2.5 text-[12.5px]' : 'h-9 px-3.5 text-[13.5px]',
+        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45',
+        size === 'sm' ? 'h-[22px] rounded-[5px] px-2 text-[12px]' : 'h-7 rounded-md px-3 text-[13px]',
         VARIANTS[variant],
         className,
       )}
@@ -63,9 +81,9 @@ export const IconButton = forwardRef<
       aria-label={label}
       title={rest.title ?? label}
       className={cn(
-        'inline-grid shrink-0 place-items-center rounded-lg transition-colors duration-150 active:scale-95 disabled:opacity-40',
-        size === 'sm' ? 'size-7' : 'size-9',
-        active ? 'bg-accent-soft text-accent-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+        'inline-grid shrink-0 place-items-center rounded-md transition-colors duration-100 disabled:opacity-40',
+        size === 'sm' ? 'size-6' : 'size-7',
+        active ? 'bg-fill-strong text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong',
         className,
       )}
       {...rest}
@@ -76,12 +94,12 @@ export const IconButton = forwardRef<
 })
 
 const TONES = {
-  neutral: 'bg-surface-2 text-fg-2 border-line',
-  ok: 'bg-ok-soft text-ok border-ok/30',
-  bad: 'bg-bad-soft text-bad border-bad/30',
-  warn: 'bg-warn-soft text-warn border-warn/30',
-  work: 'bg-work/10 text-work border-work/30',
-  accent: 'bg-accent-soft text-accent-fg border-accent/30',
+  neutral: 'bg-fill-strong text-fg-2',
+  ok: 'bg-ok-soft text-ok',
+  bad: 'bg-bad-soft text-bad',
+  warn: 'bg-warn-soft text-warn',
+  work: 'bg-work/10 text-work',
+  accent: 'bg-accent-soft text-accent-fg',
 } as const
 export type Tone = keyof typeof TONES
 
@@ -94,7 +112,8 @@ export function toneFor(status: string): Tone {
   return 'neutral'
 }
 
-export function Pill({
+/** A small status capsule. */
+export function Badge({
   tone = 'neutral',
   children,
   className,
@@ -106,7 +125,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px text-[11.5px] font-medium',
+        'inline-flex h-[18px] items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-[11px] font-medium',
         TONES[tone],
         className,
       )}
@@ -115,6 +134,9 @@ export function Pill({
     </span>
   )
 }
+
+/** The older name for Badge, kept until every screen uses Badge. */
+export const Pill = Badge
 
 export function Dot({ status }: { status: string }) {
   const tone = toneFor(status)
@@ -138,7 +160,7 @@ export function Dot({ status }: { status: string }) {
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded-md border border-line border-b-2 bg-surface px-1.5 py-px font-mono text-[11px] text-muted">
+    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-line bg-fill px-1 font-sans text-[11px] text-muted">
       {children}
     </kbd>
   )
@@ -159,16 +181,16 @@ export function Switch(props: {
       disabled={props.disabled}
       onClick={() => props.onChange(!props.checked)}
       className={cn(
-        'relative inline-flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 disabled:opacity-40',
-        props.checked ? 'bg-accent' : 'bg-surface-3',
+        'relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px] transition-colors duration-200 disabled:opacity-40',
+        props.checked ? 'bg-accent' : 'bg-fill-strong shadow-[inset_0_0_0_0.5px_var(--separator-strong)]',
       )}
     >
       <motion.span
         layout
         transition={spring}
         className={cn(
-          'size-5 rounded-full shadow-soft',
-          props.checked ? 'ml-auto bg-on-accent' : 'ml-0 bg-white',
+          'size-[18px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25),0_0_0_0.5px_rgb(0_0_0/0.06)]',
+          props.checked ? 'ml-auto' : 'ml-0',
         )}
       />
     </button>
@@ -176,7 +198,7 @@ export function Switch(props: {
 }
 
 const FIELD =
-  'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] text-fg outline-none transition-[border,box-shadow] duration-150 placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent-soft disabled:opacity-50'
+  'w-full rounded-md border border-line-strong/70 bg-control px-2.5 py-1.5 text-[13px] text-fg shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.06)] outline-none transition-[border,box-shadow] duration-100 placeholder:text-muted focus:border-focus focus:ring-3 focus:ring-focus/30 disabled:opacity-50'
 
 export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function TextInput({ className, ...rest }, ref) {
@@ -192,10 +214,16 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   },
 )
 
+/** A native select drawn as a macOS popup button: keyboard and screen readers keep the real control. */
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    // FIELD's w-full would win over w-auto in the generated CSS, so a select drops it and sizes to its options.
-    <select className={cn(FIELD.replace('w-full ', ''), 'py-1.5 pr-8', className)} {...rest}>
+    <select
+      className={cn(
+        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-[13px] text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        className,
+      )}
+      {...rest}
+    >
       {children}
     </select>
   )
@@ -221,7 +249,7 @@ export function Field(props: {
   )
 }
 
-/** Segmented control with a springy sliding thumb. */
+/** macOS segmented control with a sliding thumb. */
 export function Segmented<T extends string>(props: {
   value: T
   options: { value: NoInfer<T>; label: ReactNode }[]
@@ -229,7 +257,7 @@ export function Segmented<T extends string>(props: {
   id: string
 }) {
   return (
-    <div className="inline-flex rounded-xl bg-surface-2 p-1">
+    <div className="inline-flex rounded-md bg-fill-strong p-[2px]">
       {props.options.map((o) => (
         <button
           key={o.value}
@@ -237,7 +265,7 @@ export function Segmented<T extends string>(props: {
           aria-pressed={props.value === o.value}
           onClick={() => props.onChange(o.value)}
           className={cn(
-            'relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12.5px] font-medium transition-colors',
+            'relative inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-2.5 text-[12px] font-medium transition-colors',
             props.value === o.value ? 'text-fg' : 'text-fg-2 hover:text-fg',
           )}
         >
@@ -245,7 +273,7 @@ export function Segmented<T extends string>(props: {
             <motion.span
               layoutId={`seg-${props.id}`}
               transition={spring}
-              className="absolute inset-0 rounded-lg bg-surface shadow-soft"
+              className="absolute inset-0 rounded-[5px] bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
             />
           )}
           <span className="relative inline-flex items-center gap-1.5">{o.label}</span>
@@ -255,7 +283,7 @@ export function Segmented<T extends string>(props: {
   )
 }
 
-/** Underline tabs whose indicator glides between items. */
+/** Underline tabs whose amber indicator glides between items. */
 export function Tabs<T extends string>(props: {
   value: T
   tabs: { value: NoInfer<T>; label: ReactNode; count?: number }[]
@@ -276,13 +304,13 @@ export function Tabs<T extends string>(props: {
           aria-selected={props.value === t.value}
           onClick={() => props.onChange(t.value)}
           className={cn(
-            'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium transition-colors',
+            'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-[12.5px] font-medium transition-colors',
             props.value === t.value ? 'text-fg' : 'text-muted hover:text-fg',
           )}
         >
           {t.label}
           {!!t.count && (
-            <span className="rounded-full bg-surface-3 px-1.5 text-[11px] tabular-nums text-fg-2">
+            <span className="rounded-full bg-fill-strong px-1.5 text-[11px] tabular-nums text-fg-2">
               {t.count}
             </span>
           )}
@@ -307,12 +335,10 @@ export function Empty(props: { icon?: ReactNode; title: string; children?: React
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       {props.icon && (
-        <div className="grid size-11 place-items-center rounded-2xl bg-surface-2 text-muted">
-          {props.icon}
-        </div>
+        <div className="grid size-10 place-items-center rounded-xl bg-fill text-muted">{props.icon}</div>
       )}
-      <p className="text-[14px] font-medium text-fg">{props.title}</p>
-      {props.children && <div className="max-w-sm text-[13px] text-muted">{props.children}</div>}
+      <p className="text-[13px] font-semibold text-fg">{props.title}</p>
+      {props.children && <div className="max-w-sm text-[12.5px] text-muted">{props.children}</div>}
     </div>
   )
 }
