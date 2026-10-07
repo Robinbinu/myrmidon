@@ -1,0 +1,15 @@
+{
+  "name": "@myrmidon/core",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@myrmidon/protocol": "workspace:*",
+    "@standard-schema/spec": "1.1.0"
+  }
+}

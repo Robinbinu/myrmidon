@@ -1,0 +1,279 @@
+import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import type { ModelOption } from '../api.ts'
+import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
+import { cn, spring } from '../ui/primitives.tsx'
+
+/**
+ * Below this many tokens a model cannot hold an agent's instructions and tools with room left to work: a lead's first
+ * request is 9–12k tokens, a helper's up to 26k.
+ */
+export const AGENT_MIN_WINDOW = 32_000
+
+/** A context window the way people say it: 8K, 200K, 1M. */
+export function windowLabel(tokens: number): string {
+  return tokens >= 1_000_000 ? `${+(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}K`
+}
+
+function windowHint(m: ModelOption): string {
+  if (!m.contextWindow) return 'Context window unknown'
+  const size = `${m.contextWindow.toLocaleString()} tokens of context`
+  if (!m.windowSource) return `${size}, a guess: set the real size in Settings → Models`
+  if (m.contextWindow < AGENT_MIN_WINDOW) return `${size}: too small for agent work, fine for short chats`
+  return size
+}
+
+/** Searchable model selector grouped by provider, with arrow-key navigation. */
+export function ModelPicker(props: {
+  label: string
+  icon?: ReactNode
+  value: string
+  models: ModelOption[]
+  onChange(ref: string): void
+  /** Open upward (inside the composer) or downward (in settings). */
+  placement?: 'up' | 'down'
+  /**
+   * `field` (default) is a labelled box; `compact` a small popup button for a settings row, its list aligned right;
+   * `chip` a glass pill with the model's mark, for the composer toolbar.
+   */
+  variant?: 'field' | 'compact' | 'chip'
+  /** Models with a smaller known window can't be chosen here; `minReason` says why. */
+  minWindow?: number
+  minReason?: string
+}) {
+  const variant = props.variant ?? 'field'
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const box = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  const visible = useMemo(
+    () => props.models.filter((m) => !m.hidden || m.ref === props.value),
+    [props.models, props.value],
+  )
+  const current = props.models.find((m) => m.ref === props.value)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const hits = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return visible.filter((m) => !q || `${m.ref} ${m.name}`.toLowerCase().includes(q)).slice(0, 400)
+  }, [visible, query])
+
+  const groups = useMemo(() => {
+    const byProvider = new Map<string, { m: ModelOption; i: number }[]>()
+    for (const [i, m] of hits.entries())
+      byProvider.set(m.provider, [...(byProvider.get(m.provider) ?? []), { m, i }])
+    return [...byProvider]
+  }, [hits])
+
+  const tooSmall = (m: ModelOption) =>
+    props.minWindow !== undefined && m.contextWindow !== undefined && m.contextWindow < props.minWindow
+  const choose = (ref: string) => {
+    const m = props.models.find((x) => x.ref === ref)
+    if (m && tooSmall(m)) return
+    props.onChange(ref)
+    setOpen(false)
+    setQuery('')
+  }
+
+  useEffect(() => {
+    if (open) list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  })
+
+  // The list opens the preferred way when it fits, otherwise toward the larger space, and never past the window.
+  const [fit, setFit] = useState({ up: (props.placement ?? 'up') === 'up', max: 400 })
+  const up = fit.up
+  return (
+    // A chip never shrinks past its logo and chevron, so neighbouring chips can't slide over it.
+    <div className={cn('relative', variant === 'chip' ? 'min-w-[52px]' : 'min-w-0')} ref={box}>
+      <button
+        type="button"
+        onClick={() => {
+          const rect = box.current?.getBoundingClientRect()
+          if (rect) {
+            const above = rect.top - 12
+            const below = window.innerHeight - rect.bottom - 12
+            const preferUp = (props.placement ?? 'up') === 'up'
+            const goUp = preferUp ? above >= Math.min(400, below) : below < Math.min(400, above)
+            setFit({ up: goUp, max: Math.max(160, Math.min(400, goUp ? above : below)) })
+          }
+          setOpen(!open)
+          setActive(
+            Math.max(
+              0,
+              hits.findIndex((m) => m.ref === props.value),
+            ),
+          )
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={variant === 'field' ? undefined : `${props.label} model`}
+        title={variant === 'chip' ? `${props.label}: ${current?.name ?? props.value}` : undefined}
+        className={
+          variant === 'chip'
+            ? cn(
+                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                open && 'bg-fill text-fg',
+              )
+            : variant === 'compact'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+              : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
+        }
+      >
+        {variant === 'chip' ? (
+          <>
+            <ProviderGlyph model={`${props.value} ${current?.name ?? ''}`} />
+            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <ChevronDown className="size-3.5 shrink-0 text-muted" />
+          </>
+        ) : variant === 'compact' ? (
+          <>
+            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
+          </>
+        ) : (
+          <>
+            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              {props.icon}
+              {props.label}
+            </span>
+            <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
+              <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
+            </span>
+          </>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: up ? 6 : -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
+            transition={spring}
+            style={{ maxHeight: fit.max }}
+            className={cn(
+              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              variant === 'compact' ? 'right-0' : 'left-0',
+              variant === 'chip' && 'material-menu border-line',
+              up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',
+            )}
+          >
+            <div className="relative border-b border-line p-2">
+              <Search className="pointer-events-none absolute left-4.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+              <input
+                type="search"
+                // biome-ignore lint/a11y/noAutofocus: the popover exists to search
+                autoFocus
+                placeholder={`Search ${visible.length} models…`}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setActive(0)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setOpen(false)
+                  else if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setActive((a) => Math.min(hits.length - 1, a + 1))
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setActive((a) => Math.max(0, a - 1))
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const hit = hits[active]
+                    if (hit) choose(hit.ref)
+                  }
+                }}
+                aria-label={`Search ${props.label} models`}
+                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-[13px] outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+              />
+            </div>
+            <div
+              className="overflow-auto p-1.5"
+              role="listbox"
+              ref={list}
+              aria-label={`${props.label} model`}
+            >
+              {groups.length === 0 && (
+                <div className="px-3 py-6 text-center text-[13px] text-muted">No models match “{query}”.</div>
+              )}
+              {groups.map(([provider, items]) => (
+                <div key={provider}>
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    <ProviderLogo provider={provider} size={12} />
+                    {provider}
+                  </div>
+                  {items.map(({ m, i }) => {
+                    const blocked = tooSmall(m)
+                    const small = m.contextWindow !== undefined && m.contextWindow < AGENT_MIN_WINDOW
+                    return (
+                      <button
+                        key={m.ref}
+                        type="button"
+                        role="option"
+                        aria-selected={m.ref === props.value}
+                        aria-disabled={blocked}
+                        title={blocked ? props.minReason : undefined}
+                        data-active={i === active}
+                        onMouseEnter={() => setActive(i)}
+                        onClick={() => choose(m.ref)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          i === active && !blocked && 'bg-surface-2',
+                          m.ref === props.value && 'text-accent-fg',
+                          (small || blocked) && 'opacity-60',
+                          blocked && 'cursor-not-allowed',
+                        )}
+                      >
+                        <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-[13px] font-medium">{m.name}</span>
+                          <span className="truncate font-mono text-[11px] text-muted">
+                            {blocked ? props.minReason : small ? 'Too small for agent work' : m.id}
+                          </span>
+                        </span>
+                        {m.contextWindow !== undefined && (
+                          <span
+                            title={windowHint(m)}
+                            className={cn(
+                              'shrink-0 font-mono text-[11px] tabular-nums',
+                              small ? 'text-warn-ink' : 'text-muted',
+                            )}
+                          >
+                            {windowLabel(m.contextWindow)}
+                            {!m.windowSource && '?'}
+                          </span>
+                        )}
+                        {m.reasoning && (
+                          <span title="Supports extended thinking" className="text-muted">
+                            <Brain className="size-3.5" />
+                          </span>
+                        )}
+                        {m.source && m.source !== 'omp' && (
+                          <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
+                            {m.source === 'custom' ? 'custom' : 'key'}
+                          </span>
+                        )}
+                        {m.ref === props.value && <Check className="size-4 shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@myrmidon/web",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@lobehub/icons-static-svg": "1.95.1",
+    "@myrmidon/core": "workspace:*",
+    "@myrmidon/protocol": "workspace:*",
+    "@myrmidon/runtime": "workspace:*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "@xyflow/react": "12.12.0",
+    "lucide-react": "1.52.0",
+    "motion": "14.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "bun-plugin-tailwind": "0.1.2"
+  }
+}

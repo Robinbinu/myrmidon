@@ -1,0 +1,78 @@
+import { expect, test } from 'bun:test'
+import type { MyrEvent } from '@myrmidon/protocol'
+import type { ColonyHost } from '../src/host.ts'
+import { logLines, mcpBreaker, similar } from '../src/tools.ts'
+
+test('task dedupe catches rewordings but not numbered siblings', () => {
+  expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
+    0.3,
+  )
+  expect(similar('Write the Flask example app', 'Write a Flask example app')).toBe(1)
+  expect(similar('Write example app for framework #1', 'Write example app for framework #2')).toBe(0)
+  expect(similar('Write example app for framework #1', 'Write example app for second-ranked framework')).toBe(
+    0,
+  )
+  expect(similar('Compare bundler speed', 'Write the final report')).toBe(0)
+})
+
+test('an MCP server that keeps failing is switched off for the round, and success resets it', () => {
+  const host = {} as ColonyHost
+  const fail = { content: [{ type: 'text' as const, text: 'ERROR: 401 bad api key' }], isError: true }
+  const ok = { content: [{ type: 'text' as const, text: 'fine' }] }
+  const stagehand = () => mcpBreaker(host, 'mcp__stagehand_browserbase_act')
+  stagehand()?.record(fail)
+  stagehand()?.record(fail)
+  stagehand()?.record(ok)
+  stagehand()?.record(fail)
+  stagehand()?.record(fail)
+  expect(stagehand()?.refusal()).toBeUndefined()
+  stagehand()?.record(fail)
+  expect(stagehand()?.refusal()).toContain('401 bad api key')
+  // Other servers, other colonies and harness tools are unaffected.
+  expect(mcpBreaker(host, 'mcp__github_search')?.refusal()).toBeUndefined()
+  expect(mcpBreaker({} as ColonyHost, 'mcp__stagehand_browserbase_act')?.refusal()).toBeUndefined()
+  expect(mcpBreaker(host, 'web_fetch')).toBeUndefined()
+})
+
+test('read_log lists what agents did, filtered by agent or tool, with each call matched to its outcome', () => {
+  const ev = (type: string, payload: Record<string, unknown>, second: number) =>
+    ({
+      type,
+      payload,
+      time: `2026-10-07T12:00:${String(second).padStart(2, '0')}.000Z`,
+    }) as unknown as MyrEvent
+  const events = [
+    ev('tool/call', { agent: 'kai', callId: 'c1', tool: 'shell', args: { command: 'bun test' } }, 1),
+    ev(
+      'tool/call',
+      { agent: 'nova', callId: 'c1', tool: 'web_fetch', args: { url: 'https://example.org' } },
+      2,
+    ),
+    ev('tool/result', { agent: 'kai', callId: 'c1', tool: 'shell', ok: true, output: 'exit 1\n3 fail' }, 3),
+    ev('tool/result', { agent: 'nova', callId: 'c1', tool: 'web_fetch', ok: false, output: 'ERROR: 404' }, 4),
+    ev('task/changed', { by: 'kai', task: { id: 'task-1', status: 'submitted' } }, 5),
+  ]
+  expect(logLines(events, {})).toEqual([
+    '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
+    '12:00:02 nova web_fetch({"url":"https://example.org"}) → FAILED: ERROR: 404',
+    '12:00:05 kai task-1 → submitted',
+  ])
+  expect(logLines(events, { agent: 'kai', tool: 'shell' })).toEqual([
+    '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
+  ])
+})
+
+test('a request that plainly needs the browser or a dev server starts with those tools loaded', async () => {
+  const { preloaded } = await import('../src/patterns.ts')
+  const names = ['fs_read', 'browser_open', 'browser_click', 'request_login', 'start_server', 'server_logs']
+  expect(preloaded('Open https://example.com and read the heading', names)).toEqual([
+    'browser_open',
+    'browser_click',
+    'request_login',
+  ])
+  expect(preloaded('Start the dev server and check the home page', names)).toEqual([
+    'start_server',
+    'server_logs',
+  ])
+  expect(preloaded('Summarize this text for me', names)).toEqual([])
+})

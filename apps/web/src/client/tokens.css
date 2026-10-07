@@ -1,0 +1,211 @@
+/* ============ tokens ============
+   Myrmidon in a macOS manner. Apple's neutral whites and greys with signal amber as the accent: amber fills primary buttons, focus and
+   the active indicator, and is never used as text except through --accent-text, which keeps AA contrast. Glass
+   materials are for the navigation layer only (sidebar, toolbars, menus, popovers, sheets); content stays opaque.
+   Text colours meet WCAG AA, 4.5:1, on every surface in both themes. */
+:root {
+  /* Surfaces */
+  --window: #f5f5f7;
+  --content: #ffffff;
+  --raised: #ffffff;
+  --control: #ffffff;
+  --control-hover: #f5f5f7;
+  --control-active: #e8e8ed;
+  --fill: #f2f2f7;
+  --fill-strong: #e5e5ea;
+  --separator: rgb(0 0 0 / 0.1);
+  --separator-strong: rgb(0 0 0 / 0.18);
+  --material-sidebar: rgb(242 242 244 / 0.82);
+  --material-toolbar: rgb(255 255 255 / 0.8);
+  --material-menu: rgb(255 255 255 / 0.86);
+  /* Labels */
+  --label: #1d1d1f;
+  --label-2: #424245;
+  --label-3: #6e6e73;
+  --label-4: #aeaeb2;
+  /* Accent */
+  --accent: #ffb31a;
+  --accent-hover: #ffbe3d;
+  --accent-soft: rgb(255 179 26 / 0.16);
+  --accent-text: #8a5a00;
+  --on-accent: #1a1204;
+  --focus: #b86e00;
+  --row-selected: rgb(0 0 0 / 0.08);
+  --row-selected-inactive: rgb(0 0 0 / 0.05);
+  /* Identity and status */
+  --ink: #1d1d1f;
+  --on-ink: #ffffff;
+  --bubble: #1d1d1f;
+  --on-bubble: #ffffff;
+  --signal: #ffb31a;
+  --lime: #d4ff3a;
+  /* Status colours are Apple's light system colours, bright enough to read at a glance as dots, icons and fills.
+     Text uses the -ink shade of the same hue, deep enough for 4.5:1 on white. */
+  --ok: #34c759;
+  --ok-soft: rgb(52 199 89 / 0.14);
+  --ok-ink: #008a2e;
+  --warn: #ff9500;
+  --warn-soft: rgb(255 149 0 / 0.15);
+  --warn-ink: #c45200;
+  --bad: #ff3b30;
+  --bad-soft: rgb(255 59 48 / 0.12);
+  --bad-ink: #d70015;
+  --work: #ffb31a;
+  --work-ink: #8a5a00;
+  --idle: #aeaeb2;
+  --edge: #c7c7cc;
+  --code-bg: #f5f5f7;
+  --add: #e6f6ec;
+  --del: #fdecec;
+  /* The mascot's dot screen stays a dark display in both themes, so its pixels glow; in light mode it sits in a
+     white bezel, like Apple hardware on a light page, instead of a bare black slab. */
+  --screen: #0b0b0d;
+  --screen-cell: rgb(255 255 255 / 0.055);
+  --screen-ink: rgb(255 255 255 / 0.4);
+  --screen-edge: rgb(255 255 255 / 0.06);
+  --screen-frame:
+    0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
+    0 24px 48px -12px rgb(0 0 0 / 0.22), 0 8px 16px -8px rgb(0 0 0 / 0.12);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.05), 0 28px 64px -12px rgb(0 0 0 / 0.24);
+  --scrim: rgb(0 0 0 / 0.3);
+  /* Shape, type, motion */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --titlebar-inset: 0px;
+  --chevrons: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3'/%3E%3C/svg%3E");
+  --font:
+    -apple-system, BlinkMacSystemFont, "Geist Variable", "Geist", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Geist Mono Variable", "Geist Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 120ms;
+  --med: 200ms;
+  /* Older names, kept until every screen uses the ones above. */
+  --bg: var(--window);
+  --surface: var(--content);
+  --surface-2: var(--fill);
+  --surface-3: var(--fill-strong);
+  --border: var(--separator);
+  --border-strong: var(--separator-strong);
+  --text: var(--label);
+  --text-2: var(--label-2);
+  --muted: var(--label-3);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --window: #0b0b0e;
+    --content: #111114;
+    --raised: #18181c;
+    --control: #232328;
+    --control-hover: #2a2a30;
+    --control-active: #313138;
+    --fill: #17171b;
+    --fill-strong: #222228;
+    --separator: rgb(255 255 255 / 0.08);
+    --separator-strong: rgb(255 255 255 / 0.16);
+    --material-sidebar: rgb(22 22 26 / 0.72);
+    --material-toolbar: rgb(17 17 20 / 0.78);
+    --material-menu: rgb(30 30 35 / 0.82);
+    --label: #f4f4f6;
+    --label-2: #c8c8d0;
+    --label-3: #8f8f9a;
+    --label-4: #5c5c66;
+    --accent-hover: #ffc247;
+    --accent-soft: rgb(255 179 26 / 0.14);
+    --accent-text: #ffb31a;
+    --focus: #ffb31a;
+    --row-selected: rgb(255 255 255 / 0.09);
+    --row-selected-inactive: rgb(255 255 255 / 0.05);
+    --ink: #f4f4f6;
+    --on-ink: #0b0b0d;
+    --bubble: #2a2a31;
+    --on-bubble: #f4f4f6;
+    --ok: #3ddc84;
+    --ok-soft: rgb(61 220 132 / 0.11);
+    --warn: #ff8a4c;
+    --warn-soft: rgb(255 138 76 / 0.12);
+    --bad: #ff6369;
+    --bad-soft: rgb(255 99 105 / 0.11);
+    --work: #ffb31a;
+    --ok-ink: #3ddc84;
+    --warn-ink: #ff8a4c;
+    --bad-ink: #ff6369;
+    --work-ink: #ffb31a;
+    --idle: #5c5c66;
+    --edge: #3a3a42;
+    --code-bg: #0c0c0f;
+    --add: #0f2a1d;
+    --del: #351719;
+    --screen: #050506;
+    --screen-cell: rgb(255 255 255 / 0.05);
+    --screen-ink: rgb(255 255 255 / 0.4);
+    --screen-edge: rgb(255 255 255 / 0.06);
+    --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+    --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
+    --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
+    --scrim: rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --window: #0b0b0e;
+  --content: #111114;
+  --raised: #18181c;
+  --control: #232328;
+  --control-hover: #2a2a30;
+  --control-active: #313138;
+  --fill: #17171b;
+  --fill-strong: #222228;
+  --separator: rgb(255 255 255 / 0.08);
+  --separator-strong: rgb(255 255 255 / 0.16);
+  --material-sidebar: rgb(22 22 26 / 0.72);
+  --material-toolbar: rgb(17 17 20 / 0.78);
+  --material-menu: rgb(30 30 35 / 0.82);
+  --label: #f4f4f6;
+  --label-2: #c8c8d0;
+  --label-3: #8f8f9a;
+  --label-4: #5c5c66;
+  --accent-hover: #ffc247;
+  --accent-soft: rgb(255 179 26 / 0.14);
+  --accent-text: #ffb31a;
+  --focus: #ffb31a;
+  --row-selected: rgb(255 255 255 / 0.09);
+  --row-selected-inactive: rgb(255 255 255 / 0.05);
+  --ink: #f4f4f6;
+  --on-ink: #0b0b0d;
+  --bubble: #2a2a31;
+  --on-bubble: #f4f4f6;
+  --ok: #3ddc84;
+  --ok-soft: rgb(61 220 132 / 0.11);
+  --warn: #ff8a4c;
+  --warn-soft: rgb(255 138 76 / 0.12);
+  --bad: #ff6369;
+  --bad-soft: rgb(255 99 105 / 0.11);
+  --work: #ffb31a;
+  --ok-ink: #3ddc84;
+  --warn-ink: #ff8a4c;
+  --bad-ink: #ff6369;
+  --work-ink: #ffb31a;
+  --idle: #5c5c66;
+  --edge: #3a3a42;
+  --code-bg: #0c0c0f;
+  --add: #0f2a1d;
+  --del: #351719;
+  --screen: #050506;
+  --screen-cell: rgb(255 255 255 / 0.05);
+  --screen-ink: rgb(255 255 255 / 0.4);
+  --screen-edge: rgb(255 255 255 / 0.06);
+  --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
+  --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
+  --scrim: rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}

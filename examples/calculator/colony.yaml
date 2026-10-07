@@ -1,0 +1,42 @@
+# Three agents build a calculator; the verifier runs real tests against their code.
+name: Calculator
+mission: ./task.md
+pattern: lead-workers
+
+agents:
+  - name: lead
+    role: lead
+    model: openai-codex/gpt-5.6-terra
+  - name: parser
+    role: worker
+    model: openai-codex/gpt-6-luna
+    instructions: You are best placed to own calc.js.
+  - name: ui
+    role: worker
+    model: openai-codex/gpt-6-luna
+    instructions: You are best placed to own index.html.
+
+acceptance:
+  - verifier: checks
+    rules:
+      - { artifact: calc.js, contains: "export", notContains: "eval(" }
+      - { artifact: index.html, contains: "calc.js", minBytes: 1500 }
+  - verifier: command
+    against: [calc.js]
+    run: >-
+      bun --eval 'import { evaluate } from "./calc.js";
+      const ok = [["1+2",3],["2*3+4",10],["2*(3+4)",14],["10/4",2.5],["-3+5",2],["2^3^2",512],["2*3^2",18],[" 1.5 * 2 ",3],["-(2+3)",-5]];
+      for (const [e, v] of ok) { const r = evaluate(e); if (Math.abs(r - v) > 1e-9) { console.error("wrong:", e, "=", r, "expected", v); process.exit(1) } }
+      for (const e of ["1/0", "2+*3", "(1+2", ""]) { let threw = false; try { evaluate(e) } catch { threw = true } if (!threw) { console.error("should throw:", JSON.stringify(e)); process.exit(1) } }
+      console.log("all", ok.length + 4, "cases pass")'
+  - verifier: llm-judge
+    model: openai-codex/gpt-5.5
+    rubric: ./rubric.md
+    threshold: 0.7
+
+budget:
+  wall: 15m
+  maxTurns: 30
+
+observer:
+  interval: 45s

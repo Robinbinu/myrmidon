@@ -17,6 +17,9 @@ coverage/
 *.sqlite-shm
 *.db
 
+# Eval reports (apps/eval)
+evals/results/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -41,3 +44,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Local Claude Code / editor launch configs
+.claude/

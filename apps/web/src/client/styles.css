@@ -1,0 +1,234 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./legacy.css" layer(components);
+
+/* Theme switching is driven by tokens on :root, so utilities need no dark: variants. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* In a plain browser there are no window buttons in the title bar, so the app shows its own mark there. */
+@custom-variant browser (&:where([data-shell="browser"], [data-shell="browser"] *));
+
+@theme inline {
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-text);
+  --color-focus: var(--focus);
+  --color-control: var(--control);
+  --color-control-hover: var(--control-hover);
+  --color-control-active: var(--control-active);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-row-selected: var(--row-selected);
+  --color-on-accent: var(--on-accent);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-work: var(--work);
+  --color-ok-ink: var(--ok-ink);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad-ink: var(--bad-ink);
+  --color-work-ink: var(--work-ink);
+  --color-code: var(--code-bg);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-bubble: var(--bubble);
+  --color-on-bubble: var(--on-bubble);
+  --color-signal: var(--signal);
+  --color-lime: var(--lime);
+  --color-screen: var(--screen);
+  --shadow-soft: var(--shadow-sm);
+  --shadow-card: var(--shadow-md);
+  --shadow-pop: var(--shadow-lg);
+  --ease-fluid: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  /* The window never scrolls or bounces as a whole; panes scroll on their own. */
+  html,
+  body {
+    overscroll-behavior: none;
+    overflow: hidden;
+  }
+  body {
+    background: var(--window);
+    color: var(--label);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.006em;
+    /* App chrome is not text to select, and only links get the hand cursor. */
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+  }
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""],
+  pre,
+  code,
+  samp {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  a[href] {
+    cursor: pointer;
+  }
+  img,
+  a {
+    -webkit-user-drag: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* Motion that loops or pulses stops for people who asked for less motion; spinners still turn slowly. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-ping,
+    .animate-pulse,
+    .animate-bounce {
+      animation: none;
+    }
+    .animate-spin {
+      animation-duration: 2.4s;
+    }
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--signal) 32%, transparent);
+  }
+  /* Scrollbars stay out of the way until a pane is hovered, as macOS overlay scrollbars do. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--fill-strong) transparent;
+  }
+  /* Title-bar contents fade when the window goes inactive; controls with their own transitions keep them. */
+  [data-toolbar] > * {
+    transition: opacity var(--fast) var(--ease);
+  }
+  [data-window-active="false"] ::selection {
+    background: color-mix(in srgb, var(--label-3) 25%, transparent);
+  }
+}
+
+/* Materials: translucent layers for navigation chrome only. */
+@utility material-sidebar {
+  background: var(--material-sidebar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+@utility material-toolbar {
+  background: var(--material-toolbar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+@utility material-menu {
+  background: var(--material-menu);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.12),
+    var(--shadow-lg);
+}
+@utility glass {
+  background: var(--material-toolbar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+
+/* Window chrome the desktop shell can drag by; controls inside opt out. */
+@utility drag-region {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+@utility brand-gradient {
+  background: var(--accent);
+}
+
+/* Faint engineering grid behind hero areas. */
+@utility dot-field {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--text) 9%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+}
+
+@utility display {
+  font-weight: 600;
+  letter-spacing: -0.032em;
+  line-height: 1.04;
+}
+
+/* The pending round's progress line: a short bar sweeping left to right. */
+@keyframes pending-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+@keyframes blink-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@utility caret {
+  animation: blink-caret 1.1s steps(1) infinite;
+}
+
+/* A SpringCheck whose label stays on one line, so the strike-through crosses the words. */
+.check-line {
+  max-width: 100%;
+}
+.check-line .spring-check__label,
+.check-line .spring-check__word {
+  display: block;
+  min-width: 0;
+}
+
+/* Controls inside a draggable title bar stay clickable in the desktop shell. */
+.drag-region :is(button, a, input, select, textarea, [role="button"], [role="separator"]) {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* An inactive window greys its selection and dims its title bars, as macOS does. */
+:root[data-window-active="false"] {
+  --row-selected: var(--row-selected-inactive);
+}
+:root[data-window-active="false"] [data-toolbar] > * {
+  opacity: 0.55;
+}

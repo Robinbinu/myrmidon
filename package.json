@@ -1,0 +1,29 @@
+{
+  "name": "myrmidon-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "bun test --timeout 30000",
+    "check": "bun run typecheck && bun run lint && bun test --timeout 30000",
+    "myr": "bun apps/cli/src/main.ts",
+    "dev": "bun --watch apps/cli/src/main.ts serve --port 4318 --dev --debug",
+    "eval": "bun apps/eval/src/main.ts"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/bun": "1.4.2",
+    "bun-plugin-tailwind": "0.1.2",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2"
+  }
+}

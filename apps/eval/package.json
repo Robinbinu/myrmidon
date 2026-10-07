@@ -1,0 +1,10 @@
+{
+  "name": "@myrmidon/eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@myrmidon/protocol": "workspace:*"
+  }
+}
