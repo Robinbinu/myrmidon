@@ -26,6 +26,7 @@ import {
   Play,
   RotateCcw,
   TriangleAlert,
+  Users,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
@@ -140,8 +141,12 @@ export function RoundView(props: {
       </section>
     )
   }
-  // A round the lead handles alone reads as a chat: its reply and a quiet line of what it did, no run card.
-  const solo = state.tier === 'solo' || state.tier === 'answer'
+  // A round the lead runs reads as a chat: its reply and a quiet line of what it did, no run card. That holds when it
+  // brings helpers in too (agents it adds, or the team an escalation hands to); a team the person asked for, or a
+  // swarm, keeps the run card.
+  const index = info ? colony.state.rounds.indexOf(info) : -1
+  const handedOver = index > 0 && colony.state.rounds[index - 1]?.escalated?.to === 'team'
+  const solo = !info?.swarm && (state.tier === 'solo' || state.tier === 'answer' || handedOver)
   const [first, ...rest] = state.chatMessages
   const opening = first?.from === 'user' ? first : undefined
   const thread = opening ? rest : state.chatMessages
@@ -219,6 +224,14 @@ export function RoundView(props: {
           ) : null,
         )}
       <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
+      {solo && (
+        <Helpers
+          state={state}
+          events={events}
+          onInspect={setInspect}
+          onOpenColony={() => props.onOpenColony(props.colonyId)}
+        />
+      )}
       {solo && (
         <LeadActivity
           state={state}
@@ -428,6 +441,86 @@ function AgentMessage(props: {
           </Button>
         </div>
       </div>
+    </motion.div>
+  )
+}
+
+/**
+ * The helpers the lead brought into a round, as one quiet line ("Brought in nova (researcher) and kai (coder)") that
+ * opens to who they are. A helper counts once it joins or takes a turn; their work stays in the workspace.
+ */
+function Helpers(props: {
+  state: ColonyState
+  events: readonly MyrEvent[]
+  onInspect(name: string): void
+  onOpenColony(): void
+}) {
+  const [open, setOpen] = useState(false)
+  const helpers = useMemo(() => {
+    const names = new Set<string>()
+    for (const e of props.events) {
+      if (e.type === 'agent/joined') names.add((e.payload as EventPayloads['agent/joined']).agent.name)
+      if (e.type === 'agent/turn') names.add((e.payload as EventPayloads['agent/turn']).agent)
+    }
+    return [...names].flatMap((n) => {
+      const a = props.state.agents[n]
+      return a && a.info.role !== 'lead' ? [a] : []
+    })
+  }, [props.events, props.state.agents])
+  if (helpers.length === 0) return null
+  return (
+    <motion.div {...enter} className="flex flex-col gap-2 pl-11">
+      <div className="flex items-center gap-1 text-[12.5px] text-muted">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-2 hover:text-fg-2"
+        >
+          <Users className="size-3.5 shrink-0" />
+          <span className="truncate">
+            {copy.round.helpers.broughtIn(
+              helpers.map((a) => copy.round.helpers.helper(a.info.name, a.info.specialty)),
+            )}
+          </span>
+          <motion.span animate={{ rotate: open ? 0 : -90 }} transition={spring} className="shrink-0">
+            <ChevronDown className="size-3.5" />
+          </motion.span>
+        </button>
+        <button
+          type="button"
+          onClick={props.onOpenColony}
+          title={copy.round.helpers.crew}
+          aria-label={copy.round.helpers.crew}
+          className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+        >
+          <Network className="size-3.5" />
+        </button>
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={softSpring}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-wrap gap-1.5 pb-1">
+              {helpers.map((a) => (
+                <AgentChip
+                  key={a.info.name}
+                  onClick={() => props.onInspect(a.info.name)}
+                  name={a.info.name}
+                  status={a.status}
+                  active={a.status === 'working'}
+                  detail={a.info.specialty ?? a.info.model.split('/').pop()}
+                />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

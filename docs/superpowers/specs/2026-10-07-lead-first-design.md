@@ -71,6 +71,8 @@ use 1 agent; complex ones use 10+"). Reviews follow a setting the person chooses
 
 - When the lead brings agents in (an escalation, or `spawn_worker`), the chat shows one compact, expandable line:
   "Brought in nova (research) and kai (frontend)". The team, tasks and terminals stay in the workspace.
+  Built: a round the lead runs (alone, adding helpers, or the team round an escalation hands over to) keeps the chat
+  layout with this line; a team the person asked for ("helpers: always") or a swarm keeps the run card.
 - A round that is a single direct answer drops the round card and review badge, keeping a quiet footer (duration,
   and "reviewed" when it was).
 

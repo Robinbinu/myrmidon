@@ -701,6 +701,13 @@ export const copy = {
       detailsTitle: 'Map, replay and transcripts of this round',
       detailsLabel: "Open the round's details",
     },
+    helpers: {
+      /** Each helper as "nova (researcher)". */
+      broughtIn: (helpers: string[]) =>
+        `Brought in ${helpers.length > 1 ? `${helpers.slice(0, -1).join(', ')} and ${helpers.at(-1)}` : helpers[0]}`,
+      helper: (name: string, specialty?: string) => (specialty ? `${name} (${specialty})` : name),
+      crew: 'Open the crew',
+    },
     serverTitle: (command: string, agent: string) => `${command} (started by ${agent})`,
     spend: {
       /** `used` already carries the limit, e.g. "120k / 500k". */
