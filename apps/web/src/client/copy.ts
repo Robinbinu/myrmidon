@@ -548,7 +548,11 @@ export const copy = {
     confirm: {
       title: 'Rewind this round’s changes?',
       body: (project: string, n: number) =>
-        `${project} goes back to how it was before this round: ${n} changed file${n === 1 ? ' is' : 's are'} restored and files the round added are removed. Later edits to those files are rewound too. The current state is saved first, so you can undo this.`,
+        `The ${n} file${n === 1 ? '' : 's'} this round changed in ${project} go${n === 1 ? 'es' : ''} back to how ${n === 1 ? 'it was' : 'they were'} before it: changed files are restored and files it added are removed. Nothing else in the folder is touched, and files edited again since the round are kept unless you choose otherwise. The current state is saved first, so you can undo this.`,
+      skippedTitle: (n: number) =>
+        `${n} file${n === 1 ? ' was' : 's were'} edited again after this round, so ${n === 1 ? 'it was' : 'they were'} kept:`,
+      rewindThemToo: 'Rewind them too',
+      keep: 'Keep them',
       cancel: 'Cancel',
       rewinding: 'Rewinding…',
       rewindFiles: 'Rewind files',

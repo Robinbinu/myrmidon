@@ -547,23 +547,47 @@ export class ChatService {
   }
 
   /**
-   * Puts a round's project folder back as it was when the round started (`undo`: reverts the latest rewind).
+   * Puts the files a round changed back as they were when it started (`undo`: reverts the latest rewind). Only the
+   * round's own files are touched: anything changed by anyone else since stays. A file the round changed that was
+   * edited again after it ended is left alone and listed in `skipped`, unless `force`.
    * Refused while the chat has a round running, since its agents would be editing the same files.
    */
-  async rewind(colonyId: string, undo = false, round?: number): Promise<{ changed: number }> {
-    const { state, project, checkpoints, start } = await this._projectRound(colonyId, round)
+  async rewind(
+    colonyId: string,
+    undo = false,
+    round?: number,
+    force = false,
+  ): Promise<{ changed: number; skipped: string[] }> {
+    const { state, info, project, checkpoints, start } = await this._projectRound(colonyId, round)
     const chatId = state.chat?.chatId ?? ''
     if (this._live.get(chatId)?.state().status === 'running')
       throw new Error('stop the running round before rewinding its files')
-    const target = undo ? state.checkpoints.restored?.undo : start
-    if (!target) throw new Error('there is no rewind to undo')
-    const { undo: before, changed } = await checkpoints.restore(project, target)
+    const now = await checkpoints.snapshot(project, 'before rewinding')
+    let target: string
+    let files: string[]
+    let skipped: string[] = []
+    if (undo) {
+      const restored = state.checkpoints.restored
+      if (!restored) throw new Error('there is no rewind to undo')
+      target = restored.undo
+      // Rewinds recorded before their files were listed undo whatever differs from the state they saved.
+      files = restored.files ? [...restored.files] : await checkpoints.files(project, target, now)
+    } else {
+      target = start
+      const ours = await checkpoints.files(project, start, info.checkpoints.end ?? now)
+      const since = info.checkpoints.end
+        ? new Set(await checkpoints.files(project, info.checkpoints.end, now))
+        : new Set()
+      skipped = force ? [] : ours.filter((f) => since.has(f))
+      files = ours.filter((f) => !skipped.includes(f))
+    }
+    const { undo: before, changed } = await checkpoints.restore(project, target, files)
     await this.runtime.ctx.log.appendOne(colonyId as never, {
       type: 'checkpoint/restored',
       actor: { kind: 'user', id: 'user' },
-      payload: { commit: target, undo: before, changed },
+      payload: { commit: target, undo: before, changed, files },
     })
-    return { changed }
+    return { changed, skipped }
   }
 
   /**

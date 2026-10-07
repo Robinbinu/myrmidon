@@ -1413,11 +1413,20 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   const changes = await chats.changes(first.colonyId, 1)
   expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
   expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
-  expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 1 })
+  // Work done after the round, by the person or anyone else, is not the round's to undo: an unrelated file stays,
+  // and a file the round wrote that changed since is left alone and reported unless the person insists.
+  await Bun.write(join(folder, 'NOTES.md'), 'written after the round\n')
+  await Bun.write(join(folder, 'src', 'hello.ts'), 'export const hi = 2\n')
+  expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 0, skipped: ['src/hello.ts'] })
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+  expect(await chats.rewind(first.colonyId, false, 1, true)).toEqual({ changed: 1, skipped: [] })
   expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
   expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
+  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
+  // Undoing the rewind puts back exactly the files it changed.
   await chats.rewind(first.colonyId, true, 1)
-  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
+  expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 2\n')
+  expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
   rmSync(folder, { recursive: true, force: true })
 })
 

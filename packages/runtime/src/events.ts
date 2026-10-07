@@ -265,7 +265,12 @@ const defs: EventTypeDefinition[] = [
     type: 'checkpoint/restored',
     version: 1,
     actors: ['user'],
-    schema: Schema.object({ commit: str(), undo: str(), changed: Schema.natural().required() }),
+    schema: Schema.object({
+      commit: str(),
+      undo: str(),
+      changed: Schema.natural().required(),
+      files: Schema.array(Schema.string()),
+    }),
   },
   {
     type: 'agent/compacted',

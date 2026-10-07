@@ -35,6 +35,8 @@ export function RoundChanges(props: {
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Files the last rewind kept because they were edited again after the round. */
+  const [skipped, setSkipped] = useState<string[]>([])
   const restored = state.checkpoints.restored
   const rewound = restored !== undefined && restored.commit === checkpoints.start
   const key = `${checkpoints.end ?? ''}:${restored?.time ?? ''}`
@@ -52,20 +54,27 @@ export function RoundChanges(props: {
   const added = changes?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
   const removed = changes?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
 
-  const rewind = async (undo: boolean) => {
+  const rewind = async (undo: boolean, force = false) => {
     setBusy(true)
     try {
-      const r = await send<{ changed: number }>('POST', `/api/colonies/${props.colonyId}/rewind`, {
-        ...(undo ? { undo } : {}),
-        ...(props.round === undefined ? {} : { round: props.round }),
-      })
+      const r = await send<{ changed: number; skipped: string[] }>(
+        'POST',
+        `/api/colonies/${props.colonyId}/rewind`,
+        {
+          ...(undo ? { undo } : {}),
+          ...(force ? { force } : {}),
+          ...(props.round === undefined ? {} : { round: props.round }),
+        },
+      )
       toast(
         undo
           ? copy.roundChanges.toast.undid(project.name)
           : copy.roundChanges.toast.rewound(r.changed, project.name),
         'success',
       )
-      setConfirm(false)
+      // Kept files stay listed in the sheet so the person can still choose to rewind them.
+      setSkipped(r.skipped ?? [])
+      if (!r.skipped?.length) setConfirm(false)
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -140,22 +149,58 @@ export function RoundChanges(props: {
         {confirm && changes && (
           <Modal title={copy.roundChanges.confirm.title} onClose={() => !busy && setConfirm(false)} size="sm">
             <div className="flex flex-col gap-4">
-              <p className="text-[13.5px] leading-relaxed text-fg-2">
-                {copy.roundChanges.confirm.body(project.name, changes.files.length)}
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
-                  {copy.roundChanges.confirm.cancel}
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => rewind(false)}
-                  disabled={busy}
-                  icon={<History className="size-3.5" />}
-                >
-                  {busy ? copy.roundChanges.confirm.rewinding : copy.roundChanges.confirm.rewindFiles}
-                </Button>
-              </div>
+              {skipped.length === 0 ? (
+                <p className="text-[13.5px] leading-relaxed text-fg-2">
+                  {copy.roundChanges.confirm.body(project.name, changes.files.length)}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 text-[13.5px] text-fg-2">
+                  <p>{copy.roundChanges.confirm.skippedTitle(skipped.length)}</p>
+                  <ul className="max-h-40 overflow-auto rounded-lg bg-fill/60 px-3 py-2 font-mono text-[12px]">
+                    {skipped.map((f) => (
+                      <li key={f} className="truncate">
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {skipped.length > 0 ? (
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSkipped([])
+                      setConfirm(false)
+                    }}
+                    disabled={busy}
+                  >
+                    {copy.roundChanges.confirm.keep}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => rewind(false, true)}
+                    disabled={busy}
+                    icon={<History className="size-3.5" />}
+                  >
+                    {busy ? copy.roundChanges.confirm.rewinding : copy.roundChanges.confirm.rewindThemToo}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
+                    {copy.roundChanges.confirm.cancel}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => rewind(false)}
+                    disabled={busy}
+                    icon={<History className="size-3.5" />}
+                  >
+                    {busy ? copy.roundChanges.confirm.rewinding : copy.roundChanges.confirm.rewindFiles}
+                  </Button>
+                </div>
+              )}
             </div>
           </Modal>
         )}

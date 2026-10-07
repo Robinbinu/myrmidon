@@ -209,7 +209,8 @@ export interface EventPayloads {
   /** `round`: the chat round it belongs to (an end snapshot can land after the next round started). */
   'checkpoint/created': { commit: string; phase: 'start' | 'end'; round?: number }
   /** The person rewound the project folder to `commit`; `undo` is the snapshot taken just before. */
-  'checkpoint/restored': { commit: string; undo: string; changed: number }
+  /** `files`: the paths the rewind put back, so undoing it restores exactly those. */
+  'checkpoint/restored': { commit: string; undo: string; changed: number; files?: string[] }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */
   'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */

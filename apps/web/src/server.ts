@@ -944,13 +944,18 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/rewind': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { undo, round } = (await req.json().catch(() => ({}))) as { undo?: unknown; round?: unknown }
+          const { undo, round, force } = (await req.json().catch(() => ({}))) as {
+            undo?: unknown
+            round?: unknown
+            force?: unknown
+          }
           try {
             return json(
               await options.chats.rewind(
                 req.params.id ?? '',
                 undo === true,
                 typeof round === 'number' ? round : undefined,
+                force === true,
               ),
             )
           } catch (err) {
