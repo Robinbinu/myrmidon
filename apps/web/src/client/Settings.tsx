@@ -98,7 +98,7 @@ export interface ServerSettings {
     tokens: number
   }
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
-  verification: { threshold: number; rubric?: string }
+  verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
@@ -139,7 +139,7 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
   { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
   { id: 'hooks', label: 'Hooks', hint: 'Commands around every tool', icon: Webhook },
   { id: 'schedules', label: 'Schedules', hint: 'Requests that run on their own', icon: CalendarClock },
-  { id: 'verification', label: 'Verification', hint: 'Judge threshold, rubric', icon: Gavel },
+  { id: 'verification', label: 'Reviewer', hint: 'Off, auto or always', icon: Gavel },
   { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
   { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
 ]
@@ -1819,20 +1819,43 @@ function McpServers() {
   )
 }
 
+const REVIEWER_HINT = {
+  off: "Never. The lead's final answer completes the task.",
+  auto: 'When the lead decides the work deserves it: code, files, research with sources.',
+  always: 'Every final answer, before the task completes; findings go back to the lead to fix.',
+} as const
+
 function VerificationSection(props: {
   settings: ServerSettings
   update(p: (s: ServerSettings) => ServerSettings): void
 }) {
   const v = props.settings.verification
+  const off = v.reviewer === 'off'
   return (
     <>
-      <Heading title="Verification">
-        An independent judge model scores the final result. A round only completes when it passes. Choose the
-        judge model under Team &amp; budget.
+      <Heading title="Reviewer">
+        An independent model checks the work against your request. Choose its model under Team &amp; budget;
+        one from another provider than the team catches more.
       </Heading>
       <Card>
         <Row>
-          <Field label="Pass threshold" hint="Judge score from 0 to 1 needed to complete a round." inline>
+          <Field label="When to review" hint={REVIEWER_HINT[v.reviewer]} inline>
+            <Segmented
+              id="reviewer"
+              value={v.reviewer}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'auto', label: 'Auto' },
+                { value: 'always', label: 'Always' },
+              ]}
+              onChange={(reviewer) =>
+                props.update((s) => ({ ...s, verification: { ...s.verification, reviewer } }))
+              }
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Pass threshold" hint="Reviewer score from 0 to 1 needed for the work to pass." inline>
             <div className="flex items-center gap-3">
               <input
                 type="range"
@@ -1848,6 +1871,7 @@ function VerificationSection(props: {
                 }
                 className="w-40 accent-[var(--accent)]"
                 aria-label="Pass threshold"
+                disabled={off}
               />
               <span className="w-10 text-right font-mono text-[13px] tabular-nums">
                 {v.threshold.toFixed(2)}
@@ -1856,7 +1880,10 @@ function VerificationSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field label="Custom rubric" hint="Optional. Replaces the default rubric the judge scores against.">
+          <Field
+            label="Custom rubric"
+            hint="Optional. Replaces the default rubric the reviewer scores against."
+          >
             <TextArea
               value={v.rubric ?? ''}
               onChange={(e) =>
@@ -1864,6 +1891,7 @@ function VerificationSection(props: {
               }
               placeholder="e.g. Code must include tests that pass; reports must cite a primary source for every number."
               rows={5}
+              disabled={off}
             />
           </Field>
         </Row>

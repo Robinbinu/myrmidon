@@ -164,7 +164,7 @@ export function TeamSettings(props: {
         )}
         <ModelPicker
           placement={props.placement}
-          label="Judge"
+          label="Reviewer"
           icon={<Gavel className="size-3" />}
           value={config.judgeModel}
           models={props.models}
@@ -173,7 +173,7 @@ export function TeamSettings(props: {
       </div>
       {sameJudge && (
         <p className="-mt-2 text-[11.5px] leading-snug text-muted">
-          The judge uses the same provider as the team. One from another provider catches more of its blind
+          The reviewer uses the same provider as the team. One from another provider catches more of its blind
           spots.
         </p>
       )}
@@ -622,7 +622,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <span className="truncate">
                   {config.mode === 'swarm'
                     ? teamLabel(config)
-                    : `${lead?.name ?? (config.leadModel || 'Choose a model')} · ${config.roster.length} specialist${config.roster.length === 1 ? '' : 's'}`}
+                    : (lead?.name ?? (config.leadModel || 'Choose a model'))}
                 </span>
               </button>
               {props.project}
