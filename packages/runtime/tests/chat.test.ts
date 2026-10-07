@@ -1954,7 +1954,12 @@ test("the person's hooks block a tool, comment on a result, and run when the rou
           hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
         },
       ],
-      Stop: [{ hooks: [{ type: 'command', command: `cat > '${stopped}'` }] }],
+      // The redirect creates the file before cat fills it; renaming makes it appear only when complete.
+      Stop: [
+        {
+          hooks: [{ type: 'command', command: `cat > '${stopped}.tmp' && mv '${stopped}.tmp' '${stopped}'` }],
+        },
+      ],
     },
   })
   const resolver = new ModelResolver()
