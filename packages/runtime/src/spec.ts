@@ -60,6 +60,8 @@ export interface ColonySpec {
   disabledTools?: string[]
   /** Tools whose every call needs the person's approval (`mcp` for every MCP tool). */
   askTools?: string[]
+  /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
+  review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (decided by triage). */
   tier?: Tier
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */

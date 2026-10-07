@@ -61,3 +61,21 @@ test('a quick answer in a project chat can read the project but not change it', 
   expect(tools).not.toContain('fs_write')
   expect(tools).not.toContain('shell')
 })
+
+test('the reviewer is on auto unless the person turns it off or on for every answer', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    expect(store.get().verification.reviewer).toBe('auto')
+    store.set({ ...store.get(), verification: { ...store.get().verification, reviewer: 'off' } })
+    expect(new SettingsStore(dir).get().verification.reviewer).toBe('off')
+    expect(() =>
+      store.set({
+        ...store.get(),
+        verification: { ...store.get().verification, reviewer: 'sometimes' as never },
+      }),
+    ).toThrow()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

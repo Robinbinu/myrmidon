@@ -107,6 +107,8 @@ export interface EventPayloads {
     disabledTools?: string[]
     /** Tools whose every call waits for the person's approval. */
     askTools?: string[]
+    /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
+    review?: 'off' | 'auto' | 'always'
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a

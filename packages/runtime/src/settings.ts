@@ -43,7 +43,8 @@ export interface MyrSettings {
   tools: Record<ToolGroup, boolean>
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
-  verification: { threshold: number; rubric?: string }
+  /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
+  verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   /** `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers. */
@@ -84,6 +85,7 @@ export const settingsSchema = Schema.object({
   verification: Schema.object({
     threshold: Schema.number().min(0).max(1).default(0.7),
     rubric: Schema.string().max(8000),
+    reviewer: Schema.union(['off', 'auto', 'always']).default('auto'),
   }).default({}),
   instructions: Schema.object({
     lead: Schema.string().max(8000),

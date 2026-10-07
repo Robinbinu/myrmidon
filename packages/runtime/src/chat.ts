@@ -701,6 +701,7 @@ export class ChatService {
         : {}),
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
       ...(created.askTools?.length ? { askTools: created.askTools } : {}),
+      ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
     }
   }
@@ -821,6 +822,9 @@ export class ChatService {
       ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
     ]
     const askTools = rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool)
+    // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
+    // answers are not reviewed, other final answers always are.
+    const review = s?.verification.reviewer
     const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
     const limits = {
       ...(s?.team.costUsd ? { costUsd: s.team.costUsd } : {}),
@@ -835,7 +839,7 @@ export class ChatService {
       pattern: swarm ? 'blackboard' : 'lead-workers',
       agents,
       acceptance:
-        tier === 'answer'
+        review === 'off' || (tier === 'answer' && review !== 'always')
           ? []
           : [
               {
@@ -852,6 +856,7 @@ export class ChatService {
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
       ...(askTools.length ? { askTools } : {}),
+      ...(review ? { review } : {}),
       chat: {
         chatId,
         round: previous.length + 1,
