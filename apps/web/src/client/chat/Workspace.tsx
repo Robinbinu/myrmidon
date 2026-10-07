@@ -249,12 +249,7 @@ function WorkspaceBody({
     <>
       <div className="flex h-full min-h-0">
         {open && (
-          <SplitDivider
-            split={split}
-            side="right"
-            label="Resize workspace"
-            className="hidden min-[1100px]:block"
-          />
+          <SplitDivider split={split} side="right" label="Resize workspace" className="hidden xl:block" />
         )}
         <div
           style={{ '--inspector-w': `${split.width}px` } as CSSProperties}
@@ -262,7 +257,7 @@ function WorkspaceBody({
             'flex-col border-l border-line bg-surface',
             // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail;
             // phones have no rail and give the panel the whole width.
-            'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(440px,calc(100vw-3rem))] min-[1100px]:static min-[1100px]:z-auto min-[1100px]:w-[var(--inspector-w)] min-[1100px]:shadow-none',
+            'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(440px,calc(100vw-3rem))] xl:static xl:z-auto xl:w-[min(var(--inspector-w),calc(100vw-820px))] xl:shadow-none',
             open ? 'flex' : 'hidden',
           )}
         >

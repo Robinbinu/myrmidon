@@ -143,7 +143,7 @@ export function App() {
   // Below the docking width the panel covers the chat, so it never reopens on its own there.
   // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
   useEffect(() => {
-    if (window.innerWidth < 1100) setWorkspaceOpen(false)
+    if (window.innerWidth < 1280) setWorkspaceOpen(false)
   }, [])
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()

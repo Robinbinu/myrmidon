@@ -86,7 +86,8 @@ Base layer, applied app-wide:
 - **Inspector (Workspace).** Its look is unchanged: the icon rail on the far right selects the view, as Xcode's
   inspector tabs do. It gets the toolbar row and the new density.
 - **Desktop only.** Myrmidon is built for desktop windows, not phones. The smallest supported window is
-  960×600. Below 1100px the inspector overlays the content. Existing phone code may stay, but nothing is designed
+  960×600. Below 1280px the inspector overlays the content; docked, it never takes more than `100vw − 820px`,
+  so the chat keeps at least about 410px. Existing phone code may stay, but nothing is designed
   or tested for phones.
 
 ## 5. Components (`ui/`)
