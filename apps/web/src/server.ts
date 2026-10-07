@@ -345,7 +345,9 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            return json({ settings: options.settings.set(await req.json()) })
+            const settings = options.settings.set(await req.json())
+            await options.chats?.permissionsChanged()
+            return json({ settings })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
@@ -483,6 +485,7 @@ export function startServer(options: ServeOptions): WebServer {
               mode: body.mode as 'auto' | 'ask' | 'read-only',
               allow,
             })
+            await options.chats?.permissionsChanged()
             return json({ project, projects: options.projects.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)

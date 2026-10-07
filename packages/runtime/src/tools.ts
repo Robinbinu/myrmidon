@@ -2270,6 +2270,21 @@ export function mcpBreaker(host: ColonyHost, toolName: string) {
 }
 
 /** An MCP tool, recorded in the log like the harness's own tools and refused once the colony has ended. */
+/**
+ * A call the agent was told to drop (the person stopped the round or tightened its permissions) ends at once for the
+ * agent; an MCP server or plugin that ignores the signal finishes on its own, and its late result is discarded.
+ */
+function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work
+  if (signal.aborted) return Promise.reject(new Error('the call was stopped'))
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      signal.addEventListener('abort', () => reject(new Error('the call was stopped')), { once: true }),
+    ),
+  ])
+}
+
 function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
   return {
     name: tool.name,
@@ -2298,7 +2313,7 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         await askFirst(host, agent, tool.name, params)
         await host.beforeTool(agent, tool.name, params)
         ran = true
-        result = await tool.execute(callId, params as never, signal)
+        result = await untilAborted(tool.execute(callId, params as never, signal), signal)
         if (!result.isError) {
           const said = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
           const note = await host.afterTool(agent, tool.name, params, said)

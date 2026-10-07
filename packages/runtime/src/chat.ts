@@ -25,7 +25,7 @@ import { speaksForColony } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
-import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
@@ -94,6 +94,27 @@ export interface SendOptions {
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
   readonly tier?: Tier
+}
+
+/** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
+export function toolRules(s: MyrSettings | undefined): {
+  disabledTools: string[]
+  askTools: string[]
+  allowTools: string[]
+} {
+  const rules = Object.entries(s?.permissions ?? {})
+  return {
+    disabledTools: [
+      ...(s
+        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
+            .filter((g) => !s.tools[g])
+            .flatMap((g) => [...TOOL_GROUPS[g]])
+        : []),
+      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
+    ],
+    askTools: rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool),
+    allowTools: rules.filter(([, rule]) => rule === 'allow').map(([tool]) => tool),
+  }
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -752,6 +773,20 @@ export class ChatService {
     return ids
   }
 
+  /**
+   * The person changed tool settings or a project's permissions: running rounds take the new rules at once, and an
+   * agent mid-turn under rules that got stricter is stopped and told what changed (see ColonyRun.applyRules).
+   */
+  async permissionsChanged(): Promise<void> {
+    const rules = toolRules(this.options.settings?.get())
+    for (const run of this._live.values()) {
+      if (run.state().status !== 'running') continue
+      const project = run.spec.chat?.project
+      const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
+      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}) })
+    }
+  }
+
   async stopAll(): Promise<void> {
     await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
   }
@@ -842,17 +877,7 @@ export class ChatService {
                 return { name, role: 'peer', model: config.leadModel }
               })
           : [lead, ...crew('worker')]
-    const rules = Object.entries(s?.permissions ?? {})
-    const disabledTools = [
-      ...(s
-        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
-            .filter((g) => !s.tools[g])
-            .flatMap((g) => [...TOOL_GROUPS[g]])
-        : []),
-      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
-    ]
-    const askTools = rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool)
-    const allowTools = rules.filter(([, rule]) => rule === 'allow').map(([tool]) => tool)
+    const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer

@@ -17,6 +17,7 @@ import {
   type EventPayloads,
   emptyColonyState,
   type MyrEvent,
+  type ProjectPermissions,
   SYSTEM,
   type TaskSnapshot,
 } from '@myrmidon/protocol'
@@ -45,6 +46,7 @@ import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
+
 import { prompts } from './prompts.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
@@ -62,6 +64,18 @@ export interface Runtime {
   /** Work still writing to the log (a round winding down), which disposing waits for. */
   track?(work: Promise<unknown>): void
   dispose(): Promise<void>
+}
+
+/** Whether two sets of tool rules are the same, order aside. */
+function sameRules(
+  a: { disabledTools?: string[]; askTools?: string[]; allowTools?: string[] },
+  b: { disabledTools: string[]; askTools: string[]; allowTools: string[] },
+) {
+  const same = (x: readonly string[] | undefined, y: readonly string[]) =>
+    (x ?? []).length === y.length && y.every((t) => (x ?? []).includes(t))
+  return (
+    same(a.disabledTools, b.disabledTools) && same(a.askTools, b.askTools) && same(a.allowTools, b.allowTools)
+  )
 }
 
 /** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
@@ -547,6 +561,60 @@ export class ColonyRun implements ColonyHost {
 
   toolsChanged() {
     for (const a of this._agents.values()) a.refreshTools()
+  }
+
+  /**
+   * New tool rules from the person, applied to this round at once. If they got stricter (a tool switched off or
+   * made to ask first, a project made read-only or ask-first), an agent mid-turn is stopped, so a call the person
+   * just took back cannot go ahead, and told what changed.
+   */
+  async applyRules(next: {
+    disabledTools: string[]
+    askTools: string[]
+    allowTools: string[]
+    project?: ProjectPermissions
+  }) {
+    const spec = this.spec as ColonySpec & {
+      disabledTools?: string[]
+      askTools?: string[]
+      allowTools?: string[]
+    }
+    const added = (now: readonly string[], before: readonly string[] | undefined) =>
+      now.filter((t) => !(before ?? []).includes(t))
+    const off = added(next.disabledTools, spec.disabledTools)
+    const ask = added(next.askTools, spec.askTools)
+    const project = spec.chat?.project
+    const strictness = { auto: 0, ask: 1, 'read-only': 2 } as const
+    const stricter =
+      project && next.project
+        ? strictness[next.project.mode] > strictness[project.permissions?.mode ?? 'auto']
+        : false
+    const allowedNow = added(next.allowTools, spec.allowTools)
+    if (!off.length && !ask.length && !allowedNow.length && !stricter && sameRules(spec, next)) return
+    spec.disabledTools = next.disabledTools
+    spec.askTools = next.askTools
+    spec.allowTools = next.allowTools
+    if (project && next.project) project.permissions = next.project
+    this.toolsChanged()
+    const interrupted =
+      off.length || ask.length || stricter ? [...this._agents.values()].filter((a) => a.working) : []
+    await this.append({
+      type: 'permissions/changed',
+      actor: { kind: 'user', id: 'user' },
+      payload: {
+        off,
+        ask,
+        allow: allowedNow,
+        ...(stricter && next.project ? { project: next.project.mode } : {}),
+        interrupted: interrupted.map((a) => a.name),
+      },
+    })
+    const note = prompts.colony.permissionsChanged({
+      off,
+      ask,
+      ...(stricter && next.project ? { project: next.project.mode } : {}),
+    })
+    for (const a of interrupted) a.interrupt('the person changed permissions', note)
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */

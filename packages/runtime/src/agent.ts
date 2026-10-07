@@ -50,6 +50,8 @@ export class ColonyAgent {
   working = false
   private _wake?: () => void
   private _stopped = false
+  /** A note for the start of the next turn, from an interrupt that cut this one short. */
+  private _afterTurn?: InboxItem
   private _failed = false
   private readonly _agent: Agent
   /** The current model's own stream function, if it has one (test models); otherwise pi's default. */
@@ -194,6 +196,15 @@ export class ColonyAgent {
     this._wake?.()
   }
 
+  /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
+  interrupt(reason: string, note: string) {
+    if (this._stopped) return
+    if (!this.working) return this.notify({ text: note, trigger: 'permissions' })
+    // The abort drops whatever was steered into this turn, so the note waits and opens the next turn instead.
+    this._afterTurn = { text: note, trigger: 'permissions' }
+    this._agent.abort(reason)
+  }
+
   /**
    * Runs until the colony ends. Agents that do not start awake sleep until a task, mail, or mention wakes them.
    * A resumed colony wakes its agents itself, so `kickoffFirst` is false there.
@@ -249,6 +260,8 @@ export class ColonyAgent {
     } finally {
       clearTimeout(timer)
       this._requeueUnread()
+      if (this._afterTurn) this.inbox.unshift(this._afterTurn)
+      this._afterTurn = undefined
       this.working = false
     }
     await this.host.append({

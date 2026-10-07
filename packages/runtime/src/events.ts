@@ -274,6 +274,18 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'permissions/changed',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({
+      off: strs(),
+      ask: strs(),
+      allow: strs(),
+      project: Schema.string(),
+      interrupted: strs(),
+    }),
+  },
+  {
     type: 'plugin/event',
     version: 1,
     actors: ['system'],

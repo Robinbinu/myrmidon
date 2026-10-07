@@ -30,7 +30,7 @@ Open work, in the order it will be done:
       brief; a request for a Myrmidon feature becomes a plugin the person switches on (spec 2026-10-07-plugins).
 3. - [x] **Per-tool MCP approvals** (done) (OpenDots) — tools a server marks read-only run on their own, others ask; each
       tool switchable and kept across refreshes; an approval binds to the exact tool and arguments.
-4. - [ ] **Stop a turn when a permission changes** (OpenDots) — revoking a permission, disabling a tool or pausing
+4. - [x] **Stop a turn when a permission changes** (done) (OpenDots) — revoking a permission, disabling a tool or pausing
       aborts the agent's in-flight turn at once.
 5. - [ ] **Interrupted runs: review before retry** (OpenDots) — a round stopped mid-way after side effects outside
       Myrmidon (MCP writes, shell) shows what it already did before resuming.

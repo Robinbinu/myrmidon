@@ -2441,6 +2441,56 @@ test('asked for a Myrmidon feature, the lead builds a plugin, tests it, and the 
   await plugins.stop()
 })
 
+test('tightening permissions mid-turn stops the agent at once and tells it what changed', async () => {
+  const { PluginStore } = await import('../src/plugins.ts')
+  const { PluginHost } = await import('../src/plugin-host.ts')
+  const { SettingsStore } = await import('../src/settings.ts')
+  const at = join(home, 'plugins', 'slow')
+  mkdirSync(join(at, 'server'), { recursive: true })
+  await Bun.write(
+    join(at, 'server', 'index.ts'),
+    `export function activate(ctx) {
+      ctx.tools.add({ name: 'wait', description: 'Takes a while', run: () => new Promise((r) => setTimeout(() => r('done waiting'), 4000)) })
+    }`,
+  )
+  const plugins = new PluginHost(new PluginStore(home))
+  await plugins.start()
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  const seen: string[] = []
+  // A step cut short by the abort still uses up a scripted step, so every later step answers the same way.
+  const after = (ctx: LlmContext) => {
+    const last = JSON.stringify(ctx.messages.at(-1))
+    seen.push(last)
+    return last.includes('The person changed what you may do')
+      ? [tool('reply_user', { text: 'Carried on without the web.', final: true })]
+      : ['thinking']
+  }
+  scripted(resolver, 'mock/lead', [[tool('slow_wait', {})], after, after, after])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), plugins, settings })
+  const { colonyId } = await chats.send('Do it', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  for (let i = 0; i < 100; i++) {
+    if ((await events(colonyId)).some((e) => e.type === 'tool/call')) break
+    await Bun.sleep(20)
+  }
+  const started = Date.now()
+  settings.set({ ...settings.get(), tools: { ...settings.get().tools, web: false } })
+  await chats.permissionsChanged()
+  const s = await waitFor(colonyId)
+  // The turn was cut short well before the slow tool would have finished.
+  expect(Date.now() - started).toBeLessThan(3500)
+  expect(s.status).toBe('completed')
+  const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+  expect(change?.payload).toMatchObject({ interrupted: ['lead'] })
+  expect((change?.payload as { off?: string[] } | undefined)?.off).toContain('web_search')
+  const note = seen.find((m) => m.includes('The person changed what you may do'))
+  expect(note).toContain('web_search')
+  expect(s.chatMessages.at(-1)?.text).toBe('Carried on without the web.')
+  await chats.stopAll()
+  await plugins.stop()
+})
+
 test('older auto/manual team configs still work', () => {
   expect(
     normalizeTeamConfig({

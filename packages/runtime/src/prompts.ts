@@ -337,6 +337,16 @@ nobody owns, publish artifacts, and request final verification once the output m
           ', ',
         )}. A teammate is waiting on you; reply to each with send_mail(reply_to: …), even in one line.`,
     mentioned: (agent: string, text: string) => `${agent} mentioned you on the board: ${text}`,
+    permissionsChanged: (p: { off: readonly string[]; ask: readonly string[]; project?: string }) =>
+      [
+        'The person changed what you may do, so your last step was stopped before it finished.',
+        p.off.length ? `Switched off: ${p.off.join(', ')}. Do not try them another way.` : '',
+        p.ask.length ? `Now needs the person's approval for each call: ${p.ask.join(', ')}.` : '',
+        p.project ? `The project folder is now ${p.project}.` : '',
+        'Check what your last step managed to do, then carry on within these rules, or tell the person what you cannot do now.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
     leadVerdict: (p: {
