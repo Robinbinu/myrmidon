@@ -13,6 +13,7 @@
     "test": "bun test --timeout 30000",
     "check": "bun run typecheck && bun run lint && bun test --timeout 30000",
     "myr": "bun apps/cli/src/main.ts",
+    "dev": "bun --watch apps/cli/src/main.ts serve --port 4318 --dev --debug",
     "eval": "bun apps/eval/src/main.ts"
   },
   "engines": {

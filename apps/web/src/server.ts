@@ -50,6 +50,11 @@ export interface ServeOptions {
    * foreign Host and Origin headers, so other sites and DNS rebinding cannot reach the API.
    */
   readonly noAuth?: boolean
+  /**
+   * Development only: bundle the client with React's development build and hot reload, and echo the browser's
+   * console (errors included) to this process's output.
+   */
+  readonly debug?: boolean
   /** Enables the chat API; without it the server is a read-only dashboard. */
   readonly chats?: ChatService
   readonly settings?: SettingsStore
@@ -256,7 +261,7 @@ export function startServer(options: ServeOptions): WebServer {
   const server = Bun.serve<StreamData>({
     hostname: '127.0.0.1',
     port: options.port ?? 0,
-    development: false,
+    development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),

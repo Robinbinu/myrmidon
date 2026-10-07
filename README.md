@@ -85,6 +85,15 @@ observer: { interval: 30s }
 ## Development
 
 ```bash
+bun run dev
+```
+
+Serves the dashboard on http://127.0.0.1:4318 for development: the browser updates as you edit client files, the server
+restarts when you edit server or runtime code (which stops any round in progress), and the browser's console output and
+errors print in the same terminal, with React's development build naming the component that failed. It needs no access
+token and uses your normal data directory; stop any other server on port 4318 first.
+
+```bash
 bun run check
 ```
 

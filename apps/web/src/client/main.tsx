@@ -9,7 +9,10 @@ installNativeBehavior()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('missing #root')
-createRoot(root).render(
+createRoot(root, {
+  // The component stack says which component failed, which the error alone does not.
+  onUncaughtError: (error, info) => console.error('React crashed:', error, info.componentStack),
+}).render(
   <ToastProvider>
     <App />
   </ToastProvider>,

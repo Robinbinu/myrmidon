@@ -41,7 +41,7 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
-  myrmidon serve [--port N] [--dev]
+  myrmidon serve [--port N] [--dev] [--debug]
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the verified answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -52,6 +52,7 @@ Usage:
 Options:
   --home DIR   Data directory (default $MYRMIDON_HOME or ~/.myrmidon)
   --dev        Serve the dashboard without an access token (localhost only; for development)
+  --debug      Development build of the dashboard with hot reload; the browser's console and errors print here
 `
 
 const { values, positionals } = parseArgs({
@@ -65,6 +66,7 @@ const { values, positionals } = parseArgs({
     out: { type: 'string' },
     'unsafe-no-sandbox': { type: 'boolean', default: false },
     dev: { type: 'boolean', default: false },
+    debug: { type: 'boolean', default: false },
     chat: { type: 'string' },
     project: { type: 'string' },
     wait: { type: 'boolean', default: false },
@@ -207,7 +209,7 @@ async function run(path: string) {
     ),
   )
   const server = values.ui
-    ? startServer({ home, port: Number(values.port ?? 0), noAuth: values.dev })
+    ? startServer({ home, port: Number(values.port ?? 0), noAuth: values.dev, debug: values.debug })
     : undefined
   if (server) console.log(`${c.bold('UI')} ${server.url}`)
   let interrupted = false
@@ -300,10 +302,13 @@ async function main() {
         schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
+        debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       if (values.dev)
         console.log(c.yellow('dev mode: no access token. Any program on this machine can use the API.'))
+      if (values.debug)
+        console.log(c.yellow('debug mode: development build; browser console output and errors print below.'))
       console.log(
         c.dim(
           `data ${home} · ${omp.available().length} models ready · sandbox ${sandbox.kind} · Ctrl-C to stop`,
