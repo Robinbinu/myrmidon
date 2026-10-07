@@ -30,7 +30,7 @@ Requests queued while other work is in progress. Top of each section is next.
       Plugins; agents asked for a Myrmidon feature build a plugin with create_plugin instead of patching source (Myrmidon
       will ship compiled, so plugins are the only way to extend it).
 
-- [ ] **Interactive agent questions + ask before building** (approved design): `ask_user` takes 1-4 questions
+- [x] **Interactive agent questions + ask before building** (done) (approved design): `ask_user` takes 1-4 questions
       (header, 2-4 options with descriptions, single/multi select); the chat shows option cards with "Other…" for a
       custom answer and Skip ("use your judgment"), one Send answers all; the round waits. The lead asks scoping
       questions with ask_user before building when the request leaves real choices open (audience, style, stack,
