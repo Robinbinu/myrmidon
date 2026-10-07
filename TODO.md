@@ -22,7 +22,7 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Rewind only undoes the round's own files** — rewinding the crew round that edited Myrmidon restored the whole
+- [x] **Rewind only undoes the round's own files** (done) — rewinding the crew round that edited Myrmidon restored the whole
       project snapshot and rolled back unrelated, newer commits (5d75622's files). Restore only files the round
       changed; ask before overwriting files changed after it.
 - [ ] **Plugins, like DeepSeek Harness** (approved: spec first) — ~/.myrmidon/plugins/<name>/ with plugin.json;
