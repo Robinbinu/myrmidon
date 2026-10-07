@@ -319,7 +319,10 @@ export function PixelFace(props: {
           width={cell}
           height={cell}
           rx={r}
-          style={{ fill: on ? props.color : 'var(--screen-cell)', transition: 'fill 180ms ease-out' }}
+          style={{
+            fill: on ? `oklch(from ${props.color} min(l, var(--screen-max-l, 1)) c h)` : 'var(--screen-cell)',
+            transition: 'fill 180ms ease-out',
+          }}
         />,
       )
     }

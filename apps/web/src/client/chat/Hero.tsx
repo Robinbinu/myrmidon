@@ -83,7 +83,7 @@ function Clock() {
     return () => clearInterval(t)
   }, [])
   const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return <DotMatrix text={hhmm} dot={2.4} ghost className="text-white/60" />
+  return <DotMatrix text={hhmm} dot={2.4} ghost className="text-[color:var(--screen-ink)]" />
 }
 
 interface CrewState {
@@ -325,7 +325,7 @@ export function Hero(props: {
                 setPetted(false)
               }}
               aria-label="Poke the colony"
-              className="block rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
+              className="block rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-[color:var(--screen-edge)] outline-offset-4"
             >
               <PixelFace
                 mood={emotion.mood}
@@ -339,8 +339,10 @@ export function Hero(props: {
                 className="h-auto w-[min(400px,calc(100vw-96px))]"
               />
               <div className="mt-5 flex items-center justify-between px-1">
-                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-white/35">
-                  <span className={`size-1 rounded-full ${asleep ? 'bg-white/30' : 'bg-[#3ddc84]'}`} />
+                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
+                  <span
+                    className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[#3ddc84]'}`}
+                  />
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
                       key={label}
