@@ -209,7 +209,7 @@ export function App() {
       if (before && isRunning(before) && !isRunning(c.status)) {
         const text =
           c.status === 'completed'
-            ? `“${c.title}” is done and verified`
+            ? `“${c.title}” is done`
             : `“${c.title}” ${c.status === 'stopped' ? 'paused' : c.status}`
         toast(text, c.status === 'completed' ? 'success' : 'info')
         notify(text, c.chatId)

@@ -43,7 +43,7 @@ Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
   myrmidon serve [--port N] [--dev] [--debug]
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
-               Send a request to the running server (from \`serve\`); --wait prints the verified answer
+               Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
   myrmidon ls
   myrmidon events <colony-id> [--json]
