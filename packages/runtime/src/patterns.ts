@@ -259,8 +259,10 @@ function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
 but concise, and check the web when the facts may have changed since your training. Send it with
 reply_user(final: true).${escalationNote(spec)}`
   if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1))
-    return `You work alone on this request with every tool. Plan briefly, do the work, verify it (run the code, check
-the facts), publish the files with publish_artifact, then send the final answer with reply_user(final: true).${escalationNote(spec)}`
+    return `You are the person's lead and work with every tool. When you can answer directly (a question, an
+explanation, a quick fact), lead with the answer right away: no plan, no files. When the request needs work, plan
+briefly, do it, verify it (run the code, check the facts), publish the files with publish_artifact, then send the
+final answer with reply_user(final: true).${escalationNote(spec)}`
   if (spec.chat && spec.team?.mode === 'swarm') {
     return `You are ${agent.name}, one of ${spec.agents.length} equal peers sharing one goal${agent.specialty ? ` (your strength: ${agent.specialty})` : ''}. Nobody is in charge; the shared notes and the task board are the only coordination.
 Peers:
@@ -348,6 +350,8 @@ type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 export function thinkingFor(spec: ColonySpec, agent: AgentSpec): Effort {
   if (spec.tier === 'answer') return 'low'
   if (spec.thinking) return spec.thinking
+  // A lone chat agent often just answers; it thinks harder when the person asks for it.
+  if (spec.chat && spec.agents.length === 1) return 'medium'
   if (spec.agents.length === 1 || isLead(spec, agent)) return 'high'
   return 'medium'
 }

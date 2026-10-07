@@ -10,7 +10,6 @@ import {
   type ProjectPermissions,
   type RoundInfo,
 } from '@myrmidon/protocol'
-import { completeSimple } from '@oh-my-pi/pi-ai'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
@@ -127,51 +126,11 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
     : { mode: 'orchestrated', leadModel, roster: [], extraWorkers: workers, judgeModel, ...wall }
 }
 
-/** Decides how much machinery a request needs before any agent starts. */
+/** Sizes a round before it starts; by default the lead does this itself, so new rounds start solo. */
 export type Classify = (request: string, history: string) => Promise<Tier>
 
-const TRIAGE = `You route requests for Myrmidon, a system that runs teams of AI agents. Classify the person's newest
-message into exactly one tier and reply with JSON only: {"tier":"answer"} or {"tier":"solo"} or {"tier":"team"}.
-- answer: conversation, greetings, opinions, explanations, definitions, quick facts, short how-to answers,
-  questions about Myrmidon or what it can do, and a quick look at one web page ("open X and tell me Y"). One agent
-  replies directly, maybe after a quick web search or opening the page.
-- solo: one concrete deliverable a single capable agent can finish in a few steps: a small script or page, a short
-  document, a focused research summary, a fix to an earlier file.
-- team: large or multi-part work that benefits from several specialists in parallel: an app with several parts,
-  broad research across many sources, a document plus code plus tests. Also short follow-ups like "go" or
-  "continue" when the earlier conversation was team work.
-When unsure between two tiers, pick the smaller one.`
-
-/** The default classifier: one short call to the lead's model. Scripted test models skip it. */
-export function llmClassifier(resolver: ModelResolver, model: () => string): Classify {
-  return async (request, history) => {
-    const resolved = resolver.resolve(model())
-    if (resolved.streamFn || resolved.model.api === 'mock') return 'team'
-    const reply = await Promise.race([
-      completeSimple(
-        resolved.model,
-        {
-          systemPrompt: [TRIAGE],
-          messages: [
-            {
-              role: 'user',
-              content: `${history ? `Earlier in the conversation:\n${history.slice(-3000)}\n\n` : ''}Newest message: ${request.slice(0, 4000)}`,
-              timestamp: Date.now(),
-            },
-          ],
-        },
-        { apiKey: await resolver.requireApiKey(resolved.model) },
-      ),
-      Bun.sleep(25_000).then(() => undefined),
-    ])
-    if (!reply) throw new Error('triage timed out')
-    if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'triage call failed')
-    const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
-    const tier = /"tier"\s*:\s*"(answer|solo|team)"/.exec(text)?.[1]
-    if (!tier) throw new Error(`triage gave no tier: ${text.slice(0, 120)}`)
-    return tier as Tier
-  }
-}
+/** Every new round starts with one lead that has every tool and escalates big work itself. */
+const leadFirst: Classify = async () => 'solo'
 
 export interface ChatRound {
   readonly colonyId: string
@@ -236,7 +195,7 @@ export class ChatService {
       unsafeNoSandbox?: boolean
       settings?: SettingsStore
       web?: WebTools
-      /** Defaults to one short call to the lead's model; see `llmClassifier`. */
+      /** Fixes a new round's size; by default every round starts with the lead alone (see `leadFirst`). */
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
@@ -364,16 +323,8 @@ export class ChatService {
     }
     const previous = await this.rounds(id)
     const history = conversation(previous)
-    const classify = this.options.classify ?? llmClassifier(this.options.resolver, () => config.leadModel)
-    // One retry, then one agent with every tool: it can do anything a single agent can without waking a team.
-    const tier =
-      options.tier ??
-      (await classify(message, history)
-        .catch(() => classify(message, history))
-        .catch((err) => {
-          console.warn(`triage failed, running solo: ${err instanceof Error ? err.message : String(err)}`)
-          return 'solo' as const
-        }))
+    // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
+    const tier = options.tier ?? (await (this.options.classify ?? leadFirst)(message, history))
     const spec = this.buildSpec(id, message, config, previous, history, tier)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.

@@ -379,6 +379,26 @@ test('answer tier: one agent replies directly, with no team and no judge', async
   expect(s.agents.lead?.turns).toBe(1)
 })
 
+test('a new message starts the lead at once: one agent with every tool, sizing the work itself', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: '4', final: true })]])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver })
+  const { colonyId } = await chats.send('What is 2+2?', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'researcher', model: 'mock/lead' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.tier).toBe('solo')
+  expect(Object.keys(s.agents)).toEqual(['lead'])
+  expect(s.agents.lead?.info.tools).toContain('shell')
+  expect(s.agents.lead?.info.tools).toContain('escalate')
+  expect(s.chatMessages.at(-1)?.text).toBe('4')
+  await chats.stopAll()
+})
+
 test('an answer written as plain text still reaches the person', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [['Life is self-sustaining chemistry capable of evolution.']])
