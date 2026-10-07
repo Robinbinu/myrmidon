@@ -22,16 +22,49 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **Crew mail like a conversation** — agents see mail and ignore it; they should read and reply, coordinate like
-      people in a chat (the person's words: "make it more human").
+Open work, in the order it will be done:
 
-- [ ] **Take what fits from CopilotKit/OpenDots** — features, prompts and more (research running; report, then
-      pick with the person).
+1. - [ ] **Crew mail like a conversation** — agents see mail and ignore it; they should read and reply, coordinate
+      like people in a chat (the person's words: "make it more human").
+2. - [ ] **Plugins phase 4: agents build plugins** — create_plugin / test_plugin / propose_plugin and the speaker
+      brief; a request for a Myrmidon feature becomes a plugin the person switches on (spec 2026-10-07-plugins).
+3. - [ ] **Per-tool MCP approvals** (OpenDots) — tools a server marks read-only run on their own, others ask; each
+      tool switchable and kept across refreshes; an approval binds to the exact tool and arguments.
+4. - [ ] **Stop a turn when a permission changes** (OpenDots) — revoking a permission, disabling a tool or pausing
+      aborts the agent's in-flight turn at once.
+5. - [ ] **Interrupted runs: review before retry** (OpenDots) — a round stopped mid-way after side effects outside
+      Myrmidon (MCP writes, shell) shows what it already did before resuming.
+6. - [ ] **Streaming replies** (lead-first step 2) — the lead's text appears as it is written.
+7. - [ ] **Helpers appear quietly** (lead-first step 3 remainder) — "Brought in nova (research) and kai (frontend)"
+      as one compact line when the lead adds agents.
+8. - [ ] **Personal entry page + mascot customisation** — headline personalised to the person; mascot eyes,
+      look/gender (a pink flower on the screen's top-right corner for a female look), colours, and what the
+      dot-matrix screen shows. Show options first.
+9. - [ ] **Review-before-save cards** (OpenDots) — an agent proposes a file, commit or message and the person approves
+      it before it is written; the approval is kept so a retry never writes twice.
+10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)
+      and reuses as helpers.
+11. - [ ] **Learn skills from past chats** (OpenDots idea) — propose a SKILL.md from finished chats for the person to
+      keep or drop, like memory proposals.
+12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
+13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
+      2026-10-07-native-ui).
+14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
+      fetching in omp to close rebinding (69456b5 notes).
+15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
+      through their endpoints (the browser pane was hidden).
+16. - [ ] **M4.7 benchmarks** (deferred).
+
+Earlier items:
+
+
+- [x] **Take what fits from CopilotKit/OpenDots** — researched (MIT); SSRF gap fixed (69456b5); the rest is listed
+      above as their own items (3-5, 9-12).
 
 - [x] **Rewind only undoes the round's own files** (done) — rewinding the crew round that edited Myrmidon restored the whole
       project snapshot and rolled back unrelated, newer commits (5d75622's files). Restore only files the round
       changed; ask before overwriting files changed after it.
-- [ ] **Plugins, like DeepSeek Harness** (spec approved; phases 1-3 done: folders, Claude Code parts, Settings → Plugins, server code with ctx, UI slots; next: phase 4, agents build plugins) — ~/.myrmidon/plugins/<name>/ with plugin.json;
+- [x] **Plugins, like DeepSeek Harness** (phases 1-3 done; phase 4 is item 2 above: folders, Claude Code parts, Settings → Plugins, server code with ctx, UI slots; next: phase 4, agents build plugins) — ~/.myrmidon/plugins/<name>/ with plugin.json;
       contributes tools, skills, hooks, prompt sections, settings, UI in defined slots; hot reload; Settings →
       Plugins; agents asked for a Myrmidon feature build a plugin with create_plugin instead of patching source (Myrmidon
       will ship compiled, so plugins are the only way to extend it).
@@ -44,7 +77,7 @@ Requests queued while other work is in progress. Top of each section is next.
       Answers reach the agent as "Question → Answer" lines, skipped ones marked. Starts after the strings/prompts
       refactor merges (same files: tools.ts, patterns.ts → prompts.ts, RoundView.tsx).
 
-- [ ] **One place for strings, config and UI decisions** — move user-facing copy to a single strings file, and
+- [x] **One place for strings, config and UI decisions** (5d75622, 4e37220: copy.ts, tokens.css, ui-config.ts; prompts.ts, config.ts) — move user-facing copy to a single strings file, and
       tunable config + colours/UI decisions to single files, so wording and look are easy to edit later.
 
 - [x] **Thinking time + thinking transcripts** ("Thought for 7s" above the reply; live clock) — the person reports the thinking timer not working and the model's
@@ -53,10 +86,7 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **Chat first, colony on demand** (2809593) — a message should get a plain chat reply, not a colony run card every
       time. The lead decides later to spin up a colony (a tool it calls) or the person opts in (an option). Needs a
       short design before building (extends lead-first steps 2-3: streamed reply, quiet helpers).
-- [ ] **Rename "colony" in the UI** — the person finds it boring; offer name options with the chat-first design.
-- [ ] **Personal entry page + mascot customisation** — headline text dynamic and personalised to the person;
-      mascot customisable: eyes, look/gender, colours, and what the dot-matrix screen shows. Show options first.
-      A female look: a pink flower on the screen's top-right corner.
+- [x] **Rename "colony" in the UI** (5c6f10f: "crew") — the person finds it boring; offer name options with the chat-first design.
 
 - [x] **Light-mode status colours pop** (2f7f30b) — red/yellow/green look dull in light mode (dark mode is fine); use
       Apple's light system colours (systemRed/Orange/Green) for `--bad`, `--warn`, `--ok` and their soft fills.
@@ -72,12 +102,12 @@ Requests queued while other work is in progress. Top of each section is next.
       tool making, MCP and made tools stay out of model calls until find_tools loads them or the request plainly
       needs them; ~5.5k → ~2.8k tokens of tool definitions per call. Serving colony tools over MCP (so outside
       harnesses can join) is open for later.
-- [ ] **Model providers cannot be removed** (reported 2026-10-07) — removing a provider in Settings → Models does not
+- [x] **Model providers cannot be removed** (423c0e7: on/off switch for providers whose keys live elsewhere) (reported 2026-10-07) — removing a provider in Settings → Models does not
       work; reproduce and fix.
-- [ ] **Respect each model's context window; redesign the model-error card** (reported 2026-10-07) — switching a long
+- [x] **Respect each model's context window; redesign the model-error card** (f902329, 51fb148, 3d4fac3) (reported 2026-10-07) — switching a long
       chat's lead to Apple's on-device model (8K window) sent its whole 125K-token history and failed; the error card
       shows the raw provider message and offers a retry that cannot help.
-- [ ] **Talk to one lead; helpers appear only when needed** (asked 2026-10-07) — sending a message should feel like
+- [x] **Talk to one lead; helpers appear only when needed** (lead-first step 1 + chat-first 2809593; streaming is its own item) (asked 2026-10-07) — sending a message should feel like
       talking to a single lead agent. Simple tasks stay with that one agent; for bigger ones the lead brings in more
       agents as the work calls for it. Drop "picking the right team" and anything that puts workers in the person's face
       up front; make it feel intuitive and intelligent.
