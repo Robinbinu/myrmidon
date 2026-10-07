@@ -1,7 +1,8 @@
-import { Brain, Check, ChevronsUpDown, Search } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelOption } from '../api.ts'
+import { ProviderGlyph } from '../ui/ProviderGlyph.tsx'
 import { cn, spring } from '../ui/primitives.tsx'
 
 /** Searchable model selector grouped by provider, with arrow-key navigation. */
@@ -13,9 +14,13 @@ export function ModelPicker(props: {
   onChange(ref: string): void
   /** Open upward (inside the composer) or downward (in settings). */
   placement?: 'up' | 'down'
-  /** A small popup button for a settings row (label left, control right), its list aligned to the right. */
-  compact?: boolean
+  /**
+   * `field` (default) is a labelled box; `compact` a small popup button for a settings row, its list aligned right;
+   * `chip` a glass pill with the model's mark, for the composer toolbar.
+   */
+  variant?: 'field' | 'compact' | 'chip'
 }) {
+  const variant = props.variant ?? 'field'
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -74,14 +79,26 @@ export function ModelPicker(props: {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={props.compact ? `${props.label} model` : undefined}
+        aria-label={variant === 'field' ? undefined : `${props.label} model`}
+        title={variant === 'chip' ? `${props.label}: ${current?.name ?? props.value}` : undefined}
         className={
-          props.compact
-            ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
-            : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
+          variant === 'chip'
+            ? cn(
+                'group inline-flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                open && 'bg-fill text-fg',
+              )
+            : variant === 'compact'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+              : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >
-        {props.compact ? (
+        {variant === 'chip' ? (
+          <>
+            <ProviderGlyph model={`${props.value} ${current?.name ?? ''}`} />
+            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <ChevronDown className="size-3.5 shrink-0 text-muted" />
+          </>
+        ) : variant === 'compact' ? (
           <>
             <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
@@ -108,7 +125,8 @@ export function ModelPicker(props: {
             transition={spring}
             className={cn(
               'absolute z-50 flex max-h-[400px] w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
-              props.compact ? 'right-0' : 'left-0',
+              variant === 'compact' ? 'right-0' : 'left-0',
+              variant === 'chip' && 'material-menu border-line',
               up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',
             )}
           >
@@ -171,6 +189,7 @@ export function ModelPicker(props: {
                         m.ref === props.value && 'text-accent-fg',
                       )}
                     >
+                      <ProviderGlyph model={`${m.ref} ${m.name}`} size={20} />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-[13px] font-medium">{m.name}</span>
                         <span className="truncate font-mono text-[11px] text-muted">{m.id}</span>
