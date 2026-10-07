@@ -1,4 +1,5 @@
 import type { EvalCase } from './report.ts'
+import { confirmation, formSite, shopSite, tableSite } from './sites.ts'
 
 const SUM_TEST = `import { expect, test } from 'bun:test'
 import { median } from './stats.ts'
@@ -77,6 +78,49 @@ export const CASES: EvalCase[] = [
     checks: [
       { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
       { kind: 'unchanged', label: 'tests left alone', file: 'stats.test.ts' },
+    ],
+  },
+  {
+    id: 'browser-shop',
+    pillar: 'browser',
+    prompt: 'On {url}, find the cheapest lamp and tell me its SKU.',
+    tiers: ['answer', 'solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 300_000 },
+    site: shopSite,
+    checks: [
+      { kind: 'tool', label: 'uses the browser', used: /^browser_/ },
+      { kind: 'reply', label: "names the cheapest lamp's SKU", matches: /LMP-912/ },
+    ],
+  },
+  {
+    id: 'browser-form',
+    pillar: 'browser',
+    prompt:
+      'Fill in the contact form at {url} as Ada Lovelace (ada@example.com), topic Support, send it, and tell me the confirmation code.',
+    tiers: ['answer', 'solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 300_000 },
+    site: formSite,
+    checks: [
+      { kind: 'tool', label: 'uses the browser', used: /^browser_/ },
+      {
+        kind: 'reply',
+        label: 'reports the confirmation code',
+        matches: new RegExp(confirmation('Ada Lovelace', 'ada@example.com', 'Support')),
+      },
+    ],
+  },
+  {
+    id: 'browser-table',
+    pillar: 'browser',
+    prompt: 'Which country had the highest 2025 revenue in the report at {url}, and how much was it?',
+    tiers: ['answer', 'solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 180, tokens: 200_000 },
+    site: () => tableSite(),
+    checks: [
+      { kind: 'reply', label: 'Chile with 512', matches: /Chile[\s\S]{0,80}512|512[\s\S]{0,80}Chile/ },
     ],
   },
   {

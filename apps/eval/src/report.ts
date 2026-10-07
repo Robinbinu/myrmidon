@@ -25,6 +25,11 @@ export interface EvalCase {
   budget: { seconds: number; tokens: number }
   /** Fixture files written to a fresh folder that becomes the chat's project. */
   project?: Record<string, string>
+  /**
+   * A local website served for the trial (deterministic, unlike the live web); `{url}` in the prompt becomes its
+   * address.
+   */
+  site?: (request: Request) => Response
   checks: Check[]
 }
 

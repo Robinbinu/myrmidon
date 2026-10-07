@@ -74,7 +74,12 @@ This makes a project chat as trustworthy as Claude Code or Codex in the same fol
 8. **Compaction.** Summarize old turns when an agent nears its context window (transcripts already store
    them; `compactTranscript` is the start).
 
-## Milestone 2: Browser agent
+## Milestone 2: Browser agent — done
+
+Status (2026-10-07): all done — login handoff, untrusted-content spotlighting, tabs/downloads/uploads,
+`browser_extract`, `browser_network`, saved browser flows, and browser evals on local fixture sites (shop search,
+form fill, table lookup; all three pass). The evals showed answer-tier agents needed the full browser toolset and
+that a broken MCP server could eat a round, so MCP servers now trip a breaker after 3 failures in a row.
 
 1. **Login handoff.**
    - The agent calls `ask_user` with "sign in here"; the person takes control in the live view and signs in,
@@ -120,7 +125,7 @@ This makes a project chat as trustworthy as Claude Code or Codex in the same fol
    - Run diff in Compare runs.
 6. **Live board.** The task board streams in the workspace while the round runs.
 
-## Milestone 4: Agent harness — done
+## Milestone 4: Agent harness
 
 Status: 2 (self-made tools) done; the rest open.
 

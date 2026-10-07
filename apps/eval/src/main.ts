@@ -105,6 +105,7 @@ function teamConfig(mode: Mode) {
 async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialResult> {
   let dir: string | undefined
   let projectId: string | undefined
+  const site = c.site ? Bun.serve({ port: 0, fetch: c.site }) : undefined
   try {
     if (c.project) {
       dir = realpathSync(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))
@@ -112,7 +113,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
       projectId = (await call<{ project: { id: string } }>('POST', '/api/projects', { path: dir })).project.id
     }
     const sent = await call<{ chatId: string; colonyId: string }>('POST', '/api/chats', {
-      text: c.prompt,
+      text: site ? c.prompt.replaceAll('{url}', `http://localhost:${site.port}`) : c.prompt,
       config: teamConfig(mode),
       ...(projectId ? { project: projectId } : {}),
     })
@@ -178,6 +179,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
       error: (err as Error).message,
     }
   } finally {
+    site?.stop(true)
     if (projectId) await call('DELETE', `/api/projects/${projectId}`).catch(() => {})
   }
 }

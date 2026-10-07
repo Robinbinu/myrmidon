@@ -1982,6 +1982,47 @@ function madeTool(agent: string, tool: EventPayloads['tool/created'], host: Colo
   } as AgentTool
 }
 
+/** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
+const MCP_FAILURE_LIMIT = 3
+const breakers = new WeakMap<ColonyHost, Map<string, { failures: number; last: string }>>()
+
+/**
+ * A failing MCP server (a bad key, a dead endpoint) should not eat a round: its consecutive failures are counted per
+ * colony, keyed by the server part of the tool name (mcp__<server>_<tool>).
+ */
+export function mcpBreaker(host: ColonyHost, toolName: string) {
+  const server = /^mcp__([a-z0-9]+)/.exec(toolName)?.[1]
+  if (!server) return undefined
+  let byServer = breakers.get(host)
+  if (!byServer) {
+    byServer = new Map()
+    breakers.set(host, byServer)
+  }
+  let state = byServer.get(server)
+  if (!state) {
+    state = { failures: 0, last: '' }
+    byServer.set(server, state)
+  }
+  return {
+    /** Why the call is refused, while the server is switched off. */
+    refusal: () =>
+      state.failures >= MCP_FAILURE_LIMIT
+        ? `this MCP server failed ${state.failures} times in a row this round (last: ${state.last}), so its tools are switched off until the next round. Use Myrmidon's own tools instead (browser_*, web_*, shell).`
+        : undefined,
+    record(result: AgentToolResult) {
+      if (!result.isError) {
+        state.failures = 0
+        return
+      }
+      state.failures += 1
+      state.last = result.content
+        .flatMap((c) => (c.type === 'text' ? [c.text] : []))
+        .join(' ')
+        .slice(0, 160)
+    },
+  }
+}
+
 /** An MCP tool, recorded in the log like the harness's own tools and refused once the colony has ended. */
 function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
   return {
@@ -1999,10 +2040,16 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         payload: { agent, callId, tool: tool.name, args: params ?? {} },
       })
       let result: AgentToolResult
+      const breaker = mcpBreaker(host, tool.name)
+      // Only the server's own answers count toward its breaker, not the harness refusing the call.
+      let ran = false
       try {
         if (host.state().status !== 'running') throw new Error('the colony is no longer running')
         if (host.huddling())
           throw new Error('the swarm is still huddling: post your proposal (post) and stop')
+        const refused = breaker?.refusal()
+        if (refused) throw new Error(refused)
+        ran = true
         result = await tool.execute(callId, params as never, signal)
       } catch (err) {
         result = {
@@ -2010,6 +2057,7 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
           isError: true,
         }
       }
+      if (ran) breaker?.record(result)
       const text = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
       await host.append({
         type: 'tool/result',

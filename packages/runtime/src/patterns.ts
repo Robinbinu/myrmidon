@@ -67,8 +67,8 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
     if (spec.tier === 'answer')
       return [
         ...WEB,
-        'browser_open',
-        'browser_snapshot',
+        // A quick lookup on a site still needs searching and clicking; these act only in the agent's own browser.
+        ...BROWSER,
         // In a project, quick questions are often about its code: reading it needs no team.
         ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob'] : []),
         'list_artifacts',
@@ -366,7 +366,8 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
         (env.browser
           ? 'drive a real headless browser (browser_*), including pages you publish'
           : 'no browser (Chrome not installed)'),
-      has('mcp') && 'use the tools of connected MCP servers (named mcp__server_tool)',
+      has('mcp') &&
+        'use the tools of connected MCP servers (named mcp__server_tool); for browsing prefer your own browser_* tools, and treat MCP browser tools as a fallback',
       has('create_tool') &&
         env.sandbox !== 'none' &&
         'make your own reusable tools for repeated work (create_tool; they appear as tool_<name>)',
