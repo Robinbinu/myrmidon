@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
-import { type ColonyId, colonyMetrics, foldColony } from '@myrmidon/protocol'
+import { type ColonyId, colonyMetrics, foldColony, runDiff } from '@myrmidon/protocol'
 import {
   type BrowserHub,
   buildCatalog,
@@ -714,6 +714,11 @@ export function startServer(options: ServeOptions): WebServer {
         }
         rows.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
         return json(rows)
+      }),
+      '/api/compare': guard(async (_req, url) => {
+        const a = colonyId(url.searchParams.get('a') ?? '')
+        const b = colonyId(url.searchParams.get('b') ?? '')
+        return json(runDiff({ id: a, events: await store.read(a) }, { id: b, events: await store.read(b) }))
       }),
       '/api/colonies/:id/events': guard(async (req, url) => {
         const id = colonyId(req.params.id ?? '')
