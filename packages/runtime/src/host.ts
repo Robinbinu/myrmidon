@@ -89,6 +89,10 @@ export interface ColonyHost {
    * worktree). Throws, with what to do, when they conflict.
    */
   mergeWork(agent: string): Promise<string[]>
+  /** Runs the person's PreToolUse hooks; throws, with the hook's reason, when one blocks the call. */
+  beforeTool(agent: string, tool: string, input: unknown): Promise<void>
+  /** Runs the person's PostToolUse hooks; returns what they want the agent to know ('' for nothing). */
+  afterTool(agent: string, tool: string, input: unknown, output: string): Promise<string>
   /** The skills agents may use in this colony (enabled ones, including its project's). */
   skills(): { name: string; description: string }[]
   /** A skill's instructions, or one of its files, for an agent (use_skill). */

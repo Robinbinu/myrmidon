@@ -18,6 +18,7 @@ import {
   gitStatus,
   gitUnstage,
   gitWorkingChanges,
+  type HookStore,
   importFromOmp,
   type LiveInput,
   listFolders,
@@ -64,6 +65,8 @@ export interface ServeOptions {
   readonly memory?: MemoryStore
   /** Skills agents load by name. */
   readonly skills?: SkillLibrary
+  /** The person's hooks (Claude Code format). */
+  readonly hooks?: HookStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -412,6 +415,13 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
+        }),
+      },
+      '/api/hooks': {
+        GET: guard(() => json(options.hooks?.read() ?? { hooks: {} })),
+        PUT: guard(async (req) => {
+          if (!options.hooks) return json({ error: 'hooks need the chat runtime' }, 503)
+          return json(options.hooks.write(await req.json().catch(() => ({}))))
         }),
       },
       '/api/skills': guard((_req, url) => {

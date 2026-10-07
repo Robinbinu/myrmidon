@@ -11,6 +11,9 @@
   tools are simply absent. MCP servers are added and enabled per server in Settings; their tools act on real
   systems, so treat them like the person's own accounts. After 3 failures in a row, a server's tools are
   refused for the rest of the round; switch to your own tools.
+- **Hooks.** The person may run their own commands before and after tools. A hook can refuse a call (you get
+  "a hook blocked this call" with its reason: follow it, do not work around it) or add a `[hook]` note to a
+  result, such as formatter or lint output: act on it.
 - **Rounds.** A chat runs in one colony: each follow-up is the next round of it. Files (with their versions),
   notes, tools, and each agent's own conversation carry on (earlier rounds' tool output is shortened); tasks
   and the plan are per round, and so are the time and turn budgets. The team persists unless the lead dismisses

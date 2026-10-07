@@ -2268,8 +2268,14 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
           throw new Error('the swarm is still huddling: post your proposal (post) and stop')
         const refused = breaker?.refusal()
         if (refused) throw new Error(refused)
+        await host.beforeTool(agent, tool.name, params)
         ran = true
         result = await tool.execute(callId, params as never, signal)
+        if (!result.isError) {
+          const said = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
+          const note = await host.afterTool(agent, tool.name, params, said)
+          if (note) result = { ...result, content: [...result.content, { type: 'text', text: note }] }
+        }
       } catch (err) {
         result = {
           content: [{ type: 'text', text: `ERROR: ${err instanceof Error ? err.message : String(err)}` }],
@@ -2327,9 +2333,12 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
                 'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
               )
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
+            await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
+            // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
+            const hookNote = await host.afterTool(agent, def.name, params, output)
             if (typeof result !== 'string') images = result.images
             const preface = typeof result === 'string' ? '' : (result.preface ?? '')
             // Long pages are saved under web/ in scratch; reading one back is still outside content.
@@ -2340,7 +2349,7 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
               host.rememberUntrusted(agent, source, output)
               output = spotlight(host.boundary, source, output)
             }
-            output = `${preface}${output}`
+            output = `${preface}${output}${hookNote}`
           } catch (err) {
             ok = false
             output = `ERROR: ${err instanceof Error ? err.message : String(err)}`

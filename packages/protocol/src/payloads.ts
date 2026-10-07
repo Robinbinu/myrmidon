@@ -134,6 +134,20 @@ export interface EventPayloads {
     why: string
   }
   'memory/decided': { id: string; kept: boolean }
+  /**
+   * One of the person's hooks ran. `outcome`: `blocked` stopped the tool, `asked` sent it to the person,
+   * `feedback` told the agent something after the tool, `failed` means the hook itself errored.
+   */
+  'hook/ran': {
+    event: 'PreToolUse' | 'PostToolUse' | 'Stop'
+    agent?: string
+    tool?: string
+    command: string
+    code: number
+    ms: number
+    outcome: 'ok' | 'blocked' | 'asked' | 'feedback' | 'failed'
+    message?: string
+  }
   /** An agent loaded a skill's instructions, or one of its bundled files. */
   'skill/used': { agent: string; name: string; file?: string }
   /** The round's agent found the request bigger than its tier: the chat reruns it at `to`, with this round's work. */

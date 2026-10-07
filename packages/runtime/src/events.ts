@@ -174,6 +174,21 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'hook/ran',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      event: oneOf('PreToolUse', 'PostToolUse', 'Stop'),
+      agent: Schema.string(),
+      tool: Schema.string(),
+      command: str(),
+      code: Schema.number().required(),
+      ms: Schema.natural().required(),
+      outcome: oneOf('ok', 'blocked', 'asked', 'feedback', 'failed'),
+      message: Schema.string(),
+    }),
+  },
+  {
     type: 'skill/used',
     version: 1,
     actors: ['agent'],

@@ -32,6 +32,7 @@ import {
   Terminal,
   Trash2,
   Users,
+  Webhook,
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -120,6 +121,7 @@ export type Section =
   | 'team'
   | 'tools'
   | 'skills'
+  | 'hooks'
   | 'verification'
   | 'instructions'
   | 'memory'
@@ -130,6 +132,7 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
   { id: 'team', label: 'Team & budget', hint: 'Defaults and limits', icon: Users },
   { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
   { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
+  { id: 'hooks', label: 'Hooks', hint: 'Commands around every tool', icon: Webhook },
   { id: 'verification', label: 'Verification', hint: 'Judge threshold, rubric', icon: Gavel },
   { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
   { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
@@ -381,6 +384,7 @@ export function Settings(props: {
               )}
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
+              {section === 'hooks' && <HooksSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> Loading settings…
@@ -1793,6 +1797,187 @@ function InstructionsSection(props: {
           </Field>
         </Row>
       </Card>
+    </>
+  )
+}
+
+type HookEvent = 'PreToolUse' | 'PostToolUse' | 'Stop'
+interface HookRow {
+  event: HookEvent
+  matcher: string
+  command: string
+  timeout: string
+}
+type HooksFile = {
+  hooks: Partial<
+    Record<HookEvent, { matcher?: string; hooks: { type: 'command'; command: string; timeout?: number }[] }[]>
+  >
+}
+
+const HOOK_EVENTS: { value: HookEvent; label: string }[] = [
+  { value: 'PreToolUse', label: 'Before a tool' },
+  { value: 'PostToolUse', label: 'After a tool' },
+  { value: 'Stop', label: 'When a round ends' },
+]
+
+function rowsOf(file: HooksFile): HookRow[] {
+  return HOOK_EVENTS.flatMap(({ value }) =>
+    (file.hooks[value] ?? []).flatMap((g) =>
+      g.hooks.map((h) => ({
+        event: value,
+        matcher: g.matcher ?? '',
+        command: h.command,
+        timeout: h.timeout ? String(h.timeout) : '',
+      })),
+    ),
+  )
+}
+
+function fileOf(rows: HookRow[]): HooksFile {
+  const hooks: HooksFile['hooks'] = {}
+  for (const r of rows) {
+    if (!r.command.trim()) continue
+    const timeout = Number(r.timeout)
+    const groups = hooks[r.event] ?? []
+    hooks[r.event] = groups
+    groups.push({
+      ...(r.event !== 'Stop' && r.matcher.trim() ? { matcher: r.matcher.trim() } : {}),
+      hooks: [{ type: 'command', command: r.command.trim(), ...(timeout > 0 ? { timeout } : {}) }],
+    })
+  }
+  return { hooks }
+}
+
+/**
+ * The person's hooks, in Claude Code's format: commands Myrmidon runs before or after matching tools, or when a
+ * round ends. They run as the person, outside the sandbox.
+ */
+function HooksSection() {
+  const toast = useToast()
+  const [rows, setRows] = useState<HookRow[]>()
+  const [dirty, setDirty] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    api<HooksFile>('/api/hooks')
+      .then((f) => setRows(rowsOf(f)))
+      .catch((err: Error) => toast(err.message, 'error'))
+  }, [])
+  const change = (i: number, patch: Partial<HookRow>) => {
+    setRows((rs) => rs?.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+    setDirty(true)
+  }
+  const save = async () => {
+    try {
+      const saved = await send<HooksFile>('PUT', '/api/hooks', fileOf(rows ?? []))
+      setRows(rowsOf(saved))
+      setDirty(false)
+      toast('Hooks saved: they apply to every tool call from now on', 'success')
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+  }
+  return (
+    <>
+      <Heading title="Hooks">
+        Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent:
+        format after every edit, refuse commands that touch secrets, notify you when a round ends. Same format
+        as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool
+        tells the agent. Tool names match Myrmidon's (<code className="font-mono text-[12.5px]">fs_edit</code>
+        , <code className="font-mono text-[12.5px]">shell</code>) or Claude Code's (
+        <code className="font-mono text-[12.5px]">Edit|Write</code>,{' '}
+        <code className="font-mono text-[12.5px]">Bash</code>
+        ). Hooks run as you, outside the sandbox.
+      </Heading>
+      {!rows ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> Loading hooks…
+        </div>
+      ) : (
+        <Card>
+          {rows.length === 0 && (
+            <Row>
+              <p className="text-[13px] text-muted">No hooks yet.</p>
+            </Row>
+          )}
+          {rows.map((r, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place by position
+            <Row key={i}>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    aria-label="When"
+                    value={r.event}
+                    onChange={(e) => change(i, { event: e.target.value as HookEvent })}
+                  >
+                    {HOOK_EVENTS.map((ev) => (
+                      <option key={ev.value} value={ev.value}>
+                        {ev.label}
+                      </option>
+                    ))}
+                  </Select>
+                  {r.event !== 'Stop' && (
+                    <div className="w-56">
+                      <TextInput
+                        aria-label="Tools"
+                        value={r.matcher}
+                        onChange={(e) => change(i, { matcher: e.target.value })}
+                        placeholder="Tools, e.g. Edit|Write (empty: all)"
+                      />
+                    </div>
+                  )}
+                  <div className="w-20">
+                    <TextInput
+                      aria-label="Timeout in seconds"
+                      value={r.timeout}
+                      onChange={(e) => change(i, { timeout: e.target.value.replace(/[^\d.]/g, '') })}
+                      placeholder="60s"
+                    />
+                  </div>
+                  <span className="flex-1" />
+                  <IconButton
+                    label="Remove this hook"
+                    onClick={() => {
+                      setRows((rs) => rs?.filter((_, j) => j !== i))
+                      setDirty(true)
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </IconButton>
+                </div>
+                <TextInput
+                  aria-label="Command"
+                  value={r.command}
+                  onChange={(e) => change(i, { command: e.target.value })}
+                  placeholder={`e.g. jq -r .tool_input.file_path | xargs npx prettier --write`}
+                  className="font-mono text-[12.5px]"
+                />
+              </div>
+            </Row>
+          ))}
+          <Row>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Plus className="size-3.5" />}
+                onClick={() => {
+                  setRows((rs) => [
+                    ...(rs ?? []),
+                    { event: 'PostToolUse', matcher: '', command: '', timeout: '' },
+                  ])
+                  setDirty(true)
+                }}
+              >
+                Add hook
+              </Button>
+              <span className="flex-1" />
+              <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>
+                Save
+              </Button>
+            </div>
+          </Row>
+        </Card>
+      )}
     </>
   )
 }

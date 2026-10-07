@@ -23,6 +23,7 @@ import {
 import { ColonyAgent } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
+import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
 import { agentActor, type ColonyHost, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -86,6 +87,8 @@ export interface RunOptions {
   readonly memory?: MemoryStore
   /** Skills agents can load by name (use_skill). */
   readonly skills?: SkillLibrary
+  /** The person's hooks, run before and after tools and when the round ends. */
+  readonly hooks?: HookStore
 }
 
 const QUIET_NUDGES = 2
@@ -392,6 +395,89 @@ export class ColonyRun implements ColonyHost {
 
   projectDiff(): Promise<string | undefined> {
     return this.options.projectDiff?.() ?? Promise.resolve(undefined)
+  }
+
+  /** Runs the hooks for an event and records each run; `undefined` when none listens. */
+  private async _hooks(event: HookEvent, agent: string | undefined, tool: string | undefined, input: object) {
+    const store = this.options.hooks
+    if (!store?.has(event)) return undefined
+    const cwd = agent
+      ? this.workspace.workdir(agent)
+      : (this.spec.chat?.project?.path ?? this.workspace.colonyDir)
+    const env = {
+      MYRMIDON_COLONY: this.id,
+      ...(agent ? { MYRMIDON_AGENT: agent } : {}),
+      // Hooks written for Claude Code find the project here.
+      CLAUDE_PROJECT_DIR: this.spec.chat?.project?.path ?? cwd,
+      MYRMIDON_PROJECT_DIR: this.spec.chat?.project?.path ?? cwd,
+    }
+    const outcome = await runHooks(
+      store.read(),
+      event,
+      tool,
+      { hook_event_name: event, session_id: this.id, cwd, ...(agent ? { agent } : {}), ...input },
+      cwd,
+      env,
+    )
+    await this._recordHooks(event, agent, tool, outcome)
+    return outcome
+  }
+
+  private async _recordHooks(
+    event: HookEvent,
+    agent: string | undefined,
+    tool: string | undefined,
+    o: HookOutcome,
+  ) {
+    for (const [i, run] of o.runs.entries()) {
+      const last = i === o.runs.length - 1
+      const outcome =
+        last && o.blocked
+          ? 'blocked'
+          : last && o.ask
+            ? 'asked'
+            : run.code === 2
+              ? 'feedback'
+              : run.code !== 0
+                ? 'failed'
+                : 'ok'
+      const message = (
+        outcome === 'blocked' ? o.blocked : outcome === 'asked' ? o.ask : run.stderr.trim()
+      )?.slice(0, 500)
+      await this.append({
+        type: 'hook/ran',
+        actor: SYSTEM,
+        payload: {
+          event,
+          ...(agent ? { agent } : {}),
+          ...(tool ? { tool } : {}),
+          command: run.command.slice(0, 300),
+          code: run.code,
+          ms: run.ms,
+          outcome,
+          ...(message ? { message } : {}),
+        },
+      })
+    }
+  }
+
+  async beforeTool(agent: string, tool: string, input: unknown): Promise<void> {
+    const o = await this._hooks('PreToolUse', agent, tool, {
+      tool_name: tool,
+      tool_input: hookToolInput(input, this.workspace.workdir(agent)),
+    })
+    if (o?.blocked) throw new Error(`a hook blocked this call: ${o.blocked}`)
+    if (o?.ask && !(await this.requestApproval(agent, tool, `hook: ${o.ask}`)))
+      throw new Error(`the person did not approve this call (${o.ask})`)
+  }
+
+  async afterTool(agent: string, tool: string, input: unknown, output: string): Promise<string> {
+    const o = await this._hooks('PostToolUse', agent, tool, {
+      tool_name: tool,
+      tool_input: hookToolInput(input, this.workspace.workdir(agent)),
+      tool_response: output.slice(0, 20_000),
+    })
+    return o?.feedback.length ? `\n\n[hook] ${o.feedback.join('\n[hook] ')}` : ''
   }
 
   skills(): { name: string; description: string }[] {
@@ -1457,6 +1543,11 @@ export class ColonyRun implements ColonyHost {
   }
 
   private async _end() {
+    // The round's Stop hooks (notify, archive, …) see how it ended; they cannot change it.
+    await this._hooks('Stop', undefined, undefined, {
+      status: this._state.status,
+      ...(this._state.statusReason ? { reason: this._state.statusReason } : {}),
+    }).catch((err) => console.error('Stop hooks failed:', err))
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
     for (const { agent, kept } of (await this._worktrees?.close()) ?? [])

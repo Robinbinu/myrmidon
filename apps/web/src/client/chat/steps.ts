@@ -192,6 +192,26 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'hook/ran': {
+        const p = e.payload as EventPayloads['hook/ran']
+        // Hooks that simply passed stay out of the way; the ones that acted are worth seeing.
+        if (p.outcome === 'ok') break
+        out.push({
+          ...base,
+          kind: p.outcome === 'feedback' ? 'signal' : 'error',
+          agent: p.agent ?? 'system',
+          lead:
+            p.outcome === 'blocked'
+              ? `A hook blocked ${p.tool ?? 'a call'}:`
+              : p.outcome === 'asked'
+                ? `A hook asked you about ${p.tool ?? 'a call'}:`
+                : p.outcome === 'feedback'
+                  ? `A hook flagged ${p.tool ?? 'the result'}:`
+                  : `A ${p.event} hook failed (exit ${p.code}):`,
+          tail: cut(p.message ?? p.command, 140),
+        })
+        break
+      }
       case 'skill/used': {
         const p = e.payload as EventPayloads['skill/used']
         out.push({

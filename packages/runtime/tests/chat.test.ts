@@ -1931,6 +1931,62 @@ test('agents see the skills by name and load one when the task matches', async (
   rmSync(claude, { recursive: true, force: true })
 })
 
+test("the person's hooks block a tool, comment on a result, and run when the round ends", async () => {
+  const { HookStore } = await import('../src/hooks.ts')
+  const hooks = new HookStore(home)
+  const stopped = join(home, 'stopped.json')
+  hooks.write({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Write',
+          hooks: [
+            {
+              type: 'command',
+              command: `grep -q '\\.env"' && { echo 'never write .env files' >&2; exit 2; } || true`,
+            },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: 'fs_write',
+          hooks: [{ type: 'command', command: "echo 'formatted with prettier' >&2; exit 2" }],
+        },
+      ],
+      Stop: [{ hooks: [{ type: 'command', command: `cat > '${stopped}'` }] }],
+    },
+  })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: '.env', content: 'KEY=1' })],
+    [tool('fs_write', { path: 'notes.txt', content: 'hello' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), hooks })
+  const { colonyId } = await chats.send('Save my notes', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results[0]).toMatchObject({ tool: 'fs_write', ok: false })
+  expect(results[0]?.output).toContain('a hook blocked this call: never write .env files')
+  expect(results[1]).toMatchObject({ tool: 'fs_write', ok: true })
+  expect(results[1]?.output).toContain('[hook] formatted with prettier')
+  const ran = (await events(colonyId))
+    .filter((e) => e.type === 'hook/ran')
+    .map((e) => (e.payload as EventPayloads['hook/ran']).outcome)
+  expect(ran).toContain('blocked')
+  expect(ran).toContain('feedback')
+  for (let i = 0; i < 40 && !existsSync(stopped); i++) await Bun.sleep(50)
+  expect(JSON.parse(await Bun.file(stopped).text())).toMatchObject({
+    hook_event_name: 'Stop',
+    status: 'completed',
+  })
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

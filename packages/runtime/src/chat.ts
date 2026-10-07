@@ -15,6 +15,7 @@ import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import { type MemoryStore, memoryLines } from './memory.ts'
@@ -249,6 +250,8 @@ export class ChatService {
       memory?: MemoryStore
       /** Skills agents load by name when a task matches. */
       skills?: SkillLibrary
+      /** The person's hooks around tools and round ends. */
+      hooks?: HookStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
     },
@@ -389,6 +392,7 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
+      ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
@@ -675,6 +679,7 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
+      ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
     })
     this._live.set(chatId, run)
     try {

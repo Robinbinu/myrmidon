@@ -18,6 +18,7 @@ import {
   Checkpoints,
   ColonyRun,
   detectSandbox,
+  HookStore,
   importFromOmp,
   loadColonySpec,
   McpHub,
@@ -254,6 +255,7 @@ async function main() {
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
       const skills = new SkillLibrary(home)
+      const hooks = new HookStore(home)
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
@@ -271,6 +273,7 @@ async function main() {
         checkpoints,
         memory,
         skills,
+        hooks,
       })
       const server = startServer({
         home,
@@ -285,6 +288,7 @@ async function main() {
         library,
         memory,
         skills,
+        hooks,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })
