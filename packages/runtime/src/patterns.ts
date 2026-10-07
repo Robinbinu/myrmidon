@@ -10,6 +10,7 @@ const LOOK = [
   'list_tasks',
   'list_artifacts',
   'read_artifact',
+  'read_log',
 ]
 const WEB = ['web_search', 'web_fetch']
 const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs']
@@ -262,7 +263,7 @@ ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spaw
   back with reject_task and a reason naming the exact gap; its owner fixes it. Do not accept gaps.
 - When every task is verified, send the complete final answer with reply_user(final: true), written for the
   person: what was delivered, where, how to use it, and any caveats.
-- A worker's "done" is a claim until you have read the files. If something is incomplete, send a corrective task
+- A worker's "done" is a claim until you have read the files; read_log shows what it actually ran. If something is incomplete, send a corrective task
   that names the exact gap; do not quietly accept it.
 - Avoid: creating tasks one at a time when they could run together; vague one-line briefs; asking the person
   "shall I continue?" mid-job; re-planning after the plan is set; posting progress chatter.

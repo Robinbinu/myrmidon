@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
+import type { ColonyState, EventDraft, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
 import * as natives from '@oh-my-pi/pi-natives'
@@ -314,6 +314,8 @@ async function guardProjectCommand(host: ColonyHost, agent: string, tool: string
 
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
 const UNTRUSTED = new Set([
+  // The log quotes tool results, web pages among them.
+  'read_log',
   'request_login',
   'browser_tabs',
   'browser_upload',
@@ -961,6 +963,25 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({}),
     async run(_args, _agent, host) {
       return observeFacts(host)
+    },
+  },
+  {
+    name: 'read_log',
+    tier: 'read',
+    description:
+      'Read what agents actually did, from the colony log: each tool call with its arguments and outcome, task ' +
+      'changes, merges and replies. Use it to check a claim ("tests pass", "I read the docs") before trusting it.',
+    parameters: type({
+      'agent?': type('string').describe('Only this agent'),
+      'tool?': type('string').describe('Only tools whose name contains this, e.g. shell or web_'),
+      'last?': type('number').describe('How many entries, newest last (default 30, at most 100)'),
+    }),
+    async run(args, _agent, host) {
+      const events = await host.log.read(host.id)
+      const lines = logLines(events, args)
+      const last = Math.min(100, Math.max(1, Math.round(args.last ?? 30)))
+      if (lines.length === 0) return 'nothing in the log matches'
+      return `${lines.length > last ? `(${lines.length - last} earlier entries left out)\n` : ''}${lines.slice(-last).join('\n')}`
     },
   },
   {
@@ -1836,6 +1857,51 @@ export function describeCheck(c: ColonyHost['spec']['acceptance'][number]): stri
     case 'llm-judge':
       return `llm-judge (${c.model}) scores ≥ ${c.threshold} on rubric: ${c.rubric.slice(0, 300)}`
   }
+}
+
+const firstLine = (text: string, max: number) => {
+  const line = text.split('\n').find((l) => l.trim()) ?? ''
+  return line.length > max ? `${line.slice(0, max)}…` : line
+}
+
+/** The colony log as one line per thing an agent did, oldest first, for read_log. */
+export function logLines(events: readonly MyrEvent[], filter: { agent?: string; tool?: string }): string[] {
+  const calls = new Map<string, number>()
+  const out: string[] = []
+  const keep = (agent: string, tool?: string) =>
+    (!filter.agent || agent === filter.agent) && (!filter.tool || (tool ?? '').includes(filter.tool))
+  for (const e of events) {
+    const at = e.time.slice(11, 19)
+    if (e.type === 'tool/call') {
+      const p = e.payload as EventPayloads['tool/call']
+      if (!keep(p.agent, p.tool)) continue
+      calls.set(`${p.agent}/${p.callId}`, out.length)
+      out.push(`${at} ${p.agent} ${p.tool}(${firstLine(JSON.stringify(p.args ?? {}), 160)}) → …`)
+    } else if (e.type === 'tool/result') {
+      const p = e.payload as EventPayloads['tool/result']
+      const line = calls.get(`${p.agent}/${p.callId}`)
+      if (line === undefined) continue
+      const outcome = p.ok ? `ok: ${firstLine(p.output, 160)}` : `FAILED: ${firstLine(p.output, 160)}`
+      out[line] = `${out[line]?.slice(0, -1)}${outcome}`
+    } else if (filter.tool) {
+    } else if (e.type === 'task/changed') {
+      const p = e.payload as EventPayloads['task/changed']
+      if (keep(p.by))
+        out.push(
+          `${at} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? ` (${firstLine(p.reason, 120)})` : ''}`,
+        )
+    } else if (e.type === 'chat/reply') {
+      const p = e.payload as EventPayloads['chat/reply']
+      if (keep(p.agent)) out.push(`${at} ${p.agent} told the person: ${firstLine(p.text, 160)}`)
+    } else if (e.type === 'worktree/merged' || e.type === 'worktree/conflict') {
+      const p = e.payload as EventPayloads['worktree/merged']
+      if (keep(p.agent))
+        out.push(
+          `${at} ${p.agent} ${e.type === 'worktree/merged' ? 'merged' : 'conflicted on'} ${p.files.join(', ')}`,
+        )
+    }
+  }
+  return out
 }
 
 export function observeFacts(host: ColonyHost): string {
