@@ -80,6 +80,13 @@ export class ModelResolver {
     this._probed.set(ref, Date.now())
   }
 
+  /** Fails if a model has no credentials, without calling it. */
+  async requireCredentials(ref: string): Promise<void> {
+    const resolved = this.resolve(ref)
+    if (resolved.streamFn || resolved.model.api === 'mock') return
+    await this.requireApiKey(resolved.model)
+  }
+
   async requireApiKey(model: Model): Promise<string> {
     const key = await this.apiKey(model)
     if (!key) {

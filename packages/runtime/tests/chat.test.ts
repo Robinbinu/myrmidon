@@ -413,6 +413,20 @@ test('an answer written as plain text still reaches the person', async () => {
   })
 })
 
+test('a chat round starts without test-calling its models first; only credentials are checked', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Hi.', final: true })]])
+  judge(resolver)
+  const probe = spyOn(resolver, 'probe')
+  const credentials = spyOn(resolver, 'requireCredentials')
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('hello', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  expect(probe).not.toHaveBeenCalled()
+  expect(credentials.mock.calls.map((c) => c[0]).sort()).toEqual(['mock/judge', 'mock/lead'])
+  await chats.stopAll()
+})
+
 test('a short answer in plain text reaches the person at once, without waiting for a nudge', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [['2 + 2 = 4.']])

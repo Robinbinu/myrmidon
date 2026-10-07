@@ -587,7 +587,13 @@ export class ColonyRun implements ColonyHost {
     for (const c of this.spec.acceptance) if (c.verifier === 'llm-judge') refs.add(c.model)
     if (this.spec.taskJudge) refs.add(this.spec.taskJudge)
     for (const m of this.spec.team?.workerModels ?? []) refs.add(m)
-    await Promise.all([...refs].map((ref) => this.resolver.probe(ref)))
+    // A chat round starts at once: the lead's first call tests its model, and a model that fails pauses the round
+    // on the error. Only missing credentials, which cost nothing to find, stop it up front.
+    await Promise.all(
+      [...refs].map((ref) =>
+        this.spec.chat ? this.resolver.requireCredentials(ref) : this.resolver.probe(ref),
+      ),
+    )
     const needsExec =
       this.spec.acceptance.some((c) => c.verifier === 'command') ||
       this.spec.agents.some((a) => toolsFor(this.spec, a).includes('shell'))
