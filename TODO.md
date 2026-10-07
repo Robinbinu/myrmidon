@@ -22,6 +22,17 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Chat first, colony on demand** — a message should get a plain chat reply, not a colony run card every
+      time. The lead decides later to spin up a colony (a tool it calls) or the person opts in (an option). Needs a
+      short design before building (extends lead-first steps 2-3: streamed reply, quiet helpers).
+- [ ] **Rename "colony" in the UI** — the person finds it boring; offer name options with the chat-first design.
+- [ ] **Personal entry page + mascot customisation** — headline text dynamic and personalised to the person;
+      mascot customisable: eyes, look/gender, colours, and what the dot-matrix screen shows. Show options first.
+      A female look: a pink flower on the screen's top-right corner.
+
+- [ ] **Light-mode status colours pop** — red/yellow/green look dull in light mode (dark mode is fine); use
+      Apple's light system colours (systemRed/Orange/Green) for `--bad`, `--warn`, `--ok` and their soft fills.
+
 - [x] **One colony per chat** — follow-ups are rounds of the chat's colony (`round/started` in its log): agents keep
       their conversation, files keep their versions; tasks, plan, budgets and snapshots are per round. Older chats
       with a colony per round still read, and their next round continues the latest colony.
