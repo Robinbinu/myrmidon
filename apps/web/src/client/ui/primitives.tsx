@@ -194,7 +194,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={cn(FIELD, 'w-auto cursor-pointer py-1.5 pr-8', className)} {...rest}>
+    // FIELD's w-full would win over w-auto in the generated CSS, so a select drops it and sizes to its options.
+    <select className={cn(FIELD.replace('w-full ', ''), 'cursor-pointer py-1.5 pr-8', className)} {...rest}>
       {children}
     </select>
   )
