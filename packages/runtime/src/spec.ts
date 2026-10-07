@@ -60,6 +60,11 @@ export interface ColonySpec {
   disabledTools?: string[]
   /** Tools whose every call needs the person's approval (`mcp` for every MCP tool). */
   askTools?: string[]
+  /**
+   * Tools the person allowed outright. An MCP tool asks first unless its server marks it read-only; allowing it (or
+   * `mcp`) lets it run without asking.
+   */
+  allowTools?: string[]
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */

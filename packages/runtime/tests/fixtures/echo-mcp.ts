@@ -1,8 +1,15 @@
-// A minimal stdio MCP server for tests: one `echo` tool, and `env` to show what the process inherited.
+// A minimal stdio MCP server for tests: `echo` (marked read-only), `shout` (not marked, so it may change things),
+// and `env` to show what the process inherited.
 const tools = [
   {
     name: 'echo',
     description: 'Echo the text back.',
+    inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'shout',
+    description: 'Shout the text back.',
     inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   },
   {
@@ -38,7 +45,9 @@ for await (const chunk of Bun.stdin.stream()) {
       const text =
         msg.params?.name === 'echo'
           ? `echo: ${args.text}`
-          : `${args.name}=${process.env[args.name ?? ''] ?? '(unset)'}`
+          : msg.params?.name === 'shout'
+            ? `${args.text?.toUpperCase()}!`
+            : `${args.name}=${process.env[args.name ?? ''] ?? '(unset)'}`
       reply(msg.id, { content: [{ type: 'text', text }] })
     } else reply(msg.id, {})
   }

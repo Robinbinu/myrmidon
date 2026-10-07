@@ -56,7 +56,7 @@ export interface MyrSettings {
    * Per-tool rules on top of the groups above, by tool name (`mcp` for every MCP tool): `ask` needs the person's
    * approval for each call, `off` removes the tool. Tools not listed are allowed.
    */
-  permissions: Record<string, 'ask' | 'off'>
+  permissions: Record<string, 'allow' | 'ask' | 'off'>
 }
 
 export const settingsSchema = Schema.object({
@@ -100,7 +100,7 @@ export const settingsSchema = Schema.object({
     hiddenProviders: Schema.array(Schema.string()).default([]),
     windows: Schema.dict(Schema.natural().min(1024).max(100_000_000)).default({}),
   }).default({}),
-  permissions: Schema.dict(Schema.union(['ask', 'off'])).default({}),
+  permissions: Schema.dict(Schema.union(['allow', 'ask', 'off'])).default({}),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */

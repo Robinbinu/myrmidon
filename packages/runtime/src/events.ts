@@ -86,6 +86,7 @@ const colonySpec = Schema.object({
   taskJudge: Schema.string(),
   disabledTools: Schema.array(str()),
   askTools: Schema.array(str()),
+  allowTools: Schema.array(str()),
   review: Schema.union(['off', 'auto', 'always']),
 })
 

@@ -28,7 +28,7 @@ Open work, in the order it will be done:
       like people in a chat (the person's words: "make it more human").
 2. - [x] **Plugins phase 4: agents build plugins** (done) — create_plugin / test_plugin / propose_plugin and the speaker
       brief; a request for a Myrmidon feature becomes a plugin the person switches on (spec 2026-10-07-plugins).
-3. - [ ] **Per-tool MCP approvals** (OpenDots) — tools a server marks read-only run on their own, others ask; each
+3. - [x] **Per-tool MCP approvals** (done) (OpenDots) — tools a server marks read-only run on their own, others ask; each
       tool switchable and kept across refreshes; an approval binds to the exact tool and arguments.
 4. - [ ] **Stop a turn when a permission changes** (OpenDots) — revoking a permission, disabling a tool or pausing
       aborts the agent's in-flight turn at once.

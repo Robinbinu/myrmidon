@@ -48,6 +48,8 @@ export interface ColonyHost {
   readonly web: WebTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
+  /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
+  mcpReadOnly(tool: string): boolean
   /** Tools of the person's plugins, for one agent; offered, like MCP tools, to agents allowed `mcp`. */
   pluginTools(agent: string): AgentTool[]
   /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */

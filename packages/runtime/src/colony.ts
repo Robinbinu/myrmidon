@@ -256,6 +256,10 @@ export class ColonyRun implements ColonyHost {
     return this.options.mcp?.tools() ?? []
   }
 
+  mcpReadOnly(tool: string) {
+    return this.options.mcp?.readOnly(tool) ?? false
+  }
+
   pluginTools(agent: string) {
     return this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
   }
@@ -684,6 +688,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
       ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
       ...(this.spec.askTools?.length ? { askTools: this.spec.askTools } : {}),
+      ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
     }
   }

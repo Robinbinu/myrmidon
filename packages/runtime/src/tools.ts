@@ -284,9 +284,27 @@ function writableFor(host: ColonyHost, agent: string): string[] {
 }
 
 /** Tools the person set to "ask" in Settings wait for their approval on every call, showing what it would do. */
+/**
+ * Whether a call needs the person's approval first. A tool's own rule wins, then the rule for every MCP tool; with
+ * neither, an MCP tool asks unless its server marks it read-only (it changes nothing), and other tools follow their
+ * groups.
+ */
+export function needsApproval(
+  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools'>,
+  tool: string,
+  readOnly: boolean,
+): boolean {
+  const ask = spec.askTools ?? []
+  const allow = spec.allowTools ?? []
+  if (ask.includes(tool)) return true
+  if (allow.includes(tool) || !tool.startsWith('mcp__')) return false
+  if (ask.includes('mcp')) return true
+  if (allow.includes('mcp')) return false
+  return !readOnly
+}
+
 async function askFirst(host: ColonyHost, agent: string, tool: string, params: unknown) {
-  const ask = host.spec.askTools
-  if (!ask?.length || !(ask.includes(tool) || (tool.startsWith('mcp__') && ask.includes('mcp')))) return
+  if (!needsApproval(host.spec, tool, tool.startsWith('mcp__') && host.mcpReadOnly(tool))) return
   const args = JSON.stringify(params ?? {})
   if (
     !(await host.requestApproval(
@@ -2027,7 +2045,10 @@ export function matchTools(tools: readonly AgentTool[], query: string, limit = 1
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp')
-    ? [...host.mcpTools(), ...host.pluginTools(agent)].map((t) => logged(agent, t, host))
+    ? [...host.mcpTools(), ...host.pluginTools(agent)]
+        // A single MCP tool switched off in Settings is left out like any disabled tool.
+        .filter((t) => !host.spec.disabledTools?.includes(t.name))
+        .map((t) => logged(agent, t, host))
     : []
   // Scripts run in the sandbox, so they need shell; browser flows drive the agent's browser.
   const scripts = allow.has('shell') && (host.sandbox.kind !== 'none' || host.unsafeNoSandbox)

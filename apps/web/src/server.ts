@@ -332,7 +332,13 @@ export function startServer(options: ServeOptions): WebServer {
                 name: d.name,
                 description: d.description.split(/(?<=\.)\s/)[0] ?? '',
               })),
-              { name: 'mcp', description: 'Every tool of the connected MCP servers.' },
+              { name: 'mcp', description: 'Every tool of the connected MCP servers.', mcp: true },
+              ...(options.mcp?.toolList() ?? []).map((t) => ({
+                name: t.name,
+                description: t.description.split(/(?<=\.)\s/)[0] ?? '',
+                mcp: true,
+                readOnly: t.readOnly,
+              })),
             ],
           })
         }),

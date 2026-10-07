@@ -795,24 +795,34 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
   await chats.stopAll()
 })
 
-test('agents can call the tools of connected MCP servers, and the calls are logged', async () => {
+test('agents call MCP tools: read-only ones run at once, others wait for the person, and calls are logged', async () => {
   const { McpHub } = await import('../src/mcp.ts')
   const hub = new McpHub(join(home, 'agent'))
   await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
-  const echo = hub.tools().find((t) => t.name.endsWith('echo'))?.name ?? 'missing'
+  const echo = hub.tools().find((t) => t.name.endsWith('_echo'))?.name ?? 'missing'
+  const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
+  // The server's read-only mark comes through omp's MCP client.
+  expect(hub.readOnly(echo)).toBe(true)
+  expect(hub.readOnly(shout)).toBe(false)
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/solo', [
     [tool(echo, { text: 'from the colony' })],
-    [tool('reply_user', { text: 'Echoed.', final: true })],
+    [tool(shout, { text: 'hi' })],
+    [tool('reply_user', { text: 'Echoed and shouted.', final: true })],
   ])
   judge(resolver)
   const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), mcp: hub })
   const { colonyId } = await chats.send('Echo something', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const approvals = Object.values(waiting.approvals)
+  expect(approvals.map((a) => a.tool)).toEqual([shout])
+  await chats.decideApproval(colonyId, approvals[0]?.id ?? '', true)
   await waitFor(colonyId)
   const results = (await events(colonyId))
     .filter((e) => e.type === 'tool/result')
     .map((e) => e.payload as EventPayloads['tool/result'])
   expect(results.find((r) => r.tool === echo)).toMatchObject({ ok: true, output: 'echo: from the colony' })
+  expect(results.find((r) => r.tool === shout)).toMatchObject({ ok: true, output: 'HI!' })
   await hub.close()
 })
 

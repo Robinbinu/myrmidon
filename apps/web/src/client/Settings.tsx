@@ -107,8 +107,8 @@ export interface ServerSettings {
   observer: { intervalSeconds: number }
   search: { provider: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
-  /** Per-tool rules: `ask` before every call, or `off`; unlisted tools are allowed. */
-  permissions: Record<string, 'ask' | 'off'>
+  /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
+  permissions: Record<string, 'allow' | 'ask' | 'off'>
 }
 
 interface SettingsResponse {
@@ -120,7 +120,7 @@ interface SettingsResponse {
   home: string
   agentDir?: string
   ompSetup: boolean
-  toolCatalog: { name: string; description: string }[]
+  toolCatalog: { name: string; description: string; mcp?: boolean; readOnly?: boolean }[]
 }
 
 export type Section =
@@ -1639,10 +1639,12 @@ function ToolRules(props: {
     .filter((t) => !q || t.name.includes(q) || t.description.toLowerCase().includes(q))
     // Tools with a rule first, so what you set is easy to find again.
     .sort((a, b) => Number(!!rules[b.name]) - Number(!!rules[a.name]) || a.name.localeCompare(b.name))
-  const set = (name: string, rule: string) =>
+  // Built-in tools are allowed unless a rule says otherwise; MCP tools have a default of their own (read-only ones
+  // run, others ask), so allowing one is a rule worth keeping.
+  const set = (name: string, rule: string, mcp: boolean) =>
     props.update((s) => {
       const next = { ...(s.permissions ?? {}) }
-      if (rule === 'ask' || rule === 'off') next[name] = rule
+      if (rule === 'ask' || rule === 'off' || (rule === 'allow' && mcp)) next[name] = rule
       else delete next[name]
       return { ...s, permissions: next }
     }, true)
@@ -1673,9 +1675,18 @@ function ToolRules(props: {
                 </div>
                 <Select
                   aria-label={copy.settings.tools.ruleFor(t.name)}
-                  value={rules[t.name] ?? 'allow'}
-                  onChange={(e) => set(t.name, e.target.value)}
+                  value={rules[t.name] ?? (t.mcp ? 'default' : 'allow')}
+                  onChange={(e) => set(t.name, e.target.value, !!t.mcp)}
                 >
+                  {t.mcp && (
+                    <option value="default">
+                      {t.name === 'mcp'
+                        ? copy.settings.tools.mcpDefault
+                        : t.readOnly
+                          ? copy.settings.tools.readOnlyDefault
+                          : copy.settings.tools.changesDefault}
+                    </option>
+                  )}
                   <option value="allow">{copy.settings.tools.allow}</option>
                   <option value="ask">{copy.settings.tools.askFirst}</option>
                   <option value="off">{copy.settings.shared.off}</option>

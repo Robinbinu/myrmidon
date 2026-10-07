@@ -64,6 +64,8 @@ export class McpHub {
   private readonly _file: string
   private _manager?: Manager
   private _adapters = new Map<string, AgentTool>()
+  /** Tools their server marks read-only (`annotations.readOnlyHint`). */
+  private _readOnly = new Set<string>()
   private readonly _errors = new Map<string, string>()
   private _starting?: Promise<void>
 
@@ -175,14 +177,38 @@ export class McpHub {
         hasQueuedMessages: () => false,
         abort: () => {},
       }) as never
+    const tools = this._manager.getTools()
     this._adapters = new Map(
-      this._manager.getTools().map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
+      tools.map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
+    )
+    // omp keeps the server's definition on its tool object, annotations included.
+    this._readOnly = new Set(
+      tools
+        .filter(
+          (t) =>
+            (t as { tool?: { annotations?: { readOnlyHint?: boolean } } }).tool?.annotations?.readOnlyHint,
+        )
+        .map((t) => t.name),
     )
   }
 
   /** The connected servers' tools, ready for an agent. */
   tools(): AgentTool[] {
     return [...this._adapters.values()]
+  }
+
+  /** Whether a tool's server marks it read-only. */
+  readOnly(name: string): boolean {
+    return this._readOnly.has(name)
+  }
+
+  /** Every connected tool, for the per-tool rules in Settings. */
+  toolList(): { name: string; description: string; readOnly: boolean }[] {
+    return [...this._adapters.values()].map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+      readOnly: this._readOnly.has(t.name),
+    }))
   }
 
   servers(): McpServerInfo[] {
