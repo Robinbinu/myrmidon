@@ -13,6 +13,7 @@ import { ContextCompactor } from './compaction.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
 import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
+import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
 import { noWebTools } from './web.ts'
@@ -306,7 +307,8 @@ export class ColonyAgent {
       return
     try {
       mkdirSync(join(this._transcript, '..'), { recursive: true })
-      appendFileSync(this._transcript, `${JSON.stringify(message)}\n`)
+      // Stored transcripts carry no secrets in clear; the model's live context is unchanged.
+      appendFileSync(this._transcript, `${JSON.stringify(redactDeep(message))}\n`)
     } catch (err) {
       // The log stays authoritative; a lost transcript only means a resume starts from a summary.
       console.error(`[${this.name}] transcript write failed:`, err)

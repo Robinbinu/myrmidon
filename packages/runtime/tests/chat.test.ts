@@ -1987,6 +1987,48 @@ test("the person's hooks block a tool, comment on a result, and run when the rou
   await chats.stopAll()
 })
 
+test('a secret an agent reads is kept out of the log and its transcript', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-secret-'))
+  const key = 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789'
+  await Bun.write(join(folder, '.env'), `OPENAI_API_KEY=${key}\nPORT=3000\n`)
+  const project = new ProjectStore(home).add(folder)
+  const resolver = new ModelResolver()
+  let seen = ''
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_read', { path: '.env' })],
+    (ctx) => {
+      seen = JSON.stringify(ctx.messages)
+      return [tool('reply_user', { text: 'The port is 3000.', final: true })]
+    },
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, {
+    resolver,
+    classify: fixed('solo'),
+    projects: new ProjectStore(home),
+  })
+  const { colonyId } = await chats.send(
+    'Which port does .env set?',
+    { ...solo('mock/solo'), judgeModel: 'mock/judge' },
+    undefined,
+    {
+      project: project.id,
+    },
+  )
+  await waitFor(colonyId)
+  // The agent saw the file as it is; what was stored did not keep the key.
+  expect(seen).toContain(key)
+  const log = JSON.stringify(await events(colonyId))
+  expect(log).not.toContain(key)
+  expect(log).toContain('[api key redacted]')
+  expect(log).toContain('PORT=3000')
+  const transcript = await Bun.file(join(home, 'colonies', colonyId, 'agents', 'lead.jsonl')).text()
+  expect(transcript).not.toContain(key)
+  await chats.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

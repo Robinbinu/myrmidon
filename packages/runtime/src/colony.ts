@@ -34,6 +34,7 @@ import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
+import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { ColonySpec } from './spec.ts'
 import { guessMediaType } from './tools.ts'
@@ -89,6 +90,14 @@ export interface RunOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks, run before and after tools and when the round ends. */
   readonly hooks?: HookStore
+}
+
+/**
+ * What agents read, run and write is redacted before it is stored, so a key read from a .env file does not sit in
+ * the log. The person's own messages are kept as typed: a key they paste is meant for the agents to use.
+ */
+function redacted(draft: EventDraft): EventDraft {
+  return draft.type === 'chat/user' ? draft : { ...draft, payload: redactDeep(draft.payload) }
 }
 
 const QUIET_NUDGES = 2
@@ -555,7 +564,7 @@ export class ColonyRun implements ColonyHost {
   }
 
   append(draft: EventDraft): Promise<MyrEvent> {
-    return this.log.appendOne(this.id, draft)
+    return this.log.appendOne(this.id, redacted(draft))
   }
 
   async appendAtomic(build: (state: ColonyState) => EventDraft[]): Promise<MyrEvent[]> {
@@ -564,7 +573,7 @@ export class ColonyRun implements ColonyHost {
       const drafts = build(this._state)
       if (drafts.length === 0) return []
       try {
-        return await this.log.append(this.id, drafts, { expectedHead: head })
+        return await this.log.append(this.id, drafts.map(redacted), { expectedHead: head })
       } catch (err) {
         if (!(err instanceof MyrError && err.code === 'HEAD_MISMATCH') || attempt >= 20) throw err
         await Bun.sleep(5 + Math.random() * 20)
