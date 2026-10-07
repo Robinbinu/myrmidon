@@ -19,6 +19,7 @@ import {
   ChatService,
   Checkpoints,
   ColonyRun,
+  ContextWindows,
   detectSandbox,
   HookStore,
   importFromOmp,
@@ -180,6 +181,16 @@ async function recoverOnly() {
   await runtime.dispose()
 }
 
+/** Model windows from the person's settings, omp, and models.dev; the models.dev refresh finishes in the background. */
+function contextWindows(settings: SettingsStore): ContextWindows {
+  const windows = new ContextWindows({
+    cacheFile: join(home, 'cache', 'model-windows.json'),
+    overrides: () => settings.get().models.windows,
+  })
+  void windows.load()
+  return windows
+}
+
 async function run(path: string) {
   const spec = loadColonySpec(path)
   const runtime = await bootRuntime(home)
@@ -190,7 +201,7 @@ async function run(path: string) {
   const colony = new ColonyRun(runtime, spec, {
     unsafeNoSandbox: values['unsafe-no-sandbox'],
     sandbox,
-    resolver: new ModelResolver(omp),
+    resolver: new ModelResolver(omp, contextWindows(settings)),
     web: ompWebTools(omp, () => settings.get().search.provider),
   })
   runtime.ctx.on('log/appended', (id, events) => {
@@ -257,7 +268,7 @@ async function main() {
       await recover(runtime)
       const settings = new SettingsStore(home)
       const omp = await bootOmp(home)
-      const resolver = new ModelResolver(omp)
+      const resolver = new ModelResolver(omp, contextWindows(settings))
       const sandbox = detectSandbox()
       const mcp = new McpHub(omp.agentDir)
       const browser = new BrowserHub(join(home, 'browser'))

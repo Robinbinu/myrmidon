@@ -1,5 +1,6 @@
 import type { OmpRuntime } from './omp/runtime.ts'
 import type { SettingsStore } from './settings.ts'
+import type { ContextWindows, WindowSource } from './windows.ts'
 
 /** A model the user can pick. */
 export interface ModelOption {
@@ -9,6 +10,8 @@ export interface ModelOption {
   readonly name: string
   readonly reasoning: boolean
   readonly contextWindow?: number
+  /** Where `contextWindow` came from; absent when it is omp's default guess. */
+  readonly windowSource?: WindowSource
 }
 
 export interface CatalogEntry extends ModelOption {
@@ -20,6 +23,7 @@ export function buildCatalog(
   omp: OmpRuntime,
   settings?: SettingsStore,
   includeHidden = false,
+  windows?: ContextWindows,
 ): CatalogEntry[] {
   const prefs = settings?.get().models
   const hiddenRefs = new Set(prefs?.hidden ?? [])
@@ -29,13 +33,15 @@ export function buildCatalog(
     const ref = `${m.provider}/${m.id}`
     const hidden = hiddenRefs.has(ref) || hiddenProviders.has(m.provider)
     if (!includeHidden && hidden) continue
+    const window = windows?.of(m) ?? { tokens: m.contextWindow ?? undefined }
     out.push({
       ref,
       provider: m.provider,
       id: m.id,
       name: m.name ?? m.id,
       reasoning: m.reasoning === true,
-      ...(typeof m.contextWindow === 'number' ? { contextWindow: m.contextWindow } : {}),
+      ...(window.tokens ? { contextWindow: window.tokens } : {}),
+      ...(window.source ? { windowSource: window.source } : {}),
       hidden,
     })
   }

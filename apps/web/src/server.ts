@@ -269,7 +269,12 @@ export function startServer(options: ServeOptions): WebServer {
         const omp = options.omp
         if (!omp) return json({ models: [], defaults: options.settings?.get().team })
         if (url.searchParams.get('refresh') === '1') await omp.refreshModels()
-        const models = buildCatalog(omp, options.settings, url.searchParams.get('hidden') === '1')
+        const models = buildCatalog(
+          omp,
+          options.settings,
+          url.searchParams.get('hidden') === '1',
+          options.resolver?.windows,
+        )
         const saved = options.settings?.get().team
         return json({
           models,

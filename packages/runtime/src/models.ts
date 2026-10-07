@@ -2,6 +2,7 @@ import type { StreamFn } from '@oh-my-pi/pi-agent-core'
 import { completeSimple, getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
 import { getBundledModel, getBundledProviders } from '@oh-my-pi/pi-catalog'
 import type { OmpRuntime } from './omp/runtime.ts'
+import type { ContextWindows } from './windows.ts'
 
 export interface ResolvedModel {
   readonly ref: string
@@ -19,7 +20,11 @@ const PROBE_FRESH_MS = 15 * 60_000
 export class ModelResolver {
   private readonly _custom = new Map<string, ResolvedModel>()
 
-  constructor(readonly omp?: OmpRuntime) {}
+  constructor(
+    readonly omp?: OmpRuntime,
+    /** Corrects windows omp only guessed; without it omp's own windows are used. */
+    readonly windows?: ContextWindows,
+  ) {}
 
   register(ref: string, resolved: Omit<ResolvedModel, 'ref'>): () => void {
     this._custom.set(ref, { ref, ...resolved })
@@ -37,7 +42,7 @@ export class ModelResolver {
       const model = this.omp.find(provider, id)
       if (!model)
         throw new Error(`unknown model ${JSON.stringify(ref)}: add its provider in Settings → Models`)
-      return { ref, model: model as Model }
+      return { ref, model: this.windows ? this.windows.apply(model as Model) : (model as Model) }
     }
     if (!(getBundledProviders() as string[]).includes(provider)) {
       throw new Error(`unknown model provider ${JSON.stringify(provider)}`)
@@ -95,5 +100,28 @@ export class ModelResolver {
       )
     }
     return key
+  }
+}
+
+type StreamOptions = Parameters<StreamFn>[2]
+
+/**
+ * Ollama loads a model with a 2–4k context unless the request says otherwise, and silently drops what does not fit
+ * (Aider and Cline both work around this). Each request asks for room for its prompt plus a reply, rounded up to a
+ * power of two so the model is not reloaded on every call, and never more than the model's window.
+ */
+export function withOllamaContext(model: Model, options: StreamOptions): StreamOptions {
+  if (model.api !== 'ollama-chat') return options
+  const window = model.contextWindow ?? undefined
+  return {
+    ...options,
+    onPayload: async (payload, m, signal) => {
+      const body = ((await options?.onPayload?.(payload, m, signal)) ?? payload) as {
+        options?: Record<string, unknown>
+      }
+      const wanted = Math.ceil(JSON.stringify(body).length / 4) * 1.25 + 8_192
+      const size = 2 ** Math.ceil(Math.log2(wanted))
+      return { ...body, options: { ...body.options, num_ctx: window ? Math.min(size, window) : size } }
+    },
   }
 }

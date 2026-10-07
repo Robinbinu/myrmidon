@@ -47,8 +47,11 @@ export interface MyrSettings {
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
-  /** `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers. */
-  models: { hidden: string[]; hiddenProviders: string[] }
+  /**
+   * `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers; `windows`: context windows
+   * the person set, in tokens, by model ref.
+   */
+  models: { hidden: string[]; hiddenProviders: string[]; windows: Record<string, number> }
   /**
    * Per-tool rules on top of the groups above, by tool name (`mcp` for every MCP tool): `ask` needs the person's
    * approval for each call, `off` removes the tool. Tools not listed are allowed.
@@ -95,6 +98,7 @@ export const settingsSchema = Schema.object({
   models: Schema.object({
     hidden: Schema.array(Schema.string()).default([]),
     hiddenProviders: Schema.array(Schema.string()).default([]),
+    windows: Schema.dict(Schema.natural().min(1024).max(100_000_000)).default({}),
   }).default({}),
   permissions: Schema.dict(Schema.union(['ask', 'off'])).default({}),
 })
@@ -114,7 +118,7 @@ function parse(input: unknown): MyrSettings {
     verification: s.verification,
     instructions: s.instructions,
     observer: s.observer,
-    models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders },
+    models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders, windows: s.models.windows },
     permissions: s.permissions,
   }
 }

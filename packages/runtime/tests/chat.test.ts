@@ -1339,6 +1339,13 @@ test('a context the provider calls too long is folded and retried once, then pau
   expect(paused.statusReason).toContain('ran out of context')
   expect(paused.modelError).toMatchObject({ agent: 'lead', kind: 'overflow', window: 8_000 })
   expect(paused.modelError?.tokens).toBeGreaterThan(0)
+  // The agent records the end of its turn just after the pause; let it, so nothing writes after this test.
+  for (let i = 0; i < 100; i++) {
+    const log = await events(second.colonyId)
+    const failed = log.findIndex((e) => e.type === 'agent/error')
+    if (log.slice(failed).some((e) => e.type === 'agent/turn')) break
+    await Bun.sleep(20)
+  }
 })
 
 test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {

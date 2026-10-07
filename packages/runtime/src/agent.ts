@@ -12,7 +12,7 @@ import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { ContextCompactor } from './compaction.ts'
 import { agentActor, type ColonyHost } from './host.ts'
-import type { ModelResolver } from './models.ts'
+import { type ModelResolver, withOllamaContext } from './models.ts'
 import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
@@ -115,7 +115,7 @@ export class ColonyAgent {
         (this._stream ?? streamSimple)(
           model,
           context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
-          options,
+          withOllamaContext(model, options),
         ),
     })
     this._agent.subscribe((e) => this._onEvent(e))
