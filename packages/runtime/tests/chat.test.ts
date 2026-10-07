@@ -441,6 +441,27 @@ test('a short remark after the final answer is not taken for a second answer', a
   await chats.stopAll()
 })
 
+test('helpers on "always" start every round as the team; otherwise the lead starts alone', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Hi.', final: true })]])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'coder', model: 'mock/lead' }],
+    judgeModel: 'mock/judge',
+  }
+  const alone = await chats.send('hello', config)
+  expect((await waitFor(alone.colonyId, (x) => x.tier !== undefined)).tier).toBe('solo')
+  await chats.stopAll()
+  const team = await chats.send('hello', normalizeTeamConfig({ ...config, helpers: 'always' }))
+  const s = await waitFor(team.colonyId, (x) => x.tier !== undefined)
+  expect(s.tier).toBe('team')
+  expect(Object.keys(s.agents).length).toBeGreaterThan(1)
+  await chats.stopAll()
+})
+
 test('a chat round starts without test-calling its models first; only credentials are checked', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Hi.', final: true })]])

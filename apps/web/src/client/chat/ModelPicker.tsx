@@ -93,7 +93,8 @@ export function ModelPicker(props: {
   const [fit, setFit] = useState({ up: (props.placement ?? 'up') === 'up', max: 400 })
   const up = fit.up
   return (
-    <div className="relative min-w-0" ref={box}>
+    // A chip never shrinks past its logo and chevron, so neighbouring chips can't slide over it.
+    <div className={cn('relative', variant === 'chip' ? 'min-w-[52px]' : 'min-w-0')} ref={box}>
       <button
         type="button"
         onClick={() => {
@@ -120,7 +121,7 @@ export function ModelPicker(props: {
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 w-full min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'

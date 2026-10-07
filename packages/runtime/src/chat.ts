@@ -73,6 +73,11 @@ export interface TeamConfig {
   readonly wallMinutes?: number
   /** Overrides how hard reasoning models think in work rounds (direct answers stay quick). */
   readonly thinking?: Thinking
+  /**
+   * With helpers set up: `always` starts every round as the team; otherwise (auto) the lead starts alone and brings
+   * them in only when the work needs it. A roster with nobody in it means no helpers at all.
+   */
+  readonly helpers?: 'auto' | 'always'
 }
 
 export type Thinking = 'low' | 'medium' | 'high'
@@ -101,6 +106,7 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
   const wall = {
     ...(typeof raw.wallMinutes === 'number' ? { wallMinutes: raw.wallMinutes } : {}),
     ...(thinking ? { thinking } : {}),
+    ...(raw.helpers === 'always' ? { helpers: 'always' as const } : {}),
   }
   if (raw.mode === 'orchestrated' || raw.mode === 'swarm') {
     const roster = (Array.isArray(raw.roster) ? raw.roster : [])
@@ -324,7 +330,9 @@ export class ChatService {
     const previous = await this.rounds(id)
     const history = conversation(previous)
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier = options.tier ?? (await (this.options.classify ?? leadFirst)(message, history))
+    const tier =
+      options.tier ??
+      (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history))
     const spec = this.buildSpec(id, message, config, previous, history, tier)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.

@@ -71,6 +71,15 @@ use 1 agent; complex ones use 10+"). Reviews follow a setting the person chooses
 - A round that is a single direct answer drops the round card and review badge, keeping a quiet footer (duration,
   and "reviewed" when it was).
 
+### Chat first (the person's follow-up, approved: "Lead decides")
+
+- A round the lead handles alone reads as a chat: the reply as a plain assistant message (no "final answer" box) and
+  one quiet line under it. While working, the line shows the lead's face, what it is doing and a clock; once done, it
+  shows "Done in 12s · 5.6k tokens · 3 steps", and the steps open underneath. The run card appears only for team
+  rounds.
+- The Helpers chip offers Never (the lead has no escalate tool), Auto (the lead brings helpers in when the work
+  needs them; the default) and Always (every round starts as the team, `TeamConfig.helpers: 'always'`).
+
 ## 4. Testing
 
 - Runtime tests:

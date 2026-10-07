@@ -176,6 +176,8 @@ export interface TeamConfig {
   judgeModel: string
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */
   thinking?: 'low' | 'medium' | 'high'
+  /** `always` starts every round as the team; omitted, the lead brings helpers in only when the work needs it. */
+  helpers?: 'always'
 }
 
 /** When the reviewer checks the work: never, when the lead asks, or on every final answer. */

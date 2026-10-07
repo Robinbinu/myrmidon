@@ -9,14 +9,16 @@ import {
   ShieldOff,
   ShieldQuestion,
   Sparkles,
+  User,
   Users,
+  UsersRound,
   X,
   Zap,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
-import { Button, cn, Segmented, Select, Switch, spring } from '../ui/primitives.tsx'
+import { Button, cn, Segmented, Select, spring } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
@@ -279,45 +281,54 @@ export function HelpersChip(props: {
   const { config } = props
   const n = config.roster.length
   const on = n > 0 || config.extraWorkers > 0
+  const mode: 'never' | 'auto' | 'always' = !on ? 'never' : config.helpers === 'always' ? 'always' : 'auto'
   // Turning helpers off keeps the list, so turning them back on restores it.
   const saved = useRef<Pick<TeamConfig, 'roster' | 'extraWorkers' | 'mode'>>(undefined)
-  const toggle = (next: boolean) => {
-    if (!next) {
-      saved.current = { roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode }
-      return props.onConfig({ ...config, mode: 'orchestrated', roster: [], extraWorkers: 0 })
+  const choose = (next: typeof mode) => {
+    const { helpers: _, ...rest } = config
+    if (next === 'never') {
+      if (on) saved.current = { roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode }
+      return props.onConfig({ ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 })
     }
     props.onConfig({
-      ...config,
-      ...(saved.current ?? {
-        mode: 'orchestrated',
-        roster: [
-          { role: 'researcher', model: config.leadModel },
-          { role: 'coder', model: config.leadModel },
-        ],
-        extraWorkers: 2,
-      }),
+      ...rest,
+      ...(on
+        ? {}
+        : (saved.current ?? {
+            mode: 'orchestrated',
+            roster: [
+              { role: 'researcher', model: config.leadModel },
+              { role: 'coder', model: config.leadModel },
+            ],
+            extraWorkers: 2,
+          })),
+      ...(next === 'always' ? { helpers: 'always' as const } : {}),
     })
   }
+  const size = n || config.extraWorkers
+  const who = config.mode === 'swarm' ? 'peers' : 'helpers'
   return (
     <ChipMenu
       label="Helpers"
       icon={<Users className="size-3.5 shrink-0" />}
-      value={on ? `${n || config.extraWorkers} ${config.mode === 'swarm' ? 'peers' : 'helpers'}` : 'Solo'}
+      value={mode === 'never' ? 'Solo' : mode === 'always' ? `Team of ${size + 1}` : `${size} ${who}`}
       width={380}
     >
       {() => (
         <>
-          <div className="flex items-start gap-3 px-2 pb-2 pt-1.5">
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">Bring in helpers</span>
-              <span className="block text-[11.5px] leading-snug text-muted">
-                The lead answers itself and calls them only for big jobs
-              </span>
-            </span>
-            <Switch checked={on} onChange={toggle} label="Bring in helpers" />
-          </div>
+          <MenuHead title="Helpers" />
+          {HELPER_MODES.map((h) => (
+            <Option
+              key={h.key}
+              icon={<h.icon className="size-4" />}
+              title={h.title}
+              hint={h.hint}
+              selected={h.key === mode}
+              onSelect={() => choose(h.key)}
+            />
+          ))}
           {on && (
-            <div className="rounded-[10px] border border-line bg-surface/60">
+            <div className="mt-1.5 rounded-[10px] border border-line bg-surface/60">
               <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
             </div>
           )}
@@ -326,6 +337,12 @@ export function HelpersChip(props: {
     </ChipMenu>
   )
 }
+
+const HELPER_MODES = [
+  { key: 'never', title: 'Never', hint: 'The lead works alone, like a chat', icon: User },
+  { key: 'auto', title: 'Auto', hint: 'The lead brings helpers in when a job needs them', icon: Users },
+  { key: 'always', title: 'Always', hint: 'Every message starts with the whole team', icon: UsersRound },
+] as const
 
 function Stepper(props: {
   value: number

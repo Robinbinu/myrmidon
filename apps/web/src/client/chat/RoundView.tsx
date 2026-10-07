@@ -129,6 +129,8 @@ export function RoundView(props: {
       </section>
     )
   }
+  // A round the lead handles alone reads as a chat: its reply and a quiet line of what it did, no run card.
+  const solo = state.tier === 'solo' || state.tier === 'answer'
   const [first, ...rest] = state.chatMessages
   const opening = first?.from === 'user' ? first : undefined
   const thread = opening ? rest : state.chatMessages
@@ -151,6 +153,7 @@ export function RoundView(props: {
         from={m.from}
         text={m.text}
         final={m.final}
+        plain={solo}
         {...(m.assumption ? { assumption: m.assumption } : {})}
         onInspect={() => setInspect(m.from)}
       />
@@ -166,15 +169,17 @@ export function RoundView(props: {
     <section className="flex flex-col gap-4">
       {opening && <UserMessage text={opening.text} attachments={opening.attachments} onOpen={setFile} />}
       <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
-      <motion.div layout transition={softSpring}>
-        <RunCard
-          state={state}
-          events={events}
-          metrics={slice.metrics}
-          onOpenColony={() => props.onOpenColony(props.colonyId)}
-          onInspect={setInspect}
-        />
-      </motion.div>
+      {!solo && (
+        <motion.div layout transition={softSpring}>
+          <RunCard
+            state={state}
+            events={events}
+            metrics={slice.metrics}
+            onOpenColony={() => props.onOpenColony(props.colonyId)}
+            onInspect={setInspect}
+          />
+        </motion.div>
+      )}
       {latest && (
         <>
           <LiveServers state={state} />
@@ -184,6 +189,14 @@ export function RoundView(props: {
         </>
       )}
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
+      {solo && (
+        <LeadActivity
+          state={state}
+          events={events}
+          metrics={slice.metrics}
+          onOpenColony={() => props.onOpenColony(props.colonyId)}
+        />
+      )}
       {state.status !== 'completed' && (
         <Outcome
           state={state}
@@ -331,6 +344,8 @@ function AgentMessage(props: {
   from: string
   text: string
   final: boolean
+  /** A reply in a one-on-one chat with the lead: plain, like any chat assistant's. */
+  plain?: boolean
   /** A check-in: the work continues on this assumption until the person answers. */
   assumption?: string
   onInspect(): void
@@ -347,15 +362,18 @@ function AgentMessage(props: {
         <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} awake />
       </button>
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2 text-[12.5px]">
-          <span className="font-semibold text-fg">{props.from}</span>
-          <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
-          {props.final && <Pill tone="ok">final answer</Pill>}
-          {props.assumption && <Pill tone="accent">check-in</Pill>}
-        </div>
+        {(!props.plain || props.assumption) && (
+          <div className="mb-1 flex items-center gap-2 text-[12.5px]">
+            <span className="font-semibold text-fg">{props.from}</span>
+            <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
+            {props.final && !props.plain && <Pill tone="ok">final answer</Pill>}
+            {props.assumption && <Pill tone="accent">check-in</Pill>}
+          </div>
+        )}
         <div
           className={cn(
-            props.final && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3',
+            props.plain && 'pt-1',
+            props.final && !props.plain && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3',
             props.assumption && 'rounded-2xl border border-accent/25 bg-accent-soft/40 px-4 py-3',
           )}
         >
@@ -379,6 +397,99 @@ function AgentMessage(props: {
           </Button>
         </div>
       </div>
+    </motion.div>
+  )
+}
+
+/**
+ * What the lead is doing in a one-on-one round, in one quiet line: while it works, its face, the current step and a
+ * clock; once it is done, a footer with the time, tokens and steps. The steps open underneath on a click.
+ */
+function LeadActivity(props: {
+  state: ColonyState
+  events: readonly MyrEvent[]
+  metrics: ColonyMetrics
+  onOpenColony(): void
+}) {
+  const { state, events } = props
+  const running = isRunning(state.status)
+  const [open, setOpen] = useState(false)
+  const steps = useMemo(() => deriveSteps(events), [events])
+  const now = running ? currentStep(events) : undefined
+  const awaiting = state.statusReason === AWAITING
+  const m = props.metrics
+  const visible = steps.slice(-30).reverse()
+  // Steps are phrased for a team ("lead is searching…"); one-on-one, the name goes without saying.
+  const doing = now?.replace(/^lead is /, '')
+  const label = running
+    ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : 'Thinking'}…`
+    : awaiting
+      ? 'Waiting for your reply'
+      : state.escalated
+        ? state.escalated.to === 'team'
+          ? 'Bringing in helpers'
+          : 'Handing this to one agent with every tool'
+        : state.status === 'completed'
+          ? `Done in ${duration(m.wallMs)}`
+          : state.status === 'failed'
+            ? 'Failed'
+            : 'Stopped'
+  return (
+    // Once done it tucks under the reply, in line with its text (past the 32px avatar and its gap).
+    <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
+      <div className="flex items-center gap-2.5 text-[12.5px] text-muted">
+        {running && (
+          <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-screen">
+            <PixelFace mood="working" color={LEAD_COLOR} cols={7} rows={7} cell={2} gap={1} />
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          disabled={steps.length === 0}
+          aria-expanded={open}
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors enabled:hover:bg-surface-2 enabled:hover:text-fg-2"
+        >
+          <motion.span key={label} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="truncate">
+            {running ? <span className="font-medium text-fg-2">{label}</span> : label}
+          </motion.span>
+          <span className="shrink-0 tabular-nums">
+            {running ? ` · ${(m.wallMs / 1000).toFixed(0)}s` : ` · ${compact(m.tokens)} tokens`}
+            {steps.length > 0 && ` · ${steps.length} step${steps.length === 1 ? '' : 's'}`}
+          </span>
+          {steps.length > 0 && (
+            <motion.span animate={{ rotate: open ? 0 : -90 }} transition={spring} className="shrink-0">
+              <ChevronDown className="size-3.5" />
+            </motion.span>
+          )}
+        </button>
+        {!running && (
+          <button
+            type="button"
+            onClick={props.onOpenColony}
+            title="Map, replay and transcripts of this round"
+            aria-label="Open the round's details"
+            className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+          >
+            <Network className="size-3.5" />
+          </button>
+        )}
+      </div>
+      <AnimatePresence initial={false}>
+        {open && steps.length > 0 && (
+          <motion.ol
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={softSpring}
+            className="relative ml-1 flex max-h-72 flex-col overflow-y-auto overscroll-contain border-l border-line pl-3"
+          >
+            {visible.map((s) => (
+              <StepRow key={s.id} step={s} />
+            ))}
+          </motion.ol>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
