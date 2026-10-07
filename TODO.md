@@ -22,6 +22,14 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Interactive agent questions + ask before building** (approved design): `ask_user` takes 1-4 questions
+      (header, 2-4 options with descriptions, single/multi select); the chat shows option cards with "Other…" for a
+      custom answer and Skip ("use your judgment"), one Send answers all; the round waits. The lead asks scoping
+      questions with ask_user before building when the request leaves real choices open (audience, style, stack,
+      scope), not when it is specific or the person says "just do it"; check_in only for small mid-work preferences.
+      Answers reach the agent as "Question → Answer" lines, skipped ones marked. Starts after the strings/prompts
+      refactor merges (same files: tools.ts, patterns.ts → prompts.ts, RoundView.tsx).
+
 - [ ] **One place for strings, config and UI decisions** — move user-facing copy to a single strings file, and
       tunable config + colours/UI decisions to single files, so wording and look are easy to edit later.
 
