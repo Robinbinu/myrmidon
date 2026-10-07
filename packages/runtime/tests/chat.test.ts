@@ -2359,6 +2359,78 @@ test("a plugin's tool and prompt section reach the agent, and its calls are logg
   await plugins.stop()
 })
 
+test('asked for a Myrmidon feature, the lead builds a plugin, tests it, and the person switches it on', async () => {
+  const { PluginStore } = await import('../src/plugins.ts')
+  const { PluginHost } = await import('../src/plugin-host.ts')
+  const plugins = new PluginHost(new PluginStore(home))
+  const files = {
+    'server/index.ts': `export function activate(ctx) {
+      ctx.tools.add({ name: 'word_count', description: 'Counts words', run: (a) => String(String(a.text).split(/\\s+/).filter(Boolean).length) })
+    }`,
+    'commands/count.md': '---\ndescription: Count words\n---\nCount the words in: $ARGUMENTS',
+  }
+  const resolver = new ModelResolver()
+  const results: string[] = []
+  scripted(resolver, 'mock/lead', [
+    [tool('create_plugin', { name: 'words', description: 'Counts words in a text', files })],
+    (ctx: LlmContext) => {
+      results.push(JSON.stringify(ctx.messages.at(-1)))
+      return [
+        tool('test_plugin', {
+          name: 'words',
+          tests: [{ tool: 'word_count', args: { text: 'one two three' } }],
+        }),
+      ]
+    },
+    (ctx: LlmContext) => {
+      results.push(JSON.stringify(ctx.messages.at(-1)))
+      return [
+        tool('create_plugin', {
+          name: 'words',
+          description: 'A bad rewrite',
+          files: { '../escape.ts': 'no' },
+        }),
+      ]
+    },
+    (ctx: LlmContext) => {
+      results.push(JSON.stringify(ctx.messages.at(-1)))
+      return [
+        tool('propose_plugin', { name: 'words', summary: 'Adds a word_count tool and a /count command.' }),
+      ]
+    },
+    (ctx: LlmContext) => {
+      results.push(JSON.stringify(ctx.messages.at(-1)))
+      return [tool('reply_user', { text: 'Added the words plugin.', final: true })]
+    },
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), plugins })
+  const { colonyId } = await chats.send('Add a word counter to Myrmidon', {
+    ...solo('mock/lead'),
+    judgeModel: 'mock/judge',
+  })
+  const pending = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const approval = Object.values(pending.approvals).find((a) => !a.decided)
+  expect(approval?.summary).toContain('Switch on the words plugin?')
+  expect(approval?.summary).toContain('commands: /count')
+  // Until the person says yes, the draft is off and its code has not run in Myrmidon.
+  expect(plugins.store.list().find((p) => p.name === 'words')?.enabled).toBe(false)
+  expect(plugins.tools({ colonyId, agent: 'lead' })).toEqual([])
+  await chats.decideApproval(colonyId, approval?.id ?? '', true)
+  await waitFor(colonyId)
+  expect(results[0]).toContain('draft words written')
+  if (detectSandbox().kind !== 'none') expect(results[1]).toContain('word_count → 3')
+  else expect(results[1]).toContain('code builds')
+  expect(results[2]).toContain('is not a plugin file')
+  // The refused rewrite left the tested draft as it was.
+  expect(existsSync(join(home, 'plugins', 'words', 'server', 'index.ts'))).toBe(true)
+  expect(results[3]).toContain('words is on')
+  expect(plugins.store.list().find((p) => p.name === 'words')).toMatchObject({ enabled: true })
+  expect(plugins.tools({ colonyId, agent: 'lead' }).map((t) => t.name)).toEqual(['words_word_count'])
+  await chats.stopAll()
+  await plugins.stop()
+})
+
 test('older auto/manual team configs still work', () => {
   expect(
     normalizeTeamConfig({

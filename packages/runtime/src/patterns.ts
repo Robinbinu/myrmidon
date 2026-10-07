@@ -52,6 +52,8 @@ const BUILD = [
   'mcp',
 ]
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
+/** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
+const PLUGIN = ['create_plugin', 'test_plugin', 'propose_plugin']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
   return spec.pattern === 'lead-workers' && agent.role === 'lead'
@@ -88,8 +90,18 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...escalation,
         ...review,
       ]
+    const plugin = speaksForColony(spec, agent) ? PLUGIN : []
     if (spec.tier !== 'team' || spec.agents.length === 1)
-      return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER, ...escalation, ...review]
+      return [
+        ...READ,
+        'append_note',
+        'publish_artifact',
+        ...BUILD,
+        ...USER,
+        ...escalation,
+        ...review,
+        ...plugin,
+      ]
     if (spec.team?.mode === 'swarm')
       return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
     if (isLead(spec, agent)) {
@@ -109,6 +121,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'publish_artifact',
         ...USER,
         ...review,
+        ...plugin,
         ...spawn,
         ...(spec.agents.length > 1 ? ['dismiss_worker'] : []),
       ]
@@ -135,6 +148,7 @@ const ON_DEMAND = new Set([
   'create_tool',
   'read_log',
   'read_docs',
+  ...PLUGIN,
 ])
 
 /**
@@ -147,10 +161,12 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       request,
     )
   const server = /\bdev server|\blocalhost\b|\bserve it\b|\bstart (the )?(app|server)\b/i.test(request)
+  const plugin = /\bplugin|\bmyrmidon\b/i.test(request)
   return names.filter(
     (n) =>
       (browser && (n.startsWith('browser_') || n === 'request_login')) ||
-      (server && ['start_server', 'server_logs', 'stop_server'].includes(n)),
+      (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
+      (plugin && (PLUGIN.includes(n) || n === 'read_docs')),
   )
 }
 

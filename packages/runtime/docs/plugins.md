@@ -96,6 +96,19 @@ Declare them in `myrmidon.json`; the person edits them in Settings → Plugins.
 
 Types are `string`, `number` and `boolean`. Secret values are never sent back to the page.
 
-## Trust
+## Agents building plugins
+
+Asked for a feature of Myrmidon itself, the lead builds it as a plugin; it never edits Myrmidon, which ships
+compiled.
+
+1. `create_plugin(name, description, files)` writes a draft into the plugins folder, switched off. Calling it again
+   with the full set of files replaces the draft. Paths must be plugin files (`skills/`, `commands/`,
+   `hooks/hooks.json`, `.mcp.json`, `myrmidon.json`, `server/`, `ui/`).
+2. `test_plugin(name, tests)` checks that the files read, the code and UI build, and runs `activate(ctx)` with each
+   tool on its test input (`[{ tool, args }]`) in the OS sandbox. Plugin code never runs inside Myrmidon before
+   approval.
+3. `propose_plugin(name, summary)` shows the person what the plugin adds. Only their yes switches it on; from then
+   on it is theirs, and no round can rewrite it.
+
 
 A plugin's hooks, MCP servers and code run as you, with your files and network. Add only plugins you trust.

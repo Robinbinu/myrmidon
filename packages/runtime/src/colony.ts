@@ -264,6 +264,10 @@ export class ColonyRun implements ColonyHost {
     return this.options.plugins?.prompts(role) ?? []
   }
 
+  get plugins() {
+    return this.options.plugins
+  }
+
   /**
    * Switches running agents to another model (agent → model ref). Each takes effect on that agent's next step;
    * an agent in the middle of a model call finishes it on the old one.

@@ -11,6 +11,7 @@ import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
 import limitsDoc from '../docs/limits.md' with { type: 'text' }
 import modesDoc from '../docs/modes.md' with { type: 'text' }
 import overviewDoc from '../docs/overview.md' with { type: 'text' }
+import pluginsDoc from '../docs/plugins.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
 import {
@@ -45,6 +46,7 @@ import {
   scriptCommand,
 } from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
+import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
@@ -268,6 +270,7 @@ const DOCS: Record<string, string> = {
   chat: chatDoc,
   limits: limitsDoc,
   working: workingDoc,
+  plugins: pluginsDoc,
 }
 
 /**
@@ -1331,6 +1334,84 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         },
       })
       return prompts.toolResults.asked
+    },
+  },
+  {
+    name: 'create_plugin',
+    tier: 'write',
+    description: prompts.tools.create_plugin.description,
+    parameters: type({
+      name: type('string').describe(prompts.tools.create_plugin.params.name),
+      description: type('string').atLeastLength(5).describe(prompts.tools.create_plugin.params.description),
+      files: type('Record<string, string>').describe(prompts.tools.create_plugin.params.files),
+    }),
+    async run(args, _agent, host) {
+      const plugins = host.plugins
+      if (!plugins) throw new Error('plugins are not set up in this run')
+      const p = writeDraft(plugins.store, host.id, args)
+      return `draft ${p.name} written (switched off): ${Object.keys(args.files).length} file(s). Now test_plugin.`
+    },
+  },
+  {
+    name: 'test_plugin',
+    tier: 'write',
+    description: prompts.tools.test_plugin.description,
+    parameters: type({
+      name: type('string'),
+      'tests?': type({ tool: type('string'), 'args?': type('Record<string, unknown>') })
+        .array()
+        .describe(prompts.tools.test_plugin.params.tests),
+    }),
+    async run(args, agent, host) {
+      const plugins = host.plugins
+      if (!plugins) throw new Error('plugins are not set up in this run')
+      if (!isOwnDraft(plugins.store, host.id, args.name))
+        throw new Error(`${args.name} is not a draft this round made; create_plugin first`)
+      const plugin = plugins.store.list().find((p) => p.name === args.name)
+      if (!plugin) throw new Error(`no plugin called ${args.name}`)
+      return testPlugin(plugin, {
+        sandbox: host.sandbox,
+        scratch: host.workspace.scratch(agent),
+        tests: (args.tests ?? []).map((t: { tool: string; args?: Record<string, unknown> }) => ({
+          tool: t.tool,
+          args: t.args ?? {},
+        })),
+        allowUnsandboxed: host.unsafeNoSandbox,
+      })
+    },
+  },
+  {
+    name: 'propose_plugin',
+    tier: 'write',
+    description: prompts.tools.propose_plugin.description,
+    parameters: type({
+      name: type('string'),
+      summary: type('string').atLeastLength(10).describe(prompts.tools.propose_plugin.params.summary),
+    }),
+    async run(args, agent, host) {
+      const plugins = host.plugins
+      if (!plugins) throw new Error('plugins are not set up in this run')
+      if (!isOwnDraft(plugins.store, host.id, args.name))
+        throw new Error(`${args.name} is not a draft this round made; create_plugin first`)
+      const p = plugins.store.list().find((x) => x.name === args.name)
+      if (!p) throw new Error(`no plugin called ${args.name}`)
+      const adds = [
+        p.skills.length && `skills: ${p.skills.join(', ')}`,
+        p.commands.length && `commands: ${p.commands.map((c) => `/${c.name}`).join(', ')}`,
+        p.hooks && `${p.hooks} hook(s)`,
+        p.mcpServers.length && `MCP servers: ${p.mcpServers.join(', ')}`,
+        p.server && 'code that runs in Myrmidon',
+        p.ui && 'UI',
+      ].filter(Boolean)
+      const approved = await host.requestApproval(
+        agent,
+        'propose_plugin',
+        `Switch on the ${p.name} plugin? ${args.summary} It adds ${adds.join('; ')}. Its files are in ${p.dir}.`,
+      )
+      if (!approved) return `the person did not switch on ${p.name}; ask what to change, or leave it off`
+      adoptDraft(plugins.store, p.name)
+      await plugins.sync()
+      return `${p.name} is on. Its tools and prompt sections reach agents from the next message; tell the person how to use it.`
     },
   },
   {

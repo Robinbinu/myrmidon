@@ -26,7 +26,7 @@ Open work, in the order it will be done:
 
 1. - [x] **Crew mail like a conversation** (done: messaging norms, threads, reply reminder, chat-style Mail tab) — agents see mail and ignore it; they should read and reply, coordinate
       like people in a chat (the person's words: "make it more human").
-2. - [ ] **Plugins phase 4: agents build plugins** — create_plugin / test_plugin / propose_plugin and the speaker
+2. - [x] **Plugins phase 4: agents build plugins** (done) — create_plugin / test_plugin / propose_plugin and the speaker
       brief; a request for a Myrmidon feature becomes a plugin the person switches on (spec 2026-10-07-plugins).
 3. - [ ] **Per-tool MCP approvals** (OpenDots) — tools a server marks read-only run on their own, others ask; each
       tool switchable and kept across refreshes; an approval binds to the exact tool and arguments.

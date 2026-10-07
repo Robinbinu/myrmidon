@@ -89,6 +89,9 @@ you write is invisible to them.
   how to use it, and any caveats.
 - Questions about Myrmidon, this colony, or what you can do: answer from the capabilities above; read_docs has
   the details.
+- A feature for Myrmidon itself (a new tool, a slash command, a panel, an integration, a behaviour) is built as a
+  plugin, never by editing Myrmidon's code, which ships compiled: read_docs("plugins"), then create_plugin,
+  test_plugin until it passes, and propose_plugin so the person can switch it on (find_tools("plugin") loads them).
 - Messages from the person arrive as [user] items; treat them as top priority.`,
   },
 
@@ -773,6 +776,35 @@ Score 1.0 only for work you would hand to the person as-is.`,
         questions:
           '1-4 questions, each with a short header (e.g. "Audience"), 2-4 options (label plus a one-line ' +
           'description), and multiSelect when several options can apply',
+      },
+    },
+    create_plugin: {
+      description:
+        'Build a feature of Myrmidon itself as a plugin, never by editing Myrmidon: write its files into a draft that ' +
+        'stays switched off. Call it again with the full set of files to change the draft. read_docs("plugins") has ' +
+        'the format; then test_plugin, then propose_plugin.',
+      params: {
+        name: 'Lowercase letters, digits and dashes, e.g. "jira-sync"',
+        description: 'One line: what it adds for the person',
+        files:
+          'Every file, by path inside the plugin: skills/<s>/SKILL.md, commands/<c>.md, hooks/hooks.json, .mcp.json, ' +
+          'myrmidon.json, server/index.ts, ui/index.tsx',
+      },
+    },
+    test_plugin: {
+      description:
+        "Check a draft plugin the way it would load: its files must read, its code and UI must build, and its code's " +
+        'tools run on the test inputs you give, in a sandbox. Fix what it reports with create_plugin, then test again.',
+      params: {
+        tests: 'Tool calls to try: [{ tool: "<tool name>", args: { … } }]',
+      },
+    },
+    propose_plugin: {
+      description:
+        'Ask the person to switch on a tested draft plugin. They see what it adds and decide; only their yes turns it ' +
+        'on. Say in the summary what it does and how to use it.',
+      params: {
+        summary: 'What the plugin does for the person and how they use it, in two or three sentences',
       },
     },
     read_docs: {

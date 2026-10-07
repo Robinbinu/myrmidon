@@ -3,6 +3,7 @@ import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myr
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
@@ -51,6 +52,8 @@ export interface ColonyHost {
   pluginTools(agent: string): AgentTool[]
   /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */
   pluginPrompts(role: 'lead' | 'worker'): string[]
+  /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
+  readonly plugins?: PluginHost
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
   toolsChanged(): void
   /** A real browser for agents; absent when no Chrome is installed. */

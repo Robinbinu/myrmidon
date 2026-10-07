@@ -150,3 +150,26 @@ test('a broken part is reported and the rest of the plugin still loads', async (
   expect(p.skills).toEqual(['palette'])
   expect(plugins.hooks()).toEqual({ hooks: {} })
 })
+
+test("an agent's draft belongs to its round, and a plugin the person installed is never overwritten", async () => {
+  const { writeDraft, isOwnDraft, adoptDraft } = await import('../src/plugin-builder.ts')
+  const plugins = new PluginStore(home)
+  const files = { 'commands/hi.md': 'Say hi to $ARGUMENTS' }
+  writeDraft(plugins, 'round-a', { name: 'greeter', description: 'Says hi', files })
+  expect(plugins.list().find((p) => p.name === 'greeter')).toMatchObject({ enabled: false })
+  expect(isOwnDraft(plugins, 'round-a', 'greeter')).toBe(true)
+  expect(() => writeDraft(plugins, 'round-b', { name: 'greeter', description: 'Takes over', files })).toThrow(
+    'already exists',
+  )
+  adoptDraft(plugins, 'greeter')
+  expect(isOwnDraft(plugins, 'round-a', 'greeter')).toBe(false)
+  expect(plugins.list().find((p) => p.name === 'greeter')?.enabled).toBe(true)
+  // Approved, it is the person's now: not even the round that made it can rewrite it.
+  expect(() => writeDraft(plugins, 'round-a', { name: 'greeter', description: 'Changed', files })).toThrow(
+    'already exists',
+  )
+  await plugins.install(source)
+  expect(() =>
+    writeDraft(plugins, 'round-a', { name: 'nova-kit', description: 'Replace it', files }),
+  ).toThrow('already exists')
+})

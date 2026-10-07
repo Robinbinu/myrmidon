@@ -86,7 +86,7 @@ export class PluginHost {
     plugin: string,
   ) => Promise<void>
 
-  constructor(private readonly store: PluginStore) {
+  constructor(readonly store: PluginStore) {
     this._buildDir = join(store.dir, '.build')
   }
 
