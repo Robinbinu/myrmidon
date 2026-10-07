@@ -85,8 +85,9 @@ Base layer, applied app-wide:
   Widths persist per machine. Double-clicking a divider resets it.
 - **Inspector (Workspace).** Its look is unchanged: the icon rail on the far right selects the view, as Xcode's
   inspector tabs do. It gets the toolbar row and the new density.
-- **Narrow windows.** Below 1100px the inspector overlays the content. Below 768px the sidebar becomes a slide-over,
-  as now. Phone layouts keep working but are not a target.
+- **Desktop only.** Myrmidon is built for desktop windows, not phones. The smallest supported window is
+  960×600. Below 1100px the inspector overlays the content. Existing phone code may stay, but nothing is designed
+  or tested for phones.
 
 ## 5. Components (`ui/`)
 
@@ -187,8 +188,7 @@ Each phase is a few task-sized commits and ends with `bun run check` and a visua
 - `bun run check` (typecheck, Biome, tests) passes after every phase.
 - Unit tests cover the pure logic: shortcut parsing and matching, platform labels and split-view width clamping.
 - Visual pass after every phase in the in-app browser:
-  - widths 1440, 1100 and 800, in dark and light;
-  - a phone check at 375.
+  - window sizes 1440×900, 1100×800 and 960×600, in dark and light.
 - Final audit checklist, each item checked by hand:
   - no selectable chrome text, no pointer cursor except on links, no overscroll;
   - no browser context menu on chrome, and every shortcut works;
