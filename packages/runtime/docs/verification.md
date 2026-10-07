@@ -11,8 +11,8 @@
   which it fetches (reusing pages you already fetched), so a citation its page contradicts, or a page that does
   not exist, is a major finding; browser tasks against what the browser actually showed; writing by whether it answers
   exactly what was asked, in the form asked for. Cite the specific page for each key claim.
-- **The judge is another model** when the person set one up: by default it comes from a different provider than
-  the team, so it does not share the team's blind spots.
+- **The judge can be another model.** The person picks it; the composer suggests one from another provider than
+  the team, since a different model does not share the team's blind spots.
 - **In a project**, the judge also reads the round's diff of the project folder and, if you changed files, runs the
   project's own checks (the same ones `run_checks` runs). Work that breaks a check is not done. Its findings come
   graded — `[blocker]`, `[major]`, `[minor]`, each with where — so fix blockers first.

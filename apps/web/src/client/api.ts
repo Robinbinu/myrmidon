@@ -181,23 +181,12 @@ export const SPECIALISTS = ['researcher', 'coder', 'writer', 'reviewer', 'design
 /** The provider part of a `provider/model` ref. */
 export const providerOf = (ref: string) => ref.slice(0, Math.max(0, ref.indexOf('/')))
 
-/**
- * A usable team config from saved preferences, including the older `auto`/`manual` shape. Without a saved judge,
- * the judge comes from another provider than the lead when one is available: a different model catches more of
- * the team's blind spots than the same model grading itself.
- */
-export function normalizeConfig(
-  raw: Record<string, unknown>,
-  fallbackModel: string,
-  models: readonly ModelOption[] = [],
-): TeamConfig {
+/** A usable team config from saved preferences, including the older `auto`/`manual` shape. */
+export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: string): TeamConfig {
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
   const leadModel = str(raw.leadModel) ?? fallbackModel
   const workerModel = str(raw.workerModel) ?? leadModel
-  const judgeModel =
-    str(raw.judgeModel) ??
-    models.find((m) => !m.hidden && m.provider !== providerOf(leadModel))?.ref ??
-    leadModel
+  const judgeModel = str(raw.judgeModel) ?? leadModel
   const thinking = ['low', 'medium', 'high'].includes(raw.thinking as string)
     ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
     : {}

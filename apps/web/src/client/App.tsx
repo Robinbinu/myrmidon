@@ -150,7 +150,7 @@ export function App() {
           const server = Object.fromEntries(
             Object.entries(r.defaults ?? {}).filter(([, v]) => v !== undefined),
           )
-          return normalizeConfig({ ...server, ...readLocalConfig() }, fallback, r.models)
+          return normalizeConfig({ ...server, ...readLocalConfig() }, fallback)
         })
       })
       .catch((err) => toast(String(err.message ?? err), 'error'))
