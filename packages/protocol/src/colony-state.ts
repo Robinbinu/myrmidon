@@ -68,6 +68,8 @@ export interface MailEntry extends Entry {
   readonly to: string
   readonly subject: string
   readonly body: string
+  /** The number (seq) of the mail this answers. */
+  readonly replyTo?: number
   delivered: boolean
 }
 
@@ -557,7 +559,15 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'mail/sent': {
       const p = event.payload as EventPayloads['mail/sent']
-      state.mail.push({ ...base, from: p.from, to: p.to, subject: p.subject, body: p.body, delivered: false })
+      state.mail.push({
+        ...base,
+        from: p.from,
+        to: p.to,
+        subject: p.subject,
+        body: p.body,
+        ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+        delivered: false,
+      })
       link(state, p.from, p.to)
       touch(state, p.from, event.seq)
       break

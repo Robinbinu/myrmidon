@@ -141,6 +141,67 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   await chats.stopAll()
 })
 
+test('crew mail is a conversation: a mail left unanswered gets a reminder, and replies thread', async () => {
+  const resolver = new ModelResolver()
+  const prompts: Record<string, string[]> = {}
+  const seen = (who: string) => (ctx: LlmContext) => {
+    prompts[who] = [...(prompts[who] ?? []), JSON.stringify(ctx.messages)]
+  }
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      seen('lead')(ctx)
+      const writer = /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      return [
+        tool('send_mail', {
+          to: writer,
+          subject: 'Tone',
+          body: 'Playful or solemn? Tell me which you pick.',
+        }),
+      ]
+    },
+    (ctx) => {
+      seen('lead')(ctx)
+      return ['waiting']
+    },
+    (ctx) => {
+      seen('lead')(ctx)
+      return [tool('reply_user', { text: 'Done.', final: true })]
+    },
+  ])
+  let mailNumber = 0
+  scripted(resolver, 'mock/writer', [
+    (ctx) => {
+      seen('writer')(ctx)
+      mailNumber = Number(/mail #(\d+) from lead/.exec(JSON.stringify(ctx.messages))?.[1] ?? 0)
+      return ['busy with the poem']
+    },
+    (ctx) => {
+      seen('writer')(ctx)
+      return [tool('send_mail', { to: 'lead', body: 'Playful.', reply_to: mailNumber })]
+    },
+    ['done'],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Write a short poem about ants', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId, (x) => x.mail.length >= 2)
+  expect(mailNumber).toBeGreaterThan(0)
+  // The mail asked for a reply, and the writer's turn ended without one, so it was reminded.
+  expect(prompts.writer?.join('\n')).toContain(
+    `You have mail you have not answered: #${mailNumber} from lead [Tone]`,
+  )
+  expect(s.mail.map((m) => [m.from, m.to, m.subject, m.replyTo])).toEqual([
+    ['lead', expect.any(String), 'Tone', undefined],
+    [expect.any(String), 'lead', 'Re: Tone', mailNumber],
+  ])
+  await chats.stopAll()
+})
+
 test('orchestrated: an assigned task wakes only its assignee', async () => {
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>

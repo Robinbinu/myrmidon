@@ -24,7 +24,7 @@ Requests queued while other work is in progress. Top of each section is next.
 
 Open work, in the order it will be done:
 
-1. - [ ] **Crew mail like a conversation** — agents see mail and ignore it; they should read and reply, coordinate
+1. - [x] **Crew mail like a conversation** (done: messaging norms, threads, reply reminder, chat-style Mail tab) — agents see mail and ignore it; they should read and reply, coordinate
       like people in a chat (the person's words: "make it more human").
 2. - [ ] **Plugins phase 4: agents build plugins** — create_plugin / test_plugin / propose_plugin and the speaker
       brief; a request for a Myrmidon feature becomes a plugin the person switches on (spec 2026-10-07-plugins).

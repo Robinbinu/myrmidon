@@ -28,7 +28,7 @@ import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, usePersistentFlag } from '../ui/hooks.ts'
-import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
+import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { softSpring } from '../ui-config.ts'
@@ -769,6 +769,8 @@ interface Message {
   readonly subject?: string
   readonly text: string
   readonly read?: boolean
+  /** The seq of the message this replies to. */
+  readonly replyTo?: number
 }
 
 /** Everything the agents said to each other: board posts and direct mail, oldest first. */
@@ -791,69 +793,170 @@ function conversation(state: ColonyState): Message[] {
       ...(m.subject ? { subject: m.subject } : {}),
       text: m.body,
       read: m.delivered,
+      ...(m.replyTo !== undefined ? { replyTo: m.replyTo } : {}),
     })),
   ].sort((a, b) => a.seq - b.seq)
 }
 
-/** The agents' conversation, filterable to the messages one agent sent or received. */
+/** A conversation in the Mail tab: the team's group chat (board posts) or the mail between two agents. */
+interface Thread {
+  readonly key: string
+  /** The two agents, or empty for the team chat. */
+  readonly pair: readonly string[]
+  readonly messages: readonly Message[]
+}
+
+function threadsOf(messages: readonly Message[]): Thread[] {
+  const byKey = new Map<string, Message[]>()
+  for (const m of messages) {
+    const key = m.to === 'board' ? 'team' : [m.from, m.to].sort().join('|')
+    byKey.set(key, [...(byKey.get(key) ?? []), m])
+  }
+  return [...byKey]
+    .map(([key, list]) => ({ key, pair: key === 'team' ? [] : key.split('|'), messages: list }))
+    .sort((a, b) => (b.messages.at(-1)?.seq ?? 0) - (a.messages.at(-1)?.seq ?? 0))
+}
+
+/**
+ * The agents' messages, laid out like a messaging app: a list of conversations (the team's group chat and each pair
+ * of agents who wrote to each other), newest first, and a conversation open as bubbles with replies quoted.
+ */
 function MailTab(props: { messages: readonly Message[]; onInspect(name: string): void }) {
-  const [who, setWho] = useState('')
-  const names = [...new Set(props.messages.flatMap((m) => [m.from, m.to]))]
-    .filter((n) => n !== 'board')
-    .sort()
-  const shown = who ? props.messages.filter((m) => m.from === who || m.to === who) : props.messages
+  const [open, setOpen] = useState<string>()
+  const threads = threadsOf(props.messages)
+  const thread = threads.find((t) => t.key === open)
   if (props.messages.length === 0)
     return (
       <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
         {copy.workspace.mail.emptyBody}
       </Empty>
     )
+  if (thread)
+    return <Conversation thread={thread} onBack={() => setOpen(undefined)} onInspect={props.onInspect} />
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <span className="text-[12px] text-muted">{copy.workspace.mail.count(shown.length)}</span>
-        <Select
-          value={who}
-          onChange={(e) => setWho(e.target.value)}
-          aria-label={copy.workspace.mail.filterLabel}
-        >
-          <option value="">{copy.workspace.mail.everyone}</option>
-          {names.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <ol className="flex flex-col gap-3 px-4 py-3">
-        {shown.map((m) => (
-          <li key={m.id} className="flex gap-2.5">
+    <ul className="flex flex-col py-1">
+      {threads.map((t) => {
+        const last = t.messages.at(-1)
+        const unread = t.messages.filter((m) => m.read === false).length
+        return (
+          <li key={t.key}>
             <button
               type="button"
-              onClick={() => props.onInspect(m.from)}
-              aria-label={copy.workspace.mail.open(m.from)}
-              className="h-fit rounded-lg transition-transform hover:scale-105"
+              onClick={() => setOpen(t.key)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
             >
-              <AgentAvatar name={m.from} status="idle" size={26} awake />
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-1.5 text-[12px]">
-                <span className="font-semibold text-fg">{m.from}</span>
-                <span className="text-muted">
-                  → {m.to === 'board' ? copy.workspace.mail.toEveryone : m.to}
+              {t.pair.length ? (
+                <span className="relative h-9 w-11 shrink-0">
+                  <span className="absolute left-0 top-0">
+                    <AgentAvatar name={t.pair[0] ?? ''} status="idle" size={26} awake />
+                  </span>
+                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
+                    <AgentAvatar name={t.pair[1] ?? ''} status="idle" size={26} awake />
+                  </span>
                 </span>
-                {m.to !== 'board' && m.read === false && (
-                  <Pill tone="warn">{copy.workspace.mail.unread}</Pill>
-                )}
-                <time className="ml-auto shrink-0 tabular-nums text-muted">{m.time.slice(11, 16)}</time>
-              </div>
-              <div className="mt-1 rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
-                {m.subject && <div className="mb-0.5 font-medium text-fg">{m.subject}</div>}
-                <div className="whitespace-pre-wrap break-words">{m.text}</div>
-              </div>
-            </div>
+              ) : (
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
+                  <Users className="size-4" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2">
+                  <span className="truncate text-[13px] font-semibold text-fg">
+                    {t.pair.length ? t.pair.join(' · ') : copy.workspace.mail.team}
+                  </span>
+                  <time className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
+                    {last?.time.slice(11, 16)}
+                  </time>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
+                    {last ? `${last.from}: ${last.text}` : ''}
+                  </span>
+                  {unread > 0 && (
+                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-[11px] font-semibold leading-5 text-on-bright">
+                      {unread}
+                    </span>
+                  )}
+                </span>
+              </span>
+            </button>
           </li>
-        ))}
+        )
+      })}
+    </ul>
+  )
+}
+
+/** One conversation as chat bubbles; the second agent of a pair writes on the right, like your own messages. */
+function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: string): void }) {
+  const { thread } = props
+  const right = thread.pair[1]
+  const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2 border-b border-line px-2 py-1.5">
+        <IconButton size="sm" label={copy.workspace.mail.back} onClick={props.onBack}>
+          <ChevronRight className="size-4 rotate-180" />
+        </IconButton>
+        <span className="truncate text-[13px] font-semibold">
+          {thread.pair.length ? thread.pair.join(' · ') : copy.workspace.mail.team}
+        </span>
+        <span className="ml-auto pr-2 text-[12px] text-muted">
+          {copy.workspace.mail.count(thread.messages.length)}
+        </span>
+      </div>
+      <ol className="flex flex-col gap-1.5 px-3 py-3">
+        {thread.messages.map((m, i) => {
+          const mine = m.from === right
+          const quoted = m.replyTo !== undefined ? bySeq.get(m.replyTo) : undefined
+          const first = thread.messages[i - 1]?.from !== m.from
+          return (
+            <li key={m.id} className={cn('flex gap-2', mine && 'flex-row-reverse', first && 'mt-1.5')}>
+              <span className="w-[26px] shrink-0">
+                {first && (
+                  <button
+                    type="button"
+                    onClick={() => props.onInspect(m.from)}
+                    aria-label={copy.workspace.mail.open(m.from)}
+                    className="rounded-lg transition-transform hover:scale-105"
+                  >
+                    <AgentAvatar name={m.from} status="idle" size={26} awake />
+                  </button>
+                )}
+              </span>
+              <div
+                className={cn(
+                  'max-w-[80%] rounded-2xl px-3 py-1.5 text-[12.5px] leading-relaxed',
+                  mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
+                )}
+              >
+                {first && (
+                  <div className="text-[11.5px] font-semibold" style={{ color: agentColor(m.from) }}>
+                    {m.from}
+                  </div>
+                )}
+                {quoted && (
+                  <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-[11.5px] text-muted">
+                    {quoted.from}: {quoted.text}
+                  </div>
+                )}
+                {m.subject && !quoted && <div className="font-medium text-fg">{m.subject}</div>}
+                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
+                  {m.time.slice(11, 16)}
+                  {m.to !== 'board' && (
+                    <span
+                      className={m.read ? 'text-ok-ink' : ''}
+                      title={m.read ? copy.workspace.mail.read : copy.workspace.mail.unread}
+                    >
+                      {m.read ? '✓✓' : '✓'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </li>
+          )
+        })}
       </ol>
     </div>
   )

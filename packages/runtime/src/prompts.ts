@@ -20,6 +20,14 @@ How this colony works:
 - Coordinate through the task graph: claim before working, pass the revision you read, submit with the files that
   finish the task. Do only what a task asks; do not start work nobody planned.
 - Keep board posts short and useful. Use @name to wake someone; use send_mail for one-to-one detail.
+- Talk to your teammates the way people text each other at work: short, frequent messages (send_mail) to whoever it
+  concerns, all through the work, not only at the end.
+  - Say what you are starting when it touches someone else's part ("starting the API client, will need your schema").
+  - Ask a quick question instead of guessing ("is the date field UTC?").
+  - Share a finding the moment it matters to someone ("the docs moved to v2, use /v2/items").
+  - Reply when someone messages you (reply_to its number): answer, confirm what you will do, or say why not. A quick
+    "got it, on it" is a fine reply.
+  - Keep each message to a few lines; put long material in a note or file and send its name. No empty pings.
 - When you have nothing useful left to do, stop calling tools and reply with one short line. You will be woken when
   something needs you.
 - Do not fabricate results. If something fails, say so and fix it.`,
@@ -160,7 +168,8 @@ ${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worke
     Done when: concrete checks the result must pass.
     Not in scope: what another task covers.
   Vague briefs ("research X") make workers duplicate each other, miss parts, or stop early.
-- While workers run, stay quiet: do not ask for status. You hear every verdict and any mail or @lead post.
+- While workers run, do not poll them for status: you hear every verdict and any mail or @lead post. Do message them
+  when the plan changes or something you learned affects their task, and answer their messages promptly.
 - When results arrive, read the files yourself and check them against the request. If one falls short, send it
   back with reject_task and a reason naming the exact gap; its owner fixes it. Do not accept gaps.
 - When every task is verified, send the complete final answer with reply_user(final: true), written for the
@@ -315,8 +324,15 @@ nobody owns, publish artifacts, and request final verification once the output m
     findingsTask: 'Address the verifier findings on the final answer',
     fixFinalAnswer: (report: string) =>
       `${report}\n\nFix the work, then send an updated final answer with reply_user(final: true).`,
-    mail: (p: { from: string; subject: string; body: string }) =>
-      `mail from ${p.from}${p.subject ? ` [${p.subject}]` : ''}: ${p.body}`,
+    mail: (p: { seq: number; from: string; subject: string; body: string; replyTo?: number }) =>
+      `mail #${p.seq} from ${p.from}${p.subject ? ` [${p.subject}]` : ''}${p.replyTo !== undefined ? ` (reply to your #${p.replyTo})` : ''}: ${p.body}\n` +
+      `Reply to ${p.from} with send_mail(to: "${p.from}", reply_to: ${p.seq}): answer it, confirm what you will do, or say why not.`,
+    mailReminder: (open: readonly { seq: number; from: string; subject: string }[]) =>
+      `You have mail you have not answered: ${open
+        .map((m) => `#${m.seq} from ${m.from}${m.subject ? ` [${m.subject}]` : ''}`)
+        .join(
+          ', ',
+        )}. A teammate is waiting on you; reply to each with send_mail(reply_to: …), even in one line.`,
     mentioned: (agent: string, text: string) => `${agent} mentioned you on the board: ${text}`,
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
@@ -539,11 +555,17 @@ Score 1.0 only for work you would hand to the person as-is.`,
     },
     send_mail: {
       description:
-        'Send a direct message to one agent (wakes it). Use for detail only it needs: a handoff, a question about its ' +
-        'output, a correction. Do not use it to ask for status; task changes and verdicts are announced automatically.',
+        'Send a direct message to one agent (wakes it), like an email to a teammate. Use for detail only it needs: a ' +
+        'handoff, a question about its output, a finding that changes its task, a correction, or a reply. Answer ' +
+        'mail you receive with reply_to set to its number. Do not use it to ask for status; task changes and ' +
+        'verdicts are announced automatically.',
+      params: {
+        reply_to: 'The number of the mail you are answering (#713 → 713), so the conversation threads',
+      },
     },
     read_mail: {
-      description: 'Read mail sent to you.',
+      description:
+        'Read your mail: what teammates sent you and what you sent, newest last, with each mail number.',
     },
     list_agents: {
       description: 'List agents with their status, role, and current task.',

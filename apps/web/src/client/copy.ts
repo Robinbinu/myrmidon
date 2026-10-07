@@ -848,9 +848,11 @@ export const copy = {
       filterLabel: 'Show messages for',
       everyone: 'Everyone',
       open: (name: string) => `Open ${name}`,
-      /** Recipient of a board post, after the arrow. */
-      toEveryone: 'everyone',
-      unread: 'unread',
+      /** The group chat everyone can read (board posts). */
+      team: 'Team',
+      back: 'All conversations',
+      read: 'Read',
+      unread: 'Not read yet',
     },
   },
 

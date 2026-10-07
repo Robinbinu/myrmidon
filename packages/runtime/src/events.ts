@@ -459,7 +459,13 @@ const defs: EventTypeDefinition[] = [
     type: 'mail/sent',
     version: 1,
     actors: ['agent', 'user'],
-    schema: Schema.object({ from: str(), to: str(), subject: Schema.string().default(''), body: str() }),
+    schema: Schema.object({
+      from: str(),
+      to: str(),
+      subject: Schema.string().default(''),
+      body: str(),
+      replyTo: Schema.natural(),
+    }),
   },
   {
     type: 'mail/delivered',

@@ -1257,9 +1257,18 @@ export class ColonyRun implements ColonyHost {
       }
       case 'mail/sent': {
         const p = e.payload as EventPayloads['mail/sent']
-        notify(p.to, prompts.colony.mail({ from: p.from, subject: p.subject, body: p.body }), 'mail', {
-          mail: e.id,
-        })
+        notify(
+          p.to,
+          prompts.colony.mail({
+            seq: e.seq,
+            from: p.from,
+            subject: p.subject,
+            body: p.body,
+            ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+          }),
+          'mail',
+          { mail: e.id },
+        )
         break
       }
       case 'board/posted': {
@@ -1355,6 +1364,7 @@ export class ColonyRun implements ColonyHost {
     const held = Object.values(this._state.tasks).find(
       (t) => t.status === 'in_progress' && t.owner === agent && t.id !== 'task-final',
     )
+    if (this._remindMail(agent)) return
     if (!held) return this._remindTodos(agent)
     const key = `${agent}:${held.id}`
     const sent = this._reminded.get(key) ?? 0
@@ -1370,6 +1380,27 @@ export class ColonyRun implements ColonyHost {
       }),
       'reminder',
     )
+  }
+
+  /**
+   * Mail a teammate sent this agent, which it has read but not answered (no mail back to that teammate since), is
+   * waiting on it like an unanswered email. It is reminded once per mail. Returns whether it was reminded.
+   */
+  private _remindMail(agent: string): boolean {
+    const all = this._state.mail
+    const open = all.filter(
+      (m) =>
+        m.to === agent &&
+        m.delivered &&
+        this._agents.has(m.from) &&
+        !this._state.agents[m.from]?.dismissed &&
+        !all.some((r) => r.from === agent && r.to === m.from && (r.replyTo === m.seq || r.seq > m.seq)) &&
+        !this._reminded.has(`${agent}:mail:${m.seq}`),
+    )
+    if (open.length === 0 || this._state.status !== 'running' || this._awaiting) return false
+    for (const m of open) this._reminded.set(`${agent}:mail:${m.seq}`, 1)
+    this._wake(agent, prompts.colony.mailReminder(open), 'reminder')
+    return true
   }
 
   /** Like a held task: an agent that stops with its own checklist unfinished is reminded, at most twice. */

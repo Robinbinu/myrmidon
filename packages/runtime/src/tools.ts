@@ -607,14 +607,25 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       to: type('string'),
       'subject?': type('string'),
       body: type('string').atLeastLength(1),
+      'reply_to?': type('number').describe(prompts.tools.send_mail.params.reply_to),
     }),
     async run(args, agent, host) {
       if (!host.state().agents[args.to]) throw new Error(`no such agent: ${args.to}`)
       if (args.to === agent) throw new Error('you cannot mail yourself')
+      const answered =
+        args.reply_to === undefined ? undefined : host.state().mail.find((m) => m.seq === args.reply_to)
+      if (args.reply_to !== undefined && (!answered || (answered.to !== agent && answered.from !== agent)))
+        throw new Error(`#${args.reply_to} is not a mail you sent or received`)
       await host.append({
         type: 'mail/sent',
         actor: agentActor(agent),
-        payload: { from: agent, to: args.to, subject: args.subject ?? '', body: args.body },
+        payload: {
+          from: agent,
+          to: args.to,
+          subject: args.subject ?? (answered?.subject ? `Re: ${answered.subject.replace(/^Re: /, '')}` : ''),
+          body: args.body,
+          ...(answered ? { replyTo: answered.seq } : {}),
+        },
       })
       return `mail sent to ${args.to}`
     },
@@ -625,13 +636,18 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.read_mail.description,
     parameters: type({ 'limit?': type('number') }),
     async run(args, agent, host) {
-      const mail = host
-        .state()
-        .mail.filter((m) => m.to === agent)
-        .slice(-(args.limit ?? 20))
+      const all = host.state().mail
+      const mail = all.filter((m) => m.to === agent || m.from === agent).slice(-(args.limit ?? 20))
+      const answered = (m: (typeof all)[number]) =>
+        all.some((r) => r.from === agent && r.to === m.from && (r.replyTo === m.seq || r.seq > m.seq))
       return (
-        mail.map((m) => `from ${m.from}${m.subject ? ` [${m.subject}]` : ''}: ${m.body}`).join('\n') ||
-        '(no mail)'
+        mail
+          .map((m) =>
+            m.from === agent
+              ? `#${m.seq} to ${m.to}${m.subject ? ` [${m.subject}]` : ''}: ${m.body}`
+              : `#${m.seq} from ${m.from}${m.subject ? ` [${m.subject}]` : ''}${answered(m) ? '' : ' (not answered yet)'}: ${m.body}`,
+          )
+          .join('\n') || '(no mail)'
       )
     },
   },

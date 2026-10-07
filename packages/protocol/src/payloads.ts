@@ -270,7 +270,8 @@ export interface EventPayloads {
   'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
   'board/posted': { agent: string; text: string; mentions: string[] }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
-  'mail/sent': { from: string; to: string; subject: string; body: string }
+  /** `replyTo`: the number (log seq) of the mail this answers, so mail reads as threads. */
+  'mail/sent': { from: string; to: string; subject: string; body: string; replyTo?: number }
   /** `mail` is a mail/sent event, or a chat/user message the agent has now read. */
   'mail/delivered': { mail: EventId; to: string }
   /** `reason` says why, when an agent sent the task back (reject_task). */
