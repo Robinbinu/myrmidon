@@ -65,6 +65,12 @@ export interface ProviderInfo {
   readonly modelIds?: string[]
   readonly keyless?: boolean
   readonly hasKey?: boolean
+  /**
+   * Myrmidon holds this provider's key (its vault or `models.yml`), so removing it there turns the provider off.
+   * A ready provider without one works through credentials Myrmidon does not own: environment variables, a
+   * cloud profile such as ~/.aws, or none at all.
+   */
+  readonly stored?: boolean
 }
 
 export interface ProviderUpdate {
@@ -246,13 +252,14 @@ async function start(home: string): Promise<OmpRuntime> {
     providers() {
       const custom = readModelsYml().providers
       const ready = new Set(core.registry.getAvailable('chat').map((m) => m.provider))
+      const stored = new Set(core.credentials.providers())
       const counts = new Map<string, number>()
       for (const m of core.registry.getAll('chat')) counts.set(m.provider, (counts.get(m.provider) ?? 0) + 1)
       for (const name of Object.keys(custom)) if (!counts.has(name)) counts.set(name, 0)
       return [...counts]
         .map(([id, models]): ProviderInfo => {
           const entry = custom[id]
-          if (!entry) return { id, models, ready: ready.has(id), custom: false }
+          if (!entry) return { id, models, ready: ready.has(id), custom: false, stored: stored.has(id) }
           const declared = Array.isArray(entry.models) ? (entry.models as { id?: unknown }[]) : []
           return {
             id,
@@ -264,6 +271,7 @@ async function start(home: string): Promise<OmpRuntime> {
             modelIds: declared.map((m) => m.id).filter((m): m is string => typeof m === 'string'),
             keyless: entry.auth === 'none',
             hasKey: typeof entry.apiKey === 'string' && entry.apiKey.length > 0,
+            stored: typeof entry.apiKey === 'string' && entry.apiKey.length > 0,
           }
         })
         .sort((a, b) => Number(b.ready) - Number(a.ready) || a.id.localeCompare(b.id))

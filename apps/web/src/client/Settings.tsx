@@ -73,6 +73,7 @@ interface ProviderInfo {
   modelIds?: string[]
   keyless?: boolean
   hasKey?: boolean
+  stored?: boolean
 }
 
 interface ProviderBody {
@@ -371,7 +372,7 @@ export function Settings(props: {
                       onAddProvider={() => setModelsTab('providers')}
                     />
                   ) : (
-                    <Providers data={data} onProviders={providersChanged} />
+                    <Providers data={data} onProviders={providersChanged} update={update} />
                   )}
                 </>
               )}
@@ -875,7 +876,25 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   )
 }
 
-function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[]): void }) {
+function Providers(props: {
+  data: SettingsResponse
+  onProviders(p: ProviderInfo[]): void
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const off = new Set(props.data.settings.models.hiddenProviders)
+  const setOff = (id: string, hide: boolean) =>
+    props.update(
+      (s) => ({
+        ...s,
+        models: {
+          ...s.models,
+          hiddenProviders: hide
+            ? [...new Set([...s.models.hiddenProviders, id])]
+            : s.models.hiddenProviders.filter((x) => x !== id),
+        },
+      }),
+      true,
+    )
   const toast = useToast()
   const [adding, setAdding] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -1025,7 +1044,20 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
               >
                 {p.custom ? 'Edit' : p.ready ? 'Replace key' : 'Add key'}
               </Button>
-              {p.ready && !p.custom && (
+              {p.ready && !p.custom && !p.stored && (
+                <span
+                  className="flex items-center gap-2"
+                  title="Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models."
+                >
+                  <span className="text-[11.5px] text-muted">{off.has(p.id) ? 'Off' : 'On'}</span>
+                  <Switch
+                    checked={!off.has(p.id)}
+                    onChange={(on) => setOff(p.id, !on)}
+                    label={`Use ${p.id}`}
+                  />
+                </span>
+              )}
+              {p.stored && !p.custom && (
                 <IconButton
                   size="sm"
                   label={`Remove ${p.id} credentials`}
