@@ -33,7 +33,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { compact, duration, useCopy } from '../ui/hooks.ts'
+import { compact, duration, useCopy, useStickToBottom } from '../ui/hooks.ts'
 import {
   AgentAvatar,
   AgentChip,
@@ -552,6 +552,7 @@ function StreamingReply(props: { from: string; text: string; plain: boolean }) {
  */
 function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
   const [open, setOpen] = useState(false)
+  const list = useStickToBottom<HTMLDivElement>(open)
   const thoughts = useMemo(() => {
     const out: { id: string; text: string; ms: number }[] = []
     props.events.forEach((e, i) => {
@@ -593,7 +594,10 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
             transition={softSpring}
             className="overflow-hidden"
           >
-            <div className="flex max-h-96 flex-col gap-3 overflow-y-auto overscroll-contain border-l-2 border-line pl-3 text-[13px] text-fg-2">
+            <div
+              ref={list}
+              className="flex max-h-96 flex-col gap-3 overflow-y-auto overscroll-contain border-l-2 border-line pl-3 text-[13px] text-fg-2"
+            >
               {thoughts.map((t) => (
                 <div key={t.id} className="select-text">
                   <Markdown text={t.text} />

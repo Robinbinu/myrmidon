@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
+import { STICK_SLACK_PX, USER_SCROLL_MS } from '../ui-config.ts'
 import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -113,4 +114,76 @@ export function compact(n: number): string {
     : n >= 1000
       ? `${(n / 1000).toFixed(1)}k`
       : String(n)
+}
+
+/**
+ * Keeps a scrolling view on its newest content, at the bottom: when it opens, and as content loads or grows, unless the
+ * reader scrolled up to read something older (scrolling back down picks it up again). A new `key` (another chat or
+ * conversation opened) starts at the bottom again.
+ */
+export function useStickToBottom<T extends HTMLElement>(key?: unknown) {
+  const ref = useRef<T>(null)
+  const stick = useRef(true)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new key is what sends the view back to the bottom
+  useLayoutEffect(() => {
+    stick.current = true
+    const el = ref.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [key])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: observers are set up again for each key's content
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const follow = () => {
+      if (stick.current) el.scrollTop = el.scrollHeight
+    }
+    // Only the reader scrolling can stop the follow. The browser also moves the view on its own (scroll anchoring
+    // keeps what is on screen in place while earlier content loads), and that must not count as reading back.
+    let touched = 0
+    let dragging = false
+    const reading = () => dragging || Date.now() - touched < USER_SCROLL_MS
+    const touch = () => {
+      touched = Date.now()
+    }
+    const press = () => {
+      dragging = true
+      touch()
+    }
+    const release = () => {
+      dragging = false
+    }
+    const onScroll = () => {
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLACK_PX
+      if (near) stick.current = true
+      else if (reading()) stick.current = false
+    }
+    const intents = ['wheel', 'touchmove', 'keydown'] as const
+    for (const name of intents) el.addEventListener(name, touch, { passive: true })
+    el.addEventListener('pointerdown', press, { passive: true })
+    window.addEventListener('pointerup', release, { passive: true })
+    // Content grows after it opens (rounds load their events, cards animate in), so watch the content, not renders:
+    // its size (animations, images) and its DOM (new messages). Size changes are only reported when the page renders,
+    // so a window opened in the background relies on the DOM changes.
+    const sizes = new ResizeObserver(follow)
+    const watch = () => {
+      sizes.observe(el)
+      for (const child of el.children) sizes.observe(child)
+    }
+    const changes = new MutationObserver(() => {
+      watch()
+      follow()
+    })
+    watch()
+    changes.observe(el, { childList: true, subtree: true, characterData: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      sizes.disconnect()
+      changes.disconnect()
+      el.removeEventListener('scroll', onScroll)
+      for (const name of intents) el.removeEventListener(name, touch)
+      el.removeEventListener('pointerdown', press)
+      window.removeEventListener('pointerup', release)
+    }
+  }, [key])
+  return ref
 }

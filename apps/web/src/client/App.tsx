@@ -34,7 +34,7 @@ import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { Settings } from './Settings.tsx'
-import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
+import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
@@ -815,22 +815,9 @@ function Transcript(props: {
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
-  const pane = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  // Follow new activity only while the reader is already at the bottom of the conversation.
-  useEffect(() => {
-    const el = pane.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
-  })
+  const pane = useStickToBottom<HTMLDivElement>(props.chat?.chatId)
   return (
-    <div
-      ref={pane}
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-      onScroll={(e) => {
-        const el = e.currentTarget
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-      }}
-    >
+    <div ref={pane} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
         {colonies(rounds).map((group, g) => (
           <ColonyRounds

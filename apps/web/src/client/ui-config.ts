@@ -22,6 +22,13 @@ export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 
+/* ------------------------------------------------------------------ scrolling */
+
+/** Within this many pixels of the bottom, a view counts as following its newest content and keeps doing so. */
+export const STICK_SLACK_PX = 120
+/** A scroll this soon after the reader's wheel, touch or key counts as theirs (reading back), not the browser's. */
+export const USER_SCROLL_MS = 600
+
 /* ------------------------------------------------------------------ round screen */
 
 /** Activity items kept in a round's stream; older ones drop off the end. */

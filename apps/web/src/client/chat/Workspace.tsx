@@ -31,7 +31,7 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { compact, usePersistentFlag } from '../ui/hooks.ts'
+import { compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
@@ -335,6 +335,8 @@ function WorkspaceBody({
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
+                    // An open conversation fills the panel and scrolls on its own, opening at its newest message.
+                    className={tab === 'mail' ? 'h-full' : undefined}
                   >
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
@@ -858,9 +860,10 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
   const { thread } = props
   const right = thread.kind === 'direct' ? thread.members[1] : undefined
   const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
+  const list = useStickToBottom<HTMLDivElement>(thread.id)
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-2 py-1.5">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-1.5">
         <IconButton size="sm" label={copy.workspace.mail.back} onClick={props.onBack}>
           <ChevronRight className="size-4 rotate-180" />
         </IconButton>
@@ -872,58 +875,60 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
           {copy.workspace.mail.count(thread.messages.length)}
         </span>
       </div>
-      <ol className="flex flex-col gap-1.5 px-3 py-3">
-        {thread.messages.map((m, i) => {
-          const mine = m.from === right
-          const quoted = m.replyTo !== undefined ? bySeq.get(m.replyTo) : undefined
-          const first = thread.messages[i - 1]?.from !== m.from
-          return (
-            <li key={m.id} className={cn('flex gap-2', mine && 'flex-row-reverse', first && 'mt-1.5')}>
-              <span className="w-[26px] shrink-0">
-                {first && (
-                  <button
-                    type="button"
-                    onClick={() => props.onInspect(m.from)}
-                    aria-label={copy.workspace.mail.open(m.from)}
-                    className="rounded-lg transition-transform hover:scale-105"
-                  >
-                    <AgentAvatar name={m.from} status="idle" size={26} awake />
-                  </button>
-                )}
-              </span>
-              <div
-                className={cn(
-                  'max-w-[80%] rounded-2xl px-3 py-1.5 text-[12.5px] leading-relaxed',
-                  mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
-                )}
-              >
-                {first && (
-                  <div className="text-[11.5px] font-semibold" style={{ color: agentColor(m.from) }}>
-                    {m.from}
-                  </div>
-                )}
-                {quoted && (
-                  <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-[11.5px] text-muted">
-                    {quoted.from}: {quoted.text}
-                  </div>
-                )}
-                <div className="whitespace-pre-wrap break-words">{m.text}</div>
-                <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
-                  {m.time.slice(11, 16)}
-                  {m.read !== undefined && (
-                    <span
-                      className={m.read ? 'text-ok-ink' : ''}
-                      title={m.read ? copy.workspace.mail.read : copy.workspace.mail.unread}
+      <div ref={list} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <ol className="flex flex-col gap-1.5 px-3 py-3">
+          {thread.messages.map((m, i) => {
+            const mine = m.from === right
+            const quoted = m.replyTo !== undefined ? bySeq.get(m.replyTo) : undefined
+            const first = thread.messages[i - 1]?.from !== m.from
+            return (
+              <li key={m.id} className={cn('flex gap-2', mine && 'flex-row-reverse', first && 'mt-1.5')}>
+                <span className="w-[26px] shrink-0">
+                  {first && (
+                    <button
+                      type="button"
+                      onClick={() => props.onInspect(m.from)}
+                      aria-label={copy.workspace.mail.open(m.from)}
+                      className="rounded-lg transition-transform hover:scale-105"
                     >
-                      {m.read ? '✓✓' : '✓'}
-                    </span>
+                      <AgentAvatar name={m.from} status="idle" size={26} awake />
+                    </button>
                   )}
+                </span>
+                <div
+                  className={cn(
+                    'max-w-[80%] rounded-2xl px-3 py-1.5 text-[12.5px] leading-relaxed',
+                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
+                  )}
+                >
+                  {first && (
+                    <div className="text-[11.5px] font-semibold" style={{ color: agentColor(m.from) }}>
+                      {m.from}
+                    </div>
+                  )}
+                  {quoted && (
+                    <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-[11.5px] text-muted">
+                      {quoted.from}: {quoted.text}
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                  <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
+                    {m.time.slice(11, 16)}
+                    {m.read !== undefined && (
+                      <span
+                        className={m.read ? 'text-ok-ink' : ''}
+                        title={m.read ? copy.workspace.mail.read : copy.workspace.mail.unread}
+                      >
+                        {m.read ? '✓✓' : '✓'}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </li>
-          )
-        })}
-      </ol>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
     </div>
   )
 }

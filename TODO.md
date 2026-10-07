@@ -61,6 +61,9 @@ Open work, in the order it will be done:
       approving and a decline can carry a note; `propose` lets an agent show a file or commit first; approved writes,
       commits and MCP calls keep a receipt so the same call in the same round is not run twice. Not yet looked at
       in the browser (needs a live round waiting on a review).
+9b. - [ ] **@mention a worker from the composer** (asked 2026-10-07) — typing @ offers the crew; the message goes
+      straight to that worker. Open questions for the person: does the worker answer them directly or through the
+      lead, and what happens when the crew is idle (start a round with that worker, or let the lead decide)?
 10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)
       and reuses as helpers.
 11. - [ ] **Learn skills from past chats** (OpenDots idea) — propose a SKILL.md from finished chats for the person to
