@@ -136,8 +136,9 @@ run hit a real conflict (two peers fixed the same file) that the worker resolved
 Status: 1 (memory across chats: agents propose, the person keeps; Settings → Memory), 2 (self-made tools) and 3
 (skills: Agent Skills format from Myrmidon's folder, ~/.claude/skills and the project; harness docs stay in
 read_docs) and 4 (hooks: Claude Code's format, before/after tools and at round end, Settings → Hooks) and 5
-(background and scheduled rounds: `myrmidon ask [--wait]`, cron schedules, desktop notifications) done; 6 and 7
-open.
+(background and scheduled rounds: `myrmidon ask [--wait]`, cron schedules, desktop notifications) and 6 (safety and
+audit: secrets redacted from the log and transcripts, per-tool Allow / Ask first / Off in Settings → Tools, the
+workspace's Audit view of every file, URL and command plus what was stopped) done; 7 open.
 
 1. **Memory across chats.**
    - Per-user preferences and decisions, with provenance and an editor in Settings.

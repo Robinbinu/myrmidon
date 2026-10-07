@@ -15,6 +15,7 @@ import {
   ListChecks,
   Mail,
   MonitorSmartphone,
+  ShieldCheck,
   SquareTerminal,
   Terminal,
   Users,
@@ -30,6 +31,7 @@ import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
+import { AuditView } from './AuditView.tsx'
 import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
@@ -38,7 +40,17 @@ import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
 
-type Tab = 'files' | 'git' | 'shell' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
+type Tab =
+  | 'files'
+  | 'git'
+  | 'shell'
+  | 'computer'
+  | 'tasks'
+  | 'team'
+  | 'mail'
+  | 'terminal'
+  | 'activity'
+  | 'audit'
 
 /** The panel's views, listed down its activity bar like an IDE's. `terminal` is the agents' sandboxed commands. */
 const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: boolean }[] = [
@@ -51,6 +63,7 @@ const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: b
   { value: 'mail', label: 'Mail', icon: Mail },
   { value: 'terminal', label: 'Agent commands', icon: SquareTerminal },
   { value: 'activity', label: 'Activity', icon: Activity },
+  { value: 'audit', label: 'Audit', icon: ShieldCheck },
 ]
 
 const ORDER: TaskSnapshot['status'][] = [
@@ -90,7 +103,7 @@ function shellRuns(events: readonly MyrEvent[]): ShellRun[] {
 
 /**
  * Right-hand workspace, like an IDE's: an icon rail that is always there, and the panel for the chosen view (files,
- * git, terminal, computer, tasks, team, mail, agent commands, activity), which opens from the rail and closes back
+ * git, terminal, computer, tasks, team, mail, agent commands, activity, audit), which opens from the rail and closes back
  * to it.
  */
 export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChange(open: boolean): void }) {
@@ -590,6 +603,7 @@ function WorkspaceBody({
                           </div>
                         </>
                       ))}
+                    {tab === 'audit' && <AuditView events={events} />}
                     {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
                     {tab === 'computer' && (
                       <Computer
