@@ -273,6 +273,12 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'plugin/event',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ plugin: str(), type: str(), data: Schema.dict(Schema.any()).default({}) }),
+  },
+  {
     type: 'agent/compacted',
     version: 1,
     actors: ['agent'],

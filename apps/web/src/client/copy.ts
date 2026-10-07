@@ -1537,10 +1537,18 @@ export const copy = {
       commands: (n: number) => `${n} command${n === 1 ? '' : 's'}`,
       hooks: (n: number) => `${n} hook${n === 1 ? '' : 's'}`,
       servers: (n: number) => `${n} MCP server${n === 1 ? '' : 's'}`,
+      tools: (n: number) => `${n} tool${n === 1 ? '' : 's'}`,
+      codeRunning: 'Its code is running',
+      codeStarting: 'Its code is starting…',
+      codeFailed: (error: string) => `Its code failed to load: ${error}`,
+      showLog: 'Show log',
+      hideLog: 'Hide log',
+      secretSet: 'Set; type to replace',
       remove: 'Remove',
       confirmRemove: 'Remove for good',
       removed: (name: string) => `Removed ${name}`,
-      applies: 'Skills, commands and hooks apply from the next message; MCP servers connect now.',
+      applies:
+        'Code, tools and MCP servers start now; skills, commands, hooks and prompt sections apply from the next message.',
     },
     skills: {
       sources: {

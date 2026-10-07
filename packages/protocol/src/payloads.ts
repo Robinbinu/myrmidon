@@ -211,6 +211,8 @@ export interface EventPayloads {
   /** The person rewound the project folder to `commit`; `undo` is the snapshot taken just before. */
   /** `files`: the paths the rewind put back, so undoing it restores exactly those. */
   'checkpoint/restored': { commit: string; undo: string; changed: number; files?: string[] }
+  /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
+  'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */
   'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */

@@ -33,11 +33,30 @@ export interface PluginInfo {
   /** How many hook commands it adds. */
   readonly hooks: number
   readonly mcpServers: readonly string[]
+  /** Its code's entry point (`myrmidon.json` "server", or `server/index.ts`), relative to its folder. */
+  readonly server?: string
+  /** The settings it declares, by key. */
+  readonly settings: Readonly<Record<string, PluginSetting>>
   /** Set when a part could not be read; the rest of the plugin still loads. */
   readonly error?: string
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
+
+/** One setting a plugin declares in `myrmidon.json`; the person sets it in Settings → Plugins. */
+export interface PluginSetting {
+  readonly type: 'string' | 'number' | 'boolean'
+  readonly default?: string | number | boolean
+  readonly description?: string
+  /** Shown as dots and kept out of logs, e.g. an API key. */
+  readonly secret?: boolean
+}
+
+/** What `<home>/plugins.json` holds: which plugins are off, and each plugin's settings. */
+interface PluginState {
+  disabled: string[]
+  settings: Record<string, Record<string, string | number | boolean>>
+}
 
 /** Claude Code writes `${CLAUDE_PLUGIN_ROOT}` for the plugin's own folder in hook commands and server configs. */
 function withRoot<T>(value: T, root: string): T {
@@ -80,7 +99,7 @@ export class PluginStore {
 
   list(): PluginInfo[] {
     if (!existsSync(this.dir)) return []
-    const disabled = new Set(this._disabled())
+    const disabled = new Set(this._readState().disabled)
     return readdirSync(this.dir, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
       .map((e) => this._read(join(this.dir, e.name), !disabled.has(e.name)))
@@ -143,8 +162,14 @@ export class PluginStore {
         this._manifest(staging).name ?? basename(from.replace(/\.git$/, '').replace(/\/+$/, ''))
       ).toLowerCase()
       if (!NAME.test(name)) throw new Error(`"${name}" is not a usable plugin name (a-z, 0-9 and -)`)
-      if (!found.skills.length && !found.commands.length && !found.hooks && !found.mcpServers.length)
-        throw new Error('this has no skills, commands, hooks or MCP servers, so it is not a plugin')
+      if (
+        !found.skills.length &&
+        !found.commands.length &&
+        !found.hooks &&
+        !found.mcpServers.length &&
+        !found.server
+      )
+        throw new Error('this has no skills, commands, hooks, MCP servers or code, so it is not a plugin')
       const target = join(this.dir, name)
       if (existsSync(target)) throw new Error(`a plugin called ${name} is already installed`)
       renameSync(staging, target)
@@ -157,18 +182,46 @@ export class PluginStore {
 
   setEnabled(name: string, enabled: boolean) {
     this._get(name)
-    const disabled = new Set(this._disabled())
+    const state = this._readState()
+    const disabled = new Set(state.disabled)
     if (enabled) disabled.delete(name)
     else disabled.add(name)
-    writeFileSync(this._state, `${JSON.stringify({ disabled: [...disabled].sort() }, null, 2)}\n`)
+    this._save({ ...state, disabled: [...disabled].sort() })
+  }
+
+  /** A plugin's settings: what the person set, over the defaults its manifest declares. */
+  settings(name: string): Record<string, string | number | boolean> {
+    const declared = this.list().find((p) => p.name === name)?.settings ?? {}
+    const set = this._readState().settings[name] ?? {}
+    const out: Record<string, string | number | boolean> = {}
+    for (const [key, spec] of Object.entries(declared)) {
+      const value = set[key] ?? spec.default
+      if (value !== undefined) out[key] = value
+    }
+    return out
+  }
+
+  /** Saves settings the plugin declares, checked against their types; other keys are refused. */
+  setSettings(name: string, values: Record<string, unknown>) {
+    const declared = this._get(name).settings
+    const checked: Record<string, string | number | boolean> = {}
+    for (const [key, value] of Object.entries(values)) {
+      const spec = declared[key]
+      if (!spec) throw new Error(`${name} has no setting called ${key}`)
+      if (typeof value !== spec.type) throw new Error(`${key} must be a ${spec.type}`)
+      checked[key] = value as string | number | boolean
+    }
+    const state = this._readState()
+    this._save({ ...state, settings: { ...state.settings, [name]: { ...state.settings[name], ...checked } } })
   }
 
   remove(name: string) {
     const plugin = this._get(name)
     rmSync(plugin.dir, { recursive: true, force: true })
-    // A plugin added again later under this name starts switched on.
-    const disabled = this._disabled().filter((n) => n !== name)
-    writeFileSync(this._state, `${JSON.stringify({ disabled }, null, 2)}\n`)
+    // A plugin added again later under this name starts switched on, with its defaults.
+    const state = this._readState()
+    const { [name]: _gone, ...settings } = state.settings
+    this._save({ disabled: state.disabled.filter((n) => n !== name), settings })
   }
 
   private _get(name: string): PluginInfo {
@@ -181,13 +234,47 @@ export class PluginStore {
     return this.list().filter((p) => p.enabled)
   }
 
-  private _disabled(): string[] {
+  private _readState(): PluginState {
     try {
-      const raw = readJson(this._state) as { disabled?: unknown }
-      return Array.isArray(raw.disabled) ? raw.disabled.filter((n): n is string => typeof n === 'string') : []
+      const raw = readJson(this._state) as { disabled?: unknown; settings?: unknown }
+      return {
+        disabled: Array.isArray(raw.disabled)
+          ? raw.disabled.filter((n): n is string => typeof n === 'string')
+          : [],
+        settings:
+          raw.settings && typeof raw.settings === 'object' ? (raw.settings as PluginState['settings']) : {},
+      }
     } catch {
-      return []
+      return { disabled: [], settings: {} }
     }
+  }
+
+  private _save(state: PluginState) {
+    // Settings may hold a plugin's API key.
+    writeFileSync(this._state, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+  }
+
+  /** `myrmidon.json`: the code's entry point and declared settings; a missing file means neither. */
+  private _extras(dir: string): { server?: string; settings: Record<string, PluginSetting>; error?: string } {
+    const file = join(dir, 'myrmidon.json')
+    const fallback = existsSync(join(dir, 'server', 'index.ts')) ? 'server/index.ts' : undefined
+    if (!existsSync(file)) return { ...(fallback ? { server: fallback } : {}), settings: {} }
+    let raw: { server?: unknown; settings?: unknown }
+    try {
+      raw = readJson(file) as typeof raw
+    } catch {
+      return {
+        ...(fallback ? { server: fallback } : {}),
+        settings: {},
+        error: 'myrmidon.json is not valid JSON',
+      }
+    }
+    const server = typeof raw.server === 'string' ? raw.server : fallback
+    const settings: Record<string, PluginSetting> = {}
+    for (const [key, spec] of Object.entries((raw.settings ?? {}) as Record<string, Partial<PluginSetting>>))
+      if (spec && ['string', 'number', 'boolean'].includes(spec.type as string))
+        settings[key] = spec as PluginSetting
+    return { ...(server ? { server } : {}), settings }
   }
 
   private _mcp(dir: string): Record<string, McpServerConfig> {
@@ -235,7 +322,8 @@ export class PluginStore {
   /** A plugin folder's manifest and parts; a part that cannot be read is noted, and the rest still count. */
   private _read(dir: string, enabled: boolean): PluginInfo {
     const manifest = this._manifest(dir)
-    const errors: string[] = manifest.error ? [manifest.error] : []
+    const extras = this._extras(dir)
+    const errors: string[] = [manifest.error, extras.error].filter((e): e is string => !!e)
     // The store knows a plugin by its folder; the manifest's name only names a new install.
     const name = basename(dir)
     const skillsDir = join(dir, 'skills')
@@ -286,6 +374,8 @@ export class PluginStore {
       commands,
       hooks,
       mcpServers,
+      ...(extras.server ? { server: extras.server } : {}),
+      settings: extras.settings,
       ...(errors.length ? { error: errors.join('; ') } : {}),
     }
   }

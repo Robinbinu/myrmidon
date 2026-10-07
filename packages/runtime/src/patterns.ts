@@ -230,6 +230,8 @@ export interface Environment {
   readonly worktree?: { workdir: string; branch: string }
   /** Skills the agent can load by name. */
   readonly skills?: readonly { name: string; description: string }[]
+  /** Sections the person's plugins add for this agent. */
+  readonly plugins?: readonly string[]
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -373,6 +375,7 @@ export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environmen
       ? `${prompts.system.speaker.trim()}\n- ${reviewNote(spec)}`
       : '',
     agent.instructions ? prompts.system.additional(agent.instructions) : '',
+    ...(env.plugins ?? []),
     // Volatile facts go last so the stable part of the prompt can be cached.
     environment(spec, env, toolsFor(spec, agent)),
   ].filter(Boolean)

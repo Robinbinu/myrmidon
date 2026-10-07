@@ -43,6 +43,7 @@ import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
+import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
@@ -90,6 +91,8 @@ export interface RunOptions {
   readonly resumeId?: ColonyId
   /** Shared MCP connections; their tools are offered to agents allowed `mcp`. */
   readonly mcp?: McpHub
+  /** The person's plugins with code: their tools and prompt sections reach agents. */
+  readonly plugins?: PluginHost
   /** The person's kept tools, loaded into every fresh round. */
   readonly library?: ToolLibrary
   /** The round's changes to its project folder so far, as a unified diff (from the start checkpoint). */
@@ -232,6 +235,14 @@ export class ColonyRun implements ColonyHost {
 
   mcpTools() {
     return this.options.mcp?.tools() ?? []
+  }
+
+  pluginTools(agent: string) {
+    return this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
+  }
+
+  pluginPrompts(role: 'lead' | 'worker') {
+    return this.options.plugins?.prompts(role) ?? []
   }
 
   /**

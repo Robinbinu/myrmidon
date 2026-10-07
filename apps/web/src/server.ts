@@ -28,6 +28,7 @@ import {
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
+  type PluginHost,
   type PluginStore,
   type ProjectStore,
   type ScheduleStore,
@@ -77,6 +78,7 @@ export interface ServeOptions {
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
   readonly plugins?: PluginStore
+  readonly pluginHost?: PluginHost
   /** Rounds that start on a schedule; the server starts the due ones. */
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
@@ -187,6 +189,18 @@ export function startServer(options: ServeOptions): WebServer {
         })
       : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
+  /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
+  const pluginList = () =>
+    (options.plugins?.list() ?? []).map((p) => {
+      const values = options.plugins?.settings(p.name) ?? {}
+      return {
+        ...p,
+        ...(p.server && options.pluginHost ? { status: options.pluginHost.status(p.name) } : {}),
+        values: Object.fromEntries(
+          Object.entries(values).map(([k, v]) => [k, p.settings[k]?.secret ? (v ? '••••' : '') : v]),
+        ),
+      }
+    })
 
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
@@ -537,15 +551,26 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/plugins': {
-        GET: guard(() => json({ plugins: options.plugins?.list() ?? [], dir: options.plugins?.dir })),
+        GET: guard(() => json({ plugins: pluginList(), dir: options.plugins?.dir })),
         POST: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
           const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
           if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
           try {
             const plugin = await options.plugins.install(source)
-            await options.mcp?.start()
-            return json({ plugin, plugins: options.plugins.list() })
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugin, plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name/settings': {
+        PUT: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.setSettings(req.params.name ?? '', (await req.json().catch(() => ({}))) as never)
+            return json({ plugins: pluginList() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -558,9 +583,9 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
           try {
             options.plugins.setEnabled(req.params.name ?? '', enabled)
-            // Its MCP servers connect or drop now; skills, commands and hooks apply from the next round.
-            await options.mcp?.start()
-            return json({ plugins: options.plugins.list() })
+            // Its MCP servers and code load or unload now; skills, commands and hooks apply from the next round.
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugins: pluginList() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -568,9 +593,10 @@ export function startServer(options: ServeOptions): WebServer {
         DELETE: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
           try {
+            await options.pluginHost?.unload(req.params.name ?? '')
             options.plugins.remove(req.params.name ?? '')
-            await options.mcp?.start()
-            return json({ plugins: options.plugins.list() })
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugins: pluginList() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }

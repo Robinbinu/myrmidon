@@ -47,6 +47,10 @@ export interface ColonyHost {
   readonly web: WebTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
+  /** Tools of the person's plugins, for one agent; offered, like MCP tools, to agents allowed `mcp`. */
+  pluginTools(agent: string): AgentTool[]
+  /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */
+  pluginPrompts(role: 'lead' | 'worker'): string[]
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
   toolsChanged(): void
   /** A real browser for agents; absent when no Chrome is installed. */

@@ -22,6 +22,7 @@ import { type MemoryStore, memoryLines } from './memory.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
+import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
@@ -199,6 +200,8 @@ export class ChatService {
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
+      /** The person's plugins with code, whose tools and prompt sections reach agents. */
+      plugins?: PluginHost
       /** Snapshots of project folders, for each round's changes and rewinding. */
       checkpoints?: Checkpoints
       /** The person's kept tools (made by agents), loaded into every round. */
@@ -343,6 +346,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -651,6 +655,7 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),

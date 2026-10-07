@@ -2269,6 +2269,42 @@ test('ask_user can offer options to click, and the round waits for the answer', 
   await chats.stopAll()
 })
 
+test("a plugin's tool and prompt section reach the agent, and its calls are logged like any tool", async () => {
+  const { PluginStore } = await import('../src/plugins.ts')
+  const { PluginHost } = await import('../src/plugin-host.ts')
+  const at = join(home, 'plugins', 'nova')
+  mkdirSync(join(at, 'server'), { recursive: true })
+  await Bun.write(
+    join(at, 'server', 'index.ts'),
+    `export function activate(ctx) {
+      ctx.tools.add({ name: 'shout', description: 'Shouts', run: (a) => String(a.text).toUpperCase() })
+      ctx.prompts.add('House style', 'Sign every reply as Nova.', 'lead')
+    }`,
+  )
+  const plugins = new PluginHost(new PluginStore(home))
+  await plugins.start()
+  const resolver = new ModelResolver()
+  const prompts: string[] = []
+  scripted(resolver, 'mock/lead', [
+    (ctx: LlmContext) => {
+      prompts.push(JSON.stringify(ctx.systemPrompt))
+      return [tool('nova_shout', { text: 'hello' })]
+    },
+    [tool('reply_user', { text: 'HELLO — Nova', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), plugins })
+  const { colonyId } = await chats.send('shout hello', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  expect(prompts[0]).toContain('Sign every reply as Nova.')
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(results.find((r) => r.tool === 'nova_shout')?.output).toBe('HELLO')
+  await chats.stopAll()
+  await plugins.stop()
+})
+
 test('older auto/manual team configs still work', () => {
   expect(
     normalizeTeamConfig({

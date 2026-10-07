@@ -28,6 +28,7 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  PluginHost,
   PluginStore,
   ProjectStore,
   type Runtime,
@@ -272,6 +273,19 @@ async function main() {
       const resolver = new ModelResolver(omp, contextWindows(settings))
       const sandbox = detectSandbox()
       const plugins = new PluginStore(home)
+      const pluginHost = new PluginHost(plugins)
+      // Plugin code sees every event as it lands, and adds its own to a colony's log.
+      runtime.ctx.on('log/appended', (id, events) => pluginHost.dispatch(id, events))
+      pluginHost.attach(async (colonyId, type, data, plugin) => {
+        await runtime.ctx.log.appendOne(colonyId as never, {
+          type: 'plugin/event',
+          actor: { kind: 'system', id: `plugin:${plugin}` },
+          payload: { plugin, type, data },
+        })
+      })
+      void pluginHost
+        .start()
+        .catch((err) => console.error(c.yellow(`plugins: ${err instanceof Error ? err.message : err}`)))
       const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
@@ -297,6 +311,7 @@ async function main() {
         memory,
         skills,
         hooks,
+        plugins: pluginHost,
       })
       const server = startServer({
         home,
@@ -313,6 +328,7 @@ async function main() {
         skills,
         hooks,
         plugins,
+        pluginHost,
         schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,

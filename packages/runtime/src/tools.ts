@@ -1929,7 +1929,9 @@ export function matchTools(tools: readonly AgentTool[], query: string, limit = 1
 
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
-  const mcp = allow.has('mcp') ? host.mcpTools().map((t) => logged(agent, t, host)) : []
+  const mcp = allow.has('mcp')
+    ? [...host.mcpTools(), ...host.pluginTools(agent)].map((t) => logged(agent, t, host))
+    : []
   // Scripts run in the sandbox, so they need shell; browser flows drive the agent's browser.
   const scripts = allow.has('shell') && (host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
   const browsing = allow.has('browser_open') && host.browser !== undefined

@@ -2512,6 +2512,53 @@ interface PluginEntry {
   hooks: number
   mcpServers: string[]
   error?: string
+  /** Its code's entry point, when it has code. */
+  server?: string
+  settings: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; secret?: boolean }>
+  values: Record<string, string | number | boolean>
+  status?: { loaded: boolean; error?: string; tools: string[]; log: string[] }
+}
+
+/** A plugin's settings, saved one field at a time when it loses focus (or a switch flips). */
+function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
+  const toast = useToast()
+  const save = (key: string, value: string | number | boolean) =>
+    void send('PUT', `/api/plugins/${props.plugin.name}/settings`, { [key]: value })
+      .then(props.onSaved)
+      .catch((err: Error) => toast(err.message, 'error'))
+  return (
+    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-line bg-surface-2/40 p-3">
+      {Object.entries(props.plugin.settings).map(([key, spec]) => {
+        const value = props.plugin.values[key]
+        return (
+          <div key={key} className="flex flex-col gap-1">
+            <span className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[12.5px] font-medium">{key}</span>
+              {spec.type === 'boolean' && (
+                <Switch checked={value === true} label={key} onChange={(on) => save(key, on)} />
+              )}
+            </span>
+            {spec.description && <span className="text-[12px] text-muted">{spec.description}</span>}
+            {spec.type !== 'boolean' && (
+              <TextInput
+                type={spec.secret ? 'password' : spec.type === 'number' ? 'number' : 'text'}
+                defaultValue={spec.secret ? '' : String(value ?? '')}
+                placeholder={spec.secret && value ? copy.settings.plugins.secretSet : ''}
+                onBlur={(e) => {
+                  const text = e.target.value
+                  if (spec.secret && !text) return
+                  if (!spec.secret && text === String(value ?? '')) return
+                  save(key, spec.type === 'number' ? Number(text) : text)
+                }}
+                aria-label={key}
+                className="font-mono text-[12.5px]"
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 /** The person's plugins: add one from a folder or git URL, switch each on or off, remove it. */
@@ -2542,12 +2589,14 @@ function PluginsSection() {
       setAdding(false)
     }
   }
+  const [logOpen, setLogOpen] = useState<string>()
   const parts = (p: PluginEntry) =>
     [
       p.skills.length ? copy.settings.plugins.skills(p.skills.length) : '',
       p.commands.length ? copy.settings.plugins.commands(p.commands.length) : '',
       p.hooks ? copy.settings.plugins.hooks(p.hooks) : '',
       p.mcpServers.length ? copy.settings.plugins.servers(p.mcpServers.length) : '',
+      p.status?.tools.length ? copy.settings.plugins.tools(p.status.tools.length) : '',
     ].filter(Boolean)
   return (
     <>
@@ -2608,6 +2657,39 @@ function PluginsSection() {
                       ))}
                     </div>
                     {p.error && <p className="mt-1.5 text-[12.5px] text-bad-ink">{p.error}</p>}
+                    {p.server && p.enabled && (
+                      <p
+                        className={cn(
+                          'mt-1.5 text-[12.5px]',
+                          p.status?.error ? 'text-bad-ink' : p.status?.loaded ? 'text-ok-ink' : 'text-muted',
+                        )}
+                      >
+                        {p.status?.error
+                          ? copy.settings.plugins.codeFailed(p.status.error)
+                          : p.status?.loaded
+                            ? copy.settings.plugins.codeRunning
+                            : copy.settings.plugins.codeStarting}
+                      </p>
+                    )}
+                    {Object.keys(p.settings).length > 0 && p.enabled && (
+                      <PluginSettings plugin={p} onSaved={() => void load()} />
+                    )}
+                    {p.status?.log.length ? (
+                      <div className="mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setLogOpen(logOpen === p.name ? undefined : p.name)}
+                          className="text-[12px] text-muted hover:text-fg-2"
+                        >
+                          {logOpen === p.name ? copy.settings.plugins.hideLog : copy.settings.plugins.showLog}
+                        </button>
+                        {logOpen === p.name && (
+                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-[11.5px] text-fg-2">
+                            {p.status.log.join('\n')}
+                          </pre>
+                        )}
+                      </div>
+                    ) : null}
                     <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={p.dir}>
                       {p.dir}
                     </p>

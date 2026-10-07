@@ -14,7 +14,16 @@ import { ContextCompactor } from './compaction.ts'
 import { KEEP_TURNS, MODEL_RETRIES, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
-import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
+import {
+  kickoff,
+  onDemand,
+  preloaded,
+  speaksForColony,
+  startsAwake,
+  systemPrompt,
+  thinkingFor,
+  toolsFor,
+} from './patterns.ts'
 import { prompts } from './prompts.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
@@ -94,6 +103,7 @@ export class ColonyAgent {
           ...(host.project ? { project: host.project } : {}),
           ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
           skills: host.skills(),
+          plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
         }),
         model: resolved.model,
         tools,
