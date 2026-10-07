@@ -22,6 +22,9 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **One place for strings, config and UI decisions** — move user-facing copy to a single strings file, and
+      tunable config + colours/UI decisions to single files, so wording and look are easy to edit later.
+
 - [x] **Thinking time + thinking transcripts** ("Thought for 7s" above the reply; live clock) — the person reports the thinking timer not working and the model's
       thinking not visible (check the new one-on-one chat view's clock and where thinking text shows).
 

@@ -681,9 +681,9 @@ function RunCard(props: {
           size="sm"
           onClick={props.onOpenColony}
           icon={<Network className="size-3.5" />}
-          title="Colony map, replay, and agent transcripts"
+          title="Crew map, replay, and agent transcripts"
         >
-          <span className="hidden sm:inline">Colony</span>
+          <span className="hidden sm:inline">Crew</span>
         </Button>
       </div>
       {running && (
@@ -962,7 +962,7 @@ function Outcome({
         <div>
           <div className="font-semibold">Waiting for your reply</div>
           <div className="text-[12.5px] text-fg-2">
-            Answer below and the colony continues where it left off, with its files.
+            Answer below and the crew continues where it left off, with its files.
           </div>
         </div>
       </motion.div>
@@ -1026,7 +1026,7 @@ function Outcome({
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <span className="font-semibold">The reviewer asked for changes</span>
-        <span className="text-[12.5px]"> · the colony is fixing them</span>
+        <span className="text-[12.5px]"> · the crew is fixing them</span>
         <details className="mt-1 text-fg-2">
           <summary className="text-[12.5px]">Feedback</summary>
           <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">

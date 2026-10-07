@@ -31,7 +31,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id].slice(-2)))
 
   if (props.colonies.length === 0)
-    return <div className="empty">No colonies yet. Run one with `myrmidon run`.</div>
+    return <div className="empty">No crews yet. Run one with `myrmidon run`.</div>
   return (
     <div className="compare">
       {picked.length < 2 ? (
@@ -47,7 +47,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
             <th>
               <span className="sr-only">Compare</span>
             </th>
-            <th>Colony</th>
+            <th>Crew</th>
             <th>Status</th>
             <th>Pattern</th>
             <th>Models</th>

@@ -592,7 +592,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     exit={{ scale: 0.6, opacity: 0 }}
                     transition={spring}
                     onClick={props.onStop}
-                    aria-label="Stop the colony"
+                    aria-label="Stop the crew"
                     title={props.status ? `${props.status} Click to stop.` : 'Stop'}
                     className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
                   >

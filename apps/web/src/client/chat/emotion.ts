@@ -52,7 +52,7 @@ export interface Surroundings {
 /** The resting mood, from what the colony is doing and the time of day. */
 export function ambient(s: Surroundings): Emotion {
   if (s.working > 0) {
-    return { ...EMOTIONS.busy, label: s.working === 1 ? '1 colony working' : `${s.working} colonies working` }
+    return { ...EMOTIONS.busy, label: s.working === 1 ? '1 crew working' : `${s.working} crews working` }
   }
   if (s.latest && s.latest.agoMs < 120_000) {
     if (s.latest.status === 'completed') return EMOTIONS.proud

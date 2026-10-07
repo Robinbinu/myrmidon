@@ -316,7 +316,7 @@ function WorkspaceBody({
                       (files.length === 0 ? (
                         Object.keys(state.madeTools).length > 0 ? null : (
                           <Empty icon={<FileCode className="size-5" />} title="No files yet">
-                            Everything the colony publishes appears here, with every version kept.
+                            Everything the crew publishes appears here, with every version kept.
                           </Empty>
                         )
                       ) : (

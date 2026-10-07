@@ -9,11 +9,11 @@ export function describeEvent(e: MyrEvent): string {
     case 'colony/created':
       return `colony created: ${(p as EventPayloads['colony/created']).name}`
     case 'colony/started':
-      return 'colony started'
+      return 'crew started'
     case 'colony/stopped':
       return `colony stopped: ${(p as EventPayloads['colony/stopped']).reason}`
     case 'colony/completed':
-      return 'colony COMPLETED (verified)'
+      return 'crew COMPLETED (verified)'
     case 'agent/status': {
       const s = p as EventPayloads['agent/status']
       return `${s.agent} → ${s.status}${s.detail ? ` (${short(s.detail, 50)})` : ''}`

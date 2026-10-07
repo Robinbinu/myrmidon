@@ -331,7 +331,7 @@ export function Sidebar(props: {
           className={navItem(props.view === 'colonies')}
           onClick={() => props.onView('colonies')}
         >
-          <Network className="size-4" /> Colonies
+          <Network className="size-4" /> Crews
         </button>
         <button
           type="button"

@@ -300,7 +300,7 @@ export function App() {
         setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
       else {
         setPending(undefined)
-        toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the colony', 'info')
+        toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the crew', 'info')
       }
       refreshChats()
     } catch (err) {
@@ -404,7 +404,7 @@ export function App() {
     if (!activeChat) return
     post(`/api/chats/${activeChat}/stop`, {})
       .then(() => {
-        toast('Stopping the colony…', 'info')
+        toast('Stopping the crew…', 'info')
         refreshChats()
       })
       .catch((err) => toast(String(err.message ?? err), 'error'))
@@ -476,8 +476,7 @@ export function App() {
     />
   )
 
-  const title =
-    view === 'chat' ? (chat?.title ?? 'New task') : view === 'colonies' ? 'Colonies' : 'Compare runs'
+  const title = view === 'chat' ? (chat?.title ?? 'New task') : view === 'colonies' ? 'Crews' : 'Compare runs'
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -597,9 +596,9 @@ export function App() {
                       const latest = chat.rounds.at(-1)
                       if (latest) setColonyModal(latest.colonyId)
                     }}
-                    title="Colony console: agents, tool calls, tasks, replay"
+                    title="Crew console: agents, tool calls, tasks, replay"
                   >
-                    <span className="hidden sm:inline">Colony</span>
+                    <span className="hidden sm:inline">Crew</span>
                   </Button>
                 )}
               </Toolbar>
@@ -619,7 +618,7 @@ export function App() {
                       busy={busy}
                       centered={!chat}
                       onTextChange={setDraft}
-                      status={running ? 'Colony is working…' : undefined}
+                      status={running ? 'Crew is working…' : undefined}
                       placeholder={
                         chat
                           ? running
@@ -746,7 +745,7 @@ export function App() {
         {colonyModal && (
           <Modal
             key="colony"
-            title="Colony console"
+            title="Crew console"
             onClose={() => setColonyModal(undefined)}
             size="full"
             flush
@@ -858,14 +857,14 @@ function ColoniesPane() {
   const [colonies] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
   const [selected, setSelected] = useState<string>()
   const active = selected ?? colonies[0]?.id
-  if (!active) return <div className="flex-1 p-10 text-center text-muted">No colonies yet.</div>
+  if (!active) return <div className="flex-1 p-10 text-center text-muted">No crews yet.</div>
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
         <Select
           value={active}
           onChange={(e) => setSelected(e.target.value)}
-          aria-label="Colony"
+          aria-label="Crew"
           className="max-w-full"
         >
           {colonies.map((c) => (

@@ -1422,7 +1422,7 @@ function TeamSection(props: {
         <Row>
           <Field
             label="Time limit per round"
-            hint="The colony stops when this runs out, verified or not."
+            hint="The crew stops when this runs out, verified or not."
             inline
           >
             <NumberField
@@ -2771,7 +2771,7 @@ function About({ data }: { data?: SettingsResponse }) {
   return (
     <>
       <Heading title="About Myrmidon">
-        Colonies of agents that plan, research, build, and verify on your machine.
+        Crews of agents that plan, research, build, and verify on your machine.
       </Heading>
       <Card>
         <Row>
@@ -2793,8 +2793,8 @@ function About({ data }: { data?: SettingsResponse }) {
         </Row>
         <Row>
           <p className="text-[12.5px] text-muted">
-            Every colony is an append-only event log; agents never edit your files directly. Licensed under
-            Apache-2.0.
+            Every crew's work is an append-only event log; agents never edit your files directly. Licensed
+            under Apache-2.0.
           </p>
         </Row>
       </Card>

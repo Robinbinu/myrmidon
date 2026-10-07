@@ -332,7 +332,7 @@ export function Hero(props: {
                 clearTimeout(patTimer.current)
                 setPetted(false)
               }}
-              aria-label="Poke the colony"
+              aria-label="Poke the crew"
               className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
             >
               <PixelFace
@@ -381,7 +381,7 @@ export function Hero(props: {
           </motion.div>
         </div>
 
-        <h1 className="sr-only">What should the colony build?</h1>
+        <h1 className="sr-only">What should the crew build?</h1>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -390,7 +390,7 @@ export function Hero(props: {
           aria-hidden
         >
           <TechText
-            text="What should the colony build?"
+            text="What should the crew build?"
             fontSize={40}
             fontWeight={600}
             letterSpacing={-0.03}
