@@ -12,9 +12,9 @@ import { type AssistantMessage, streamSimple } from '@oh-my-pi/pi-ai'
 import { ContextCompactor } from './compaction.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
-import { kickoff, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
+import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
 import type { AgentSpec } from './spec.ts'
-import { buildAgentTools } from './tools.ts'
+import { buildAgentTools, matchTools } from './tools.ts'
 import { noWebTools } from './web.ts'
 
 export interface InboxItem {
@@ -78,6 +78,11 @@ export class ColonyAgent {
     const resolved = resolver.resolve(spec.model)
     this._stream = resolved.streamFn
     const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
+    for (const name of preloaded(
+      host.spec.chat?.request ?? host.spec.mission,
+      tools.map((t) => t.name),
+    ))
+      this._loaded.add(name)
     this._agent = new Agent({
       initialState: {
         systemPrompt: systemPrompt(host.spec, spec, {
@@ -99,7 +104,14 @@ export class ColonyAgent {
       transformContext: (messages, signal) => this._compactor.transform(messages, signal),
       // pi reads the model afresh each step but keeps the stream function for a whole loop; dispatching here lets
       // a mid-round model switch reach models that bring their own stream too.
-      streamFn: (model, context, options) => (this._stream ?? streamSimple)(model, context, options),
+      // On-demand tools stay callable but are left out of the request until loaded (find_tools), so their
+      // definitions do not ride along in every model call.
+      streamFn: (model, context, options) =>
+        (this._stream ?? streamSimple)(
+          model,
+          context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
+          options,
+        ),
     })
     this._agent.subscribe((e) => this._onEvent(e))
   }
@@ -121,9 +133,31 @@ export class ColonyAgent {
     ;(this.spec as { model: string }).model = ref
   }
 
+  /** On-demand tools this agent loaded with find_tools; the rest stay out of its model calls. */
+  private readonly _loaded = new Set<string>()
+
+  private _shown(name: string): boolean {
+    return !onDemand(name) || this._loaded.has(name)
+  }
+
   /** Picks up tools made since this agent started; takes effect on its next model call. */
   refreshTools() {
     this._agent.setTools(buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host))
+  }
+
+  /** Loads the on-demand tools matching `query` for this agent's next steps (find_tools). */
+  loadTools(query: string): string {
+    const waiting = this._agent.state.tools.filter((t) => !this._shown(t.name))
+    const found = matchTools(waiting, query)
+    if (found.length === 0) {
+      const names = waiting.map((t) => t.name)
+      return names.length
+        ? `nothing matches "${query}". Tools you can load: ${names.join(', ')}`
+        : 'every tool you have is already loaded'
+    }
+    for (const t of found) this._loaded.add(t.name)
+    const first = (d: string) => d.split(/(?<=\.)\s/)[0] ?? d
+    return `Loaded, callable from your next step:\n${found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n')}`
   }
 
   get idle() {

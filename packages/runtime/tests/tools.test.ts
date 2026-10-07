@@ -61,3 +61,18 @@ test('read_log lists what agents did, filtered by agent or tool, with each call 
     '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
   ])
 })
+
+test('a request that plainly needs the browser or a dev server starts with those tools loaded', async () => {
+  const { preloaded } = await import('../src/patterns.ts')
+  const names = ['fs_read', 'browser_open', 'browser_click', 'request_login', 'start_server', 'server_logs']
+  expect(preloaded('Open https://example.com and read the heading', names)).toEqual([
+    'browser_open',
+    'browser_click',
+    'request_login',
+  ])
+  expect(preloaded('Start the dev server and check the home page', names)).toEqual([
+    'start_server',
+    'server_logs',
+  ])
+  expect(preloaded('Summarize this text for me', names)).toEqual([])
+})

@@ -28,9 +28,11 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] **A livelier start for a new chat** — the wait was ~7s of a static card: every message re-probed each model
       with a test call before starting. Probes are now cached for 15 min (wait ~3s, the triage call), and the card
       ticks off its steps with a running clock and a progress sweep.
-- [ ] **Should all tools be MCP?** Research how Claude Code, omp and other strong coding harnesses expose their
-      built-in tools (native vs MCP), and recommend whether Myrmidon's tools should be served over MCP (asked
-      2026-10-07).
+- [x] **Should all tools be MCP?** No: Claude Code, omp and Codex keep built-ins native and use MCP for outside
+      services. Taken instead: tools load on demand (omp's essential/discoverable split) — browser, dev server,
+      tool making, MCP and made tools stay out of model calls until find_tools loads them or the request plainly
+      needs them; ~5.5k → ~2.8k tokens of tool definitions per call. Serving colony tools over MCP (so outside
+      harnesses can join) is open for later.
 - [ ] **Web UI crash** — "Uncaught TypeError: q is not a function" in React's effect cleanup (an effect's
       cleanup that is not a function), reported 2026-10-07.
 - [x] **Collapsible terminal tabs and task tabs** — each agent command and each task folds (newest/running commands

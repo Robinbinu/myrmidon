@@ -89,6 +89,8 @@ export interface ColonyHost {
    * worktree). Throws, with what to do, when they conflict.
    */
   mergeWork(agent: string): Promise<string[]>
+  /** Loads an agent's on-demand tools matching `query` (find_tools); says what it loaded. */
+  loadTools(agent: string, query: string): string
   /** Brings the project folder's current state into an agent's worktree; the files it changed there. */
   refreshWork(agent: string): Promise<string[]>
   /** Proposes a memory for the person to keep across chats. */

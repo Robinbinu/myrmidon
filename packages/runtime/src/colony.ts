@@ -391,6 +391,12 @@ export class ColonyRun implements ColonyHost {
     return this.options.projectDiff?.() ?? Promise.resolve(undefined)
   }
 
+  loadTools(agent: string, query: string): string {
+    const a = this._agents.get(agent)
+    if (!a) throw new Error(`no agent called ${agent}`)
+    return a.loadTools(query)
+  }
+
   toolsChanged() {
     for (const a of this._agents.values()) a.refreshTools()
   }

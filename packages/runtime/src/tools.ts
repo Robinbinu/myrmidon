@@ -968,6 +968,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'find_tools',
+    tier: 'read',
+    description:
+      'Load more tools by what you need, e.g. "browser" (open, click, type, read pages), "server" (run a dev server), ' +
+      '"make a tool", an MCP server name, or exact tool names. They are callable from your next step.',
+    parameters: type({ query: type('string').atLeastLength(2) }),
+    async run(args, agent, host) {
+      return host.loadTools(agent, args.query)
+    },
+  },
+  {
     name: 'read_log',
     tier: 'read',
     description:
@@ -1974,6 +1985,25 @@ export function guessMediaType(name: string): string {
  * Wraps tool definitions as pi-agent-core tools for one agent. The allowlist and tier rules are
  * enforced here, inside execution, so hiding a tool from the model is never the only defence.
  */
+/** Tools matching a find_tools query: exact names first, then by how many query words a name or description holds. */
+export function matchTools(tools: readonly AgentTool[], query: string, limit = 12): AgentTool[] {
+  const q = query.toLowerCase()
+  const exact = tools.filter((t) => q.split(/[\s,]+/).includes(t.name.toLowerCase()))
+  const words = q.split(/[^a-z0-9_]+/).filter((w) => w.length > 1)
+  const scored = tools
+    .map((t) => {
+      const text = `${t.name} ${t.description}`.toLowerCase()
+      return {
+        t,
+        score: words.filter((w) => text.includes(w)).length + (t.name.toLowerCase().includes(q) ? 3 : 0),
+      }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
+    .map((x) => x.t)
+  return [...new Set([...exact, ...scored])].slice(0, limit)
+}
+
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp') ? host.mcpTools().map((t) => logged(agent, t, host)) : []

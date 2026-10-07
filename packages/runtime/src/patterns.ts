@@ -113,10 +113,50 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, ...work, 'request_final_verification']
 }
 
+/**
+ * Tools an agent loads when it needs them (find_tools) instead of carrying their definitions in every model call:
+ * the browser, dev servers, tool making, the person's MCP servers, made tools, and rarely used lookups. Anything
+ * not listed here is always loaded.
+ */
+const ON_DEMAND = new Set([
+  'request_login',
+  'start_server',
+  'server_logs',
+  'stop_server',
+  'create_tool',
+  'read_log',
+  'read_docs',
+])
+
+/**
+ * On-demand tools a request plainly calls for, loaded from the start so the agent does not spend a step asking:
+ * a URL or web page means the browser, a dev server means the server tools.
+ */
+export function preloaded(request: string, names: readonly string[]): string[] {
+  const browser =
+    /https?:\/\/|\bbrows|\bwebsite|\bweb ?page|\bsite\b|\bclick|\bsign ?in\b|\blog ?in\b|\bform\b|\bscreenshot|\bdownload|\bupload/i.test(
+      request,
+    )
+  const server = /\bdev server|\blocalhost\b|\bserve it\b|\bstart (the )?(app|server)\b/i.test(request)
+  return names.filter(
+    (n) =>
+      (browser && (n.startsWith('browser_') || n === 'request_login')) ||
+      (server && ['start_server', 'server_logs', 'stop_server'].includes(n)),
+  )
+}
+
+export function onDemand(name: string): boolean {
+  return ON_DEMAND.has(name) || /^(browser_|mcp__|tool_)/.test(name)
+}
+
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
   const tools = agent.tools ?? roleTools(spec, agent)
   const disabled = new Set(spec.disabledTools ?? [])
-  return disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
+  const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
+  // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
+  return allowed.some((t) => t === 'mcp' || t === 'shell' || onDemand(t))
+    ? [...allowed, 'find_tools']
+    : allowed
 }
 
 const COMMON = `
@@ -341,6 +381,13 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     lines.push(
       `Permissions: the person approves each change to ${project?.name}'s files and each shell command${permissions.allow.length ? ` (except commands starting with ${permissions.allow.map((a) => `\`${a}\``).join(', ')})` : ''}. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
     )
+  if (tools.includes('find_tools')) {
+    const ready = new Set(preloaded(spec.chat?.request ?? spec.mission, tools))
+    const later = tools.filter((t) => onDemand(t) && !ready.has(t))
+    lines.push(
+      `Tools on demand: some tools stay unloaded until you need them, to keep your context small. Call find_tools with what you need (e.g. "browser", "dev server") to load them${later.length ? `: ${later.join(', ')}` : ''}${tools.includes('mcp') ? "; the MCP servers' tools (by server name)" : ''}; and tools made with create_tool. Load before you call them.`,
+    )
+  }
   const memory = spec.chat?.memory
   if (memory?.length)
     lines.push(

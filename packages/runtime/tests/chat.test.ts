@@ -1857,6 +1857,39 @@ test('a follow-up continues the same colony, and its agent remembers the earlier
   await chats.stopAll()
 })
 
+test('on-demand tools stay out of model calls until find_tools loads them', async () => {
+  const resolver = new ModelResolver()
+  const offered: string[][] = []
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      offered.push((ctx.tools ?? []).map((t) => t.name))
+      const seen = JSON.stringify(ctx.messages)
+      if (!seen.includes('"find_tools"')) return { content: [tool('find_tools', { query: 'browser' })] }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Ready.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Look something up', {
+    ...solo('mock/lead'),
+    judgeModel: 'mock/judge',
+  })
+  await waitFor(colonyId)
+  const [before, after] = offered
+  expect(before).toContain('find_tools')
+  expect(before).toContain('fs_read')
+  expect(before).not.toContain('browser_open')
+  expect(after).toContain('browser_open')
+  expect(after).toContain('browser_click')
+  expect(after?.length).toBeGreaterThan(before?.length ?? 0)
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [
