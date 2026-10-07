@@ -140,7 +140,7 @@ New or rebuilt primitives. Each is a small file with one purpose.
 | ⌘B | Toggle sidebar |
 | ⌘J | Toggle inspector |
 | ⌘1…⌘9 | Jump to the nth chat in the sidebar |
-| ⌘⇧[ / ⌘⇧] | Previous or next chat |
+| ⇧⌘[ / ⇧⌘] | Previous or next chat |
 | ⌘/ | Keyboard shortcuts sheet |
 | ⌘. / Esc | Stop the round, or close the sheet when one is open |
 
@@ -155,7 +155,7 @@ the menu in a browser.
 - **Accent:** `accent` (amber), `on-accent`, `focus`.
 - **Status:** `ok`, `warn`, `bad`, `work`, `idle`.
 - **Type scale:** 11, 12, 13 (UI), 14 (reading), 17 (title), 22 (large title).
-- **Radii:** 4 (badges), 6 (controls and menus), 10 (cards and popovers), 14 (sheets).
+- **Radii:** 6 (controls and menus), 10 (cards and popovers), 14 (sheets). Status badges are capsules.
 - **Materials:** glass blur 30px, saturate 180%, and a tint at 70% (dark) or 72% (light).
 - **Motion:** 120ms for controls, 200ms for popovers and sheets, and standard ease-out. Reduced motion is honored.
 
@@ -164,7 +164,7 @@ screen is migrated, then removed.
 
 ## 9. Phases
 
-Each phase is one commit, checked with `bun run check` and a visual pass before the next one.
+Each phase is a few task-sized commits and ends with `bun run check` and a visual pass before the next one.
 
 1. **Foundation.**
    - Tokens, type and global behaviors (section 3).
