@@ -34,7 +34,7 @@ import {
 import { Button, cn, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
-import { ApprovalCards, LoginCards } from './ApprovalCards.tsx'
+import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ModelPicker } from './ModelPicker.tsx'
@@ -168,6 +168,7 @@ export function RoundView(props: {
       <LiveServers state={state} />
       <ApprovalCards colonyId={props.colonyId} state={state} />
       <LoginCards state={state} />
+      <MemoryCards state={state} />
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
       {state.status !== 'completed' && (
         <Outcome

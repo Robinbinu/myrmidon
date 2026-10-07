@@ -192,6 +192,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'memory/proposed': {
+        const p = e.payload as EventPayloads['memory/proposed']
+        out.push({
+          ...base,
+          kind: 'signal',
+          agent: p.agent,
+          lead: 'Proposed to remember:',
+          tail: cut(p.text, 140),
+        })
+        break
+      }
       case 'worktree/created': {
         const p = e.payload as EventPayloads['worktree/created']
         out.push({ ...base, kind: 'file', agent: p.agent, lead: 'Works on its own branch', strong: p.branch })

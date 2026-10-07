@@ -94,6 +94,8 @@ export interface EventPayloads {
       project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
       /** Bigger tiers this round's agent may hand the request to (escalate). */
       escalate?: ('solo' | 'team')[]
+      /** What the person keeps across chats (memory), as prompt lines, when the round started. */
+      memory?: string[]
     }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
@@ -116,6 +118,17 @@ export interface EventPayloads {
     models?: Record<string, string>
   }
   'colony/stopped': { reason: string }
+  /** An agent proposes something to remember across chats; the person keeps or discards it. */
+  'memory/proposed': {
+    id: string
+    agent: string
+    text: string
+    kind: 'preference' | 'decision' | 'lesson' | 'fact'
+    /** Set: for this project's chats only. */
+    project?: string
+    why: string
+  }
+  'memory/decided': { id: string; kept: boolean }
   /** The round's agent found the request bigger than its tier: the chat reruns it at `to`, with this round's work. */
   'colony/escalated': { by: string; to: 'solo' | 'team'; reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }

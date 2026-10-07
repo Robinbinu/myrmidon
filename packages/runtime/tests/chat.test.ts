@@ -1728,6 +1728,69 @@ test('check_in asks without pausing: the work goes on under the stated assumptio
   await chats.stopAll()
 })
 
+test('an agent proposes a memory, the person keeps it, and the next chat starts with it', async () => {
+  const { MemoryStore } = await import('../src/memory.ts')
+  const memory = new MemoryStore(home)
+  const resolver = new ModelResolver()
+  let secondPrompt = ''
+  const solo1 = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const seen = JSON.stringify(ctx.messages)
+      if (seen.includes('Say hello')) {
+        secondPrompt = ctx.systemPrompt?.join('\n') ?? ''
+        return {
+          content: seen.includes('reply_user')
+            ? ['done']
+            : [tool('reply_user', { text: 'Hello.', final: true })],
+        }
+      }
+      if (!seen.includes('"remember"'))
+        return {
+          content: [
+            tool('remember', {
+              text: 'The person wants answers in British English.',
+              kind: 'preference',
+              scope: 'everywhere',
+              why: 'they asked for colour, not color',
+            }),
+          ],
+        }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Noted.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/solo', { model: solo1.model, streamFn: solo1.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), memory })
+  const config = { ...solo('mock/solo'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Please write colour, not color, from now on', config)
+  const s1 = await waitFor(first.colonyId)
+  const proposed = Object.values(s1.memories)[0]
+  expect(proposed).toMatchObject({
+    agent: 'lead',
+    kind: 'preference',
+    why: 'they asked for colour, not color',
+  })
+  expect(memory.recall()).toHaveLength(0)
+
+  await chats.decideMemory(proposed?.id ?? '', true)
+  expect((await waitFor(first.colonyId, (s) => s.memories[proposed?.id ?? '']?.kept === true)).status).toBe(
+    'completed',
+  )
+  expect(memory.get(proposed?.id ?? '')).toMatchObject({
+    status: 'active',
+    source: { by: 'agent', agent: 'lead' },
+  })
+
+  const second = await chats.send('Say hello', config)
+  await waitFor(second.colonyId)
+  expect(secondPrompt).toContain('- [preference] The person wants answers in British English.')
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

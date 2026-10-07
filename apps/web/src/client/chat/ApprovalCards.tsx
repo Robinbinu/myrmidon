@@ -1,5 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import { Check, KeyRound, MonitorSmartphone, ShieldQuestion, X } from 'lucide-react'
+import { BookmarkPlus, Check, KeyRound, MonitorSmartphone, ShieldQuestion, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useState } from 'react'
 import { send } from '../api.ts'
@@ -115,6 +115,77 @@ export function LoginCards({ state }: { state: ColonyState }) {
               }
             >
               Open {l.agent}’s browser
+            </Button>
+          </div>
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  )
+}
+
+/**
+ * Memories an agent proposed this round: the person keeps or discards each. Kept ones reach every later chat
+ * (or every chat in the project); Settings → Memory lists and edits them.
+ */
+export function MemoryCards({ state }: { state: ColonyState }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState<string>()
+  const pending = Object.values(state.memories).filter((m) => m.kept === undefined)
+  const decide = async (id: string, keep: boolean) => {
+    setBusy(id)
+    try {
+      await send('POST', `/api/memory/${id}/decide`, { keep })
+      if (keep) toast('Kept: later chats start with it', 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    } finally {
+      setBusy(undefined)
+    }
+  }
+  return (
+    <AnimatePresence initial={false}>
+      {pending.map((m) => (
+        <motion.div
+          key={m.id}
+          layout
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={spring}
+          className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
+        >
+          <div className="flex items-center gap-2 text-[13.5px]">
+            <BookmarkPlus className="size-4 shrink-0 text-accent" />
+            <span>
+              <span className="font-semibold">{m.agent}</span> wants to remember
+              {m.project ? ' for this project' : ' in every chat'}
+            </span>
+          </div>
+          <p className="rounded-lg bg-surface px-3 py-2 text-[13.5px]">
+            <span className="mr-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+              {m.kind}
+            </span>
+            {m.text}
+          </p>
+          {m.why && <p className="text-[12px] text-muted">Why: {m.why}</p>}
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy === m.id}
+              onClick={() => void decide(m.id, false)}
+              icon={<X className="size-3.5" />}
+            >
+              Discard
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy === m.id}
+              onClick={() => void decide(m.id, true)}
+              icon={<Check className="size-3.5" />}
+            >
+              Keep
             </Button>
           </div>
         </motion.div>

@@ -21,6 +21,7 @@ import {
   importFromOmp,
   loadColonySpec,
   McpHub,
+  MemoryStore,
   ModelResolver,
   ompWebTools,
   ProjectStore,
@@ -250,6 +251,7 @@ async function main() {
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
+      const memory = new MemoryStore(home)
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
@@ -265,6 +267,7 @@ async function main() {
         projects,
         library,
         checkpoints,
+        memory,
       })
       const server = startServer({
         home,
@@ -277,6 +280,7 @@ async function main() {
         browser,
         projects,
         library,
+        memory,
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })

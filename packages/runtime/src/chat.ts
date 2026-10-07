@@ -18,6 +18,7 @@ import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import { type MemoryStore, memoryLines } from './memory.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
@@ -230,6 +231,8 @@ export class ChatService {
       library?: ToolLibrary
       /** Shared headless Chrome for the browser_* tools. */
       browser?: BrowserHub
+      /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
+      memory?: MemoryStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
     },
@@ -349,6 +352,8 @@ export class ChatService {
     const earlier = previous.at(-1)?.state.chat?.project
     const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
+    const memory = this.options.memory?.recall(project?.id) ?? []
+    if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
@@ -357,6 +362,7 @@ export class ChatService {
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.memory ? { memory: this.options.memory } : {}),
       projectDiff: () => this._roundDiff(run, project),
     })
     const prior = previous.at(-1)
@@ -412,6 +418,29 @@ export class ChatService {
       .finally(() => {
         if (this._sending.get(id) === turn) this._sending.delete(id)
       })
+  }
+
+  /**
+   * Keeps or discards a memory an agent proposed. Recorded in the proposing round's log as well, so its card shows
+   * the decision.
+   */
+  async decideMemory(id: string, keep: boolean): Promise<void> {
+    const store = this.options.memory
+    if (!store) throw new Error('memory is not available')
+    const memory = store.get(id)
+    if (!memory) throw new Error('no such memory')
+    if (keep) store.update(id, { status: 'active' })
+    else store.remove(id)
+    const colony = memory.source.colonyId
+    if (!colony || memory.status !== 'proposed') return
+    const draft = {
+      type: 'memory/decided',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id, kept: keep },
+    } as const
+    const live = [...this._live.values()].find((r) => r.id === colony)
+    if (live && live.state().status === 'running') await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(colony as never, draft)
   }
 
   /** Renames a conversation; recorded in its latest round's log, so the name survives restarts. */

@@ -26,6 +26,7 @@ import { registerColonyEvents } from './events.ts'
 import { agentActor, type ColonyHost, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
+import type { MemoryStore } from './memory.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
@@ -80,6 +81,8 @@ export interface RunOptions {
   readonly projectDiff?: () => Promise<string | undefined>
   /** Shared headless Chrome for the browser_* tools. */
   readonly browser?: BrowserHub
+  /** What the person keeps across chats; agents propose additions to it with remember. */
+  readonly memory?: MemoryStore
 }
 
 const QUIET_NUDGES = 2
@@ -517,6 +520,7 @@ export class ColonyRun implements ColonyHost {
                 ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
                 ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
                 ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
+                ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
               },
             }
           : {}),
@@ -641,6 +645,48 @@ export class ColonyRun implements ColonyHost {
         'resume',
       )
     }
+  }
+
+  /** Records an agent's proposal to remember something; it applies only once the person keeps it. */
+  async proposeMemory(
+    agent: string,
+    input: { text: string; kind: string; scope: 'everywhere' | 'project'; why: string },
+  ): Promise<string> {
+    const store = this.options.memory
+    if (!store) throw new Error('memory is not available in this run')
+    if (Object.values(this._state.memories).filter((m) => m.agent === agent).length >= 5)
+      throw new Error('you proposed 5 memories this round already; keep the rest for your reply')
+    const project = input.scope === 'project' ? this.spec.chat?.project?.id : undefined
+    if (input.scope === 'project' && !project)
+      throw new Error('this chat has no project; use scope "everywhere"')
+    const memory = store.add({
+      text: input.text,
+      kind: input.kind,
+      ...(project ? { project } : {}),
+      status: 'proposed',
+      source: {
+        by: 'agent',
+        agent,
+        colonyId: this.id,
+        ...(this.spec.chat ? { chatId: this.spec.chat.chatId } : {}),
+        why: input.why,
+      },
+    })
+    if (memory.status === 'active') return 'the person already keeps this memory'
+    if (this._state.memories[memory.id]) return 'already proposed; the person decides'
+    await this.append({
+      type: 'memory/proposed',
+      actor: agentActor(agent),
+      payload: {
+        id: memory.id,
+        agent,
+        text: memory.text,
+        kind: memory.kind,
+        ...(project ? { project } : {}),
+        why: input.why,
+      },
+    })
+    return 'proposed; the person sees it and decides whether to keep it. Carry on.'
   }
 
   /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */

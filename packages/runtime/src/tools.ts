@@ -1248,6 +1248,23 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'remember',
+    tier: 'write',
+    description:
+      'Propose something to remember across chats: a preference the person stated, a decision they made, or a ' +
+      'lesson about this project worth knowing next time. One fact per memory, in a sentence. The person keeps or ' +
+      'discards it; kept memories reach every later chat (or every chat in this project).',
+    parameters: type({
+      text: type('string').atLeastLength(3).atMostLength(400),
+      kind: "'preference' | 'decision' | 'lesson' | 'fact'",
+      scope: type("'everywhere' | 'project'").describe('project: only chats in this project'),
+      why: type('string').describe('Where this came from, e.g. what the person said'),
+    }),
+    async run(args, agent, host) {
+      return host.proposeMemory(agent, args)
+    },
+  },
+  {
     name: 'check_in',
     tier: 'write',
     description:

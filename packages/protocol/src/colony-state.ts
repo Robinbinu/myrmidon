@@ -118,6 +118,8 @@ export interface ColonyState {
   >
   /** Dev servers agents started, by name; `stopped` is set once one ends. */
   servers: Record<string, EventPayloads['server/started'] & { time: string; stopped?: string }>
+  /** Memories agents proposed in this round, by id, and whether the person kept them. */
+  memories: Record<string, EventPayloads['memory/proposed'] & { time: string; kept?: boolean }>
   /** Workers' git worktrees, by agent: how many merges landed, an open conflict, and whether it was kept at the end. */
   worktrees: Record<
     string,
@@ -171,6 +173,7 @@ export function emptyColonyState(id: string): ColonyState {
     approvals: {},
     servers: {},
     worktrees: {},
+    memories: {},
     logins: {},
     verdicts: [],
     signals: [],
@@ -256,6 +259,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['server/stopped']
       const server = state.servers[p.name]
       if (server) server.stopped = p.reason
+      break
+    }
+    case 'memory/proposed': {
+      const p = event.payload as EventPayloads['memory/proposed']
+      state.memories[p.id] = { ...p, time: event.time }
+      break
+    }
+    case 'memory/decided': {
+      const p = event.payload as EventPayloads['memory/decided']
+      const memory = state.memories[p.id]
+      if (memory) memory.kept = p.kept
       break
     }
     case 'worktree/created': {

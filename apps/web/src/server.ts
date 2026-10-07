@@ -23,6 +23,7 @@ import {
   listFolders,
   type McpHub,
   type McpServerConfig,
+  type MemoryStore,
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
@@ -58,6 +59,8 @@ export interface ServeOptions {
   readonly projects?: ProjectStore
   /** Tools agents made that the person chose to keep. */
   readonly library?: ToolLibrary
+  /** What the person keeps across chats (memory). */
+  readonly memory?: MemoryStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -405,6 +408,69 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ project, projects: options.projects.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/memory': {
+        GET: guard(() => json({ memories: options.memory?.list() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.memory) return json({ error: 'memory needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            text?: unknown
+            kind?: unknown
+            project?: unknown
+          }
+          try {
+            const memory = options.memory.add({
+              text: String(body.text ?? ''),
+              kind: String(body.kind ?? 'preference'),
+              ...(typeof body.project === 'string' && body.project ? { project: body.project } : {}),
+              status: 'active',
+              source: { by: 'person' },
+            })
+            return json({ memory, memories: options.memory.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/memory/:id': {
+        PATCH: guard(async (req) => {
+          if (!options.memory) return json({ error: 'memory needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            text?: unknown
+            kind?: unknown
+            project?: unknown
+          }
+          try {
+            const memory = options.memory.update(req.params.id ?? '', {
+              ...(typeof body.text === 'string' ? { text: body.text } : {}),
+              ...(typeof body.kind === 'string' ? { kind: body.kind } : {}),
+              ...(body.project === null || typeof body.project === 'string'
+                ? { project: (body.project as string | null) || null }
+                : {}),
+            })
+            return json({ memory, memories: options.memory.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.memory) return json({ error: 'memory needs the chat runtime' }, 503)
+          options.memory.remove(req.params.id ?? '')
+          return json({ memories: options.memory.list() })
+        }),
+      },
+      '/api/memory/:id/decide': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { keep } = (await req.json().catch(() => ({}))) as { keep?: unknown }
+          if (typeof keep !== 'boolean') return json({ error: 'keep must be true or false' }, 400)
+          try {
+            await options.chats.decideMemory(req.params.id ?? '', keep)
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
           }
         }),
       },

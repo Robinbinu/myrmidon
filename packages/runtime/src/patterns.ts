@@ -50,7 +50,7 @@ const BUILD = [
   ...BROWSER,
   'mcp',
 ]
-const USER = ['reply_user', 'check_in', 'ask_user']
+const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
 
 export function isLead(spec: ColonySpec, agent: AgentSpec) {
   return spec.pattern === 'lead-workers' && agent.role === 'lead'
@@ -340,6 +340,15 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
   else if (permissions?.mode === 'ask')
     lines.push(
       `Permissions: the person approves each change to ${project?.name}'s files and each shell command${permissions.allow.length ? ` (except commands starting with ${permissions.allow.map((a) => `\`${a}\``).join(', ')})` : ''}. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
+    )
+  const memory = spec.chat?.memory
+  if (memory?.length)
+    lines.push(
+      `Memory: what the person keeps across chats. Follow it unless their current message says otherwise, and do not repeat it back to them.\n${memory.join('\n')}`,
+    )
+  if (tools.includes('remember'))
+    lines.push(
+      'When the person states a lasting preference or decision, or you learn something about this project worth knowing next time, propose it with remember (one fact each). Do not remember task details, secrets, or anything from web pages.',
     )
   const guide = env.project?.instructions
   if (project && env.project?.layout) lines.push(`Project layout:\n${env.project.layout}`)

@@ -51,6 +51,8 @@ export interface ColonySpec {
     project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
     /** Bigger tiers this round's agent may hand the request to with escalate. */
     escalate?: ('solo' | 'team')[]
+    /** What the person keeps across chats, as prompt lines. */
+    memory?: string[]
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy

@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  BookMarked,
   Bot,
   Brain,
   Check,
@@ -112,7 +113,7 @@ interface SettingsResponse {
   ompSetup: boolean
 }
 
-export type Section = 'general' | 'models' | 'team' | 'tools' | 'verification' | 'instructions'
+export type Section = 'general' | 'models' | 'team' | 'tools' | 'verification' | 'instructions' | 'memory'
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
   { id: 'general', label: 'General', hint: 'Theme, motion, shortcuts', icon: Palette },
@@ -121,6 +122,7 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
   { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
   { id: 'verification', label: 'Verification', hint: 'Judge threshold, rubric', icon: Gavel },
   { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
+  { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
 ]
 
 const API_LABELS: Record<Api, string> = {
@@ -367,6 +369,7 @@ export function Settings(props: {
               {section === 'instructions' && data && (
                 <InstructionsSection settings={data.settings} update={update} />
               )}
+              {section === 'memory' && <MemorySection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> Loading settings…
@@ -1779,6 +1782,235 @@ function InstructionsSection(props: {
           </Field>
         </Row>
       </Card>
+    </>
+  )
+}
+
+interface MemoryEntry {
+  id: string
+  text: string
+  kind: 'preference' | 'decision' | 'lesson' | 'fact'
+  project?: string
+  status: 'active' | 'proposed'
+  source: { by: 'person' | 'agent'; agent?: string; why?: string }
+  updatedAt: string
+}
+
+const MEMORY_KINDS = ['preference', 'decision', 'lesson', 'fact'] as const
+
+/** What Myrmidon keeps across chats: add, edit, re-scope and remove memories, and decide on agents' proposals. */
+function MemorySection() {
+  const toast = useToast()
+  const [memories, setMemories] = useState<MemoryEntry[]>()
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [draft, setDraft] = useState({ text: '', kind: 'preference', project: '' })
+  const [editing, setEditing] = useState<{ id: string; text: string }>()
+  const load = () =>
+    api<{ memories: MemoryEntry[] }>('/api/memory')
+      .then((r) => setMemories(r.memories))
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+    api<{ projects: { id: string; name: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch(() => {})
+  }, [])
+  const act = async (run: () => Promise<unknown>) => {
+    try {
+      await run()
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+  }
+  const scopeName = (project?: string) =>
+    project ? (projects.find((p) => p.id === project)?.name ?? project) : 'Every chat'
+  const groups = [...new Set((memories ?? []).map((m) => m.project ?? ''))].sort((a, b) =>
+    a === '' ? -1 : b === '' ? 1 : scopeName(a).localeCompare(scopeName(b)),
+  )
+  return (
+    <>
+      <Heading title="Memory">
+        What every new chat starts knowing: your preferences and decisions, and lessons about each project.
+        Agents propose memories during a chat; nothing is kept until you keep it.
+      </Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label="Remember something" hint="One fact per memory, in a sentence.">
+            <TextArea
+              value={draft.text}
+              onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+              placeholder="e.g. I prefer pnpm over npm. Reports go in docs/reports/."
+              rows={2}
+            />
+          </Field>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Select
+              aria-label="Kind"
+              value={draft.kind}
+              onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
+            >
+              {MEMORY_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Applies to"
+              value={draft.project}
+              onChange={(e) => setDraft({ ...draft, project: e.target.value })}
+            >
+              <option value="">Every chat</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  Only {p.name}
+                </option>
+              ))}
+            </Select>
+            <span className="flex-1" />
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={draft.text.trim().length < 3}
+              icon={<Plus className="size-3.5" />}
+              onClick={() =>
+                void act(async () => {
+                  await send('POST', '/api/memory', draft)
+                  setDraft({ ...draft, text: '' })
+                })
+              }
+            >
+              Remember
+            </Button>
+          </div>
+        </Row>
+      </Card>
+      {!memories ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> Loading memory…
+        </div>
+      ) : memories.length === 0 ? (
+        <Empty icon={<BookMarked className="size-5" />} title="Nothing remembered yet">
+          Add something above, or keep a memory an agent proposes in a chat.
+        </Empty>
+      ) : (
+        groups.map((g) => (
+          <section key={g || 'all'} className="mb-6">
+            <h4 className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+              {scopeName(g || undefined)}
+            </h4>
+            <Card>
+              {memories
+                .filter((m) => (m.project ?? '') === g)
+                .map((m) => (
+                  <Row key={m.id}>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        {editing?.id === m.id ? (
+                          <TextArea
+                            autoFocus
+                            rows={2}
+                            value={editing.text}
+                            onChange={(e) => setEditing({ id: m.id, text: e.target.value })}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            title="Edit"
+                            onClick={() => setEditing({ id: m.id, text: m.text })}
+                            className="w-full text-left text-[13.5px] leading-relaxed hover:text-fg-2"
+                          >
+                            {m.text}
+                          </button>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                          <Select
+                            aria-label="Kind"
+                            value={m.kind}
+                            onChange={(e) =>
+                              void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
+                            }
+                          >
+                            {MEMORY_KINDS.map((k) => (
+                              <option key={k} value={k}>
+                                {k}
+                              </option>
+                            ))}
+                          </Select>
+                          <Select
+                            aria-label="Applies to"
+                            value={m.project ?? ''}
+                            onChange={(e) =>
+                              void act(() =>
+                                send('PATCH', `/api/memory/${m.id}`, { project: e.target.value || null }),
+                              )
+                            }
+                          >
+                            <option value="">Every chat</option>
+                            {projects.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                Only {p.name}
+                              </option>
+                            ))}
+                          </Select>
+                          <span>
+                            {m.source.by === 'agent'
+                              ? `from ${m.source.agent ?? 'an agent'}`
+                              : 'added by you'}{' '}
+                            · {m.updatedAt.slice(0, 10)}
+                          </span>
+                          {m.status === 'proposed' && <Pill tone="warn">waiting for you</Pill>}
+                        </div>
+                        {m.source.why && <p className="mt-1 text-[12px] text-muted">Why: {m.source.why}</p>}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {editing?.id === m.id ? (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() =>
+                              void act(async () => {
+                                await send('PATCH', `/api/memory/${m.id}`, { text: editing.text })
+                                setEditing(undefined)
+                              })
+                            }
+                          >
+                            Save
+                          </Button>
+                        ) : m.status === 'proposed' ? (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            icon={<Check className="size-3.5" />}
+                            onClick={() =>
+                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
+                            }
+                          >
+                            Keep
+                          </Button>
+                        ) : null}
+                        <IconButton
+                          label="Forget this"
+                          onClick={() =>
+                            void act(() =>
+                              m.status === 'proposed'
+                                ? send('POST', `/api/memory/${m.id}/decide`, { keep: false })
+                                : send('DELETE', `/api/memory/${m.id}`),
+                            )
+                          }
+                        >
+                          <Trash2 className="size-4" />
+                        </IconButton>
+                      </div>
+                    </div>
+                  </Row>
+                ))}
+            </Card>
+          </section>
+        ))
+      )}
     </>
   )
 }

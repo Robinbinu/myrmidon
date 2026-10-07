@@ -61,6 +61,7 @@ const defs: EventTypeDefinition[] = [
           request: str(),
           history: Schema.string(),
           escalate: Schema.array(oneOf('solo', 'team')).default([]),
+          memory: strs(),
           project: optional(
             Schema.object({
               id: str(),
@@ -159,6 +160,25 @@ const defs: EventTypeDefinition[] = [
     version: 1,
     actors: ['agent', 'system'],
     schema: Schema.object({ name: str(), reason: str() }),
+  },
+  {
+    type: 'memory/proposed',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      id: str(),
+      agent: str(),
+      text: str(),
+      kind: oneOf('preference', 'decision', 'lesson', 'fact'),
+      project: Schema.string(),
+      why: Schema.string().default(''),
+    }),
+  },
+  {
+    type: 'memory/decided',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ id: str(), kept: Schema.boolean().required() }),
   },
   {
     type: 'worktree/created',

@@ -22,6 +22,13 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **One colony per chat** — reuse the chat's first colony for follow-up messages instead of starting a new
+      colony per message (asked 2026-10-07).
+- [ ] **A livelier start for a new chat** — sending the first message of a new chat feels dull; make the wait
+      between send and first activity engaging (asked 2026-10-07).
+- [ ] **Should all tools be MCP?** Research how Claude Code, omp and other strong coding harnesses expose their
+      built-in tools (native vs MCP), and recommend whether Myrmidon's tools should be served over MCP (asked
+      2026-10-07).
 - [ ] **Web UI crash** — "Uncaught TypeError: q is not a function" in React's effect cleanup (an effect's
       cleanup that is not a function), reported 2026-10-07.
 - [x] **Collapsible terminal tabs and task tabs** — each agent command and each task folds (newest/running commands
