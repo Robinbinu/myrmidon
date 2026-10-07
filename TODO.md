@@ -30,7 +30,7 @@ Requests queued while other work is in progress. Top of each section is next.
       mascot customisable: eyes, look/gender, colours, and what the dot-matrix screen shows. Show options first.
       A female look: a pink flower on the screen's top-right corner.
 
-- [ ] **Light-mode status colours pop** — red/yellow/green look dull in light mode (dark mode is fine); use
+- [x] **Light-mode status colours pop** (2f7f30b) — red/yellow/green look dull in light mode (dark mode is fine); use
       Apple's light system colours (systemRed/Orange/Green) for `--bad`, `--warn`, `--ok` and their soft fills.
 
 - [x] **One colony per chat** — follow-ups are rounds of the chat's colony (`round/started` in its log): agents keep
