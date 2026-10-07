@@ -6,12 +6,13 @@ import {
   Monitor,
   Moon,
   Network,
-  PanelLeftClose,
+  PanelLeft,
   Pencil,
   Plus,
   Search,
   Settings,
   ShieldCheck,
+  SquarePen,
   Sun,
   Trash2,
   X,
@@ -21,7 +22,10 @@ import { useMemo, useRef, useState } from 'react'
 import type { ChatSummary, Project } from '../api.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
+import { isMac } from '../ui/platform.ts'
 import { cn, Dot, IconButton, spring } from '../ui/primitives.tsx'
+import { comboLabel } from '../ui/shortcuts.ts'
+import { Toolbar } from '../ui/Toolbar.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
@@ -130,7 +134,7 @@ export function Sidebar(props: {
               if (e.key === 'Escape') cancelled.current = true
               if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
             }}
-            className="h-9 w-full rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] outline-none focus:ring-2 focus:ring-accent-soft"
+            className="h-7 w-full rounded-md border border-focus bg-control px-2 text-[13px] outline-none ring-3 ring-focus/30"
           />
         ) : (
           <button
@@ -140,18 +144,18 @@ export function Sidebar(props: {
             title={c.title}
             aria-current={on ? 'page' : undefined}
             className={cn(
-              'relative flex w-full items-center gap-2.5 rounded-lg py-2 pl-3 pr-16 text-left text-[13.5px] transition-colors',
-              on ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+              'relative flex h-7 w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-[13px] transition-colors',
+              on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
           >
             {on && (
               <motion.span
                 layoutId="chat-active"
                 transition={spring}
-                className="absolute inset-0 rounded-lg bg-surface-3/70"
+                className="absolute inset-0 rounded-md bg-row-selected"
               />
             )}
-            <span className="relative flex min-w-0 flex-1 items-center gap-2.5">
+            <span className="relative flex min-w-0 flex-1 items-center gap-2">
               <Dot status={c.status === 'running' || c.status === 'created' ? 'working' : c.status} />
               <span className="truncate">{c.title}</span>
               {c.rounds.length > 1 && (
@@ -166,7 +170,7 @@ export function Sidebar(props: {
             onClick={() => startRename(c)}
             aria-label={`Rename “${c.title}”`}
             title="Rename chat"
-            className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <Pencil className="size-3.5" />
           </button>
@@ -177,7 +181,7 @@ export function Sidebar(props: {
           onClick={() => props.onDelete(c)}
           aria-label={`Delete “${c.title}”`}
           title="Delete chat"
-          className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+          className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -190,58 +194,54 @@ export function Sidebar(props: {
     props.theme === 'system' ? 'light' : props.theme === 'light' ? 'dark' : 'system'
   const navItem = (on: boolean) =>
     cn(
-      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] transition-colors',
-      on ? 'bg-surface-3/70 text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+      'flex h-7 w-full items-center gap-2 rounded-md px-2 text-[13px] transition-colors',
+      on ? 'bg-row-selected text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
     )
 
   return (
     <aside
-      className="flex h-full w-[272px] flex-col border-r border-line bg-surface/60"
+      className="material-sidebar flex h-full w-full flex-col border-r border-line"
       aria-label="Conversations"
     >
-      <div className="flex items-center gap-2 px-3 pb-2 pt-3">
-        <div className="flex flex-1 items-center gap-2.5 text-[16px] font-semibold tracking-[-0.03em]">
-          <Logo size={30} />
+      <Toolbar inset material={false} className="border-b-0">
+        <span className="hidden items-center gap-2 pl-1 text-[13px] font-semibold tracking-[-0.01em] browser:flex">
+          <Logo size={20} />
           Myrmidon
-        </div>
-        <IconButton label="Collapse sidebar" title="Collapse sidebar (⌘B)" onClick={props.onCollapse}>
-          <PanelLeftClose className="size-4" />
-        </IconButton>
-      </div>
-      <div className="flex flex-col gap-2 px-3 pb-2">
-        <button
-          type="button"
-          onClick={props.onNew}
-          className="group flex h-10 items-center gap-2 rounded-full bg-ink pl-3.5 pr-2 text-[13.5px] font-medium text-on-ink shadow-card transition-all duration-150 hover:opacity-90 active:scale-[0.98]"
+        </span>
+        <span className="flex-1" />
+        <IconButton
+          label="Hide sidebar"
+          title={`Hide sidebar (${comboLabel('mod+b', isMac)})`}
+          onClick={props.onCollapse}
         >
-          <Plus className="size-4 transition-transform duration-200 group-hover:rotate-90" /> New task
-          <span className="ml-auto rounded-full bg-on-ink/15 px-2 py-0.5 font-mono text-[11px] text-on-ink/70">
-            ⌘K
-          </span>
-        </button>
+          <PanelLeft className="size-4" />
+        </IconButton>
+        <IconButton label="New task" title={`New task (${comboLabel('mod+n', isMac)})`} onClick={props.onNew}>
+          <SquarePen className="size-4" />
+        </IconButton>
+      </Toolbar>
+      <div className="px-2.5 pb-1">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <input
             type="search"
-            placeholder="Search chats"
+            placeholder="Search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search chats"
-            className="h-9 w-full rounded-lg bg-surface-2 pl-8 pr-3 text-[13.5px] outline-none transition-shadow placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+            className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
           />
         </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-auto px-2 pb-3">
-        <div className="group/projects flex items-center px-3 pb-1 pt-3">
-          <span className="flex-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
-            Projects
-          </span>
+      <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
+        <div className="group/projects flex items-center px-2 pb-1 pt-3">
+          <span className="flex-1 text-[11px] font-semibold text-muted">Projects</span>
           <button
             type="button"
             onClick={props.onAddProject}
             aria-label="Add a project folder"
             title="Add a project folder"
-            className="grid size-6 place-items-center rounded-md text-muted transition-colors hover:bg-surface-3 hover:text-fg"
+            className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
           >
             <FolderPlus className="size-3.5" />
           </button>
@@ -250,7 +250,7 @@ export function Sidebar(props: {
           <button
             type="button"
             onClick={props.onAddProject}
-            className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-muted hover:bg-surface-2 hover:text-fg"
+            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] text-muted hover:bg-fill/70 hover:text-fg"
           >
             <Folder className="size-4" /> Open a folder to work in
           </button>
@@ -266,13 +266,13 @@ export function Sidebar(props: {
                   onClick={() => toggle(p.id)}
                   aria-expanded={open}
                   title={p.path}
-                  className="flex w-full items-center gap-2 rounded-lg py-2 pl-2 pr-24 text-left text-[13.5px] text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-[13px] text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
                 >
                   <ChevronRight
                     className={cn('size-3.5 shrink-0 text-muted transition-transform', open && 'rotate-90')}
                   />
                   <Folder className="size-4 shrink-0 text-muted" />
-                  <span className="truncate font-medium">{p.name}</span>
+                  <span className="truncate">{p.name}</span>
                   <PermissionMark {...(p.permissions ? { mode: p.permissions.mode } : {})} />
                 </button>
                 <button
@@ -280,7 +280,7 @@ export function Sidebar(props: {
                   onClick={() => props.onProjectPermissions(p)}
                   aria-label={`Permissions for ${p.name}`}
                   title="What agents may do in this folder"
-                  className="absolute right-[4.25rem] top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <ShieldCheck className="size-3.5" />
                 </button>
@@ -289,7 +289,7 @@ export function Sidebar(props: {
                   onClick={() => props.onNewInProject(p)}
                   aria-label={`New chat in ${p.name}`}
                   title={`New chat in ${p.name}`}
-                  className="absolute right-9 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <Plus className="size-3.5" />
                 </button>
@@ -298,36 +298,34 @@ export function Sidebar(props: {
                   onClick={() => props.onRemoveProject(p)}
                   aria-label={`Remove ${p.name} from projects`}
                   title="Remove from projects (the folder and its chats stay)"
-                  className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                 >
                   <X className="size-3.5" />
                 </button>
               </div>
               {open && (
-                <div className="ml-4 border-l border-line pl-1">
+                <div className="pl-5">
                   {chats.map(row)}
-                  {chats.length === 0 && <p className="px-3 py-1.5 text-[12px] text-muted">No chats yet</p>}
+                  {chats.length === 0 && <p className="px-2 py-1 text-[12px] text-muted">No chats yet</p>}
                 </div>
               )}
             </div>
           )
         })}
         {props.chats.length === 0 && (
-          <p className="px-3 py-4 text-[13px] text-muted">Your conversations will appear here.</p>
+          <p className="px-2 py-4 text-[12.5px] text-muted">Your conversations will appear here.</p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
-          <p className="px-3 py-4 text-[13px] text-muted">No chats match “{query}”.</p>
+          <p className="px-2 py-4 text-[12.5px] text-muted">No chats match “{query}”.</p>
         )}
         {grouped.map((g) => (
           <div key={g.label}>
-            <div className="px-3 pb-1 pt-4 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
-              {g.label}
-            </div>
+            <div className="px-2 pb-1 pt-4 text-[11px] font-semibold text-muted">{g.label}</div>
             {g.chats.map(row)}
           </div>
         ))}
       </nav>
-      <div className="grid gap-0.5 border-t border-line p-2">
+      <div className="grid gap-px border-t border-line p-2.5">
         <button
           type="button"
           className={navItem(props.view === 'colonies')}
