@@ -246,7 +246,7 @@ export function ModelPicker(props: {
                             title={windowHint(m)}
                             className={cn(
                               'shrink-0 font-mono text-[11px] tabular-nums',
-                              small ? 'text-warn' : 'text-muted',
+                              small ? 'text-warn-ink' : 'text-muted',
                             )}
                           >
                             {windowLabel(m.contextWindow)}

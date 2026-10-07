@@ -253,7 +253,7 @@ export function Settings(props: {
               {saving === 'saving' ? (
                 <LoaderCircle className="size-3.5 animate-spin" />
               ) : (
-                <Check className="size-3.5 text-ok" />
+                <Check className="size-3.5 text-ok-ink" />
               )}
               {saving === 'saving' ? 'Saving…' : 'All changes saved'}
             </motion.span>
@@ -314,7 +314,7 @@ export function Settings(props: {
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{error}</div>
+            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{error}</div>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -652,7 +652,7 @@ function ModelsSection(props: {
                             <div
                               className={cn(
                                 'mt-0.5 flex items-center gap-1 text-[12px]',
-                                t.ok ? 'text-ok' : 'text-bad',
+                                t.ok ? 'text-ok-ink' : 'text-bad-ink',
                               )}
                             >
                               {t.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
@@ -765,7 +765,7 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
       }
       className={cn(
         'h-7 min-w-14 rounded-md px-2 text-right font-mono text-[12px] tabular-nums transition-colors hover:bg-fill',
-        tokens && tokens < AGENT_MIN_WINDOW ? 'text-warn' : 'text-fg-2',
+        tokens && tokens < AGENT_MIN_WINDOW ? 'text-warn-ink' : 'text-fg-2',
         source === 'set' && 'font-semibold',
       )}
     >
@@ -1643,7 +1643,7 @@ function ToolsSection(props: {
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
-        <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok' : 'text-warn')} />
+        <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
         <div>
           <div className="font-semibold">
             {sandboxed ? `Sandbox active: ${props.data.sandbox}` : 'No OS sandbox found'}
@@ -1906,7 +1906,7 @@ function McpServers() {
                   <div className="truncate font-mono text-[11.5px] text-muted" title={m.target}>
                     {m.transport} · {m.target}
                   </div>
-                  {m.error && <div className="mt-0.5 text-[12px] text-bad">{m.error}</div>}
+                  {m.error && <div className="mt-0.5 text-[12px] text-bad-ink">{m.error}</div>}
                 </div>
                 <Switch
                   checked={m.enabled}
@@ -2214,7 +2214,7 @@ function SchedulesSection() {
                     )}
                     <span>{s.enabled ? `next ${when(s.nextRun)}` : 'paused'}</span>
                     {s.lastRun && (
-                      <span className={s.lastRun.error ? 'text-bad' : ''}>
+                      <span className={s.lastRun.error ? 'text-bad-ink' : ''}>
                         last {when(s.lastRun.at)}
                         {s.lastRun.error ? `: ${s.lastRun.error}` : ''}
                       </span>

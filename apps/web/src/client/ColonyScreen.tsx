@@ -125,7 +125,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: Mail,
-          tone: 'text-work',
+          tone: 'text-work-ink',
           text: `${p.from} → ${p.to}${p.subject ? ` · ${p.subject}` : ''}`,
           body: p.body,
         })
@@ -174,7 +174,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: ListChecks,
-          tone: 'text-warn',
+          tone: 'text-warn-ink',
           text: `${p.task.id} → ${p.task.status.replace('_', ' ')}: ${p.task.subject}`,
         })
         break
@@ -197,7 +197,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           agent: p.verifierId,
           kind: 'event',
           icon: Gavel,
-          tone: p.pass ? 'text-ok' : 'text-bad',
+          tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
           text: `${p.pass ? 'PASS' : 'FAIL'} on ${p.target}${p.score !== undefined ? ` · score ${p.score.toFixed(2)}` : ''}`,
           body: p.evidence,
         })
@@ -209,7 +209,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: UserPlus,
-          tone: 'text-work',
+          tone: 'text-work-ink',
           text: `brought in ${p.agent.name} (${p.agent.model})`,
           body: p.focus,
         })
@@ -222,7 +222,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           agent: 'observer',
           kind: 'event',
           icon: TriangleAlert,
-          tone: 'text-warn',
+          tone: 'text-warn-ink',
           text: `${p.kind} · ${p.severity}`,
           body: p.facts,
         })
@@ -259,7 +259,9 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
 
   if (colony.error)
-    return <div className="m-4 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{colony.error}</div>
+    return (
+      <div className="m-4 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{colony.error}</div>
+    )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -509,7 +511,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
         <motion.span animate={{ rotate: open ? 90 : 0 }} className="text-muted">
           <ChevronRight className="size-3.5" />
         </motion.span>
-        <Wrench className={cn('size-3.5 shrink-0', item.ok === false ? 'text-bad' : 'text-muted')} />
+        <Wrench className={cn('size-3.5 shrink-0', item.ok === false ? 'text-bad-ink' : 'text-muted')} />
         <span className="font-mono text-[12.5px] font-semibold">{item.tool}</span>
         <span className="min-w-0 truncate font-mono text-[12px] text-muted">{summary}</span>
         {item.ok === undefined && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-work" />}
@@ -537,7 +539,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
                   <div
                     className={cn(
                       'mb-1 text-[11px] font-semibold uppercase tracking-wider',
-                      item.ok ? 'text-muted' : 'text-bad',
+                      item.ok ? 'text-muted' : 'text-bad-ink',
                     )}
                   >
                     Output
@@ -570,7 +572,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
         <span className="font-semibold">{item.agent}</span>
         <RowMeta agent="" time={item.time} />
       </div>
-      {item.error && <p className="text-[12.5px] text-bad">{item.error}</p>}
+      {item.error && <p className="text-[12.5px] text-bad-ink">{item.error}</p>}
       {item.text && (
         <div className="text-[13.5px]">
           <Markdown text={long && !more ? `${item.text.slice(0, 600)}…` : item.text} />
@@ -836,7 +838,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         onClick={() => setLive(!live)}
         className={cn(
           'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold transition-colors',
-          live ? 'border-bad/40 bg-bad-soft text-bad' : 'border-line text-muted hover:text-fg',
+          live ? 'border-bad/40 bg-bad-soft text-bad-ink' : 'border-line text-muted hover:text-fg',
         )}
       >
         <Radio className={cn('size-3.5', live && 'animate-pulse')} /> Live

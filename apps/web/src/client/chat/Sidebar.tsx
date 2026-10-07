@@ -181,7 +181,7 @@ export function Sidebar(props: {
           onClick={() => props.onDelete(c)}
           aria-label={`Delete “${c.title}”`}
           title="Delete chat"
-          className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+          className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>

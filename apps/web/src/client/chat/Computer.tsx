@@ -617,7 +617,7 @@ function LiveTab({
           Click and type in the page as usual. {agent} waits until you hand it back.
         </p>
       )}
-      {error && frame && <p className="text-[12px] text-bad">{error}</p>}
+      {error && frame && <p className="text-[12px] text-bad-ink">{error}</p>}
     </div>
   )
 }

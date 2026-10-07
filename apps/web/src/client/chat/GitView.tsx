@@ -153,7 +153,7 @@ function RowAction(props: { label: string; onClick(): void; children: ReactNode;
       }}
       className={cn(
         'grid size-6 place-items-center rounded-md text-muted hover:bg-surface-3',
-        props.danger ? 'hover:text-bad' : 'hover:text-fg',
+        props.danger ? 'hover:text-bad-ink' : 'hover:text-fg',
       )}
     >
       {props.children}
@@ -266,7 +266,7 @@ export function GitView({ project }: { project: string }) {
     }
   }
 
-  if (error) return <p className="p-4 text-[13px] text-bad">{error}</p>
+  if (error) return <p className="p-4 text-[13px] text-bad-ink">{error}</p>
   if (!status)
     return (
       <div className="p-4">
@@ -576,7 +576,8 @@ function Tree(props: {
               <span className="min-w-0 flex-1 truncate font-mono">{n.name}</span>
               {f?.added !== undefined && (
                 <span className="shrink-0 font-mono text-[11px] tabular-nums">
-                  <span className="text-ok">+{f.added}</span> <span className="text-bad">−{f.removed}</span>
+                  <span className="text-ok-ink">+{f.added}</span>{' '}
+                  <span className="text-bad-ink">−{f.removed}</span>
                 </span>
               )}
               <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}>
@@ -680,8 +681,8 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           {data && (
             <span className="flex items-center gap-2">
               {data.files.length} file{data.files.length === 1 ? '' : 's'}
-              <span className="font-mono text-ok">+{added}</span>
-              <span className="font-mono text-bad">−{removed}</span>
+              <span className="font-mono text-ok-ink">+{added}</span>
+              <span className="font-mono text-bad-ink">−{removed}</span>
               <StatBar added={added} removed={removed} />
             </span>
           )}

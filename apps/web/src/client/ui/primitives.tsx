@@ -39,7 +39,7 @@ const VARIANTS: Record<Variant, string> = {
   borderless: BORDERLESS,
   toolbar: BORDERLESS,
   destructive: 'bg-bad text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
-  danger: 'border border-bad/35 text-bad hover:bg-bad-soft',
+  danger: 'border border-bad/35 text-bad-ink hover:bg-bad-soft',
   secondary: PUSH,
   ghost: BORDERLESS,
   soft: 'bg-accent-soft text-accent-fg hover:brightness-105',
@@ -95,10 +95,10 @@ export const IconButton = forwardRef<
 
 const TONES = {
   neutral: 'bg-fill-strong text-fg-2',
-  ok: 'bg-ok-soft text-ok',
-  bad: 'bg-bad-soft text-bad',
-  warn: 'bg-warn-soft text-warn',
-  work: 'bg-work/10 text-work',
+  ok: 'bg-ok-soft text-ok-ink',
+  bad: 'bg-bad-soft text-bad-ink',
+  warn: 'bg-warn-soft text-warn-ink',
+  work: 'bg-work/10 text-work-ink',
   accent: 'bg-accent-soft text-accent-fg',
 } as const
 export type Tone = keyof typeof TONES

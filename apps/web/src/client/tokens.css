@@ -39,13 +39,19 @@
   --on-bubble: #ffffff;
   --signal: #ffb31a;
   --lime: #d4ff3a;
-  --ok: #0a7a3a;
-  --ok-soft: rgb(10 122 58 / 0.09);
-  --warn: #b53d0a;
-  --warn-soft: rgb(181 61 10 / 0.09);
-  --bad: #c0272d;
-  --bad-soft: rgb(192 39 45 / 0.08);
-  --work: #8a5a00;
+  /* Status colours are Apple's light system colours, bright enough to read at a glance as dots, icons and fills.
+     Text uses the -ink shade of the same hue, deep enough for 4.5:1 on white. */
+  --ok: #34c759;
+  --ok-soft: rgb(52 199 89 / 0.14);
+  --ok-ink: #008a2e;
+  --warn: #ff9500;
+  --warn-soft: rgb(255 149 0 / 0.15);
+  --warn-ink: #c45200;
+  --bad: #ff3b30;
+  --bad-soft: rgb(255 59 48 / 0.12);
+  --bad-ink: #d70015;
+  --work: #ffb31a;
+  --work-ink: #8a5a00;
   --idle: #aeaeb2;
   --edge: #c7c7cc;
   --code-bg: #f5f5f7;
@@ -126,6 +132,10 @@
     --bad: #ff6369;
     --bad-soft: rgb(255 99 105 / 0.11);
     --work: #ffb31a;
+    --ok-ink: #3ddc84;
+    --warn-ink: #ff8a4c;
+    --bad-ink: #ff6369;
+    --work-ink: #ffb31a;
     --idle: #5c5c66;
     --edge: #3a3a42;
     --code-bg: #0c0c0f;
@@ -179,6 +189,10 @@
   --bad: #ff6369;
   --bad-soft: rgb(255 99 105 / 0.11);
   --work: #ffb31a;
+  --ok-ink: #3ddc84;
+  --warn-ink: #ff8a4c;
+  --bad-ink: #ff6369;
+  --work-ink: #ffb31a;
   --idle: #5c5c66;
   --edge: #3a3a42;
   --code-bg: #0c0c0f;

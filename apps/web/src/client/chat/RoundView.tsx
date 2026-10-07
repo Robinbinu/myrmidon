@@ -120,7 +120,7 @@ export function RoundView(props: {
   const [inspect, setInspect] = useState<string>()
 
   if (colony.error)
-    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{colony.error}</div>
+    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{colony.error}</div>
   if (events.length === 0) {
     return (
       <section className="flex flex-col gap-3" aria-busy="true">
@@ -302,7 +302,7 @@ function UserMessage(props: {
             <span aria-hidden>·</span>
             {read ? (
               <>
-                <CheckCheck className="size-3.5 text-ok" /> Read by {read.join(', ')}
+                <CheckCheck className="size-3.5 text-ok-ink" /> Read by {read.join(', ')}
               </>
             ) : props.live ? (
               <>
@@ -629,7 +629,7 @@ function ModelFailure(props: {
       className="flex flex-col gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-soft"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-warn-soft text-warn">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-warn-soft text-warn-ink">
           <TriangleAlert className="size-3.5" />
         </span>
         <div className="min-w-0 flex-1">
@@ -729,7 +729,7 @@ function Outcome({
     // A round the reviewer did not look at needs no banner; the round card already says it is done.
     if (!judge) return null
     return (
-      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-[13.5px] text-ok" role="status">
+      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-[13.5px] text-ok-ink" role="status">
         <BadgeCheck className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
@@ -788,7 +788,7 @@ function Outcome({
   }
   if (state.status === 'stopped' || state.status === 'failed') {
     return (
-      <motion.div {...enter} className={cn(box, 'border-bad/25 bg-bad-soft text-bad')} role="status">
+      <motion.div {...enter} className={cn(box, 'border-bad/25 bg-bad-soft text-bad-ink')} role="status">
         <CircleStop className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div>
@@ -840,7 +840,7 @@ function Outcome({
     )
   }
   return last && !last.pass ? (
-    <motion.div {...enter} className={cn(box, 'border-warn/25 bg-warn-soft text-warn')} role="status">
+    <motion.div {...enter} className={cn(box, 'border-warn/25 bg-warn-soft text-warn-ink')} role="status">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <span className="font-semibold">The reviewer asked for changes</span>

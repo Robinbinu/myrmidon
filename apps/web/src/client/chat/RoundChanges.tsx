@@ -95,7 +95,8 @@ export function RoundChanges(props: {
                 </span>{' '}
                 changed in {project.name}{' '}
                 <span className="font-mono text-[12px] tabular-nums">
-                  <span className="text-ok">+{added}</span> <span className="text-bad">−{removed}</span>
+                  <span className="text-ok-ink">+{added}</span>{' '}
+                  <span className="text-bad-ink">−{removed}</span>
                 </span>
               </>
             )}

@@ -43,7 +43,7 @@ export function ApprovalCards({ colonyId, state }: { colonyId: string; state: Co
           className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
         >
           <div className="flex items-center gap-2 text-[13.5px]">
-            <ShieldQuestion className="size-4 shrink-0 text-warn" />
+            <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
             <span>
               <span className="font-semibold">{a.agent}</span> wants to {action(a.tool)}
             </span>

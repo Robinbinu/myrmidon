@@ -604,7 +604,7 @@ export function App() {
                 )}
               </Toolbar>
               {chatsError && (
-                <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad">{chatsError}</div>
+                <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{chatsError}</div>
               )}
 
               {view === 'chat' &&
@@ -704,7 +704,7 @@ export function App() {
                 can’t be undone.
               </p>
               {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-[13px] text-warn">
+                <p className="rounded-xl bg-warn-soft px-3 py-2 text-[13px] text-warn-ink">
                   This chat is still running. It will be stopped first.
                 </p>
               )}

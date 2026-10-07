@@ -58,7 +58,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
     <div className="flex flex-col gap-3 p-3">
       {audit.stops.length > 0 && (
         <section className="rounded-xl border border-warn/30 bg-warn-soft p-3">
-          <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-warn">
+          <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-warn-ink">
             <Ban className="size-3.5" /> Stopped ({audit.stops.length})
           </h3>
           <ul className="flex flex-col gap-1">
@@ -172,7 +172,11 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                         <span className="min-w-0 flex-1 truncate">
                           {e.agent} · {e.tool}
                         </span>
-                        <span className={e.ok === undefined ? 'text-work' : e.ok ? 'text-ok' : 'text-bad'}>
+                        <span
+                          className={
+                            e.ok === undefined ? 'text-work-ink' : e.ok ? 'text-ok-ink' : 'text-bad-ink'
+                          }
+                        >
                           {e.ok === undefined ? 'running' : e.ok ? 'ok' : 'failed'}
                         </span>
                       </li>

@@ -162,7 +162,7 @@ export function ArtifactViewer(props: {
           {compact(selected?.size ?? 0)}B · {selected?.mediaType} · by {selected?.author}
         </span>
       </div>
-      {error && <div className="bg-bad-soft px-4 py-2 text-[13px] text-bad">{error}</div>}
+      {error && <div className="bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{error}</div>}
       {view === 'preview' && preview ? (
         <iframe
           className="min-h-[60vh] w-full flex-1 border-0 bg-white"

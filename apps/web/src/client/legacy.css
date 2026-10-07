@@ -50,16 +50,16 @@
   white-space: nowrap;
 }
 .pill.status-completed {
-  color: var(--ok);
+  color: var(--ok-ink);
   background: var(--ok-soft);
 }
 .pill.status-failed,
 .pill.status-stopped {
-  color: var(--bad);
+  color: var(--bad-ink);
   background: var(--bad-soft);
 }
 .pill.status-running {
-  color: var(--work);
+  color: var(--work-ink);
 }
 
 .react-flow {

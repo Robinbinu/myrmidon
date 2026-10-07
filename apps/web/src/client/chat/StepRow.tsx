@@ -19,13 +19,13 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   search: { icon: Search, color: 'text-fg-2' },
   fetch: { icon: Globe, color: 'text-fg-2' },
   file: { icon: FileCode, color: 'text-accent-fg' },
-  task: { icon: ListChecks, color: 'text-warn' },
-  team: { icon: UserPlus, color: 'text-work' },
-  verdict: { icon: BadgeCheck, color: 'text-ok' },
-  error: { icon: TriangleAlert, color: 'text-bad' },
+  task: { icon: ListChecks, color: 'text-warn-ink' },
+  team: { icon: UserPlus, color: 'text-work-ink' },
+  verdict: { icon: BadgeCheck, color: 'text-ok-ink' },
+  error: { icon: TriangleAlert, color: 'text-bad-ink' },
   shell: { icon: Terminal, color: 'text-fg-2' },
   talk: { icon: Megaphone, color: 'text-muted' },
-  signal: { icon: CircleAlert, color: 'text-warn' },
+  signal: { icon: CircleAlert, color: 'text-warn-ink' },
   think: { icon: Brain, color: 'text-muted' },
 }
 

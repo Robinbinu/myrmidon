@@ -51,7 +51,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <Icon
                   className={cn(
                     'mt-0.5 size-4 shrink-0',
-                    t.kind === 'error' ? 'text-bad' : t.kind === 'success' ? 'text-ok' : 'text-accent-fg',
+                    t.kind === 'error'
+                      ? 'text-bad-ink'
+                      : t.kind === 'success'
+                        ? 'text-ok-ink'
+                        : 'text-accent-fg',
                   )}
                 />
                 <span className="flex-1">{t.text}</span>

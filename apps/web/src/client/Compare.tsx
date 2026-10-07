@@ -142,7 +142,7 @@ function Delta({ m }: { m: Metric }) {
   const good = m.better === 'higher' ? up : !up
   const pct = m.a !== 0 ? ` (${up ? '+' : ''}${Math.round(((m.b - m.a) / Math.abs(m.a)) * 100)}%)` : ''
   return (
-    <span className={good ? 'text-ok' : 'text-bad'}>
+    <span className={good ? 'text-ok-ink' : 'text-bad-ink'}>
       {up ? '+' : '−'}
       {m.format(Math.abs(m.b - m.a))}
       {pct}

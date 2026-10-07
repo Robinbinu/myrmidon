@@ -573,7 +573,7 @@ function WorkspaceBody({
                                       <span>{s.time.slice(11, 19)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
-                                        <span className="text-work">running…</span>
+                                        <span className="text-work-ink">running…</span>
                                       ) : (
                                         <span
                                           className={

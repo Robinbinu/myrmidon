@@ -14,11 +14,11 @@ export interface DiffFile {
 export type DiffMode = 'unified' | 'split'
 
 export const STATUS: Record<string, { label: string; className: string; title: string }> = {
-  A: { label: 'A', className: 'text-ok', title: 'Added' },
-  M: { label: 'M', className: 'text-warn', title: 'Modified' },
-  D: { label: 'D', className: 'text-bad', title: 'Deleted' },
+  A: { label: 'A', className: 'text-ok-ink', title: 'Added' },
+  M: { label: 'M', className: 'text-warn-ink', title: 'Modified' },
+  D: { label: 'D', className: 'text-bad-ink', title: 'Deleted' },
   R: { label: 'R', className: 'text-accent-fg', title: 'Renamed' },
-  '?': { label: 'U', className: 'text-ok', title: 'Untracked' },
+  '?': { label: 'U', className: 'text-ok-ink', title: 'Untracked' },
 }
 
 const MODE_KEY = 'myr-diff-mode'
@@ -125,7 +125,7 @@ function Code({ line, wrap }: { line?: DiffLine; wrap?: boolean }) {
           <span
             className={cn(
               'mr-1.5 select-none',
-              line.kind === 'add' ? 'text-ok' : line.kind === 'del' ? 'text-bad' : 'text-muted',
+              line.kind === 'add' ? 'text-ok-ink' : line.kind === 'del' ? 'text-bad-ink' : 'text-muted',
             )}
           >
             {SIGN[line.kind]}
@@ -237,8 +237,8 @@ export function FileDiff(props: {
         <span className="flex-1" />
         {props.file.added !== undefined && (
           <span className="flex shrink-0 items-center gap-2 font-mono text-[11.5px] tabular-nums">
-            <span className="text-ok">+{props.file.added}</span>
-            <span className="text-bad">−{props.file.removed}</span>
+            <span className="text-ok-ink">+{props.file.added}</span>
+            <span className="text-bad-ink">−{props.file.removed}</span>
             <StatBar
               added={props.file.added}
               {...(props.file.removed !== undefined ? { removed: props.file.removed } : {})}
@@ -269,8 +269,8 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
       <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
         <span>
           {props.files.length} file{props.files.length === 1 ? '' : 's'} ·{' '}
-          <span className="font-mono text-ok">+{added}</span>{' '}
-          <span className="font-mono text-bad">−{removed}</span>
+          <span className="font-mono text-ok-ink">+{added}</span>{' '}
+          <span className="font-mono text-bad-ink">−{removed}</span>
         </span>
         <span className="flex-1" />
         <button

@@ -33,7 +33,7 @@ export function PermissionMark({ mode }: { mode?: PermissionMode }) {
   if (mode === 'read-only')
     return <Lock className="size-3 shrink-0 text-muted" aria-label="Read-only for agents" />
   if (mode === 'ask')
-    return <ShieldQuestion className="size-3 shrink-0 text-warn" aria-label="Agents ask before changes" />
+    return <ShieldQuestion className="size-3 shrink-0 text-warn-ink" aria-label="Agents ask before changes" />
   return null
 }
 
