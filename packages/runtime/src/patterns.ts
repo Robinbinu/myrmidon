@@ -21,6 +21,7 @@ const BROWSER = [
   'browser_tabs',
   'browser_downloads',
   'browser_extract',
+  'browser_network',
   'browser_upload',
   'browser_snapshot',
   'browser_click',

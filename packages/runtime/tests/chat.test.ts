@@ -773,6 +773,63 @@ test.skipIf(!findChrome())('browser_extract reads tables, links and repeating it
   site.stop(true)
 })
 
+test.skipIf(!findChrome())('browser_network lists requests, failures and API bodies', async () => {
+  const site = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const path = new URL(req.url).pathname
+      if (path === '/api/items') return Response.json([{ id: 1, name: 'Lamp' }])
+      if (path === '/missing.js') return new Response('nope', { status: 404 })
+      return new Response(
+        `<title>App</title><script src="/missing.js"></script><script>fetch('/api/items').then(r => r.json())</script>`,
+        { headers: { 'content-type': 'text/html' } },
+      )
+    },
+  })
+  const base = `http://localhost:${site.port}`
+  const browser = new BrowserHub(join(home, 'browser'))
+  const resolver = new ModelResolver()
+  let apiId = '0'
+  const model = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const text = JSON.stringify(ctx.messages.at(-1))
+      const m = /#(\d+) GET 200 fetch/.exec(text)
+      if (m?.[1]) apiId = m[1]
+      const n = ctx.messages.filter((x) => x.role === 'assistant').length
+      const steps = [
+        [tool('browser_open', { url: `${base}/` })],
+        [tool('browser_network', { only: 'failed' })],
+        [tool('browser_network', { only: 'api' })],
+        [tool('browser_network', { body: Number(apiId) })],
+        [tool('reply_user', { text: 'Done.', final: true })],
+      ]
+      return { content: steps[n] ?? ['done'] }
+    },
+  })
+  resolver.register('mock/netdebug', { model: model.model, streamFn: model.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+  const { colonyId } = await chats.send('Debug the app', {
+    ...solo('mock/netdebug'),
+    judgeModel: 'mock/judge',
+  })
+  await waitFor(colonyId)
+  const out = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+    .filter((r) => r.tool === 'browser_network')
+    .map((r) => r.output)
+  // Chrome aborts a 404 script after its response: both the status and the failure are shown.
+  expect(out[0]).toMatch(
+    /GET 404( FAILED \(net::ERR_ABORTED\))? script \d+ms http:\/\/localhost:\d+\/missing\.js/,
+  )
+  expect(out[0]).not.toContain('/api/items')
+  expect(out[1]).toMatch(/GET 200 fetch \d+ms .*\/api\/items/)
+  expect(out[2]).toContain('[{"id":1,"name":"Lamp"}]')
+  await browser.close()
+  site.stop(true)
+})
+
 test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   const site = Bun.serve({
     port: 0,

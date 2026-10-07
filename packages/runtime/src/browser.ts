@@ -1,7 +1,15 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Browser, CDPSession, ElementHandle, Page, SerializedAXNode } from 'puppeteer-core'
+import type {
+  Browser,
+  CDPSession,
+  ElementHandle,
+  HTTPRequest,
+  HTTPResponse,
+  Page,
+  SerializedAXNode,
+} from 'puppeteer-core'
 
 /**
  * A real browser for agents: one headless Chrome per server process with its own throwaway profile (never the
@@ -11,6 +19,8 @@ import type { Browser, CDPSession, ElementHandle, Page, SerializedAXNode } from 
 
 const SNAPSHOT_CHARS = 12_000
 const LOG_LIMIT = 200
+const NETWORK_LIMIT = 300
+let networkIds = 0
 
 /** What a person watching an agent's tab receives. Coordinates are CSS pixels in the page viewport. */
 export type LiveEvent =
@@ -38,10 +48,25 @@ interface Tab {
   /** Element refs from the latest snapshot. */
   refs: Map<string, SerializedAXNode>
   readonly logs: string[]
+  /** Recent requests of all its pages, oldest first; API responses keep their body for browser_network. */
+  readonly network: NetworkEntry[]
   readonly watchers: Set<(e: LiveEvent) => void>
   cdp?: CDPSession
   cursor: { x: number; y: number }
   controlledBy: 'agent' | 'person'
+}
+
+export interface NetworkEntry {
+  readonly id: number
+  readonly method: string
+  readonly url: string
+  /** Puppeteer's resource type: document, script, xhr, fetch, image, ... */
+  readonly type: string
+  readonly status?: number
+  readonly failure?: string
+  readonly ms: number
+  /** Kept for xhr/fetch responses, so the body can be read on demand. */
+  readonly response?: HTTPResponse
 }
 
 export interface TabInfo {
@@ -145,6 +170,7 @@ export class BrowserHub {
           ...(options.downloads ? { downloads: options.downloads } : {}),
           refs: new Map(),
           logs: [],
+          network: [],
           watchers: new Set(),
           cursor: { x: VIEWPORT.width / 2, y: VIEWPORT.height / 2 },
           controlledBy: 'agent',
@@ -328,6 +354,37 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
   page.on('requestfailed', (r) => log(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`))
   page.on('response', (r) => {
     if (r.status() >= 400) log(`HTTP ${r.status()}: ${r.url()}`)
+  })
+  const started = new WeakMap<HTTPRequest, number>()
+  const record = (
+    request: HTTPRequest,
+    entry: Omit<NetworkEntry, 'id' | 'method' | 'url' | 'type' | 'ms'>,
+  ) => {
+    tab.network.push({
+      id: ++networkIds,
+      method: request.method(),
+      url: request.url(),
+      type: request.resourceType(),
+      ms: Date.now() - (started.get(request) ?? Date.now()),
+      ...entry,
+    })
+    if (tab.network.length > NETWORK_LIMIT) tab.network.shift()
+  }
+  // A response can arrive and the request still fail (Chrome aborts a 404 script), so keep its status apart.
+  const statuses = new WeakMap<HTTPRequest, number>()
+  page.on('request', (r) => started.set(r, Date.now()))
+  page.on('response', (r) => statuses.set(r.request(), r.status()))
+  page.on('requestfinished', (r) => {
+    const response = r.response()
+    const api = r.resourceType() === 'xhr' || r.resourceType() === 'fetch'
+    record(r, {
+      ...(response ? { status: response.status() } : {}),
+      ...(api && response ? { response } : {}),
+    })
+  })
+  page.on('requestfailed', (r) => {
+    const status = statuses.get(r)
+    record(r, { failure: r.failure()?.errorText ?? 'failed', ...(status ? { status } : {}) })
   })
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame() && page === tab.page)

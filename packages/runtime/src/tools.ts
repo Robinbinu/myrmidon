@@ -315,6 +315,7 @@ const UNTRUSTED = new Set([
   'browser_tabs',
   'browser_upload',
   'browser_extract',
+  'browser_network',
   'web_search',
   'web_fetch',
   'browser_open',
@@ -1370,6 +1371,45 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       writeFileSync(path, json)
       const where = host.workspace.project ? path : name
       return `${head} (${json.length} chars; all of it is saved as ${where}):\n${json.slice(0, PAGE_EXCERPT)}\n…`
+    },
+  },
+  {
+    name: 'browser_network',
+    tier: 'read',
+    description:
+      "Your browser's recent network requests: method, status, type, time, URL; failures marked. Use it to debug a " +
+      'web app (a 404 script, a failing API call, CORS) or to find the JSON API behind a page, which is often ' +
+      'easier to read than the page. `only`: "failed" or "api" (xhr/fetch). `body` returns the response body of ' +
+      'one API request by its number.',
+    parameters: type({
+      'only?': type("'failed' | 'api'"),
+      'body?': type('number').describe('Request number to read the response body of'),
+    }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      if (args.body !== undefined) {
+        const entry = tab.network.find((n) => n.id === args.body)
+        if (!entry) throw new Error(`no request #${args.body} in the recent log`)
+        if (!entry.response)
+          throw new Error(`#${args.body} is not an API (xhr/fetch) response; its body is not kept`)
+        const body = await entry.response.text().catch(() => '(the body is no longer available)')
+        return `#${entry.id} ${entry.method} ${entry.url} → ${entry.status}\n${clip(body, 16_000)}`
+      }
+      const list = tab.network.filter((n) =>
+        args.only === 'failed'
+          ? n.failure !== undefined || (n.status ?? 0) >= 400
+          : args.only === 'api'
+            ? n.type === 'xhr' || n.type === 'fetch'
+            : true,
+      )
+      if (list.length === 0) return `No ${args.only ?? ''} requests recorded yet.`.replace('  ', ' ')
+      return list
+        .slice(-60)
+        .map(
+          (n) =>
+            `#${n.id} ${n.method} ${[n.status, n.failure && `FAILED (${n.failure})`].filter(Boolean).join(' ') || '…'} ${n.type} ${n.ms}ms ${n.url.length > 160 ? `${n.url.slice(0, 160)}…` : n.url}`,
+        )
+        .join('\n')
     },
   },
   {
