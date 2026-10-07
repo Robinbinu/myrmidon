@@ -127,8 +127,8 @@ function Letter(props: { text: string; size: number; className?: string }) {
 /** The logo of a model's maker (Claude, OpenAI, Gemini, DeepSeek…), so a list of models scans by family. */
 export function ProviderGlyph(props: { model: string; size?: number; className?: string }) {
   const size = props.size ?? 16
-  // Match the model, not the provider prefix of its ref: a GPT model served by openai-codex is still OpenAI's.
-  const model = props.model.replace(/^[\w.-]+\//, '')
+  // The whole ref counts, provider prefix included: models served through Codex show Codex's logo.
+  const model = props.model
   const logo = MAKERS.find(([re]) => re.test(model))?.[1]
   return logo ? (
     <Mark logo={logo} size={size} {...(props.className ? { className: props.className } : {})} />
