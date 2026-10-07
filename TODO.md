@@ -33,8 +33,14 @@ Requests queued while other work is in progress. Top of each section is next.
       tool making, MCP and made tools stay out of model calls until find_tools loads them or the request plainly
       needs them; ~5.5k → ~2.8k tokens of tool definitions per call. Serving colony tools over MCP (so outside
       harnesses can join) is open for later.
-- [ ] **Web UI crash** — "Uncaught TypeError: q is not a function" in React's effect cleanup (an effect's
-      cleanup that is not a function), reported 2026-10-07.
+- [ ] **Talk to one lead; helpers appear only when needed** (asked 2026-10-07) — sending a message should feel like
+      talking to a single lead agent. Simple tasks stay with that one agent; for bigger ones the lead brings in more
+      agents as the work calls for it. Drop "picking the right team" and anything that puts workers in the person's face
+      up front; make it feel intuitive and intelligent.
+- [x] **Web UI crash** ("q/U is not a function", window goes black) — Chrome 152's scrollIntoView returns a Promise,
+      and the agent terminal's effect returned it (`useEffect(() => el.scrollIntoView())`); React called it as a cleanup
+      on unmount and tore the whole tree down. Effects now have block bodies, and a test fails on any that does not.
+      Found with `bun run dev`, which prints the browser's errors with component names.
 - [x] **Collapsible terminal tabs and task tabs** — each agent command and each task folds (newest/running commands
       and active tasks start open), with Expand all / Collapse all, like the Git view.
 - [x] **Design fixes** (ui-ux-pro-max audit; web-artifacts-builder's anti-slop rules) — AA contrast for muted and

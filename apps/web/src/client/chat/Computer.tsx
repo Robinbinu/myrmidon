@@ -237,7 +237,9 @@ function TerminalScreen(props: { agent: string; activity: readonly Activity[]; l
     .slice(-20)
   const end = useRef<HTMLDivElement>(null)
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow new output as it lands
-  useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [runs.length, runs.at(-1)?.output])
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'nearest' })
+  }, [runs.length, runs.at(-1)?.output])
   return (
     <div className="flex flex-col gap-1.5">
       <ScreenTitle agent={props.agent} what="Terminal" />

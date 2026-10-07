@@ -360,7 +360,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   const onTextChange = useRef(props.onTextChange)
   onTextChange.current = props.onTextChange
-  useEffect(() => onTextChange.current?.(text), [text])
+  useEffect(() => {
+    onTextChange.current?.(text)
+  }, [text])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure the textarea whenever its text changes
   useEffect(() => {
@@ -387,7 +389,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [menuIndex, setMenuIndex] = useState(0)
   const [showHelp, setShowHelp] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight whenever the typed command changes
-  useEffect(() => setMenuIndex(0), [text])
+  useEffect(() => {
+    setMenuIndex(0)
+  }, [text])
 
   const fillCommand = (t: string) => {
     setShowHelp(false)
