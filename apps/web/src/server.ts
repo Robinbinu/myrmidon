@@ -29,6 +29,7 @@ import {
   type OmpRuntime,
   type ProjectStore,
   type SettingsStore,
+  type SkillLibrary,
   type ToolLibrary,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
@@ -61,6 +62,8 @@ export interface ServeOptions {
   readonly library?: ToolLibrary
   /** What the person keeps across chats (memory). */
   readonly memory?: MemoryStore
+  /** Skills agents load by name. */
+  readonly skills?: SkillLibrary
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -409,6 +412,20 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
+        }),
+      },
+      '/api/skills': guard((_req, url) => {
+        const project = url.searchParams.get('project')
+        const path = project ? options.projects?.get(project)?.path : undefined
+        return json({ skills: options.skills?.list(path) ?? [], dir: options.skills?.dir })
+      }),
+      '/api/skills/:name': {
+        PUT: guard(async (req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
+          options.skills.setEnabled(req.params.name ?? '', enabled)
+          return json({ skills: options.skills.list() })
         }),
       },
       '/api/memory': {

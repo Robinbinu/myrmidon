@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SqliteLogStore } from '@myrmidon/core'
@@ -1888,6 +1888,47 @@ test('on-demand tools stay out of model calls until find_tools loads them', asyn
   expect(after).toContain('browser_click')
   expect(after?.length).toBeGreaterThan(before?.length ?? 0)
   await chats.stopAll()
+})
+
+test('agents see the skills by name and load one when the task matches', async () => {
+  const { SkillLibrary } = await import('../src/skills.ts')
+  const claude = mkdtempSync(join(tmpdir(), 'myr-claude-skills-'))
+  mkdirSync(join(claude, 'haiku-style'))
+  await Bun.write(
+    join(claude, 'haiku-style', 'SKILL.md'),
+    '---\nname: haiku-style\ndescription: How the person likes haiku written. Use for any haiku.\n---\n\nAlways 5-7-5, no rhyme, end on a season word.\n',
+  )
+  const skills = new SkillLibrary(home, claude)
+  const resolver = new ModelResolver()
+  let prompt = ''
+  let loaded = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      prompt = ctx.systemPrompt?.join('\n') ?? ''
+      const seen = JSON.stringify(ctx.messages)
+      if (!seen.includes('"use_skill"')) return { content: [tool('use_skill', { name: 'haiku-style' })] }
+      loaded = seen
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'A haiku.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), skills })
+  const { colonyId } = await chats.send('Write a haiku about ants', {
+    ...solo('mock/lead'),
+    judgeModel: 'mock/judge',
+  })
+  await waitFor(colonyId)
+  expect(prompt).toContain('- haiku-style: How the person likes haiku written.')
+  expect(loaded).toContain('Always 5-7-5, no rhyme')
+  const used = (await events(colonyId)).find((e) => e.type === 'skill/used')
+  expect(used?.payload).toEqual({ agent: 'lead', name: 'haiku-style' })
+  await chats.stopAll()
+  rmSync(claude, { recursive: true, force: true })
 })
 
 test('ask_user pauses the round until the person answers', async () => {

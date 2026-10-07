@@ -968,6 +968,20 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'use_skill',
+    tier: 'read',
+    description:
+      'Load a skill: instructions and scripts the person keeps for a kind of task (listed under Skills in your ' +
+      'instructions). Use one whenever the task matches its description. With file, reads one of its bundled files.',
+    parameters: type({
+      name: type('string'),
+      'file?': type('string').describe('A bundled file, relative to the skill folder'),
+    }),
+    async run(args, agent, host) {
+      return host.useSkill(agent, args.name, args.file)
+    },
+  },
+  {
     name: 'find_tools',
     tier: 'read',
     description:

@@ -13,6 +13,7 @@ import {
   EyeOff,
   Gavel,
   Globe,
+  GraduationCap,
   KeyRound,
   LoaderCircle,
   LogIn,
@@ -113,13 +114,22 @@ interface SettingsResponse {
   ompSetup: boolean
 }
 
-export type Section = 'general' | 'models' | 'team' | 'tools' | 'verification' | 'instructions' | 'memory'
+export type Section =
+  | 'general'
+  | 'models'
+  | 'team'
+  | 'tools'
+  | 'skills'
+  | 'verification'
+  | 'instructions'
+  | 'memory'
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
   { id: 'general', label: 'General', hint: 'Theme, motion, shortcuts', icon: Palette },
   { id: 'models', label: 'Models & providers', hint: 'Models, API keys, endpoints', icon: Brain },
   { id: 'team', label: 'Team & budget', hint: 'Defaults and limits', icon: Users },
   { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
+  { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
   { id: 'verification', label: 'Verification', hint: 'Judge threshold, rubric', icon: Gavel },
   { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
   { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
@@ -370,6 +380,7 @@ export function Settings(props: {
                 <InstructionsSection settings={data.settings} update={update} />
               )}
               {section === 'memory' && <MemorySection />}
+              {section === 'skills' && <SkillsSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> Loading settings…
@@ -1782,6 +1793,84 @@ function InstructionsSection(props: {
           </Field>
         </Row>
       </Card>
+    </>
+  )
+}
+
+interface SkillEntry {
+  name: string
+  description: string
+  dir: string
+  source: 'myrmidon' | 'claude' | 'project'
+  enabled: boolean
+}
+
+const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
+  myrmidon: 'Myrmidon',
+  claude: 'Claude Code',
+  project: 'project',
+}
+
+/** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
+function SkillsSection() {
+  const toast = useToast()
+  const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
+  const load = () =>
+    api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+      .then(setData)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  return (
+    <>
+      <Heading title="Skills">
+        Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents
+        see each skill's name and description, and load the full skill when a task matches. Add one by putting
+        its folder in <code className="font-mono text-[12.5px]">{data?.dir ?? 'skills/'}</code> or{' '}
+        <code className="font-mono text-[12.5px]">~/.claude/skills</code>; a project's{' '}
+        <code className="font-mono text-[12.5px]">.claude/skills</code> apply to its chats.
+      </Heading>
+      {!data ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> Loading skills…
+        </div>
+      ) : data.skills.length === 0 ? (
+        <Empty icon={<GraduationCap className="size-5" />} title="No skills yet">
+          Put a skill folder in one of the places above and it appears here.
+        </Empty>
+      ) : (
+        <Card>
+          {data.skills.map((s) => (
+            <Row key={s.name}>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[13.5px] font-medium">{s.name}</span>
+                    <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
+                      {SKILL_SOURCES[s.source]}
+                    </Pill>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{s.description}</p>
+                  <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={s.dir}>
+                    {s.dir}
+                  </p>
+                </div>
+                <Switch
+                  checked={s.enabled}
+                  label={`Agents can use ${s.name}`}
+                  onChange={(enabled) =>
+                    void send('PUT', `/api/skills/${s.name}`, { enabled })
+                      .then(load)
+                      .catch((err: Error) => toast(err.message, 'error'))
+                  }
+                />
+              </div>
+            </Row>
+          ))}
+        </Card>
+      )}
     </>
   )
 }

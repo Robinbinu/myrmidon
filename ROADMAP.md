@@ -133,8 +133,9 @@ run hit a real conflict (two peers fixed the same file) that the worker resolved
 
 ## Milestone 4: Agent harness
 
-Status: 1 (memory across chats: agents propose, the person keeps; Settings → Memory) and 2 (self-made tools)
-done; the rest open.
+Status: 1 (memory across chats: agents propose, the person keeps; Settings → Memory), 2 (self-made tools) and 3
+(skills: Agent Skills format from Myrmidon's folder, ~/.claude/skills and the project; harness docs stay in
+read_docs) done; the rest open.
 
 1. **Memory across chats.**
    - Per-user preferences and decisions, with provenance and an editor in Settings.

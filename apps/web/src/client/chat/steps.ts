@@ -192,6 +192,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         })
         break
       }
+      case 'skill/used': {
+        const p = e.payload as EventPayloads['skill/used']
+        out.push({
+          ...base,
+          kind: 'search',
+          agent: p.agent,
+          lead: p.file ? `Read ${p.file} from skill` : 'Used skill',
+          strong: p.name,
+        })
+        break
+      }
       case 'memory/proposed': {
         const p = e.payload as EventPayloads['memory/proposed']
         out.push({

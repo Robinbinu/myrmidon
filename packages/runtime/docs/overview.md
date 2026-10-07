@@ -16,13 +16,13 @@ with an independent judge, and shows everything live in the chat.
    - In **swarm** mode there is never a lead: solo work goes to the whole swarm, and a direct answer is
      given by one peer.
    - If the request is too ambiguous to start, Myrmidon asks a question first and waits.
-2. **The round.** A round is one colony: agents, a shared board, notes, a task graph, versioned files
-   ("artifacts"), and an append-only event log. Nothing is ever edited in place.
+2. **The round.** A chat runs in one colony: agents, a shared board, notes, a task graph, versioned files
+   ("artifacts"), and an append-only event log. Nothing is ever edited in place. Each request is a round of it.
 3. **Finishing.** The agent that speaks for the colony sends the final answer with `reply_user(final: true)`.
    Verification then runs automatically. A round is *completed* only when the judge accepts it; otherwise the
    findings come back and the colony fixes them.
 4. **Follow-ups.** A message sent while a round runs goes straight to the colony. A message after a round ends
-   starts a new round that inherits the files, the plan, and the conversation.
+   starts the colony's next round: the files, notes, and each agent's own conversation carry on.
 
 ## What agents can do
 
@@ -34,6 +34,10 @@ with an independent judge, and shows everything live in the chat.
 - Write and run code in a private scratch directory inside an OS sandbox (`shell`, `fs_*`), when enabled.
 - Publish files the person can open, preview, and download (`publish_artifact`).
 - Coordinate through tasks, notes, the board, and direct mail.
+- Follow the person's skills: playbooks in the Agent Skills format (a SKILL.md plus scripts and references),
+  listed by name and description; `use_skill` loads one when a task matches.
+- Load more tools when needed (`find_tools`): the browser, dev servers, tool making, MCP and made tools stay out of
+  your context until loaded.
 
 ## What agents cannot do
 

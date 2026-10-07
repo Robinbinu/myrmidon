@@ -174,6 +174,12 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'skill/used',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({ agent: str(), name: str(), file: Schema.string() }),
+  },
+  {
     type: 'memory/decided',
     version: 1,
     actors: ['user'],

@@ -33,6 +33,7 @@ import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
+import type { SkillLibrary } from './skills.ts'
 import type { ColonySpec } from './spec.ts'
 import { guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
@@ -83,6 +84,8 @@ export interface RunOptions {
   readonly browser?: BrowserHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
+  /** Skills agents can load by name (use_skill). */
+  readonly skills?: SkillLibrary
 }
 
 const QUIET_NUDGES = 2
@@ -389,6 +392,24 @@ export class ColonyRun implements ColonyHost {
 
   projectDiff(): Promise<string | undefined> {
     return this.options.projectDiff?.() ?? Promise.resolve(undefined)
+  }
+
+  skills(): { name: string; description: string }[] {
+    return (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
+      .filter((s) => s.enabled)
+      .map((s) => ({ name: s.name, description: s.description }))
+  }
+
+  async useSkill(agent: string, name: string, file?: string): Promise<string> {
+    const library = this.options.skills
+    if (!library) throw new Error('no skills are installed')
+    const text = library.read(name, this.spec.chat?.project?.path, file)
+    await this.append({
+      type: 'skill/used',
+      actor: agentActor(agent),
+      payload: { agent, name, ...(file ? { file } : {}) },
+    })
+    return text
   }
 
   loadTools(agent: string, query: string): string {

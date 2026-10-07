@@ -13,7 +13,7 @@ const LOOK = [
   'read_log',
 ]
 const WEB = ['web_search', 'web_fetch']
-const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs']
+const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill']
 const TALK = ['post', 'append_note', 'send_mail']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
@@ -76,6 +76,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'list_artifacts',
         'read_artifact',
         'read_docs',
+        'use_skill',
         'mcp',
         ...USER,
         ...escalation,
@@ -334,6 +335,8 @@ export interface Environment {
   readonly project?: ProjectContext
   /** The agent's own git worktree of the project, when it has one. */
   readonly worktree?: { workdir: string; branch: string }
+  /** Skills the agent can load by name. */
+  readonly skills?: readonly { name: string; description: string }[]
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -380,6 +383,16 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
   else if (permissions?.mode === 'ask')
     lines.push(
       `Permissions: the person approves each change to ${project?.name}'s files and each shell command${permissions.allow.length ? ` (except commands starting with ${permissions.allow.map((a) => `\`${a}\``).join(', ')})` : ''}. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
+    )
+  if (env.skills?.length && tools.includes('use_skill'))
+    lines.push(
+      `Skills: the person's playbooks for kinds of task. When a task matches one, load it with use_skill before you start and follow it.\n${env.skills
+        .slice(0, 40)
+        .map(
+          (s) =>
+            `- ${s.name}: ${s.description.length > 220 ? `${s.description.slice(0, 217)}…` : s.description}`,
+        )
+        .join('\n')}`,
     )
   if (tools.includes('find_tools')) {
     const ready = new Set(preloaded(spec.chat?.request ?? spec.mission, tools))

@@ -89,6 +89,10 @@ export interface ColonyHost {
    * worktree). Throws, with what to do, when they conflict.
    */
   mergeWork(agent: string): Promise<string[]>
+  /** The skills agents may use in this colony (enabled ones, including its project's). */
+  skills(): { name: string; description: string }[]
+  /** A skill's instructions, or one of its files, for an agent (use_skill). */
+  useSkill(agent: string, name: string, file?: string): Promise<string>
   /** Loads an agent's on-demand tools matching `query` (find_tools); says what it loaded. */
   loadTools(agent: string, query: string): string
   /** Brings the project folder's current state into an agent's worktree; the files it changed there. */

@@ -134,6 +134,8 @@ export interface EventPayloads {
     why: string
   }
   'memory/decided': { id: string; kept: boolean }
+  /** An agent loaded a skill's instructions, or one of its bundled files. */
+  'skill/used': { agent: string; name: string; file?: string }
   /** The round's agent found the request bigger than its tier: the chat reruns it at `to`, with this round's work. */
   'colony/escalated': { by: string; to: 'solo' | 'team'; reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }

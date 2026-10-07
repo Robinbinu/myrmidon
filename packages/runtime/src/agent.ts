@@ -92,6 +92,7 @@ export class ColonyAgent {
           boundary: host.boundary,
           ...(host.project ? { project: host.project } : {}),
           ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
+          skills: host.skills(),
         }),
         model: resolved.model,
         tools,

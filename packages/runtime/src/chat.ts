@@ -23,6 +23,7 @@ import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
 import type { ProjectStore } from './projects.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
 
@@ -246,6 +247,8 @@ export class ChatService {
       browser?: BrowserHub
       /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
       memory?: MemoryStore
+      /** Skills agents load by name when a task matches. */
+      skills?: SkillLibrary
       /** Project folders chats can work in. */
       projects?: ProjectStore
     },
@@ -385,6 +388,7 @@ export class ChatService {
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
       // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
       ...(latest ? { resumeId: latest.id as ColonyId } : {}),
@@ -670,6 +674,7 @@ export class ChatService {
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.skills ? { skills: this.options.skills } : {}),
     })
     this._live.set(chatId, run)
     try {
