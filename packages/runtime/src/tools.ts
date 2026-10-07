@@ -314,6 +314,7 @@ const UNTRUSTED = new Set([
   'request_login',
   'browser_tabs',
   'browser_upload',
+  'browser_extract',
   'web_search',
   'web_fetch',
   'browser_open',
@@ -1272,6 +1273,103 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       )
       if (changed) await keyframe(host, agent, tab, 'open')
       return `Tabs:\n${list.join('\n')}${changed ? `\n\n${await pageSnapshot(tab)}` : ''}`
+    },
+  },
+  {
+    name: 'browser_extract',
+    tier: 'read',
+    description:
+      'Pull structured data out of the current page as JSON, straight from the DOM: faster, cheaper and more exact ' +
+      'than reading a long snapshot. `tables`: every table (or those under `selector`) as rows keyed by header. ' +
+      '`links`: link text and URLs. `items`: one object per element matching `selector` (a repeating card or row), ' +
+      'with `fields` mapping names to CSS selectors inside it ("css", "css@attr" for an attribute, "" for the item ' +
+      'itself), e.g. selector ".product", fields {"name": "h2", "price": ".price", "url": "a@href"}. Large results ' +
+      'are saved to your scratch directory and only an excerpt is returned.',
+    parameters: type({
+      what: type("'tables' | 'links' | 'items'"),
+      'selector?': type('string').describe('CSS selector to look under (tables, links) or for each item'),
+      'fields?': type('string').describe('For items: JSON object of name -> "css" or "css@attr"'),
+      'limit?': type('number').describe('Most rows/links/items (default 200)'),
+    }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const limit = Math.min(Math.max(1, args.limit ?? 200), 2000)
+      let fields: Record<string, string> = {}
+      if (args.what === 'items') {
+        if (!args.selector) throw new Error('items needs a selector for the repeating element')
+        try {
+          fields = JSON.parse(args.fields ?? '{}') as Record<string, string>
+        } catch {
+          throw new Error('fields must be a JSON object, e.g. {"name": "h2", "url": "a@href"}')
+        }
+        if (Object.keys(fields).length === 0) throw new Error('items needs fields to extract')
+      }
+      const data = await tab.page.evaluate(
+        (what, selector, fields, limit) => {
+          const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
+          const roots = selector ? [...document.querySelectorAll(selector)] : [document.body]
+          if (what === 'links') {
+            const out: { text: string; href: string }[] = []
+            for (const root of roots)
+              for (const a of root.querySelectorAll('a[href]')) {
+                if (out.length >= limit) break
+                out.push({ text: text(a), href: (a as HTMLAnchorElement).href })
+              }
+            return out
+          }
+          if (what === 'tables') {
+            const tables = roots.flatMap((r) => (r.matches('table') ? [r] : [...r.querySelectorAll('table')]))
+            return tables.slice(0, 20).map((t) => {
+              const rows = [...t.querySelectorAll('tr')]
+              const head = rows.find((r) => r.querySelector('th')) ?? rows[0]
+              const headers = [...(head?.children ?? [])].map((c, i) => text(c) || `col${i + 1}`)
+              const body = rows.filter((r) => r !== head)
+              return {
+                caption: text(t.querySelector('caption')),
+                headers,
+                rows: body
+                  .slice(0, limit)
+                  .map((r) =>
+                    Object.fromEntries([...r.children].map((c, i) => [headers[i] ?? `col${i + 1}`, text(c)])),
+                  ),
+              }
+            })
+          }
+          return roots.slice(0, limit).map((item) =>
+            Object.fromEntries(
+              Object.entries(fields).map(([name, spec]) => {
+                const [css = '', attr] = spec.split('@')
+                const el = css ? item.querySelector(css) : item
+                if (!el) return [name, null]
+                if (!attr) return [name, text(el)]
+                // href and src come back absolute, the way a person would copy them.
+                const value =
+                  attr === 'href' || attr === 'src'
+                    ? (((el as unknown as Record<string, unknown>)[attr] as string | undefined) ??
+                      el.getAttribute(attr))
+                    : el.getAttribute(attr)
+                return [name, value]
+              }),
+            ),
+          )
+        },
+        args.what,
+        args.selector ?? '',
+        fields,
+        limit,
+      )
+      const json = JSON.stringify(data, null, 2)
+      const count = Array.isArray(data) ? data.length : 0
+      const head = `${count} ${args.what === 'tables' ? `table${count === 1 ? '' : 's'}` : args.what === 'links' ? 'links' : 'items'} from ${tab.page.url()}`
+      if (count === 0)
+        return `${head}. Nothing matched; check the selector against a browser_snapshot or browser_eval.`
+      if (json.length <= PAGE_EXCERPT) return `${head}:\n${json}`
+      const name = `extract/${pageFileName(tab.page.url())}-${args.what}.json`
+      const path = host.workspace.resolveInScratch(agent, name)
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, json)
+      const where = host.workspace.project ? path : name
+      return `${head} (${json.length} chars; all of it is saved as ${where}):\n${json.slice(0, PAGE_EXCERPT)}\n…`
     },
   },
   {

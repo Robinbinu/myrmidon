@@ -20,6 +20,7 @@ const BROWSER = [
   'request_login',
   'browser_tabs',
   'browser_downloads',
+  'browser_extract',
   'browser_upload',
   'browser_snapshot',
   'browser_click',

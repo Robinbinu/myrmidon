@@ -702,6 +702,77 @@ test('plan mode presents the plan for approval before any work, and thinking can
   expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')
 })
 
+test.skipIf(!findChrome())('browser_extract reads tables, links and repeating items as JSON', async () => {
+  const html = `<title>Shop</title>
+    <table><caption>Plans</caption><tr><th>Plan</th><th>Price</th></tr><tr><td>Free</td><td>$0</td></tr><tr><td>Pro</td><td>$12</td></tr></table>
+    <div class="product"><h2>Lamp</h2><span class="price">$30</span><a href="/lamp">see</a></div>
+    <div class="product"><h2>Desk</h2><span class="price">$250</span><a href="/desk">see</a></div>`
+  const site = Bun.serve({
+    port: 0,
+    fetch: () => new Response(html, { headers: { 'content-type': 'text/html' } }),
+  })
+  const base = `http://localhost:${site.port}`
+  const browser = new BrowserHub(join(home, 'browser'))
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/extractor', [
+    [tool('browser_open', { url: `${base}/` })],
+    [
+      tool('browser_extract', { what: 'tables' }),
+      tool('browser_extract', {
+        what: 'items',
+        selector: '.product',
+        fields: '{"name":"h2","price":".price","url":"a@href"}',
+      }),
+      tool('browser_extract', { what: 'links', selector: '.product' }),
+      tool('browser_extract', { what: 'items', selector: '.nothing', fields: '{"x":"b"}' }),
+    ],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+  const { colonyId } = await chats.send('Read the shop', {
+    ...solo('mock/extractor'),
+    judgeModel: 'mock/judge',
+  })
+  await waitFor(colonyId)
+  const log = await events(colonyId)
+  const args = new Map(
+    log
+      .filter((e) => e.type === 'tool/call')
+      .map((e) => {
+        const p = e.payload as EventPayloads['tool/call']
+        return [p.callId, JSON.stringify(p.args)] as const
+      }),
+  )
+  const out = (what: string) =>
+    log
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .find((r) => r.tool === 'browser_extract' && args.get(r.callId)?.includes(what))?.output ?? ''
+  const json = (text: string) => JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1))
+  expect(json(out('"tables"'))).toEqual([
+    {
+      caption: 'Plans',
+      headers: ['Plan', 'Price'],
+      rows: [
+        { Plan: 'Free', Price: '$0' },
+        { Plan: 'Pro', Price: '$12' },
+      ],
+    },
+  ])
+  expect(json(out('.product","fields'))).toEqual([
+    { name: 'Lamp', price: '$30', url: `${base}/lamp` },
+    { name: 'Desk', price: '$250', url: `${base}/desk` },
+  ])
+  expect(json(out('"links"'))).toEqual([
+    { text: 'see', href: `${base}/lamp` },
+    { text: 'see', href: `${base}/desk` },
+  ])
+  expect(out('.nothing')).toContain('Nothing matched')
+  await browser.close()
+  site.stop(true)
+})
+
 test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   const site = Bun.serve({
     port: 0,
