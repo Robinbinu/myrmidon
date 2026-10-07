@@ -20,7 +20,7 @@ import {
   SYSTEM,
   type TaskSnapshot,
 } from '@myrmidon/protocol'
-import { ColonyAgent } from './agent.ts'
+import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
@@ -522,14 +522,22 @@ export class ColonyRun implements ColonyHost {
     if (this._state.status === 'running') this._wake(agent, text, 'person')
   }
 
-  async modelFailed(agent: string, model: string, error: { kind: 'refusal' | 'error'; message: string }) {
+  async modelFailed(agent: string, model: string, error: ModelError) {
     if (this._state.status !== 'running') return
     await this.append({
       type: 'agent/error',
       actor: SYSTEM,
-      payload: { agent, model, kind: error.kind, message: error.message.slice(0, 2_000) },
+      payload: {
+        agent,
+        model,
+        kind: error.kind,
+        message: error.message.slice(0, 2_000),
+        ...(error.tokens !== undefined ? { tokens: error.tokens } : {}),
+        ...(error.window !== undefined ? { window: error.window } : {}),
+      },
     })
-    await this.stop(`model ${error.kind === 'refusal' ? 'refused' : 'failed'}: ${agent} on ${model}`)
+    const what = { refusal: 'refused', overflow: 'ran out of context', error: 'failed' }[error.kind]
+    await this.stop(`model ${what}: ${agent} on ${model}`)
   }
 
   setTodos(agent: string, items: readonly TodoItem[]) {

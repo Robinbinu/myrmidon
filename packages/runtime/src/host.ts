@@ -1,6 +1,7 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
 import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
@@ -37,11 +38,7 @@ export interface ColonyHost {
   /** An agent's tool batch has finished (all calls in one model response have results). */
   batchEnded(agent: string): void
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
-  modelFailed(
-    agent: string,
-    model: string,
-    error: { kind: 'refusal' | 'error'; message: string },
-  ): Promise<void>
+  modelFailed(agent: string, model: string, error: ModelError): Promise<void>
   /** An agent's working checklist (update_todo), kept in view and checked when it stops. */
   setTodos(agent: string, items: readonly TodoItem[]): void
   /** A swarm's opening huddle: peers are proposing how to split the work, and nobody may start it yet. */

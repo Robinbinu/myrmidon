@@ -124,7 +124,14 @@ const defs: EventTypeDefinition[] = [
     type: 'agent/error',
     version: 1,
     actors: ['system'],
-    schema: Schema.object({ agent: str(), model: str(), kind: oneOf('refusal', 'error'), message: str() }),
+    schema: Schema.object({
+      agent: str(),
+      model: str(),
+      kind: oneOf('refusal', 'overflow', 'error'),
+      message: str(),
+      tokens: Schema.number(),
+      window: Schema.number(),
+    }),
   },
   {
     type: 'agent/dismissed',

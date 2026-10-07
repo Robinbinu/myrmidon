@@ -1299,6 +1299,48 @@ test('a transient model error is retried quietly and never enters the context', 
   expect(seen[1]).not.toContain('Overloaded')
 }, 20_000)
 
+test('a context the provider calls too long is folded and retried once, then pauses with the sizes', async () => {
+  const resolver = new ModelResolver()
+  const seen: string[] = []
+  const tight = createMockModel({
+    contextWindow: 8_000,
+    handler: (ctx: LlmContext) => {
+      const text = JSON.stringify(ctx.messages)
+      seen.push(text)
+      if (/summar/i.test(JSON.stringify(ctx.systemPrompt ?? ''))) return { content: ['Wrote notes.md.'] }
+      if (seen.length === 1)
+        return { content: [tool('fs_write', { path: 'notes.md', content: 'x'.repeat(12_000) })] }
+      if (!text.includes('Summary of your earlier work'))
+        return { stopReason: 'error', errorMessage: 'prompt is too long: 9000 tokens > 8000 maximum' }
+      return { content: [tool('reply_user', { text: 'Done after folding.', final: true })] }
+    },
+  })
+  resolver.register('mock/tight', { model: tight.model, streamFn: tight.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('Write the notes', {
+    ...solo('mock/tight'),
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.modelError).toBeUndefined()
+  expect((await events(colonyId)).some((e) => e.type === 'agent/compacted')).toBe(true)
+
+  // With nothing left to fold, the round pauses and says how big the conversation is against the window.
+  const stuck = createMockModel({
+    contextWindow: 8_000,
+    handler: () => ({ stopReason: 'error', errorMessage: 'prompt is too long: 9000 tokens > 8000 maximum' }),
+  })
+  resolver.register('mock/stuck', { model: stuck.model, streamFn: stuck.stream })
+  const second = await chats.send('Answer me', { ...solo('mock/stuck'), judgeModel: 'mock/judge' })
+  const paused = await waitFor(second.colonyId)
+  expect(paused.status).toBe('stopped')
+  expect(paused.statusReason).toContain('ran out of context')
+  expect(paused.modelError).toMatchObject({ agent: 'lead', kind: 'overflow', window: 8_000 })
+  expect(paused.modelError?.tokens).toBeGreaterThan(0)
+})
+
 test('a chat in a project works in that folder, follow-ups stay in it, and a round can be rewound', async () => {
   const { ProjectStore } = await import('../src/projects.ts')
   const { Checkpoints } = await import('../src/checkpoints.ts')

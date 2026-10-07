@@ -174,7 +174,15 @@ export interface EventPayloads {
     height: number
   }
   /** An agent's model refused or failed; the round pauses so the person can continue with another model. */
-  'agent/error': { agent: string; model: string; kind: 'refusal' | 'error'; message: string }
+  'agent/error': {
+    agent: string
+    model: string
+    kind: 'refusal' | 'overflow' | 'error'
+    message: string
+    /** For an overflow: the conversation's estimated size and the model's window, in tokens. */
+    tokens?: number
+    window?: number
+  }
   /** The lead let a worker go: it stops now and is not brought into later rounds of the chat. */
   'agent/dismissed': { agent: string; by: string; reason: string }
   'approval/requested': ApprovalRequest

@@ -84,3 +84,68 @@ test('a context near the window is summarized, keeping recent messages and tool 
   expect(passes).toHaveLength(2)
   expect(passes[1]?.previous).toBe('summary #1')
 })
+
+function history(turns: number, lastContext: number): AgentMessage[] {
+  const messages: AgentMessage[] = [text('user', 'build it')]
+  for (let i = 0; i < turns; i++) messages.push(call(`c${i}`), result(`c${i}`))
+  messages.push(text('assistant', 'working', lastContext))
+  return messages
+}
+
+test('a small window keeps a recent part and a summary that fit it, even with the default settings', async () => {
+  const small = createMockModel({ contextWindow: 8_192 }).model
+  const reserves: number[] = []
+  const compactor = new ContextCompactor({
+    model: () => small,
+    apiKey: async () => undefined,
+    onCompacted: () => {},
+    summarize: async (_messages, _m, reserve) => {
+      reserves.push(reserve)
+      return 'summary'
+    },
+  })
+  // Far more than 20k tokens of history, the default recent part, arriving at an 8k model.
+  const messages = history(250, 125_000)
+  const view = await compactor.transform(messages)
+  expect(reserves).toHaveLength(1)
+  // The summary's budget comes from the 8k window, not the 16k default reserve.
+  expect(reserves[0]).toBeLessThan(8_192 / 4)
+  const kept = Math.ceil(JSON.stringify(view.slice(1)).length / 4)
+  expect(kept).toBeLessThan(8_192 / 2)
+})
+
+test('the largest-window model the agent has used writes the summary, falling back when it fails', async () => {
+  let current = createMockModel({ id: 'big', contextWindow: 200_000 }).model
+  const big = current
+  const used: number[] = []
+  let failBig = false
+  const compactor = new ContextCompactor({
+    model: () => current,
+    apiKey: async () => undefined,
+    onCompacted: () => {},
+    settings: { enabled: true, strategy: 'context-full', keepRecentTokens: 300 },
+    summarize: async (_messages, m) => {
+      if (failBig && m === big) throw new Error('key revoked')
+      used.push(m.contextWindow ?? 0)
+      return 'summary'
+    },
+  })
+  await compactor.transform(history(2, 500))
+  current = createMockModel({ id: 'small', contextWindow: 4_000 }).model
+  await compactor.transform(history(12, 3_900))
+  expect(used).toEqual([200_000])
+
+  failBig = true
+  const next = history(24, 3_950)
+  await compactor.transform(next)
+  expect(used).toEqual([200_000, 4_000])
+})
+
+test('after a provider overflow the next call folds what it can; with nothing left to fold it says so', async () => {
+  const { compactor, passes } = setup()
+  const messages = history(6, 1_000)
+  expect(compactor.overflowed(messages)).toBe(true)
+  await compactor.transform(messages)
+  expect(passes).toHaveLength(1)
+  expect(compactor.overflowed([text('user', 'hello')])).toBe(false)
+})

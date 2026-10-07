@@ -8,7 +8,8 @@ import {
   type AgentState,
   type StreamFn,
 } from '@oh-my-pi/pi-agent-core'
-import { type AssistantMessage, streamSimple } from '@oh-my-pi/pi-ai'
+import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
+import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { ContextCompactor } from './compaction.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import type { ModelResolver } from './models.ts'
@@ -49,6 +50,8 @@ export class ColonyAgent {
   private _stream?: StreamFn
   private readonly _compactor = new ContextCompactor({
     model: () => this._agent.state.model,
+    summarizers: () => this._earlierModels(),
+    stream: (m) => (m === this._agent.state.model ? this._stream : undefined),
     apiKey: (m) => this.resolver.apiKey(m),
     onCompacted: (info) =>
       void this.host.append({
@@ -250,15 +253,49 @@ export class ColonyAgent {
     })
   }
 
+  /** Models the conversation so far was written with, other than the current one, that can still be called. */
+  private _earlierModels(): Model[] {
+    const current = this._agent.state.model
+    const refs = new Set<string>()
+    for (const m of this._agent.state.messages)
+      if (m.role === 'assistant' && (m.provider !== current.provider || m.model !== current.id))
+        refs.add(`${m.provider}/${m.model}`)
+    return [...refs].flatMap((ref) => {
+      try {
+        const resolved = this.resolver.resolve(ref)
+        return resolved.streamFn ? [] : [resolved.model]
+      } catch {
+        return []
+      }
+    })
+  }
+
   /**
    * A failed model reply never stays in the agent's context: it is removed, and the turn either continues after a
-   * short wait (transient failures) or stops so the person can choose another model. Returns true if it stopped.
+   * short wait (transient failures), continues once more after folding the context (the provider said it was too
+   * long), or stops so the person can choose another model. Returns true if it stopped.
    */
   private async _recover(): Promise<boolean> {
+    let compacted = false
     for (let attempt = 0; ; attempt++) {
       const last = this._agent.state.messages.at(-1) as AssistantMessage | undefined
       if (last?.role !== 'assistant' || last.stopReason !== 'error' || this._stopped) return false
       this._agent.popMessage()
+      const model = this._agent.state.model
+      if (isContextOverflow(last, model.contextWindow ?? undefined)) {
+        if (!compacted && this._compactor.overflowed(this._agent.state.messages)) {
+          compacted = true
+          await this._agent.continue()
+          continue
+        }
+        await this.host.modelFailed(this.name, this.spec.model, {
+          kind: 'overflow',
+          message: last.errorMessage?.trim() || 'the conversation is too long for this model',
+          tokens: this._compactor.size(this._agent.state.messages),
+          ...(model.contextWindow ? { window: model.contextWindow } : {}),
+        })
+        return true
+      }
       const error = classifyModelError(last)
       if (error.transient && attempt < MODEL_RETRIES) {
         await Bun.sleep(2_000 * 2 ** attempt)
@@ -475,10 +512,16 @@ export function compactTranscript(messages: readonly AgentMessage[], keepTurns =
 }
 
 export interface ModelError {
-  /** A refusal is the model declining (a policy filter); `error` is anything else that went wrong. */
-  readonly kind: 'refusal' | 'error'
+  /**
+   * A refusal is the model declining (a policy filter); `overflow` is a conversation too long for the model's window
+   * even after folding it; `error` is anything else that went wrong.
+   */
+  readonly kind: 'refusal' | 'overflow' | 'error'
   readonly message: string
   readonly transient?: boolean
+  /** For an overflow: the conversation's estimated size and the model's window, in tokens. */
+  readonly tokens?: number
+  readonly window?: number
 }
 
 const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
