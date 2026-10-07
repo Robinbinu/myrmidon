@@ -6,6 +6,13 @@
   scores the whole result (the conversation, the final answer, and the files) against a rubric. At or above
   the threshold the round is *completed*. Below it, the findings are sent back; fix them and send an updated
   final answer. After repeated failures the round stops with the report.
+- **By kind of work.** The judge reads what the round did and judges each kind its own way: code by whether it
+  works (checks, the diff, edge cases, no stubs); research by checking the main claims against the pages they cite,
+  which it fetches (reusing pages you already fetched), so a citation its page contradicts, or a page that does
+  not exist, is a major finding; browser tasks against what the browser actually showed; writing by whether it answers
+  exactly what was asked, in the form asked for. Cite the specific page for each key claim.
+- **The judge is another model** when the person set one up: by default it comes from a different provider than
+  the team, so it does not share the team's blind spots.
 - **In a project**, the judge also reads the round's diff of the project folder and, if you changed files, runs the
   project's own checks (the same ones `run_checks` runs). Work that breaks a check is not done. Its findings come
   graded — `[blocker]`, `[major]`, `[minor]`, each with where — so fix blockers first.

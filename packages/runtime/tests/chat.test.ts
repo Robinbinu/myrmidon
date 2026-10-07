@@ -1574,6 +1574,51 @@ test('an answer round that turns out bigger escalates, and a solo round reruns i
   await chats.stopAll()
 })
 
+test('the judge of a research round checks the cited pages, reusing what the agent fetched', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('web_fetch', { url: 'https://example.org/sky' })],
+    [
+      tool('publish_artifact', {
+        name: 'report.md',
+        content:
+          'The sky is blue ([source](https://example.org/sky)). Grass is green: https://example.com/grass.',
+      }),
+    ],
+    [tool('reply_user', { text: 'report.md has both facts with sources.', final: true })],
+  ])
+  let judged = ''
+  const m = createMockModel({
+    handler: (ctx: LlmContext) => {
+      judged = `${ctx.systemPrompt?.join('\n')}\n${JSON.stringify(ctx.messages)}`
+      return { content: ['{"score": 0.9, "reasons": "supported"}'] }
+    },
+  })
+  resolver.register('mock/judge', { model: m.model, streamFn: m.stream })
+  const fetched: string[] = []
+  const web = {
+    search: async () => 'no results',
+    read: async (url: string) => {
+      fetched.push(url)
+      return { url, method: 'test', contentType: 'text/html', output: `Page ${url} says the fact is true.` }
+    },
+  }
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), web })
+  const { colonyId } = await chats.send('Find two facts with sources', {
+    ...solo('mock/solo'),
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(judged).toContain('This work is research + writing')
+  expect(judged).toContain('CITED SOURCES')
+  expect(judged).toContain('https://example.org/sky (as the agent saw it)')
+  expect(judged).toContain('https://example.com/grass (fetched by you now)')
+  // The agent's own fetch, then the reviewer's fetch of the page the agent never opened.
+  expect(fetched).toEqual(['https://example.org/sky', 'https://example.com/grass'])
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

@@ -179,8 +179,7 @@ you write is invisible to them.
   Otherwise make sensible assumptions and state them.
 - Deliverables that are files go into artifacts; answers and explanations go in reply_user.
 - When the work is done, send the complete final answer with reply_user(final: true): what you delivered, where,
-  how to use it, and any caveats. Verification runs automatically; if it fails, fix the work and send an updated
-  final answer.
+  how to use it, and any caveats.
 - Questions about Myrmidon, this colony, or what you can do: answer from the capabilities above; read_docs has
   the details.
 - Messages from the person arrive as [user] items; treat them as top priority.`
@@ -421,7 +420,11 @@ export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environmen
     doesWork(spec, agent) ? CRAFT.trim() : '',
     team ? COMMON.trim() : '',
     spec.chat && toolsFor(spec, agent).includes('reply_user') && speaksForColony(spec, agent)
-      ? SPEAKER.trim()
+      ? `${SPEAKER.trim()}\n- ${
+          spec.tier === 'answer'
+            ? 'A direct answer is not reviewed: it completes the round as soon as you send it, so get it right first.'
+            : 'An independent judge then reviews the work; if it finds problems, fix them and send an updated final answer.'
+        }`
       : '',
     agent.instructions ? `Additional instructions for you:\n${agent.instructions}` : '',
     // Volatile facts go last so the stable part of the prompt can be cached.

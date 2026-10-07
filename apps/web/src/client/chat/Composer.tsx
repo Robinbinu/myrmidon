@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { type ModelOption, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
+import { type ModelOption, providerOf, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { cn, spring } from '../ui/primitives.tsx'
 import { buildMenu, CommandMenu, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
@@ -120,6 +120,12 @@ export function TeamSettings(props: {
     set({ mode, roster })
   }
   const unused = SPECIALISTS.filter((r) => !config.roster.some((x) => x.role === r))
+  const judging = providerOf(config.judgeModel)
+  // Only worth saying when another provider is actually available to pick.
+  const sameJudge =
+    [swarm ? undefined : config.leadModel, ...config.roster.map((r) => r.model)].some(
+      (m) => m && providerOf(m) === judging,
+    ) && props.models.some((m) => !m.hidden && m.provider !== judging)
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -165,6 +171,12 @@ export function TeamSettings(props: {
           onChange={(judgeModel) => set({ judgeModel })}
         />
       </div>
+      {sameJudge && (
+        <p className="-mt-2 text-[11.5px] leading-snug text-muted">
+          The judge uses the same provider as the team. One from another provider catches more of its blind
+          spots.
+        </p>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
