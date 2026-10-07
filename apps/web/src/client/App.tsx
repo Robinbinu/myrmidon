@@ -506,7 +506,7 @@ export function App() {
                 onClick={() => setMobileNav(false)}
               />
               <motion.div
-                className="absolute inset-y-0 left-0 shadow-pop"
+                className="absolute inset-y-0 left-0 bg-bg shadow-pop"
                 initial={{ x: -280 }}
                 animate={{ x: 0 }}
                 exit={{ x: -280 }}
