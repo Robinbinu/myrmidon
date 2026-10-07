@@ -17,7 +17,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { Button, cn, Segmented, Select, Switch, spring } from '../ui/primitives.tsx'
-import { ModelPicker } from './ModelPicker.tsx'
+import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
   'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
@@ -451,6 +451,8 @@ export function HelpersEditor(props: {
               label={swarm ? `Peer ${i + 1}` : r.role || 'Helper'}
               value={r.model}
               models={props.models}
+              minWindow={AGENT_MIN_WINDOW}
+              minReason={`Under ${windowLabel(AGENT_MIN_WINDOW)}: too small for a helper's tools`}
               onChange={(model) => setRow(i, { model })}
             />
             <button

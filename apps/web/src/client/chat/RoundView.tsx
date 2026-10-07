@@ -43,7 +43,7 @@ import { AgentSheet } from './AgentSheet.tsx'
 import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
-import { ModelPicker } from './ModelPicker.tsx'
+import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
@@ -579,6 +579,126 @@ function RunCard(props: {
   )
 }
 
+/**
+ * A model that stopped the round: what happened in plain words, the provider's own message tucked away, and the way
+ * forward. A conversation too long for the model only offers models it fits in, and no retry that cannot work.
+ */
+function ModelFailure(props: {
+  failed: NonNullable<ColonyState['modelError']>
+  models: ModelOption[]
+  retry: boolean
+  onResume(model?: string): Promise<void>
+}) {
+  const { failed, models } = props
+  const [resuming, setResuming] = useState<'same' | 'other'>()
+  const [nextModel, setNextModel] = useState('')
+  const name = (ref: string) => models.find((m) => m.ref === ref)?.name ?? ref
+  const overflow = failed.kind === 'overflow'
+  // Room for the conversation as it is, plus a quarter to keep working in.
+  const needed = overflow && failed.tokens ? Math.ceil(failed.tokens * 1.25) : undefined
+  const fits = (m: ModelOption) => m.ref !== failed.model && (!needed || (m.contextWindow ?? 0) >= needed)
+  const usable = models.filter((m) => !m.hidden)
+  const suggested = needed
+    ? usable.filter(fits).sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0))[0]
+    : usable.find(fits)
+  const pick = nextModel || suggested?.ref || ''
+  // Folding again only helps a model with room for the agent's own instructions and tools.
+  const canRetry = !overflow || (failed.window ?? 0) >= AGENT_MIN_WINDOW
+  const title = overflow
+    ? `Too long for ${name(failed.model)}`
+    : failed.kind === 'refusal'
+      ? `${name(failed.model)} declined to continue`
+      : `${name(failed.model)} couldn't answer`
+  const explain = overflow
+    ? failed.tokens && failed.window && failed.tokens < failed.window
+      ? `${name(failed.model)} turned down about ${windowLabel(failed.tokens)} tokens, though its window is listed as ${windowLabel(failed.window)}. Its real window is probably smaller: correct it in Settings → Models, or continue on another model.`
+      : failed.tokens && failed.window
+        ? `This conversation is about ${windowLabel(failed.tokens)} tokens, and ${name(failed.model)} holds ${windowLabel(failed.window)}, even after older messages were summarized. Continue on a model with a bigger window.`
+        : `The conversation no longer fits ${name(failed.model)}'s context window, even after older messages were summarized.`
+    : failed.kind === 'refusal'
+      ? "The provider's safety filter stopped this reply. Another model can pick up from here."
+      : 'The provider returned an error. Another model can pick up from here, or try again.'
+  const go = (which: 'same' | 'other') => {
+    setResuming(which)
+    void props.onResume(which === 'other' ? pick : undefined).finally(() => setResuming(undefined))
+  }
+  return (
+    <motion.div
+      {...enter}
+      role="alert"
+      className="flex flex-col gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-soft"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-warn-soft text-warn">
+          <TriangleAlert className="size-3.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-semibold text-fg">
+            {title}
+            <span className="font-normal text-muted"> · {failed.agent}</span>
+          </div>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{explain}</p>
+          <details className="group mt-1.5">
+            <summary className="cursor-default list-none text-[12px] text-muted hover:text-fg-2">
+              <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
+              Provider message
+            </summary>
+            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-[11.5px] text-fg-2">
+              {failed.message}
+            </pre>
+          </details>
+        </div>
+      </div>
+      {props.retry && (
+        <div className="flex flex-wrap items-center gap-2 pl-10">
+          <div className="min-w-0 max-w-[260px] flex-1">
+            <ModelPicker
+              variant="chip"
+              label="Continue with"
+              value={pick}
+              models={models}
+              onChange={setNextModel}
+              placement="up"
+              {...(needed
+                ? {
+                    minWindow: needed,
+                    minReason: `Under ${windowLabel(needed)}: this conversation won't fit`,
+                  }
+                : {})}
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={!pick || resuming !== undefined}
+            onClick={() => go('other')}
+            icon={
+              resuming === 'other' ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Play className="size-3.5" />
+              )
+            }
+          >
+            {resuming === 'other' ? 'Continuing…' : 'Continue'}
+          </Button>
+          {canRetry && (
+            <Button size="sm" variant="ghost" disabled={resuming !== undefined} onClick={() => go('same')}>
+              {resuming === 'same' ? 'Retrying…' : overflow ? 'Summarize and retry' : 'Try again'}
+            </Button>
+          )}
+          {!pick && needed && (
+            <span className="text-[12px] text-muted">
+              No model with {windowLabel(needed)} or more is set up. Add one in Settings → Models.
+            </span>
+          )}
+        </div>
+      )}
+      <p className="pl-10 text-[12px] text-muted">The work so far is kept; the failed reply is not.</p>
+    </motion.div>
+  )
+}
+
 /** Live elapsed time on the run card, as an LED readout. */
 function Elapsed({ ms }: { ms: number }) {
   const s = Math.floor(ms / 1000)
@@ -601,7 +721,6 @@ function Outcome({
 }) {
   const [resuming, setResuming] = useState(false)
   const failed = state.status === 'stopped' ? state.modelError : undefined
-  const [nextModel, setNextModel] = useState('')
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
   const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
@@ -629,57 +748,8 @@ function Outcome({
       </div>
     )
   }
-  if (failed) {
-    const pick = nextModel || models.find((m) => m.ref !== failed.model)?.ref || ''
-    const name = (ref: string) => models.find((m) => m.ref === ref)?.name ?? ref
-    return (
-      <motion.div {...enter} className={cn(box, 'flex-col border-bad/25 bg-bad-soft')} role="alert">
-        <div className="flex items-start gap-3 text-bad">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold">
-              {failed.kind === 'refusal' ? `${name(failed.model)} refused` : `${name(failed.model)} failed`}
-              <span className="font-normal text-fg-2"> · {failed.agent}</span>
-            </div>
-            <p className="mt-1 whitespace-pre-wrap break-words text-[12.5px] text-fg-2">{failed.message}</p>
-            <p className="mt-1 text-[12px] text-muted">
-              The work so far is kept, and the failed reply is not shown to the next model.
-            </p>
-          </div>
-        </div>
-        {retry !== 'hidden' && (
-          <div className="flex flex-wrap items-end gap-2 pl-7">
-            <div className="min-w-[220px] flex-1">
-              <ModelPicker
-                label="Continue with"
-                value={pick}
-                models={models}
-                onChange={setNextModel}
-                placement="up"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={!pick || resuming}
-              onClick={() => {
-                setResuming(true)
-                void onResume(pick).finally(() => setResuming(false))
-              }}
-              icon={
-                resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />
-              }
-            >
-              {resuming ? 'Continuing…' : `Continue with ${name(pick)}`}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={resuming} onClick={() => void onResume()}>
-              Retry same model
-            </Button>
-          </div>
-        )}
-      </motion.div>
-    )
-  }
+  if (failed)
+    return <ModelFailure failed={failed} models={models} retry={retry !== 'hidden'} onResume={onResume} />
   if (state.escalated) {
     return (
       <motion.div

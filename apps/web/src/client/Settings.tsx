@@ -41,6 +41,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ModelOption, send, type TeamConfig } from './api.ts'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
+import { AGENT_MIN_WINDOW, windowLabel } from './chat/ModelPicker.tsx'
 import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
 import {
   Button,
@@ -103,7 +104,7 @@ export interface ServerSettings {
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
   search: { provider: string }
-  models: { hidden: string[]; hiddenProviders: string[] }
+  models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** Per-tool rules: `ask` before every call, or `off`; unlisted tools are allowed. */
   permissions: Record<string, 'ask' | 'off'>
 }
@@ -659,6 +660,18 @@ function ModelsSection(props: {
                             </div>
                           )}
                         </div>
+                        <WindowField
+                          model={m}
+                          set={props.settings.models.windows?.[m.ref]}
+                          onSet={(tokens) =>
+                            props.update((s) => {
+                              const windows = { ...s.models.windows }
+                              if (tokens) windows[m.ref] = tokens
+                              else delete windows[m.ref]
+                              return { ...s, models: { ...s.models, windows } }
+                            }, true)
+                          }
+                        />
                         <Button
                           size="sm"
                           variant="ghost"
@@ -687,6 +700,78 @@ function ModelsSection(props: {
         })}
       </div>
     </>
+  )
+}
+
+const WINDOW_SOURCES = {
+  set: 'set by you',
+  provider: 'from the provider',
+  catalog: 'from models.dev',
+  name: "from the model's name",
+} as const
+
+/**
+ * A model's context window, editable in thousands of tokens. Most come from the provider or models.dev; a model with
+ * no source shows a guess, which is worth correcting here so long chats are summarized in time.
+ */
+function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: number): void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const field = useRef<HTMLInputElement>(null)
+  // Opening the editor selects the value, so typing replaces it.
+  useEffect(() => {
+    if (editing) field.current?.select()
+  }, [editing])
+  const tokens = props.set ?? props.model.contextWindow
+  const source = props.set ? 'set' : props.model.windowSource
+  const commit = () => {
+    setEditing(false)
+    const text = draft.trim().toLowerCase()
+    if (!text) return props.onSet(undefined)
+    const m = /^(\d+(?:\.\d+)?)\s*([km])?$/.exec(text.replace(/,/g, ''))
+    if (!m) return
+    const n = Number(m[1])
+    // People think in K and M; a bare number of 1024 or more is taken as tokens.
+    const value = m[2] === 'm' ? n * 1_000_000 : m[2] === 'k' || n < 1024 ? n * 1000 : n
+    if (value >= 1024) props.onSet(Math.round(value))
+  }
+  if (editing)
+    return (
+      <input
+        ref={field}
+        value={draft}
+        placeholder="e.g. 32k"
+        aria-label={`Context window of ${props.model.name}`}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        className="h-7 w-20 rounded-md border border-line-strong bg-control px-2 text-right font-mono text-[12px] outline-none focus:ring-2 focus:ring-accent-soft"
+      />
+    )
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(tokens ? windowLabel(tokens).toLowerCase() : '')
+        setEditing(true)
+      }}
+      title={
+        tokens
+          ? `${tokens.toLocaleString()} tokens of context, ${source ? WINDOW_SOURCES[source] : 'a guess'}. Click to change; clear it to go back to automatic.`
+          : 'Context window unknown. Click to set it.'
+      }
+      className={cn(
+        'h-7 min-w-14 rounded-md px-2 text-right font-mono text-[12px] tabular-nums transition-colors hover:bg-fill',
+        tokens && tokens < AGENT_MIN_WINDOW ? 'text-warn' : 'text-fg-2',
+        source === 'set' && 'font-semibold',
+      )}
+    >
+      {tokens ? windowLabel(tokens) : '—'}
+      {tokens && !source ? '?' : ''}
+    </button>
   )
 }
 

@@ -5,6 +5,25 @@ import type { ModelOption } from '../api.ts'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn, spring } from '../ui/primitives.tsx'
 
+/**
+ * Below this many tokens a model cannot hold an agent's instructions and tools with room left to work: a lead's first
+ * request is 9–12k tokens, a helper's up to 26k.
+ */
+export const AGENT_MIN_WINDOW = 32_000
+
+/** A context window the way people say it: 8K, 200K, 1M. */
+export function windowLabel(tokens: number): string {
+  return tokens >= 1_000_000 ? `${+(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}K`
+}
+
+function windowHint(m: ModelOption): string {
+  if (!m.contextWindow) return 'Context window unknown'
+  const size = `${m.contextWindow.toLocaleString()} tokens of context`
+  if (!m.windowSource) return `${size}, a guess: set the real size in Settings → Models`
+  if (m.contextWindow < AGENT_MIN_WINDOW) return `${size}: too small for agent work, fine for short chats`
+  return size
+}
+
 /** Searchable model selector grouped by provider, with arrow-key navigation. */
 export function ModelPicker(props: {
   label: string
@@ -19,6 +38,9 @@ export function ModelPicker(props: {
    * `chip` a glass pill with the model's mark, for the composer toolbar.
    */
   variant?: 'field' | 'compact' | 'chip'
+  /** Models with a smaller known window can't be chosen here; `minReason` says why. */
+  minWindow?: number
+  minReason?: string
 }) {
   const variant = props.variant ?? 'field'
   const [open, setOpen] = useState(false)
@@ -53,7 +75,11 @@ export function ModelPicker(props: {
     return [...byProvider]
   }, [hits])
 
+  const tooSmall = (m: ModelOption) =>
+    props.minWindow !== undefined && m.contextWindow !== undefined && m.contextWindow < props.minWindow
   const choose = (ref: string) => {
+    const m = props.models.find((x) => x.ref === ref)
+    if (m && tooSmall(m)) return
     props.onChange(ref)
     setOpen(false)
     setQuery('')
@@ -186,39 +212,61 @@ export function ModelPicker(props: {
                     <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>
-                  {items.map(({ m, i }) => (
-                    <button
-                      key={m.ref}
-                      type="button"
-                      role="option"
-                      aria-selected={m.ref === props.value}
-                      data-active={i === active}
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => choose(m.ref)}
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                        i === active && 'bg-surface-2',
-                        m.ref === props.value && 'text-accent-fg',
-                      )}
-                    >
-                      <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-[13px] font-medium">{m.name}</span>
-                        <span className="truncate font-mono text-[11px] text-muted">{m.id}</span>
-                      </span>
-                      {m.reasoning && (
-                        <span title="Supports extended thinking" className="text-muted">
-                          <Brain className="size-3.5" />
+                  {items.map(({ m, i }) => {
+                    const blocked = tooSmall(m)
+                    const small = m.contextWindow !== undefined && m.contextWindow < AGENT_MIN_WINDOW
+                    return (
+                      <button
+                        key={m.ref}
+                        type="button"
+                        role="option"
+                        aria-selected={m.ref === props.value}
+                        aria-disabled={blocked}
+                        title={blocked ? props.minReason : undefined}
+                        data-active={i === active}
+                        onMouseEnter={() => setActive(i)}
+                        onClick={() => choose(m.ref)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          i === active && !blocked && 'bg-surface-2',
+                          m.ref === props.value && 'text-accent-fg',
+                          (small || blocked) && 'opacity-60',
+                          blocked && 'cursor-not-allowed',
+                        )}
+                      >
+                        <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-[13px] font-medium">{m.name}</span>
+                          <span className="truncate font-mono text-[11px] text-muted">
+                            {blocked ? props.minReason : small ? 'Too small for agent work' : m.id}
+                          </span>
                         </span>
-                      )}
-                      {m.source && m.source !== 'omp' && (
-                        <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
-                          {m.source === 'custom' ? 'custom' : 'key'}
-                        </span>
-                      )}
-                      {m.ref === props.value && <Check className="size-4 shrink-0" />}
-                    </button>
-                  ))}
+                        {m.contextWindow !== undefined && (
+                          <span
+                            title={windowHint(m)}
+                            className={cn(
+                              'shrink-0 font-mono text-[11px] tabular-nums',
+                              small ? 'text-warn' : 'text-muted',
+                            )}
+                          >
+                            {windowLabel(m.contextWindow)}
+                            {!m.windowSource && '?'}
+                          </span>
+                        )}
+                        {m.reasoning && (
+                          <span title="Supports extended thinking" className="text-muted">
+                            <Brain className="size-3.5" />
+                          </span>
+                        )}
+                        {m.source && m.source !== 'omp' && (
+                          <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
+                            {m.source === 'custom' ? 'custom' : 'key'}
+                          </span>
+                        )}
+                        {m.ref === props.value && <Check className="size-4 shrink-0" />}
+                      </button>
+                    )
+                  })}
                 </div>
               ))}
             </div>

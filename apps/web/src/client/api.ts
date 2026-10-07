@@ -138,6 +138,8 @@ export interface ModelOption {
   name: string
   reasoning: boolean
   contextWindow?: number
+  /** Where `contextWindow` came from: set by the person, the provider, models.dev, or the model's name; absent for a guess. */
+  windowSource?: 'set' | 'provider' | 'catalog' | 'name'
   source?: 'omp' | 'custom' | 'key'
   hidden?: boolean
 }
