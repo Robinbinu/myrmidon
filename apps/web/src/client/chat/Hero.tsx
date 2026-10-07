@@ -325,7 +325,7 @@ export function Hero(props: {
                 setPetted(false)
               }}
               aria-label="Poke the colony"
-              className="block cursor-pointer rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
+              className="block rounded-[36px] bg-screen p-6 pb-4 shadow-pop ring-1 ring-white/[0.06] outline-offset-4"
             >
               <PixelFace
                 mood={emotion.mood}

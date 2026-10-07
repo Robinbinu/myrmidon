@@ -138,7 +138,7 @@ export function AgentSheet(props: {
               )}
               {thought.thinking?.trim() && (
                 <details className="mt-2 text-[12.5px] text-muted">
-                  <summary className="cursor-pointer">Reasoning</summary>
+                  <summary>Reasoning</summary>
                   <p className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap">
                     {thought.thinking.trim()}
                   </p>

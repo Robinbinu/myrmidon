@@ -6,7 +6,7 @@ const INLINE =
   /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^\]\n]+\]\([^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
 const LINK =
-  'font-medium text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
+  'font-medium text-accent-fg underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
 
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = []
@@ -239,5 +239,9 @@ export function Markdown({ text }: { text: string }) {
       </p>,
     )
   }
-  return <div className="break-words text-[15px] leading-[1.7] text-fg [&>*:first-child]:mt-0">{blocks}</div>
+  return (
+    <div className="select-text break-words text-[14px] leading-[1.65] text-fg [&>*:first-child]:mt-0">
+      {blocks}
+    </div>
+  )
 }

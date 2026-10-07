@@ -311,7 +311,7 @@ function UserMessage(props: {
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-[15px] leading-[1.6] text-on-bubble shadow-soft">
+      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-[14px] leading-[1.6] text-on-bubble shadow-soft">
         {props.text}
       </div>
       {props.attachments?.length ? (
@@ -592,7 +592,7 @@ function RunCard(props: {
                 <button
                   type="button"
                   onClick={() => setShowAll(!showAll)}
-                  className="self-start text-[12.5px] font-medium text-accent hover:underline"
+                  className="self-start text-[12.5px] font-medium text-accent-fg hover:underline"
                 >
                   {showAll ? 'Show fewer steps' : `Show all ${steps.length} steps`}
                 </button>
@@ -653,7 +653,7 @@ function Outcome({
           </div>
           {judge && (
             <details className="mt-1 text-fg-2">
-              <summary className="cursor-pointer text-[12.5px]">Why it passed</summary>
+              <summary className="text-[12.5px]">Why it passed</summary>
               <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
                 {judge.evidence}
               </pre>
@@ -716,7 +716,11 @@ function Outcome({
   }
   if (state.escalated) {
     return (
-      <motion.div {...enter} className={cn(box, 'border-accent/25 bg-accent-soft text-accent')} role="status">
+      <motion.div
+        {...enter}
+        className={cn(box, 'border-accent/25 bg-accent-soft text-accent-fg')}
+        role="status"
+      >
         <ArrowUpRight className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0">
           <div className="font-semibold">
@@ -731,7 +735,11 @@ function Outcome({
   }
   if (state.status === 'stopped' && state.statusReason === AWAITING) {
     return (
-      <motion.div {...enter} className={cn(box, 'border-accent/25 bg-accent-soft text-accent')} role="status">
+      <motion.div
+        {...enter}
+        className={cn(box, 'border-accent/25 bg-accent-soft text-accent-fg')}
+        role="status"
+      >
         <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
         <div>
           <div className="font-semibold">Waiting for your reply</div>
@@ -753,7 +761,7 @@ function Outcome({
           </div>
           {last && !last.pass && (
             <details className="mt-1 text-fg-2">
-              <summary className="cursor-pointer text-[12.5px]">Last verification</summary>
+              <summary className="text-[12.5px]">Last verification</summary>
               <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
                 {last.evidence}
               </pre>
@@ -802,7 +810,7 @@ function Outcome({
         <span className="font-semibold">Judge asked for changes</span>
         <span className="text-[12.5px]"> · the colony is fixing them</span>
         <details className="mt-1 text-fg-2">
-          <summary className="cursor-pointer text-[12.5px]">Feedback</summary>
+          <summary className="text-[12.5px]">Feedback</summary>
           <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
             {last.evidence}
           </pre>

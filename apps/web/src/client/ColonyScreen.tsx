@@ -150,7 +150,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           agent: 'you',
           kind: 'event',
           icon: MessageSquare,
-          tone: 'text-accent',
+          tone: 'text-accent-fg',
           text: 'message from you',
           body: p.text,
         })
@@ -162,7 +162,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: MessageSquare,
-          tone: 'text-accent',
+          tone: 'text-accent-fg',
           text: p.final ? 'final answer to you' : 'replied to you',
           body: p.text,
         })
@@ -185,7 +185,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           kind: 'event',
           icon: FileCode,
-          tone: 'text-accent',
+          tone: 'text-accent-fg',
           text: `published ${p.name} v${p.version} (${compact(p.size)}B)`,
         })
         break
@@ -578,7 +578,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
             <button
               type="button"
               onClick={() => setMore(!more)}
-              className="mt-1 text-[12px] font-medium text-accent hover:underline"
+              className="mt-1 text-[12px] font-medium text-accent-fg hover:underline"
             >
               {more ? 'Show less' : 'Show more'}
             </button>
@@ -587,7 +587,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
       )}
       {item.thinking && (
         <details className="mt-1.5">
-          <summary className="cursor-pointer text-[12px] text-muted">Thinking</summary>
+          <summary className="text-[12px] text-muted">Thinking</summary>
           <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-[12px] text-muted">
             {item.thinking}
           </pre>
@@ -681,7 +681,7 @@ function Kanban({ state }: { state: ColonyState }) {
                     <p className="mt-1 line-clamp-3 text-[12px] text-muted">{t.description}</p>
                   )}
                   {t.artifacts.length > 0 && (
-                    <p className="mt-1.5 truncate font-mono text-[11px] text-accent">
+                    <p className="mt-1.5 truncate font-mono text-[11px] text-accent-fg">
                       {t.artifacts.join(', ')}
                     </p>
                   )}
@@ -711,7 +711,7 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
               onClick={() => onOpen(name)}
               className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
             >
-              <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-accent">
+              <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-accent-fg">
                 <FileCode className="size-4" />
               </span>
               <span className="min-w-0 flex-1">

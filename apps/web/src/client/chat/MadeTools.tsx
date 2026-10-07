@@ -30,7 +30,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
   return (
     <div className="rounded-xl border border-line bg-surface">
       <div className="flex items-start gap-3 px-3 py-2.5">
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
           <Wrench className="size-4" />
         </span>
         <div className="min-w-0 flex-1">

@@ -20,6 +20,14 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-text);
+  --color-focus: var(--focus);
+  --color-control: var(--control);
+  --color-control-hover: var(--control-hover);
+  --color-control-active: var(--control-active);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-row-selected: var(--row-selected);
   --color-on-accent: var(--on-accent);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
@@ -48,23 +56,49 @@
   #root {
     height: 100%;
   }
+  /* The window never scrolls or bounces as a whole; panes scroll on their own. */
+  html,
   body {
-    background: var(--bg);
-    color: var(--text);
+    overscroll-behavior: none;
+    overflow: hidden;
+  }
+  body {
+    background: var(--window);
+    color: var(--label);
     font-family: var(--font);
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: 13px;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "ss01", "ss02";
     letter-spacing: -0.006em;
+    /* App chrome is not text to select, and only links get the hand cursor. */
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
   }
-  button:not(:disabled),
-  [role="button"] {
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""],
+  pre,
+  code,
+  samp {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  a[href] {
     cursor: pointer;
   }
+  img,
+  a {
+    -webkit-user-drag: none;
+  }
   :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   /* Motion that loops or pulses stops for people who asked for less motion; spinners still turn slowly. */
@@ -81,15 +115,48 @@
   ::selection {
     background: color-mix(in srgb, var(--signal) 32%, transparent);
   }
+  /* Scrollbars stay out of the way until a pane is hovered, as macOS overlay scrollbars do. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--surface-3) transparent;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--fill-strong) transparent;
+  }
+  [data-window-active="false"] ::selection {
+    background: color-mix(in srgb, var(--label-3) 25%, transparent);
   }
 }
 
+/* Materials: translucent layers for navigation chrome only. */
+@utility material-sidebar {
+  background: var(--material-sidebar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+@utility material-toolbar {
+  background: var(--material-toolbar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+@utility material-menu {
+  background: var(--material-menu);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.12),
+    var(--shadow-lg);
+}
 @utility glass {
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
+  background: var(--material-toolbar);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+
+/* Window chrome the desktop shell can drag by; controls inside opt out. */
+@utility drag-region {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 @utility brand-gradient {

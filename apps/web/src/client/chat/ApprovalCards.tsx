@@ -97,7 +97,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3"
         >
           <div className="flex items-center gap-2 text-[13.5px]">
-            <KeyRound className="size-4 shrink-0 text-accent" />
+            <KeyRound className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{l.agent}</span> needs you to sign in to{' '}
               <span className="font-semibold">{l.site}</span>
@@ -159,7 +159,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
         >
           <div className="flex items-center gap-2 text-[13.5px]">
-            <BookmarkPlus className="size-4 shrink-0 text-accent" />
+            <BookmarkPlus className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{m.agent}</span> wants to remember
               {m.project ? ' for this project' : ' in every chat'}

@@ -149,7 +149,7 @@ export function ProjectPill(props: {
   const current = props.projects.find((p) => p.id === props.value)
   return (
     <label
-      className={`${pill} relative cursor-pointer transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
+      className={`${pill} relative transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
       title={current ? current.path : 'Work in a project folder'}
     >
       <Folder className="size-3.5 shrink-0" />
@@ -162,7 +162,7 @@ export function ProjectPill(props: {
           if (e.target.value === ADD) props.onAdd()
           else props.onChange(e.target.value || undefined)
         }}
-        className="absolute inset-0 cursor-pointer opacity-0"
+        className="absolute inset-0 opacity-0"
       >
         <option value="">No project (scratch only)</option>
         {props.projects.map((p) => (

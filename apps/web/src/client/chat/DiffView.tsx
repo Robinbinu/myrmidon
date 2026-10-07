@@ -17,7 +17,7 @@ export const STATUS: Record<string, { label: string; className: string; title: s
   A: { label: 'A', className: 'text-ok', title: 'Added' },
   M: { label: 'M', className: 'text-warn', title: 'Modified' },
   D: { label: 'D', className: 'text-bad', title: 'Deleted' },
-  R: { label: 'R', className: 'text-accent', title: 'Renamed' },
+  R: { label: 'R', className: 'text-accent-fg', title: 'Renamed' },
   '?': { label: 'U', className: 'text-ok', title: 'Untracked' },
 }
 

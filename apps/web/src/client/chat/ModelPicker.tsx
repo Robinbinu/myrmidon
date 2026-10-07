@@ -151,7 +151,7 @@ export function ModelPicker(props: {
                       className={cn(
                         'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
                         i === active && 'bg-surface-2',
-                        m.ref === props.value && 'text-accent',
+                        m.ref === props.value && 'text-accent-fg',
                       )}
                     >
                       <span className="flex min-w-0 flex-1 flex-col">
@@ -164,7 +164,7 @@ export function ModelPicker(props: {
                         </span>
                       )}
                       {m.source && m.source !== 'omp' && (
-                        <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent">
+                        <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
                           {m.source === 'custom' ? 'custom' : 'key'}
                         </span>
                       )}

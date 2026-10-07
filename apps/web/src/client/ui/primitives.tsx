@@ -24,7 +24,7 @@ const VARIANTS: Record<Variant, string> = {
   ghost: 'text-fg-2 hover:bg-surface-2 hover:text-fg',
   danger: 'text-bad border border-bad/30 hover:bg-bad-soft',
   destructive: 'bg-bad text-white shadow-soft hover:brightness-110',
-  soft: 'bg-accent-soft text-accent hover:brightness-110',
+  soft: 'bg-accent-soft text-accent-fg hover:brightness-110',
 }
 
 export const Button = forwardRef<
@@ -65,7 +65,7 @@ export const IconButton = forwardRef<
       className={cn(
         'inline-grid shrink-0 place-items-center rounded-lg transition-colors duration-150 active:scale-95 disabled:opacity-40',
         size === 'sm' ? 'size-7' : 'size-9',
-        active ? 'bg-accent-soft text-accent' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+        active ? 'bg-accent-soft text-accent-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
         className,
       )}
       {...rest}
@@ -81,7 +81,7 @@ const TONES = {
   bad: 'bg-bad-soft text-bad border-bad/30',
   warn: 'bg-warn-soft text-warn border-warn/30',
   work: 'bg-work/10 text-work border-work/30',
-  accent: 'bg-accent-soft text-accent border-accent/30',
+  accent: 'bg-accent-soft text-accent-fg border-accent/30',
 } as const
 export type Tone = keyof typeof TONES
 
@@ -195,7 +195,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     // FIELD's w-full would win over w-auto in the generated CSS, so a select drops it and sizes to its options.
-    <select className={cn(FIELD.replace('w-full ', ''), 'cursor-pointer py-1.5 pr-8', className)} {...rest}>
+    <select className={cn(FIELD.replace('w-full ', ''), 'py-1.5 pr-8', className)} {...rest}>
       {children}
     </select>
   )

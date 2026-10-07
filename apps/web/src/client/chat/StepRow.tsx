@@ -18,7 +18,7 @@ import type { Step, StepKind } from './steps.ts'
 const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   search: { icon: Search, color: 'text-fg-2' },
   fetch: { icon: Globe, color: 'text-fg-2' },
-  file: { icon: FileCode, color: 'text-accent' },
+  file: { icon: FileCode, color: 'text-accent-fg' },
   task: { icon: ListChecks, color: 'text-warn' },
   team: { icon: UserPlus, color: 'text-work' },
   verdict: { icon: BadgeCheck, color: 'text-ok' },
@@ -51,7 +51,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       </span>
       {step.detail ? (
         <details className="group min-w-0 break-words pt-0.5">
-          <summary className="cursor-pointer list-none text-muted marker:hidden hover:text-fg-2">
+          <summary className="list-none text-muted marker:hidden hover:text-fg-2">
             {!hideAgent && <span>{step.agent} · </span>}
             {step.lead} <span className="italic">{step.strong}</span>
           </summary>

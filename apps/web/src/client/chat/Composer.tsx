@@ -611,7 +611,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 className={cn(
                   CHIP,
                   'min-w-0',
-                  showTeam && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent',
+                  showTeam && 'bg-accent-soft text-accent-fg hover:bg-accent-soft hover:text-accent-fg',
                 )}
               >
                 <TeamIcon className="size-3.5 shrink-0" />

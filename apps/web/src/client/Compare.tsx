@@ -322,7 +322,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
 
       {(a.finalReply || b.finalReply) && (
         <details>
-          <summary className={cn(head, 'cursor-pointer px-0')}>Final answers</summary>
+          <summary className={cn(head, 'px-0')}>Final answers</summary>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[a, b].map((r, i) => (
               <p

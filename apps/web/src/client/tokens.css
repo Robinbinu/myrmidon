@@ -1,25 +1,40 @@
 /* ============ tokens ============
-   Monochrome ink and paper: interactive elements use the text colour itself. Colour is reserved for
-   meaning: signal amber for live work (the mascot's colour), lime and green for verified, red for
-   failure, and each agent's own identity colour. Text colours (muted and the status colours) are chosen
-   to meet WCAG AA, 4.5:1, on every surface in both themes. */
+   Myrmidon in a macOS manner. Ink and paper with signal amber as the accent: amber fills primary buttons, focus and
+   the active indicator, and is never used as text except through --accent-text, which keeps AA contrast. Glass
+   materials are for the navigation layer only (sidebar, toolbars, menus, popovers, sheets); content stays opaque.
+   Text colours meet WCAG AA, 4.5:1, on every surface in both themes. */
 :root {
-  --bg: #f3f2ee;
-  --surface: #ffffff;
-  --surface-2: #f0efea;
-  --surface-3: #e5e3dc;
-  --border: #e4e2db;
-  --border-strong: #bdb9ae;
-  --text: #0b0b0d;
-  --text-2: #3b3b42;
-  --muted: #62626b;
-  --accent: #0b0b0d;
-  --accent-hover: #2b2b31;
-  --accent-soft: rgb(11 11 13 / 0.06);
-  --on-accent: #ffffff;
+  /* Surfaces */
+  --window: #f1f0ec;
+  --content: #ffffff;
+  --raised: #ffffff;
+  --control: #ffffff;
+  --control-hover: #f6f5f2;
+  --control-active: #ebeae5;
+  --fill: #f0efea;
+  --fill-strong: #e5e3dc;
+  --separator: rgb(0 0 0 / 0.09);
+  --separator-strong: rgb(0 0 0 / 0.2);
+  --material-sidebar: rgb(236 235 231 / 0.78);
+  --material-toolbar: rgb(250 250 248 / 0.8);
+  --material-menu: rgb(252 252 250 / 0.86);
+  /* Labels */
+  --label: #111113;
+  --label-2: #3b3b42;
+  --label-3: #62626b;
+  --label-4: #9a9aa2;
+  /* Accent */
+  --accent: #ffb31a;
+  --accent-hover: #ffbe3d;
+  --accent-soft: rgb(255 179 26 / 0.16);
+  --accent-text: #8a5a00;
+  --on-accent: #1a1204;
+  --focus: #b86e00;
+  --row-selected: rgb(0 0 0 / 0.08);
+  --row-selected-inactive: rgb(0 0 0 / 0.05);
+  /* Identity and status */
   --ink: #0b0b0d;
   --on-ink: #f6f6f8;
-  /* The person's own messages: ink on paper; a raised neutral in the dark, not a white slab. */
   --bubble: #0b0b0d;
   --on-bubble: #f6f6f8;
   --signal: #ffb31a;
@@ -41,33 +56,58 @@
   --shadow-sm: 0 1px 2px rgb(11 11 13 / 0.05);
   --shadow-md: 0 1px 2px rgb(11 11 13 / 0.04), 0 8px 24px -6px rgb(11 11 13 / 0.1);
   --shadow-lg: 0 2px 6px rgb(11 11 13 / 0.05), 0 28px 64px -12px rgb(11 11 13 / 0.26);
-  --scrim: rgb(11 11 13 / 0.45);
+  --scrim: rgb(11 11 13 / 0.35);
+  /* Shape, type, motion */
   --radius-sm: 6px;
   --radius: 10px;
-  --radius-lg: 16px;
-  --font: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius-lg: 14px;
+  --titlebar-inset: 0px;
+  --chevrons: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 14' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3'/%3E%3C/svg%3E");
+  --font:
+    -apple-system, BlinkMacSystemFont, "Geist Variable", "Geist", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Geist Mono Variable", "Geist Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --fast: 150ms;
-  --med: 220ms;
+  --fast: 120ms;
+  --med: 200ms;
+  /* Older names, kept until every screen uses the ones above. */
+  --bg: var(--window);
+  --surface: var(--content);
+  --surface-2: var(--fill);
+  --surface-3: var(--fill-strong);
+  --border: var(--separator);
+  --border-strong: var(--separator-strong);
+  --text: var(--label);
+  --text-2: var(--label-2);
+  --muted: var(--label-3);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #08080a;
-    --surface: #101013;
-    --surface-2: #17171b;
-    --surface-3: #222228;
-    --border: #222228;
-    --border-strong: #3a3a43;
-    --text: #f4f4f6;
-    --text-2: #c8c8d0;
-    --muted: #8f8f9a;
-    --accent: #f4f4f6;
-    --accent-hover: #ffffff;
-    --accent-soft: rgb(255 255 255 / 0.08);
-    --on-accent: #0b0b0d;
+    --window: #0b0b0e;
+    --content: #111114;
+    --raised: #18181c;
+    --control: #232328;
+    --control-hover: #2a2a30;
+    --control-active: #313138;
+    --fill: #17171b;
+    --fill-strong: #222228;
+    --separator: rgb(255 255 255 / 0.08);
+    --separator-strong: rgb(255 255 255 / 0.16);
+    --material-sidebar: rgb(22 22 26 / 0.72);
+    --material-toolbar: rgb(17 17 20 / 0.78);
+    --material-menu: rgb(30 30 35 / 0.82);
+    --label: #f4f4f6;
+    --label-2: #c8c8d0;
+    --label-3: #8f8f9a;
+    --label-4: #5c5c66;
+    --accent-hover: #ffc247;
+    --accent-soft: rgb(255 179 26 / 0.14);
+    --accent-text: #ffb31a;
+    --focus: #ffb31a;
+    --row-selected: rgb(255 255 255 / 0.09);
+    --row-selected-inactive: rgb(255 255 255 / 0.05);
     --ink: #f4f4f6;
     --on-ink: #0b0b0d;
     --bubble: #2a2a31;
@@ -89,25 +129,35 @@
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
     --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
     --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
-    --scrim: rgb(0 0 0 / 0.6);
+    --scrim: rgb(0 0 0 / 0.5);
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #08080a;
-  --surface: #101013;
-  --surface-2: #17171b;
-  --surface-3: #222228;
-  --border: #222228;
-  --border-strong: #3a3a43;
-  --text: #f4f4f6;
-  --text-2: #c8c8d0;
-  --muted: #8f8f9a;
-  --accent: #f4f4f6;
-  --accent-hover: #ffffff;
-  --accent-soft: rgb(255 255 255 / 0.08);
-  --on-accent: #0b0b0d;
+  --window: #0b0b0e;
+  --content: #111114;
+  --raised: #18181c;
+  --control: #232328;
+  --control-hover: #2a2a30;
+  --control-active: #313138;
+  --fill: #17171b;
+  --fill-strong: #222228;
+  --separator: rgb(255 255 255 / 0.08);
+  --separator-strong: rgb(255 255 255 / 0.16);
+  --material-sidebar: rgb(22 22 26 / 0.72);
+  --material-toolbar: rgb(17 17 20 / 0.78);
+  --material-menu: rgb(30 30 35 / 0.82);
+  --label: #f4f4f6;
+  --label-2: #c8c8d0;
+  --label-3: #8f8f9a;
+  --label-4: #5c5c66;
+  --accent-hover: #ffc247;
+  --accent-soft: rgb(255 179 26 / 0.14);
+  --accent-text: #ffb31a;
+  --focus: #ffb31a;
+  --row-selected: rgb(255 255 255 / 0.09);
+  --row-selected-inactive: rgb(255 255 255 / 0.05);
   --ink: #f4f4f6;
   --on-ink: #0b0b0d;
   --bubble: #2a2a31;
@@ -129,6 +179,6 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
   --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
-  --scrim: rgb(0 0 0 / 0.6);
+  --scrim: rgb(0 0 0 / 0.5);
   color-scheme: dark;
 }

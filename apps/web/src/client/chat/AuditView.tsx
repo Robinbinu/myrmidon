@@ -84,7 +84,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
             className={cn(
               'rounded-full border px-2.5 py-1 text-[12px] transition-colors',
               kind === k.value
-                ? 'border-accent/40 bg-accent-soft text-accent'
+                ? 'border-accent/40 bg-accent-soft text-accent-fg'
                 : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
             )}
           >
@@ -183,7 +183,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                           href={t.target}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-accent hover:underline"
+                          className="text-accent-fg hover:underline"
                         >
                           Open link
                         </a>

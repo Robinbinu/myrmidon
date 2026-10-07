@@ -281,7 +281,7 @@ export function Settings(props: {
               <span
                 className={cn(
                   'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                  section === s.id ? 'bg-accent-soft text-accent' : 'bg-surface-2',
+                  section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
                 )}
               >
                 <s.icon className="size-4" />
@@ -825,7 +825,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                       href={active.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 font-medium text-accent hover:underline"
+                      className="inline-flex items-center gap-1.5 font-medium text-accent-fg hover:underline"
                     >
                       <ExternalLink className="size-3.5" /> Open the sign-in page
                     </a>
@@ -905,7 +905,7 @@ function Providers(props: { data: SettingsResponse; onProviders(p: ProviderInfo[
       {props.data.ompSetup && (
         <Card className="mb-8">
           <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">

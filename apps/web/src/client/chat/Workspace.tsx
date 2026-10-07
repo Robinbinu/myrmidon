@@ -322,7 +322,7 @@ function WorkspaceBody({
                                 onClick={() => setFile(name)}
                                 className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
                               >
-                                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+                                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
                                   <Icon className="size-4" />
                                 </span>
                                 <span className="min-w-0 flex-1">
@@ -347,7 +347,7 @@ function WorkspaceBody({
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                              <summary className="flex list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
                                 Plan · {plan.agent}
                               </summary>
                               <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">

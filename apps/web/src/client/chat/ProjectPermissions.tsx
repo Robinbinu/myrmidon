@@ -86,7 +86,7 @@ export function ProjectPermissions(props: {
             <label
               key={m.value}
               className={cn(
-                'flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
+                'flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
                 mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-surface-2',
               )}
             >
@@ -99,7 +99,7 @@ export function ProjectPermissions(props: {
                 className="sr-only"
               />
               <m.icon
-                className={cn('mt-0.5 size-4 shrink-0', mode === m.value ? 'text-accent' : 'text-muted')}
+                className={cn('mt-0.5 size-4 shrink-0', mode === m.value ? 'text-accent-fg' : 'text-muted')}
               />
               <span>
                 <span className="block text-[13.5px] font-medium">{m.label}</span>

@@ -204,7 +204,7 @@ function Highlight({ text, at }: { text: string; at?: readonly number[] }) {
         <span
           // biome-ignore lint/suspicious/noArrayIndexKey: one span per character of a fixed string
           key={i}
-          className={hit.has(i) ? 'text-accent' : undefined}
+          className={hit.has(i) ? 'text-accent-fg' : undefined}
         >
           {ch}
         </span>
@@ -235,7 +235,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
     >
       {command && Icon && (
         <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-[12.5px]">
-          <span className="grid size-6 place-items-center rounded-md bg-accent-soft text-accent">
+          <span className="grid size-6 place-items-center rounded-md bg-accent-soft text-accent-fg">
             <Icon className="size-3.5" />
           </span>
           <span className="font-mono font-medium">/{command.name}</span>
@@ -278,13 +278,13 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   <span
                     className={cn(
                       'grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                      active && !it.disabled ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-fg-2',
+                      active && !it.disabled ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2 text-fg-2',
                     )}
                   >
                     <ItemIcon className="size-4" />
                   </span>
                 ) : (
-                  <span className="grid size-5 shrink-0 place-items-center text-accent">
+                  <span className="grid size-5 shrink-0 place-items-center text-accent-fg">
                     {it.current && <Check className="size-4" />}
                   </span>
                 )}
