@@ -1,10 +1,6 @@
 <div align="center">
 
-<img src="apps/web/src/client/icon.svg" width="96" height="96" alt="Myrmidon">
-
-# Myrmidon
-
-**One chat. A whole crew of AI agents behind it.**
+<img src="docs/assets/banner.svg" alt="Myrmidon: one chat, a whole crew of AI agents behind it" width="100%">
 
 Myrmidon is a local-first, open-source agent harness. You talk to one lead; it answers, codes, browses, or brings
 in a crew of specialists when the job is big. Every step is logged, sandboxed, and reviewable.
@@ -16,6 +12,13 @@ in a crew of specialists when the job is big. Every step is logged, sandboxed, a
 
 [Quick start](#quick-start) · [How it works](#how-it-works) · [Features](#features) · [Architecture](#architecture) ·
 [Roadmap](ROADMAP.md) · [Contributing](#contributing)
+
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/home-light.png">
+  <img src="docs/assets/home-dark.png" alt="Myrmidon's home screen: a dot-matrix mascot, crew cursors, and a composer with model, thinking, reviewer and helper controls" width="100%">
+</picture>
 
 </div>
 
@@ -107,6 +110,25 @@ flowchart LR
 
 The agent-facing docs in [`packages/runtime/docs`](packages/runtime/docs) describe the same rules the agents read at
 runtime.
+
+### See a crew at work
+
+A lead plans a snake game, a coder and a tester build it in parallel, and the reviewer scores the result.
+
+<img src="docs/assets/chat-dark.png" alt="A finished crew round in the chat: the lead's final answer, the reviewer's score, the files, and the task list with the plan" width="100%">
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/crew-dark.png" alt="Crew console: agents with their models and token counts, a live activity feed of every tool call, and a replay scrubber"></td>
+    <td width="50%"><img src="docs/assets/preview-dark.png" alt="A published file previewed in a sandbox: the snake game the crew built, running"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Crew console</b>: every tool call, task and verdict, with replay</sub></td>
+    <td align="center"><sub><b>Artifacts</b>: published files open in a sandboxed preview</sub></td>
+  </tr>
+</table>
+
+<sub>Screens from a demo run with scripted models, so the steps are reproducible.</sub>
 
 ## Features
 
