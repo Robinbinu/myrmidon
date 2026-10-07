@@ -320,7 +320,7 @@ export function PixelFace(props: {
           height={cell}
           rx={r}
           style={{
-            fill: on ? `oklch(from ${props.color} min(l, var(--screen-max-l, 1)) c h)` : 'var(--screen-cell)',
+            fill: on ? props.color : 'var(--screen-cell)',
             transition: 'fill 180ms ease-out',
           }}
         />,
@@ -334,7 +334,11 @@ export function PixelFace(props: {
       viewBox={`0 0 ${w} ${h}`}
       className={props.className}
       style={
-        props.glow ? { filter: `drop-shadow(0 0 ${Math.min(cell * 1.4, 18)}px ${props.color}66)` } : undefined
+        props.glow
+          ? {
+              filter: `drop-shadow(0 0 ${Math.min(cell * 1.4, 18)}px ${props.color}66)`,
+            }
+          : undefined
       }
       aria-hidden
     >

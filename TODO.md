@@ -33,6 +33,11 @@ Requests queued while other work is in progress. Top of each section is next.
       tool making, MCP and made tools stay out of model calls until find_tools loads them or the request plainly
       needs them; ~5.5k → ~2.8k tokens of tool definitions per call. Serving colony tools over MCP (so outside
       harnesses can join) is open for later.
+- [ ] **Model providers cannot be removed** (reported 2026-10-07) — removing a provider in Settings → Models does not
+      work; reproduce and fix.
+- [ ] **Respect each model's context window; redesign the model-error card** (reported 2026-10-07) — switching a long
+      chat's lead to Apple's on-device model (8K window) sent its whole 125K-token history and failed; the error card
+      shows the raw provider message and offers a retry that cannot help.
 - [ ] **Talk to one lead; helpers appear only when needed** (asked 2026-10-07) — sending a message should feel like
       talking to a single lead agent. Simple tasks stay with that one agent; for bigger ones the lead brings in more
       agents as the work calls for it. Drop "picking the right team" and anything that puts workers in the person's face

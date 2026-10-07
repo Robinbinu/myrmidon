@@ -51,13 +51,15 @@
   --code-bg: #f5f5f7;
   --add: #e6f6ec;
   --del: #fdecec;
-  /* The mascot's dot screen: a light panel in light mode; lit dots keep their hue and colour but no more
-     lightness than --screen-max-l, so pale mood colours still read on it. */
-  --screen: #e8e8ed;
-  --screen-cell: rgb(0 0 0 / 0.07);
-  --screen-ink: rgb(0 0 0 / 0.42);
-  --screen-edge: rgb(0 0 0 / 0.07);
-  --screen-max-l: 0.7;
+  /* The mascot's dot screen stays a dark display in both themes, so its pixels glow; in light mode it sits in a
+     white bezel, like Apple hardware on a light page, instead of a bare black slab. */
+  --screen: #0b0b0d;
+  --screen-cell: rgb(255 255 255 / 0.055);
+  --screen-ink: rgb(255 255 255 / 0.4);
+  --screen-edge: rgb(255 255 255 / 0.06);
+  --screen-frame:
+    0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
+    0 24px 48px -12px rgb(0 0 0 / 0.22), 0 8px 16px -8px rgb(0 0 0 / 0.12);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
   --shadow-md: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.05), 0 28px 64px -12px rgb(0 0 0 / 0.24);
@@ -133,7 +135,7 @@
     --screen-cell: rgb(255 255 255 / 0.05);
     --screen-ink: rgb(255 255 255 / 0.4);
     --screen-edge: rgb(255 255 255 / 0.06);
-    --screen-max-l: 1;
+    --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
     --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
     --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
@@ -186,7 +188,7 @@
   --screen-cell: rgb(255 255 255 / 0.05);
   --screen-ink: rgb(255 255 255 / 0.4);
   --screen-edge: rgb(255 255 255 / 0.06);
-  --screen-max-l: 1;
+  --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --shadow-md: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px -8px rgb(0 0 0 / 0.6);
   --shadow-lg: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 30px 70px -10px rgb(0 0 0 / 0.75);
