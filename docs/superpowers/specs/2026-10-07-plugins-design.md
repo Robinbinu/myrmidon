@@ -1,7 +1,7 @@
 # Plugins — Design Spec
 
 - **Date:** 2026-10-07
-- **Status:** Approved; phases 1-2 built ("Protect + plugins": the person asked for a spec before building; the source guard was
+- **Status:** Approved; phases 1-3 built ("Protect + plugins": the person asked for a spec before building; the source guard was
   dropped because Myrmidon will ship compiled)
 - **Scope:** how Myrmidon is extended without changing its own code, and how agents add features as plugins
 

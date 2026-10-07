@@ -41,6 +41,7 @@ import {
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
 import { Logins } from './logins.ts'
+import { buildPluginUI, uiStamp } from './plugin-ui.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -196,6 +197,7 @@ export function startServer(options: ServeOptions): WebServer {
       return {
         ...p,
         ...(p.server && options.pluginHost ? { status: options.pluginHost.status(p.name) } : {}),
+        ...(p.ui ? { uiStamp: uiStamp(p) } : {}),
         values: Object.fromEntries(
           Object.entries(values).map(([k, v]) => [k, p.settings[k]?.secret ? (v ? '••••' : '') : v]),
         ),
@@ -565,6 +567,17 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/plugins/:name/ui.js': guard(async (req) => {
+        const plugin = options.plugins?.list().find((p) => p.name === req.params.name && p.enabled)
+        if (!plugin?.ui) return json({ error: 'no such plugin UI' }, 404)
+        try {
+          return new Response(await buildPluginUI(plugin), {
+            headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' },
+          })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
       '/api/plugins/:name/settings': {
         PUT: guard(async (req) => {
           if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)

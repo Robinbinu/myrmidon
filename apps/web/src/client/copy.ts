@@ -547,6 +547,10 @@ export const copy = {
     skippedAnswer: '(skipped: use your judgment)',
   },
 
+  pluginSlot: {
+    failed: (plugin: string, error: string) => `The ${plugin} plugin failed here: ${error}`,
+  },
+
   roundChanges: {
     checking: (project: string) => `Checking changes in ${project}…`,
     /** "Rewound <project> to before this round", split around the project name. */

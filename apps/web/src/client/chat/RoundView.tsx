@@ -29,6 +29,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, duration, useCopy } from '../ui/hooks.ts'
 import {
   AgentAvatar,
@@ -208,6 +209,7 @@ export function RoundView(props: {
         </>
       )}
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
+      <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
       {solo && (
         <LeadActivity
           state={state}
@@ -579,6 +581,36 @@ function LeadActivity(props: {
         )}
       </AnimatePresence>
     </motion.div>
+  )
+}
+
+/** Plugins' cards for the events they put in this round's log (ctx.events.emit), in the order they came. */
+function PluginCards(props: {
+  events: readonly MyrEvent[]
+  state: ColonyState
+  onAnswer(text: string): void
+}) {
+  const cards = usePluginSlots('chat.card')
+  if (cards.length === 0) return null
+  const byPlugin = new Map(cards.map((c) => [c.plugin, c.def]))
+  return (
+    <>
+      {props.events.flatMap((e) => {
+        if (e.type !== 'plugin/event') return []
+        const p = e.payload as EventPayloads['plugin/event']
+        const def = byPlugin.get(p.plugin)
+        if (!def) return []
+        return [
+          <motion.div key={e.id} {...enter} className="pl-11">
+            <PluginSlot
+              plugin={p.plugin}
+              def={def}
+              props={{ event: { type: p.type, data: p.data }, state: props.state, send: props.onAnswer }}
+            />
+          </motion.div>,
+        ]
+      })}
+    </>
   )
 }
 

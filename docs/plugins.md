@@ -14,6 +14,7 @@ my-plugin/
   .mcp.json                    MCP servers (Claude Code format)
   myrmidon.json                Myrmidon only: { "server": "server/index.ts", "settings": { … } }
   server/index.ts              Myrmidon only: code that adds tools, prompt sections and listeners
+  ui/index.tsx                 Myrmidon only: UI for the app's plugin slots
 ```
 
 Every part is optional. Claude Code plugins work as they are; `${CLAUDE_PLUGIN_ROOT}` in hooks and server configs
@@ -47,6 +48,38 @@ export function activate(ctx) {
 | `settings.get()` | The plugin's settings: what the person set, over the defaults in `myrmidon.json`. |
 | `log(message)` | A line in the plugin's log, shown in Settings → Plugins. |
 | `onDispose(fn)` | Runs when the plugin unloads: stop timers, close connections. |
+
+## UI
+
+`ui/index.tsx` exports `slots`, naming the spots it fills. It runs on the app's own React and UI kit, so it looks
+native and follows the theme. Style with the kit's components and the app's colour variables (`var(--fg)`,
+`var(--ok)`, …, all in `tokens.css`); Tailwind classes work only where the app itself already uses them, since the
+app's stylesheet is built from its own source.
+
+```tsx
+import { useState } from 'react'
+import { Button, Pill } from '@myrmidon/ui'
+
+function Board(props: { colonyId: string }) {
+  const [n, setN] = useState(0)
+  return <Button onClick={() => setN(n + 1)}>Clicked {n}</Button>
+}
+
+export const slots = {
+  'workspace.tab': { title: 'Board', component: Board },
+}
+```
+
+| Slot | Where | Props |
+|---|---|---|
+| `chat.card` | Under each `plugin/event` the plugin emitted in a round | `event` (`type`, `data`), `state`, `send(text)` |
+| `workspace.tab` | A tab in the workspace panel | `colonyId`, `state` |
+| `composer.chip` | The composer toolbar | `insert(text)`, `send(text)` |
+| `settings.page` | Under the plugin in Settings → Plugins | `values`, `save(values)` |
+
+`@myrmidon/ui` offers `Button`, `IconButton`, `Pill`, `Switch`, `TextInput`, `TextArea`, `Select`, `Segmented`,
+`Skeleton`, `Empty`, `Markdown` and `cn`. A component that throws shows a short note in its own slot; the rest of the
+window keeps working. Saved UI files reload in a few seconds.
 
 ## Settings
 

@@ -32,6 +32,7 @@ import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
+import { syncPluginUI } from './plugins.tsx'
 import { Settings } from './Settings.tsx'
 import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
@@ -45,6 +46,15 @@ import { MAX_FILE_BYTES, softSpring } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
+
+/** What the page needs to know about a plugin. */
+interface PluginSummary {
+  name: string
+  enabled: boolean
+  commands: PluginCommand[]
+  ui?: string
+  uiStamp?: string
+}
 
 function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined] {
   const [data, setData] = useState<T>(initial)
@@ -156,13 +166,12 @@ export function App() {
   const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // Plugin commands join the slash menu; reloaded when Settings closes, where plugins are switched.
+  // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
+  const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
-    if (settingsOpen) return
-    api<{ plugins: { enabled: boolean; commands: PluginCommand[] }[] }>('/api/plugins')
-      .then((r) => setPluginCommands(r.plugins.filter((p) => p.enabled).flatMap((p) => p.commands)))
-      .catch(() => {})
-  }, [settingsOpen])
+    setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
+    void syncPluginUI(pluginList.plugins)
+  }, [pluginList])
   const [settingsSection, setSettingsSection] = useState<'general' | 'tools'>('general')
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)

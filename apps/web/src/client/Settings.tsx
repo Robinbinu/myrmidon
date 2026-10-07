@@ -44,6 +44,7 @@ import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { windowLabel } from './chat/ModelPicker.tsx'
 import { copy } from './copy.ts'
+import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
 import {
   Button,
@@ -2590,6 +2591,7 @@ function PluginsSection() {
     }
   }
   const [logOpen, setLogOpen] = useState<string>()
+  const pages = usePluginSlots('settings.page')
   const parts = (p: PluginEntry) =>
     [
       p.skills.length ? copy.settings.plugins.skills(p.skills.length) : '',
@@ -2674,6 +2676,23 @@ function PluginsSection() {
                     {Object.keys(p.settings).length > 0 && p.enabled && (
                       <PluginSettings plugin={p} onSaved={() => void load()} />
                     )}
+                    {pages
+                      .filter((page) => page.plugin === p.name && p.enabled)
+                      .map(({ plugin, def }) => (
+                        <div key={plugin} className="mt-2">
+                          <PluginSlot
+                            plugin={plugin}
+                            def={def}
+                            props={{
+                              values: p.values,
+                              save: async (values) => {
+                                await send('PUT', `/api/plugins/${plugin}/settings`, values)
+                                await load()
+                              },
+                            }}
+                          />
+                        </div>
+                      ))}
                     {p.status?.log.length ? (
                       <div className="mt-1.5">
                         <button

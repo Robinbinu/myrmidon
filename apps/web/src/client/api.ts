@@ -44,6 +44,23 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
   return URL.createObjectURL(await res.blob())
 }
 
+/** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
+export async function importPluginUI(name: string): Promise<unknown> {
+  const res = await fetch(`/api/plugins/${encodeURIComponent(name)}/ui.js`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new ApiError(body.error ?? `${name} UI: ${res.status}`)
+  }
+  const url = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }))
+  try {
+    return await import(/* @vite-ignore */ url)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 export async function blobText(colony: string, hash: string): Promise<string> {
   const res = await fetch(`/api/colonies/${colony}/blobs/${hash}`, {
     headers: { authorization: `Bearer ${token}` },

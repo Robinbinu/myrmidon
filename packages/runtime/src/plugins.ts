@@ -35,6 +35,8 @@ export interface PluginInfo {
   readonly mcpServers: readonly string[]
   /** Its code's entry point (`myrmidon.json` "server", or `server/index.ts`), relative to its folder. */
   readonly server?: string
+  /** Its UI's entry point (`myrmidon.json` "ui", or `ui/index.tsx`), relative to its folder. */
+  readonly ui?: string
   /** The settings it declares, by key. */
   readonly settings: Readonly<Record<string, PluginSetting>>
   /** Set when a part could not be read; the rest of the plugin still loads. */
@@ -167,9 +169,10 @@ export class PluginStore {
         !found.commands.length &&
         !found.hooks &&
         !found.mcpServers.length &&
-        !found.server
+        !found.server &&
+        !found.ui
       )
-        throw new Error('this has no skills, commands, hooks, MCP servers or code, so it is not a plugin')
+        throw new Error('this has no skills, commands, hooks, MCP servers, code or UI, so it is not a plugin')
       const target = join(this.dir, name)
       if (existsSync(target)) throw new Error(`a plugin called ${name} is already installed`)
       renameSync(staging, target)
@@ -255,26 +258,31 @@ export class PluginStore {
   }
 
   /** `myrmidon.json`: the code's entry point and declared settings; a missing file means neither. */
-  private _extras(dir: string): { server?: string; settings: Record<string, PluginSetting>; error?: string } {
+  private _extras(dir: string): {
+    server?: string
+    ui?: string
+    settings: Record<string, PluginSetting>
+    error?: string
+  } {
     const file = join(dir, 'myrmidon.json')
-    const fallback = existsSync(join(dir, 'server', 'index.ts')) ? 'server/index.ts' : undefined
-    if (!existsSync(file)) return { ...(fallback ? { server: fallback } : {}), settings: {} }
-    let raw: { server?: unknown; settings?: unknown }
+    const defaults = {
+      ...(existsSync(join(dir, 'server', 'index.ts')) ? { server: 'server/index.ts' } : {}),
+      ...(existsSync(join(dir, 'ui', 'index.tsx')) ? { ui: 'ui/index.tsx' } : {}),
+    }
+    if (!existsSync(file)) return { ...defaults, settings: {} }
+    let raw: { server?: unknown; ui?: unknown; settings?: unknown }
     try {
       raw = readJson(file) as typeof raw
     } catch {
-      return {
-        ...(fallback ? { server: fallback } : {}),
-        settings: {},
-        error: 'myrmidon.json is not valid JSON',
-      }
+      return { ...defaults, settings: {}, error: 'myrmidon.json is not valid JSON' }
     }
-    const server = typeof raw.server === 'string' ? raw.server : fallback
+    const server = typeof raw.server === 'string' ? raw.server : defaults.server
+    const ui = typeof raw.ui === 'string' ? raw.ui : defaults.ui
     const settings: Record<string, PluginSetting> = {}
     for (const [key, spec] of Object.entries((raw.settings ?? {}) as Record<string, Partial<PluginSetting>>))
       if (spec && ['string', 'number', 'boolean'].includes(spec.type as string))
         settings[key] = spec as PluginSetting
-    return { ...(server ? { server } : {}), settings }
+    return { ...(server ? { server } : {}), ...(ui ? { ui } : {}), settings }
   }
 
   private _mcp(dir: string): Record<string, McpServerConfig> {
@@ -375,6 +383,7 @@ export class PluginStore {
       hooks,
       mcpServers,
       ...(extras.server ? { server: extras.server } : {}),
+      ...(extras.ui ? { ui: extras.ui } : {}),
       settings: extras.settings,
       ...(errors.length ? { error: errors.join('; ') } : {}),
     }

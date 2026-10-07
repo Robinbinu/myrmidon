@@ -21,6 +21,7 @@ import {
   type TeamConfig,
 } from '../api.ts'
 import { copy } from '../copy.ts'
+import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { MAX_FILES, spring } from '../ui-config.ts'
@@ -242,6 +243,7 @@ interface ComposerProps {
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
   const [text, setText] = useState('')
+  const chips = usePluginSlots('composer.chip')
   const [showTeam, setShowTeam] = useState(false)
   // The reviewer mode is a server setting; read it on load and whenever the team panel opens, so a change made in
   // Settings shows here.
@@ -545,6 +547,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 onReview={changeReview}
               />
               <HelpersChip models={props.models} config={config} onConfig={props.onConfig} />
+              {chips.map(({ plugin, def }) => (
+                <PluginSlot
+                  key={plugin}
+                  plugin={plugin}
+                  def={def}
+                  props={{
+                    insert: (t) => fillCommand(text ? `${text} ${t}` : t),
+                    send: (t) => void props.onSend(t, delivery, []).catch(() => {}),
+                  }}
+                />
+              ))}
               {props.project}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">

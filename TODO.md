@@ -22,13 +22,16 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
+- [ ] **Crew mail like a conversation** — agents see mail and ignore it; they should read and reply, coordinate like
+      people in a chat (the person's words: "make it more human").
+
 - [ ] **Take what fits from CopilotKit/OpenDots** — features, prompts and more (research running; report, then
       pick with the person).
 
 - [x] **Rewind only undoes the round's own files** (done) — rewinding the crew round that edited Myrmidon restored the whole
       project snapshot and rolled back unrelated, newer commits (5d75622's files). Restore only files the round
       changed; ask before overwriting files changed after it.
-- [ ] **Plugins, like DeepSeek Harness** (spec approved; phases 1-2 done: folders, Claude Code parts, Settings → Plugins, server code with ctx; next: phase 3 UI slots) — ~/.myrmidon/plugins/<name>/ with plugin.json;
+- [ ] **Plugins, like DeepSeek Harness** (spec approved; phases 1-3 done: folders, Claude Code parts, Settings → Plugins, server code with ctx, UI slots; next: phase 4, agents build plugins) — ~/.myrmidon/plugins/<name>/ with plugin.json;
       contributes tools, skills, hooks, prompt sections, settings, UI in defined slots; hot reload; Settings →
       Plugins; agents asked for a Myrmidon feature build a plugin with create_plugin instead of patching source (Myrmidon
       will ship compiled, so plugins are the only way to extend it).

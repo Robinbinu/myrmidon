@@ -15,6 +15,7 @@ import {
   ListChecks,
   Mail,
   MonitorSmartphone,
+  Puzzle,
   ShieldCheck,
   SquareTerminal,
   Terminal,
@@ -25,6 +26,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
+import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, usePersistentFlag } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
@@ -44,6 +46,7 @@ import { deriveSteps } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
 
 type Tab =
+  | `plugin:${string}`
   | 'files'
   | 'git'
   | 'shell'
@@ -182,7 +185,15 @@ function WorkspaceBody({
     () => (round === undefined ? colony : roundSlice(colony.state, colony.events, round)),
     [colony, round],
   )
-  const views = VIEWS.filter((v) => !v.projectOnly || project)
+  const pluginTabs = usePluginSlots('workspace.tab')
+  const views = [
+    ...VIEWS.filter((v) => !v.projectOnly || project),
+    ...pluginTabs.map(({ plugin, def }) => ({
+      value: `plugin:${plugin}` as Tab,
+      label: def.title ?? plugin,
+      icon: Puzzle,
+    })),
+  ]
   // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
   const [mounted, setMounted] = useState(open)
   useEffect(() => {
@@ -635,6 +646,12 @@ function WorkspaceBody({
                         </>
                       ))}
                     {tab === 'audit' && <AuditView events={events} />}
+                    {pluginTabs.map(
+                      ({ plugin, def }) =>
+                        tab === `plugin:${plugin}` && (
+                          <PluginSlot key={plugin} plugin={plugin} def={def} props={{ colonyId, state }} />
+                        ),
+                    )}
                     {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
                     {tab === 'computer' && (
                       <Computer
