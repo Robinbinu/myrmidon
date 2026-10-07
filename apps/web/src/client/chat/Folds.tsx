@@ -27,15 +27,13 @@ export function FoldAll(props: { ids: readonly string[]; folds: Folds }) {
   if (props.ids.length < 2) return null
   const allOpen = props.ids.every((id) => props.folds.isOpen(id))
   return (
-    <div className="flex justify-end px-3 pt-2">
-      <button
-        type="button"
-        className="rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-fg"
-        onClick={() => props.folds.setAll(props.ids, !allOpen)}
-      >
-        {allOpen ? 'Collapse all' : 'Expand all'}
-      </button>
-    </div>
+    <button
+      type="button"
+      className="rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-fg"
+      onClick={() => props.folds.setAll(props.ids, !allOpen)}
+    >
+      {allOpen ? 'Collapse all' : 'Expand all'}
+    </button>
   )
 }
 

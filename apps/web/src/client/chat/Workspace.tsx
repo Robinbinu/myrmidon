@@ -17,7 +17,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
-import { compact } from '../ui/hooks.ts'
+import { compact, usePersistentFlag } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, toneFor } from '../ui/primitives.tsx'
 import { useColony } from '../use-colony.ts'
@@ -30,6 +30,7 @@ import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
 import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps } from './steps.ts'
+import { TaskBoard } from './TaskBoard.tsx'
 
 type Tab = 'files' | 'git' | 'shell' | 'computer' | 'tasks' | 'team' | 'mail' | 'terminal' | 'activity'
 
@@ -194,6 +195,7 @@ function WorkspaceBody({
   // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
   const newestShell = shells.at(-1)?.id
   const shellFolds = useFolds((id) => id === newestShell || shells.find((r) => r.id === id)?.ok === undefined)
+  const [board, setBoard] = usePersistentFlag('myr-task-board', false)
   const taskFolds = useFolds((id) =>
     ['in_progress', 'submitted', 'rejected'].includes(state.tasks[id]?.status ?? ''),
   )
@@ -346,58 +348,95 @@ function WorkspaceBody({
                               />
                             </div>
                           </div>
-                          <FoldAll ids={tasks.map((t) => t.id)} folds={taskFolds} />
-                          <ul className="divide-y divide-line">
-                            {tasks.map((t) => {
-                              const open = taskFolds.isOpen(t.id)
-                              const details = !!t.description || t.blockedBy.length > 0
-                              return (
-                                <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => taskFolds.toggle(t.id)}
-                                    aria-expanded={details ? open : undefined}
-                                    disabled={!details}
-                                    className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-surface-2"
-                                  >
-                                    <FoldChevron
-                                      open={open && details}
-                                      className={details ? 'text-muted' : 'invisible'}
-                                    />
-                                    <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
-                                    <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                                    {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
-                                  </button>
-                                  <span className="sr-only">{t.subject}</span>
-                                  {/* Agents complete tasks, so the check is a live readout, not a control. */}
-                                  <div inert className="-my-1.5" title={t.subject}>
-                                    <SpringCheck
-                                      label={<span className="block truncate">{t.subject}</span>}
-                                      className="check-line"
-                                      checked={t.status === 'verified'}
-                                      color="var(--text)"
-                                      fillColor="var(--ok)"
-                                      checkColor="var(--bg)"
-                                      boxSize={18}
-                                      boxRadius={6}
-                                      fontSize={13.5}
-                                      doneOpacity={0.5}
-                                    />
-                                  </div>
-                                  {open && t.description && (
-                                    <div className="whitespace-pre-wrap text-[12.5px] text-muted">
-                                      {t.description}
-                                    </div>
+                          <div className="flex items-center gap-2 px-3 pt-2">
+                            <fieldset
+                              aria-label="Task layout"
+                              className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
+                            >
+                              {(
+                                [
+                                  [false, 'List'],
+                                  [true, 'Board'],
+                                ] as const
+                              ).map(([value, label]) => (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  aria-pressed={board === value}
+                                  onClick={() => setBoard(value)}
+                                  className={cn(
+                                    'rounded-md px-2 py-0.5 text-[12px] transition-colors',
+                                    board === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
                                   )}
-                                  {open && t.blockedBy.length > 0 && (
-                                    <div className="text-[11.5px] text-muted">
-                                      after {t.blockedBy.join(', ')}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </fieldset>
+                            <span className="flex-1" />
+                            {!board && <FoldAll ids={tasks.map((t) => t.id)} folds={taskFolds} />}
+                          </div>
+                          {board ? (
+                            <TaskBoard
+                              tasks={tasks}
+                              events={events}
+                              agents={state.agents}
+                              live={state.status === 'running'}
+                              onInspect={setInspect}
+                            />
+                          ) : (
+                            <ul className="divide-y divide-line">
+                              {tasks.map((t) => {
+                                const open = taskFolds.isOpen(t.id)
+                                const details = !!t.description || t.blockedBy.length > 0
+                                return (
+                                  <motion.li layout key={t.id} className="flex flex-col gap-1 px-4 py-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => taskFolds.toggle(t.id)}
+                                      aria-expanded={details ? open : undefined}
+                                      disabled={!details}
+                                      className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-surface-2"
+                                    >
+                                      <FoldChevron
+                                        open={open && details}
+                                        className={details ? 'text-muted' : 'invisible'}
+                                      />
+                                      <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
+                                      <span className="font-mono text-[11px] text-muted">{t.id}</span>
+                                      {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                                    </button>
+                                    <span className="sr-only">{t.subject}</span>
+                                    {/* Agents complete tasks, so the check is a live readout, not a control. */}
+                                    <div inert className="-my-1.5" title={t.subject}>
+                                      <SpringCheck
+                                        label={<span className="block truncate">{t.subject}</span>}
+                                        className="check-line"
+                                        checked={t.status === 'verified'}
+                                        color="var(--text)"
+                                        fillColor="var(--ok)"
+                                        checkColor="var(--bg)"
+                                        boxSize={18}
+                                        boxRadius={6}
+                                        fontSize={13.5}
+                                        doneOpacity={0.5}
+                                      />
                                     </div>
-                                  )}
-                                </motion.li>
-                              )
-                            })}
-                          </ul>
+                                    {open && t.description && (
+                                      <div className="whitespace-pre-wrap text-[12.5px] text-muted">
+                                        {t.description}
+                                      </div>
+                                    )}
+                                    {open && t.blockedBy.length > 0 && (
+                                      <div className="text-[11.5px] text-muted">
+                                        after {t.blockedBy.join(', ')}
+                                      </div>
+                                    )}
+                                  </motion.li>
+                                )
+                              })}
+                            </ul>
+                          )}
                         </>
                       ))}
                     {tab === 'team' && (
@@ -469,7 +508,9 @@ function WorkspaceBody({
                         </Empty>
                       ) : (
                         <>
-                          <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
+                          <div className="flex justify-end px-3 pt-2">
+                            <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
+                          </div>
                           <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)

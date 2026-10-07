@@ -102,11 +102,12 @@ that a broken MCP server could eat a round, so MCP servers now trip a breaker af
    (ties into self-made tools in Milestone 4).
 7. **Browser evals.** A WebVoyager-style subset in the eval harness, with replays from keyframes.
 
-## Milestone 3: Swarm orchestrator
+## Milestone 3: Swarm orchestrator — done
 
 Status (2026-10-07): 1 (worktree per coding worker), 2 (escalate), 3 (judging by kind of work) and 4
 (coordination: reject_task, check_in, worktrees refreshed on claim; final verification was already lead/speaker
-only) done. 5 done: `read_log` for agents, and a run diff in Compare runs (`/api/compare`). Eval `coding-team-git` passes in both modes; the swarm
+only) done. 5 done: `read_log` for agents, and a run diff in Compare runs (`/api/compare`). 6 done: the Tasks panel has a
+live board (lanes by status, time in each, stacked when narrow). Milestone 3 complete. Eval `coding-team-git` passes in both modes; the swarm
 run hit a real conflict (two peers fixed the same file) that the worker resolved in its worktree.
 
 1. **A worktree per coding agent.**
