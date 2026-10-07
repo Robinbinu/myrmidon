@@ -5,6 +5,7 @@ import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrm
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
 import * as natives from '@oh-my-pi/pi-natives'
+import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
 import coordinationDoc from '../docs/coordination.md' with { type: 'text' }
 import limitsDoc from '../docs/limits.md' with { type: 'text' }
@@ -26,8 +27,10 @@ import {
 } from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import {
+  browserSteps,
   checkedArgs,
   checkedTool,
+  fillPlaceholders,
   inputSchema,
   MADE_PREFIX,
   type MadeTool,
@@ -367,6 +370,70 @@ async function flagIfCopied(host: ColonyHost, agent: string, tool: string, param
       source: hit.source,
     },
   })
+}
+
+/** Reads tables, links, or repeating items from a page's DOM (browser_extract and saved browser flows). */
+function extractFromPage(
+  page: BrowserTab['page'],
+  what: 'tables' | 'links' | 'items',
+  selector: string,
+  fields: Record<string, string>,
+  limit: number,
+): Promise<unknown[]> {
+  return page.evaluate(
+    (what, selector, fields, limit) => {
+      const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
+      const roots = selector ? [...document.querySelectorAll(selector)] : [document.body]
+      if (what === 'links') {
+        const out: { text: string; href: string }[] = []
+        for (const root of roots)
+          for (const a of root.querySelectorAll('a[href]')) {
+            if (out.length >= limit) break
+            out.push({ text: text(a), href: (a as HTMLAnchorElement).href })
+          }
+        return out
+      }
+      if (what === 'tables') {
+        const tables = roots.flatMap((r) => (r.matches('table') ? [r] : [...r.querySelectorAll('table')]))
+        return tables.slice(0, 20).map((t) => {
+          const rows = [...t.querySelectorAll('tr')]
+          const head = rows.find((r) => r.querySelector('th')) ?? rows[0]
+          const headers = [...(head?.children ?? [])].map((c, i) => text(c) || `col${i + 1}`)
+          const body = rows.filter((r) => r !== head)
+          return {
+            caption: text(t.querySelector('caption')),
+            headers,
+            rows: body
+              .slice(0, limit)
+              .map((r) =>
+                Object.fromEntries([...r.children].map((c, i) => [headers[i] ?? `col${i + 1}`, text(c)])),
+              ),
+          }
+        })
+      }
+      return roots.slice(0, limit).map((item) =>
+        Object.fromEntries(
+          Object.entries(fields).map(([name, spec]) => {
+            const [css = '', attr] = spec.split('@')
+            const el = css ? item.querySelector(css) : item
+            if (!el) return [name, null]
+            if (!attr) return [name, text(el)]
+            // href and src come back absolute, the way a person would copy them.
+            const value =
+              attr === 'href' || attr === 'src'
+                ? (((el as unknown as Record<string, unknown>)[attr] as string | undefined) ??
+                  el.getAttribute(attr))
+                : el.getAttribute(attr)
+            return [name, value]
+          }),
+        ),
+      )
+    },
+    what,
+    selector,
+    fields,
+    limit,
+  ) as Promise<unknown[]>
 }
 
 /** The checks run by default: the project's `check` script if it has one, otherwise everything but build. */
@@ -1305,60 +1372,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         }
         if (Object.keys(fields).length === 0) throw new Error('items needs fields to extract')
       }
-      const data = await tab.page.evaluate(
-        (what, selector, fields, limit) => {
-          const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
-          const roots = selector ? [...document.querySelectorAll(selector)] : [document.body]
-          if (what === 'links') {
-            const out: { text: string; href: string }[] = []
-            for (const root of roots)
-              for (const a of root.querySelectorAll('a[href]')) {
-                if (out.length >= limit) break
-                out.push({ text: text(a), href: (a as HTMLAnchorElement).href })
-              }
-            return out
-          }
-          if (what === 'tables') {
-            const tables = roots.flatMap((r) => (r.matches('table') ? [r] : [...r.querySelectorAll('table')]))
-            return tables.slice(0, 20).map((t) => {
-              const rows = [...t.querySelectorAll('tr')]
-              const head = rows.find((r) => r.querySelector('th')) ?? rows[0]
-              const headers = [...(head?.children ?? [])].map((c, i) => text(c) || `col${i + 1}`)
-              const body = rows.filter((r) => r !== head)
-              return {
-                caption: text(t.querySelector('caption')),
-                headers,
-                rows: body
-                  .slice(0, limit)
-                  .map((r) =>
-                    Object.fromEntries([...r.children].map((c, i) => [headers[i] ?? `col${i + 1}`, text(c)])),
-                  ),
-              }
-            })
-          }
-          return roots.slice(0, limit).map((item) =>
-            Object.fromEntries(
-              Object.entries(fields).map(([name, spec]) => {
-                const [css = '', attr] = spec.split('@')
-                const el = css ? item.querySelector(css) : item
-                if (!el) return [name, null]
-                if (!attr) return [name, text(el)]
-                // href and src come back absolute, the way a person would copy them.
-                const value =
-                  attr === 'href' || attr === 'src'
-                    ? (((el as unknown as Record<string, unknown>)[attr] as string | undefined) ??
-                      el.getAttribute(attr))
-                    : el.getAttribute(attr)
-                return [name, value]
-              }),
-            ),
-          )
-        },
-        args.what,
-        args.selector ?? '',
-        fields,
-        limit,
-      )
+      const data = await extractFromPage(tab.page, args.what, args.selector ?? '', fields, limit)
       const json = JSON.stringify(data, null, 2)
       const count = Array.isArray(data) ? data.length : 0
       const head = `${count} ${args.what === 'tables' ? `table${count === 1 ? '' : 's'}` : args.what === 'links' ? 'links' : 'items'} from ${tab.page.url()}`
@@ -1644,7 +1658,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'for one-off work just use shell. The script reads its inputs as JSON from the MYR_INPUT environment variable ' +
       'and prints its result to stdout; a non-zero exit means failure. It runs in the same sandbox as shell. ' +
       '`test` is a JSON object of example inputs: the tool is run with it once and is only created if that run ' +
-      "succeeds. Calling create_tool again with your own tool's name replaces it.",
+      "succeeds. Calling create_tool again with your own tool's name replaces it. " +
+      'Language "browser" saves a browser flow instead (a site task you will repeat: search a catalogue, fill a ' +
+      "form, pull a listing): source is a JSON list of steps run in the caller's browser, e.g. " +
+      '[{"open": "https://example.com/search?q={query}"}, {"click": "text=First result"}, {"type": "aria=Email", ' +
+      '"text": "{email}", "submit": true}, {"wait": ".results"}, {"extract": {"what": "items", "selector": ".row", ' +
+      '"fields": {"name": "h3", "url": "a@href"}}}]. Targets are CSS, text=… or aria=… (never snapshot refs); ' +
+      '{input} placeholders are filled in. Save a flow only after doing the task once by hand.',
     parameters: type({
       name: type('string').describe('snake_case, e.g. csv_to_json'),
       description: type('string').describe('What it does and when to use it'),
@@ -1654,12 +1674,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         'description?': type('string'),
         'optional?': 'boolean',
       }).array(),
-      language: type('string').describe('typescript (run with bun), python, or bash'),
+      language: type('string').describe('typescript (run with bun), python, bash, or browser'),
       source: type('string'),
       test: type('string').describe('JSON object of example inputs, e.g. {"path": "data.csv"}'),
     }),
     async run(args, agent, host) {
       const tool = checkedTool(args)
+      if (tool.language === 'browser' && !host.browser)
+        throw new Error('no browser here: Chrome is not installed')
       const existing = host.state().madeTools[tool.name]
       if (existing?.library)
         throw new Error(`a library tool is already called ${tool.name}; pick another name`)
@@ -1780,10 +1802,12 @@ export function guessMediaType(name: string): string {
 export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp') ? host.mcpTools().map((t) => logged(agent, t, host)) : []
-  const made =
-    allow.has('shell') && (host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
-      ? Object.values(host.state().madeTools).map((t) => logged(agent, madeTool(agent, t, host), host))
-      : []
+  // Scripts run in the sandbox, so they need shell; browser flows drive the agent's browser.
+  const scripts = allow.has('shell') && (host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
+  const browsing = allow.has('browser_open') && host.browser !== undefined
+  const made = Object.values(host.state().madeTools)
+    .filter((t) => (t.language === 'browser' ? browsing : scripts))
+    .map((t) => logged(agent, madeTool(agent, t, host), host))
   return [...harnessTools(agent, allow, host), ...mcp, ...made]
 }
 
@@ -1794,6 +1818,7 @@ async function runMadeTool(
   agent: string,
   host: ColonyHost,
 ): Promise<{ ok: boolean; output: string }> {
+  if (tool.language === 'browser') return runBrowserFlow(tool, input, agent, host)
   if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox) throw new Error('made tools need the OS sandbox')
   const cwd = host.workspace.workdir(agent)
   const r = await host.sandbox.run({
@@ -1808,6 +1833,129 @@ async function runMadeTool(
     ? r.stdout.trim() || '(no output)'
     : `${r.timedOut ? 'TIMED OUT after 120s' : `exit ${r.code}`}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`
   return { ok, output: clip(output) }
+}
+
+/**
+ * Finds a flow step's target, waiting for it to appear: CSS, `text=` (visible text), or `aria=` (accessible name:
+ * aria-label, label text, placeholder, title or alt). Among visible matches an exact one beats a partial one,
+ * clickable elements beat others, and the innermost element wins.
+ */
+async function locate(page: BrowserTab['page'], target: string, timeout: number) {
+  const mode = target.startsWith('text=') ? 'text' : target.startsWith('aria=') ? 'aria' : 'css'
+  if (mode === 'css') {
+    const handle = await page.waitForSelector(target, { visible: true, timeout }).catch(() => null)
+    if (!handle) throw new Error(`nothing visible matches ${target} within ${timeout / 1000}s`)
+    return handle
+  }
+  const wanted = target.slice(5)
+  const found = await page
+    .waitForFunction(
+      (text: string, by: string) => {
+        const norm = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+        const t = norm(text)
+        const visible = (el: Element) => {
+          const r = el.getBoundingClientRect()
+          return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'
+        }
+        const name = (el: Element) => {
+          if (by === 'text') return norm((el as HTMLElement).innerText || (el as HTMLInputElement).value)
+          const labelled = el.getAttribute('aria-labelledby')
+          return norm(
+            el.getAttribute('aria-label') ||
+              (labelled ? document.getElementById(labelled)?.textContent : '') ||
+              [...((el as HTMLInputElement).labels ?? [])].map((l) => l.textContent).join(' ') ||
+              el.getAttribute('placeholder') ||
+              el.getAttribute('title') ||
+              el.getAttribute('alt') ||
+              (el.matches('button, a, [role]') ? (el as HTMLElement).innerText : ''),
+          )
+        }
+        const all = [...document.querySelectorAll('body *')].filter(
+          (el) => visible(el) && name(el).includes(t),
+        )
+        // Innermost: drop elements that contain another match.
+        const inner = all.filter((el) => !all.some((o) => o !== el && el.contains(o)))
+        const clickable = (el: Element) =>
+          el.matches('a, button, [role=button], [role=link], summary, label, input, textarea, select')
+        inner.sort(
+          (a, b) =>
+            Number(name(b) === t) - Number(name(a) === t) || Number(clickable(b)) - Number(clickable(a)),
+        )
+        return inner[0] ?? null
+      },
+      { timeout },
+      wanted,
+      mode,
+    )
+    .catch(() => null)
+  const handle = found?.asElement()
+  if (!handle)
+    throw new Error(
+      `no visible element ${mode === 'text' ? 'with the text' : 'named'} "${wanted}" within ${timeout / 1000}s`,
+    )
+  return handle as ElementHandle<Element>
+}
+
+/**
+ * Runs a saved browser flow in the caller's own browser: each step as a person would do it, with the live view's
+ * cursor and highlight, ending with the page (or the extracted data). A failing step stops the flow and says which.
+ */
+async function runBrowserFlow(
+  tool: MadeTool,
+  input: Record<string, unknown>,
+  agent: string,
+  host: ColonyHost,
+): Promise<{ ok: boolean; output: string }> {
+  const tab = await browserTab(host, agent)
+  const extracted: string[] = []
+  for (const [i, step] of browserSteps(tool.source).entries()) {
+    try {
+      if ('open' in step) {
+        const url = fillPlaceholders(step.open, input, true)
+        if (!/^https?:/.test(url)) throw new Error(`open needs an http(s) URL, got ${url}`)
+        await tab.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+        await keyframe(host, agent, tab, 'open')
+      } else if ('click' in step) {
+        const handle = await locate(tab.page, fillPlaceholders(step.click, input), 10_000)
+        const at = await pointAt(tab, handle, 'click', step.click)
+        await tab.page.mouse.click(at.x, at.y)
+        doneWith(tab)
+        await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+        await keyframe(host, agent, tab, 'click', step.click)
+      } else if ('type' in step) {
+        const handle = await locate(tab.page, fillPlaceholders(step.type, input), 10_000)
+        await pointAt(tab, handle, 'type', step.type)
+        await handle.click({ count: 3 })
+        await tab.page.keyboard.type(fillPlaceholders(step.text, input))
+        if (step.submit) await tab.page.keyboard.press('Enter')
+        doneWith(tab)
+        await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+        await keyframe(host, agent, tab, 'type', step.type)
+      } else if ('press' in step) {
+        await tab.page.keyboard.press(step.press as never)
+        await tab.page.waitForNetworkIdle({ idleTime: 300, timeout: 4_000 }).catch(() => {})
+      } else if ('wait' in step) {
+        if (typeof step.wait === 'number') await Bun.sleep(Math.min(step.wait, 10_000))
+        else await locate(tab.page, fillPlaceholders(step.wait, input), 15_000)
+      } else if ('extract' in step) {
+        const e = step.extract
+        const data = await extractFromPage(tab.page, e.what, e.selector ?? '', e.fields ?? {}, 200)
+        extracted.push(JSON.stringify(data, null, 2))
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        output: `step ${i + 1} (${JSON.stringify(step)}) failed: ${err instanceof Error ? err.message : String(err)}\n${await pageSnapshot(tab)}`,
+      }
+    }
+  }
+  const output = extracted.length ? extracted.join('\n') : await pageSnapshot(tab)
+  host.rememberUntrusted(agent, `${MADE_PREFIX}${tool.name}`, output)
+  return {
+    ok: true,
+    output: spotlight(host.boundary, `${MADE_PREFIX}${tool.name} ${tab.page.url()}`, clip(output)),
+  }
 }
 
 function madeTool(agent: string, tool: EventPayloads['tool/created'], host: ColonyHost): AgentTool {

@@ -162,7 +162,8 @@ export interface EventPayloads {
     name: string
     description: string
     inputs: MadeToolInput[]
-    language: 'typescript' | 'python' | 'bash'
+    /** `browser`: `source` is a JSON list of browser steps run in the caller's browser, not a script. */
+    language: 'typescript' | 'python' | 'bash' | 'browser'
     source: string
     library?: boolean
   }

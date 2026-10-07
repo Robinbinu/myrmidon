@@ -72,6 +72,9 @@ output), make it a tool with `create_tool` instead of retyping shell commands:
   shows and call `create_tool` again.
 - It appears as `tool_<name>` for everyone with shell in this colony, and carries into later rounds of the chat.
   The person can keep it in their library so every new round starts with it.
+- A site task you will repeat (search a catalogue, fill a form, pull a listing) can be saved as a browser flow:
+  `create_tool` with language "browser" and a JSON list of steps (open, click, type, press, wait, extract) that
+  target CSS, `text=…` or `aria=…`, never snapshot refs. Do the task once by hand first, then save it.
 - Keep tools small and single-purpose; one-off work does not need a tool.
 
 ## Working in a code project

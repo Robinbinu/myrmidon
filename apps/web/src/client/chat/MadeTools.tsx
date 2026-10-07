@@ -10,7 +10,7 @@ export interface LibraryTool {
   name: string
   description: string
   inputs: MadeToolInput[]
-  language: 'typescript' | 'python' | 'bash'
+  language: 'typescript' | 'python' | 'bash' | 'browser'
   source: string
 }
 

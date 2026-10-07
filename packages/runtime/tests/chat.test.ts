@@ -830,6 +830,75 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
   site.stop(true)
 })
 
+test.skipIf(!findChrome())(
+  'a browser flow is saved after its test run and replays with new inputs',
+  async () => {
+    const site = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/search') {
+          const q = url.searchParams.get('q') ?? ''
+          return new Response(
+            `<title>Results</title><div class="result"><h3>${q} one</h3></div><div class="result"><h3>${q} two</h3></div>`,
+            {
+              headers: { 'content-type': 'text/html' },
+            },
+          )
+        }
+        return new Response(
+          `<title>Shop</title><form action="/search"><input name="q" aria-label="Query"><button>Go</button></form>`,
+          { headers: { 'content-type': 'text/html' } },
+        )
+      },
+    })
+    const base = `http://localhost:${site.port}`
+    const steps = [
+      { open: `${base}/` },
+      { type: 'aria=Query', text: '{query}', submit: true },
+      { wait: '.result' },
+      { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
+    ]
+    const browser = new BrowserHub(join(home, 'browser'))
+    const resolver = new ModelResolver()
+    const flow = (name: string, source: unknown[]) => ({
+      name,
+      description: 'Search the shop and list the results by name.',
+      inputs: [{ name: 'query', type: 'string' }],
+      language: 'browser',
+      source: JSON.stringify(source),
+      test: '{"query": "lamp"}',
+    })
+    scripted(resolver, 'mock/flows', [
+      [tool('create_tool', flow('broken_search', [{ open: `${base}/` }, { click: 'text=No such button' }]))],
+      [tool('create_tool', flow('shop_search', steps))],
+      [tool('tool_shop_search', { query: 'desk' })],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Search the shop', {
+      ...solo('mock/flows'),
+      judgeModel: 'mock/judge',
+    })
+    const s = await waitFor(colonyId)
+    const out = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    expect(out[0]).toMatchObject({ tool: 'create_tool', ok: false })
+    expect(out[0]?.output).toContain('step 2 ({"click":"text=No such button"}) failed')
+    expect(out[1]).toMatchObject({ tool: 'create_tool', ok: true })
+    expect(out[1]?.output).toContain('"name": "lamp one"')
+    expect(out[2]).toMatchObject({ tool: 'tool_shop_search', ok: true })
+    expect(out[2]?.output).toContain('"name": "desk one"')
+    expect(out[2]?.output).toContain('"name": "desk two"')
+    expect(s.madeTools.shop_search?.language).toBe('browser')
+    expect(s.madeTools.broken_search).toBeUndefined()
+    await browser.close()
+    site.stop(true)
+  },
+)
+
 test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   const site = Bun.serve({
     port: 0,

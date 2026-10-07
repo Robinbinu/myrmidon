@@ -220,7 +220,7 @@ const defs: EventTypeDefinition[] = [
           optional: Schema.boolean(),
         }),
       ).default([]),
-      language: oneOf('typescript', 'python', 'bash'),
+      language: oneOf('typescript', 'python', 'bash', 'browser'),
       source: str(),
       library: Schema.boolean(),
     }),

@@ -13,7 +13,7 @@ export type MadeTool = Omit<EventPayloads['tool/created'], 'agent' | 'library'>
 /** Made tools are called `tool_<name>` so they never shadow the harness's own tools. */
 export const MADE_PREFIX = 'tool_'
 const NAME = /^[a-z][a-z0-9_]{1,30}$/
-const LANGUAGES = ['typescript', 'python', 'bash'] as const
+const LANGUAGES = ['typescript', 'python', 'bash', 'browser'] as const
 const FILE = { typescript: 'main.ts', python: 'main.py', bash: 'main.sh' } as const
 const MAX_SOURCE = 64 * 1024
 
@@ -48,6 +48,7 @@ export function checkedTool(raw: {
       ...(i.optional ? { optional: true } : {}),
     }
   })
+  if (raw.language === 'browser') browserSteps(raw.source)
   return { name, description, inputs, language: raw.language as MadeTool['language'], source: raw.source }
 }
 
@@ -82,6 +83,7 @@ export function checkedArgs(inputs: readonly MadeToolInput[], args: unknown): Re
 
 /** Writes the script under `dir` (if it changed) and returns the command that runs it. */
 export function scriptCommand(dir: string, tool: MadeTool): string {
+  if (tool.language === 'browser') throw new Error('browser flows run in the browser, not as a script')
   mkdirSync(dir, { recursive: true })
   const path = join(dir, FILE[tool.language])
   if (!existsSync(path) || readFileSync(path, 'utf8') !== tool.source) writeFileSync(path, tool.source)
@@ -120,4 +122,56 @@ export class ToolLibrary {
     if (!NAME.test(name)) throw new Error('no such tool')
     rmSync(join(this.dir, `${name}.json`), { force: true })
   }
+}
+
+/**
+ * One step of a saved browser flow. Targets are durable selectors, since snapshot refs change on every page:
+ * a CSS selector, `text=Sign in` (visible text), or `aria=Search` (accessible name). `{input}` placeholders in
+ * strings are filled from the flow's inputs.
+ */
+export type BrowserStep =
+  | { open: string }
+  | { click: string }
+  | { type: string; text: string; submit?: boolean }
+  | { press: string }
+  | { wait: string | number }
+  | { extract: { what: 'tables' | 'links' | 'items'; selector?: string; fields?: Record<string, string> } }
+
+/** Parses and checks a browser flow's steps; throws with what is wrong. */
+export function browserSteps(source: string): BrowserStep[] {
+  let steps: unknown
+  try {
+    steps = JSON.parse(source)
+  } catch {
+    throw new Error(
+      'a browser flow\'s source is a JSON list of steps, e.g. [{"open": "https://…?q={query}"}]',
+    )
+  }
+  if (!Array.isArray(steps) || steps.length === 0 || steps.length > 40) throw new Error('give 1 to 40 steps')
+  return steps.map((raw, i) => {
+    const step = raw as Record<string, unknown>
+    const keys = Object.keys(step ?? {})
+    const kind = keys.find((k) => ['open', 'click', 'type', 'press', 'wait', 'extract'].includes(k))
+    if (!kind) throw new Error(`step ${i + 1}: use open, click, type, press, wait or extract`)
+    if (kind === 'type' && typeof step.text !== 'string') throw new Error(`step ${i + 1}: type needs "text"`)
+    if (kind === 'extract') {
+      const e = step.extract as { what?: unknown } | undefined
+      if (!e || !['tables', 'links', 'items'].includes(String(e.what)))
+        throw new Error(`step ${i + 1}: extract needs {"what": "tables" | "links" | "items"}`)
+    } else if (kind === 'wait') {
+      if (typeof step.wait !== 'string' && typeof step.wait !== 'number')
+        throw new Error(`step ${i + 1}: wait takes ms or a selector`)
+    } else if (typeof step[kind] !== 'string' || !(step[kind] as string).trim())
+      throw new Error(`step ${i + 1}: ${kind} needs a value`)
+    return step as BrowserStep
+  })
+}
+
+/** Fills `{name}` placeholders from the inputs; inside URLs the values are URL-encoded. */
+export function fillPlaceholders(text: string, input: Record<string, unknown>, url = false): string {
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
+    if (!(name in input) || input[name] === undefined) return whole
+    const value = String(input[name])
+    return url ? encodeURIComponent(value) : value
+  })
 }
