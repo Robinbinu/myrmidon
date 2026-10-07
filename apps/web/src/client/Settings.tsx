@@ -3,6 +3,7 @@ import {
   BookMarked,
   Bot,
   Brain,
+  CalendarClock,
   Check,
   ChevronRight,
   CircleCheck,
@@ -40,7 +41,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ModelOption, send, type TeamConfig } from './api.ts'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
-import type { ThemeChoice } from './ui/hooks.ts'
+import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
 import {
   Button,
   cn,
@@ -122,6 +123,7 @@ export type Section =
   | 'tools'
   | 'skills'
   | 'hooks'
+  | 'schedules'
   | 'verification'
   | 'instructions'
   | 'memory'
@@ -133,6 +135,7 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
   { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
   { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
   { id: 'hooks', label: 'Hooks', hint: 'Commands around every tool', icon: Webhook },
+  { id: 'schedules', label: 'Schedules', hint: 'Requests that run on their own', icon: CalendarClock },
   { id: 'verification', label: 'Verification', hint: 'Judge threshold, rubric', icon: Gavel },
   { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
   { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
@@ -385,6 +388,7 @@ export function Settings(props: {
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
               {section === 'hooks' && <HooksSection />}
+              {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> Loading settings…
@@ -417,6 +421,39 @@ function Card(props: { children: ReactNode; className?: string }) {
 
 function Row(props: { children: ReactNode }) {
   return <div className="px-4 py-3.5">{props.children}</div>
+}
+
+/** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
+function NotifyToggle() {
+  const toast = useToast()
+  const supported = typeof Notification !== 'undefined'
+  const [on, setOn] = usePersistentFlag(NOTIFY_KEY, false)
+  const granted = supported && Notification.permission === 'granted'
+  return (
+    <Field
+      label="Notify me when a round finishes"
+      hint={
+        supported
+          ? 'A desktop notification when a round is done (or stops) while Myrmidon is in the background, including scheduled ones.'
+          : 'This browser does not support notifications.'
+      }
+      inline
+    >
+      <Switch
+        checked={on && granted}
+        disabled={!supported}
+        label="Notify me when a round finishes"
+        onChange={(v) => {
+          if (!v) return setOn(false)
+          void Notification.requestPermission().then((p) => {
+            setOn(p === 'granted')
+            if (p !== 'granted')
+              toast('Notifications are blocked for this site in your browser settings', 'error')
+          })
+        }}
+      />
+    </Field>
+  )
 }
 
 function General(props: {
@@ -468,6 +505,9 @@ function General(props: {
           <Field label="Reduce motion" hint="Turn off animations and transitions." inline>
             <Switch checked={props.reduceMotion} onChange={props.onReduceMotion} label="Reduce motion" />
           </Field>
+        </Row>
+        <Row>
+          <NotifyToggle />
         </Row>
       </Card>
     </>
@@ -1797,6 +1837,197 @@ function InstructionsSection(props: {
           </Field>
         </Row>
       </Card>
+    </>
+  )
+}
+
+interface ScheduleEntry {
+  id: string
+  name: string
+  request: string
+  cron: string
+  project?: string
+  enabled: boolean
+  nextRun?: string
+  lastRun?: { at: string; chatId?: string; error?: string }
+}
+
+const CRON_PRESETS: { cron: string; label: string }[] = [
+  { cron: '0 * * * *', label: 'Every hour' },
+  { cron: '0 9 * * *', label: 'Every day at 9:00' },
+  { cron: '0 9 * * 1-5', label: 'Weekdays at 9:00' },
+  { cron: '0 9 * * 1', label: 'Mondays at 9:00' },
+]
+
+const when = (iso?: string) =>
+  iso
+    ? new Date(iso).toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—'
+
+/** Requests that start on their own on a cron schedule, as new chats with the default team. */
+function SchedulesSection() {
+  const toast = useToast()
+  const [list, setList] = useState<ScheduleEntry[]>()
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [draft, setDraft] = useState({ request: '', cron: '0 9 * * 1-5', custom: false, project: '' })
+  const load = () =>
+    api<{ schedules: ScheduleEntry[] }>('/api/schedules')
+      .then((r) => setList(r.schedules))
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+    api<{ projects: { id: string; name: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch(() => {})
+  }, [])
+  const act = (run: () => Promise<unknown>, done?: string) =>
+    void run()
+      .then(() => {
+        if (done) toast(done, 'success')
+        return load()
+      })
+      .catch((err: Error) => toast(err.message, 'error'))
+  const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
+  return (
+    <>
+      <Heading title="Schedules">
+        Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new
+        chat with your default team, verified like any other; turn on notifications in General to hear when
+        one finishes. The server has to be running for a schedule to fire.
+      </Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label="Request">
+            <TextArea
+              rows={2}
+              value={draft.request}
+              onChange={(e) => setDraft({ ...draft, request: e.target.value })}
+              placeholder="e.g. Summarize what changed in this repo since yesterday and flag anything risky."
+            />
+          </Field>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Select
+              aria-label="When"
+              value={draft.custom ? 'custom' : draft.cron}
+              onChange={(e) =>
+                setDraft(
+                  e.target.value === 'custom'
+                    ? { ...draft, custom: true }
+                    : { ...draft, custom: false, cron: e.target.value },
+                )
+              }
+            >
+              {CRON_PRESETS.map((p) => (
+                <option key={p.cron} value={p.cron}>
+                  {p.label}
+                </option>
+              ))}
+              <option value="custom">Custom (cron)</option>
+            </Select>
+            {draft.custom && (
+              <div className="w-40">
+                <TextInput
+                  aria-label="Cron expression"
+                  value={draft.cron}
+                  onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
+                  placeholder="m h dom mon dow"
+                  className="font-mono text-[12.5px]"
+                />
+              </div>
+            )}
+            <Select
+              aria-label="Project"
+              value={draft.project}
+              onChange={(e) => setDraft({ ...draft, project: e.target.value })}
+            >
+              <option value="">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+            <span className="flex-1" />
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Plus className="size-3.5" />}
+              disabled={!draft.request.trim()}
+              onClick={() =>
+                act(async () => {
+                  await send('POST', '/api/schedules', {
+                    request: draft.request,
+                    cron: draft.cron,
+                    ...(draft.project ? { project: draft.project } : {}),
+                  })
+                  setDraft({ ...draft, request: '' })
+                }, 'Scheduled')
+              }
+            >
+              Schedule
+            </Button>
+          </div>
+        </Row>
+      </Card>
+      {!list ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> Loading schedules…
+        </div>
+      ) : list.length === 0 ? (
+        <Empty icon={<CalendarClock className="size-5" />} title="Nothing scheduled">
+          Add a request above and it runs on its own at the times you pick.
+        </Empty>
+      ) : (
+        <Card>
+          {list.map((s) => (
+            <Row key={s.id}>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] leading-relaxed">{s.request}</p>
+                  <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-muted">
+                    <span>{label(s.cron)}</span>
+                    {s.project && (
+                      <span>in {projects.find((p) => p.id === s.project)?.name ?? s.project}</span>
+                    )}
+                    <span>{s.enabled ? `next ${when(s.nextRun)}` : 'paused'}</span>
+                    {s.lastRun && (
+                      <span className={s.lastRun.error ? 'text-bad' : ''}>
+                        last {when(s.lastRun.at)}
+                        {s.lastRun.error ? `: ${s.lastRun.error}` : ''}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => act(() => send('POST', `/api/schedules/${s.id}/run`), 'Started a run')}
+                >
+                  Run now
+                </Button>
+                <Switch
+                  checked={s.enabled}
+                  label={`Run ${s.name} on schedule`}
+                  onChange={(enabled) => act(() => send('PATCH', `/api/schedules/${s.id}`, { enabled }))}
+                />
+                <IconButton
+                  label="Delete this schedule"
+                  onClick={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
+                >
+                  <Trash2 className="size-4" />
+                </IconButton>
+              </div>
+            </Row>
+          ))}
+        </Card>
+      )}
     </>
   )
 }

@@ -29,8 +29,10 @@ import {
   normalizeTeamConfig,
   type OmpRuntime,
   type ProjectStore,
+  type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
+  startScheduler,
   type ToolLibrary,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
@@ -67,6 +69,8 @@ export interface ServeOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
+  /** Rounds that start on a schedule; the server starts the due ones. */
+  readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
 }
@@ -106,19 +110,23 @@ const sendSchema = Schema.object({
     }),
   ).max(MAX_ATTACHMENTS),
   // Both the current team shape and the older auto/manual one are accepted; normalizeTeamConfig maps them.
-  config: Schema.object({
-    mode: Schema.union(['orchestrated', 'swarm', 'auto', 'manual']).default('orchestrated'),
-    leadModel: Schema.string().required(),
-    judgeModel: Schema.string().required(),
-    roster: Schema.array(
-      Schema.object({ role: Schema.string().max(40).required(), model: Schema.string().required() }),
-    ).max(8),
-    extraWorkers: Schema.natural().max(8),
-    workerModel: Schema.string(),
-    workers: Schema.natural().max(8),
-    wallMinutes: Schema.number().min(1).max(240),
-    thinking: Schema.union(['low', 'medium', 'high']),
-  }).required(),
+  // Without one (the CLI, a script), the person's default team applies.
+  config: Schema.union([
+    Schema.const(undefined as never),
+    Schema.object({
+      mode: Schema.union(['orchestrated', 'swarm', 'auto', 'manual']).default('orchestrated'),
+      leadModel: Schema.string().required(),
+      judgeModel: Schema.string().required(),
+      roster: Schema.array(
+        Schema.object({ role: Schema.string().max(40).required(), model: Schema.string().required() }),
+      ).max(8),
+      extraWorkers: Schema.natural().max(8),
+      workerModel: Schema.string(),
+      workers: Schema.natural().max(8),
+      wallMinutes: Schema.number().min(1).max(240),
+      thinking: Schema.union(['low', 'medium', 'high']),
+    }),
+  ]),
 })
 const BATCH = 500
 
@@ -149,6 +157,27 @@ export function startServer(options: ServeOptions): WebServer {
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
   const store = new SqliteLogStore(options.home)
   const sockets = new Set<ServerWebSocket<StreamData>>()
+  /** The team a request gets when it brings none: the person's defaults from Settings. */
+  const defaultTeam = () => {
+    const team = options.settings?.get().team
+    const leadModel = team?.leadModel ?? options.omp?.defaultModel()
+    if (!leadModel) throw new Error('no default model: pick one in Settings → Team & budget')
+    return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
+  }
+  const chats = options.chats
+  const stopScheduler =
+    options.schedules && chats
+      ? startScheduler(options.schedules, async (s) => {
+          const sent = await chats.send(
+            s.request,
+            defaultTeam(),
+            undefined,
+            s.project ? { project: s.project } : {},
+          )
+          await chats.rename(sent.chatId, `Scheduled · ${s.name}`).catch(() => {})
+          return sent.chatId
+        })
+      : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
 
   const json = (data: unknown, status = 200) =>
@@ -414,6 +443,68 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ project, projects: options.projects.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/schedules': {
+        GET: guard(() => json({ schedules: options.schedules?.list() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.schedules) return json({ error: 'schedules need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          try {
+            options.schedules.add({
+              request: String(body.request ?? ''),
+              cron: String(body.cron ?? ''),
+              ...(typeof body.name === 'string' ? { name: body.name } : {}),
+              ...(typeof body.project === 'string' && body.project ? { project: body.project } : {}),
+            })
+            return json({ schedules: options.schedules.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/schedules/:id': {
+        PATCH: guard(async (req) => {
+          if (!options.schedules) return json({ error: 'schedules need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          try {
+            options.schedules.update(req.params.id ?? '', {
+              ...(typeof body.name === 'string' ? { name: body.name } : {}),
+              ...(typeof body.request === 'string' ? { request: body.request } : {}),
+              ...(typeof body.cron === 'string' ? { cron: body.cron } : {}),
+              ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+              ...(body.project === null || typeof body.project === 'string'
+                ? { project: (body.project as string | null) || null }
+                : {}),
+            })
+            return json({ schedules: options.schedules.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.schedules) return json({ error: 'schedules need the chat runtime' }, 503)
+          options.schedules.remove(req.params.id ?? '')
+          return json({ schedules: options.schedules.list() })
+        }),
+      },
+      '/api/schedules/:id/run': {
+        POST: guard(async (req) => {
+          const schedule = options.schedules?.list().find((s) => s.id === req.params.id)
+          if (!schedule || !chats || !options.schedules) return json({ error: 'no such schedule' }, 404)
+          try {
+            const sent = await chats.send(
+              schedule.request,
+              defaultTeam(),
+              undefined,
+              schedule.project ? { project: schedule.project } : {},
+            )
+            await chats.rename(sent.chatId, `Scheduled · ${schedule.name}`).catch(() => {})
+            options.schedules.ran(schedule.id, { chatId: sent.chatId })
+            return json({ chatId: sent.chatId, schedules: options.schedules.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
         }),
       },
@@ -705,7 +796,10 @@ export function startServer(options: ServeOptions): WebServer {
             )
           }
           try {
-            const config = normalizeTeamConfig(body.config as Record<string, unknown>)
+            // A request without a team (the CLI, a script) runs with the person's default team from Settings.
+            const config = body.config
+              ? normalizeTeamConfig(body.config as Record<string, unknown>)
+              : defaultTeam()
             const attachments = (body.attachments ?? []).map((a) => {
               const bytes = new Uint8Array(Buffer.from(a.data, 'base64'))
               if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${a.name} is larger than 10 MB`)
@@ -995,6 +1089,7 @@ export function startServer(options: ServeOptions): WebServer {
       : `http://127.0.0.1:${server.port}/#token=${token}`,
     token,
     async stop() {
+      stopScheduler?.()
       clearInterval(poll)
       for (const ws of sockets) ws.close(1001, 'server stopping')
       await server.stop(true)

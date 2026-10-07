@@ -24,7 +24,7 @@ import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { Settings } from './Settings.tsx'
-import { useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
+import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
@@ -103,6 +103,23 @@ async function exportChat(chat: ChatSummary) {
   }.md`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** A desktop notification while Myrmidon is in the background, if the person turned them on in Settings. */
+function notify(text: string, chatId: string) {
+  try {
+    if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted' || !document.hidden) return
+    const n = new Notification('Myrmidon', { body: text, tag: chatId })
+    n.onclick = () => {
+      window.focus()
+      const url = new URL(location.href)
+      url.searchParams.set('chat', chatId)
+      location.href = url.toString()
+    }
+  } catch {
+    // Notifications are a convenience; a browser that refuses them just shows the toast.
+  }
 }
 
 export function App() {
@@ -185,12 +202,12 @@ export function App() {
     for (const c of chats) {
       const before = seen.current.get(c.chatId)
       if (before && isRunning(before) && !isRunning(c.status)) {
-        toast(
+        const text =
           c.status === 'completed'
             ? `“${c.title}” is done and verified`
-            : `“${c.title}” ${c.status === 'stopped' ? 'paused' : c.status}`,
-          c.status === 'completed' ? 'success' : 'info',
-        )
+            : `“${c.title}” ${c.status === 'stopped' ? 'paused' : c.status}`
+        toast(text, c.status === 'completed' ? 'success' : 'info')
+        notify(text, c.chatId)
       }
       seen.current.set(c.chatId, c.status)
     }

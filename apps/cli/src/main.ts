@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import './home.ts'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { colonyId, SqliteLogStore } from '@myrmidon/core'
@@ -9,6 +10,7 @@ import {
   type EventPayloads,
   foldColony,
   type MyrEvent,
+  roundSlice,
 } from '@myrmidon/protocol'
 import {
   BrowserHub,
@@ -28,6 +30,7 @@ import {
   ProjectStore,
   type Runtime,
   recoverOrphans,
+  ScheduleStore,
   SettingsStore,
   SkillLibrary,
   ToolLibrary,
@@ -39,6 +42,8 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
   myrmidon serve [--port N] [--dev]
+  myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
+               Send a request to the running server (from \`serve\`); --wait prints the verified answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
   myrmidon ls
   myrmidon events <colony-id> [--json]
@@ -60,6 +65,9 @@ const { values, positionals } = parseArgs({
     out: { type: 'string' },
     'unsafe-no-sandbox': { type: 'boolean', default: false },
     dev: { type: 'boolean', default: false },
+    chat: { type: 'string' },
+    project: { type: 'string' },
+    wait: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -289,6 +297,7 @@ async function main() {
         memory,
         skills,
         hooks,
+        schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
       })
@@ -300,8 +309,18 @@ async function main() {
           `data ${home} · ${omp.available().length} models ready · sandbox ${sandbox.kind} · Ctrl-C to stop`,
         ),
       )
+      // `myrmidon ask` and scripts find the running server here; only this user can read it.
+      const serverFile = join(home, 'server.json')
+      writeFileSync(
+        serverFile,
+        JSON.stringify({ url: server.url.replace(/#.*$/, ''), token: server.token, pid: process.pid }),
+        {
+          mode: 0o600,
+        },
+      )
       process.on('SIGINT', async () => {
         console.log(c.yellow('\nstopping running colonies…'))
+        rmSync(serverFile, { force: true })
         await chats.stopAll()
         await browser.close().catch(() => {})
         await mcp.close().catch(() => {})
@@ -311,6 +330,8 @@ async function main() {
       })
       return
     }
+    case 'ask':
+      return ask(arg)
     case 'import-omp': {
       const report = importFromOmp(home)
       console.log(`${c.green('imported')} ${report.copied.join(', ') || 'nothing'} into ${home}/agent`)
@@ -357,3 +378,50 @@ main().catch((err) => {
   console.error(c.red(err instanceof Error ? err.message : String(err)))
   process.exit(1)
 })
+
+/** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
+async function ask(request: string | undefined) {
+  if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
+  const file = join(home, 'server.json')
+  if (!existsSync(file)) throw new Error(`no running server for ${home}: start one with \`myrmidon serve\``)
+  const { url, token } = JSON.parse(readFileSync(file, 'utf8')) as { url: string; token: string }
+  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(new URL(path, url), {
+      method,
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+    const data = (await res.json().catch(() => ({}))) as T & { error?: string }
+    if (!res.ok) throw new Error(data.error ?? `${method} ${path}: ${res.status}`)
+    return data
+  }
+  const sent = await call<{ chatId: string; colonyId: string; round?: number }>('POST', '/api/chats', {
+    text: request,
+    ...(values.chat ? { chatId: values.chat } : {}),
+    ...(values.project ? { project: values.project } : {}),
+  })
+  console.log(`${c.green('sent')} chat ${sent.chatId}${sent.round ? ` round ${sent.round}` : ''}`)
+  if (!values.wait) return
+  for (;;) {
+    await Bun.sleep(3000)
+    const events = await call<MyrEvent[]>('GET', `/api/colonies/${sent.colonyId}/events?from=1&limit=20000`)
+    const { state, info } = roundSlice(foldColony(sent.colonyId, events), events, sent.round)
+    if (!info || info.endSeq === undefined) continue
+    // An escalated round hands the request to the next one; follow it.
+    if (info.escalated && sent.round !== undefined) {
+      sent.round += 1
+      continue
+    }
+    const replies = state.chatMessages.filter((m) => m.from !== 'user')
+    const answer = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
+    if (answer) console.log(`\n${answer.text}\n`)
+    const verdict = state.verdicts.filter((v) => v.target === 'colony').at(-1)
+    console.log(
+      info.status === 'completed'
+        ? c.green(`completed${verdict?.score !== undefined ? ` · judge ${verdict.score.toFixed(2)}` : ''}`)
+        : c.yellow(`${info.status}${info.statusReason ? `: ${info.statusReason}` : ''}`),
+    )
+    process.exitCode = info.status === 'completed' ? 0 : 1
+    return
+  }
+}
