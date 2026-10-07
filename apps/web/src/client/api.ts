@@ -176,6 +176,24 @@ export interface TeamConfig {
   thinking?: 'low' | 'medium' | 'high'
 }
 
+/** When the reviewer checks the work: never, when the lead asks, or on every final answer. */
+export type ReviewMode = 'off' | 'auto' | 'always'
+
+type StoredSettings = { verification: { reviewer: ReviewMode } & Record<string, unknown> } & Record<
+  string,
+  unknown
+>
+
+export async function getReviewMode(): Promise<ReviewMode> {
+  return (await api<{ settings: StoredSettings }>('/api/settings')).settings.verification.reviewer
+}
+
+/** Saving settings replaces them whole, so this reads them first and changes only the reviewer mode. */
+export async function setReviewMode(reviewer: ReviewMode): Promise<void> {
+  const { settings } = await api<{ settings: StoredSettings }>('/api/settings')
+  await send('PUT', '/api/settings', { ...settings, verification: { ...settings.verification, reviewer } })
+}
+
 export const SPECIALISTS = ['researcher', 'coder', 'writer', 'reviewer', 'designer', 'analyst'] as const
 
 /** The provider part of a `provider/model` ref. */

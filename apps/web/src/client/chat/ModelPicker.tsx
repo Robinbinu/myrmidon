@@ -13,6 +13,8 @@ export function ModelPicker(props: {
   onChange(ref: string): void
   /** Open upward (inside the composer) or downward (in settings). */
   placement?: 'up' | 'down'
+  /** A small popup button for a settings row (label left, control right), its list aligned to the right. */
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -72,16 +74,30 @@ export function ModelPicker(props: {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft"
+        aria-label={props.compact ? `${props.label} model` : undefined}
+        className={
+          props.compact
+            ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+            : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
+        }
       >
-        <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {props.icon}
-          {props.label}
-        </span>
-        <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
-          <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
-          <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
-        </span>
+        {props.compact ? (
+          <>
+            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
+          </>
+        ) : (
+          <>
+            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              {props.icon}
+              {props.label}
+            </span>
+            <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
+              <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
+            </span>
+          </>
+        )}
       </button>
       <AnimatePresence>
         {open && (
@@ -91,7 +107,8 @@ export function ModelPicker(props: {
             exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
             transition={spring}
             className={cn(
-              'absolute left-0 z-50 flex max-h-[400px] w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              'absolute z-50 flex max-h-[400px] w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              props.compact ? 'right-0' : 'left-0',
               up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',
             )}
           >
