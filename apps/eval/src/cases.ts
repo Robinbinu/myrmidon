@@ -97,6 +97,29 @@ export const CASES: EvalCase[] = [
     ],
   },
   {
+    id: 'answer-needs-file',
+    pillar: 'answer',
+    prompt: 'Quick question: what is the 1000th prime number? Oh, and drop the whole list of the first 1000 into primes.csv.',
+    // Triage may call this a quick answer; that round has no file tools, so it should escalate.
+    tiers: ['solo'],
+    modes: ['orchestrated'],
+    budget: { seconds: 240, tokens: 400_000 },
+    checks: [
+      {
+        kind: 'artifact',
+        label: 'primes.csv holds the 1000th prime',
+        name: /primes\.csv$/,
+        contains: /\b7919\b/,
+      },
+      {
+        kind: 'artifact',
+        label: 'no prime past the 1000th',
+        name: /primes\.csv$/,
+        contains: /^(?![\s\S]*\b7927\b)/,
+      },
+    ],
+  },
+  {
     id: 'coding-team-git',
     pillar: 'coding',
     prompt:

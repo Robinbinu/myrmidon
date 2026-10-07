@@ -71,6 +71,8 @@ export interface SendOptions {
   readonly planFirst?: boolean
   /** A new chat's project; later rounds stay in the chat's project. */
   readonly project?: string
+  /** Skips triage: an escalated round reruns its request at the tier its agent asked for. */
+  readonly tier?: Tier
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -184,13 +186,17 @@ Score 1.0 only for work you would hand to the person as-is.`
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for context in the next round. */
 function conversation(previous: { state: ColonyState }[]): string {
-  return previous
-    .map(({ state }) => {
-      const replies = state.chatMessages.filter((m) => m.from !== 'user')
-      const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-      return `User: ${state.chat?.request ?? ''}\nColony (${state.status}): ${final?.text ?? '(no reply)'}`
-    })
-    .join('\n\n')
+  return (
+    previous
+      // An escalated round's request was rerun by the next round; listing it would repeat it.
+      .filter(({ state }) => !state.escalated)
+      .map(({ state }) => {
+        const replies = state.chatMessages.filter((m) => m.from !== 'user')
+        const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
+        return `User: ${state.chat?.request ?? ''}\nColony (${state.status}): ${final?.text ?? '(no reply)'}`
+      })
+      .join('\n\n')
+  )
 }
 
 function newChatId() {
@@ -329,12 +335,14 @@ export class ChatService {
     const history = conversation(previous)
     const classify = this.options.classify ?? llmClassifier(this.options.resolver, () => config.leadModel)
     // One retry, then one agent with every tool: it can do anything a single agent can without waking a team.
-    const tier = await classify(message, history)
-      .catch(() => classify(message, history))
-      .catch((err) => {
-        console.warn(`triage failed, running solo: ${err instanceof Error ? err.message : String(err)}`)
-        return 'solo' as const
-      })
+    const tier =
+      options.tier ??
+      (await classify(message, history)
+        .catch(() => classify(message, history))
+        .catch((err) => {
+          console.warn(`triage failed, running solo: ${err instanceof Error ? err.message : String(err)}`)
+          return 'solo' as const
+        }))
     const spec = this.buildSpec(id, message, config, previous, history, tier)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
@@ -357,12 +365,23 @@ export class ChatService {
       await this._checkpoint(run.id, project, 'start', `before: ${message}`)
       if (prior) await this.carryOver(prior, run)
       await this.carryTranscripts(previous, run)
-      const names = await run.attach(attachments)
+      // A rerun after escalation repeats what the person said in the escalated round; its uploads carried over.
+      const said = prior?.state.escalated ? prior.state.chatMessages.filter((m) => m.from === 'user') : []
+      const names = [...(said[0]?.attachments ?? []), ...(await run.attach(attachments))]
       await run.append({
         type: 'chat/user',
         actor: { kind: 'user', id: 'user' },
         payload: { text: message, ...(names.length ? { attachments: names } : {}) },
       })
+      for (const later of said.slice(1))
+        await run.append({
+          type: 'chat/user',
+          actor: { kind: 'user', id: 'user' },
+          payload: {
+            text: later.text,
+            ...(later.attachments?.length ? { attachments: later.attachments } : {}),
+          },
+        })
     })
     this._live.set(id, run)
     try {
@@ -375,7 +394,24 @@ export class ChatService {
       if (this._live.get(id) === run) this._live.delete(id)
       void this._checkpoint(run.id, project, 'end', `after: ${message}`)
     })
+    void run.done.then((final) => {
+      if (final.escalated)
+        this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
+    })
     return { chatId: id, colonyId: run.id, started: true }
+  }
+
+  /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */
+  private _rerun(id: string, message: string, config: TeamConfig, options: SendOptions) {
+    const turn = (this._sending.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.deliver(id, message, config, options))
+    this._sending.set(id, turn)
+    turn
+      .catch((err) => console.error(`rerunning an escalated request in ${id} failed:`, err))
+      .finally(() => {
+        if (this._sending.get(id) === turn) this._sending.delete(id)
+      })
   }
 
   /** Renames a conversation; recorded in its latest round's log, so the name survives restarts. */
@@ -543,6 +579,8 @@ export class ChatService {
     if (!last) throw new Error('no such chat')
     if (last.state.status === 'completed')
       throw new Error('the latest round already completed; send a follow-up instead')
+    if (last.state.escalated)
+      throw new Error('this round handed its request to a bigger one; wait for it or send a follow-up')
     const created = (await this.store.read(last.id as never)).find((e) => e.type === 'colony/created')
     if (!created) throw new Error('the round has no colony/created event')
     const spec = this.specFromLog(created.payload as EventPayloads['colony/created'], last.state)
@@ -703,6 +741,13 @@ export class ChatService {
       ...(leadNote ? { instructions: leadNote } : {}),
     }
     const swarm = tier === 'team' && config.mode === 'swarm'
+    // An answer or solo round may hand its request up: to one agent with every tool, or to a team if one exists.
+    const teamSize =
+      config.mode === 'swarm' ? kept.length || roster.length || 2 : 1 + (kept.length || roster.length) + extra
+    const escalate: ('solo' | 'team')[] = [
+      ...(tier === 'answer' ? (['solo'] as const) : []),
+      ...(tier !== 'team' && teamSize > 1 ? (['team'] as const) : []),
+    ]
     // A swarm has no lead, even when triage gives the request to one agent: that agent is a peer.
     const alone: AgentSpec =
       config.mode === 'swarm'
@@ -760,7 +805,13 @@ export class ChatService {
           : { wallMs, maxTurns: s?.team.maxTurns ?? 40, ...limits },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
-      chat: { chatId, round: previous.length + 1, request, history },
+      chat: {
+        chatId,
+        round: previous.length + 1,
+        request,
+        history,
+        ...(escalate.length ? { escalate } : {}),
+      },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
       team: {
@@ -798,6 +849,29 @@ export class ChatService {
           actor: { kind: 'user', id: 'previous-round' },
           payload: tool,
         })
+    const escalated = prior.state.escalated
+    if (escalated) {
+      // Same request, bigger tier: everything the escalated round wrote down still applies.
+      for (const n of prior.state.notes.filter((n) => n.section !== 'plan'))
+        await run.append({
+          type: 'note/appended',
+          actor: { kind: 'user', id: 'previous-round' },
+          payload: {
+            agent: 'previous-round',
+            text: `${n.agent}: ${n.text}`,
+            ...(n.section ? { section: n.section } : {}),
+          },
+        })
+      await run.append({
+        type: 'note/appended',
+        actor: { kind: 'user', id: 'previous-round' },
+        payload: {
+          agent: 'previous-round',
+          text: `This request started in a smaller round; ${escalated.by} moved it here because: ${escalated.reason.replace(/[.\s]+$/, '')}. Its files and notes are carried over.`,
+          section: 'decision',
+        },
+      })
+    }
     const plan = prior.state.notes.filter((n) => n.section === 'plan').at(-1)
     if (plan)
       await run.append({

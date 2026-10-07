@@ -1,5 +1,6 @@
 import { type ChatEntry, type ColonyState, colonyMetrics, type MyrEvent } from '@myrmidon/protocol'
 import {
+  ArrowUpRight,
   BadgeCheck,
   Check,
   CheckCheck,
@@ -405,11 +406,18 @@ function RunCard(props: {
       ? { title: `Done in ${duration(m.wallMs)}`, mood: 'happy', color: JUDGE_COLOR }
       : awaiting
         ? { title: 'Paused for your reply', mood: 'waiting', color: LEAD_COLOR }
-        : {
-            title: state.status === 'failed' ? 'Run failed' : 'Run stopped',
-            mood: state.status === 'failed' ? 'error' : 'sleep',
-            color: state.status === 'failed' ? '#ff6369' : '#8a8a94',
-          }
+        : state.escalated
+          ? {
+              title:
+                state.escalated.to === 'team' ? 'Handed to a team' : 'Handed to one agent with every tool',
+              mood: 'happy',
+              color: LEAD_COLOR,
+            }
+          : {
+              title: state.status === 'failed' ? 'Run failed' : 'Run stopped',
+              mood: state.status === 'failed' ? 'error' : 'sleep',
+              color: state.status === 'failed' ? '#ff6369' : '#8a8a94',
+            }
 
   return (
     <motion.div
@@ -625,6 +633,21 @@ function Outcome({
             </Button>
           </div>
         )}
+      </motion.div>
+    )
+  }
+  if (state.escalated) {
+    return (
+      <motion.div {...enter} className={cn(box, 'border-accent/25 bg-accent-soft text-accent')} role="status">
+        <ArrowUpRight className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0">
+          <div className="font-semibold">
+            Moved to {state.escalated.to === 'team' ? 'a team' : 'one agent with every tool'}
+          </div>
+          <div className="text-[12.5px] text-fg-2">
+            {state.escalated.reason} The next round picks it up with these files and notes.
+          </div>
+        </div>
       </motion.div>
     )
   }

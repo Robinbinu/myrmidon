@@ -68,6 +68,18 @@ test('metrics read time, tokens, cost, agents, planning turns and the verdict fr
   expect(m.costUsd).toBeCloseTo(0.03)
 })
 
+test('an escalated request is measured across both rounds, at the tier it finished in', () => {
+  seq = 0
+  const first = [
+    ev('colony/created', { tier: 'answer', agents: [{ name: 'lead' }] }, 0),
+    ev('llm/response', { agent: 'lead', usage: { totalTokens: 100 } }, 1),
+    ev('colony/escalated', { by: 'lead', to: 'solo', reason: 'needs files' }, 2),
+  ]
+  const m = metrics([...first, ...run()])
+  expect(m).toMatchObject({ tier: 'solo', escalated: 'answer → solo', outcome: 'completed', tokens: 1600 })
+  expect(grade(CASE, { events: [...first, ...run()], artifacts: {}, local: {} }).tierMismatch).toBe(false)
+})
+
 test('grading applies each check and flags tier mismatches and budget breaches', () => {
   const view = { events: run(), artifacts: { 'snake.html': '<canvas id=c>' }, local: { tests: true } }
   const g = grade(CASE, view)

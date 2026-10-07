@@ -47,7 +47,10 @@ export interface TrialView {
 }
 
 export interface Metrics {
+  /** The tier the request finished at (after any escalation). */
   tier?: Tier
+  /** Tiers the request went through when its round escalated, e.g. `answer → solo`. */
+  escalated?: string
   mode?: Mode
   outcome: string
   seconds: number
@@ -68,7 +71,8 @@ const payload = (e: MyrEvent) => e.payload as Payload
 
 export function metrics(events: readonly MyrEvent[]): Metrics {
   const of = (type: string) => events.filter((e) => e.type === type)
-  const created = payload(of('colony/created')[0] ?? ({ payload: {} } as MyrEvent))
+  const rounds = of('colony/created').map(payload)
+  const created = rounds.at(-1) ?? {}
   const end = events.findLast((e) => ['colony/completed', 'colony/stopped', 'colony/failed'].includes(e.type))
   const start = events[0]
   const responses = of('llm/response').map(
@@ -85,6 +89,7 @@ export function metrics(events: readonly MyrEvent[]): Metrics {
   const team = created.team as { mode?: Mode } | undefined
   return {
     ...(created.tier ? { tier: created.tier as Tier } : {}),
+    ...(rounds.length > 1 ? { escalated: rounds.map((r) => String(r.tier)).join(' → ') } : {}),
     ...(team?.mode ? { mode: team.mode } : {}),
     outcome: !end
       ? 'unfinished'

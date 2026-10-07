@@ -104,7 +104,7 @@ that a broken MCP server could eat a round, so MCP servers now trip a breaker af
 
 ## Milestone 3: Swarm orchestrator
 
-Status (2026-10-07): 1 (worktree per coding worker) done. Eval `coding-team-git` passes in both modes; the swarm
+Status (2026-10-07): 1 (worktree per coding worker) and 2 (escalate) done. Eval `coding-team-git` passes in both modes; the swarm
 run hit a real conflict (two peers fixed the same file) that the worker resolved in its worktree.
 
 1. **A worktree per coding agent.**

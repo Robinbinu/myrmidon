@@ -1149,6 +1149,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'escalate',
+    tier: 'write',
+    description:
+      'Hand this request to a bigger setup when it needs more than this round can give: "solo" is one agent with ' +
+      'every tool, "team" a lead with specialists working in parallel. This round ends; the request reruns at ' +
+      'that size with your files, notes and conversation. Stop after calling it.',
+    parameters: type({
+      to: "'solo' | 'team'",
+      reason: type('string').atLeastLength(1).describe('What the request needs that this round cannot give'),
+    }),
+    async run(args, agent, host) {
+      return host.escalate(agent, args.to, args.reason)
+    },
+  },
+  {
     name: 'reply_user',
     tier: 'write',
     description:

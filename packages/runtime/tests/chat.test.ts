@@ -1526,6 +1526,54 @@ test('team workers in a git project each get a worktree, and their changes merge
   rmSync(folder, { recursive: true, force: true })
 })
 
+test('an answer round that turns out bigger escalates, and a solo round reruns it with its notes', async () => {
+  const resolver = new ModelResolver()
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const seen = JSON.stringify(ctx.messages)
+      // The answer round asks to move up once; the solo round (no escalate tool) does the work.
+      if (ctx.tools?.some((t) => t.name === 'escalate'))
+        return {
+          content: seen.includes('"escalate"')
+            ? ['handed over']
+            : [tool('escalate', { to: 'solo', reason: 'It needs a script and a file, not a quick answer.' })],
+        }
+      if (seen.includes('needs a script') && seen.includes('Build me a CSV of primes'))
+        return { content: [tool('reply_user', { text: 'primes.csv is ready.', final: true })] }
+      return { content: ['missing context'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Build me a CSV of primes', config)
+  const round1 = await waitFor(first.colonyId)
+  expect(round1.escalated).toEqual({
+    by: 'lead',
+    to: 'solo',
+    reason: 'It needs a script and a file, not a quick answer.',
+  })
+  expect(round1.status).toBe('stopped')
+  // No team is configured, so an answer round can only move to one agent.
+  expect(round1.agents.lead?.info.tools).toContain('escalate')
+  let rounds: { colonyId: string }[] = []
+  for (let i = 0; i < 100 && rounds.length < 2; i++) {
+    rounds = (await chats.list()).find((c) => c.chatId === first.chatId)?.rounds ?? []
+    await Bun.sleep(50)
+  }
+  expect(rounds).toHaveLength(2)
+  const round2 = await waitFor(rounds[1]?.colonyId ?? '')
+  expect(round2.tier).toBe('solo')
+  expect(round2.status).toBe('completed')
+  expect(round2.chatMessages[0]).toMatchObject({ from: 'user', text: 'Build me a CSV of primes' })
+  expect(round2.notes.some((n) => n.section === 'decision' && n.text.includes('needs a script'))).toBe(true)
+  expect(round2.chat?.history ?? '').not.toContain('Build me a CSV of primes')
+  expect(round2.agents.lead?.info.tools).not.toContain('escalate')
+  await expect(chats.resume(first.chatId)).rejects.toThrow()
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

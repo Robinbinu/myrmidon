@@ -92,6 +92,8 @@ export interface EventPayloads {
       request: string
       history?: string
       project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
+      /** Bigger tiers this round's agent may hand the request to (escalate). */
+      escalate?: ('solo' | 'team')[]
     }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
@@ -114,6 +116,8 @@ export interface EventPayloads {
     models?: Record<string, string>
   }
   'colony/stopped': { reason: string }
+  /** The round's agent found the request bigger than its tier: the chat reruns it at `to`, with this round's work. */
+  'colony/escalated': { by: string; to: 'solo' | 'team'; reason: string }
   'agent/joined': { agent: AgentInfo; by: string; focus: string }
   /**
    * A frame of an agent's browser after one action, for replaying what it did: a JPEG screenshot (blob), where its

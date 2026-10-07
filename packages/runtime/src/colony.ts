@@ -516,6 +516,7 @@ export class ColonyRun implements ColonyHost {
                 request: this.spec.chat.request,
                 ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
                 ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
+                ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
               },
             }
           : {}),
@@ -640,6 +641,21 @@ export class ColonyRun implements ColonyHost {
         'resume',
       )
     }
+  }
+
+  /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */
+  async escalate(by: string, to: 'solo' | 'team', reason: string): Promise<string> {
+    const allowed = this.spec.chat?.escalate ?? []
+    if (!allowed.includes(to))
+      throw new Error(
+        allowed.length
+          ? `this round can move to ${allowed.join(' or ')}, not ${to}`
+          : 'this round cannot move to a bigger tier',
+      )
+    if (this._state.status !== 'running') throw new Error('this round is not running')
+    await this.append({ type: 'colony/escalated', actor: agentActor(by), payload: { by, to, reason } })
+    void this._end()
+    return `Handing this request to ${to === 'team' ? 'a team' : 'one agent with every tool'}. Stop now.`
   }
 
   async stop(reason: string): Promise<void> {

@@ -60,6 +60,7 @@ const defs: EventTypeDefinition[] = [
           round: Schema.natural().required(),
           request: str(),
           history: Schema.string(),
+          escalate: Schema.array(oneOf('solo', 'team')).default([]),
           project: optional(
             Schema.object({
               id: str(),
@@ -271,6 +272,12 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
+  {
+    type: 'colony/escalated',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({ by: str(), to: oneOf('solo', 'team'), reason: str() }),
+  },
   {
     type: 'colony/stopped',
     version: 1,

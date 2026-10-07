@@ -180,6 +180,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         out.push({ ...base, kind: 'shell', agent: 'system', lead: `Stopped ${p.name}`, tail: p.reason })
         break
       }
+      case 'colony/escalated': {
+        const p = e.payload as EventPayloads['colony/escalated']
+        out.push({
+          ...base,
+          kind: 'team',
+          agent: p.by,
+          lead: `Handed the request to ${p.to === 'team' ? 'a team' : 'one agent with every tool'}:`,
+          tail: cut(p.reason, 140),
+        })
+        break
+      }
       case 'worktree/created': {
         const p = e.payload as EventPayloads['worktree/created']
         out.push({ ...base, kind: 'file', agent: p.agent, lead: 'Works on its own branch', strong: p.branch })

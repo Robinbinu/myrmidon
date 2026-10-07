@@ -97,6 +97,8 @@ export interface ColonyState {
   pattern: string
   status: ColonyStatus
   statusReason?: string
+  /** The round handed its request to a bigger tier (it then ends as stopped). */
+  escalated?: EventPayloads['colony/escalated']
   createdAt?: string
   endedAt?: string
   budget: EventPayloads['colony/created']['budget']
@@ -366,6 +368,14 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'agent/error': {
       const p = event.payload as EventPayloads['agent/error']
       state.modelError = { ...p, time: event.time }
+      break
+    }
+    case 'colony/escalated': {
+      const p = event.payload as EventPayloads['colony/escalated']
+      state.escalated = p
+      state.status = 'stopped'
+      state.statusReason = `moved to ${p.to === 'team' ? 'a team' : 'one agent'}: ${p.reason}`
+      state.endedAt = event.time
       break
     }
     case 'colony/stopped':

@@ -49,6 +49,8 @@ export interface ColonySpec {
     history: string
     /** The project folder this chat works in, if any. */
     project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
+    /** Bigger tiers this round's agent may hand the request to with escalate. */
+    escalate?: ('solo' | 'team')[]
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy

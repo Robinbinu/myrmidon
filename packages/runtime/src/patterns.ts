@@ -64,6 +64,7 @@ export function speaksForColony(spec: ColonySpec, agent: AgentSpec): boolean {
 
 function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   if (spec.chat) {
+    const escalation = spec.chat.escalate?.length && speaksForColony(spec, agent) ? ['escalate'] : []
     if (spec.tier === 'answer')
       return [
         ...WEB,
@@ -76,9 +77,10 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'read_docs',
         'mcp',
         ...USER,
+        ...escalation,
       ]
     if (spec.tier !== 'team' || spec.agents.length === 1)
-      return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER]
+      return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER, ...escalation]
     if (spec.team?.mode === 'swarm')
       return [...READ, ...TALK, 'create_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
     if (isLead(spec, agent)) {
@@ -192,14 +194,30 @@ function roster(spec: ColonySpec, self: AgentSpec): string {
   )
 }
 
+/** When the round's agent may hand the request to a bigger tier, and what that costs. */
+function escalationNote(spec: ColonySpec): string {
+  const to = spec.chat?.escalate ?? []
+  if (to.length === 0) return ''
+  const options = to
+    .map((t) =>
+      t === 'team'
+        ? '"team" (a lead and specialists in parallel)'
+        : '"solo" (one agent with every tool: files, shell, code)',
+    )
+    .join(' or ')
+  return `\n- If the request turns out bigger than this round was set up for, call escalate(to: ${options}, reason)
+  early, instead of doing a thin version of it. Your files, notes and conversation carry over and the request
+  reruns at that size. Do not escalate work you can finish well yourself; a bigger tier costs more time.`
+}
+
 function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
   if (spec.chat && spec.tier === 'answer')
     return `You answer the person directly; this round has no team. Lead with the answer, be accurate and complete
 but concise, and check the web when the facts may have changed since your training. Send it with
-reply_user(final: true).`
+reply_user(final: true).${escalationNote(spec)}`
   if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1))
     return `You work alone on this request with every tool. Plan briefly, do the work, verify it (run the code, check
-the facts), publish the files with publish_artifact, then send the final answer with reply_user(final: true).`
+the facts), publish the files with publish_artifact, then send the final answer with reply_user(final: true).${escalationNote(spec)}`
   if (spec.chat && spec.team?.mode === 'swarm') {
     return `You are ${agent.name}, one of ${spec.agents.length} equal peers sharing one goal${agent.specialty ? ` (your strength: ${agent.specialty})` : ''}. Nobody is in charge; the shared notes and the task board are the only coordination.
 Peers:

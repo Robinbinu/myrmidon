@@ -132,13 +132,26 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
     // A runaway still gets a verdict: stop it well past its budget and grade what it did.
     const deadline = Date.now() + (c.budget.seconds * 1.5 + 60) * 1000
     let log: MyrEvent[] = []
+    // A round that escalates hands the request to the chat's next round; the trial follows it there.
+    let colonyId = sent.colonyId
+    const earlier: MyrEvent[] = []
     for (;;) {
-      log = await events(sent.colonyId)
-      if (log.some((e) => ENDED.has(e.type))) break
+      const own = await events(colonyId)
+      log = [...earlier, ...own]
+      if (own.some((e) => e.type === 'colony/escalated')) {
+        const chats = await call<{ chatId: string; rounds: { colonyId: string }[] }[]>('GET', '/api/chats')
+        const rounds = chats.find((x) => x.chatId === sent.chatId)?.rounds ?? []
+        const next = rounds[rounds.findIndex((r) => r.colonyId === colonyId) + 1]?.colonyId
+        if (next) {
+          earlier.push(...own)
+          colonyId = next
+          continue
+        }
+      } else if (own.some((e) => ENDED.has(e.type))) break
       if (Date.now() > deadline) {
         await call('POST', `/api/chats/${sent.chatId}/stop`, {})
         await Bun.sleep(2000)
-        log = await events(sent.colonyId)
+        log = [...earlier, ...(await events(colonyId))]
         break
       }
       await Bun.sleep(3000)
@@ -151,7 +164,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
       }
     const artifacts: Record<string, string> = {}
     for (const [name, blob] of latest) {
-      const res = await fetch(`${base}/api/colonies/${sent.colonyId}/blobs/${blob}`, { headers })
+      const res = await fetch(`${base}/api/colonies/${colonyId}/blobs/${blob}`, { headers })
       if (res.ok) artifacts[name] = await res.text()
     }
     const local: Record<string, boolean> = {}
@@ -176,7 +189,7 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
       mode,
       trial,
       chatId: sent.chatId,
-      colonyId: sent.colonyId,
+      colonyId,
       metrics: m,
       grade: grade(c, { events: log, artifacts, local }, m),
     }
@@ -208,7 +221,7 @@ for (const c of cases)
       console.log(
         r.error
           ? `error: ${r.error}`
-          : `${r.grade.pass ? 'PASS' : 'FAIL'} ${r.metrics.outcome}, ${r.metrics.tier ?? '?'} tier, ` +
+          : `${r.grade.pass ? 'PASS' : 'FAIL'} ${r.metrics.outcome}, ${r.metrics.escalated ?? r.metrics.tier ?? '?'} tier, ` +
               `${r.metrics.seconds}s, ${r.metrics.tokens.toLocaleString('en-US')} tok, ${r.metrics.toolCalls} tools` +
               (failed.length ? ` — failed: ${failed.join('; ')}` : '') +
               (r.grade.tierMismatch ? ' — TIER MISMATCH' : '') +

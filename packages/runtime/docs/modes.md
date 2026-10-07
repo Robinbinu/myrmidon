@@ -2,6 +2,11 @@
 
 The person picks the team mode for **team**-tier requests. Answer and solo requests always use one agent.
 
+Triage picks the tier before any agent starts, and it can guess low. If an answer or solo round finds the request
+needs more (files and a shell, or several specialists), its agent calls `escalate(to: solo|team, reason)` early
+rather than doing a thin version. The round ends, and the next round reruns the same request at that tier with
+its files, notes, conversation and the reason. A team is offered only when the person has one configured.
+
 ## Orchestrated
 
 A **lead** plans the job and hands each part to a **specialist worker**. Each specialist has a role
