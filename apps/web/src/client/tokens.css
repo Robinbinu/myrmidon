@@ -1,28 +1,28 @@
 /* ============ tokens ============
-   Myrmidon in a macOS manner. Ink and paper with signal amber as the accent: amber fills primary buttons, focus and
+   Myrmidon in a macOS manner. Apple's neutral whites and greys with signal amber as the accent: amber fills primary buttons, focus and
    the active indicator, and is never used as text except through --accent-text, which keeps AA contrast. Glass
    materials are for the navigation layer only (sidebar, toolbars, menus, popovers, sheets); content stays opaque.
    Text colours meet WCAG AA, 4.5:1, on every surface in both themes. */
 :root {
   /* Surfaces */
-  --window: #f1f0ec;
+  --window: #f5f5f7;
   --content: #ffffff;
   --raised: #ffffff;
   --control: #ffffff;
-  --control-hover: #f6f5f2;
-  --control-active: #ebeae5;
-  --fill: #f0efea;
-  --fill-strong: #e5e3dc;
-  --separator: rgb(0 0 0 / 0.09);
-  --separator-strong: rgb(0 0 0 / 0.2);
-  --material-sidebar: rgb(236 235 231 / 0.78);
-  --material-toolbar: rgb(250 250 248 / 0.8);
-  --material-menu: rgb(252 252 250 / 0.86);
+  --control-hover: #f5f5f7;
+  --control-active: #e8e8ed;
+  --fill: #f2f2f7;
+  --fill-strong: #e5e5ea;
+  --separator: rgb(0 0 0 / 0.1);
+  --separator-strong: rgb(0 0 0 / 0.18);
+  --material-sidebar: rgb(242 242 244 / 0.82);
+  --material-toolbar: rgb(255 255 255 / 0.8);
+  --material-menu: rgb(255 255 255 / 0.86);
   /* Labels */
-  --label: #111113;
-  --label-2: #3b3b42;
-  --label-3: #62626b;
-  --label-4: #9a9aa2;
+  --label: #1d1d1f;
+  --label-2: #424245;
+  --label-3: #6e6e73;
+  --label-4: #aeaeb2;
   /* Accent */
   --accent: #ffb31a;
   --accent-hover: #ffbe3d;
@@ -33,10 +33,10 @@
   --row-selected: rgb(0 0 0 / 0.08);
   --row-selected-inactive: rgb(0 0 0 / 0.05);
   /* Identity and status */
-  --ink: #0b0b0d;
-  --on-ink: #f6f6f8;
-  --bubble: #0b0b0d;
-  --on-bubble: #f6f6f8;
+  --ink: #1d1d1f;
+  --on-ink: #ffffff;
+  --bubble: #1d1d1f;
+  --on-bubble: #ffffff;
   --signal: #ffb31a;
   --lime: #d4ff3a;
   --ok: #0a7a3a;
@@ -46,17 +46,17 @@
   --bad: #c0272d;
   --bad-soft: rgb(192 39 45 / 0.08);
   --work: #8a5a00;
-  --idle: #a1a1aa;
-  --edge: #b9b6ac;
-  --code-bg: #f5f4f0;
+  --idle: #aeaeb2;
+  --edge: #c7c7cc;
+  --code-bg: #f5f5f7;
   --add: #e6f6ec;
   --del: #fdecec;
   --screen: #0b0b0d;
   --screen-cell: rgb(255 255 255 / 0.055);
-  --shadow-sm: 0 1px 2px rgb(11 11 13 / 0.05);
-  --shadow-md: 0 1px 2px rgb(11 11 13 / 0.04), 0 8px 24px -6px rgb(11 11 13 / 0.1);
-  --shadow-lg: 0 2px 6px rgb(11 11 13 / 0.05), 0 28px 64px -12px rgb(11 11 13 / 0.26);
-  --scrim: rgb(11 11 13 / 0.35);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -6px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 2px 6px rgb(0 0 0 / 0.05), 0 28px 64px -12px rgb(0 0 0 / 0.24);
+  --scrim: rgb(0 0 0 / 0.3);
   /* Shape, type, motion */
   --radius-sm: 6px;
   --radius: 10px;

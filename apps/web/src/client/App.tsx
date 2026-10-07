@@ -527,7 +527,7 @@ export function App() {
           )}
         </AnimatePresence>
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="flex min-w-0 flex-1 flex-col bg-surface">
           {settingsOpen ? (
             <Settings
               key={settingsSection}
