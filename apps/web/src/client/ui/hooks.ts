@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
 
@@ -60,7 +61,7 @@ export function useCopy(): [boolean, (text: string) => void] {
 }
 
 export interface Hotkey {
-  /** e.g. 'mod+k', '/', 'escape', 'mod+.' */
+  /** e.g. 'mod+k', '/', 'escape', 'mod+shift+[' (see shortcuts.ts) */
   readonly combo: string
   readonly run: (e: KeyboardEvent) => void
   /** Fire even while typing in an input. */
@@ -76,11 +77,7 @@ export function useHotkeys(keys: readonly Hotkey[]) {
       const typing =
         !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       for (const k of ref.current) {
-        const parts = k.combo.toLowerCase().split('+')
-        const key = parts.at(-1)
-        const mod = parts.includes('mod')
-        if (mod !== (e.metaKey || e.ctrlKey)) continue
-        if (e.key.toLowerCase() !== key) continue
+        if (!matchCombo(k.combo, e)) continue
         if (typing && !k.inInputs) continue
         e.preventDefault()
         k.run(e)
