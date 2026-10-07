@@ -166,6 +166,8 @@ export interface ColonyState {
     string,
     EventPayloads['approval/requested'] & { time: string; decided?: EventPayloads['approval/decided'] }
   >
+  /** Results of approved calls that ran, by receipt key. */
+  receipts: Record<string, string>
   /** Project folder snapshots of this round, and the latest rewind (if any). */
   checkpoints: {
     start?: string
@@ -234,6 +236,7 @@ export function emptyColonyState(id: string): ColonyState {
     madeTools: {},
     checkpoints: {},
     approvals: {},
+    receipts: {},
     servers: {},
     worktrees: {},
     memories: {},
@@ -371,6 +374,11 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['approval/decided']
       const request = state.approvals[p.id]
       if (request) request.decided = p
+      break
+    }
+    case 'review/done': {
+      const p = event.payload as EventPayloads['review/done']
+      state.receipts[p.key] = p.output
       break
     }
     case 'checkpoint/created': {

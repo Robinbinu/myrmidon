@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -13,7 +14,10 @@ import {
   linesOf,
   type MyrEvent,
   mentionsIn,
+  type Review,
+  type ReviewField,
   resolveConversation,
+  SYSTEM,
   type TaskSnapshot,
   TEAM_CHAT,
 } from '@myrmidon/protocol'
@@ -48,7 +52,9 @@ import {
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
+  REVIEW_MAX_CHARS,
 } from './config.ts'
+import { gitCommitChanges, gitWorkingChanges } from './git.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import {
   browserSteps,
@@ -314,52 +320,179 @@ export function needsApproval(
   return !readOnly
 }
 
-async function askFirst(host: ColonyHost, agent: string, tool: string, params: unknown) {
-  if (!needsApproval(host.spec, tool, tool.startsWith('mcp__') && host.mcpReadOnly(tool))) return
-  const args = JSON.stringify(params ?? {})
-  if (
-    !(await host.requestApproval(
-      agent,
-      tool,
-      `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
-    ))
+/** Object keys sorted, so the same arguments always read the same. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value ?? {}, (_k, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
   )
-    throw new Error(
-      `the person did not approve this ${tool} call; ask them (ask_user) or take another approach`,
-    )
+
+/**
+ * The key an approved call's receipt is kept under: the same agent making the same call with the same arguments in
+ * the same round. A retry (after a crash, or a resumed round replaying its step) finds the receipt and is not run
+ * again; a changed call is a new review.
+ */
+export function receiptKey(host: ColonyHost, agent: string, tool: string, params: unknown): string {
+  const round = host.state().rounds.at(-1)?.round ?? 0
+  return createHash('sha256')
+    .update(`${round}\0${agent}\0${tool}\0${canonical(params)}`)
+    .digest('hex')
+    .slice(0, 24)
 }
 
-/** A write to a file in the project folder (not scratch) follows the project's permissions. */
-async function guardProjectEdit(host: ColonyHost, agent: string, tool: string, path: string) {
+/** Once an approved call has run, its result is kept under its key so the same call cannot write or send twice. */
+async function keepReceipt(host: ColonyHost, agent: string, tool: string, key: string, output: string) {
+  const s = host.state()
+  if (s.receipts[key] !== undefined) return
+  if (!Object.values(s.approvals).some((a) => a.key === key && a.decided?.approved)) return
+  await host.append({
+    type: 'review/done',
+    actor: SYSTEM,
+    payload: { key, agent, tool, output: clip(output, 8_000) },
+  })
+}
+
+/** Text too long for a review card is shown cut, and then cannot be rewritten there. */
+function reviewText(text: string): { value: string; editable: boolean } {
+  return text.length <= REVIEW_MAX_CHARS
+    ? { value: text, editable: true }
+    : { value: text.slice(0, REVIEW_MAX_CHARS) + prompts.reviewCard.cut, editable: false }
+}
+
+/** A call's arguments as review fields: text arguments can be rewritten, the rest are shown as they are. */
+function callReview(tool: string, params: unknown): Review {
+  const args = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>
+  const fields: ReviewField[] = []
+  const rest: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== 'string') {
+      rest[key] = value
+      continue
+    }
+    const text = reviewText(value)
+    fields.push({ key, label: key, ...text, format: value.includes('\n') ? 'code' : 'text' })
+  }
+  if (Object.keys(rest).length)
+    fields.push({
+      key: '*',
+      label: prompts.reviewCard.otherArgs,
+      value: JSON.stringify(rest, null, 2),
+      format: 'code',
+      editable: false,
+    })
+  return { kind: 'call', title: tool, fields }
+}
+
+/**
+ * Tools the person set to "ask" in Settings wait for their approval on every call, showing the call in full; the
+ * person may rewrite its text arguments first. Returns whether they did.
+ */
+async function askFirst(
+  host: ColonyHost,
+  agent: string,
+  tool: string,
+  params: unknown,
+  key?: string,
+): Promise<boolean> {
+  if (!needsApproval(host.spec, tool, tool.startsWith('mcp__') && host.mcpReadOnly(tool))) return false
+  const args = JSON.stringify(params ?? {})
+  const decision = await host.reviewChange(
+    agent,
+    tool,
+    `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
+    { review: callReview(tool, params), ...(key ? { key } : {}) },
+  )
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`this ${tool} call`, decision.note))
+  const edits = Object.entries(decision.edits ?? {})
+  for (const [k, v] of edits) (params as Record<string, unknown>)[k] = v
+  return edits.length > 0
+}
+
+/**
+ * A write to a file in the project folder (not scratch) follows the project's permissions. In an "ask" project the
+ * person sees the new content against the file as it is, and may rewrite it; returns the content to write.
+ */
+async function guardProjectEdit(
+  host: ColonyHost,
+  agent: string,
+  tool: string,
+  path: string,
+  change: { before: string; after: string; key: string },
+): Promise<{ content: string; edited: boolean }> {
+  const unchanged = { content: change.after, edited: false }
   const project = host.spec.chat?.project
   const mode = project?.permissions?.mode ?? 'auto'
-  if (!project || mode === 'auto') return
+  if (!project || mode === 'auto') return unchanged
   const scratch = host.workspace.scratch(agent)
   const inProject =
     (path === project.path || path.startsWith(`${project.path}/`)) && !path.startsWith(`${scratch}/`)
-  if (!inProject) return
+  if (!inProject) return unchanged
   const where = relative(project.path, path)
   if (mode === 'read-only')
     throw new Error(
       `${project.name} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     )
-  if (!(await host.requestApproval(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${where}`)))
-    throw new Error(
-      `the person did not approve changing ${where}; ask them (ask_user) or take another approach`,
-    )
+  const decision = await host.reviewChange(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${where}`, {
+    review: fileReview(
+      tool === 'fs_edit' ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where),
+      where,
+      change,
+    ),
+    key: change.key,
+  })
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${where}`, decision.note))
+  const edited = decision.edits?.content
+  return edited === undefined ? unchanged : { content: edited, edited: true }
 }
 
-/** In an "ask" project, a command runs only if it starts with an allowed prefix or the person approves it. */
-async function guardProjectCommand(host: ColonyHost, agent: string, tool: string, command: string) {
+/** A file's new content against what it holds now. */
+function fileReview(title: string, where: string, change: { before: string; after: string }): Review {
+  const after = reviewText(change.after)
+  const shown = after.editable && change.before.length <= REVIEW_MAX_CHARS
+  return {
+    kind: 'file',
+    title,
+    fields: [
+      {
+        key: 'content',
+        label: where,
+        format: 'code',
+        ...after,
+        ...(shown ? { before: change.before } : {}),
+      },
+    ],
+  }
+}
+
+/**
+ * In an "ask" project, a command runs only if it starts with an allowed prefix or the person approves it; where the
+ * command is real (`editable`), they may rewrite it first. Returns the command to run.
+ */
+async function guardProjectCommand(
+  host: ColonyHost,
+  agent: string,
+  tool: string,
+  command: string,
+  editable = false,
+): Promise<string> {
   const permissions = host.spec.chat?.project?.permissions
-  if (permissions?.mode !== 'ask') return
+  if (permissions?.mode !== 'ask') return command
   const line = command.trim()
   // "bun test && rm -rf src" starts with an allowed prefix but runs more: anything chained, piped, substituted or
   // redirected always asks.
   const simple = !/[;&|`<>\n]|\$\(/.test(line)
-  if (simple && permissions.allow.some((prefix) => line === prefix || line.startsWith(`${prefix} `))) return
-  if (!(await host.requestApproval(agent, tool, line.length > 300 ? `${line.slice(0, 300)}…` : line)))
-    throw new Error('the person did not approve this command; ask them (ask_user) or take another approach')
+  if (simple && permissions.allow.some((prefix) => line === prefix || line.startsWith(`${prefix} `)))
+    return command
+  const decision = await host.reviewChange(agent, tool, line.length > 300 ? `${line.slice(0, 300)}…` : line, {
+    review: {
+      kind: 'command',
+      title: prompts.reviewCard.command,
+      fields: [{ key: 'command', label: tool, value: line, format: 'code', editable }],
+    },
+  })
+  if (!decision.approved) throw new Error(prompts.toolResults.declined('this command', decision.note))
+  return decision.edits?.command ?? command
 }
 
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
@@ -1134,10 +1267,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ path: type('string'), content: type('string') }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
-      await guardProjectEdit(host, agent, 'fs_write', path)
+      const { content, edited } = await guardProjectEdit(host, agent, 'fs_write', path, {
+        before: existsSync(path) ? readFileSync(path, 'utf8') : '',
+        after: args.content,
+        key: receiptKey(host, agent, 'fs_write', args),
+      })
       mkdirSync(dirname(path), { recursive: true })
-      writeFileSync(path, args.content)
-      return `wrote ${args.path} (${Buffer.byteLength(args.content)} bytes)`
+      writeFileSync(path, content)
+      return `wrote ${args.path} (${Buffer.byteLength(content)} bytes)${edited ? prompts.toolResults.editedByPerson : ''}`
     },
   },
   {
@@ -1152,7 +1289,6 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
-      await guardProjectEdit(host, agent, 'fs_edit', path)
       const text = readFileSync(path, 'utf8')
       const count = text.split(args.old).length - 1
       if (count === 0)
@@ -1161,11 +1297,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error(
           `old text appears ${count} times in ${args.path}; include more surrounding lines, or set all`,
         )
-      writeFileSync(
-        path,
-        args.all ? text.split(args.old).join(args.new) : text.replace(args.old, () => args.new),
-      )
-      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})`
+      const { content, edited } = await guardProjectEdit(host, agent, 'fs_edit', path, {
+        before: text,
+        after: args.all ? text.split(args.old).join(args.new) : text.replace(args.old, () => args.new),
+        key: receiptKey(host, agent, 'fs_edit', args),
+      })
+      writeFileSync(path, content)
+      return `edited ${args.path} (${args.all ? count : 1} replacement${count > 1 && args.all ? 's' : ''})${edited ? prompts.toolResults.editedByPerson : ''}`
     },
   },
   {
@@ -1501,6 +1639,71 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       adoptDraft(plugins.store, p.name)
       await plugins.sync()
       return `${p.name} is on. Its tools and prompt sections reach agents from the next message; tell the person how to use it.`
+    },
+  },
+  {
+    name: 'propose',
+    tier: 'write',
+    description: prompts.tools.propose.description,
+    parameters: type({
+      kind: type("'file' | 'commit'"),
+      why: type('string').atLeastLength(1).describe(prompts.tools.propose.params.why),
+      'path?': type('string').describe(prompts.tools.propose.params.path),
+      'content?': type('string').describe(prompts.tools.propose.params.content),
+      'message?': type('string').describe(prompts.tools.propose.params.message),
+    }),
+    async run(args, agent, host) {
+      const project = host.spec.chat?.project
+      if (!project) throw new Error(prompts.toolResults.proposeNoProject)
+      const key = receiptKey(host, agent, 'propose', args)
+      if (args.kind === 'file') {
+        if (!args.path || args.content === undefined)
+          throw new Error('a file proposal needs path and content')
+        const path = resolve(project.path, args.path)
+        if (!path.startsWith(`${project.path}/`)) throw new Error(`${args.path} is outside ${project.name}`)
+        const where = relative(project.path, path)
+        const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
+        const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
+        const decision = await host.reviewChange(agent, 'propose', args.why, {
+          review: fileReview(title, where, { before, after: args.content }),
+          key,
+        })
+        if (!decision.approved) return prompts.toolResults.declined(`writing ${where}`, decision.note)
+        const content = decision.edits?.content ?? args.content
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, content)
+        return `wrote ${where}${decision.edits?.content !== undefined ? prompts.toolResults.editedByPerson : ''}`
+      }
+      if (!args.message?.trim()) throw new Error('a commit proposal needs message')
+      const changes = await gitWorkingChanges(project.path).catch(() => undefined)
+      if (!changes) throw new Error(`${project.name} is not a git repository`)
+      if (changes.files.length === 0) throw new Error('there is nothing to commit')
+      const decision = await host.reviewChange(agent, 'propose', args.why, {
+        review: {
+          kind: 'commit',
+          title: prompts.reviewCard.commit(project.name),
+          fields: [
+            {
+              key: 'message',
+              label: prompts.reviewCard.message,
+              format: 'text',
+              ...reviewText(args.message),
+            },
+            {
+              key: 'patch',
+              label: prompts.reviewCard.changes(changes.files.length),
+              value: changes.patch,
+              format: 'patch',
+              editable: false,
+            },
+          ],
+        },
+        key,
+      })
+      if (!decision.approved) return prompts.toolResults.declined('this commit', decision.note)
+      const message = decision.edits?.message ?? args.message
+      const hash = await gitCommitChanges(project.path, message, true)
+      return `committed ${hash}: ${message.split('\n')[0]}${decision.edits?.message !== undefined ? prompts.toolResults.editedByPerson : ''}`
     },
   },
   {
@@ -1869,8 +2072,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error('name: letters, digits and dashes, up to 21')
       if (args.port !== undefined && (!Number.isInteger(args.port) || args.port < 1024 || args.port > 65535))
         throw new Error('port must be between 1024 and 65535')
-      await guardProjectCommand(host, agent, 'start_server', args.command)
-      const url = await host.startServer(agent, name, args.command, args.port)
+      const command = await guardProjectCommand(host, agent, 'start_server', args.command, true)
+      const url = await host.startServer(agent, name, command, args.port)
       return prompts.toolResults.serving(name, url)
     },
   },
@@ -1973,9 +2176,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('shell is disabled: no OS sandbox')
       const cwd = host.workspace.workdir(agent)
-      await guardProjectCommand(host, agent, 'shell', args.command)
+      const command = await guardProjectCommand(host, agent, 'shell', args.command, true)
       const r = await host.sandbox.run({
-        command: args.command,
+        command,
         cwd,
         writable: writableFor(host, agent),
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
@@ -2381,20 +2584,29 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
       const breaker = mcpBreaker(host, tool.name)
       // Only the server's own answers count toward its breaker, not the harness refusing the call.
       let ran = false
+      const key = receiptKey(host, agent, tool.name, params)
       try {
         if (host.state().status !== 'running') throw new Error('the colony is no longer running')
-        if (host.huddling())
-          throw new Error('the swarm is still huddling: post your proposal (post) and stop')
-        const refused = breaker?.refusal()
-        if (refused) throw new Error(refused)
-        await askFirst(host, agent, tool.name, params)
-        await host.beforeTool(agent, tool.name, params)
-        ran = true
-        result = await untilAborted(tool.execute(callId, params as never, signal), signal)
-        if (!result.isError) {
-          const said = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
-          const note = await host.afterTool(agent, tool.name, params, said)
-          if (note) result = { ...result, content: [...result.content, { type: 'text', text: note }] }
+        if (host.huddling()) throw new Error(prompts.toolResults.huddling)
+        const kept = host.state().receipts[key]
+        if (kept !== undefined) {
+          result = {
+            content: [{ type: 'text', text: prompts.toolResults.alreadyDone(kept) }],
+            isError: false,
+          }
+        } else {
+          const refused = breaker?.refusal()
+          if (refused) throw new Error(refused)
+          const edited = await askFirst(host, agent, tool.name, params, key)
+          await host.beforeTool(agent, tool.name, params)
+          ran = true
+          result = await untilAborted(tool.execute(callId, params as never, signal), signal)
+          if (!result.isError) {
+            const said = result.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n')
+            const note = `${await host.afterTool(agent, tool.name, params, said)}${edited ? prompts.toolResults.editedByPerson : ''}`
+            if (note) result = { ...result, content: [...result.content, { type: 'text', text: note }] }
+            await keepReceipt(host, agent, tool.name, key, said)
+          }
         }
       } catch (err) {
         result = {
@@ -2424,6 +2636,13 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
   } as AgentTool
 }
 
+/** Thrown to skip a call whose approved twin already ran: it ends the call with its receipt, not an error. */
+class AlreadyDone extends Error {
+  constructor(readonly output: string) {
+    super('already done')
+  }
+}
+
 function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHost): AgentTool[] {
   return TOOL_DEFS.filter((d) => allow.has(d.name))
     .filter((d) => d.tier !== 'exec' || host.sandbox.kind !== 'none' || host.unsafeNoSandbox)
@@ -2445,15 +2664,16 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
           let output: string
           let images: ToolOutput['images'] = []
           let ok = true
+          // Calls that write get receipts; commands may rightly run twice, and reads change nothing.
+          const key = def.tier === 'write' ? receiptKey(host, agent, def.name, params) : undefined
+          const kept = key === undefined ? undefined : host.state().receipts[key]
           try {
             if (!allow.has(def.name)) throw new Error(`${def.name} is not allowed for ${agent}`)
             if (host.state().status !== 'running') throw new Error('the colony is no longer running')
-            if (host.huddling() && !HUDDLE_TOOLS.has(def.name))
-              throw new Error(
-                'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
-              )
+            if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
+            if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            await askFirst(host, agent, def.name, params)
+            const edited = await askFirst(host, agent, def.name, params, key)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
@@ -2470,10 +2690,13 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
               host.rememberUntrusted(agent, source, output)
               output = spotlight(host.boundary, source, output)
             }
-            output = `${preface}${output}${hookNote}`
+            output = `${preface}${output}${hookNote}${edited ? prompts.toolResults.editedByPerson : ''}`
+            if (key) await keepReceipt(host, agent, def.name, key, output)
           } catch (err) {
-            ok = false
-            output = `ERROR: ${err instanceof Error ? err.message : String(err)}`
+            ok = err instanceof AlreadyDone
+            output = ok
+              ? prompts.toolResults.alreadyDone((err as AlreadyDone).output)
+              : `ERROR: ${err instanceof Error ? err.message : String(err)}`
           }
           await host.append({
             type: 'tool/result',

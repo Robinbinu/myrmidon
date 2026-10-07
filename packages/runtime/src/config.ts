@@ -55,6 +55,8 @@ export const GREETING_MS = 15_000
 export const GREETING_AWAY_MS = 30 * 60_000
 /** Team-chat messages an agent keeps for its next turn when nobody wakes it; older ones drop off. */
 export const QUIET_KEPT = 30
+/** The most text one review field carries; longer content is shown cut and cannot be rewritten in the card. */
+export const REVIEW_MAX_CHARS = 200_000
 /** omp's window for a model it found but knows nothing about; treated as unknown since it is often wrong. */
 export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */

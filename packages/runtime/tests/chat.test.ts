@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SqliteLogStore } from '@myrmidon/core'
@@ -1584,7 +1584,8 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
     .map((e) => e.payload as EventPayloads['tool/result'])
   expect(results[0]?.output).toContain('# Demo project')
   expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
-  expect(results[2]?.output).toContain('outside your project')
+  // The read and write in one step finish in either order; the read outside the folder is refused.
+  expect(results.find((r) => r.tool === 'fs_read' && !r.ok)?.output).toContain('outside your project')
   expect(s.chat?.project?.id).toBe(project.id)
 
   const second = await chats.send('And now?', config, first.chatId)
@@ -1738,6 +1739,71 @@ test.skipIf(detectSandbox().kind === 'none')(
     rmSync(folder, { recursive: true, force: true })
   },
 )
+
+test('review cards: the person sees a change in full and may rewrite it; an approved call never runs twice', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const { git } = await import('../src/git.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-review-'))
+  writeFileSync(join(folder, 'notes.txt'), 'one\ntwo\n')
+  await git(folder, ['init', '-q'])
+  await git(folder, ['config', 'user.email', 'test@example.com'])
+  await git(folder, ['config', 'user.name', 'Test'])
+  await git(folder, ['add', '--all'])
+  await git(folder, ['commit', '-q', '-m', 'start'])
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  projects.setPermissions(project.id, { mode: 'ask', allow: [] })
+  const resolver = new ModelResolver()
+  const write = tool('fs_write', { path: join(folder, 'notes.txt'), content: 'one\nTWO\n' })
+  scripted(resolver, 'mock/careful', [
+    [write],
+    // The same call again (a retry): the approved write already ran, so it is not asked for or run again.
+    [write],
+    [tool('propose', { kind: 'commit', message: 'Shout two', why: 'Save the change' })],
+    [tool('propose', { kind: 'file', path: 'draft.md', content: 'hello', why: 'A first draft' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  const { colonyId } = await chats.send(
+    'Tidy notes',
+    { ...solo('mock/careful'), judgeModel: 'mock/judge' },
+    undefined,
+    { project: project.id },
+  )
+  const pending = async () => {
+    const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    return Object.values(s.approvals).find((a) => !a.decided)
+  }
+  const file = await pending()
+  expect(file?.review).toMatchObject({ kind: 'file', title: 'Write notes.txt' })
+  expect(file?.review?.fields[0]).toMatchObject({ before: 'one\ntwo\n', value: 'one\nTWO\n', editable: true })
+  await chats.decideApproval(colonyId, file?.id ?? '', true, { edits: { content: 'one\nTwo!\n' } })
+
+  const commit = await pending()
+  expect(commit?.review?.kind).toBe('commit')
+  expect(commit?.summary).toBe('Save the change')
+  expect(commit?.review?.fields.find((f) => f.key === 'patch')?.value).toContain('+Two!')
+  await chats.decideApproval(colonyId, commit?.id ?? '', true, { edits: { message: 'Make two louder' } })
+
+  const draft = await pending()
+  expect(draft?.review?.title).toBe('Write draft.md')
+  await chats.decideApproval(colonyId, draft?.id ?? '', false, { note: 'Not now' })
+
+  const s = await waitFor(colonyId)
+  const results = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  expect(readFileSync(join(folder, 'notes.txt'), 'utf8')).toBe('one\nTwo!\n')
+  expect(results[0]?.output).toContain('edited this before approving')
+  expect(results[1]).toMatchObject({ ok: true })
+  expect(results[1]?.output).toStartWith('Already done')
+  expect((await git(folder, ['log', '-1', '--format=%s'])).trim()).toBe('Make two louder')
+  expect(results[3]?.output).toContain('They said: Not now')
+  expect(existsSync(join(folder, 'draft.md'))).toBe(false)
+  expect(Object.values(s.approvals)).toHaveLength(3)
+  rmSync(folder, { recursive: true, force: true })
+})
 
 test.skipIf(detectSandbox().kind === 'none')(
   'project permissions: ask mode waits for the person, read-only keeps the folder untouched',

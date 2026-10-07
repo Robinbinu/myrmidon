@@ -503,6 +503,18 @@ export const copy = {
       deny: 'Deny',
       approve: 'Approve',
     },
+    /** A change shown in full before it happens. */
+    review: {
+      edit: 'Edit',
+      editLabel: (field: string) => `Edit ${field}`,
+      preview: 'Show changes',
+      edited: 'edited',
+      approveEdited: 'Approve your version',
+      note: (agent: string) => `Note for ${agent} (optional)`,
+      noteLabel: 'Note',
+      unchanged: 'No changes to the file',
+      moreLines: (n: number) => `${n} unchanged lines`,
+    },
     login: {
       needsSignIn: 'needs you to sign in to',
       instructions: (agent: string) =>

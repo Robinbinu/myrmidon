@@ -65,7 +65,13 @@ export function speaksForColony(spec: ColonySpec, agent: AgentSpec): boolean {
   return isLead(spec, agent) || spec.agents.length === 1
 }
 
+/** In a chat with a project folder, every agent that works can show the person a change before it lands. */
 function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
+  const tools = baseRoleTools(spec, agent)
+  return spec.chat?.project && spec.tier !== 'answer' ? [...tools, 'propose'] : tools
+}
+
+function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   if (spec.chat) {
     const escalation = spec.chat.escalate?.length && speaksForColony(spec, agent) ? ['escalate'] : []
     // In auto review the speaking agent decides when the reviewer looks at the work.

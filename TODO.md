@@ -50,12 +50,17 @@ Open work, in the order it will be done:
       human like"). The Mail tab shows them as conversations. Also fix the reminder's side effect seen on
       2026-10-07: agents send "✔ end of thread, please don't reply" / "sent only to clear the unanswered-mail flag"
       just to quiet it; a message that needs no answer (an ack, "no reply needed") should close the thread.
+8d. - [ ] **Plugin reload test is flaky under load** — "editing the code reloads the plugin…" failed once in a full
+      `bun run check` (15 s, fs.watch timing) and passes alone; make its wait condition-based.
 8c. - [ ] **Browser flow test fails when run alone** (seen 2026-10-07; same on the commit before group chats; passes
       in the full `bun run check`): "a browser flow is saved after its test run and replays with new inputs", run
       with `-t`, gets "Protocol error (Accessibility.getFullAXTree): Session closed" instead of the failed-step
       message. Chrome 154.0.8037.98. Find why the page closes after a failed click in a fresh browser.
-9. - [ ] **Review-before-save cards** (OpenDots) — an agent proposes a file, commit or message and the person approves
-      it before it is written; the approval is kept so a retry never writes twice.
+9. - [x] **Review-before-save cards** (OpenDots) — wherever Myrmidon already asks, the card shows the change in full
+      (a file against what is there, a commit's patch, a command, a call's arguments); text can be rewritten before
+      approving and a decline can carry a note; `propose` lets an agent show a file or commit first; approved writes,
+      commits and MCP calls keep a receipt so the same call in the same round is not run twice. Not yet looked at
+      in the browser (needs a live round waiting on a review).
 10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)
       and reuses as helpers.
 11. - [ ] **Learn skills from past chats** (OpenDots idea) — propose a SKILL.md from finished chats for the person to

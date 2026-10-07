@@ -20,6 +20,31 @@ export interface ApprovalRequest {
   tool: string
   /** What the call would do, in one line (a command, or "edit src/app.ts"). */
   summary: string
+  /** The full change to look over before it happens, when there is one to show. */
+  review?: Review
+  /** The call's receipt key: once approved and done, the same call returns its result instead of running again. */
+  key?: string
+}
+
+/**
+ * A change shown in full for the person to look over (and, where `editable`, rewrite) before it happens: a file's
+ * new content against its current one, a commit's message and patch, a command, or a call's arguments.
+ */
+export interface Review {
+  readonly kind: 'file' | 'commit' | 'command' | 'call'
+  readonly title: string
+  readonly fields: readonly ReviewField[]
+}
+
+export interface ReviewField {
+  readonly key: string
+  readonly label: string
+  readonly value: string
+  /** `code`: monospace; `text`: prose; `patch`: a unified diff, shown as one. */
+  readonly format: 'text' | 'code' | 'patch'
+  /** The content this replaces, shown as a diff against `value`. */
+  readonly before?: string
+  readonly editable: boolean
 }
 
 export interface MadeToolInput {
@@ -205,7 +230,16 @@ export interface EventPayloads {
   'worktree/conflict': { agent: string; files: string[] }
   /** The round ended: the worktree is removed, or `kept` (with its branch) because it holds unmerged changes. */
   'worktree/closed': { agent: string; kept: boolean }
-  'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
+  /** `edits`: review fields the person rewrote before approving, by key; `note`: what they said with their answer. */
+  'approval/decided': {
+    id: string
+    approved: boolean
+    by: 'person' | 'timeout' | 'stopped'
+    edits?: Record<string, string>
+    note?: string
+  }
+  /** A call the person approved has run: its result, kept so the same call is not run twice. */
+  'review/done': { key: string; agent: string; tool: string; output: string }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
   /** `round`: the chat round it belongs to (an end snapshot can land after the next round started). */
   'checkpoint/created': { commit: string; phase: 'start' | 'end'; round?: number }

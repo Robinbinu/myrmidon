@@ -736,10 +736,26 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/approvals/:approval': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { approved } = (await req.json().catch(() => ({}))) as { approved?: unknown }
+          const body = (await req.json().catch(() => ({}))) as {
+            approved?: unknown
+            edits?: unknown
+            note?: unknown
+          }
+          const { approved, edits, note } = body
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
+          // The person may rewrite a review's text fields before approving; only strings, by field key.
+          const fields =
+            edits && typeof edits === 'object' && !Array.isArray(edits)
+              ? Object.entries(edits as Record<string, unknown>)
+              : []
+          if (fields.some(([, v]) => typeof v !== 'string')) return json({ error: 'edits must be text' }, 400)
+          if (note !== undefined && (typeof note !== 'string' || note.length > 2000))
+            return json({ error: 'note must be text, at most 2000 characters' }, 400)
           try {
-            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved)
+            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved, {
+              ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
+              ...(typeof note === 'string' && note.trim() ? { note } : {}),
+            })
             return json({ ok: true })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)

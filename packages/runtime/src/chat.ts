@@ -593,10 +593,15 @@ export class ChatService {
   }
 
   /** The person's answer to a tool call waiting for approval in a running round. */
-  async decideApproval(colonyId: string, id: string, approved: boolean): Promise<void> {
+  async decideApproval(
+    colonyId: string,
+    id: string,
+    approved: boolean,
+    answer: { edits?: Record<string, string>; note?: string } = {},
+  ): Promise<void> {
     const run = [...this._live.values()].find((r) => r.id === colonyId)
     if (!run) throw new Error('that round is not running')
-    await run.decideApproval(id, approved)
+    await run.decideApproval(id, approved, 'person', answer)
   }
 
   /** The round's changes to its project since its start checkpoint, for the judge. */

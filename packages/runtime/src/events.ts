@@ -244,7 +244,29 @@ const defs: EventTypeDefinition[] = [
     type: 'approval/requested',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ id: str(), agent: str(), tool: str(), summary: str() }),
+    schema: Schema.object({
+      id: str(),
+      agent: str(),
+      tool: str(),
+      summary: str(),
+      review: optional(
+        Schema.object({
+          kind: oneOf('file', 'commit', 'command', 'call'),
+          title: str(),
+          fields: Schema.array(
+            Schema.object({
+              key: str(),
+              label: str(),
+              value: Schema.string().default(''),
+              format: oneOf('text', 'code', 'patch'),
+              before: Schema.string(),
+              editable: Schema.boolean().default(false),
+            }),
+          ).default([]),
+        }),
+      ),
+      key: Schema.string(),
+    }),
   },
   {
     type: 'approval/decided',
@@ -254,7 +276,15 @@ const defs: EventTypeDefinition[] = [
       id: str(),
       approved: Schema.boolean().required(),
       by: oneOf('person', 'timeout', 'stopped'),
+      edits: optional(Schema.dict(Schema.string())),
+      note: Schema.string(),
     }),
+  },
+  {
+    type: 'review/done',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ key: str(), agent: str(), tool: str(), output: Schema.string().default('') }),
   },
   {
     type: 'checkpoint/created',
@@ -484,7 +514,7 @@ const defs: EventTypeDefinition[] = [
       subject: Schema.string().default(''),
       body: str(),
       replyTo: Schema.natural(),
-      members: Schema.array(Schema.string()),
+      members: optional(Schema.array(Schema.string())),
     }),
   },
   {

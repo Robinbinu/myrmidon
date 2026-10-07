@@ -1,82 +1,260 @@
-import type { ColonyState } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, KeyRound, MonitorSmartphone, ShieldQuestion, X } from 'lucide-react'
+import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
+import { BookmarkPlus, Check, KeyRound, MonitorSmartphone, PencilLine, ShieldQuestion, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
 import { copy } from '../copy.ts'
-import { Button } from '../ui/primitives.tsx'
+import { type DiffLine, diffLines } from '../diff.ts'
+import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { spring } from '../ui-config.ts'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
-  tool === 'shell'
+  tool === 'shell' || tool === 'start_server'
     ? copy.approvals.actions.shell
     : tool === 'fs_write' || tool === 'fs_edit'
       ? copy.approvals.actions.file
       : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
-/** Tool calls waiting for the person in an "Ask first" project: Approve or Deny each, right in the chat. */
+type Pending = ColonyState['approvals'][string]
+
+/**
+ * Calls waiting for the person (an "Ask first" project, tools set to Ask, MCP tools that change things, and changes an
+ * agent proposes): each shows what it would do in full, where there is a change to show, with Approve or Deny right
+ * in the chat. Text fields can be rewritten first; what runs is the person's version.
+ */
 export function ApprovalCards({ colonyId, state }: { colonyId: string; state: ColonyState }) {
-  const toast = useToast()
-  const [busy, setBusy] = useState<string>()
   const pending = Object.values(state.approvals).filter((a) => !a.decided)
-  const decide = async (id: string, approved: boolean) => {
-    setBusy(id)
-    try {
-      await send('POST', `/api/colonies/${colonyId}/approvals/${id}`, { approved })
-    } catch (err) {
-      toast(String((err as Error).message), 'error')
-    } finally {
-      setBusy(undefined)
-    }
-  }
   return (
     <AnimatePresence initial={false}>
       {pending.map((a) => (
-        <motion.div
-          key={a.id}
-          layout
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.98 }}
-          transition={spring}
-          role="alert"
-          className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
-        >
-          <div className="flex items-center gap-2 text-[13.5px]">
-            <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
-            <span>
-              <span className="font-semibold">{a.agent}</span>{' '}
-              {copy.approvals.approval.wantsTo(action(a.tool))}
-            </span>
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12.5px]">
-            {a.summary}
-          </pre>
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy === a.id}
-              onClick={() => void decide(a.id, false)}
-              icon={<X className="size-3.5" />}
-            >
-              {copy.approvals.approval.deny}
-            </Button>
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={busy === a.id}
-              onClick={() => void decide(a.id, true)}
-              icon={<Check className="size-3.5" />}
-            >
-              {copy.approvals.approval.approve}
-            </Button>
-          </div>
-        </motion.div>
+        <ApprovalCard key={a.id} colonyId={colonyId} request={a} />
       ))}
     </AnimatePresence>
+  )
+}
+
+function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pending }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const [note, setNote] = useState('')
+  const changed = Object.entries(edits).filter(
+    ([key, value]) => a.review?.fields.find((f) => f.key === key)?.value !== value,
+  )
+  const decide = async (approved: boolean) => {
+    setBusy(true)
+    try {
+      await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
+        approved,
+        ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      })
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+      setBusy(false)
+    }
+  }
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={spring}
+      role="alert"
+      className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
+    >
+      <div className="flex items-center gap-2 text-[13.5px]">
+        <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
+        <span className="min-w-0">
+          <span className="font-semibold">{a.agent}</span>{' '}
+          {a.review ? (
+            <span className="font-medium">{a.review.title}</span>
+          ) : (
+            copy.approvals.approval.wantsTo(action(a.tool))
+          )}
+        </span>
+      </div>
+      {a.review ? (
+        <ReviewBody
+          review={a.review}
+          summary={a.tool === 'propose' ? a.summary : undefined}
+          edits={edits}
+          onEdit={(key, value) => setEdits((e) => ({ ...e, [key]: value }))}
+        />
+      ) : (
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12.5px]">
+          {a.summary}
+        </pre>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {a.review && (
+          <TextInput
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={copy.approvals.review.note(a.agent)}
+            aria-label={copy.approvals.review.noteLabel}
+            maxLength={2000}
+            className="h-8 min-w-0 flex-1 text-[12.5px]"
+          />
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => void decide(false)}
+          icon={<X className="size-3.5" />}
+        >
+          {copy.approvals.approval.deny}
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={busy}
+          onClick={() => void decide(true)}
+          icon={<Check className="size-3.5" />}
+        >
+          {changed.length ? copy.approvals.review.approveEdited : copy.approvals.approval.approve}
+        </Button>
+      </div>
+    </motion.div>
+  )
+}
+
+/** A review's fields: each as a diff, a patch, code or text, and the editable ones as a text box on demand. */
+function ReviewBody(props: {
+  review: Review
+  /** The agent's own line on what the change is for. */
+  summary?: string | undefined
+  edits: Record<string, string>
+  onEdit(key: string, value: string): void
+}) {
+  const [editing, setEditing] = useState<string>()
+  return (
+    <div className="flex flex-col gap-2">
+      {props.summary && <p className="text-[13px] text-fg-2">{props.summary}</p>}
+      {props.review.fields.map((f) => {
+        const value = props.edits[f.key] ?? f.value
+        const isEditing = editing === f.key
+        return (
+          <div key={f.key} className="overflow-hidden rounded-lg border border-line bg-surface">
+            <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[12px]">
+              <span className="min-w-0 truncate font-mono text-fg-2">{f.label}</span>
+              {value !== f.value && <span className="text-accent-fg">{copy.approvals.review.edited}</span>}
+              {f.editable && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(isEditing ? undefined : f.key)}
+                  aria-pressed={isEditing}
+                  aria-label={copy.approvals.review.editLabel(f.label)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                >
+                  <PencilLine className="size-3.5" />
+                  {isEditing ? copy.approvals.review.preview : copy.approvals.review.edit}
+                </button>
+              )}
+            </div>
+            {isEditing ? (
+              <TextArea
+                value={value}
+                onChange={(e) => props.onEdit(f.key, e.target.value)}
+                rows={Math.min(18, Math.max(3, value.split('\n').length + 1))}
+                aria-label={copy.approvals.review.editLabel(f.label)}
+                className={cn(
+                  'rounded-none border-0 text-[12.5px] focus-visible:ring-0',
+                  f.format !== 'text' && 'font-mono',
+                )}
+              />
+            ) : (
+              <FieldView field={f} value={value} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function FieldView({ field, value }: { field: ReviewField; value: string }) {
+  const lines = useMemo<DiffLine[] | undefined>(
+    () =>
+      field.before !== undefined
+        ? diffLines(field.before, value)
+        : field.format === 'patch'
+          ? patchLines(value)
+          : undefined,
+    [field.before, field.format, value],
+  )
+  if (lines) return <DiffLines lines={lines} />
+  return field.format === 'text' ? (
+    <p className="max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 text-[13px]">{value}</p>
+  ) : (
+    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all px-3 py-2 font-mono text-[12.5px]">
+      {value}
+    </pre>
+  )
+}
+
+/** A unified diff's lines as added, removed or context, with its file headers kept as context. */
+function patchLines(patch: string): DiffLine[] {
+  return patch
+    .split('\n')
+    .filter((l) => !/^(index |--- |\+\+\+ |new file mode|deleted file mode)/.test(l))
+    .map((l) =>
+      l.startsWith('+')
+        ? { kind: 'add' as const, text: l.slice(1) }
+        : l.startsWith('-')
+          ? { kind: 'del' as const, text: l.slice(1) }
+          : { kind: 'same' as const, text: l.startsWith(' ') ? l.slice(1) : l },
+    )
+}
+
+/** Changed lines with a little context; long unchanged stretches fold to a count. */
+function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
+  const near = (i: number) =>
+    lines.slice(Math.max(0, i - 3), i + 4).some((l) => l.kind !== 'same') || lines.length <= 12
+  if (!lines.some((l) => l.kind !== 'same'))
+    return <p className="px-3 py-2 text-[12.5px] text-muted">{copy.approvals.review.unchanged}</p>
+  const rows: ({ line: DiffLine; i: number } | { fold: number; i: number })[] = []
+  for (const [i, line] of lines.entries()) {
+    if (near(i)) rows.push({ line, i })
+    else {
+      const last = rows.at(-1)
+      if (last && 'fold' in last) last.fold += 1
+      else rows.push({ fold: 1, i })
+    }
+  }
+  return (
+    <div className="max-h-80 overflow-auto font-mono text-[12px] leading-[1.55]">
+      {rows.map((r) =>
+        'fold' in r ? (
+          <div key={`f${r.i}`} className="bg-surface-2/60 px-3 py-0.5 text-[11.5px] text-muted">
+            {copy.approvals.review.moreLines(r.fold)}
+          </div>
+        ) : (
+          <div
+            key={r.i}
+            className={cn(
+              'whitespace-pre-wrap break-all px-3',
+              r.line.kind === 'add' && 'bg-ok-soft',
+              r.line.kind === 'del' && 'bg-bad-soft',
+            )}
+          >
+            <span
+              className={cn(
+                'mr-2 select-none',
+                r.line.kind === 'add' ? 'text-ok-ink' : r.line.kind === 'del' ? 'text-bad-ink' : 'text-muted',
+              )}
+            >
+              {r.line.kind === 'add' ? '+' : r.line.kind === 'del' ? '−' : ' '}
+            </span>
+            {r.line.text || ' '}
+          </div>
+        ),
+      )}
+    </div>
   )
 }
 

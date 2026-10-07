@@ -23,6 +23,7 @@ import {
   mentionsIn,
   outsideEffects,
   type ProjectPermissions,
+  type Review,
   SYSTEM,
   type TaskSnapshot,
 } from '@myrmidon/protocol'
@@ -41,7 +42,7 @@ import {
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
-import { agentActor, type ColonyHost, type TodoItem } from './host.ts'
+import { agentActor, type ColonyHost, type ReviewDecision, type TodoItem } from './host.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
 import type { MemoryStore } from './memory.ts'
@@ -225,7 +226,7 @@ export class ColonyRun implements ColonyHost {
   private _huddle?: { since: number; after: number; proposed: Set<string> }
   /** Reminders sent to agents that stopped with work open, keyed by agent and task (or todo list). */
   private readonly _reminded = new Map<string, number>()
-  private readonly _approvals = new Map<string, (approved: boolean) => void>()
+  private readonly _approvals = new Map<string, (decision: ReviewDecision) => void>()
   private readonly _servers = new Map<string, SandboxProcess>()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
@@ -361,37 +362,69 @@ export class ColonyRun implements ColonyHost {
   }
 
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
-    if (this._state.status !== 'running') return false
+    return (await this.reviewChange(agent, tool, summary, {})).approved
+  }
+
+  async reviewChange(
+    agent: string,
+    tool: string,
+    summary: string,
+    options: { review?: Review; key?: string },
+  ): Promise<ReviewDecision> {
+    if (this._state.status !== 'running') return { approved: false }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-    const decided = new Promise<boolean>((resolve) => {
+    const decided = new Promise<ReviewDecision>((resolve) => {
       const timer = setTimeout(
         () => void this.decideApproval(id, false, 'timeout').catch(() => {}),
         APPROVAL_MS,
       )
-      this._approvals.set(id, (approved) => {
+      this._approvals.set(id, (decision) => {
         clearTimeout(timer)
-        resolve(approved)
+        resolve(decision)
       })
     })
     await this.append({
       type: 'approval/requested',
       actor: agentActor(agent),
-      payload: { id, agent, tool, summary },
+      payload: {
+        id,
+        agent,
+        tool,
+        summary,
+        ...(options.review ? { review: options.review } : {}),
+        ...(options.key ? { key: options.key } : {}),
+      },
     })
     return decided
   }
 
-  /** The person's answer to an approval request (or a timeout, or the round stopping). */
-  async decideApproval(id: string, approved: boolean, by: 'person' | 'timeout' | 'stopped' = 'person') {
+  /**
+   * The person's answer to an approval request (or a timeout, or the round stopping). Edits count only for fields the
+   * review marked editable, and only when approving.
+   */
+  async decideApproval(
+    id: string,
+    approved: boolean,
+    by: 'person' | 'timeout' | 'stopped' = 'person',
+    answer: { edits?: Record<string, string>; note?: string } = {},
+  ) {
     const done = this._approvals.get(id)
     if (!done) throw new Error('that request is no longer waiting')
     this._approvals.delete(id)
+    const editable = new Set(
+      this._state.approvals[id]?.review?.fields.filter((f) => f.editable).map((f) => f.key) ?? [],
+    )
+    const edits = Object.fromEntries(
+      Object.entries(approved ? (answer.edits ?? {}) : {}).filter(([key]) => editable.has(key)),
+    )
+    const note = answer.note?.trim() || undefined
+    const changed = Object.keys(edits).length > 0
     await this.append({
       type: 'approval/decided',
       actor: by === 'person' ? { kind: 'user', id: 'user' } : SYSTEM,
-      payload: { id, approved, by },
+      payload: { id, approved, by, ...(changed ? { edits } : {}), ...(note ? { note } : {}) },
     })
-    done(approved)
+    done({ approved, ...(changed ? { edits } : {}), ...(note ? { note } : {}) })
   }
 
   async startServer(agent: string, name: string, command: string, port?: number): Promise<string> {

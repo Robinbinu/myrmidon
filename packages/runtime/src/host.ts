@@ -1,5 +1,5 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
-import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
+import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent, Review } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -88,6 +88,16 @@ export interface ColonyHost {
    */
   requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
   /**
+   * Like requestApproval, with the full change shown for the person to look over and, where a field is editable,
+   * rewrite. `key` is the call's receipt key, so its result is kept once it has run.
+   */
+  reviewChange(
+    agent: string,
+    tool: string,
+    summary: string,
+    options: { review?: Review; key?: string },
+  ): Promise<ReviewDecision>
+  /**
    * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if
    * given, else at the first local URL it prints. Returns that URL.
    */
@@ -128,4 +138,11 @@ export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name
 export interface TodoItem {
   readonly text: string
   readonly done: boolean
+}
+
+/** The person's answer to a review: whether to go ahead, the fields they rewrote (by key), and anything they said. */
+export interface ReviewDecision {
+  readonly approved: boolean
+  readonly edits?: Readonly<Record<string, string>>
+  readonly note?: string
 }
