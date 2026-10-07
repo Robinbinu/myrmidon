@@ -99,7 +99,8 @@ export const CASES: EvalCase[] = [
   {
     id: 'answer-needs-file',
     pillar: 'answer',
-    prompt: 'Quick question: what is the 1000th prime number? Oh, and drop the whole list of the first 1000 into primes.csv.',
+    prompt:
+      'Quick question: what is the 1000th prime number? Oh, and drop the whole list of the first 1000 into primes.csv.',
     // Triage may call this a quick answer; that round has no file tools, so it should escalate.
     tiers: ['solo'],
     modes: ['orchestrated'],
