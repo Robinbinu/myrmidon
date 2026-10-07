@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyId, colonyMetrics, foldColony, runDiff } from '@myrmidon/protocol'
 import {
+  accountName,
   type BrowserHub,
   buildCatalog,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  GreetingWriter,
   gitCommit,
   gitCommitChanges,
   gitDiscard,
@@ -31,6 +33,7 @@ import {
   type PluginHost,
   type PluginStore,
   type ProjectStore,
+  ruleGreeting,
   type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
@@ -176,6 +179,8 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  const account = accountName()
+  const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   const stopScheduler =
     options.schedules && chats
       ? startScheduler(options.schedules, async (s) => {
@@ -282,6 +287,32 @@ export function startServer(options: ServeOptions): WebServer {
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,
+      // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
+      // page to come back shortly for the model's own.
+      '/api/greeting': guard(async (req) => {
+        const profile = options.settings?.get().profile
+        const name = profile?.name ?? account
+        const lastSeen = new URL(req.url).searchParams.get('lastSeen')
+        const seen = lastSeen ? new Date(lastSeen) : undefined
+        const facts = {
+          name,
+          now: new Date(),
+          ...(seen && !Number.isNaN(seen.getTime()) ? { lastSeen: seen } : {}),
+          chats: options.chats ? await options.chats.list() : [],
+        }
+        let model: string | undefined
+        try {
+          model = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+        } catch {
+          model = undefined
+        }
+        const written = model ? greetings?.written(facts, model) : undefined
+        return json({
+          name,
+          greeting: written ?? ruleGreeting(facts),
+          pending: !written && Boolean(model && greetings),
+        })
+      }),
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
       '/api/models': guard(async (_req, url) => {
         const omp = options.omp
@@ -324,6 +355,7 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
+            account,
             agentDir: options.omp?.agentDir,
             ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
             // What per-tool rules can name: every built-in tool, and `mcp` for all MCP tools.

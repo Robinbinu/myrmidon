@@ -49,6 +49,8 @@ export const MAX_WORKERS = 8
 
 /** A model that answered a probe this recently is not probed again, so a chat does not pay a round-trip per message. */
 export const PROBE_FRESH_MS = 15 * 60_000
+/** How long the model may take to write the entry page's greeting before the rules' line stays. */
+export const GREETING_MS = 15_000
 /** omp's window for a model it found but knows nothing about; treated as unknown since it is often wrong. */
 export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */

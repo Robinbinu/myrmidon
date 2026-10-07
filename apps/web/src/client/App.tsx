@@ -710,6 +710,7 @@ export function App() {
                       {...(chats[0]
                         ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
                         : {})}
+                      news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
                       onPick={(t) => composer.current?.fill(t)}
                     >
                       {box}

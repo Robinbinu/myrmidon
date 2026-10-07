@@ -30,6 +30,7 @@ import {
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Smile,
   Sun,
   Terminal,
   Trash2,
@@ -44,8 +45,10 @@ import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { windowLabel } from './chat/ModelPicker.tsx'
 import { copy } from './copy.ts'
+import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
+import { BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
   cn,
@@ -62,7 +65,7 @@ import {
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
-import { AGENT_MIN_WINDOW, softSpring, spring } from './ui-config.ts'
+import { AGENT_MIN_WINDOW, MASCOT_COLORS, softSpring, spring } from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -109,6 +112,8 @@ export interface ServerSettings {
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
   permissions: Record<string, 'allow' | 'ask' | 'off'>
+  profile?: { name?: string; greeting: 'model' | 'rules' }
+  mascot?: MascotLook
 }
 
 interface SettingsResponse {
@@ -118,6 +123,8 @@ interface SettingsResponse {
   customApis: Api[]
   sandbox: string
   home: string
+  /** The computer account's name, used when the person has not set one. */
+  account?: string
   agentDir?: string
   ompSetup: boolean
   toolCatalog: { name: string; description: string; mcp?: boolean; readOnly?: boolean }[]
@@ -125,6 +132,7 @@ interface SettingsResponse {
 
 export type Section =
   | 'general'
+  | 'mascot'
   | 'models'
   | 'team'
   | 'tools'
@@ -142,6 +150,12 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
     label: copy.settings.sections.general.label,
     hint: copy.settings.sections.general.hint,
     icon: Palette,
+  },
+  {
+    id: 'mascot',
+    label: copy.settings.sections.mascot.label,
+    hint: copy.settings.sections.mascot.hint,
+    icon: Smile,
   },
   {
     id: 'models',
@@ -271,6 +285,7 @@ export function Settings(props: {
           setSaving('saved')
           setTimeout(() => setSaving('idle'), 1200)
           props.onModelsChanged()
+          window.dispatchEvent(new Event(SETTINGS_SAVED))
         })
         .catch((err) => {
           setSaving('idle')
@@ -446,6 +461,7 @@ export function Settings(props: {
                   onConfig={props.onConfig}
                 />
               )}
+              {section === 'mascot' && data && <MascotSection data={data} update={update} />}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -2010,6 +2026,174 @@ const REVIEWER_HINT = {
   auto: copy.settings.reviewer.hints.auto,
   always: copy.settings.reviewer.hints.always,
 } as const
+
+/** A choice shown as a small picture with its name under it, like macOS's appearance pickers. */
+function Tile(props: { selected: boolean; label: string; onClick(): void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      aria-pressed={props.selected}
+      className="flex flex-col items-center gap-1.5 text-[12px] text-fg-2"
+    >
+      <span
+        className={cn(
+          'grid place-items-center rounded-xl p-0.5 ring-2 transition-shadow',
+          props.selected ? 'ring-accent' : 'ring-transparent hover:ring-line-strong',
+        )}
+      >
+        {props.children}
+      </span>
+      <span className={props.selected ? 'font-medium text-fg' : ''}>{props.label}</span>
+    </button>
+  )
+}
+
+/** The mascot's screen at a size for pickers: its eyes in the chosen style and colour, with its accessory. */
+function MiniMascot(props: { look: MascotLook; cell?: number }) {
+  const cell = props.cell ?? 4
+  return (
+    <span className="relative inline-block rounded-[14px] bg-screen p-2.5">
+      <PixelFace
+        mood="idle"
+        color={MASCOT_COLORS[props.look.color]}
+        cols={15}
+        rows={8}
+        cell={cell}
+        gap={cell * 0.3}
+        eyes={props.look.eyes}
+        look={[0, 0]}
+      />
+      {props.look.look === 'flower' && (
+        <PixelSprite sprite={FLOWER} cell={cell * 0.85} className="absolute -right-2.5 -top-2.5" />
+      )}
+      {props.look.look === 'bow' && (
+        <PixelSprite
+          sprite={BOW}
+          cell={cell * 0.75}
+          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2"
+        />
+      )}
+    </span>
+  )
+}
+
+function MascotSection(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.mascot
+  const profile = props.data.settings.profile ?? { greeting: 'model' as const }
+  const look = { ...DEFAULT_MASCOT, ...props.data.settings.mascot }
+  const set = (patch: Partial<MascotLook>) =>
+    props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
+            <TextInput
+              value={profile.name ?? ''}
+              placeholder={props.data.account}
+              maxLength={40}
+              aria-label={t.name}
+              onChange={(e) =>
+                props.update((s) => ({
+                  ...s,
+                  profile: { greeting: 'model', ...s.profile, name: e.target.value },
+                }))
+              }
+              className="w-48"
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
+            <Segmented
+              id="greeting"
+              value={profile.greeting}
+              options={[
+                { value: 'model', label: t.greetingModel },
+                { value: 'rules', label: t.greetingRules },
+              ]}
+              onChange={(greeting) =>
+                props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+              }
+            />
+          </Field>
+        </Row>
+      </Card>
+      <Card>
+        <Row>
+          <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
+            <MiniMascot look={look} cell={9} />
+          </figure>
+        </Row>
+        <Row>
+          <Field label={t.eyes}>
+            <div className="flex flex-wrap gap-3">
+              {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
+                <Tile
+                  key={eyes}
+                  selected={look.eyes === eyes}
+                  label={t.eyeStyles[eyes]}
+                  onClick={() => set({ eyes })}
+                >
+                  <MiniMascot look={{ ...look, eyes, look: 'neutral' }} />
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.look}>
+            <div className="flex flex-wrap gap-4">
+              {(['neutral', 'flower', 'bow'] as const).map((l) => (
+                <Tile key={l} selected={look.look === l} label={t.looks[l]} onClick={() => set({ look: l })}>
+                  <span className="px-1.5 pb-2 pt-1.5">
+                    <MiniMascot look={{ ...look, look: l }} />
+                  </span>
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.color}>
+            <div className="flex flex-wrap gap-3">
+              {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
+                <Tile
+                  key={color}
+                  selected={look.color === color}
+                  label={t.colors[color]}
+                  onClick={() => set({ color })}
+                >
+                  <span className="grid size-10 place-items-center rounded-[10px] bg-screen">
+                    <span className="size-4 rounded-[5px]" style={{ background: MASCOT_COLORS[color] }} />
+                  </span>
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.screen} inline>
+            <Segmented
+              id="mascot-screen"
+              value={look.screen}
+              options={(['rotate', 'clock', 'name', 'crew', 'face'] as const).map((screen) => ({
+                value: screen,
+                label: t.screens[screen],
+              }))}
+              onChange={(screen) => set({ screen })}
+            />
+          </Field>
+        </Row>
+      </Card>
+    </>
+  )
+}
 
 function VerificationSection(props: {
   settings: ServerSettings

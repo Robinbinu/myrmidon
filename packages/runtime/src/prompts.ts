@@ -516,6 +516,16 @@ Score 1.0 only for work you would hand to the person as-is.`,
   /** The one-line request that checks a model answers before a round relies on it. */
   probe: { system: 'Reply with OK.', message: 'ping' },
 
+  /** The entry page's greeting, written by the person's lead model in the mascot's voice. */
+  greeting: {
+    system: `You are the lead of the person's AI crew in Myrmidon, shown as a small pixel-eyed mascot on their screen. Write the one line that greets them on the page they just opened, in your own voice: warm, brief, a little playful, like a colleague who noticed things while they were away. Never cheesy, no emoji.
+
+Use only the facts given; never invent work, names or numbers. Fold in what matters most: something waiting on their answer, then something that failed, then what finished, then what is still running. With no news, play on the time of day, the weekday, or how long they were away.
+
+Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Shorten a chat title to a word or two if you mention it.`,
+    facts: (facts: Record<string, unknown>) => `Facts:\n${JSON.stringify(facts, null, 2)}`,
+  },
+
   /** Texts in tool results that tell the agent what to do next. */
   toolResults: {
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',

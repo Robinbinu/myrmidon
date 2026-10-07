@@ -36,6 +36,21 @@ export const DIFF_MAX_CELLS = 4_000_000
 
 /* ------------------------------------------------------------------ agents and the mascot */
 
+/** The colours the mascot can rest in (Settings → You & mascot); its moods still bring their own. */
+export const MASCOT_COLORS = {
+  amber: '#ffb31a',
+  ice: '#7fdcff',
+  mint: '#5ee6a8',
+  pink: '#ff8fc0',
+  violet: '#b69cff',
+  white: '#f2f2f2',
+} as const
+/** How long each thing the mascot's screen rotates through stays up. */
+export const MASCOT_SCREEN_MS = 7_000
+/** How often the entry page's greeting is asked for again, and how soon after a pending one. */
+export const GREETING_REFRESH_MS = 5 * 60_000
+export const GREETING_RETRY_MS = 3_000
+
 /** How long an agent sits idle before its face dozes off. */
 export const AGENT_DOZE_MS = 15_000
 

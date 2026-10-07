@@ -2,9 +2,17 @@ import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
+import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
-import { agentColor, DotMatrix, PixelFace } from '../ui/pixel.tsx'
-import { MASCOT_DOZE_MS, MASCOT_PAT_MS, MASCOT_USER_FOCUS_MS, softSpring } from '../ui-config.ts'
+import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import {
+  MASCOT_COLORS,
+  MASCOT_DOZE_MS,
+  MASCOT_PAT_MS,
+  MASCOT_SCREEN_MS,
+  MASCOT_USER_FOCUS_MS,
+  softSpring,
+} from '../ui-config.ts'
 import TechText from '../vendor/react-bits/TechText'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
@@ -63,14 +71,52 @@ const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dy / 90), -1, 1),
 ]
 
-function Clock() {
+/**
+ * The readout in the screen's corner, as the person chose: the clock, a hello with their name, how many crews are at
+ * work (the clock when none are), all of these in turn, or nothing.
+ */
+function Readout(props: { mode: MascotLook['screen']; name?: string; working: number }) {
   const [now, setNow] = useState(() => new Date())
+  const [turn, setTurn] = useState(0)
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 15_000)
     return () => clearInterval(t)
   }, [])
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return <DotMatrix text={hhmm} dot={2.4} ghost className="text-[color:var(--screen-ink)]" />
+  useEffect(() => {
+    if (props.mode !== 'rotate') return
+    const t = setInterval(() => setTurn((n) => n + 1), MASCOT_SCREEN_MS)
+    return () => clearInterval(t)
+  }, [props.mode])
+  const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const hello = props.name ? copy.hero.screen.hello(props.name.split(/\s+/)[0]?.slice(0, 8) ?? '') : undefined
+  const crew = props.working > 0 ? copy.hero.screen.atWork(props.working) : undefined
+  const shown =
+    props.mode === 'face'
+      ? undefined
+      : props.mode === 'name'
+        ? (hello ?? clock)
+        : props.mode === 'crew'
+          ? (crew ?? clock)
+          : props.mode === 'clock'
+            ? clock
+            : (() => {
+                const all = [clock, hello, crew].filter((x): x is string => Boolean(x))
+                return all[turn % all.length]
+              })()
+  if (!shown) return null
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={shown === clock ? 'clock' : shown}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.25 }}
+      >
+        <DotMatrix text={shown} dot={2.4} ghost className="text-[color:var(--screen-ink)]" />
+      </motion.span>
+    </AnimatePresence>
+  )
 }
 
 interface CrewState {
@@ -93,10 +139,15 @@ export function Hero(props: {
   working: number
   /** The most recent chat's status and when it last changed. */
   latest?: { status: string; updatedAt: string }
+  /** What the chats are doing, as a key: when it changes, the greeting is written again. */
+  news: string
   onPick(text: string): void
   children: ReactNode
 }) {
   const reduce = useReducedMotion()
+  const mascot = useMascotLook()
+  const { greeting, name } = useGreeting(props.news)
+  const headline = greeting?.headline ?? copy.hero.headline
   const [scope, animate] = useAnimate<HTMLButtonElement>()
   const [reaction, setReaction] = useState<Emotion>()
   const [petted, setPetted] = useState(false)
@@ -294,7 +345,11 @@ export function Hero(props: {
                 hour: new Date(now).getHours(),
               }))
   const label = emotion.label
-  const eyes = useMemo(() => resolveColor(emotion.color), [emotion.color])
+  // The colour the person chose is the mascot's own; its moods still bring theirs.
+  const eyes = useMemo(
+    () => (emotion.color === LEAD_COLOR ? MASCOT_COLORS[mascot.color] : resolveColor(emotion.color)),
+    [emotion.color, mascot.color],
+  )
 
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
@@ -304,6 +359,7 @@ export function Hero(props: {
             initial={{ opacity: 0, y: 12, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={softSpring}
+            className="relative"
           >
             <button
               ref={scope}
@@ -328,6 +384,7 @@ export function Hero(props: {
                 cell={20}
                 gap={6}
                 glow
+                eyes={mascot.eyes}
                 {...(look ? { look } : {})}
                 className="h-auto w-[min(400px,calc(100vw-96px))]"
               />
@@ -348,9 +405,23 @@ export function Hero(props: {
                     </motion.span>
                   </AnimatePresence>
                 </span>
-                <Clock />
+                <Readout mode={mascot.screen} {...(name ? { name } : {})} working={props.working} />
               </div>
             </button>
+            {mascot.look === 'flower' && (
+              <PixelSprite
+                sprite={FLOWER}
+                cell={9}
+                className="pointer-events-none absolute -right-5 -top-5"
+              />
+            )}
+            {mascot.look === 'bow' && (
+              <PixelSprite
+                sprite={BOW}
+                cell={4.5}
+                className="pointer-events-none absolute left-1/2 top-full -mt-2.5 -translate-x-1/2"
+              />
+            )}
           </motion.div>
 
           <motion.div
@@ -366,7 +437,7 @@ export function Hero(props: {
           </motion.div>
         </div>
 
-        <h1 className="sr-only">{copy.hero.headline}</h1>
+        <h1 className="sr-only">{headline}</h1>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -375,7 +446,8 @@ export function Hero(props: {
           aria-hidden
         >
           <TechText
-            text={copy.hero.headline}
+            key={headline}
+            text={headline}
             fontSize={40}
             fontWeight={600}
             letterSpacing={-0.03}

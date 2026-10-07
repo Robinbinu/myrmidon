@@ -212,6 +212,11 @@ export const copy = {
   hero: {
     headline: 'What should the crew build?',
     poke: 'Poke the crew',
+    /** What the mascot's screen spells out in dots (letters, digits and a few signs only). */
+    screen: {
+      hello: (name: string) => `HI ${name.toUpperCase()}`,
+      atWork: (n: number) => `${n} AT WORK`,
+    },
     suggestions: {
       research: {
         label: 'Research',
@@ -1207,6 +1212,7 @@ export const copy = {
     },
     sections: {
       general: { label: 'General', hint: 'Theme, motion, shortcuts' },
+      mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Team & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
@@ -1449,6 +1455,35 @@ export const copy = {
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
       removed: (name: string) => `Removed ${name}`,
+    },
+    mascot: {
+      title: 'You & your mascot',
+      intro: 'What the mascot calls you, who writes the line it greets you with, and how it looks.',
+      name: 'Your name',
+      nameHint: (account: string) => `Leave empty to use your computer account's name (${account}).`,
+      greeting: 'Greeting',
+      greetingHints: {
+        model:
+          'Your lead model writes it from what happened while you were away. Uses a few hundred tokens when there is news.',
+        rules: 'Written by Myrmidon itself, from the same facts. No model calls.',
+      },
+      greetingModel: 'Lead',
+      greetingRules: 'Built in',
+      preview: 'Preview',
+      eyes: 'Eyes',
+      eyeStyles: { round: 'Round', happy: 'Happy', tall: 'Tall', sleepy: 'Sleepy', lashes: 'Lashes' },
+      look: 'Look',
+      looks: { neutral: 'Neutral', flower: 'Flower', bow: 'Bow tie' },
+      color: 'Colour',
+      colors: { amber: 'Amber', ice: 'Ice', mint: 'Mint', pink: 'Pink', violet: 'Violet', white: 'White' },
+      screen: 'The screen shows',
+      screens: {
+        rotate: 'All in turn',
+        clock: 'Clock',
+        name: 'Your name',
+        crew: 'Crew at work',
+        face: 'Nothing',
+      },
     },
     reviewer: {
       hints: {

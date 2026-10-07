@@ -41,12 +41,15 @@ Open work, in the order it will be done:
 6. - [x] **Streaming replies** (lead-first step 2) — the lead's text appears as it is written.
 7. - [x] **Helpers appear quietly** (lead-first step 3 remainder) — "Brought in nova (research) and kai (frontend)"
       as one compact line when the lead adds agents.
-8. - [ ] **Personal entry page + mascot customisation** — headline personalised to the person; mascot eyes,
-      look/gender (a pink flower on the screen's top-right corner for a female look), colours, and what the
-      dot-matrix screen shows. Show options first.
+8. - [x] **Personal entry page + mascot customisation** — one smart headline (no subtext) in the mascot's voice,
+      from what happened while the person was away, written by the lead model with a built-in fallback; name from
+      the computer account, editable; Settings → You & mascot: eyes, look (pixel flower / pixel bow tie), colour,
+      and what the screen shows (rotating clock / HI NAME / crew at work).
 8b. - [ ] **Crew group chats** (asked 2026-10-07) — besides one-to-one mail, agents can start group chats with some
       of the crew, and there is one team chat everyone is in; used like people use WhatsApp groups ("make it more
-      human like"). The Mail tab shows them as conversations.
+      human like"). The Mail tab shows them as conversations. Also fix the reminder's side effect seen on
+      2026-10-07: agents send "✔ end of thread, please don't reply" / "sent only to clear the unanswered-mail flag"
+      just to quiet it; a message that needs no answer (an ack, "no reply needed") should close the thread.
 9. - [ ] **Review-before-save cards** (OpenDots) — an agent proposes a file, commit or message and the person approves
       it before it is written; the approval is kept so a retry never writes twice.
 10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)
