@@ -38,6 +38,7 @@
       "dependencies": {
         "@fontsource-variable/geist": "5.3.0",
         "@fontsource-variable/geist-mono": "5.3.0",
+        "@lobehub/icons-static-svg": "1.95.1",
         "@myrmidon/core": "workspace:*",
         "@myrmidon/protocol": "workspace:*",
         "@myrmidon/runtime": "workspace:*",
@@ -185,6 +186,8 @@
     "@img/sharp-win32-ia32": ["@img/sharp-win32-ia32@0.35.5", "", { "os": "win32", "cpu": "ia32" }, "sha512-5Zm82LoBc43nhwNybZlG7Y1KO//Zhsn306fQl29ZOuStHLGTo3BWL83q3cznX0poxSAMuYL1On/BHBxkBeKr6A=="],
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.5", "", { "os": "win32", "cpu": "x64" }, "sha512-x76eH0vEiHlcMQu8Y8IenntaACtddpT6W0wmXtWrnKcnKI7ME5DdgqhAD6SEWOEl1v2zDvkZDhFA9KnURwpfqg=="],
+
+    "@lobehub/icons-static-svg": ["@lobehub/icons-static-svg@1.95.1", "", {}, "sha512-Hw7EPPgVnC4NZLXBfTNJG6hyQgqECfUPC11VVXodPSr1aebKcFxDZlSpxhWwYNdCc6bhxps/x5TtXoPmfKH2ag=="],
 
     "@myrmidon/cli": ["@myrmidon/cli@workspace:apps/cli"],
 

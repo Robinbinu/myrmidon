@@ -2,7 +2,7 @@ import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModelOption } from '../api.ts'
-import { ProviderGlyph } from '../ui/ProviderGlyph.tsx'
+import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn, spring } from '../ui/primitives.tsx'
 
 /** Searchable model selector grouped by provider, with arrow-key navigation. */
@@ -171,7 +171,8 @@ export function ModelPicker(props: {
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>
                   {items.map(({ m, i }) => (
@@ -189,7 +190,7 @@ export function ModelPicker(props: {
                         m.ref === props.value && 'text-accent-fg',
                       )}
                     >
-                      <ProviderGlyph model={`${m.ref} ${m.name}`} size={20} />
+                      <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-[13px] font-medium">{m.name}</span>
                         <span className="truncate font-mono text-[11px] text-muted">{m.id}</span>
