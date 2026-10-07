@@ -407,6 +407,8 @@ nobody owns, publish artifacts, and request final verification once the output m
 
   /** What a chat sets up for each round. */
   chat: {
+    /** Why a round the log still called running was stopped: the Myrmidon that ran it is gone. */
+    interrupted: 'Myrmidon restarted while this round was running',
     /** The reviewer's rubric when the person has not written their own. */
     rubric: `Judge whether the colony did what the person asked, completely and correctly.
 - Every part of the request is addressed; nothing is silently skipped.

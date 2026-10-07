@@ -17,6 +17,10 @@ Requests queued while other work is in progress. Top of each section is next.
       `read_docs`, capability summary; team picker UI; run/workspace views.
 - [x] **Swarm never spins up a lead** — one-agent swarm rounds use a peer; solo-tier work goes to the whole swarm.
 - [x] **Context stored and reused on resume** — per-agent JSONL transcripts (like omp/Claude Code sessions).
+- [x] **A restart no longer strands a running round** (asked 2026-10-07: "unable to send message when the agents
+      are working") — `bun --watch` restarts on every edit; the round stayed "running" in the log with nothing
+      running it, so new messages were refused. Rounds now record their process; at startup an orphaned one is
+      logged as stopped (Resume offered) and the chat takes messages again.
 - [x] Live-run fixes: ordered `create_task` in one batch, blocked tasks don't wake assignees, numbered tasks not
       deduped, no peer-made "final answer" task, `task-final` points to `reply_user`.
 
@@ -40,6 +44,9 @@ Open work, in the order it will be done:
 8. - [ ] **Personal entry page + mascot customisation** — headline personalised to the person; mascot eyes,
       look/gender (a pink flower on the screen's top-right corner for a female look), colours, and what the
       dot-matrix screen shows. Show options first.
+8b. - [ ] **Crew group chats** (asked 2026-10-07) — besides one-to-one mail, agents can start group chats with some
+      of the crew, and there is one team chat everyone is in; used like people use WhatsApp groups ("make it more
+      human like"). The Mail tab shows them as conversations.
 9. - [ ] **Review-before-save cards** (OpenDots) — an agent proposes a file, commit or message and the person approves
       it before it is written; the approval is kept so a retry never writes twice.
 10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)

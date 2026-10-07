@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
@@ -275,7 +277,50 @@ export class ChatService {
     return out
   }
 
+  /**
+   * A running round notes which process runs it, so that after a restart or crash a round the log still calls running
+   * can be told apart from one another Myrmidon process (a second server on the same home) is running right now.
+   */
+  private _ownerFile(colonyId: string) {
+    return join(this.store.home, 'runs', colonyId)
+  }
+
+  private _own(run: ColonyRun) {
+    mkdirSync(join(this.store.home, 'runs'), { recursive: true })
+    writeFileSync(this._ownerFile(run.id), String(process.pid))
+  }
+
+  private _release(run: ColonyRun) {
+    rmSync(this._ownerFile(run.id), { force: true })
+  }
+
+  private _settling?: Promise<void>
+
+  /**
+   * Ends rounds left running by a Myrmidon that is gone (restarted, quit or crashed): logged as stopped, they offer
+   * Resume, and the chat takes new messages again. Runs once, before this process first reads or starts a round.
+   */
+  private _settle(): Promise<void> {
+    this._settling ??= (async () => {
+      for (const r of await this.index.rounds(this._liveState)) {
+        if (r.status !== 'running' && r.status !== 'created') continue
+        if (this._liveState(r.colonyId)) continue
+        const file = this._ownerFile(r.colonyId)
+        const pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : undefined
+        if (pid && pid !== process.pid && alive(pid)) continue
+        await this.runtime.ctx.log.appendOne(r.colonyId as never, {
+          type: 'colony/stopped',
+          actor: { kind: 'system', id: 'myrmidon' },
+          payload: { reason: prompts.chat.interrupted },
+        })
+        rmSync(file, { force: true })
+      }
+    })()
+    return this._settling
+  }
+
   async list(): Promise<ChatSummary[]> {
+    await this._settle()
     const byChat = new Map<string, IndexedRound[]>()
     for (const r of await this.index.rounds(this._liveState))
       byChat.set(r.chatId, [...(byChat.get(r.chatId) ?? []), r])
@@ -341,6 +386,7 @@ export class ChatService {
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
     const { delivery = 'steer', attachments = [], planFirst = false } = options
+    await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
       await live.postUserMessage(message, delivery, attachments)
@@ -411,13 +457,16 @@ export class ChatService {
         })
     })
     this._live.set(id, run)
+    this._own(run)
     try {
       await (latest ? run.continueRound() : run.start())
     } catch (err) {
       this._live.delete(id)
+      this._release(run)
       throw err
     }
     void run.done.finally(() => {
+      this._release(run)
       if (this._live.get(id) === run) this._live.delete(id)
       void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
     })
@@ -649,6 +698,7 @@ export class ChatService {
    * switches to it. Without a failure, it switches the lead (or the one agent).
    */
   async resume(chatId: string, model?: string): Promise<{ chatId: string; colonyId: string }> {
+    await this._settle()
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
     const last = (await this.rounds(chatId)).at(-1)
     if (!last) throw new Error('no such chat')
@@ -685,6 +735,7 @@ export class ChatService {
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
     })
     this._live.set(chatId, run)
+    this._own(run)
     try {
       await run.resume(
         model
@@ -694,9 +745,11 @@ export class ChatService {
       )
     } catch (err) {
       this._live.delete(chatId)
+      this._release(run)
       throw err
     }
     void run.done.finally(() => {
+      this._release(run)
       if (this._live.get(chatId) === run) this._live.delete(chatId)
       void this._checkpoint(
         run.id,
@@ -943,5 +996,15 @@ export class ChatService {
         workerModels: models,
       },
     }
+  }
+}
+
+/** Whether a process is still running (signal 0 checks without sending anything). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
 }

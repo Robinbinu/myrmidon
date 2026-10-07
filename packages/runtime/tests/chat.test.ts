@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SqliteLogStore } from '@myrmidon/core'
@@ -488,6 +488,41 @@ test("the speaker's reply streams to listeners as it is written, and never into 
   expect(seen.filter((x) => !x.done).map((x) => x.text)).toContain('It is 4.')
   expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true })
   expect((await events(colonyId)).some((e) => (e.type as string).includes('stream'))).toBe(false)
+})
+
+test('a round left running by a Myrmidon that is gone is stopped, and the chat takes messages again', async () => {
+  // The first process: its lead is mid-call when the process "dies".
+  // Its model never answers: a dead process writes nothing more.
+  const gate = new Promise<void>(() => {})
+  const first = new ModelResolver()
+  const slow = createMockModel({
+    handler: async () => {
+      await gate
+      return { content: ['late'] }
+    },
+  })
+  first.register('mock/slow', { model: slow.model, streamFn: slow.stream })
+  const gone = new ChatService(runtime, { resolver: first, classify: fixed('solo') })
+  const { chatId, colonyId } = await gone.send('a long job', solo('mock/slow'))
+  await waitFor(colonyId, (s) => s.status === 'running')
+  const dead = Bun.spawn(['true'])
+  await dead.exited
+  writeFileSync(join(home, 'runs', colonyId), String(dead.pid))
+
+  // The next process finds the round still "running" in the log, with nobody running it.
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Picked up.', final: true })]])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const listed = (await chats.list()).find((c) => c.chatId === chatId)
+  expect(listed?.status).toBe('stopped')
+  const stopped = (await events(colonyId)).findLast((e) => e.type === 'colony/stopped')
+  expect((stopped?.payload as EventPayloads['colony/stopped'] | undefined)?.reason).toContain('restarted')
+  expect(existsSync(join(home, 'runs', colonyId))).toBe(false)
+
+  const next = await chats.send('carry on', solo('mock/lead'), chatId)
+  expect(next.started).toBe(true)
+  const s = await waitFor(colonyId)
+  expect(s.chatMessages.at(-1)?.text).toBe('Picked up.')
 })
 
 test('a short remark after the final answer is not taken for a second answer', async () => {
