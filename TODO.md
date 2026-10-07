@@ -24,8 +24,9 @@ Requests queued while other work is in progress. Top of each section is next.
 
 - [ ] **One colony per chat** — reuse the chat's first colony for follow-up messages instead of starting a new
       colony per message (asked 2026-10-07).
-- [ ] **A livelier start for a new chat** — sending the first message of a new chat feels dull; make the wait
-      between send and first activity engaging (asked 2026-10-07).
+- [x] **A livelier start for a new chat** — the wait was ~7s of a static card: every message re-probed each model
+      with a test call before starting. Probes are now cached for 15 min (wait ~3s, the triage call), and the card
+      ticks off its steps with a running clock and a progress sweep.
 - [ ] **Should all tools be MCP?** Research how Claude Code, omp and other strong coding harnesses expose their
       built-in tools (native vs MCP), and recommend whether Myrmidon's tools should be served over MCP (asked
       2026-10-07).

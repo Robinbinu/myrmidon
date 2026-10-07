@@ -112,6 +112,16 @@
   line-height: 1.04;
 }
 
+/* The pending round's progress line: a short bar sweeping left to right. */
+@keyframes pending-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 @keyframes blink-caret {
   50% {
     opacity: 0;

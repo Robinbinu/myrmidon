@@ -243,7 +243,7 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof ref !== 'string') return json({ error: 'ref is required' }, 400)
           const started = Date.now()
           try {
-            await options.resolver.probe(ref)
+            await options.resolver.probe(ref, true)
             return json({ ok: true, ms: Date.now() - started })
           } catch (err) {
             return json({ ok: false, error: err instanceof Error ? err.message : String(err) })

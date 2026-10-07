@@ -14,6 +14,8 @@ export interface ResolvedModel {
  * Resolves `provider/model-id` references through omp's model registry (built-in providers, custom
  * providers from `models.yml`, discovered models). Without omp (tests) only bundled models resolve.
  */
+const PROBE_FRESH_MS = 15 * 60_000
+
 export class ModelResolver {
   private readonly _custom = new Map<string, ResolvedModel>()
 
@@ -53,10 +55,17 @@ export class ModelResolver {
     return (await this.omp?.apiKey(model as never)) ?? getEnvApiKey(model.provider)
   }
 
-  /** Sends a one-line request so unsupported models or rejected credentials fail before a colony starts. */
-  async probe(ref: string): Promise<void> {
+  /** When each model last answered a probe, so a chat does not pay a model round-trip on every message. */
+  private readonly _probed = new Map<string, number>()
+
+  /**
+   * Sends a one-line request so unsupported models or rejected credentials fail before a colony starts. A model
+   * that answered in the last 15 minutes is not asked again; if it fails later, the round pauses on the error.
+   */
+  async probe(ref: string, force = false): Promise<void> {
     const resolved = this.resolve(ref)
     if (resolved.streamFn || resolved.model.api === 'mock') return
+    if (!force && Date.now() - (this._probed.get(ref) ?? 0) < PROBE_FRESH_MS) return
     const apiKey = await this.requireApiKey(resolved.model)
     const reply = await completeSimple(
       resolved.model,
@@ -68,6 +77,7 @@ export class ModelResolver {
     )
     if (reply.stopReason === 'error')
       throw new Error(`model ${ref} is not usable: ${reply.errorMessage ?? 'unknown error'}`)
+    this._probed.set(ref, Date.now())
   }
 
   async requireApiKey(model: Model): Promise<string> {

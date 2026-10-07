@@ -58,39 +58,63 @@ export function isRunning(status: string) {
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
-const STARTING = ['Reading your request', 'Choosing the right team', 'Starting the colony']
+const STARTING = ['Reading your request', 'Choosing the right team', 'Waking the agents']
 
-/** Shown the moment a request is sent, until its round exists: the message and a thinking lead. */
+/**
+ * Shown the moment a request is sent, until its round exists: the message, a thinking lead, and the start-up
+ * steps ticking off with a running clock, so the first seconds visibly move.
+ */
 export function PendingRound({ text }: { text: string }) {
-  const [phase, setPhase] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setPhase((p) => Math.min(p + 1, STARTING.length - 1)), 2200)
+    const started = Date.now()
+    const t = setInterval(() => setElapsed(Date.now() - started), 100)
     return () => clearInterval(t)
   }, [])
+  // The server sends nothing until the round exists, so the steps advance on a clock and the last one waits.
+  const phase = Math.min(Math.floor(elapsed / 1300), STARTING.length - 1)
   return (
     <section className="flex flex-col gap-4" aria-busy="true">
       <UserMessage text={text} />
       <motion.div
         {...enter}
-        className="flex items-center gap-3 rounded-2xl border border-work/35 bg-surface p-3 shadow-soft"
+        className="relative overflow-hidden rounded-2xl border border-work/35 bg-surface p-3 shadow-soft"
       >
-        <span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-screen">
-          <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={phase}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.18 }}
-              className="block text-[13.5px] font-semibold"
-            >
-              {STARTING[phase]}…
-            </motion.span>
-          </AnimatePresence>
-          <span className="block text-[12px] text-muted">The colony is getting ready</span>
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-screen">
+            <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
+          </span>
+          <ol className="flex min-w-0 flex-1 flex-col gap-1 pt-0.5">
+            {STARTING.slice(0, phase + 1).map((step, i) => (
+              <motion.li
+                key={step}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18 }}
+                className={cn(
+                  'flex items-center gap-2 text-[13px]',
+                  i < phase ? 'text-muted' : 'font-semibold text-fg',
+                )}
+              >
+                {i < phase ? (
+                  <Check className="size-3.5 text-ok" />
+                ) : (
+                  <LoaderCircle className="size-3.5 animate-spin text-work motion-reduce:animate-none" />
+                )}
+                {step}
+                {i === phase ? '…' : ''}
+              </motion.li>
+            ))}
+          </ol>
+          <span className="font-mono text-[12px] tabular-nums text-muted">
+            {(elapsed / 1000).toFixed(1)}s
+          </span>
+        </div>
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-work/10"
+        >
+          <span className="block h-full w-1/3 animate-[pending-sweep_1.4s_ease-in-out_infinite] bg-work/60 motion-reduce:hidden" />
         </span>
       </motion.div>
     </section>
