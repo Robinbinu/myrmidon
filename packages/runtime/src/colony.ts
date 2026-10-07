@@ -59,8 +59,13 @@ import { ProjectWorktrees } from './worktrees.ts'
 export interface Runtime {
   readonly ctx: Context
   readonly home: string
+  /** Work still writing to the log (a round winding down), which disposing waits for. */
+  track?(work: Promise<unknown>): void
   dispose(): Promise<void>
 }
+
+/** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
+const SETTLE_MS = 3_000
 
 /** Boots the plugin tree: SQLite log store, the event log, and colony event types. */
 export async function bootRuntime(home: string): Promise<Runtime> {
@@ -76,7 +81,21 @@ export async function bootRuntime(home: string): Promise<Runtime> {
   })
   for (let i = 0; i < 100 && !ctx.get('log'); i++) await Bun.sleep(5)
   if (!ctx.get('log')) throw new Error('event log service failed to start')
-  return { ctx, home, dispose: () => ctx.fiber.dispose() }
+  const pending = new Set<Promise<unknown>>()
+  return {
+    ctx,
+    home,
+    track(work) {
+      pending.add(work)
+      void work.finally(() => pending.delete(work))
+    },
+    // A round that is still ending writes its last events (agents' turn ends, worktree closes) to the log; closing
+    // it first would leave them writing into nothing.
+    dispose: async () => {
+      await Promise.race([Promise.allSettled([...pending]), Bun.sleep(SETTLE_MS)])
+      await ctx.fiber.dispose()
+    },
+  }
 }
 
 export interface RunOptions {
@@ -770,16 +789,8 @@ export class ColonyRun implements ColonyHost {
       },
     })
     if (resumedBecause) this._wakeAfterResume(resumedBecause)
-    for (const a of this._agents.values()) {
-      a.run(!resumedBecause).catch((err) => {
-        console.error(`[${a.name}] crashed:`, err)
-        void this.append({
-          type: 'agent/status',
-          actor: SYSTEM,
-          payload: { agent: a.name, status: 'failed', detail: String(err) },
-        })
-      })
-    }
+    this.runtime.track?.(this.done)
+    for (const a of this._agents.values()) this._runAgent(a, !resumedBecause)
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
     // A short quiet window (tests) needs a matching tick, or each stall nudge waits a full second.
     const tick = Math.min(1000, this.options.quietMs ?? 1000)
@@ -981,14 +992,7 @@ export class ColonyRun implements ColonyHost {
     await this._isolate(name)
     const agent = new ColonyAgent(spec, this, this.resolver)
     this._agents.set(name, agent)
-    agent.run().catch((err) => {
-      console.error(`[${name}] crashed:`, err)
-      void this.append({
-        type: 'agent/status',
-        actor: SYSTEM,
-        payload: { agent: name, status: 'failed', detail: String(err) },
-      })
-    })
+    this._runAgent(agent)
     return prompts.colony.spawned({ name, label, model: chosen })
   }
 
@@ -1635,6 +1639,23 @@ export class ColonyRun implements ColonyHost {
         .writeMirror(this._state, this.blobs)
         .catch((err) => console.error('mirror write failed:', err))
     }, 300)
+  }
+
+  /**
+   * Starts an agent's loop. An agent mid-turn when the round ends still records its turn's end once its model call
+   * returns, so the runtime waits for the loop before closing the log. The round itself does not wait: the agent
+   * ending it (a final answer, a model failure) is inside that very loop.
+   */
+  private _runAgent(agent: ColonyAgent, fresh?: boolean) {
+    const loop = agent.run(fresh).catch((err) => {
+      console.error(`[${agent.name}] crashed:`, err)
+      void this.append({
+        type: 'agent/status',
+        actor: SYSTEM,
+        payload: { agent: agent.name, status: 'failed', detail: String(err) },
+      })
+    })
+    this.runtime.track?.(loop)
   }
 
   private async _end() {

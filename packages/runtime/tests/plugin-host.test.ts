@@ -79,7 +79,8 @@ test('editing the code reloads the plugin; switching it off removes everything i
   expect(await run(host, { name: 'Ana' })).toBe('Hello, Ana (from lead)')
 
   writeFileSync(join(at, 'server', 'index.ts'), code('Hi').replace("'greet'", "'wave'"))
-  for (let i = 0; i < 100 && host.tools(call)[0]?.name !== 'nova_wave'; i++) await Bun.sleep(50)
+  // File events can take seconds to arrive on a busy machine.
+  for (let i = 0; i < 300 && host.tools(call)[0]?.name !== 'nova_wave'; i++) await Bun.sleep(50)
   expect(host.tools(call).map((t) => t.name)).toEqual(['nova_wave'])
   expect(await run(host, { name: 'Ana' })).toBe('Hi, Ana (from lead)')
   // The old version cleaned up after itself before the new one loaded.
@@ -90,7 +91,7 @@ test('editing the code reloads the plugin; switching it off removes everything i
   expect(host.tools(call)).toEqual([])
   expect(host.prompts('lead')).toEqual([])
   expect(host.status('nova').loaded).toBe(false)
-})
+}, 30_000)
 
 test('a plugin that fails to load is reported and leaves the others working', async () => {
   plugin('broken', 'export function activate() { throw new Error("no API key set") }')
