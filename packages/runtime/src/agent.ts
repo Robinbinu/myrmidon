@@ -284,8 +284,12 @@ export class ColonyAgent {
     const spoke = turn.some((m) =>
       m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
     )
-    // A turn of nothing but text is a direct answer at any length ("4"); after tool work a short remark is filler.
-    const worked = turn.some((m) => m.content.some((c) => c.type === 'toolCall'))
+    // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
+    // answer (a review sent it back, say), a short remark is filler, not another answer.
+    const state = this.host.state()
+    const since = state.rounds.at(-1)?.startSeq ?? 0
+    const answered = state.chatMessages.some((m) => m.from === this.name && m.final && m.seq >= since)
+    const worked = answered || turn.some((m) => m.content.some((c) => c.type === 'toolCall'))
     const last = turn.at(-1)
     const text =
       last?.content

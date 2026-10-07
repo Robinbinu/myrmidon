@@ -413,6 +413,34 @@ test('an answer written as plain text still reaches the person', async () => {
   })
 })
 
+test('a short remark after the final answer is not taken for a second answer', async () => {
+  const resolver = new ModelResolver()
+  let judged = 0
+  const reviewer = createMockModel({
+    // A slow review (a project's checks take seconds): its verdict arrives after the lead's turn has ended.
+    handler: async () => {
+      judged += 1
+      await Bun.sleep(150)
+      return { content: ['{"score": 0.2, "reasons": "incomplete"}'] }
+    },
+  })
+  resolver.register('mock/judge', { model: reviewer.model, streamFn: reviewer.stream })
+  // The review fails, the lead is told to fix it, and its next turn is only a short remark.
+  scripted(resolver, 'mock/lead', [
+    [tool('reply_user', { text: 'The answer is 4.', final: true })],
+    ['Sent.'],
+    ['looking'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('What is 2+2?', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId, (x) => x.verdicts.some((v) => v.target === 'colony'))
+  await Bun.sleep(300)
+  const s = foldColony(colonyId, await events(colonyId))
+  expect(s.chatMessages.filter((m) => m.from === 'lead').map((m) => m.text)).toEqual(['The answer is 4.'])
+  expect(judged).toBe(1)
+  await chats.stopAll()
+})
+
 test('a chat round starts without test-calling its models first; only credentials are checked', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Hi.', final: true })]])
