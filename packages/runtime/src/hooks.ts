@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { HOOK_MAX_OUTPUT, HOOK_MAX_TIMEOUT_S, HOOK_TIMEOUT_S } from './config.ts'
 
 /**
  * The person's hooks: commands Myrmidon runs at fixed points (before a tool, after it, when a round ends), so a
@@ -63,10 +64,6 @@ const CLAUDE_NAMES: Record<string, string> = {
   update_todo: 'TodoWrite',
 }
 
-const DEFAULT_TIMEOUT_S = 60
-const MAX_TIMEOUT_S = 600
-const MAX_OUTPUT = 20_000
-
 export function matches(matcher: string | undefined, tool: string): boolean {
   const m = (matcher ?? '').trim()
   if (!m || m === '*') return true
@@ -99,7 +96,7 @@ function checked(raw: unknown): HooksConfig {
                 type: 'command',
                 command: c.command,
                 ...(typeof c.timeout === 'number' && c.timeout > 0
-                  ? { timeout: Math.min(c.timeout, MAX_TIMEOUT_S) }
+                  ? { timeout: Math.min(c.timeout, HOOK_MAX_TIMEOUT_S) }
                   : {}),
               },
             ]
@@ -162,7 +159,7 @@ async function runCommand(
       timedOut = true
       proc.kill()
     },
-    (hook.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
+    (hook.timeout ?? HOOK_TIMEOUT_S) * 1000,
   )
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -174,10 +171,10 @@ async function runCommand(
     command: hook.command,
     code: timedOut ? -1 : code,
     ms: Date.now() - started,
-    stdout: stdout.slice(0, MAX_OUTPUT),
-    stderr: (timedOut ? `timed out after ${hook.timeout ?? DEFAULT_TIMEOUT_S}s\n${stderr}` : stderr).slice(
+    stdout: stdout.slice(0, HOOK_MAX_OUTPUT),
+    stderr: (timedOut ? `timed out after ${hook.timeout ?? HOOK_TIMEOUT_S}s\n${stderr}` : stderr).slice(
       0,
-      MAX_OUTPUT,
+      HOOK_MAX_OUTPUT,
     ),
     timedOut,
   }

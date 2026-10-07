@@ -1,8 +1,7 @@
 import { hostname } from 'node:os'
 import { colonyId, type EventLog } from '@myrmidon/core'
 import { type EventPayloads, foldColony, SYSTEM } from '@myrmidon/protocol'
-
-const GRACE_MS = 60_000
+import { RECOVERY_GRACE_MS } from './config.ts'
 
 function alive(pid: number): boolean {
   try {
@@ -34,7 +33,7 @@ export async function recoverOrphans(log: EventLog, now = Date.now()): Promise<s
     } else {
       // Runs recorded before pids were logged: orphaned once well past their wall budget.
       const created = state.createdAt ? Date.parse(state.createdAt) : 0
-      orphaned = now > created + state.budget.wallMs + GRACE_MS
+      orphaned = now > created + state.budget.wallMs + RECOVERY_GRACE_MS
     }
     if (!orphaned) continue
     const open = Object.values(state.agents).filter(

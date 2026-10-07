@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import { MCP_STARTUP_MS } from './config.ts'
 
 /**
  * MCP servers as colony tools. omp's own MCP client does the work (stdio, streamable HTTP, SSE, OAuth, tool
@@ -41,8 +42,6 @@ export interface McpServerInfo {
 }
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/
-/** How long a (re)start waits for servers to list their tools; slower ones are picked up when they finish. */
-const STARTUP_MS = 10_000
 /** Environment variables that look like credentials; MCP server processes do not inherit them. */
 const SECRET = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i
 
@@ -138,7 +137,7 @@ export class McpHub {
     if (Object.keys(configs).length > 0) {
       const result = await this._manager.connectServers(configs, sources)
       for (const [name, error] of result.errors) this._errors.set(name, error)
-      await this._manager.waitForStartup(STARTUP_MS)
+      await this._manager.waitForStartup(MCP_STARTUP_MS)
     }
     this._rebuild(CustomToolAdapter)
   }

@@ -25,6 +25,14 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
+import {
+  GLOB_LIMIT,
+  GREP_LIMIT,
+  MAX_ARTIFACT_BYTES,
+  MAX_READ_CHARS,
+  MCP_FAILURE_LIMIT,
+  PAGE_EXCERPT,
+} from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import {
   browserSteps,
@@ -38,14 +46,8 @@ import {
 } from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
 import type { ProjectCheck } from './project-context.ts'
+import { prompts } from './prompts.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
-
-const MAX_ARTIFACT_BYTES = 512 * 1024
-/** Most matches grep returns, and most paths glob lists, so a broad search does not flood the context. */
-const GREP_LIMIT = 100
-const GLOB_LIMIT = 200
-/** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
-const PAGE_EXCERPT = 8_000
 
 /** A short, stable file name for a fetched URL. */
 function pageFileName(url: string): string {
@@ -56,7 +58,6 @@ function pageFileName(url: string): string {
     .slice(0, 60)
   return `${slug || 'page'}-${Bun.hash(url).toString(36).slice(0, 6)}`
 }
-const MAX_READ_CHARS = 40_000
 
 type Tier = 'read' | 'write' | 'exec'
 
@@ -500,7 +501,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_task',
     tier: 'read',
-    description: 'Read the colony mission, acceptance criteria, deadline, and roster.',
+    description: prompts.tools.read_task.description,
     parameters: type({}),
     async run(_args, agent, host) {
       const s = host.state()
@@ -518,8 +519,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_board',
     tier: 'read',
-    description: 'Read the most recent shared board posts.',
-    parameters: type({ 'limit?': type('number').describe('How many recent posts (default 30)') }),
+    description: prompts.tools.read_board.description,
+    parameters: type({ 'limit?': type('number').describe(prompts.tools.read_board.params.limit) }),
     async run(args, _agent, host) {
       const posts = host.state().board.slice(-(args.limit ?? 30))
       return posts.map((p) => `#${p.seq} ${p.agent}: ${p.text}`).join('\n') || '(board is empty)'
@@ -528,10 +529,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'post',
     tier: 'write',
-    description:
-      'Post a short message everyone on the team can read: announcements, blockers, decisions others need. Mention ' +
-      '@name to wake someone. For one-to-one detail use send_mail; for lasting knowledge use append_note.',
-    parameters: type({ text: type('string').describe('Message text').atLeastLength(1) }),
+    description: prompts.tools.post.description,
+    parameters: type({ text: type('string').describe(prompts.tools.post.params.text).atLeastLength(1) }),
     async run(args, agent, host) {
       const known = new Set(Object.keys(host.state().agents))
       const mentions = [...new Set([...args.text.matchAll(MENTION)].map((m) => m[1] as string))].filter((m) =>
@@ -548,14 +547,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'append_note',
     tier: 'write',
-    description:
-      'Append to the shared notes, the team\'s lasting memory for this round. Use "finding" for facts others can ' +
-      'reuse (with sources), "decision" for choices and assumptions, "plan" for the single plan (one per colony), ' +
-      '"status" sparingly. Notes are append-only: to fix one, append a new note with `corrects` set to its id.',
+    description: prompts.tools.append_note.description,
     parameters: type({
       text: type('string').atLeastLength(1),
       'section?': type("'plan' | 'decision' | 'finding' | 'status'"),
-      'corrects?': type('string').describe('Event id of the note this one corrects'),
+      'corrects?': type('string').describe(prompts.tools.append_note.params.corrects),
     }),
     async run(args, agent, host) {
       const e = first(
@@ -587,7 +583,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_notes',
     tier: 'read',
-    description: 'Read all shared notes in order.',
+    description: prompts.tools.read_notes.description,
     parameters: type({}),
     async run(_args, _agent, host) {
       const notes = host.state().notes
@@ -606,9 +602,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'send_mail',
     tier: 'write',
-    description:
-      'Send a direct message to one agent (wakes it). Use for detail only it needs: a handoff, a question about its ' +
-      'output, a correction. Do not use it to ask for status; task changes and verdicts are announced automatically.',
+    description: prompts.tools.send_mail.description,
     parameters: type({
       to: type('string'),
       'subject?': type('string'),
@@ -628,7 +622,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_mail',
     tier: 'read',
-    description: 'Read mail sent to you.',
+    description: prompts.tools.read_mail.description,
     parameters: type({ 'limit?': type('number') }),
     async run(args, agent, host) {
       const mail = host
@@ -644,7 +638,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'list_agents',
     tier: 'read',
-    description: 'List agents with their status, role, and current task.',
+    description: prompts.tools.list_agents.description,
     parameters: type({}),
     async run(_args, _agent, host) {
       const s = host.state()
@@ -661,7 +655,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'list_tasks',
     tier: 'read',
-    description: 'List all tasks with status, owner, revision, and blockers.',
+    description: prompts.tools.list_tasks.description,
     parameters: type({}),
     async run(_args, _agent, host) {
       const tasks = Object.values(host.state().tasks).filter((t) => t.status !== 'deleted')
@@ -671,18 +665,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'create_task',
     tier: 'write',
-    description:
-      'Create a task on the shared task graph. The description is the whole brief the doer gets, so make it stand ' +
-      'alone: Objective, Deliverable (files and format), Approach (steps, sources, constraints, quality bar), Done ' +
-      'when (checks it must pass), Not in scope. `assignee` wakes only that agent; `outputs` names the files it will ' +
-      'produce (nobody else may publish them meanwhile); blockedBy only for real dependencies. Create independent ' +
-      'tasks in the same step so they run in parallel.',
+    description: prompts.tools.create_task.description,
     parameters: type({
       subject: type('string').atLeastLength(1),
       'description?': type('string'),
-      'assignee?': type('string').describe('Agent to do it; it is woken with the task'),
-      'outputs?': type('string').array().describe('Artifact names this task will produce'),
-      'blockedBy?': type('string').array().describe('Task ids that must be verified first'),
+      'assignee?': type('string').describe(prompts.tools.create_task.params.assignee),
+      'outputs?': type('string').array().describe(prompts.tools.create_task.params.outputs),
+      'blockedBy?': type('string').array().describe(prompts.tools.create_task.params.blockedBy),
     }),
     async run(args, agent, host) {
       const e = first(
@@ -733,7 +722,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'claim_task',
     tier: 'write',
-    description: 'Claim a pending or rejected task. Pass the revision you read; stale claims are refused.',
+    description: prompts.tools.claim_task.description,
     parameters: type({ id: type('string'), revision: type('number') }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
@@ -753,16 +742,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       )
       // A task often builds on work merged since this worker's worktree was made; start it from the latest code.
       const updated = await host.refreshWork(agent)
-      const note = updated.length
-        ? `\nYour worktree now has the project's latest changes (${updated.slice(0, 8).join(', ')}${updated.length > 8 ? ', …' : ''}).`
-        : ''
+      const note = updated.length ? prompts.toolResults.worktreeUpdated(updated) : ''
       return `claimed ${taskLine((e.payload as EventPayloads['task/changed']).task)}${note}`
     },
   },
   {
     name: 'assign_task',
     tier: 'write',
-    description: 'Give a pending or rejected task to an agent; it is woken with the task.',
+    description: prompts.tools.assign_task.description,
     parameters: type({ id: type('string'), assignee: type('string'), revision: type('number') }),
     async run(args, agent, host) {
       await host.appendAtomic((s) => {
@@ -780,7 +767,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'release_task',
     tier: 'write',
-    description: 'Give up a task you own so someone else can claim it.',
+    description: prompts.tools.release_task.description,
     parameters: type({ id: type('string'), revision: type('number') }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
@@ -799,13 +786,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'reject_task',
     tier: 'write',
-    description:
-      'Send a submitted or verified task back to its owner when the work falls short. The reason is required and ' +
-      'goes to the owner, who claims the task again and fixes it: name the exact gap and what done looks like.',
+    description: prompts.tools.reject_task.description,
     parameters: type({
       id: type('string'),
       revision: type('number'),
-      reason: type('string').atLeastLength(10).describe('What is wrong or missing, specifically'),
+      reason: type('string').atLeastLength(10).describe(prompts.tools.reject_task.params.reason),
     }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
@@ -837,9 +822,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'submit_task',
     tier: 'write',
-    description:
-      'Submit a task you own for verification, listing the published artifacts that complete it. Check them against ' +
-      'the task first (re-read its Done when); a reviewer verifies them and a rejection comes back with reasons.',
+    description: prompts.tools.submit_task.description,
     parameters: type({ id: type('string'), revision: type('number'), artifacts: type('string').array() }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
@@ -875,17 +858,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'publish_artifact',
     tier: 'write',
-    description:
-      'Publish a deliverable file for the person (a new version if it exists; earlier versions are kept). Publish ' +
-      'finished, working files only, not drafts or notes to yourself; use a clear name with the right extension ' +
-      '(report.md, index.html, src/app.ts). Give `content`, or `fromScratch` to publish a file you built and tested ' +
-      'in your scratch directory.',
+    description: prompts.tools.publish_artifact.description,
     parameters: type({
-      name: type('string').describe('Artifact path, e.g. index.html or src/app.ts'),
+      name: type('string').describe(prompts.tools.publish_artifact.params.name),
       'content?': type('string'),
-      'fromScratch?': type('string').describe(
-        'Path of a file in your working directory (or scratch) to publish',
-      ),
+      'fromScratch?': type('string').describe(prompts.tools.publish_artifact.params.fromScratch),
       'mediaType?': type('string'),
     }),
     async run(args, agent, host) {
@@ -936,7 +913,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_artifact',
     tier: 'read',
-    description: 'Read an artifact (latest version unless `version` is given).',
+    description: prompts.tools.read_artifact.description,
     parameters: type({ name: type('string'), 'version?': type('number') }),
     async run(args, _agent, host) {
       const versions = host.state().artifacts[args.name]
@@ -964,7 +941,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'list_artifacts',
     tier: 'read',
-    description: 'List artifacts and their latest versions.',
+    description: prompts.tools.list_artifacts.description,
     parameters: type({}),
     async run(_args, _agent, host) {
       const entries = Object.entries(host.state().artifacts)
@@ -978,7 +955,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'observe',
     tier: 'read',
-    description: 'Check time left, budget, idle agents, and unclaimed or blocked tasks.',
+    description: prompts.tools.observe.description,
     parameters: type({}),
     async run(_args, _agent, host) {
       return observeFacts(host)
@@ -987,12 +964,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'use_skill',
     tier: 'read',
-    description:
-      'Load a skill: instructions and scripts the person keeps for a kind of task (listed under Skills in your ' +
-      'instructions). Use one whenever the task matches its description. With file, reads one of its bundled files.',
+    description: prompts.tools.use_skill.description,
     parameters: type({
       name: type('string'),
-      'file?': type('string').describe('A bundled file, relative to the skill folder'),
+      'file?': type('string').describe(prompts.tools.use_skill.params.file),
     }),
     async run(args, agent, host) {
       return host.useSkill(agent, args.name, args.file)
@@ -1001,9 +976,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'find_tools',
     tier: 'read',
-    description:
-      'Load more tools by what you need, e.g. "browser" (open, click, type, read pages), "server" (run a dev server), ' +
-      '"make a tool", an MCP server name, or exact tool names. They are callable from your next step.',
+    description: prompts.tools.find_tools.description,
     parameters: type({ query: type('string').atLeastLength(2) }),
     async run(args, agent, host) {
       return host.loadTools(agent, args.query)
@@ -1012,13 +985,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_log',
     tier: 'read',
-    description:
-      'Read what agents actually did, from the colony log: each tool call with its arguments and outcome, task ' +
-      'changes, merges and replies. Use it to check a claim ("tests pass", "I read the docs") before trusting it.',
+    description: prompts.tools.read_log.description,
     parameters: type({
-      'agent?': type('string').describe('Only this agent'),
-      'tool?': type('string').describe('Only tools whose name contains this, e.g. shell or web_'),
-      'last?': type('number').describe('How many entries, newest last (default 30, at most 100)'),
+      'agent?': type('string').describe(prompts.tools.read_log.params.agent),
+      'tool?': type('string').describe(prompts.tools.read_log.params.tool),
+      'last?': type('number').describe(prompts.tools.read_log.params.last),
     }),
     async run(args, _agent, host) {
       const events = await host.log.read(host.id)
@@ -1031,11 +1002,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'request_review',
     tier: 'write',
-    description:
-      'Ask the independent reviewer to check your work against the request before you send the final answer: worth ' +
-      'it for code, files, or research with sources; skip it for simple answers. It returns the verdict and what to ' +
-      'fix; the round goes on until you send the final answer.',
-    parameters: type({ summary: type('string').describe('What you did and where (files, sources)') }),
+    description: prompts.tools.request_review.description,
+    parameters: type({ summary: type('string').describe(prompts.tools.request_review.params.summary) }),
     async run(args, agent, host) {
       return host.requestReview(agent, args.summary)
     },
@@ -1043,9 +1011,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'request_final_verification',
     tier: 'write',
-    description:
-      'Ask the verifier to check the colony output against the acceptance criteria. The colony completes only if every check passes.',
-    parameters: type({ summary: type('string').describe('What was built and where') }),
+    description: prompts.tools.request_final_verification.description,
+    parameters: type({
+      summary: type('string').describe(prompts.tools.request_final_verification.params.summary),
+    }),
     async run(args, agent, host) {
       return host.requestFinalVerification(agent, args.summary)
     },
@@ -1053,9 +1022,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_write',
     tier: 'write',
-    description:
-      'Write a whole file in your working directory (the project, when the chat has one; otherwise your scratch). ' +
-      'To change part of an existing file, use fs_edit.',
+    description: prompts.tools.fs_write.description,
     parameters: type({ path: type('string'), content: type('string') }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
@@ -1068,10 +1035,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_edit',
     tier: 'write',
-    description:
-      'Change part of a file in your working directory by replacing an exact snippet, instead of rewriting the whole ' +
-      'file. `old` must appear exactly once (copy it from fs_read, with enough surrounding lines to be unique); set ' +
-      '`all` to replace every occurrence. Make several edits in one step for several changes.',
+    description: prompts.tools.fs_edit.description,
     parameters: type({
       path: type('string'),
       old: type('string').atLeastLength(1),
@@ -1099,8 +1063,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_read',
     tier: 'read',
-    description:
-      'Read a file in your working directory (the project, when the chat has one) or your scratch directory.',
+    description: prompts.tools.fs_read.description,
     parameters: type({ path: type('string') }),
     async run(args, agent, host) {
       return clip(readFileSync(host.workspace.resolveInWorkdir(agent, args.path), 'utf8'))
@@ -1109,9 +1072,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_list',
     tier: 'read',
-    description:
-      'List files in your working directory (the project, when the chat has one; otherwise your scratch directory). ' +
-      'Dependency and build folders (node_modules, .git, dist, ...) are skipped.',
+    description: prompts.tools.fs_list.description,
     parameters: type({ 'path?': type('string') }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
@@ -1132,18 +1093,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'grep',
     tier: 'read',
-    description:
-      'Search file contents in your working directory with a regular expression (ripgrep syntax), respecting ' +
-      '.gitignore. Use it to find where something is defined or used before reading files: function names, error ' +
-      'strings, config keys, imports. Narrow with `glob` (e.g. "*.ts") and widen with `context` lines. For finding ' +
-      'files by name use glob; for reading a whole file use fs_read.',
+    description: prompts.tools.grep.description,
     parameters: type({
-      pattern: type('string').atLeastLength(1).describe('Regular expression, e.g. "function\\s+parseSlash"'),
-      'path?': type('string').describe('Folder or file to search, relative to your working directory'),
-      'glob?': type('string').describe('Only files matching this, e.g. "*.tsx" or "src/**/*.ts"'),
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.grep.params.pattern),
+      'path?': type('string').describe(prompts.tools.grep.params.path),
+      'glob?': type('string').describe(prompts.tools.grep.params.glob),
       'ignoreCase?': 'boolean',
-      'context?': type('number').describe('Lines of context around each match (default 0, max 5)'),
-      'filesOnly?': type('boolean').describe('List matching files instead of lines'),
+      'context?': type('number').describe(prompts.tools.grep.params.context),
+      'filesOnly?': type('boolean').describe(prompts.tools.grep.params.filesOnly),
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
@@ -1186,12 +1143,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'glob',
     tier: 'read',
-    description:
-      'Find files by name pattern in your working directory, newest first, respecting .gitignore: "**/*.test.ts", ' +
-      '"src/**/Button*", "*.md". Use it to locate files before reading them; fs_list shows a whole folder instead.',
+    description: prompts.tools.glob.description,
     parameters: type({
       pattern: type('string').atLeastLength(1),
-      'path?': type('string').describe('Folder to search, relative to your working directory'),
+      'path?': type('string').describe(prompts.tools.glob.params.path),
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
@@ -1213,15 +1168,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'web_search',
     tier: 'read',
-    description:
-      'Search the web for current information. Returns a synthesized answer with citations, or ranked results with ' +
-      'titles, URLs, dates, and snippets. Start broad (2-6 words), then narrow with what you learn; run several ' +
-      'independent searches in the same step. Use recency for fast-moving topics. Snippets are not enough to cite ' +
-      'numbers or quotes: open the source with web_fetch. Skip it for things you know reliably.',
+    description: prompts.tools.web_search.description,
     parameters: type({
       query: type('string').atLeastLength(2),
-      'limit?': type('number').describe('Max results (default 6, max 10)'),
-      'recency?': type("'day' | 'week' | 'month' | 'year'").describe('Only results from this period'),
+      'limit?': type('number').describe(prompts.tools.web_search.params.limit),
+      'recency?': type("'day' | 'week' | 'month' | 'year'").describe(prompts.tools.web_search.params.recency),
     }),
     async run(args, _agent, host) {
       const limit = Math.min(Math.max(1, args.limit ?? 6), 10)
@@ -1233,7 +1184,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const stale = (args.query.match(/\b20\d\d\b/g) ?? []).map(Number).filter((y: number) => y < year)
       // Models search for the year their training ended; say so, once per such query.
       const note = stale.length
-        ? `Note: your query names ${stale.join(', ')}, but today is ${new Date().toISOString().slice(0, 10)}. Results from then may be out of date; search for current information unless you need the past.\n\n`
+        ? prompts.toolResults.staleYear(stale, new Date().toISOString().slice(0, 10))
         : ''
       return { text: clip(text.trim() || `No results for "${args.query}".`), images: [], preface: note }
     },
@@ -1241,11 +1192,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'web_fetch',
     tier: 'read',
-    description:
-      'Read a public URL in full as clean text. Web pages, PDFs and documents, GitHub repos/issues, npm/PyPI packages, ' +
-      'arXiv papers, Stack Overflow, and more get dedicated readers. Use it to verify a fact or number before you rely ' +
-      'on it, and prefer primary sources (official docs, the original paper or announcement) over summaries.',
-    parameters: type({ url: type('string').describe('http(s) URL') }),
+    description: prompts.tools.web_fetch.description,
+    parameters: type({ url: type('string').describe(prompts.tools.web_fetch.params.url) }),
     async run(args, agent, host) {
       const page = await host.web.read(args.url)
       const head = `Source: ${page.url} (${page.method}, ${page.contentType})`
@@ -1264,20 +1212,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       return {
         text: `${page.output.slice(0, PAGE_EXCERPT)}\n…`,
         images: [],
-        preface: `${head}\n(${page.output.length} chars; the full text is saved as ${where}: fs_read it, or grep -n "term" ${where} in the shell)\n`,
+        preface: prompts.toolResults.savedPage(head, page.output.length, where),
       }
     },
   },
   {
     name: 'escalate',
     tier: 'write',
-    description:
-      'Hand this request to a bigger setup when it needs more than this round can give: "solo" is one agent with ' +
-      'every tool, "team" a lead with specialists working in parallel. This round ends; the request reruns at ' +
-      'that size with your files, notes and conversation. Stop after calling it.',
+    description: prompts.tools.escalate.description,
     parameters: type({
       to: "'solo' | 'team'",
-      reason: type('string').atLeastLength(1).describe('What the request needs that this round cannot give'),
+      reason: type('string').atLeastLength(1).describe(prompts.tools.escalate.params.reason),
     }),
     async run(args, agent, host) {
       return host.escalate(agent, args.to, args.reason)
@@ -1286,9 +1231,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'reply_user',
     tier: 'write',
-    description:
-      'Send a message to the person. final: true is the complete answer and starts verification automatically. ' +
-      'Use ask_user for a question you need answered.',
+    description: prompts.tools.reply_user.description,
     parameters: type({ text: type('string').atLeastLength(1), 'final?': type('boolean') }),
     async run(args, agent, host) {
       if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
@@ -1306,15 +1249,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'remember',
     tier: 'write',
-    description:
-      'Propose something to remember across chats: a preference the person stated, a decision they made, or a ' +
-      'lesson about this project worth knowing next time. One fact per memory, in a sentence. The person keeps or ' +
-      'discards it; kept memories reach every later chat (or every chat in this project).',
+    description: prompts.tools.remember.description,
     parameters: type({
       text: type('string').atLeastLength(3).atMostLength(400),
       kind: "'preference' | 'decision' | 'lesson' | 'fact'",
-      scope: type("'everywhere' | 'project'").describe('project: only chats in this project'),
-      why: type('string').describe('Where this came from, e.g. what the person said'),
+      scope: type("'everywhere' | 'project'").describe(prompts.tools.remember.params.scope),
+      why: type('string').describe(prompts.tools.remember.params.why),
     }),
     async run(args, agent, host) {
       return host.proposeMemory(agent, args)
@@ -1323,13 +1263,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'check_in',
     tier: 'write',
-    description:
-      'Ask the person something without stopping: say what you will assume meanwhile, then keep working. Their ' +
-      'answer, if any, arrives as a [user] message and can redirect you. Use it for preferences and judgment calls; ' +
-      'use ask_user only when you truly cannot continue without the answer.',
+    description: prompts.tools.check_in.description,
     parameters: type({
       question: type('string').atLeastLength(3),
-      assumption: type('string').atLeastLength(3).describe('What you will do until they answer'),
+      assumption: type('string').atLeastLength(3).describe(prompts.tools.check_in.params.assumption),
     }),
     async run(args, agent, host) {
       if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
@@ -1341,15 +1278,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         actor: agentActor(agent),
         payload: { agent, text: args.question, final: false, assumption: args.assumption },
       })
-      return 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.'
+      return prompts.toolResults.checkIn
     },
   },
   {
     name: 'ask_user',
     tier: 'write',
-    description:
-      'Ask the person something the colony cannot proceed without. The round pauses until they answer; stop working ' +
-      'after asking. Only for real blockers: otherwise make a sensible assumption and say so.',
+    description: prompts.tools.ask_user.description,
     parameters: type({ question: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       const last = host.state().chatMessages.at(-1)
@@ -1359,17 +1294,15 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         actor: agentActor(agent),
         payload: { agent, text: args.question, final: false, question: true },
       })
-      return 'question sent; the round pauses until the person answers. Stop now.'
+      return prompts.toolResults.asked
     },
   },
   {
     name: 'read_docs',
     tier: 'read',
-    description:
-      'Read the Myrmidon harness docs: how this colony runs, how to do excellent work here, team modes, tasks and ' +
-      'notes, verification, talking to the person, limits, and every tool. Call with no page to list them.',
+    description: prompts.tools.read_docs.description,
     parameters: type({
-      'page?': type('string').describe('overview, modes, coordination, verification, chat, limits, or tools'),
+      'page?': type('string').describe(prompts.tools.read_docs.params.page),
     }),
     async run(args, agent, host) {
       const page = args.page?.replace(/\.md$/, '').trim()
@@ -1389,16 +1322,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'spawn_worker',
     tier: 'write',
-    description:
-      'Add a specialist worker for a kind of work no current teammate covers. Describe its role and focus and pick ' +
-      'the model that fits; it gets a call sign (returned) and sleeps until you assign it a task.',
+    description: prompts.tools.spawn_worker.description,
     parameters: type({
-      role: type('string')
-        .atLeastLength(2)
-        .atMostLength(40)
-        .describe('Short role, e.g. researcher or frontend'),
-      focus: type('string').atLeastLength(10).describe('What this worker is responsible for'),
-      'model?': type('string').describe('One of the allowed worker models; defaults to the first'),
+      role: type('string').atLeastLength(2).atMostLength(40).describe(prompts.tools.spawn_worker.params.role),
+      focus: type('string').atLeastLength(10).describe(prompts.tools.spawn_worker.params.focus),
+      'model?': type('string').describe(prompts.tools.spawn_worker.params.model),
     }),
     async run(args, agent, host) {
       return host.spawnWorker(agent, args.role, args.focus, args.model)
@@ -1407,9 +1335,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'dismiss_worker',
     tier: 'write',
-    description:
-      'Let a worker go when this conversation no longer needs its skill. It stops now (its open tasks are released) ' +
-      'and does not join later rounds. Workers you keep stay with you, with their memory, across the conversation.',
+    description: prompts.tools.dismiss_worker.description,
     parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
@@ -1418,10 +1344,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'update_todo',
     tier: 'write',
-    description:
-      'Your working checklist for multi-step work, like a todo.md: write the whole list each time, marking finished ' +
-      'items done. It is echoed back so your goals stay in view as the work grows, and stopping with open items gets ' +
-      'you a reminder. Use it for jobs of three or more steps; skip it for one-step answers.',
+    description: prompts.tools.update_todo.description,
     parameters: type({ items: type({ text: type('string').atLeastLength(1), 'done?': 'boolean' }).array() }),
     async run(args, agent, host) {
       const items = (args.items as { text: string; done?: boolean }[]).map((i) => ({
@@ -1436,12 +1359,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_open',
     tier: 'write',
-    description:
-      'Open a URL in your browser tab (a real headless Chrome) and get the page as an accessibility snapshot with ' +
-      'element refs. Use it for pages that need JavaScript, interaction, or a visual check; for reading static ' +
-      'pages web_fetch is faster. `artifact:<name>` opens a file the colony published (e.g. artifact:index.html), ' +
-      'to test what you built.',
-    parameters: type({ url: type('string').describe('http(s) URL, or artifact:<name>') }),
+    description: prompts.tools.browser_open.description,
+    parameters: type({ url: type('string').describe(prompts.tools.browser_open.params.url) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const target = args.url.startsWith('artifact:') ? await artifactUrl(host, args.url.slice(9)) : args.url
@@ -1455,15 +1374,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'request_login',
     tier: 'write',
-    description:
-      'Ask the person to sign in to a site in your browser when a page needs an account (a login wall, "sign in to ' +
-      'continue"). It opens the URL in your tab and waits while the person takes control in the Computer view, signs ' +
-      'in themselves, and hands the browser back; then you get the page as it is. Never type passwords, codes or ' +
-      'other credentials yourself, and never ask for them in chat. Sign-ins persist for later rounds.',
+    description: prompts.tools.request_login.description,
     parameters: type({
-      url: type('string').describe('The sign-in page (or the page that needs it)'),
-      site: type('string').describe('Who to sign in to, e.g. "GitHub"'),
-      reason: type('string').describe('Why you need it, in one sentence for the person'),
+      url: type('string').describe(prompts.tools.request_login.params.url),
+      site: type('string').describe(prompts.tools.request_login.params.site),
+      reason: type('string').describe(prompts.tools.request_login.params.reason),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1478,21 +1393,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
             : 'the round stopped',
         )
       const after = await browserTab(host, agent)
-      return `The person signed in to ${args.site} and handed the browser back.\n${await pageSnapshot(after)}`
+      return prompts.toolResults.signedIn(args.site, await pageSnapshot(after))
     },
   },
   {
     name: 'browser_tabs',
     tier: 'write',
-    description:
-      'Your browser can have several pages open, like tabs. With no arguments, lists them (the active one is marked). ' +
-      '`open` opens a URL in a new tab and switches to it (to compare pages or keep a results list while you read ' +
-      'one); `switch` makes another tab active; `close` closes one. Links that open a new window switch to it ' +
-      'automatically. Returns the tab list, and the active page when it changed.',
+    description: prompts.tools.browser_tabs.description,
     parameters: type({
-      'open?': type('string').describe('URL to open in a new tab'),
-      'switch?': type('number').describe('Tab number to switch to'),
-      'close?': type('number').describe('Tab number to close'),
+      'open?': type('string').describe(prompts.tools.browser_tabs.params.open),
+      'switch?': type('number').describe(prompts.tools.browser_tabs.params.switch),
+      'close?': type('number').describe(prompts.tools.browser_tabs.params.close),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1530,18 +1441,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_extract',
     tier: 'read',
-    description:
-      'Pull structured data out of the current page as JSON, straight from the DOM: faster, cheaper and more exact ' +
-      'than reading a long snapshot. `tables`: every table (or those under `selector`) as rows keyed by header. ' +
-      '`links`: link text and URLs. `items`: one object per element matching `selector` (a repeating card or row), ' +
-      'with `fields` mapping names to CSS selectors inside it ("css", "css@attr" for an attribute, "" for the item ' +
-      'itself), e.g. selector ".product", fields {"name": "h2", "price": ".price", "url": "a@href"}. Large results ' +
-      'are saved to your scratch directory and only an excerpt is returned.',
+    description: prompts.tools.browser_extract.description,
     parameters: type({
       what: type("'tables' | 'links' | 'items'"),
-      'selector?': type('string').describe('CSS selector to look under (tables, links) or for each item'),
-      'fields?': type('string').describe('For items: JSON object of name -> "css" or "css@attr"'),
-      'limit?': type('number').describe('Most rows/links/items (default 200)'),
+      'selector?': type('string').describe(prompts.tools.browser_extract.params.selector),
+      'fields?': type('string').describe(prompts.tools.browser_extract.params.fields),
+      'limit?': type('number').describe(prompts.tools.browser_extract.params.limit),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1560,8 +1465,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const json = JSON.stringify(data, null, 2)
       const count = Array.isArray(data) ? data.length : 0
       const head = `${count} ${args.what === 'tables' ? `table${count === 1 ? '' : 's'}` : args.what === 'links' ? 'links' : 'items'} from ${tab.page.url()}`
-      if (count === 0)
-        return `${head}. Nothing matched; check the selector against a browser_snapshot or browser_eval.`
+      if (count === 0) return prompts.toolResults.nothingExtracted(head)
       if (json.length <= PAGE_EXCERPT) return `${head}:\n${json}`
       const name = `extract/${pageFileName(tab.page.url())}-${args.what}.json`
       const path = host.workspace.resolveInScratch(agent, name)
@@ -1574,14 +1478,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_network',
     tier: 'read',
-    description:
-      "Your browser's recent network requests: method, status, type, time, URL; failures marked. Use it to debug a " +
-      'web app (a 404 script, a failing API call, CORS) or to find the JSON API behind a page, which is often ' +
-      'easier to read than the page. `only`: "failed" or "api" (xhr/fetch). `body` returns the response body of ' +
-      'one API request by its number.',
+    description: prompts.tools.browser_network.description,
     parameters: type({
       'only?': type("'failed' | 'api'"),
-      'body?': type('number').describe('Request number to read the response body of'),
+      'body?': type('number').describe(prompts.tools.browser_network.params.body),
     }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1613,9 +1513,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_downloads',
     tier: 'read',
-    description:
-      'Files your browser downloaded this round (clicking a download link or button saves them). They are in your ' +
-      'scratch directory under downloads/: read them with fs_read, process them with the shell, or publish them.',
+    description: prompts.tools.browser_downloads.description,
     parameters: type({}),
     async run(_args, agent, host) {
       const dir = join(host.workspace.scratch(agent), 'downloads')
@@ -1626,17 +1524,18 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           return []
         }
       })()
-      if (files.length === 0) return 'No downloads yet. A download starts when you click its link or button.'
+      if (files.length === 0) return prompts.toolResults.noDownloads
       return files.map((f) => `downloads/${f} (${statSync(join(dir, f)).size} bytes)`).join('\n')
     },
   },
   {
     name: 'browser_upload',
     tier: 'write',
-    description:
-      'Choose a file for a file input on the page (an upload field), by its ref from the latest snapshot. The file ' +
-      'comes from your working directory or scratch, e.g. a report you wrote or something you downloaded.',
-    parameters: type({ ref: type('string'), path: type('string').describe('File path, e.g. report.pdf') }),
+    description: prompts.tools.browser_upload.description,
+    parameters: type({
+      ref: type('string'),
+      path: type('string').describe(prompts.tools.browser_upload.params.path),
+    }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const file = host.workspace.resolveInWorkdir(agent, args.path)
@@ -1653,9 +1552,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_snapshot',
     tier: 'read',
-    description:
-      'Read your browser tab again as an accessibility snapshot. Take one after anything changes the page; element ' +
-      'refs (e1, e2, ...) from older snapshots stop working after navigation or re-rendering.',
+    description: prompts.tools.browser_snapshot.description,
     parameters: type({}),
     async run(_args, agent, host) {
       return pageSnapshot(await browserTab(host, agent))
@@ -1664,8 +1561,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_click',
     tier: 'write',
-    description: 'Click an element by its ref from the latest snapshot. Returns the new snapshot.',
-    parameters: type({ ref: type('string').describe('e.g. e12') }),
+    description: prompts.tools.browser_click.description,
+    parameters: type({ ref: type('string').describe(prompts.tools.browser_click.params.ref) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const handle = await pageElement(tab, args.ref)
@@ -1682,9 +1579,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_type',
     tier: 'write',
-    description:
-      'Type into a field by its ref (replacing what is there). Set submit to press Enter afterwards. Returns the new ' +
-      'snapshot. Never type passwords, payment details, or other secrets.',
+    description: prompts.tools.browser_type.description,
     parameters: type({ ref: type('string'), text: type('string'), 'submit?': type('boolean') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1704,8 +1599,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_press',
     tier: 'write',
-    description:
-      'Press a key in the page (Enter, Escape, Tab, ArrowDown, PageDown, ...). Returns the new snapshot.',
+    description: prompts.tools.browser_press.description,
     parameters: type({ key: type('string') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1718,9 +1612,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_screenshot',
     tier: 'read',
-    description:
-      'Screenshot your browser tab (the viewport, or the whole page with fullPage) to check layout and visual ' +
-      'quality. Models that can see images get the picture.',
+    description: prompts.tools.browser_screenshot.description,
     parameters: type({ 'fullPage?': type('boolean') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1735,9 +1627,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_console',
     tier: 'read',
-    description:
-      'Console messages, uncaught page errors, failed requests, and HTTP errors from your tab since you last asked. ' +
-      'Check it after opening a page you built: a clean console is part of done.',
+    description: prompts.tools.browser_console.description,
     parameters: type({}),
     async run(_args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1748,9 +1638,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_eval',
     tier: 'write',
-    description:
-      'Evaluate a JavaScript expression in the page and get the result as JSON, e.g. ' +
-      '`document.querySelectorAll("li").length` or `[...document.links].map(a => a.href)`. Runs in the page only.',
+    description: prompts.tools.browser_eval.description,
     parameters: type({ expression: type('string') }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
@@ -1761,16 +1649,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'start_server',
     tier: 'exec',
-    description:
-      "Start a long-running process, usually the project's dev server (e.g. `bun run dev`, `npm run dev`, " +
-      '`python -m http.server 8000`), in the sandbox. It returns once the server answers: on `port` if you give one ' +
-      '(it is also passed as $PORT), otherwise at the first local URL the command prints. Then open that URL with ' +
-      'browser_open to check the app the way a person would; the person can watch it in the Computer view. Read ' +
-      'output with server_logs; stop it with stop_server. Never use shell for servers: shell waits for commands to end.',
+    description: prompts.tools.start_server.description,
     parameters: type({
       command: type('string').atLeastLength(1),
-      'name?': type('string').describe('Short name, e.g. "web" (default "dev")'),
-      'port?': type('number').describe('Port it listens on, if known'),
+      'name?': type('string').describe(prompts.tools.start_server.params.name),
+      'port?': type('number').describe(prompts.tools.start_server.params.port),
     }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
@@ -1782,15 +1665,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error('port must be between 1024 and 65535')
       await guardProjectCommand(host, agent, 'start_server', args.command)
       const url = await host.startServer(agent, name, args.command, args.port)
-      return `${name} is serving at ${url}. Open it with browser_open; read its output with server_logs.`
+      return prompts.toolResults.serving(name, url)
     },
   },
   {
     name: 'server_logs',
     tier: 'read',
-    description:
-      'The latest output (stdout and stderr) of a server you started with start_server: build errors, requests, crashes.',
-    parameters: type({ 'name?': type('string').describe('Default "dev"') }),
+    description: prompts.tools.server_logs.description,
+    parameters: type({ 'name?': type('string').describe(prompts.tools.server_logs.params.name) }),
     async run(args, _agent, host) {
       const out = host.serverLogs((args.name ?? 'dev').trim())
       return clip(out.trim().split('\n').slice(-200).join('\n') || '(no output yet)')
@@ -1799,8 +1681,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'stop_server',
     tier: 'exec',
-    description: 'Stop a server you started with start_server. Servers also stop when the round ends.',
-    parameters: type({ 'name?': type('string').describe('Default "dev"') }),
+    description: prompts.tools.stop_server.description,
+    parameters: type({ 'name?': type('string').describe(prompts.tools.stop_server.params.name) }),
     async run(args, agent, host) {
       const name = (args.name ?? 'dev').trim()
       await host.stopServer(name, `stopped by ${agent}`)
@@ -1810,12 +1692,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'run_checks',
     tier: 'exec',
-    description:
-      "Run the project's own checks in the sandbox and get a short pass/fail summary with the failing output: its " +
-      '`check` script if it has one, otherwise typecheck, lint and test (whatever its package.json, Cargo.toml, go.mod ' +
-      'or pyproject defines). Run it after you change code and before you say you are done, then fix what fails. ' +
-      '`only` runs one check by name (e.g. "test", or "build", which is never run by default).',
-    parameters: type({ 'only?': type('string').describe('check, typecheck, lint, test, or build') }),
+    description: prompts.tools.run_checks.description,
+    parameters: type({ 'only?': type('string').describe(prompts.tools.run_checks.params.only) }),
     async run(args, agent, host) {
       if (!host.project) throw new Error('run_checks works in project chats; use shell to run commands here')
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
@@ -1835,32 +1713,19 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'create_tool',
     tier: 'exec',
-    description:
-      'Make a reusable tool for work you (or your team) will repeat: a short script with typed inputs, which then ' +
-      `appears as ${MADE_PREFIX}<name> for every agent with shell in this colony. Use it when the same multi-step ` +
-      'command or parsing job comes up more than once (convert a CSV, query an API, check a page, score output); ' +
-      'for one-off work just use shell. The script reads its inputs as JSON from the MYR_INPUT environment variable ' +
-      'and prints its result to stdout; a non-zero exit means failure. It runs in the same sandbox as shell. ' +
-      '`test` is a JSON object of example inputs: the tool is run with it once and is only created if that run ' +
-      "succeeds. Calling create_tool again with your own tool's name replaces it. " +
-      'Language "browser" saves a browser flow instead (a site task you will repeat: search a catalogue, fill a ' +
-      "form, pull a listing): source is a JSON list of steps run in the caller's browser, e.g. " +
-      '[{"open": "https://example.com/search?q={query}"}, {"click": "text=First result"}, {"type": "aria=Email", ' +
-      '"text": "{email}", "submit": true}, {"wait": ".results"}, {"extract": {"what": "items", "selector": ".row", ' +
-      '"fields": {"name": "h3", "url": "a@href"}}}]. Targets are CSS, text=… or aria=… (never snapshot refs); ' +
-      '{input} placeholders are filled in. Save a flow only after doing the task once by hand.',
+    description: prompts.tools.create_tool.description(MADE_PREFIX),
     parameters: type({
-      name: type('string').describe('snake_case, e.g. csv_to_json'),
-      description: type('string').describe('What it does and when to use it'),
+      name: type('string').describe(prompts.tools.create_tool.params.name),
+      description: type('string').describe(prompts.tools.create_tool.params.description),
       inputs: type({
         name: type('string'),
-        type: type('string').describe('string, number or boolean'),
+        type: type('string').describe(prompts.tools.create_tool.params.inputType),
         'description?': type('string'),
         'optional?': 'boolean',
       }).array(),
-      language: type('string').describe('typescript (run with bun), python, bash, or browser'),
+      language: type('string').describe(prompts.tools.create_tool.params.language),
       source: type('string'),
-      test: type('string').describe('JSON object of example inputs, e.g. {"path": "data.csv"}'),
+      test: type('string').describe(prompts.tools.create_tool.params.test),
     }),
     async run(args, agent, host) {
       const tool = checkedTool(args)
@@ -1890,18 +1755,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         payload: { agent, ...tool },
       })
       host.toolsChanged()
-      return `Created ${MADE_PREFIX}${tool.name}; the team can call it now. Test run:\n${r.output}`
+      return prompts.toolResults.toolCreated(`${MADE_PREFIX}${tool.name}`, r.output)
     },
   },
   {
     name: 'shell',
     tier: 'exec',
-    description:
-      'Run a shell command in the OS sandbox. It starts in your working directory (the project, when the chat has ' +
-      'one; otherwise your scratch) and may write only there and in your scratch. Use it to ' +
-      'build and test what you make: run scripts and tests, install packages locally, check syntax (node --check, ' +
-      'python -m py_compile, bun build), and inspect output. Published artifacts are readable at $MYR_MIRROR/artifacts. ' +
-      'Read errors carefully and fix the cause rather than retrying the same command.',
+    description: prompts.tools.shell.description,
     parameters: type({ command: type('string'), 'timeoutSeconds?': type('number') }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
@@ -2230,8 +2090,6 @@ function madeTool(agent: string, tool: EventPayloads['tool/created'], host: Colo
   } as AgentTool
 }
 
-/** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
-const MCP_FAILURE_LIMIT = 3
 const breakers = new WeakMap<ColonyHost, Map<string, { failures: number; last: string }>>()
 
 /**

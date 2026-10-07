@@ -1,5 +1,6 @@
 import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { SANDBOX_MAX_OUTPUT } from './config.ts'
 
 export interface SandboxRun {
   readonly command: string
@@ -34,11 +35,9 @@ export interface Sandbox {
   start(spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess
 }
 
-const MAX_OUTPUT = 64 * 1024
-
 function cap(text: string) {
-  return text.length > MAX_OUTPUT
-    ? `${text.slice(0, MAX_OUTPUT)}\n…[truncated ${text.length - MAX_OUTPUT} chars]`
+  return text.length > SANDBOX_MAX_OUTPUT
+    ? `${text.slice(0, SANDBOX_MAX_OUTPUT)}\n…[truncated ${text.length - SANDBOX_MAX_OUTPUT} chars]`
     : text
 }
 
@@ -71,7 +70,7 @@ function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): San
     const decoder = new TextDecoder()
     for await (const chunk of stream) {
       output += decoder.decode(chunk, { stream: true })
-      if (output.length > MAX_OUTPUT) output = output.slice(-MAX_OUTPUT)
+      if (output.length > SANDBOX_MAX_OUTPUT) output = output.slice(-SANDBOX_MAX_OUTPUT)
     }
   }
   void drain(proc.stdout)

@@ -11,9 +11,11 @@ import {
 import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { ContextCompactor } from './compaction.ts'
+import { KEEP_TURNS, MODEL_RETRIES, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
 import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
+import { prompts } from './prompts.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
@@ -26,11 +28,6 @@ export interface InboxItem {
   /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
   readonly queue?: boolean
 }
-
-// A safety net only: one turn can include many model calls and large file writes.
-const TURN_TIMEOUT_MS = 15 * 60_000
-/** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
-const MODEL_RETRIES = 2
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
 
@@ -156,13 +153,11 @@ export class ColonyAgent {
     const found = matchTools(waiting, query)
     if (found.length === 0) {
       const names = waiting.map((t) => t.name)
-      return names.length
-        ? `nothing matches "${query}". Tools you can load: ${names.join(', ')}`
-        : 'every tool you have is already loaded'
+      return names.length ? prompts.agent.noMatch(query, names) : prompts.agent.allLoaded
     }
     for (const t of found) this._loaded.add(t.name)
     const first = (d: string) => d.split(/(?<=\.)\s/)[0] ?? d
-    return `Loaded, callable from your next step:\n${found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n')}`
+    return prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))
   }
 
   get idle() {
@@ -481,9 +476,6 @@ export function readTranscript(path: string): AgentMessage[] {
   return messages
 }
 
-/** Turns kept word for word when a new round of the chat starts; older tool output is elided. */
-const KEEP_TURNS = 4
-
 /**
  * Compacts a transcript at turn boundaries (a turn is a user message and everything after it until the next):
  * the latest turns stay verbatim, while older turns keep their messages but drop tool output and reasoning,
@@ -499,7 +491,7 @@ export function compactTranscript(messages: readonly AgentMessage[], keepTurns =
       const size = JSON.stringify(msg.content).length
       return {
         ...msg,
-        content: [{ type: 'text', text: `[output from an earlier round elided, ${size} chars]` }],
+        content: [{ type: 'text', text: prompts.agent.elided(size) }],
       } as AgentMessage
     }
     if (msg.role === 'assistant' && Array.isArray(msg.content))
@@ -523,8 +515,6 @@ export interface ModelError {
   readonly tokens?: number
   readonly window?: number
 }
-
-const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
 
 export function classifyModelError(m: AssistantMessage): ModelError {
   const message = m.errorMessage?.trim() || 'the model returned an error with no message'

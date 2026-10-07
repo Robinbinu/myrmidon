@@ -22,6 +22,17 @@ import {
 } from '@myrmidon/protocol'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import {
+  APPROVAL_MS,
+  BOOTSTRAP_MS,
+  HUDDLE_MS,
+  LEASE_MS,
+  LOGIN_MS,
+  MAX_SERVERS,
+  MAX_VERIFY_ROUNDS,
+  QUIET_NUDGES,
+  SERVER_START_MS,
+} from './config.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
 import { agentActor, type ColonyHost, type TodoItem } from './host.ts'
@@ -33,6 +44,7 @@ import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
+import { prompts } from './prompts.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
@@ -100,14 +112,6 @@ function redacted(draft: EventDraft): EventDraft {
   return draft.type === 'chat/user' ? draft : { ...draft, payload: redactDeep(draft.payload) }
 }
 
-const QUIET_NUDGES = 2
-/** How long an agent waits for the person to sign in before it goes on without. */
-const LOGIN_MS = 15 * 60_000
-
-/** Dev servers one colony may run at once, and how long one gets to start serving. */
-const MAX_SERVERS = 3
-const SERVER_START_MS = 60_000
-
 /** Whether something accepts TCP connections on this local port. */
 async function listening(port: number): Promise<boolean> {
   try {
@@ -119,18 +123,8 @@ async function listening(port: number): Promise<boolean> {
   }
 }
 
-/** How long a tool call waits for the person's approval before it is denied. */
-const APPROVAL_MS = 15 * 60_000
 /** Stop reason for a chat round that ended with a question or update for the human. */
 export const AWAITING_USER = 'awaiting your reply'
-/** A claimed task whose holder sits idle this long goes back to the pool. */
-const LEASE_MS = 120_000
-/** A swarm whose first peer produced no tasks in this long gets a second peer to bootstrap it. */
-const BOOTSTRAP_MS = 60_000
-/** The longest a swarm's opening huddle waits for every peer's proposal. */
-const HUDDLE_MS = 90_000
-/** Failed final verifications before a round gives up. */
-const MAX_VERIFY_ROUNDS = 3
 
 /** A file the person attached to a chat message. */
 export interface Attachment {
@@ -563,10 +557,10 @@ export class ColonyRun implements ColonyHost {
     if (!planner) return
     this._bootstrapAt = Date.now()
     this._bootstrapped = peers.indexOf(planner) + 1
-    const listed = proposals.map((b) => `- ${b.agent}: ${b.text}`).join('\n') || '(no proposals were posted)'
+    const listed = proposals.map((b) => `- ${b.agent}: ${b.text}`).join('\n') || prompts.colony.noProposals
     this._wake(
       planner,
-      `The huddle is over (${why}). Proposals:\n${listed}\n\nYou proposed first, so write the plan: one note with section "plan" that merges the proposals, then create the tasks with create_task, each with assignee set to the peer who volunteered for it and the outputs it will produce. Then claim your own.\n\n${snapshot(this.spec, this._state)}`,
+      prompts.colony.huddleOver({ why, proposals: listed, snapshot: snapshot(this.spec, this._state) }),
       'kickoff',
     )
   }
@@ -790,18 +784,23 @@ export class ColonyRun implements ColonyHost {
         this.spec.agents[0]?.name)
     const unread = s.chatMessages.filter((m, i) => i > 0 && m.from === 'user' && !m.readBy?.length)
     const said = unread.length
-      ? `\n\nThe person said, and nobody has read it yet:\n${unread.map((m) => `- ${m.text}${attachedNote(m.attachments)}`).join('\n')}`
+      ? prompts.colony.unread(unread.map((m) => `- ${m.text}${attachedNote(m.attachments)}`).join('\n'))
       : ''
     // Agents whose transcript was restored remember their own work; the rest start from the recorded state.
     const fresh = (name: string) =>
       this._agents.get(name)?.restored
-        ? `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`
-        : `This round was interrupted (${reason}) and has resumed. Your earlier context is gone; everything that was recorded is below.`
+        ? prompts.colony.resumedRestored(reason)
+        : prompts.colony.resumedFresh(reason)
     if (speaker) {
-      const request = this.spec.chat ? `The request: ${this.spec.chat.request}\n\n` : ''
+      const request = this.spec.chat ? prompts.colony.resumeRequest(this.spec.chat.request) : ''
       this._wake(
         speaker,
-        `${fresh(speaker)}\n\n${request}${snapshot(this.spec, s)}${said}\n\nContinue from where things stand.`,
+        prompts.colony.resumeSpeaker({
+          fresh: fresh(speaker),
+          request,
+          snapshot: snapshot(this.spec, s),
+          said,
+        }),
         'resume',
       )
     }
@@ -809,7 +808,14 @@ export class ColonyRun implements ColonyHost {
       if (t.status !== 'in_progress' || !t.owner || t.owner === speaker) continue
       this._wake(
         t.owner,
-        `${fresh(t.owner)}\n\nYou hold ${t.id} r${t.revision}: ${t.subject}\n${t.description}\n\nCheck the files and notes for what you had done, then finish and submit it.\n\n${snapshot(this.spec, s)}`,
+        prompts.colony.resumeHolder({
+          fresh: fresh(t.owner),
+          id: t.id,
+          revision: t.revision,
+          subject: t.subject,
+          description: t.description,
+          snapshot: snapshot(this.spec, s),
+        }),
         'resume',
       )
     }
@@ -840,8 +846,8 @@ export class ColonyRun implements ColonyHost {
         why: input.why,
       },
     })
-    if (memory.status === 'active') return 'the person already keeps this memory'
-    if (this._state.memories[memory.id]) return 'already proposed; the person decides'
+    if (memory.status === 'active') return prompts.colony.memoryKept
+    if (this._state.memories[memory.id]) return prompts.colony.memoryPending
     await this.append({
       type: 'memory/proposed',
       actor: agentActor(agent),
@@ -854,7 +860,7 @@ export class ColonyRun implements ColonyHost {
         why: input.why,
       },
     })
-    return 'proposed; the person sees it and decides whether to keep it. Carry on.'
+    return prompts.colony.memoryProposed
   }
 
   /** Ends the round so the chat can rerun its request at a bigger tier; see ChatService. */
@@ -869,7 +875,7 @@ export class ColonyRun implements ColonyHost {
     if (this._state.status !== 'running') throw new Error('this round is not running')
     await this.append({ type: 'colony/escalated', actor: agentActor(by), payload: { by, to, reason } })
     void this._end()
-    return `Handing this request to ${to === 'team' ? 'a team' : 'one agent with every tool'}. Stop now.`
+    return prompts.colony.escalated(to)
   }
 
   async stop(reason: string): Promise<void> {
@@ -942,7 +948,7 @@ export class ColonyRun implements ColonyHost {
       model: chosen,
       specialty: label,
       focus,
-      instructions: `Your focus, as defined by ${by}: ${focus}`,
+      instructions: prompts.colony.workerFocus(by, focus),
     }
     this.spec.agents.push(spec)
     await this.append({
@@ -972,7 +978,7 @@ export class ColonyRun implements ColonyHost {
         payload: { agent: name, status: 'failed', detail: String(err) },
       })
     })
-    return `spawned ${name} as ${label} (${chosen}). It is asleep until you give it a task: create_task with assignee "${name}"`
+    return prompts.colony.spawned({ name, label, model: chosen })
   }
 
   async dismissWorker(by: string, name: string, reason: string): Promise<string> {
@@ -1077,10 +1083,9 @@ export class ColonyRun implements ColonyHost {
   }
 
   async requestReview(by: string, summary: string): Promise<string> {
-    if (this._finalRunning) return 'a review is already running; wait for its verdict'
+    if (this._finalRunning) return prompts.colony.reviewRunning
     const conflicts = await this._mergeWorktrees()
-    if (conflicts)
-      return `NOT REVIEWED: workers' changes could not be merged into the project yet.\n${conflicts}`
+    if (conflicts) return prompts.colony.notReviewed(conflicts)
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1091,8 +1096,8 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       return result.pass
-        ? `REVIEW PASSED.\n${result.report}\nSend the final answer with reply_user(final: true).`
-        : `THE REVIEWER FOUND PROBLEMS (your summary: ${summary.slice(0, 300)}):\n${result.report}\nFix them, then ask for another review or send the final answer.`
+        ? prompts.colony.reviewPassed(result.report)
+        : prompts.colony.reviewFailed(summary.slice(0, 300), result.report)
     } finally {
       this._finalRunning = false
       this._verifying -= 1
@@ -1100,10 +1105,9 @@ export class ColonyRun implements ColonyHost {
   }
 
   async requestFinalVerification(by: string, summary: string): Promise<string> {
-    if (this._finalRunning) return 'a final verification is already running; wait for its verdicts'
+    if (this._finalRunning) return prompts.colony.verificationRunning
     const conflicts = await this._mergeWorktrees()
-    if (conflicts)
-      return `NOT VERIFIED: workers' changes could not be merged into the project yet.\n${conflicts}\nAsk those workers to resolve the conflicts in their worktrees and submit again, then request verification.`
+    if (conflicts) return prompts.colony.notVerified(conflicts)
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1116,7 +1120,7 @@ export class ColonyRun implements ColonyHost {
       if (result.pass) {
         await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: result.verdicts } })
         void this._end()
-        return `ALL CHECKS PASSED — the colony is complete.\n${result.report}`
+        return prompts.colony.verified(result.report)
       }
       // Outside chat, everyone hears about a failed check; in chat the speaker owns the fix.
       if (!this.spec.chat) {
@@ -1124,11 +1128,11 @@ export class ColonyRun implements ColonyHost {
           if (agent.name !== by)
             agent.notify({
               trigger: 'verdict',
-              text: `Final verification requested by ${by} FAILED:\n${result.report}`,
+              text: prompts.colony.verificationFailedFor(by, result.report),
             })
         }
       }
-      return `VERIFICATION FAILED. Fix these and request again:\n${result.report}\n\n(${by}'s summary: ${summary.slice(0, 500)})`
+      return prompts.colony.verificationFailed({ report: result.report, by, summary: summary.slice(0, 500) })
     } finally {
       this._finalRunning = false
       this._verifying -= 1
@@ -1172,7 +1176,7 @@ export class ColonyRun implements ColonyHost {
             task: {
               id: `task-${Object.keys(s.tasks).length + 1}`,
               revision: 1,
-              subject: 'Address the verifier findings on the final answer',
+              subject: prompts.colony.findingsTask,
               description: report.slice(0, 4000),
               status: 'pending',
               blockedBy: [],
@@ -1185,7 +1189,7 @@ export class ColonyRun implements ColonyHost {
     }
     this._agents.get(by)?.notify({
       trigger: 'verdict',
-      text: `${report}\n\nFix the work, then send an updated final answer with reply_user(final: true).`,
+      text: prompts.colony.fixFinalAnswer(report),
     })
   }
 
@@ -1238,7 +1242,7 @@ export class ColonyRun implements ColonyHost {
       }
       case 'mail/sent': {
         const p = e.payload as EventPayloads['mail/sent']
-        notify(p.to, `mail from ${p.from}${p.subject ? ` [${p.subject}]` : ''}: ${p.body}`, 'mail', {
+        notify(p.to, prompts.colony.mail({ from: p.from, subject: p.subject, body: p.body }), 'mail', {
           mail: e.id,
         })
         break
@@ -1250,7 +1254,7 @@ export class ColonyRun implements ColonyHost {
           if (this._huddle.proposed.size >= this._agents.size) this._closeHuddle('every peer proposed')
         }
         for (const m of p.mentions)
-          if (m !== p.agent) notify(m, `${p.agent} mentioned you on the board: ${p.text}`, 'mention')
+          if (m !== p.agent) notify(m, prompts.colony.mentioned(p.agent, p.text), 'mention')
         break
       }
       case 'observer/signal': {
@@ -1270,8 +1274,7 @@ export class ColonyRun implements ColonyHost {
           const pass = task.status === 'verified'
           const evidence =
             this._state.verdicts.filter((v) => v.target === `task:${task.id}`).at(-1)?.evidence ?? ''
-          if (task.owner)
-            notify(task.owner, `${task.id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`, 'verdict')
+          if (task.owner) notify(task.owner, prompts.colony.taskVerdict(task.id, pass, evidence), 'verdict')
           // Leads coordinate integration, so they hear about every task outcome, not only their own.
           for (const lead of this.spec.agents.filter((a) => a.role === 'lead' && a.name !== task.owner)) {
             const open = Object.values(this._state.tasks).filter(
@@ -1279,7 +1282,14 @@ export class ColonyRun implements ColonyHost {
             )
             notify(
               lead.name,
-              `${task.id} r${task.revision} by ${task.owner ?? '?'} was ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — integrate and send the final answer'}`,
+              prompts.colony.leadVerdict({
+                id: task.id,
+                revision: task.revision,
+                owner: task.owner ?? '?',
+                pass,
+                evidence,
+                open: open.map((t) => `${t.id}[${t.status}]`).join(', '),
+              }),
               'verdict',
             )
           }
@@ -1337,7 +1347,12 @@ export class ColonyRun implements ColonyHost {
     this._reminded.set(key, sent + 1)
     this._wake(
       agent,
-      `You stopped while holding ${held.id} r${held.revision} (${held.subject}). Finish it: publish its outputs and submit_task. If you truly cannot, release_task and post what blocks you. (Reminder ${sent + 1} of 2)`,
+      prompts.colony.holderReminder({
+        id: held.id,
+        revision: held.revision,
+        subject: held.subject,
+        sent: sent + 1,
+      }),
       'reminder',
     )
   }
@@ -1353,7 +1368,10 @@ export class ColonyRun implements ColonyHost {
     this._reminded.set(key, sent + 1)
     this._wake(
       agent,
-      `You stopped with ${open.length} open item${open.length === 1 ? '' : 's'} on your todo list:\n${open.map((t) => `- [ ] ${t.text}`).join('\n')}\nContinue with them, or update_todo to mark them done or drop the ones that no longer apply. (Reminder ${sent + 1} of 2)`,
+      prompts.colony.todoReminder(
+        open.map((t) => t.text),
+        sent + 1,
+      ),
       'reminder',
     )
   }
@@ -1377,7 +1395,14 @@ export class ColonyRun implements ColonyHost {
     if (t.status === 'rejected' && p.reason && redo) {
       this._wake(
         redo,
-        `${p.by} sent ${t.id} back: ${p.reason}\n\nClaim it again (r${t.revision}), fix exactly that, and submit it.\n${t.subject}\n${t.description}`,
+        prompts.colony.sentBack({
+          by: p.by,
+          id: t.id,
+          reason: p.reason,
+          revision: t.revision,
+          subject: t.subject,
+          description: t.description,
+        }),
         'task',
       )
       return
@@ -1387,10 +1412,17 @@ export class ColonyRun implements ColonyHost {
     if (open && !this._ready(t)) return
     if (t.assignee && open && this._assigned.get(t.id) !== t.assignee) {
       this._assigned.set(t.id, t.assignee)
-      const outputs = t.outputs?.length ? `\nOutputs: ${t.outputs.join(', ')}` : ''
+      const outputs = t.outputs?.length ? prompts.colony.outputs(t.outputs) : ''
       this._wake(
         t.assignee,
-        `Task ${t.id} r${t.revision} is yours: ${t.subject}\n${t.description}${outputs}\n\n${snapshot(this.spec, this._state)}`,
+        prompts.colony.assigned({
+          id: t.id,
+          revision: t.revision,
+          subject: t.subject,
+          description: t.description,
+          outputs,
+          snapshot: snapshot(this.spec, this._state),
+        }),
         'task',
       )
       return
@@ -1400,8 +1432,12 @@ export class ColonyRun implements ColonyHost {
       // In an orchestrated team the lead creates tasks for workers; it does not pick them up itself.
       if (a.name === p.by || !a.idle || (this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'))
         continue
-      const what = unblocked ? `Task ${t.id} is unblocked` : `New task ${t.id}`
-      this._wake(a.name, `${what}: ${t.subject}\n\n${snapshot(this.spec, this._state)}`, 'task')
+      const what = unblocked ? prompts.colony.unblocked(t.id) : prompts.colony.newTask(t.id)
+      this._wake(
+        a.name,
+        prompts.colony.taskAnnounced(what, t.subject, snapshot(this.spec, this._state)),
+        'task',
+      )
     }
   }
 
@@ -1459,7 +1495,7 @@ export class ColonyRun implements ColonyHost {
         targets: this._stallTargets(),
         kind: 'stall',
         severity: this._nudges === QUIET_NUDGES ? 'critical' : 'warn',
-        facts: `Every agent is idle and the work is not finished. ${QUIET_NUDGES - this._nudges + 1} nudge(s) left before the colony stops. Check list_tasks and observe, then continue the work${this.spec.chat ? ' or send the final answer' : ' or request_final_verification'}.`,
+        facts: prompts.colony.stall(QUIET_NUDGES - this._nudges + 1, this.spec.chat !== undefined),
       },
     })
   }
@@ -1506,11 +1542,12 @@ export class ColonyRun implements ColonyHost {
           !(this.spec.team?.mode === 'orchestrated' && a.spec.role === 'lead'),
       )
       const lead = this.spec.agents.find((a) => a.role === 'lead')
-      const text = `${t.id} was released because ${t.owner} stopped working on it: ${t.subject}`
+      const text = prompts.colony.released(t.id, t.owner, t.subject)
       if (this.spec.team?.mode === 'orchestrated' && lead)
-        this._wake(lead.name, `${text}. Re-assign it with assign_task.`, 'task')
+        this._wake(lead.name, prompts.colony.reassign(text), 'task')
       else
-        for (const a of others) this._wake(a.name, `${text}\n\n${snapshot(this.spec, this._state)}`, 'task')
+        for (const a of others)
+          this._wake(a.name, prompts.colony.releasedToPeers(text, snapshot(this.spec, this._state)), 'task')
     }
   }
 
@@ -1532,11 +1569,7 @@ export class ColonyRun implements ColonyHost {
       ) {
         this._bootstrapped += 1
         this._bootstrapAt = now
-        this._wake(
-          next.name,
-          `No plan or tasks exist yet. Write the plan note and propose the first tasks, then claim one.\n\n${snapshot(this.spec, this._state)}`,
-          'kickoff',
-        )
+        this._wake(next.name, prompts.colony.bootstrap(snapshot(this.spec, this._state)), 'kickoff')
       }
       return
     }
@@ -1563,9 +1596,8 @@ export class ColonyRun implements ColonyHost {
                   task: {
                     id: 'task-final',
                     revision: 1,
-                    subject: 'Deliver the final answer to the person',
-                    description:
-                      'Every task is verified. You are the speaker: read the plan, the files, and the findings, then send the complete final answer with reply_user(final: true).',
+                    subject: prompts.colony.finalTask.subject,
+                    description: prompts.colony.finalTask.description,
                     status: 'in_progress',
                     owner: speaker,
                     assignee: speaker,
@@ -1580,11 +1612,7 @@ export class ColonyRun implements ColonyHost {
     }
     if (this._speakerOwesAnswer && final.owner && this._agents.get(final.owner)?.idle) {
       this._speakerOwesAnswer = false
-      this._wake(
-        final.owner,
-        `The verifier findings are addressed. Send an updated final answer with reply_user(final: true).\n\n${snapshot(this.spec, this._state)}`,
-        'verdict',
-      )
+      this._wake(final.owner, prompts.colony.findingsAddressed(snapshot(this.spec, this._state)), 'verdict')
     }
   }
 

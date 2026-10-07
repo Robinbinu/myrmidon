@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { MAX_MEMORIES, MEMORY_MAX_TEXT, RECALL_CHARS, RECALL_COUNT } from './config.ts'
 
 /**
  * What the person wants Myrmidon to keep across chats: preferences, decisions, and lessons learned, each either for
@@ -34,16 +35,11 @@ export interface Memory {
   readonly updatedAt: string
 }
 
-const MAX_TEXT = 400
-const MAX_MEMORIES = 300
-/** How much memory a round's prompt carries at most. */
-const RECALL_COUNT = 40
-const RECALL_CHARS = 6_000
-
 function clean(text: string): string {
   const t = text.replace(/\s+/g, ' ').trim()
   if (t.length < 3) throw new Error('a memory needs a few words')
-  if (t.length > MAX_TEXT) throw new Error(`keep a memory under ${MAX_TEXT} characters: one fact per memory`)
+  if (t.length > MEMORY_MAX_TEXT)
+    throw new Error(`keep a memory under ${MEMORY_MAX_TEXT} characters: one fact per memory`)
   return t
 }
 

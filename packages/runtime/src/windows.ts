@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Model } from '@oh-my-pi/pi-ai'
+import { MODELS_DEV_REFRESH_MS, MODELS_DEV_URL, OMP_UNKNOWN, PROVIDER_ALIASES } from './config.ts'
 
 /**
  * How many tokens each model can take in, layered the way opencode, Goose and Crush do it: the person's own number,
@@ -15,19 +16,6 @@ export type WindowSource = 'set' | 'provider' | 'catalog' | 'name'
 export interface ModelWindow {
   readonly tokens?: number
   readonly source?: WindowSource
-}
-
-/** omp's window for a model it found but knows nothing about. */
-const OMP_UNKNOWN = 128_000
-const MODELS_DEV = 'https://models.dev/api.json'
-const REFRESH_MS = 24 * 60 * 60_000
-
-/** omp provider ids whose models.dev entry goes by another name. */
-const PROVIDER_ALIASES: Record<string, string> = {
-  ark: 'volcengine',
-  'openai-codex': 'openai',
-  'google-antigravity': 'google',
-  'google-gemini-cli': 'google',
 }
 
 /** models.dev reduced to what is needed here: provider → model id → context window. */
@@ -68,9 +56,9 @@ export class ContextWindows {
   async load(): Promise<void> {
     const cached = this._readCache()
     if (cached) this._index(cached.index)
-    if (cached && Date.now() - cached.mtime < REFRESH_MS) return
+    if (cached && Date.now() - cached.mtime < MODELS_DEV_REFRESH_MS) return
     try {
-      const res = await (this.options.fetch ?? fetch)(MODELS_DEV, { signal: AbortSignal.timeout(20_000) })
+      const res = await (this.options.fetch ?? fetch)(MODELS_DEV_URL, { signal: AbortSignal.timeout(20_000) })
       if (!res.ok) throw new Error(`models.dev answered ${res.status}`)
       const index = reduce(await res.json())
       this._index(index)

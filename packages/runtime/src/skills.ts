@@ -9,6 +9,8 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
+import { SKILL_MAX_FILE_CHARS, SKILL_MAX_FILES } from './config.ts'
+import { prompts } from './prompts.ts'
 
 /**
  * Skills in the Agent Skills format (agentskills.io), as Claude Code, Codex and others use them: a folder with a
@@ -29,9 +31,6 @@ export interface Skill {
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
-const MAX_FILE_CHARS = 40_000
-/** Bundled files listed per skill, so a big skill does not flood the agent. */
-const MAX_FILES = 60
 
 /** Parses a SKILL.md's front matter and body; undefined unless it names and describes the skill. */
 export function parseSkillFile(
@@ -117,20 +116,18 @@ export class SkillLibrary {
       if (!existsSync(real) || !statSync(real).isFile())
         throw new Error(`the ${name} skill has no file ${file}`)
       const text = readFileSync(real, 'utf8')
-      return text.length > MAX_FILE_CHARS
-        ? `${text.slice(0, MAX_FILE_CHARS)}\n… (cut at ${MAX_FILE_CHARS} chars)`
+      return text.length > SKILL_MAX_FILE_CHARS
+        ? `${text.slice(0, SKILL_MAX_FILE_CHARS)}\n… (cut at ${SKILL_MAX_FILE_CHARS} chars)`
         : text
     }
     const parsed = parseSkillFile(readFileSync(join(skill.dir, 'SKILL.md'), 'utf8'))
     const files = bundled(skill.dir)
     return [
       `# Skill: ${name}`,
-      `Folder: ${skill.dir} (scripts run from here with your shell; paths below are relative to it)`,
+      prompts.toolResults.skillFolder(skill.dir),
       '',
       parsed?.body ?? '',
-      files.length
-        ? `\nBundled files (read one with use_skill and file):\n${files.map((f) => `- ${f}`).join('\n')}`
-        : '',
+      files.length ? prompts.toolResults.skillFiles(files) : '',
     ].join('\n')
   }
 
@@ -157,7 +154,7 @@ function bundled(dir: string): string[] {
   const out: string[] = []
   const walk = (at: string, depth: number) => {
     for (const e of readdirSync(at, { withFileTypes: true })) {
-      if (out.length >= MAX_FILES || e.name.startsWith('.')) continue
+      if (out.length >= SKILL_MAX_FILES || e.name.startsWith('.')) continue
       const path = join(at, e.name)
       if (e.isDirectory() && depth < 3) walk(path, depth + 1)
       else if (e.isFile() && !(depth === 0 && e.name === 'SKILL.md')) out.push(relative(dir, path))

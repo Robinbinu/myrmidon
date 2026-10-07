@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
+import { INSTRUCTIONS_MAX_DIRS, INSTRUCTIONS_MAX_TEXT, MAX_IMPORT_DEPTH } from './config.ts'
 import { SKIP_DIRS } from './workspace.ts'
 
 /**
@@ -20,9 +21,6 @@ export interface ProjectInstructions {
 
 const ROOT_FILES = ['AGENTS.md', 'CLAUDE.md', '.myrmidon.md']
 const NESTED_NAMES = new Set(['AGENTS.md', 'CLAUDE.md'])
-const MAX_TEXT = 24 * 1024
-const MAX_IMPORT_DEPTH = 4
-const MAX_DIRS = 3000
 
 export function readProjectInstructions(root: string): ProjectInstructions | undefined {
   const base = realpathSync(root)
@@ -59,7 +57,7 @@ export function readProjectInstructions(root: string): ProjectInstructions | und
 
   const nested: string[] = []
   const queue = [base]
-  for (let visited = 0; queue.length > 0 && visited < MAX_DIRS; visited++) {
+  for (let visited = 0; queue.length > 0 && visited < INSTRUCTIONS_MAX_DIRS; visited++) {
     const dir = queue.shift() as string
     let entries: import('node:fs').Dirent[]
     try {
@@ -78,8 +76,9 @@ export function readProjectInstructions(root: string): ProjectInstructions | und
   const text = parts.join('\n\n')
   return {
     files,
-    text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…[cut at 24 KB]` : text,
+    text:
+      text.length > INSTRUCTIONS_MAX_TEXT ? `${text.slice(0, INSTRUCTIONS_MAX_TEXT)}\n…[cut at 24 KB]` : text,
     nested: nested.sort(),
-    truncated: text.length > MAX_TEXT,
+    truncated: text.length > INSTRUCTIONS_MAX_TEXT,
   }
 }

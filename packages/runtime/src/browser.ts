@@ -10,6 +10,8 @@ import type {
   Page,
   SerializedAXNode,
 } from 'puppeteer-core'
+import { BROWSER_LOG_LIMIT, BROWSER_NETWORK_LIMIT, BROWSER_VIEWPORT, SNAPSHOT_CHARS } from './config.ts'
+import { prompts } from './prompts.ts'
 
 /**
  * A real browser for agents: one headless Chrome per server process with its own throwaway profile (never the
@@ -17,9 +19,6 @@ import type {
  * the text-first model agents handle well; screenshots are there for visual checks.
  */
 
-const SNAPSHOT_CHARS = 12_000
-const LOG_LIMIT = 200
-const NETWORK_LIMIT = 300
 let networkIds = 0
 
 /** What a person watching an agent's tab receives. Coordinates are CSS pixels in the page viewport. */
@@ -75,8 +74,6 @@ export interface TabInfo {
   readonly title: string
   readonly controlledBy: 'agent' | 'person'
 }
-
-const VIEWPORT = { width: 1280, height: 800 }
 
 /** Chrome, Chromium, or the Chromium omp downloaded, whichever is installed. */
 export function findChrome(): string | undefined {
@@ -143,7 +140,7 @@ export class BrowserHub {
         headless: true,
         userDataDir: this.profileDir,
         args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions'],
-        defaultViewport: VIEWPORT,
+        defaultViewport: BROWSER_VIEWPORT,
       })
       browser.once('disconnected', () => {
         this._browser = undefined
@@ -172,7 +169,7 @@ export class BrowserHub {
           logs: [],
           network: [],
           watchers: new Set(),
-          cursor: { x: VIEWPORT.width / 2, y: VIEWPORT.height / 2 },
+          cursor: { x: BROWSER_VIEWPORT.width / 2, y: BROWSER_VIEWPORT.height / 2 },
           controlledBy: 'agent',
         }
         await adopt(tab, page)
@@ -310,7 +307,7 @@ export async function pageSnapshot(tab: Tab): Promise<string> {
   if (root) walk(root, 0)
   const text = lines.join('\n')
   return text.length > SNAPSHOT_CHARS
-    ? `${text.slice(0, SNAPSHOT_CHARS)}\n… (snapshot cut; scroll or use browser_eval to read a specific part)`
+    ? `${text.slice(0, SNAPSHOT_CHARS)}${prompts.toolResults.snapshotCut}`
     : text
 }
 
@@ -347,7 +344,7 @@ export type { Tab as BrowserTab }
 async function adopt(tab: Tab, page: Page): Promise<void> {
   const log = (line: string) => {
     tab.logs.push(line)
-    if (tab.logs.length > LOG_LIMIT) tab.logs.shift()
+    if (tab.logs.length > BROWSER_LOG_LIMIT) tab.logs.shift()
   }
   page.on('console', (m) => log(`console.${m.type()}: ${m.text()}`))
   page.on('pageerror', (e) => log(`page error: ${e instanceof Error ? e.message : String(e)}`))
@@ -368,7 +365,7 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
       ms: Date.now() - (started.get(request) ?? Date.now()),
       ...entry,
     })
-    if (tab.network.length > NETWORK_LIMIT) tab.network.shift()
+    if (tab.network.length > BROWSER_NETWORK_LIMIT) tab.network.shift()
   }
   // A response can arrive and the request still fail (Chrome aborts a 404 script), so keep its status apart.
   const statuses = new WeakMap<HTTPRequest, number>()
@@ -451,8 +448,8 @@ async function startScreencast(tab: Tab): Promise<void> {
   await cdp.send('Page.startScreencast', {
     format: 'jpeg',
     quality: 70,
-    maxWidth: VIEWPORT.width,
-    maxHeight: VIEWPORT.height,
+    maxWidth: BROWSER_VIEWPORT.width,
+    maxHeight: BROWSER_VIEWPORT.height,
   })
 }
 

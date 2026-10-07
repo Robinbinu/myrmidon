@@ -1,5 +1,6 @@
 import type { EventPayloads, SignalKind } from '@myrmidon/protocol'
 import type { ColonyHost } from './host.ts'
+import { prompts } from './prompts.ts'
 
 type Signal = Omit<EventPayloads['observer/signal'], 'targets'> & { targets?: string[] }
 
@@ -32,7 +33,11 @@ export class FactualObserver {
         out.push({
           kind: 'deadline',
           severity,
-          facts: `${Math.round(left / 1000)}s of ${Math.round(total / 1000)}s remain. ${this._taskFacts()}`,
+          facts: prompts.observer.deadline(
+            Math.round(left / 1000),
+            Math.round(total / 1000),
+            this._taskFacts(),
+          ),
         })
       }
     }
@@ -42,7 +47,7 @@ export class FactualObserver {
         out.push({
           kind: 'budget',
           severity: 'warn',
-          facts: `$${spent.toFixed(3)} of $${s.budget.costUsd} spent.`,
+          facts: prompts.observer.cost(spent.toFixed(3), s.budget.costUsd),
         })
       }
     }
@@ -52,7 +57,10 @@ export class FactualObserver {
         out.push({
           kind: 'budget',
           severity: 'warn',
-          facts: `${used.toLocaleString('en-US')} of ${s.budget.tokens.toLocaleString('en-US')} tokens used. Finish and deliver what is done; say what is missing.`,
+          facts: prompts.observer.tokens(
+            used.toLocaleString('en-US'),
+            s.budget.tokens.toLocaleString('en-US'),
+          ),
         })
       }
     }
@@ -81,20 +89,14 @@ export class FactualObserver {
         this._signal(
           'unclaimed',
           'info',
-          `Ready but unclaimed: ${unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')}.`,
+          prompts.observer.unclaimed(unclaimed.map((t) => `${t.id} (${t.subject})`).join(', ')),
           idle.map((a) => a.info.name),
         ),
       )
     }
     if (this._quietTicks >= 2) {
       this._quietTicks = 0
-      out.push(
-        this._signal(
-          'stall',
-          'warn',
-          `No tool calls, board posts, artifact versions, or verdicts for two observer intervals. ${this._taskFacts()}`,
-        ),
-      )
+      out.push(this._signal('stall', 'warn', prompts.observer.stall(this._taskFacts())))
     }
     return out
   }
@@ -112,6 +114,12 @@ export class FactualObserver {
   private _taskFacts() {
     const tasks = Object.values(this.host.state().tasks)
     const by = (st: string) => tasks.filter((t) => t.status === st).length
-    return `Tasks: ${by('verified')} verified, ${by('submitted')} submitted, ${by('in_progress')} in progress, ${by('pending')} pending, ${by('rejected')} rejected.`
+    return prompts.observer.tasks({
+      verified: by('verified'),
+      submitted: by('submitted'),
+      inProgress: by('in_progress'),
+      pending: by('pending'),
+      rejected: by('rejected'),
+    })
   }
 }

@@ -14,6 +14,7 @@ import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import { MAX_WORKERS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -22,12 +23,11 @@ import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
 import type { ProjectStore } from './projects.ts'
+import { prompts } from './prompts.ts'
 import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import type { WebTools } from './web.ts'
-
-const MAX_WORKERS = 8
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
 interface RoundRef {
@@ -156,14 +156,6 @@ export interface ChatSummary {
   /** The project folder the chat works in, if any. */
   readonly project?: { readonly id: string; readonly name: string }
 }
-
-const RUBRIC = `Judge whether the colony did what the person asked, completely and correctly.
-- Every part of the request is addressed; nothing is silently skipped.
-- Claims are accurate; when the request asks for research or sources, they are cited. Code is correct and complete
-  (no placeholders).
-- The final answer and any delivered files are consistent with each other and usable as described.
-- The response fits the request: a simple question deserves a direct answer, not a report.
-Score 1.0 only for work you would hand to the person as-is.`
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
 function conversation(previous: readonly RoundRef[]): string {
@@ -367,7 +359,7 @@ export class ChatService {
           actor: { kind: 'system', id: 'myrmidon' },
           payload: {
             agent: 'myrmidon',
-            text: `This request started in a smaller round; ${escalated.by} moved it here because: ${escalated.reason.replace(/[.\s]+$/, '')}. Its files and notes are here.`,
+            text: prompts.chat.escalated(escalated.by, escalated.reason.replace(/[.\s]+$/, '')),
             section: 'decision',
           },
         })
@@ -492,10 +484,7 @@ export class ChatService {
     const run = [...this._live.values()].find((r) => r.id === colonyId)
     if (!run) return
     if (await run.finishLogin(agent, 'handed-back')) return
-    run.nudge(
-      agent,
-      'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
-    )
+    run.nudge(agent, prompts.chat.handedBack)
   }
 
   async stop(chatId: string): Promise<void> {
@@ -760,7 +749,7 @@ export class ChatService {
     // dismissed, with their memory. The team picker shapes only a chat's first team.
     const kept = keptTeam(previous, config.mode).map((info): AgentSpec => {
       taken.add(info.name)
-      const note = info.focus ? `Your focus: ${info.focus}` : workerNote
+      const note = info.focus ? prompts.chat.keptFocus(info.focus) : workerNote
       return {
         name: info.name,
         role: info.role,
@@ -841,9 +830,7 @@ export class ChatService {
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     return {
       name: title(request),
-      mission: history
-        ? `${request}\n\n(Context from earlier rounds of this conversation)\n${history}`
-        : request,
+      mission: history ? prompts.chat.mission(request, history) : request,
       pattern: swarm ? 'blackboard' : 'lead-workers',
       agents,
       acceptance:
@@ -853,7 +840,7 @@ export class ChatService {
               {
                 verifier: 'llm-judge',
                 model: config.judgeModel,
-                rubric: s?.verification.rubric?.trim() || RUBRIC,
+                rubric: s?.verification.rubric?.trim() || prompts.chat.rubric,
                 threshold: s?.verification.threshold ?? 0.7,
               },
             ],

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { EventPayloads, MadeToolInput } from '@myrmidon/protocol'
+import { MADE_TOOL_MAX_SOURCE } from './config.ts'
 
 /**
  * Tools agents make for themselves (like Voyager's skill library): a short script plus a typed input list. A
@@ -15,7 +16,6 @@ export const MADE_PREFIX = 'tool_'
 const NAME = /^[a-z][a-z0-9_]{1,30}$/
 const LANGUAGES = ['typescript', 'python', 'bash', 'browser'] as const
 const FILE = { typescript: 'main.ts', python: 'main.py', bash: 'main.sh' } as const
-const MAX_SOURCE = 64 * 1024
 
 /** Checks an agent's (or a library file's) tool definition and returns it in canonical form. */
 export function checkedTool(raw: {
@@ -32,7 +32,7 @@ export function checkedTool(raw: {
   if (!LANGUAGES.includes(raw.language as never))
     throw new Error(`language must be one of ${LANGUAGES.join(', ')}`)
   if (!raw.source.trim()) throw new Error('source is empty')
-  if (raw.source.length > MAX_SOURCE) throw new Error('source is over 64 KB; keep tools small')
+  if (raw.source.length > MADE_TOOL_MAX_SOURCE) throw new Error('source is over 64 KB; keep tools small')
   const seen = new Set<string>()
   const inputs = raw.inputs.map((i): MadeToolInput => {
     const n = (i.name ?? '').trim()
