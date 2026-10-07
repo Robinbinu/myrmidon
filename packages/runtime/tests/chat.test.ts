@@ -413,6 +413,19 @@ test('an answer written as plain text still reaches the person', async () => {
   })
 })
 
+test('a short answer in plain text reaches the person at once, without waiting for a nudge', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [['2 + 2 = 4.']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('What is 2+2?', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(s.chatMessages.filter((m) => m.from === 'lead')).toMatchObject([{ final: true, text: '2 + 2 = 4.' }])
+  expect(s.agents.lead?.turns).toBe(1)
+  await chats.stopAll()
+})
+
 test('a message sent mid-turn steers the next step or waits its turn, and shows as read', async () => {
   const resolver = new ModelResolver()
   const seen = (ctx: LlmContext, text: string) => JSON.stringify(ctx.messages).includes(text)

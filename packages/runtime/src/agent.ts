@@ -284,13 +284,15 @@ export class ColonyAgent {
     const spoke = turn.some((m) =>
       m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
     )
+    // A turn of nothing but text is a direct answer at any length ("4"); after tool work a short remark is filler.
+    const worked = turn.some((m) => m.content.some((c) => c.type === 'toolCall'))
     const last = turn.at(-1)
     const text =
       last?.content
         .flatMap((c) => (c.type === 'text' ? [c.text] : []))
         .join('\n')
         .trim() ?? ''
-    if (spoke || !last || last.stopReason !== 'stop' || text.length < 20) return
+    if (spoke || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20)) return
     await this.host.append({
       type: 'chat/reply',
       actor: agentActor(this.name),
