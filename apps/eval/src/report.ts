@@ -71,7 +71,8 @@ const payload = (e: MyrEvent) => e.payload as Payload
 
 export function metrics(events: readonly MyrEvent[]): Metrics {
   const of = (type: string) => events.filter((e) => e.type === type)
-  const rounds = of('colony/created').map(payload)
+  // A chat's later rounds (an escalation's rerun among them) start with round/started in the same colony.
+  const rounds = events.filter((e) => e.type === 'colony/created' || e.type === 'round/started').map(payload)
   const created = rounds.at(-1) ?? {}
   const end = events.findLast((e) => ['colony/completed', 'colony/stopped', 'colony/failed'].includes(e.type))
   const start = events[0]

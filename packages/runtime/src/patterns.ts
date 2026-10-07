@@ -489,11 +489,15 @@ export function attachedNote(names: readonly string[] | undefined): string {
   return names?.length ? `\n\nThe person attached ${names.join(', ')}; read them with read_artifact.` : ''
 }
 
-export function kickoff(spec: ColonySpec, state: ColonyState): string {
+/** `remembers`: the agent's own conversation from earlier rounds is restored, so the history is not repeated. */
+export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false): string {
   if (!spec.chat)
     return `The colony has started. Mission:\n\n${spec.mission}\n\nStart with read_task and read_board, then get to work.`
-  const history = spec.chat.history ? `Earlier in this conversation:\n${spec.chat.history}\n\n` : ''
-  const attached = state.chatMessages.find((m) => m.from === 'user')?.attachments
+  const history =
+    spec.chat.history && !remembers ? `Earlier in this conversation:\n${spec.chat.history}\n\n` : ''
+  // This round's request, not the chat's first one: a colony serves every round of its chat.
+  const from = state.rounds.at(-1)?.startSeq ?? 0
+  const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
   const plan = spec.planFirst
     ? '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), present it with ask_user, and stop. Do not create tasks, publish files, or start the work until they approve.'
     : ''

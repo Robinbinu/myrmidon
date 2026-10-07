@@ -118,6 +118,11 @@ export interface EventPayloads {
     models?: Record<string, string>
   }
   'colony/stopped': { reason: string }
+  /**
+   * A chat's follow-up starts its next round in the same colony: the round's whole spec, as at creation, so a
+   * resumed round knows how it was set up. Files, notes, tasks and agents' conversations carry on.
+   */
+  'round/started': EventPayloads['colony/created']
   /** An agent proposes something to remember across chats; the person keeps or discards it. */
   'memory/proposed': {
     id: string
@@ -173,7 +178,8 @@ export interface EventPayloads {
   'worktree/closed': { agent: string; kept: boolean }
   'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
-  'checkpoint/created': { commit: string; phase: 'start' | 'end' }
+  /** `round`: the chat round it belongs to (an end snapshot can land after the next round started). */
+  'checkpoint/created': { commit: string; phase: 'start' | 'end'; round?: number }
   /** The person rewound the project folder to `commit`; `undo` is the snapshot taken just before. */
   'checkpoint/restored': { commit: string; undo: string; changed: number }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */

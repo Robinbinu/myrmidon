@@ -20,8 +20,8 @@ export interface IndexedRound {
 }
 
 /**
- * The chat list's index at `<home>/chat-index.sqlite`: one row per colony, holding its chat summary (or nothing,
- * for colonies that are not chat rounds). A row is reused while the colony's log files are unchanged, so listing
+ * The chat list's index at `<home>/chat-index.sqlite`: one row per colony, holding the summaries of the chat
+ * rounds it ran (or nothing, for colonies that are not chats). A row is reused while the colony's log files are unchanged, so listing
  * chats folds only the logs that grew since the last look instead of every log every time.
  */
 export class ChatIndex {
@@ -49,19 +49,20 @@ export class ChatIndex {
     for (const id of ids) {
       const running = live(id)
       if (running) {
-        const entry = summarize(id, running)
-        if (entry) out.push(entry)
+        out.push(...summarize(id, running))
         continue
       }
       const stamp = this._stamp(id)
       const row = get.get(id) as { stamp: string; data: string | null } | null
       if (row && row.stamp === stamp) {
-        if (row.data) out.push(JSON.parse(row.data) as IndexedRound)
+        // Rows written before chats ran in one colony hold a single round.
+        const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
+        out.push(...(Array.isArray(data) ? data : [data]))
         continue
       }
-      const entry = summarize(id, foldColony(id, await this.store.read(id)))
-      put.run(id, stamp, entry?.chatId ?? null, entry ? JSON.stringify(entry) : null)
-      if (entry) out.push(entry)
+      const rounds = summarize(id, foldColony(id, await this.store.read(id)))
+      put.run(id, stamp, rounds[0]?.chatId ?? null, rounds.length ? JSON.stringify(rounds) : null)
+      out.push(...rounds)
     }
     this._prune(new Set<string>(ids))
     return out
@@ -97,20 +98,21 @@ export class ChatIndex {
   }
 }
 
-function summarize(colonyId: string, s: ColonyState): IndexedRound | undefined {
-  if (!s.chat) return undefined
+function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
+  const chat = s.chat
+  if (!chat) return []
   const title = s.chatTitle
-  return {
+  return s.rounds.map((r) => ({
     colonyId,
-    chatId: s.chat.chatId,
-    round: s.chat.round,
-    request: s.chat.request,
-    status: s.status,
+    chatId: chat.chatId,
+    round: r.round,
+    request: r.request,
+    status: r.status,
     name: s.name,
-    ...(s.createdAt ? { createdAt: s.createdAt } : {}),
-    ...(s.endedAt ? { endedAt: s.endedAt } : {}),
-    swarm: s.team?.mode === 'swarm',
+    createdAt: r.startedAt,
+    ...(r.endedAt ? { endedAt: r.endedAt } : {}),
+    swarm: r.swarm,
     ...(title ? { title: { title: title.title, at: title.at } } : {}),
-    ...(s.chat.project ? { project: { id: s.chat.project.id, name: s.chat.project.name } } : {}),
-  }
+    ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),
+  }))
 }

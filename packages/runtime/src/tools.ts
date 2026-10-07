@@ -543,7 +543,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       const e = first(
         await host.appendAtomic((s) => {
-          const plan = s.notes.find((n) => n.section === 'plan')
+          // One plan per round: a chat's later rounds plan their own request.
+          const from = s.rounds.at(-1)?.startSeq ?? 0
+          const plan = s.notes.find((n) => n.section === 'plan' && n.seq >= from)
           if (args.section === 'plan' && plan && args.corrects !== plan.id)
             throw new Error(
               `a plan already exists (${plan.id} by ${plan.agent}); refine it with a "decision" note, or correct it by passing corrects: "${plan.id}"`,

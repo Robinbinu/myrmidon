@@ -1,4 +1,10 @@
-import { type ChatEntry, type ColonyState, colonyMetrics, type MyrEvent } from '@myrmidon/protocol'
+import {
+  type ChatEntry,
+  type ColonyMetrics,
+  type ColonyState,
+  type MyrEvent,
+  roundSlice,
+} from '@myrmidon/protocol'
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -32,7 +38,7 @@ import {
   PixelFace,
 } from '../ui/pixel.tsx'
 import { Button, cn, Pill, Skeleton, softSpring, spring } from '../ui/primitives.tsx'
-import { useColony } from '../use-colony.ts'
+import type { ColonyView } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
@@ -124,6 +130,10 @@ export function PendingRound({ text }: { text: string }) {
 /** One round of a conversation: the request, live run card, files, replies, and verified outcome. */
 export function RoundView(props: {
   colonyId: string
+  /** The colony's log and state, loaded once for all the rounds it ran. */
+  colony: ColonyView
+  /** Which of the colony's rounds this is (the latest without it). */
+  round?: number
   onOpenColony(id: string): void
   onRetry(text: string): void
   /** Picks a stopped round back up where it left off, optionally on another model. */
@@ -132,8 +142,14 @@ export function RoundView(props: {
   /** Only the latest finished round offers a retry, and only one at a time. */
   retry: 'ready' | 'starting' | 'hidden'
 }) {
-  const colony = useColony(props.colonyId)
-  const { state, events } = colony
+  const colony = props.colony
+  const slice = useMemo(
+    () => roundSlice(colony.state, colony.events, props.round),
+    [colony.state, colony.events, props.round],
+  )
+  const { state, events, info } = slice
+  // Live cards (approvals, sign-ins, memories, servers) belong to the round that is running now.
+  const latest = !info || info === colony.state.rounds.at(-1)
   const [file, setFile] = useState<string>()
   const [inspect, setInspect] = useState<string>()
 
@@ -173,8 +189,11 @@ export function RoundView(props: {
         onInspect={() => setInspect(m.from)}
       />
     )
+  // Files this round wrote; earlier rounds' files are still in the colony but belong to their own rounds.
+  const from = info?.startSeq ?? 0
+  const to = info?.endSeq ?? Number.POSITIVE_INFINITY
   const files = Object.entries(state.artifacts).filter(([, v]) =>
-    v.some((x) => x.author !== 'previous-round' && x.author !== 'user'),
+    v.some((x) => x.seq >= from && x.seq <= to && x.author !== 'previous-round' && x.author !== 'user'),
   )
 
   return (
@@ -185,14 +204,19 @@ export function RoundView(props: {
         <RunCard
           state={state}
           events={events}
+          metrics={slice.metrics}
           onOpenColony={() => props.onOpenColony(props.colonyId)}
           onInspect={setInspect}
         />
       </motion.div>
-      <LiveServers state={state} />
-      <ApprovalCards colonyId={props.colonyId} state={state} />
-      <LoginCards state={state} />
-      <MemoryCards state={state} />
+      {latest && (
+        <>
+          <LiveServers state={state} />
+          <ApprovalCards colonyId={props.colonyId} state={state} />
+          <LoginCards state={state} />
+          <MemoryCards state={state} />
+        </>
+      )}
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
       {state.status !== 'completed' && (
         <Outcome
@@ -241,7 +265,13 @@ export function RoundView(props: {
             })}
           </div>
         )}
-        <RoundChanges colonyId={props.colonyId} state={state} running={isRunning(state.status)} />
+        <RoundChanges
+          colonyId={props.colonyId}
+          {...(info ? { round: info.round } : {})}
+          checkpoints={info?.checkpoints ?? state.checkpoints}
+          state={state}
+          running={isRunning(state.status)}
+        />
       </motion.div>
       <AnimatePresence>
         {inspect && (
@@ -416,7 +446,7 @@ function LiveServers({ state }: { state: ColonyState }) {
 }
 
 /** Tokens, cost and time against the round's limits, e.g. "120k / 500k tokens · $0.84 / $2 · 12m left". */
-function spend(state: ColonyState, m: ReturnType<typeof colonyMetrics>, running: boolean): string {
+function spend(state: ColonyState, m: ColonyMetrics, running: boolean): string {
   const { tokens: tokenLimit, costUsd, wallMs } = state.budget
   const parts = [`${compact(m.tokens)}${tokenLimit ? ` / ${compact(tokenLimit)}` : ''} tokens`]
   if (m.cost !== undefined && (m.cost > 0 || costUsd))
@@ -428,6 +458,8 @@ function spend(state: ColonyState, m: ReturnType<typeof colonyMetrics>, running:
 function RunCard(props: {
   state: ColonyState
   events: readonly MyrEvent[]
+  /** This round's figures (a colony that served several rounds keeps running totals). */
+  metrics: ColonyMetrics
   onOpenColony(): void
   onInspect(name: string): void
 }) {
@@ -437,7 +469,7 @@ function RunCard(props: {
   const expanded = open ?? running
   const [showAll, setShowAll] = useState(false)
   const steps = useMemo(() => deriveSteps(events), [events])
-  const m = colonyMetrics(state)
+  const m = props.metrics
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
   const done = tasks.filter((t) => t.status === 'verified').length

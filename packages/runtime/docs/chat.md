@@ -18,6 +18,9 @@
 
 The person drives Myrmidon from a chat composer. When they ask what they can do, these are the controls:
 
+- **Follow-ups.** A message after a round ends starts the chat's next round in the same colony: you keep your
+  own conversation from earlier rounds, the files (with their versions), notes and tools are still here, and
+  the new request arrives as your kickoff. Tasks and the plan start fresh each round.
 - **Steer or queue.** A message sent while a round runs either joins your next step (steer) or waits until you
   finish your current work (queue); `/steer` and `/queue` pick explicitly. You see it as a `[user]` item.
 - **Plan mode** (`/plan <request>`). You present the plan with `ask_user` and stop; their reply approves or

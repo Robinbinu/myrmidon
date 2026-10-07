@@ -478,6 +478,72 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
+  /** The spec as the log records it: in colony/created for the first round, in round/started for later ones. */
+  private _specPayload(): EventPayloads['colony/created'] {
+    return {
+      name: this.spec.name,
+      mission: this.spec.mission,
+      pattern: this.spec.pattern,
+      agents: this.spec.agents.map((a) => ({
+        name: a.name,
+        role: a.role,
+        model: a.model,
+        tools: toolsFor(this.spec, a),
+        ...(a.specialty ? { specialty: a.specialty } : {}),
+        ...(a.focus ? { focus: a.focus } : {}),
+      })),
+      acceptance: this.spec.acceptance,
+      budget: {
+        wallMs: this.spec.budget.wallMs,
+        maxTurns: this.spec.budget.maxTurns,
+        ...(this.spec.budget.costUsd !== undefined ? { costUsd: this.spec.budget.costUsd } : {}),
+        ...(this.spec.budget.tokens !== undefined ? { tokens: this.spec.budget.tokens } : {}),
+      },
+      unsafeNoSandbox: this.unsafeNoSandbox,
+      ...(this.spec.chat
+        ? {
+            chat: {
+              chatId: this.spec.chat.chatId,
+              round: this.spec.chat.round,
+              request: this.spec.chat.request,
+              ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
+              ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
+              ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
+              ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
+            },
+          }
+        : {}),
+      ...(this.spec.team ? { team: this.spec.team } : {}),
+      ...(this.spec.tier ? { tier: this.spec.tier } : {}),
+      observerMs: this.spec.observer.intervalMs,
+      ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
+      ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
+      ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
+    }
+  }
+
+  /**
+   * Starts a chat's next round in this colony (built with `resumeId`): the log, files, notes, tasks and agents'
+   * conversations carry on, and the new round's spec (tier, team, budget) applies from here. Agents restore their
+   * transcripts and are woken with the new request.
+   */
+  async continueRound(): Promise<void> {
+    if (!this.options.resumeId) throw new Error('continueRound needs a colony built with resumeId')
+    for (const e of await this.log.read(this.id)) applyEvent(this._state, e)
+    if (this._state.status === 'running') throw new Error('this colony is already running a round')
+    await this.preflight()
+    this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
+      if (colonyId !== this.id) return
+      for (const e of events) {
+        applyEvent(this._state, e)
+        this._route(e)
+      }
+    })
+    await this.append({ type: 'round/started', actor: SYSTEM, payload: this._specPayload() })
+    await this._seed?.()
+    await this._launch(this.spec.budget.wallMs, undefined, {}, true)
+  }
+
   async start(): Promise<void> {
     await this.preflight()
     const listener = (colonyId: ColonyId, events: readonly MyrEvent[]) => {
@@ -488,50 +554,7 @@ export class ColonyRun implements ColonyHost {
       }
     }
     this._offLog = this.runtime.ctx.on('log/appended', listener)
-    await this.append({
-      type: 'colony/created',
-      actor: SYSTEM,
-      payload: {
-        name: this.spec.name,
-        mission: this.spec.mission,
-        pattern: this.spec.pattern,
-        agents: this.spec.agents.map((a) => ({
-          name: a.name,
-          role: a.role,
-          model: a.model,
-          tools: toolsFor(this.spec, a),
-          ...(a.specialty ? { specialty: a.specialty } : {}),
-          ...(a.focus ? { focus: a.focus } : {}),
-        })),
-        acceptance: this.spec.acceptance,
-        budget: {
-          wallMs: this.spec.budget.wallMs,
-          maxTurns: this.spec.budget.maxTurns,
-          ...(this.spec.budget.costUsd !== undefined ? { costUsd: this.spec.budget.costUsd } : {}),
-          ...(this.spec.budget.tokens !== undefined ? { tokens: this.spec.budget.tokens } : {}),
-        },
-        unsafeNoSandbox: this.unsafeNoSandbox,
-        ...(this.spec.chat
-          ? {
-              chat: {
-                chatId: this.spec.chat.chatId,
-                round: this.spec.chat.round,
-                request: this.spec.chat.request,
-                ...(this.spec.chat.history ? { history: this.spec.chat.history } : {}),
-                ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
-                ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
-                ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
-              },
-            }
-          : {}),
-        ...(this.spec.team ? { team: this.spec.team } : {}),
-        ...(this.spec.tier ? { tier: this.spec.tier } : {}),
-        observerMs: this.spec.observer.intervalMs,
-        ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
-        ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
-        ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
-      },
-    })
+    await this.append({ type: 'colony/created', actor: SYSTEM, payload: this._specPayload() })
     await this._seed?.()
     await this._launch(this.spec.budget.wallMs)
   }
@@ -562,7 +585,13 @@ export class ColonyRun implements ColonyHost {
     await this._launch(left, reason, models)
   }
 
-  private async _launch(wallMs: number, resumedBecause?: string, models: Record<string, string> = {}) {
+  /** `newRound`: turn limits count from zero again, as each round has its own budget. */
+  private async _launch(
+    wallMs: number,
+    resumedBecause?: string,
+    models: Record<string, string> = {},
+    newRound = false,
+  ) {
     // The person's kept tools join a fresh round before its agents are built, so they see them from the start.
     if (!resumedBecause)
       for (const tool of this.options.library?.list() ?? [])
@@ -574,15 +603,16 @@ export class ColonyRun implements ColonyHost {
           })
     for (const a of this.spec.agents) await this._isolate(a.name)
     for (const a of this.spec.agents) {
-      const agent = new ColonyAgent(a, this, this.resolver, { restore: true })
-      agent.turn = this._state.agents[a.name]?.turns ?? 0
+      const agent = new ColonyAgent(a, this, this.resolver, { restore: true, compact: newRound })
+      agent.turn = newRound ? 0 : (this._state.agents[a.name]?.turns ?? 0)
       this._agents.set(a.name, agent)
     }
     this._deadline = Date.now() + wallMs
     this._bootstrapAt = Date.now()
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team' && this.spec.agents.length > 1
+    const from = this._state.rounds.at(-1)?.startSeq ?? 0
     const planned =
-      this._state.notes.some((n) => n.section === 'plan' && n.agent !== 'previous-round') ||
+      this._state.notes.some((n) => n.section === 'plan' && n.seq >= from && n.agent !== 'previous-round') ||
       Object.keys(this._state.tasks).length > 0
     if (swarm && !planned)
       this._huddle = { since: Date.now(), after: this._state.lastSeq, proposed: new Set() }

@@ -129,14 +129,15 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   expect(round1.chatMessages.map((m) => m.from)).toEqual(['user', 'lead'])
   expect(round1.artifacts['poem.txt']?.at(-1)?.author).toBe(writer)
 
+  // The follow-up continues the same colony: its files, plan and team are simply still there.
   const second = await chats.send('Now make it rhyme', config, first.chatId)
-  const round2 = await waitFor(
-    second.colonyId,
-    (s) => s.notes.length > 0 && Object.keys(s.artifacts).length > 0,
-  )
+  expect(second.colonyId).toBe(first.colonyId)
+  const round2 = await waitFor(second.colonyId, (s) => s.rounds.length === 2)
   expect(round2.chat?.round).toBe(2)
-  expect(round2.artifacts['poem.txt']?.[0]?.author).toBe('previous-round')
+  expect(round2.rounds.map((r) => r.request)).toEqual(['Write a short poem about ants', 'Now make it rhyme'])
+  expect(round2.artifacts['poem.txt']?.[0]?.author).toBe(writer)
   expect(round2.notes[0]?.section).toBe('plan')
+  expect(round2.agents[writer]).toBeDefined()
   await chats.stopAll()
 })
 
@@ -573,7 +574,14 @@ test('a chat keeps its workers and their memory across rounds; the lead can dism
 
   const second = await chats.send('Now explain spring tides', config, first.chatId)
   const r2 = await waitFor(second.colonyId)
-  expect(names(r2)).toEqual(['lead:lead', `${scout}:researcher`])
+  // The colony keeps the dismissed coder in its history; round 2 started without it.
+  const started = (await events(second.colonyId)).findLast((e) => e.type === 'round/started')
+    ?.payload as EventPayloads['round/started']
+  expect(started.agents.map((a) => `${a.name}:${a.specialty ?? a.role}`)).toEqual([
+    'lead:lead',
+    `${scout}:researcher`,
+  ])
+  expect(names(r2)).toContain(`${scout}:researcher`)
   expect(existsSync(join(home, 'colonies', second.colonyId, 'agents', `${scout}.jsonl`))).toBe(true)
   expect(existsSync(join(home, 'colonies', second.colonyId, 'agents', 'lead.jsonl'))).toBe(true)
   expect(seenByResearcher.length).toBeGreaterThan(0)
@@ -1254,14 +1262,16 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   expect((await chats.list()).find((c) => c.chatId === first.chatId)?.project?.name).toBe(project.name)
 
   // Each round is snapshotted at its start and end: its changes are the diff, and rewinding undoes them.
-  await waitFor(first.colonyId, (x) => x.checkpoints.end !== undefined)
-  await waitFor(second.colonyId, (x) => x.checkpoints.end !== undefined)
-  const changes = await chats.changes(first.colonyId)
+  // Both rounds ran in one colony; each keeps its own snapshots.
+  expect(second.colonyId).toBe(first.colonyId)
+  await waitFor(first.colonyId, (x) => x.rounds.length === 2 && x.rounds.every((r) => r.checkpoints.end))
+  const changes = await chats.changes(first.colonyId, 1)
   expect(changes.files).toEqual([{ path: 'src/hello.ts', status: 'A', added: 1, removed: 0 }])
-  expect(await chats.rewind(first.colonyId)).toEqual({ changed: 1 })
+  expect((await chats.changes(first.colonyId, 2)).files).toEqual([])
+  expect(await chats.rewind(first.colonyId, false, 1)).toEqual({ changed: 1 })
   expect(existsSync(join(folder, 'src', 'hello.ts'))).toBe(false)
   expect(await Bun.file(join(folder, 'README.md')).text()).toBe('# Demo project')
-  await chats.rewind(first.colonyId, true)
+  await chats.rewind(first.colonyId, true, 1)
   expect(await Bun.file(join(folder, 'src', 'hello.ts')).text()).toBe('export const hi = 1\n')
   rmSync(folder, { recursive: true, force: true })
 })
@@ -1438,9 +1448,10 @@ test.skipIf(detectSandbox().kind === 'none')(
       [tool('reply_user', { text: 'Read only.', final: true })],
     ])
     const next = await chats.send('Try again', { ...solo('mock/reader'), judgeModel: 'mock/judge' }, chatId)
-    await waitFor(next.colonyId)
+    const done = await waitFor(next.colonyId)
+    const from = done.rounds.at(-1)?.startSeq ?? 0
     const after = (await events(next.colonyId))
-      .filter((e) => e.type === 'tool/result')
+      .filter((e) => e.type === 'tool/result' && e.seq > from)
       .map((e) => e.payload as EventPayloads['tool/result'])
     expect(after[0]?.output).toContain('is read-only for agents')
     expect(after[1]?.output).not.toMatch(/^exit 0/)
@@ -1566,7 +1577,13 @@ test('an answer round that turns out bigger escalates, and a solo round reruns i
   const round2 = await waitFor(rounds[1]?.colonyId ?? '')
   expect(round2.tier).toBe('solo')
   expect(round2.status).toBe('completed')
-  expect(round2.chatMessages[0]).toMatchObject({ from: 'user', text: 'Build me a CSV of primes' })
+  // The rerun is the same colony's next round, and it repeats the request.
+  expect(rounds[1]?.colonyId).toBe(first.colonyId)
+  const from = round2.rounds.at(-1)?.startSeq ?? 0
+  expect(round2.chatMessages.find((m) => m.seq > from)).toMatchObject({
+    from: 'user',
+    text: 'Build me a CSV of primes',
+  })
   expect(round2.notes.some((n) => n.section === 'decision' && n.text.includes('needs a script'))).toBe(true)
   expect(round2.chat?.history ?? '').not.toContain('Build me a CSV of primes')
   expect(round2.agents.lead?.info.tools).not.toContain('escalate')
@@ -1788,6 +1805,55 @@ test('an agent proposes a memory, the person keeps it, and the next chat starts 
   const second = await chats.send('Say hello', config)
   await waitFor(second.colonyId)
   expect(secondPrompt).toContain('- [preference] The person wants answers in British English.')
+  await chats.stopAll()
+})
+
+test('a follow-up continues the same colony, and its agent remembers the earlier round', async () => {
+  const resolver = new ModelResolver()
+  let followUp = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const seen = JSON.stringify(ctx.messages)
+      if (seen.includes('What number did you pick?')) {
+        followUp = seen
+        return {
+          content:
+            seen.includes('reply_user') && seen.includes('You picked')
+              ? ['done']
+              : [tool('reply_user', { text: 'You picked 7.', final: true })],
+        }
+      }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'I pick 7.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('Pick a number', config)
+  await waitFor(first.colonyId)
+  const second = await chats.send('What number did you pick?', config, first.chatId)
+  expect(second.colonyId).toBe(first.colonyId)
+  const s = await waitFor(
+    second.colonyId,
+    (x) => x.rounds.at(-1)?.status === 'completed' && x.rounds.length === 2,
+  )
+  // Its own earlier turn is in its context, so the history is not repeated in the kickoff.
+  expect(followUp).toContain('I pick 7.')
+  expect(followUp).not.toContain('Earlier in this conversation')
+  expect(s.rounds.map((r) => [r.round, r.status])).toEqual([
+    [1, 'completed'],
+    [2, 'completed'],
+  ])
+  const chat = (await chats.list()).find((c) => c.chatId === first.chatId)
+  expect(chat?.rounds.map((r) => [r.colonyId, r.round, r.request])).toEqual([
+    [first.colonyId, 1, 'Pick a number'],
+    [first.colonyId, 2, 'What number did you pick?'],
+  ])
   await chats.stopAll()
 })
 

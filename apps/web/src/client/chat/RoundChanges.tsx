@@ -18,38 +18,46 @@ interface Changes {
  * What a project round changed in its folder, from the snapshots taken when it started and ended, with Rewind
  * (back to how the folder was before the round) and Undo.
  */
-export function RoundChanges(props: { colonyId: string; state: ColonyState; running: boolean }) {
+export function RoundChanges(props: {
+  colonyId: string
+  /** The chat round within the colony, when the colony has several. */
+  round?: number
+  /** The round's own snapshots (an end snapshot lands after the round's last event). */
+  checkpoints: { start?: string; end?: string }
+  state: ColonyState
+  running: boolean
+}) {
   const toast = useToast()
-  const { state } = props
+  const { state, checkpoints } = props
   const project = state.chat?.project
   const [changes, setChanges] = useState<Changes>()
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const restored = state.checkpoints.restored
-  const rewound = restored !== undefined && restored.commit === state.checkpoints.start
-  const key = `${state.checkpoints.end ?? ''}:${restored?.time ?? ''}`
+  const rewound = restored !== undefined && restored.commit === checkpoints.start
+  const key = `${checkpoints.end ?? ''}:${restored?.time ?? ''}`
+  const query = props.round === undefined ? '' : `?round=${props.round}`
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`)
   useEffect(() => {
-    if (!project || !state.checkpoints.start || props.running) return
-    api<Changes>(`/api/colonies/${props.colonyId}/changes`)
+    if (!project || !checkpoints.start || props.running) return
+    api<Changes>(`/api/colonies/${props.colonyId}/changes${query}`)
       .then(setChanges)
       .catch(() => setChanges(undefined))
-  }, [props.colonyId, key, props.running])
+  }, [props.colonyId, key, props.running, query])
 
-  if (!project || !state.checkpoints.start || props.running) return null
+  if (!project || !checkpoints.start || props.running) return null
   const added = changes?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
   const removed = changes?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
 
   const rewind = async (undo: boolean) => {
     setBusy(true)
     try {
-      const r = await send<{ changed: number }>(
-        'POST',
-        `/api/colonies/${props.colonyId}/rewind`,
-        undo ? { undo } : {},
-      )
+      const r = await send<{ changed: number }>('POST', `/api/colonies/${props.colonyId}/rewind`, {
+        ...(undo ? { undo } : {}),
+        ...(props.round === undefined ? {} : { round: props.round }),
+      })
       toast(
         undo
           ? `Undid the rewind in ${project.name}`

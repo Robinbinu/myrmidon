@@ -1,9 +1,10 @@
-import { foldColony, type MyrEvent } from '@myrmidon/protocol'
+import { type ColonyState, foldColony, type MyrEvent, roundSlice } from '@myrmidon/protocol'
 import { Network, PanelLeft, PanelRight, Trash2 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
+  type ChatRound,
   type ChatSummary,
   type ColonySummary,
   type ModelOption,
@@ -27,6 +28,7 @@ import { useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
+import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
 
@@ -72,13 +74,22 @@ async function encodeFile(file: File): Promise<{ name: string; data: string }> {
 /** Downloads a chat as Markdown: each round's request, the colony's replies, and the files it delivered. */
 async function exportChat(chat: ChatSummary) {
   const lines = [`# ${chat.title}`, '']
+  const loaded = new Map<string, { state: ColonyState; events: MyrEvent[] }>()
   for (const round of chat.rounds) {
-    const events = await api<MyrEvent[]>(`/api/colonies/${round.colonyId}/events`)
-    const state = foldColony(round.colonyId, events)
+    let colony = loaded.get(round.colonyId)
+    if (!colony) {
+      const events = await api<MyrEvent[]>(`/api/colonies/${round.colonyId}/events?from=1&limit=20000`)
+      colony = { events, state: foldColony(round.colonyId, events) }
+      loaded.set(round.colonyId, colony)
+    }
+    const { state, info } = roundSlice(colony.state, colony.events, round.round)
     lines.push(`## Round ${round.round}`, '')
     for (const m of state.chatMessages)
       lines.push(`**${m.from === 'user' ? 'You' : m.from}:**`, '', m.text, '')
-    const files = Object.keys(state.artifacts)
+    const from = info?.startSeq ?? 0
+    const files = Object.entries(state.artifacts)
+      .filter(([, v]) => v.some((x) => x.seq >= from && x.author !== 'user'))
+      .map(([name]) => name)
     if (files.length) lines.push(`Files: ${files.join(', ')}`, '')
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
@@ -120,7 +131,12 @@ export function App() {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   /** A request on its way: shown at once, until its round appears in the chat list. */
-  const [pending, setPending] = useState<{ text: string; chatId?: string; colonyId?: string }>()
+  const [pending, setPending] = useState<{
+    text: string
+    chatId?: string
+    colonyId?: string
+    round?: number
+  }>()
   const [draft, setDraft] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
   /** The project a new chat will work in. */
@@ -194,7 +210,16 @@ export function App() {
 
   // The pending card gives way once the chat list shows the round it started.
   useEffect(() => {
-    if (pending?.colonyId && chats.some((c) => c.rounds.some((r) => r.colonyId === pending.colonyId)))
+    // A chat's rounds share a colony, so it is the round, not the colony, that shows the request arrived.
+    if (
+      pending?.colonyId &&
+      chats.some((c) =>
+        c.rounds.some(
+          (r) =>
+            r.colonyId === pending.colonyId && (pending.round === undefined || r.round === pending.round),
+        ),
+      )
+    )
       setPending(undefined)
   }, [chats, pending])
 
@@ -234,18 +259,22 @@ export function App() {
     const startsRound = !chat || !running
     if (startsRound) setPending({ text, ...(chatId ? { chatId } : {}) })
     try {
-      const r = await post<{ chatId: string; colonyId: string; started: boolean }>('/api/chats', {
-        text,
-        config,
-        chatId,
-        delivery,
-        ...(plan ? { plan: true } : {}),
-        ...(!chatId && newProject ? { project: newProject } : {}),
-        ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
-      })
+      const r = await post<{ chatId: string; colonyId: string; started: boolean; round?: number }>(
+        '/api/chats',
+        {
+          text,
+          config,
+          chatId,
+          delivery,
+          ...(plan ? { plan: true } : {}),
+          ...(!chatId && newProject ? { project: newProject } : {}),
+          ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
+        },
+      )
       setActiveChat(r.chatId)
       setView('chat')
-      if (r.started) setPending({ text, chatId: r.chatId, colonyId: r.colonyId })
+      if (r.started)
+        setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
       else {
         setPending(undefined)
         toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the colony', 'info')
@@ -725,23 +754,31 @@ function Transcript(props: {
       }}
     >
       <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
-        {rounds.map((r, i) => (
-          <div key={r.colonyId} className={cn(i > 0 && 'border-t border-line pt-8')}>
-            <RoundView
-              colonyId={r.colonyId}
-              onOpenColony={props.onOpenColony}
-              onRetry={props.onRetry}
-              onResume={props.onResume}
-              models={props.models}
-              retry={
-                i === rounds.length - 1 && !running && !props.pending
-                  ? props.sending
-                    ? 'starting'
-                    : 'ready'
-                  : 'hidden'
-              }
-            />
-          </div>
+        {colonies(rounds).map((group, g) => (
+          <ColonyRounds
+            key={group.colonyId}
+            colonyId={group.colonyId}
+            rounds={group.rounds}
+            first={g === 0}
+            render={(colony, r) => (
+              <RoundView
+                colonyId={r.colonyId}
+                colony={colony}
+                round={r.round}
+                onOpenColony={props.onOpenColony}
+                onRetry={props.onRetry}
+                onResume={props.onResume}
+                models={props.models}
+                retry={
+                  r === rounds.at(-1) && !running && !props.pending
+                    ? props.sending
+                      ? 'starting'
+                      : 'ready'
+                    : 'hidden'
+                }
+              />
+            )}
+          />
         ))}
         {props.pending && (
           <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
@@ -751,6 +788,35 @@ function Transcript(props: {
       </div>
     </div>
   )
+}
+
+/** A chat's rounds grouped by the colony that ran them, in order: one colony for chats since rounds shared one. */
+function colonies(rounds: readonly ChatRound[]): { colonyId: string; rounds: ChatRound[] }[] {
+  const out: { colonyId: string; rounds: ChatRound[] }[] = []
+  for (const r of rounds) {
+    const last = out.at(-1)
+    if (last?.colonyId === r.colonyId) last.rounds.push(r)
+    else out.push({ colonyId: r.colonyId, rounds: [r] })
+  }
+  return out
+}
+
+/** Loads one colony's log once and shows each of its rounds from it. */
+function ColonyRounds(props: {
+  colonyId: string
+  rounds: ChatRound[]
+  first: boolean
+  render(colony: ColonyView, round: ChatRound): ReactNode
+}) {
+  const colony = useColony(props.colonyId)
+  return props.rounds.map((r, i) => (
+    <div
+      key={`${r.colonyId}:${r.round}`}
+      className={cn((i > 0 || !props.first) && 'border-t border-line pt-8')}
+    >
+      {props.render(colony, r)}
+    </div>
+  ))
 }
 
 function ColoniesPane() {

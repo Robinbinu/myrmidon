@@ -22,8 +22,9 @@ Requests queued while other work is in progress. Top of each section is next.
 
 ## Next
 
-- [ ] **One colony per chat** — reuse the chat's first colony for follow-up messages instead of starting a new
-      colony per message (asked 2026-10-07).
+- [x] **One colony per chat** — follow-ups are rounds of the chat's colony (`round/started` in its log): agents keep
+      their conversation, files keep their versions; tasks, plan, budgets and snapshots are per round. Older chats
+      with a colony per round still read, and their next round continues the latest colony.
 - [x] **A livelier start for a new chat** — the wait was ~7s of a static card: every message re-probed each model
       with a test call before starting. Probes are now cached for 15 min (wait ~3s, the triage call), and the card
       ticks off its steps with a running clock and a progress sweep.

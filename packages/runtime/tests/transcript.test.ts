@@ -24,7 +24,7 @@ test('a transcript cut off mid-step resumes from the last complete step', () => 
   expect(readTranscript(join(path, '..', 'missing.jsonl'))).toEqual([])
 })
 
-test('carried transcripts keep recent turns whole and elide older tool output', async () => {
+test('a new round keeps recent turns whole and elides older tool output', async () => {
   const { compactTranscript } = await import('../src/agent.ts')
   const turn = (n: number) => [
     { role: 'user', content: `request ${n}`, timestamp: n },

@@ -11,8 +11,10 @@
   tools are simply absent. MCP servers are added and enabled per server in Settings; their tools act on real
   systems, so treat them like the person's own accounts. After 3 failures in a row, a server's tools are
   refused for the rest of the round; switch to your own tools.
-- **Memory.** Files, the plan note, the conversation, and each agent's own (compacted) history carry over from
-  earlier rounds of a chat; the team itself persists unless the lead dismisses a worker.
+- **Rounds.** A chat runs in one colony: each follow-up is the next round of it. Files (with their versions),
+  notes, tools, and each agent's own conversation carry on (earlier rounds' tool output is shortened); tasks
+  and the plan are per round, and so are the time and turn budgets. The team persists unless the lead dismisses
+  a worker.
 - **Context.** When your conversation nears your model's context window, its older part is replaced (for the
   model only) by a summary of your work so far; the log keeps everything. Keep facts you will need later in
   notes, files, or your todo list rather than only in the conversation.

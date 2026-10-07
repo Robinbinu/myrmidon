@@ -24,6 +24,25 @@ export interface AgentView {
   dismissed?: boolean
 }
 
+/** One round of a chat colony: a request and the work that answered it, as a range of the log. */
+export interface RoundInfo {
+  readonly round: number
+  readonly request: string
+  readonly tier?: EventPayloads['colony/created']['tier']
+  readonly swarm: boolean
+  /** The round's first event (colony/created or round/started). */
+  readonly startSeq: number
+  readonly startedAt: string
+  /** The event that ended the round, once it ended. */
+  endSeq?: number
+  endedAt?: string
+  status: ColonyStatus
+  statusReason?: string
+  escalated?: EventPayloads['colony/escalated']
+  /** The round's project snapshots: its changes are start → end. */
+  checkpoints: { start?: string; end?: string }
+}
+
 export interface Entry {
   readonly seq: number
   readonly id: EventId
@@ -142,6 +161,8 @@ export interface ColonyState {
   signals: SignalEntry[]
   chatMessages: ChatEntry[]
   chat?: EventPayloads['colony/created']['chat']
+  /** A chat colony's rounds, oldest first; `chat.round` is the current one. */
+  rounds: RoundInfo[]
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string }
   /** The model failure that paused the round, until it resumes. */
@@ -151,6 +172,30 @@ export interface ColonyState {
   /** Communication counts keyed `from→to`; drives the colony map edges. */
   links: Record<string, number>
   lastSeq: number
+}
+
+function roundOf(p: EventPayloads['colony/created'], event: MyrEvent): RoundInfo {
+  return {
+    round: p.chat?.round ?? 1,
+    request: p.chat?.request ?? p.mission,
+    ...(p.tier ? { tier: p.tier } : {}),
+    swarm: p.team?.mode === 'swarm' && p.tier === 'team',
+    startSeq: event.seq,
+    startedAt: event.time,
+    status: 'created',
+    checkpoints: {},
+  }
+}
+
+/** Closes the current round with the colony's status as the event left it. */
+function endRound(state: ColonyState, event: MyrEvent) {
+  const round = state.rounds.at(-1)
+  if (!round) return
+  round.status = state.status
+  round.endSeq = event.seq
+  round.endedAt = event.time
+  if (state.statusReason) round.statusReason = state.statusReason
+  if (state.escalated) round.escalated = state.escalated
 }
 
 export function emptyColonyState(id: string): ColonyState {
@@ -178,6 +223,7 @@ export function emptyColonyState(id: string): ColonyState {
     verdicts: [],
     signals: [],
     chatMessages: [],
+    rounds: [],
     links: {},
     lastSeq: 0,
   }
@@ -209,6 +255,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chat = p.chat
       state.team = p.team
       state.tier = p.tier
+      if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
           info,
@@ -310,7 +357,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'checkpoint/created': {
       const p = event.payload as EventPayloads['checkpoint/created']
-      state.checkpoints[p.phase] = p.commit
+      const round =
+        p.round === undefined ? state.rounds.at(-1) : state.rounds.find((r) => r.round === p.round)
+      if (round) round.checkpoints[p.phase] = p.commit
+      if (!round || round === state.rounds.at(-1)) state.checkpoints[p.phase] = p.commit
       break
     }
     case 'checkpoint/restored': {
@@ -376,6 +426,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       delete state.statusReason
       delete state.endedAt
       delete state.modelError
+      const round = state.rounds.at(-1)
+      if (round) {
+        round.status = 'running'
+        delete round.statusReason
+        delete round.endSeq
+        delete round.endedAt
+      }
       for (const [name, model] of Object.entries(p.models ?? {})) {
         const view = state.agents[name]
         if (view) view.info = { ...view.info, model }
@@ -387,12 +444,47 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.modelError = { ...p, time: event.time }
       break
     }
+    case 'round/started': {
+      const p = event.payload as EventPayloads['round/started']
+      state.mission = p.mission
+      state.pattern = p.pattern
+      state.budget = p.budget
+      state.chat = p.chat
+      state.team = p.team
+      state.tier = p.tier
+      state.status = 'created'
+      delete state.statusReason
+      delete state.endedAt
+      delete state.escalated
+      delete state.modelError
+      // Tasks and snapshots belong to a round; files, notes, tools and the agents themselves carry on.
+      state.tasks = {}
+      state.checkpoints = {}
+      for (const info of p.agents) {
+        const view = state.agents[info.name]
+        if (view) view.info = info
+        else
+          state.agents[info.name] = {
+            info,
+            status: 'provisioning',
+            turns: 0,
+            tokens: 0,
+            cost: 0,
+            costKnown: true,
+            toolCalls: 0,
+            lastSeq: event.seq,
+          }
+      }
+      state.rounds.push(roundOf(p, event))
+      break
+    }
     case 'colony/escalated': {
       const p = event.payload as EventPayloads['colony/escalated']
       state.escalated = p
       state.status = 'stopped'
       state.statusReason = `moved to ${p.to === 'team' ? 'a team' : 'one agent'}: ${p.reason}`
       state.endedAt = event.time
+      endRound(state, event)
       break
     }
     case 'colony/stopped':
@@ -401,11 +493,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.status = event.type === 'colony/stopped' ? 'stopped' : 'failed'
       state.statusReason = p.reason
       state.endedAt = event.time
+      endRound(state, event)
       break
     }
     case 'colony/completed':
       state.status = 'completed'
       state.endedAt = event.time
+      endRound(state, event)
       break
     case 'agent/status': {
       const p = event.payload as EventPayloads['agent/status']

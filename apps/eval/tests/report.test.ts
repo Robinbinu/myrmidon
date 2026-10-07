@@ -75,6 +75,11 @@ test('an escalated request is measured across both rounds, at the tier it finish
     ev('llm/response', { agent: 'lead', usage: { totalTokens: 100 } }, 1),
     ev('colony/escalated', { by: 'lead', to: 'solo', reason: 'needs files' }, 2),
   ]
+  // The rerun is the same colony's next round.
+  const rerun = run().map((e) =>
+    e.type === 'colony/created' ? { ...e, type: 'round/started' } : e,
+  ) as MyrEvent[]
+  expect(metrics([...first, ...rerun])).toMatchObject({ tier: 'solo', escalated: 'answer → solo' })
   const m = metrics([...first, ...run()])
   expect(m).toMatchObject({ tier: 'solo', escalated: 'answer → solo', outcome: 'completed', tokens: 1600 })
   expect(grade(CASE, { events: [...first, ...run()], artifacts: {}, local: {} }).tierMismatch).toBe(false)

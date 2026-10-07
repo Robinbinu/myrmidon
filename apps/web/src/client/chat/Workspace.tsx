@@ -1,4 +1,10 @@
-import type { ColonyState, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  type EventPayloads,
+  type MyrEvent,
+  roundSlice,
+  type TaskSnapshot,
+} from '@myrmidon/protocol'
 import {
   Activity,
   ChevronRight,
@@ -89,14 +95,22 @@ function shellRuns(events: readonly MyrEvent[]): ShellRun[] {
  */
 export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChange(open: boolean): void }) {
   const rounds = props.chat.rounds
+  // A chat's rounds share a colony, so a round is picked by colony and number.
+  const keyOf = (r: { colonyId: string; round: number }) => `${r.colonyId}:${r.round}`
   const [picked, setPicked] = useState<string>()
-  const colonyId =
-    picked && rounds.some((r) => r.colonyId === picked) ? picked : (rounds.at(-1)?.colonyId ?? '')
+  const current = rounds.find((r) => keyOf(r) === picked) ?? rounds.at(-1)
+  const colonyId = current?.colonyId ?? ''
+  // The latest round shows the colony live; an earlier one shows the colony as that round left it.
+  const round = current && current !== rounds.at(-1) ? current.round : undefined
   const roundPicker =
     rounds.length > 1 ? (
-      <Select value={colonyId} onChange={(e) => setPicked(e.target.value)} aria-label="Round">
+      <Select
+        value={current ? keyOf(current) : ''}
+        onChange={(e) => setPicked(e.target.value)}
+        aria-label="Round"
+      >
         {rounds.map((r) => (
-          <option key={r.colonyId} value={r.colonyId}>
+          <option key={keyOf(r)} value={keyOf(r)}>
             Round {r.round}
           </option>
         ))}
@@ -108,6 +122,7 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
         <WorkspaceBody
           key={colonyId}
           colonyId={colonyId}
+          {...(round !== undefined ? { round } : {})}
           project={props.chat.project}
           open={props.open}
           onOpenChange={props.onOpenChange}
@@ -131,18 +146,25 @@ function savedTab(): Tab {
 
 function WorkspaceBody({
   colonyId,
+  round,
   project,
   open,
   onOpenChange,
   roundPicker,
 }: {
   colonyId: string
+  /** An earlier round of the colony to show; the latest (live) without it. */
+  round?: number
   project?: { id: string; name: string }
   open: boolean
   onOpenChange(open: boolean): void
   roundPicker: ReactNode
 }) {
-  const { state, events } = useColony(colonyId)
+  const colony = useColony(colonyId)
+  const { state, events } = useMemo(
+    () => (round === undefined ? colony : roundSlice(colony.state, colony.events, round)),
+    [colony, round],
+  )
   const views = VIEWS.filter((v) => !v.projectOnly || project)
   // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
   const [mounted, setMounted] = useState(open)

@@ -68,10 +68,12 @@ export class ColonyAgent {
     readonly spec: AgentSpec,
     private readonly host: ColonyHost,
     private readonly resolver: ModelResolver,
-    options: { restore?: boolean } = {},
+    /** `compact`: a new round of the chat, so earlier rounds' tool output is elided from the restored history. */
+    options: { restore?: boolean; compact?: boolean } = {},
   ) {
     this._transcript = join(host.workspace.colonyDir, 'agents', `${spec.name}.jsonl`)
-    const history = options.restore ? readTranscript(this._transcript) : []
+    const restored = options.restore ? readTranscript(this._transcript) : []
+    const history = options.compact ? compactTranscript(restored) : restored
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
     this._stream = resolved.streamFn
@@ -154,7 +156,7 @@ export class ColonyAgent {
    */
   async run(kickoffFirst = true): Promise<void> {
     if (kickoffFirst && startsAwake(this.host.spec, this.spec))
-      this.notify({ text: kickoff(this.host.spec, this.host.state()), trigger: 'kickoff' })
+      this.notify({ text: kickoff(this.host.spec, this.host.state(), this.restored > 0), trigger: 'kickoff' })
     while (!this._stopped && this.host.state().status === 'running') {
       if (this.inbox.length === 0) {
         await this._status('idle')
@@ -399,7 +401,7 @@ export function readTranscript(path: string): AgentMessage[] {
   return messages
 }
 
-/** Turns kept word for word when a transcript is carried into a later round; older tool output is elided. */
+/** Turns kept word for word when a new round of the chat starts; older tool output is elided. */
 const KEEP_TURNS = 4
 
 /**

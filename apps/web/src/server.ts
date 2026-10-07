@@ -792,10 +792,11 @@ export function startServer(options: ServeOptions): WebServer {
         const limit = Math.min(Number(url.searchParams.get('limit') ?? '5000'), 20000)
         return json(await store.read(id, { from, limit }))
       }),
-      '/api/colonies/:id/changes': guard(async (req) => {
+      '/api/colonies/:id/changes': guard(async (req, url) => {
         if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+        const round = url.searchParams.get('round')
         try {
-          return json(await options.chats.changes(req.params.id ?? ''))
+          return json(await options.chats.changes(req.params.id ?? '', round ? Number(round) : undefined))
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : String(err) }, 422)
         }
@@ -803,9 +804,15 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/rewind': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { undo } = (await req.json().catch(() => ({}))) as { undo?: unknown }
+          const { undo, round } = (await req.json().catch(() => ({}))) as { undo?: unknown; round?: unknown }
           try {
-            return json(await options.chats.rewind(req.params.id ?? '', undo === true))
+            return json(
+              await options.chats.rewind(
+                req.params.id ?? '',
+                undo === true,
+                typeof round === 'number' ? round : undefined,
+              ),
+            )
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }

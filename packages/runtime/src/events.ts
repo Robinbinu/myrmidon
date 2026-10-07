@@ -27,70 +27,69 @@ const task = Schema.object({
   outputs: Schema.array(Schema.string()),
 })
 
-const defs: EventTypeDefinition[] = [
-  {
-    type: 'colony/created',
-    version: 1,
-    actors: ['system', 'user'],
-    schema: Schema.object({
+/** How a colony (or a chat round in it) was set up: everything needed to run or resume it. */
+const colonySpec = Schema.object({
+  name: str(),
+  mission: str(),
+  pattern: str(),
+  agents: Schema.array(
+    Schema.object({
       name: str(),
-      mission: str(),
-      pattern: str(),
-      agents: Schema.array(
+      role: str(),
+      model: str(),
+      tools: strs(),
+      specialty: Schema.string(),
+      focus: Schema.string(),
+    }),
+  ).required(),
+  acceptance: Schema.array(Schema.any()).default([]),
+  budget: Schema.object({
+    wallMs: Schema.natural().required(),
+    costUsd: Schema.number(),
+    tokens: Schema.natural(),
+    maxTurns: Schema.natural(),
+  }),
+  unsafeNoSandbox: Schema.boolean().default(false),
+  chat: optional(
+    Schema.object({
+      chatId: str(),
+      round: Schema.natural().required(),
+      request: str(),
+      history: Schema.string(),
+      escalate: Schema.array(oneOf('solo', 'team')).default([]),
+      memory: strs(),
+      project: optional(
         Schema.object({
+          id: str(),
           name: str(),
-          role: str(),
-          model: str(),
-          tools: strs(),
-          specialty: Schema.string(),
-          focus: Schema.string(),
-        }),
-      ).required(),
-      acceptance: Schema.array(Schema.any()).default([]),
-      budget: Schema.object({
-        wallMs: Schema.natural().required(),
-        costUsd: Schema.number(),
-        tokens: Schema.natural(),
-        maxTurns: Schema.natural(),
-      }),
-      unsafeNoSandbox: Schema.boolean().default(false),
-      chat: optional(
-        Schema.object({
-          chatId: str(),
-          round: Schema.natural().required(),
-          request: str(),
-          history: Schema.string(),
-          escalate: Schema.array(oneOf('solo', 'team')).default([]),
-          memory: strs(),
-          project: optional(
+          path: str(),
+          permissions: optional(
             Schema.object({
-              id: str(),
-              name: str(),
-              path: str(),
-              permissions: optional(
-                Schema.object({
-                  mode: oneOf('auto', 'ask', 'read-only'),
-                  allow: Schema.array(Schema.string()).default([]),
-                }),
-              ),
+              mode: oneOf('auto', 'ask', 'read-only'),
+              allow: Schema.array(Schema.string()).default([]),
             }),
           ),
         }),
       ),
-      team: optional(
-        Schema.object({
-          mode: oneOf('orchestrated', 'swarm', 'auto', 'manual'),
-          maxWorkers: Schema.natural().required(),
-          workerModels: strs(),
-        }),
-      ),
-      tier: Schema.union(['answer', 'solo', 'team']),
-      observerMs: Schema.natural(),
-      thinking: Schema.union(['low', 'medium', 'high']),
-      taskJudge: Schema.string(),
-      disabledTools: Schema.array(str()),
     }),
-  },
+  ),
+  team: optional(
+    Schema.object({
+      mode: oneOf('orchestrated', 'swarm', 'auto', 'manual'),
+      maxWorkers: Schema.natural().required(),
+      workerModels: strs(),
+    }),
+  ),
+  tier: Schema.union(['answer', 'solo', 'team']),
+  observerMs: Schema.natural(),
+  thinking: Schema.union(['low', 'medium', 'high']),
+  taskJudge: Schema.string(),
+  disabledTools: Schema.array(str()),
+})
+
+const defs: EventTypeDefinition[] = [
+  { type: 'colony/created', version: 1, actors: ['system', 'user'], schema: colonySpec },
+  { type: 'round/started', version: 1, actors: ['system', 'user'], schema: colonySpec },
   {
     type: 'colony/started',
     version: 1,
@@ -230,7 +229,7 @@ const defs: EventTypeDefinition[] = [
     type: 'checkpoint/created',
     version: 1,
     actors: ['system'],
-    schema: Schema.object({ commit: str(), phase: oneOf('start', 'end') }),
+    schema: Schema.object({ commit: str(), phase: oneOf('start', 'end'), round: Schema.natural() }),
   },
   {
     type: 'checkpoint/restored',
@@ -399,7 +398,7 @@ const defs: EventTypeDefinition[] = [
   {
     type: 'note/appended',
     version: 1,
-    actors: ['agent', 'user'],
+    actors: ['agent', 'user', 'system'],
     schema: Schema.object({
       agent: str(),
       text: str(),

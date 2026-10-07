@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
-import type { MyrEvent } from '@myrmidon/protocol'
+import { foldColony, type MyrEvent } from '@myrmidon/protocol'
 import { CASES } from './cases.ts'
 import {
   type CaseSummary,
@@ -75,8 +75,6 @@ async function events(colonyId: string): Promise<MyrEvent[]> {
   }
 }
 
-const ENDED = new Set(['colony/completed', 'colony/stopped', 'colony/failed'])
-
 const cases = values.cases
   ? values.cases.split(',').map((id) => {
       const c = CASES.find((x) => x.id === id.trim())
@@ -132,26 +130,17 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
     // A runaway still gets a verdict: stop it well past its budget and grade what it did.
     const deadline = Date.now() + (c.budget.seconds * 1.5 + 60) * 1000
     let log: MyrEvent[] = []
-    // A round that escalates hands the request to the chat's next round; the trial follows it there.
-    let colonyId = sent.colonyId
-    const earlier: MyrEvent[] = []
+    // A trial is a new chat: its rounds all run in one colony. A round that escalates hands the request to the
+    // next round there, so the trial ends when the latest round ended without escalating.
+    const colonyId = sent.colonyId
     for (;;) {
-      const own = await events(colonyId)
-      log = [...earlier, ...own]
-      if (own.some((e) => e.type === 'colony/escalated')) {
-        const chats = await call<{ chatId: string; rounds: { colonyId: string }[] }[]>('GET', '/api/chats')
-        const rounds = chats.find((x) => x.chatId === sent.chatId)?.rounds ?? []
-        const next = rounds[rounds.findIndex((r) => r.colonyId === colonyId) + 1]?.colonyId
-        if (next) {
-          earlier.push(...own)
-          colonyId = next
-          continue
-        }
-      } else if (own.some((e) => ENDED.has(e.type))) break
+      log = await events(colonyId)
+      const last = foldColony(colonyId, log).rounds.at(-1)
+      if (last?.endSeq !== undefined && !last.escalated) break
       if (Date.now() > deadline) {
         await call('POST', `/api/chats/${sent.chatId}/stop`, {})
         await Bun.sleep(2000)
-        log = [...earlier, ...(await events(colonyId))]
+        log = await events(colonyId)
         break
       }
       await Bun.sleep(3000)

@@ -1,6 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { BlobStore, type SqliteLogStore } from '@myrmidon/core'
+import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
   type ColonyId,
@@ -8,10 +6,11 @@ import {
   type ColonyStatus,
   type EventPayloads,
   foldColony,
+  type MyrEvent,
   type ProjectPermissions,
+  type RoundInfo,
 } from '@myrmidon/protocol'
 import { completeSimple } from '@oh-my-pi/pi-ai'
-import { compactTranscript, readTranscript } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
@@ -29,15 +28,29 @@ import type { WebTools } from './web.ts'
 
 const MAX_WORKERS = 8
 
+/** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
+interface RoundRef {
+  readonly id: string
+  readonly round: RoundInfo
+  readonly state: ColonyState
+}
+
 /** The team a chat's next round inherits: the latest team round in the same mode, minus dismissed workers. */
-function keptTeam(previous: readonly { state: ColonyState }[], mode: TeamConfig['mode']): AgentInfo[] {
-  const last = [...previous]
-    .reverse()
-    .find((r) => r.state.tier === 'team' && (r.state.team?.mode === 'swarm') === (mode === 'swarm'))
+function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): AgentInfo[] {
+  const swarm = mode === 'swarm'
+  const last = [...previous].reverse().find((r) => r.round.tier === 'team' && r.round.swarm === swarm)
   if (!last) return []
+  // A colony that served several rounds holds every agent it ever had: keep the ones of this kind of team.
+  const role = swarm ? 'peer' : 'worker'
   return Object.values(last.state.agents)
-    .filter((a) => a.info.role !== 'lead' && !a.dismissed && a.status !== 'failed')
+    .filter((a) => a.info.role === role && !a.dismissed && a.status !== 'failed')
     .map((a) => a.info)
+}
+
+/** A round's messages: those logged from its start up to its end. */
+function messagesOf(r: RoundRef) {
+  const end = r.round.endSeq ?? Number.POSITIVE_INFINITY
+  return r.state.chatMessages.filter((m) => m.seq >= r.round.startSeq && m.seq <= end)
 }
 
 export interface RosterEntry {
@@ -185,16 +198,16 @@ const RUBRIC = `Judge whether the colony did what the person asked, completely a
 - The response fits the request: a simple question deserves a direct answer, not a report.
 Score 1.0 only for work you would hand to the person as-is.`
 
-/** The earlier rounds of a chat as `User:` / `Colony:` pairs, for context in the next round. */
-function conversation(previous: { state: ColonyState }[]): string {
+/** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
+function conversation(previous: readonly RoundRef[]): string {
   return (
     previous
       // An escalated round's request was rerun by the next round; listing it would repeat it.
-      .filter(({ state }) => !state.escalated)
-      .map(({ state }) => {
-        const replies = state.chatMessages.filter((m) => m.from !== 'user')
+      .filter((r) => !r.round.escalated)
+      .map((r) => {
+        const replies = messagesOf(r).filter((m) => m.from !== 'user')
         const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-        return `User: ${state.chat?.request ?? ''}\nColony (${state.status}): ${final?.text ?? '(no reply)'}`
+        return `User: ${r.round.request}\nColony (${r.round.status}): ${final?.text ?? '(no reply)'}`
       })
       .join('\n\n')
   )
@@ -250,18 +263,27 @@ export class ChatService {
 
   private readonly _liveState = (id: string) => [...this._live.values()].find((r) => r.id === id)?.state()
 
-  /** One chat's rounds in order, with their full state. */
-  private async rounds(chatId: string): Promise<{ state: ColonyState; id: string }[]> {
+  /**
+   * One chat's rounds in order, each with its colony's state. A chat runs in one colony; chats from before that
+   * have a colony per round, and their next round continues the latest one.
+   */
+  private async rounds(chatId: string): Promise<RoundRef[]> {
     const mine = (await this.index.rounds(this._liveState))
       .filter((r) => r.chatId === chatId)
       .sort((a, b) => a.round - b.round)
-    return Promise.all(
-      mine.map(async (r) => ({
-        id: r.colonyId,
-        state:
-          this._liveState(r.colonyId) ?? foldColony(r.colonyId, await this.store.read(r.colonyId as never)),
-      })),
-    )
+    const states = new Map<string, ColonyState>()
+    const out: RoundRef[] = []
+    for (const r of mine) {
+      let state = states.get(r.colonyId)
+      if (!state) {
+        state =
+          this._liveState(r.colonyId) ?? foldColony(r.colonyId, await this.store.read(r.colonyId as never))
+        states.set(r.colonyId, state)
+      }
+      const round = state.rounds.find((x) => x.round === r.round) ?? state.rounds.at(-1)
+      if (round) out.push({ id: r.colonyId, round, state })
+    }
+    return out
   }
 
   async list(): Promise<ChatSummary[]> {
@@ -307,7 +329,7 @@ export class ChatService {
     config: TeamConfig,
     chatId?: string,
     options: SendOptions = {},
-  ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
+  ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
     const message = text.trim()
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
@@ -327,7 +349,7 @@ export class ChatService {
     message: string,
     config: TeamConfig,
     options: SendOptions,
-  ): Promise<{ chatId: string; colonyId: string; started: boolean }> {
+  ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
     const { delivery = 'steer', attachments = [], planFirst = false } = options
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
@@ -349,7 +371,8 @@ export class ChatService {
     const spec = this.buildSpec(id, message, config, previous, history, tier)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
-    const earlier = previous.at(-1)?.state.chat?.project
+    const latest = previous.at(-1)
+    const earlier = latest?.state.chat?.project
     const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
     const memory = this.options.memory?.recall(project?.id) ?? []
@@ -363,16 +386,26 @@ export class ChatService {
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
+      // A chat's follow-ups continue its colony: same log, files, notes and agents' conversations.
+      ...(latest ? { resumeId: latest.id as ColonyId } : {}),
       projectDiff: () => this._roundDiff(run, project),
     })
-    const prior = previous.at(-1)
-    // The opening message is logged before any agent exists, so it reaches the lead once, via kickoff.
+    // The opening message is logged before any agent works, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
-      await this._checkpoint(run.id, project, 'start', `before: ${message}`)
-      if (prior) await this.carryOver(prior, run)
-      await this.carryTranscripts(previous, run)
-      // A rerun after escalation repeats what the person said in the escalated round; its uploads carried over.
-      const said = prior?.state.escalated ? prior.state.chatMessages.filter((m) => m.from === 'user') : []
+      await this._checkpoint(run.id, project, 'start', `before: ${message}`, spec.chat?.round)
+      const escalated = latest?.round.escalated
+      if (escalated)
+        await run.append({
+          type: 'note/appended',
+          actor: { kind: 'system', id: 'myrmidon' },
+          payload: {
+            agent: 'myrmidon',
+            text: `This request started in a smaller round; ${escalated.by} moved it here because: ${escalated.reason.replace(/[.\s]+$/, '')}. Its files and notes are here.`,
+            section: 'decision',
+          },
+        })
+      // A rerun after escalation repeats what the person said in the escalated round, attachments included.
+      const said = escalated && latest ? messagesOf(latest).filter((m) => m.from === 'user') : []
       const names = [...(said[0]?.attachments ?? []), ...(await run.attach(attachments))]
       await run.append({
         type: 'chat/user',
@@ -391,20 +424,20 @@ export class ChatService {
     })
     this._live.set(id, run)
     try {
-      await run.start()
+      await (latest ? run.continueRound() : run.start())
     } catch (err) {
       this._live.delete(id)
       throw err
     }
     void run.done.finally(() => {
       if (this._live.get(id) === run) this._live.delete(id)
-      void this._checkpoint(run.id, project, 'end', `after: ${message}`)
+      void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
     })
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
     })
-    return { chatId: id, colonyId: run.id, started: true }
+    return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */
@@ -508,6 +541,7 @@ export class ChatService {
     project: { id: string; path: string } | undefined,
     phase: 'start' | 'end',
     label: string,
+    round?: number,
   ) {
     if (!project || !this.options.checkpoints) return
     try {
@@ -515,7 +549,7 @@ export class ChatService {
       await this.runtime.ctx.log.appendOne(colonyId as never, {
         type: 'checkpoint/created',
         actor: { kind: 'system', id: 'myrmidon' },
-        payload: { commit, phase },
+        payload: { commit, phase, ...(round !== undefined ? { round } : {}) },
       })
     } catch (err) {
       console.warn(
@@ -538,27 +572,30 @@ export class ChatService {
     return (await this.options.checkpoints.changes(project, start)).patch
   }
 
-  private async _projectRound(colonyId: string) {
+  /** A round of a chat colony (the latest without `round`) with its project and start snapshot. */
+  private async _projectRound(colonyId: string, round?: number) {
     if (!this.options.checkpoints) throw new Error('checkpoints need the chat runtime')
     const state = foldColony(colonyId, await this.store.read(colonyId as never))
     const project = state.chat?.project
     if (!project) throw new Error('this round has no project folder')
-    if (!state.checkpoints.start) throw new Error('this round has no checkpoint')
-    return { state, project, checkpoints: this.options.checkpoints, start: state.checkpoints.start }
+    const info = round === undefined ? state.rounds.at(-1) : state.rounds.find((r) => r.round === round)
+    const start = info?.checkpoints.start
+    if (!info || !start) throw new Error('this round has no checkpoint')
+    return { state, info, project, checkpoints: this.options.checkpoints, start }
   }
 
   /** What a round changed in its project: from its start to its end, or to now while it runs. */
-  async changes(colonyId: string) {
-    const { state, project, checkpoints, start } = await this._projectRound(colonyId)
-    return checkpoints.changes(project, start, state.checkpoints.end)
+  async changes(colonyId: string, round?: number) {
+    const { info, project, checkpoints, start } = await this._projectRound(colonyId, round)
+    return checkpoints.changes(project, start, info.checkpoints.end)
   }
 
   /**
    * Puts a round's project folder back as it was when the round started (`undo`: reverts the latest rewind).
    * Refused while the chat has a round running, since its agents would be editing the same files.
    */
-  async rewind(colonyId: string, undo = false): Promise<{ changed: number }> {
-    const { state, project, checkpoints, start } = await this._projectRound(colonyId)
+  async rewind(colonyId: string, undo = false, round?: number): Promise<{ changed: number }> {
+    const { state, project, checkpoints, start } = await this._projectRound(colonyId, round)
     const chatId = state.chat?.chatId ?? ''
     if (this._live.get(chatId)?.state().status === 'running')
       throw new Error('stop the running round before rewinding its files')
@@ -606,13 +643,11 @@ export class ChatService {
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
     const last = (await this.rounds(chatId)).at(-1)
     if (!last) throw new Error('no such chat')
-    if (last.state.status === 'completed')
+    if (last.round.status === 'completed')
       throw new Error('the latest round already completed; send a follow-up instead')
-    if (last.state.escalated)
+    if (last.round.escalated)
       throw new Error('this round handed its request to a bigger one; wait for it or send a follow-up')
-    const created = (await this.store.read(last.id as never)).find((e) => e.type === 'colony/created')
-    if (!created) throw new Error('the round has no colony/created event')
-    const spec = this.specFromLog(created.payload as EventPayloads['colony/created'], last.state)
+    const spec = this.specFromLog(await this.store.read(last.id as never))
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -650,15 +685,30 @@ export class ChatService {
     }
     void run.done.finally(() => {
       if (this._live.get(chatId) === run) this._live.delete(chatId)
-      void this._checkpoint(run.id, last.state.chat?.project, 'end', `after resumed round ${run.id}`)
+      void this._checkpoint(
+        run.id,
+        last.state.chat?.project,
+        'end',
+        `after resumed round ${last.round.round}`,
+        last.round.round,
+      )
     })
     return { chatId, colonyId: run.id }
   }
 
-  /** The spec a round was created with, from its colony/created event, including workers it added later. */
-  private specFromLog(created: EventPayloads['colony/created'], state: ColonyState): ColonySpec {
+  /**
+   * The spec the current round started with (colony/created, or round/started for a later round of the chat),
+   * with the workers it added since.
+   */
+  private specFromLog(events: readonly MyrEvent[]): ColonySpec {
+    const start = events.findLast((e) => e.type === 'colony/created' || e.type === 'round/started')
+    if (!start) throw new Error('the colony has no colony/created event')
+    const created = start.payload as EventPayloads['colony/created']
+    const joined = events
+      .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
+      .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
     const notes = this.options.settings?.get().instructions
-    const agents = Object.values(state.agents).map(({ info }) => {
+    const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
       return {
         name: info.name,
@@ -701,12 +751,12 @@ export class ChatService {
       await live.done
       this._live.delete(chatId)
     }
-    const rounds = await this.rounds(chatId)
-    for (const { id } of rounds) {
+    const ids = [...new Set((await this.rounds(chatId)).map((r) => r.id))]
+    for (const id of ids) {
       this.store.deleteColony(id as never)
       this.index.forget(id)
     }
-    return rounds.map((r) => r.id)
+    return ids
   }
 
   async stopAll(): Promise<void> {
@@ -717,7 +767,7 @@ export class ChatService {
     chatId: string,
     request: string,
     config: TeamConfig,
-    previous: { state: ColonyState }[],
+    previous: readonly RoundRef[],
     history: string,
     requested: Tier,
   ): ColonySpec {
@@ -848,90 +898,6 @@ export class ChatService {
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
         workerModels: models,
       },
-    }
-  }
-
-  /**
-   * Gives each agent of a new round the conversation it had in the chat's earlier rounds (the latest round it
-   * was in), compacted so it stays small: recent turns verbatim, older tool output replaced by placeholders.
-   */
-  private async carryTranscripts(previous: { state: ColonyState; id: string }[], run: ColonyRun) {
-    for (const agent of run.spec.agents) {
-      const source = [...previous].reverse().find((r) => r.state.agents[agent.name])
-      if (!source) continue
-      const from = join(this.store.colonyDir(source.id as never), 'agents', `${agent.name}.jsonl`)
-      const messages = compactTranscript(readTranscript(from))
-      if (messages.length === 0) continue
-      const dir = join(run.workspace.colonyDir, 'agents')
-      mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, `${agent.name}.jsonl`), messages.map((m) => `${JSON.stringify(m)}\n`).join(''))
-    }
-  }
-
-  /** Carries the previous round's files and plan into a new round, so follow-ups build on them. */
-  private async carryOver(prior: { state: ColonyState; id: string }, run: ColonyRun) {
-    await this.carryArtifacts(prior, run)
-    for (const { seq: _seq, time: _time, ...tool } of Object.values(prior.state.madeTools))
-      if (!tool.library)
-        await run.append({
-          type: 'tool/created',
-          actor: { kind: 'user', id: 'previous-round' },
-          payload: tool,
-        })
-    const escalated = prior.state.escalated
-    if (escalated) {
-      // Same request, bigger tier: everything the escalated round wrote down still applies.
-      for (const n of prior.state.notes.filter((n) => n.section !== 'plan'))
-        await run.append({
-          type: 'note/appended',
-          actor: { kind: 'user', id: 'previous-round' },
-          payload: {
-            agent: 'previous-round',
-            text: `${n.agent}: ${n.text}`,
-            ...(n.section ? { section: n.section } : {}),
-          },
-        })
-      await run.append({
-        type: 'note/appended',
-        actor: { kind: 'user', id: 'previous-round' },
-        payload: {
-          agent: 'previous-round',
-          text: `This request started in a smaller round; ${escalated.by} moved it here because: ${escalated.reason.replace(/[.\s]+$/, '')}. Its files and notes are carried over.`,
-          section: 'decision',
-        },
-      })
-    }
-    const plan = prior.state.notes.filter((n) => n.section === 'plan').at(-1)
-    if (plan)
-      await run.append({
-        type: 'note/appended',
-        actor: { kind: 'user', id: 'previous-round' },
-        payload: {
-          agent: 'previous-round',
-          text: `Plan from the previous round:\n${plan.text}`,
-          section: 'plan',
-        },
-      })
-  }
-
-  private async carryArtifacts(prior: { state: ColonyState; id: string }, run: ColonyRun) {
-    const source = new BlobStore(join(this.store.colonyDir(prior.id as never), 'blobs'))
-    for (const [name, versions] of Object.entries(prior.state.artifacts)) {
-      const latest = versions.at(-1)
-      if (!latest) continue
-      const { hash, size } = await run.blobs.put(await source.get(latest.blob))
-      await run.append({
-        type: 'artifact/versioned',
-        actor: { kind: 'user', id: 'previous-round' },
-        payload: {
-          name,
-          version: 1,
-          blob: hash,
-          size,
-          author: 'previous-round',
-          mediaType: latest.mediaType,
-        },
-      })
     }
   }
 }
