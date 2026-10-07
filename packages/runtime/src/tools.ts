@@ -779,6 +779,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ id: type('string'), revision: type('number'), artifacts: type('string').array() }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
+      const held = host.state().tasks[args.id]
+      if (held?.owner !== agent || held.status !== 'in_progress')
+        throw new Error(`you do not hold ${args.id}`)
+      // A worker in its own worktree hands its changes to the project folder first, so the reviewer sees them.
+      const merged = await host.mergeWork(agent)
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
         if (task.owner !== agent || task.status !== 'in_progress')
@@ -797,7 +802,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         ]
       })
       host.requestTaskVerification(args.id, agent)
-      return `${args.id} submitted; the verifier will report back`
+      const note = merged.length
+        ? ` (merged ${merged.length} file${merged.length === 1 ? '' : 's'} into the project)`
+        : ''
+      return `${args.id} submitted${note}; the verifier will report back`
     },
   },
   {

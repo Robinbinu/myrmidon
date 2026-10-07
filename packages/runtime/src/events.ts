@@ -160,6 +160,30 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ name: str(), reason: str() }),
   },
   {
+    type: 'worktree/created',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), branch: str(), path: str() }),
+  },
+  {
+    type: 'worktree/merged',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), files: strs() }),
+  },
+  {
+    type: 'worktree/conflict',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), files: strs() }),
+  },
+  {
+    type: 'worktree/closed',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), kept: Schema.boolean().required() }),
+  },
+  {
     type: 'approval/requested',
     version: 1,
     actors: ['agent'],

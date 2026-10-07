@@ -114,6 +114,11 @@ export interface ColonyState {
   >
   /** Dev servers agents started, by name; `stopped` is set once one ends. */
   servers: Record<string, EventPayloads['server/started'] & { time: string; stopped?: string }>
+  /** Workers' git worktrees, by agent: how many merges landed, an open conflict, and whether it was kept at the end. */
+  worktrees: Record<
+    string,
+    EventPayloads['worktree/created'] & { time: string; merges: number; conflict?: string[]; kept?: boolean }
+  >
   /** Tool calls waiting for the person, and how earlier ones were decided. */
   approvals: Record<
     string,
@@ -161,6 +166,7 @@ export function emptyColonyState(id: string): ColonyState {
     checkpoints: {},
     approvals: {},
     servers: {},
+    worktrees: {},
     logins: {},
     verdicts: [],
     signals: [],
@@ -246,6 +252,31 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['server/stopped']
       const server = state.servers[p.name]
       if (server) server.stopped = p.reason
+      break
+    }
+    case 'worktree/created': {
+      const p = event.payload as EventPayloads['worktree/created']
+      state.worktrees[p.agent] = { ...p, time: event.time, merges: 0 }
+      break
+    }
+    case 'worktree/merged': {
+      const tree = state.worktrees[(event.payload as EventPayloads['worktree/merged']).agent]
+      if (tree) {
+        tree.merges += 1
+        delete tree.conflict
+      }
+      break
+    }
+    case 'worktree/conflict': {
+      const p = event.payload as EventPayloads['worktree/conflict']
+      const tree = state.worktrees[p.agent]
+      if (tree) tree.conflict = p.files
+      break
+    }
+    case 'worktree/closed': {
+      const p = event.payload as EventPayloads['worktree/closed']
+      const tree = state.worktrees[p.agent]
+      if (tree) tree.kept = p.kept
       break
     }
     case 'approval/requested': {

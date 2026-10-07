@@ -84,6 +84,11 @@ export interface ColonyHost {
   stopServer(name: string, reason: string): Promise<void>
   /** What this round changed in its project folder, as a unified diff; undefined outside projects. */
   projectDiff(): Promise<string | undefined>
+  /**
+   * Merges an agent's worktree changes into the project folder and returns the files merged (none without a
+   * worktree). Throws, with what to do, when they conflict.
+   */
+  mergeWork(agent: string): Promise<string[]>
 }
 
 export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name })

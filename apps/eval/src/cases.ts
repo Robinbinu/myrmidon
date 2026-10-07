@@ -9,6 +9,22 @@ test('median of an even list', () => expect(median([4, 1, 3, 2])).toBe(2.5))
 test('median of one number', () => expect(median([7])).toBe(7))
 `
 
+const DATES_TEST = `import { expect, test } from 'bun:test'
+import { daysBetween } from './dates.ts'
+
+test('one day', () => expect(daysBetween('2026-01-01', '2026-01-02')).toBe(1))
+test('across a month', () => expect(daysBetween('2026-01-30', '2026-02-02')).toBe(3))
+test('backwards is negative', () => expect(daysBetween('2026-03-10', '2026-03-01')).toBe(-9))
+`
+
+const MONEY_TEST = `import { expect, test } from 'bun:test'
+import { formatCents } from './money.ts'
+
+test('thousands and cents', () => expect(formatCents(123456)).toBe('$1,234.56'))
+test('whole dollars keep two decimals', () => expect(formatCents(500)).toBe('$5.00'))
+test('negative amounts', () => expect(formatCents(-2599)).toBe('-$25.99'))
+`
+
 /**
  * The standard prompts, one or more per pillar. Budgets are generous ceilings that flag runaways, not targets;
  * compare medians across reports to see whether a change made Myrmidon faster or slower.
@@ -78,6 +94,40 @@ export const CASES: EvalCase[] = [
     checks: [
       { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
       { kind: 'unchanged', label: 'tests left alone', file: 'stats.test.ts' },
+    ],
+  },
+  {
+    id: 'coding-team-git',
+    pillar: 'coding',
+    prompt:
+      'This project has two independent modules with failing tests: src/dates.ts and src/money.ts. Have two people fix them in parallel, one module each, without changing any test, and make sure the whole test suite passes.',
+    tiers: ['team'],
+    modes: ['orchestrated', 'swarm'],
+    budget: { seconds: 480, tokens: 1_500_000 },
+    git: true,
+    project: {
+      'package.json': '{ "name": "two-modules", "private": true, "type": "module" }\n',
+      'src/dates.ts':
+        "/** Days from a to b, both 'YYYY-MM-DD'. */\nexport function daysBetween(a: string, b: string): number {\n  return (Date.parse(b) - Date.parse(a)) / 3_600_000\n}\n",
+      'src/dates.test.ts': DATES_TEST,
+      'src/money.ts':
+        '/** Formats cents as dollars, e.g. 123456 -> "$1,234.56". */\nexport function formatCents(cents: number): string {\n  return `$${cents / 100}`\n}\n',
+      'src/money.test.ts': MONEY_TEST,
+    },
+    checks: [
+      { kind: 'command', label: 'bun test passes', run: ['bun', 'test'] },
+      { kind: 'unchanged', label: 'dates test left alone', file: 'src/dates.test.ts' },
+      { kind: 'unchanged', label: 'money test left alone', file: 'src/money.test.ts' },
+      {
+        kind: 'command',
+        label: 'repo still on main, nothing committed',
+        run: [
+          'sh',
+          '-c',
+          'test "$(git rev-parse --abbrev-ref HEAD)" = main && test "$(git rev-list --count HEAD)" = 1',
+        ],
+      },
+      { kind: 'event', label: 'worker changes merged from worktrees', type: /^worktree\/merged$/ },
     ],
   },
   {

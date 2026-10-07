@@ -8,6 +8,8 @@ export type Check =
   | { kind: 'reply'; label: string; matches: RegExp }
   | { kind: 'artifact'; label: string; name: RegExp; contains?: RegExp }
   | { kind: 'tool'; label: string; used: RegExp }
+  /** Some event of a matching type is in the round's log. */
+  | { kind: 'event'; label: string; type: RegExp }
   /** A command run in the case's project folder after the round; exit code 0 passes. */
   | { kind: 'command'; label: string; run: string[] }
   /** A project file must still hold exactly its fixture content (the agent must not "fix" the test). */
@@ -25,6 +27,8 @@ export interface EvalCase {
   budget: { seconds: number; tokens: number }
   /** Fixture files written to a fresh folder that becomes the chat's project. */
   project?: Record<string, string>
+  /** Make the project a git repository with the fixture committed (team rounds then give workers worktrees). */
+  git?: boolean
   /**
    * A local website served for the trial (deterministic, unlike the live web); `{url}` in the prompt becomes its
    * address.
@@ -137,6 +141,8 @@ export function grade(c: EvalCase, view: TrialView, m: Metrics = metrics(view.ev
         )
       case 'tool':
         return tools.some((t) => check.used.test(t))
+      case 'event':
+        return view.events.some((e) => check.type.test(e.type))
       case 'command':
       case 'unchanged':
         return view.local[check.label] === true

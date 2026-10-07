@@ -180,6 +180,44 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
         out.push({ ...base, kind: 'shell', agent: 'system', lead: `Stopped ${p.name}`, tail: p.reason })
         break
       }
+      case 'worktree/created': {
+        const p = e.payload as EventPayloads['worktree/created']
+        out.push({ ...base, kind: 'file', agent: p.agent, lead: 'Works on its own branch', strong: p.branch })
+        break
+      }
+      case 'worktree/merged': {
+        const p = e.payload as EventPayloads['worktree/merged']
+        out.push({
+          ...base,
+          kind: 'file',
+          agent: p.agent,
+          lead: `Merged ${p.files.length} file${p.files.length === 1 ? '' : 's'} into the project`,
+          tail: cut(p.files.join(', '), 120),
+        })
+        break
+      }
+      case 'worktree/conflict': {
+        const p = e.payload as EventPayloads['worktree/conflict']
+        out.push({
+          ...base,
+          kind: 'error',
+          agent: p.agent,
+          lead: 'Merge conflict, sent back to resolve:',
+          tail: cut(p.files.join(', '), 120),
+        })
+        break
+      }
+      case 'worktree/closed': {
+        const p = e.payload as EventPayloads['worktree/closed']
+        if (p.kept)
+          out.push({
+            ...base,
+            kind: 'error',
+            agent: p.agent,
+            lead: 'Kept its branch: it holds changes that were not merged',
+          })
+        break
+      }
       case 'approval/requested': {
         const p = e.payload as EventPayloads['approval/requested']
         asked.set(p.id, p)

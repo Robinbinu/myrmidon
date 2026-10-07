@@ -11,7 +11,7 @@
  */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { MyrEvent } from '@myrmidon/protocol'
 import { CASES } from './cases.ts'
@@ -109,7 +109,18 @@ async function runTrial(c: EvalCase, mode: Mode, trial: number): Promise<TrialRe
   try {
     if (c.project) {
       dir = realpathSync(mkdtempSync(join(tmpdir(), `myr-eval-${c.id}-`)))
-      for (const [name, text] of Object.entries(c.project)) writeFileSync(join(dir, name), text)
+      for (const [name, text] of Object.entries(c.project)) {
+        mkdirSync(dirname(join(dir, name)), { recursive: true })
+        writeFileSync(join(dir, name), text)
+      }
+      if (c.git)
+        for (const args of [
+          ['init', '-q', '-b', 'main'],
+          ['add', '-A'],
+          ['-c', 'user.name=eval', '-c', 'user.email=eval@local', 'commit', '-q', '-m', 'fixture'],
+        ])
+          if (Bun.spawnSync(['git', ...args], { cwd: dir }).exitCode !== 0)
+            throw new Error(`git ${args[0]} failed`)
       projectId = (await call<{ project: { id: string } }>('POST', '/api/projects', { path: dir })).project.id
     }
     const sent = await call<{ chatId: string; colonyId: string }>('POST', '/api/chats', {

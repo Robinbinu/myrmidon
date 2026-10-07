@@ -21,6 +21,7 @@ export function assertArtifactName(name: string): string {
 export class ColonyWorkspace {
   readonly scratchRoot: string
   readonly mirrorRoot: string
+  private readonly _isolated = new Map<string, { workdir: string; branch: string }>()
 
   constructor(
     readonly colonyDir: string,
@@ -39,9 +40,19 @@ export class ColonyWorkspace {
     return realpathSync(dir)
   }
 
-  /** Where an agent's shell starts and its file tools work: the project, or its scratch directory. */
+  /** Where an agent's shell starts and its file tools work: its worktree, the project, or its scratch directory. */
   workdir(agent: string): string {
-    return this.project ?? this.scratch(agent)
+    return this._isolated.get(agent)?.workdir ?? this.project ?? this.scratch(agent)
+  }
+
+  /** Points an agent at its own git worktree of the project instead of the shared folder. */
+  isolate(agent: string, tree: { workdir: string; branch: string }) {
+    this._isolated.set(agent, tree)
+  }
+
+  /** The agent's worktree, if it has one. */
+  isolation(agent: string): { workdir: string; branch: string } | undefined {
+    return this._isolated.get(agent)
   }
 
   /**

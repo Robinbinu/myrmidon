@@ -84,6 +84,7 @@ export class ColonyAgent {
           browser: host.browser !== undefined,
           boundary: host.boundary,
           ...(host.project ? { project: host.project } : {}),
+          ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
         }),
         model: resolved.model,
         tools,

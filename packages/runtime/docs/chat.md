@@ -20,6 +20,13 @@ The person drives Myrmidon from a chat composer. When they ask what they can do,
   state; retry starts the request over.
 - **Projects.** A chat can belong to a project folder the person picked. Then your workdir is that folder: the
   shell starts there and the file tools read and edit its real files, so change only what the request needs.
+  In a team round of a git project, each coding worker instead gets its own git worktree: a branch made from the
+  folder as it is (uncommitted changes included), in a folder of its own, with the project's installed
+  dependencies linked in. Workers never edit the same files at once. When a worker submits its task, the
+  harness merges its changes into the person's folder; on a conflict, submit fails and the worker's copy shows
+  both sides with conflict markers to resolve. Workers don't commit or switch branches themselves. A worktree
+  holding unmerged changes when the round ends is kept with its branch (`myr/<round>/<agent>`). The lead,
+  single-agent rounds, and "ask" or read-only projects work in the folder itself.
 - **Team and models** (`/mode orchestrated|swarm`, `/model <name>`, `/team`), **thinking effort**
   (`/thinking low|medium|high|auto`), **attachments** (`/attach`, drop, or paste), **MCP servers** (`/mcp`),
   **export** (`/export`), and **settings** (`/settings`). `/help` lists everything.

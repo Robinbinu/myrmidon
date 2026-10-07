@@ -29,7 +29,7 @@ import type { McpHub } from './mcp.ts'
 import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
-import { attachedNote, snapshot, toolsFor } from './patterns.ts'
+import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
@@ -37,6 +37,7 @@ import { guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
 import { ColonyWorkspace } from './workspace.ts'
+import { ProjectWorktrees } from './worktrees.ts'
 
 export interface Runtime {
   readonly ctx: Context
@@ -174,6 +175,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
   private readonly _todos = new Map<string, readonly TodoItem[]>()
+  /** Opened on the first worker that needs a worktree; null once known not to be a git project. */
+  private _worktrees?: ProjectWorktrees | null
 
   constructor(
     private readonly runtime: Runtime,
@@ -564,6 +567,7 @@ export class ColonyRun implements ColonyHost {
             actor: SYSTEM,
             payload: { agent: 'library', ...tool, library: true },
           })
+    for (const a of this.spec.agents) await this._isolate(a.name)
     for (const a of this.spec.agents) {
       const agent = new ColonyAgent(a, this, this.resolver, { restore: true })
       agent.turn = this._state.agents[a.name]?.turns ?? 0
@@ -727,6 +731,7 @@ export class ColonyRun implements ColonyHost {
         focus: `${label}: ${focus}`,
       },
     })
+    await this._isolate(name)
     const agent = new ColonyAgent(spec, this, this.resolver)
     this._agents.set(name, agent)
     agent.run().catch((err) => {
@@ -774,8 +779,62 @@ export class ColonyRun implements ColonyHost {
       })
   }
 
+  /**
+   * Gives a coding worker of a team round its own git worktree, so parallel workers never edit the same files.
+   * The lead, single-agent rounds, and "ask" or read-only projects keep working in the folder itself.
+   */
+  private async _isolate(name: string) {
+    const project = this.spec.chat?.project
+    const agent = this.spec.agents.find((a) => a.name === name)
+    if (!agent || !project || this._worktrees === null) return
+    if (
+      (project.permissions?.mode ?? 'auto') !== 'auto' ||
+      this.spec.tier !== 'team' ||
+      isLead(this.spec, agent)
+    )
+      return
+    if (!toolsFor(this.spec, agent).some((t) => t === 'fs_write' || t === 'fs_edit' || t === 'shell')) return
+    try {
+      this._worktrees ??=
+        (await ProjectWorktrees.open(project.path, join(this.workspace.colonyDir, 'worktrees'), this.id)) ??
+        null
+      if (!this._worktrees) return
+      const tree = await this._worktrees.create(name)
+      this.workspace.isolate(name, tree)
+      if (!this._state.worktrees[name])
+        await this.append({
+          type: 'worktree/created',
+          actor: SYSTEM,
+          payload: { agent: name, branch: tree.branch, path: tree.path },
+        })
+    } catch (err) {
+      // Without a worktree the worker still works, in the shared folder as before.
+      console.error(`worktree for ${name} failed:`, err)
+    }
+  }
+
+  async mergeWork(agent: string): Promise<string[]> {
+    if (!this._worktrees || !this.workspace.isolation(agent)) return []
+    const result = await this._worktrees.merge(agent)
+    if (result.kind === 'nothing') return []
+    if (result.kind === 'merged') {
+      await this.append({ type: 'worktree/merged', actor: SYSTEM, payload: { agent, files: result.files } })
+      return result.files
+    }
+    await this.append({ type: 'worktree/conflict', actor: SYSTEM, payload: { agent, files: result.files } })
+    throw new Error(
+      `your changes conflict with what others changed in the project, in ${result.files.join(', ')}. Your worktree now has both sides, marked with <<<<<<< ======= >>>>>>>: keep what both changes need, remove the markers, run the checks, and submit again.`,
+    )
+  }
+
   async requestFinalVerification(by: string, summary: string): Promise<string> {
     if (this._finalRunning) return 'a final verification is already running; wait for its verdicts'
+    // The judge checks the project folder, so every worker's changes land there first.
+    const conflicts: string[] = []
+    for (const name of Object.keys(this._state.worktrees))
+      await this.mergeWork(name).catch((err: Error) => conflicts.push(`${name}: ${err.message}`))
+    if (conflicts.length)
+      return `NOT VERIFIED: workers' changes could not be merged into the project yet.\n${conflicts.join('\n')}\nAsk those workers to resolve the conflicts in their worktrees and submit again, then request verification.`
     this._finalRunning = true
     this._verifying += 1
     try {
@@ -1259,6 +1318,8 @@ export class ColonyRun implements ColonyHost {
   private async _end() {
     for (const name of [...this._servers.keys()])
       await this.stopServer(name, 'the round ended').catch(() => {})
+    for (const { agent, kept } of (await this._worktrees?.close()) ?? [])
+      await this.append({ type: 'worktree/closed', actor: SYSTEM, payload: { agent, kept } }).catch(() => {})
     for (const agent of [...this._logins.keys()]) await this.finishLogin(agent, 'stopped').catch(() => false)
     // Nothing may stay waiting on the person once the round is over.
     for (const id of [...this._approvals.keys()])

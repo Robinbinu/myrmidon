@@ -144,6 +144,14 @@ export interface EventPayloads {
   /** An agent started a long-running process (a dev server) reachable at `url` on this machine. */
   'server/started': { agent: string; name: string; command: string; url: string }
   'server/stopped': { name: string; reason: string }
+  /** A worker in a git project got its own worktree: a branch made from the folder as it was, in a folder of its own. */
+  'worktree/created': { agent: string; branch: string; path: string }
+  /** The harness merged a worker's worktree changes into the project folder. */
+  'worktree/merged': { agent: string; files: string[] }
+  /** A worker's changes conflict with the project; its worktree now holds both sides with conflict markers. */
+  'worktree/conflict': { agent: string; files: string[] }
+  /** The round ended: the worktree is removed, or `kept` (with its branch) because it holds unmerged changes. */
+  'worktree/closed': { agent: string; kept: boolean }
   'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
   'checkpoint/created': { commit: string; phase: 'start' | 'end' }

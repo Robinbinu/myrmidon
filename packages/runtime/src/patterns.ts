@@ -272,6 +272,8 @@ export interface Environment {
   readonly web: boolean
   readonly browser: boolean
   readonly project?: ProjectContext
+  /** The agent's own git worktree of the project, when it has one. */
+  readonly worktree?: { workdir: string; branch: string }
 }
 
 type Effort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
@@ -298,7 +300,11 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     `Today is ${date} (${now.toLocaleDateString('en-US', { weekday: 'long' })}), ${zone}. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
   ]
   const project = spec.chat?.project
-  if (project)
+  if (project && env.worktree)
+    lines.push(
+      `Project: "${project.name}". You work in your own copy of it, a git worktree at ${env.worktree.workdir} (branch ${env.worktree.branch}), so your edits never collide with other workers'; your file tools and shell work there. When you submit_task, the harness merges your changes into the person's folder at ${project.path}; do not commit, switch branches, or edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your copy shows both sides with conflict markers to resolve. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory.`,
+    )
+  else if (project)
     lines.push(
       `Project: "${project.name}" at ${project.path}. This is the person's real folder: your file tools and shell work here, and changes are real. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory, not the project.`,
     )
