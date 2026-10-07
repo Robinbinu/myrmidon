@@ -730,7 +730,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           ]
         }),
       )
-      return `claimed ${taskLine((e.payload as EventPayloads['task/changed']).task)}`
+      // A task often builds on work merged since this worker's worktree was made; start it from the latest code.
+      const updated = await host.refreshWork(agent)
+      const note = updated.length
+        ? `\nYour worktree now has the project's latest changes (${updated.slice(0, 8).join(', ')}${updated.length > 8 ? ', …' : ''}).`
+        : ''
+      return `claimed ${taskLine((e.payload as EventPayloads['task/changed']).task)}${note}`
     },
   },
   {
@@ -768,6 +773,44 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         return [taskEvent(agent, { ...rest, revision: task.revision + 1, status: 'pending' })]
       })
       return `released ${args.id}`
+    },
+  },
+  {
+    name: 'reject_task',
+    tier: 'write',
+    description:
+      'Send a submitted or verified task back to its owner when the work falls short. The reason is required and ' +
+      'goes to the owner, who claims the task again and fixes it: name the exact gap and what done looks like.',
+    parameters: type({
+      id: type('string'),
+      revision: type('number'),
+      reason: type('string').atLeastLength(10).describe('What is wrong or missing, specifically'),
+    }),
+    async run(args, agent, host) {
+      if (args.id === 'task-final') throw new Error(FINAL_HINT)
+      if (host.spec.pattern === 'lead-workers' && host.state().agents[agent]?.info.role !== 'lead')
+        throw new Error('only the lead sends tasks back; post what you found with @lead instead')
+      await host.appendAtomic((s) => {
+        const task = requireTask(s, args.id)
+        if (task.revision !== args.revision)
+          throw new Error(`stale revision: ${task.id} is at r${task.revision}; re-read with read_task`)
+        if (task.status !== 'submitted' && task.status !== 'verified')
+          throw new Error(`${task.id} is ${task.status}; only submitted or verified work can be sent back`)
+        if (task.owner === agent)
+          throw new Error('you own this task: keep working on it instead of rejecting it')
+        return [
+          {
+            type: 'task/changed',
+            actor: agentActor(agent),
+            payload: {
+              task: { ...task, revision: task.revision + 1, status: 'rejected' },
+              by: agent,
+              reason: args.reason,
+            },
+          },
+        ]
+      })
+      return `sent ${args.id} back to ${host.state().tasks[args.id]?.owner ?? 'its owner'} with your reason`
     },
   },
   {

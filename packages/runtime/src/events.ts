@@ -173,6 +173,12 @@ const defs: EventTypeDefinition[] = [
     schema: Schema.object({ agent: str(), files: strs() }),
   },
   {
+    type: 'worktree/updated',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ agent: str(), files: strs() }),
+  },
+  {
     type: 'worktree/conflict',
     version: 1,
     actors: ['system'],
@@ -396,7 +402,7 @@ const defs: EventTypeDefinition[] = [
     type: 'task/changed',
     version: 1,
     actors: ['agent', 'system', 'verifier'],
-    schema: Schema.object({ task, by: str() }),
+    schema: Schema.object({ task, by: str(), reason: Schema.string() }),
   },
   {
     type: 'artifact/versioned',

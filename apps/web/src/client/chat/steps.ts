@@ -135,8 +135,9 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             ...base,
             kind: 'error',
             agent: p.by,
-            lead: 'Task needs rework:',
+            lead: p.reason ? `Sent ${p.task.id} back:` : 'Task needs rework:',
             strong: cut(p.task.subject, 90),
+            ...(p.reason ? { tail: cut(p.reason, 140) } : {}),
           })
         break
       }
@@ -203,6 +204,17 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           kind: 'file',
           agent: p.agent,
           lead: `Merged ${p.files.length} file${p.files.length === 1 ? '' : 's'} into the project`,
+          tail: cut(p.files.join(', '), 120),
+        })
+        break
+      }
+      case 'worktree/updated': {
+        const p = e.payload as EventPayloads['worktree/updated']
+        out.push({
+          ...base,
+          kind: 'file',
+          agent: p.agent,
+          lead: `Brought ${p.files.length} changed file${p.files.length === 1 ? '' : 's'} from the project into its branch`,
           tail: cut(p.files.join(', '), 120),
         })
         break

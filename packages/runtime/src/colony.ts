@@ -829,6 +829,17 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
+  async refreshWork(agent: string): Promise<string[]> {
+    if (!this._worktrees || !this.workspace.isolation(agent)) return []
+    const result = await this._worktrees.refresh(agent).catch((err) => {
+      console.error(`refreshing ${agent}'s worktree failed:`, err)
+      return { kind: 'nothing' } as const
+    })
+    if (result.kind !== 'merged') return []
+    await this.append({ type: 'worktree/updated', actor: SYSTEM, payload: { agent, files: result.files } })
+    return result.files
+  }
+
   async mergeWork(agent: string): Promise<string[]> {
     if (!this._worktrees || !this.workspace.isolation(agent)) return []
     const result = await this._worktrees.merge(agent)
@@ -1005,28 +1016,29 @@ export class ColonyRun implements ColonyHost {
         for (const t of targets) notify(t, `${p.kind} (${p.severity}): ${p.facts}`, `observer:${p.kind}`)
         break
       }
-      case 'verifier/verdict': {
-        const p = e.payload as EventPayloads['verifier/verdict']
-        if (!p.target.startsWith('task:')) break
-        const task = this._state.tasks[p.target.slice(5)]
-        if (task?.owner) {
-          notify(task.owner, `${task.id} ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}`, 'verdict')
-        }
-        // Leads coordinate integration, so they hear about every task outcome, not only their own.
-        for (const lead of this.spec.agents.filter((a) => a.role === 'lead' && a.name !== task?.owner)) {
-          const open = Object.values(this._state.tasks).filter(
-            (t) => t.status !== 'verified' && t.status !== 'deleted',
-          )
-          notify(
-            lead.name,
-            `${task?.id ?? p.target} by ${task?.owner ?? '?'} was ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — integrate and send the final answer'}`,
-            'verdict',
-          )
-        }
-        break
-      }
       case 'task/changed': {
         const p = e.payload as EventPayloads['task/changed']
+        // Task verdicts are announced once the task's status reflects them, so nobody acts on a task that is
+        // still marked submitted, and a verdict on work already sent back is not announced at all.
+        if (p.by === 'verifier' && (p.task.status === 'verified' || p.task.status === 'rejected')) {
+          const task = p.task
+          const pass = task.status === 'verified'
+          const evidence =
+            this._state.verdicts.filter((v) => v.target === `task:${task.id}`).at(-1)?.evidence ?? ''
+          if (task.owner)
+            notify(task.owner, `${task.id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`, 'verdict')
+          // Leads coordinate integration, so they hear about every task outcome, not only their own.
+          for (const lead of this.spec.agents.filter((a) => a.role === 'lead' && a.name !== task.owner)) {
+            const open = Object.values(this._state.tasks).filter(
+              (t) => t.status !== 'verified' && t.status !== 'deleted',
+            )
+            notify(
+              lead.name,
+              `${task.id} r${task.revision} by ${task.owner ?? '?'} was ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}. Open tasks: ${open.map((t) => `${t.id}[${t.status}]`).join(', ') || 'none — integrate and send the final answer'}`,
+              'verdict',
+            )
+          }
+        }
         const creator = this._agents.get(p.by)
         if (creator?.working) {
           const queued = this._afterBatch.get(p.by) ?? []
@@ -1115,6 +1127,16 @@ export class ColonyRun implements ColonyHost {
 
   private _announceTask(p: EventPayloads['task/changed'], unblocked = false) {
     const t = p.task
+    // Work sent back with a reason goes straight to whoever did it, even if it was assigned to them before.
+    const redo = t.owner ?? t.assignee
+    if (t.status === 'rejected' && p.reason && redo) {
+      this._wake(
+        redo,
+        `${p.by} sent ${t.id} back: ${p.reason}\n\nClaim it again (r${t.revision}), fix exactly that, and submit it.\n${t.subject}\n${t.description}`,
+        'task',
+      )
+      return
+    }
     const open = t.status === 'pending' || t.status === 'rejected' || t.id === 'task-final'
     // Waking someone for a task they cannot claim yet only costs a turn; they hear once it is unblocked.
     if (open && !this._ready(t)) return

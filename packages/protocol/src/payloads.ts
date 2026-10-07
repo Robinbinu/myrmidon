@@ -152,6 +152,8 @@ export interface EventPayloads {
   'worktree/created': { agent: string; branch: string; path: string }
   /** The harness merged a worker's worktree changes into the project folder. */
   'worktree/merged': { agent: string; files: string[] }
+  /** A worker's worktree took in what others merged into the project since it was made, before a new task. */
+  'worktree/updated': { agent: string; files: string[] }
   /** A worker's changes conflict with the project; its worktree now holds both sides with conflict markers. */
   'worktree/conflict': { agent: string; files: string[] }
   /** The round ended: the worktree is removed, or `kept` (with its branch) because it holds unmerged changes. */
@@ -209,7 +211,8 @@ export interface EventPayloads {
   'mail/sent': { from: string; to: string; subject: string; body: string }
   /** `mail` is a mail/sent event, or a chat/user message the agent has now read. */
   'mail/delivered': { mail: EventId; to: string }
-  'task/changed': { task: TaskSnapshot; by: string }
+  /** `reason` says why, when an agent sent the task back (reject_task). */
+  'task/changed': { task: TaskSnapshot; by: string; reason?: string }
   'artifact/versioned': {
     name: string
     version: number

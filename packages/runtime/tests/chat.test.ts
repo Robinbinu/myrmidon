@@ -1619,6 +1619,89 @@ test('the judge of a research round checks the cited pages, reusing what the age
   await chats.stopAll()
 })
 
+test('the lead sends verified work back with a reason, and its owner redoes it', async () => {
+  const resolver = new ModelResolver()
+  type Msg = LlmContext['messages'][number]
+  const calls = (ctx: LlmContext, name: string) =>
+    ctx.messages
+      .filter((m: Msg) => m.role === 'assistant')
+      .flatMap((m: Msg) => (Array.isArray(m.content) ? m.content : []))
+      .filter(
+        (c) =>
+          (c as { type?: string; name?: string }).type === 'toolCall' &&
+          (c as { name?: string }).name === name,
+      ).length
+  const specialist = (ctx: LlmContext) =>
+    /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const seen = JSON.stringify(ctx.messages)
+      const verified = seen.split('was VERIFIED').length - 1
+      if (calls(ctx, 'create_task') === 0)
+        return {
+          content: [
+            tool('create_task', {
+              subject: 'Write a haiku',
+              assignee: specialist(ctx),
+              outputs: ['haiku.txt'],
+            }),
+          ],
+        }
+      if (verified === 1 && calls(ctx, 'reject_task') === 0)
+        return {
+          content: [
+            tool('reject_task', {
+              id: 'task-1',
+              revision: 4,
+              reason: 'It has four lines; a haiku has three.',
+            }),
+          ],
+        }
+      if (verified >= 2 && calls(ctx, 'reply_user') === 0)
+        return { content: [tool('reply_user', { text: 'haiku.txt is ready.', final: true })] }
+      return { content: ['waiting'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  const writer = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const redo = JSON.stringify(ctx.messages).includes('sent task-1 back') ? 1 : 0
+      if (calls(ctx, 'claim_task') === redo)
+        return { content: [tool('claim_task', { id: 'task-1', revision: redo ? 5 : 1 })] }
+      if (calls(ctx, 'publish_artifact') === redo)
+        return {
+          content: [
+            tool('publish_artifact', { name: 'haiku.txt', content: redo ? 'a\nb\nc\n' : 'a\nb\nc\nd\n' }),
+          ],
+        }
+      if (calls(ctx, 'submit_task') === redo)
+        return {
+          content: [tool('submit_task', { id: 'task-1', revision: redo ? 6 : 2, artifacts: ['haiku.txt'] })],
+        }
+      return { content: ['done'] }
+    },
+  })
+  resolver.register('mock/writer', { model: writer.model, streamFn: writer.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Write a haiku', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  const changes = (await events(colonyId))
+    .filter((e) => e.type === 'task/changed')
+    .map((e) => e.payload as EventPayloads['task/changed'])
+  const sentBack = changes.find((c) => c.task.status === 'rejected')
+  expect(sentBack).toMatchObject({ by: 'lead', reason: 'It has four lines; a haiku has three.' })
+  expect(changes.filter((c) => c.task.status === 'verified')).toHaveLength(2)
+  expect(s.tasks['task-1']?.status).toBe('verified')
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

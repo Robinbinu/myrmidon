@@ -140,6 +140,43 @@ export class ProjectWorktrees {
     return next
   }
 
+  /**
+   * Brings what others merged into the folder since this worktree was made (or last synced) into it, keeping the
+   * worker's own unmerged changes, so a task that starts later builds on the latest code. A conflict leaves the
+   * worktree as it is; the worker meets it when it submits.
+   */
+  refresh(agent: string): Promise<MergeResult> {
+    const next = this._queue.then(() => this._refresh(agent))
+    this._queue = next.catch(() => {})
+    return next
+  }
+
+  private async _refresh(agent: string): Promise<MergeResult> {
+    const tree = this._trees.get(agent)
+    if (!tree) return { kind: 'nothing' }
+    const tip = await this.commitWork(tree, `${agent}: work`)
+    const base = (await git(this.top, ['rev-parse', tree.baseRef])).trim()
+    const current = await this.snapshot()
+    if ((await this.treeOf(current)) === (await this.treeOf(base))) return { kind: 'nothing' }
+    const m = await run(this.top, [
+      'merge-tree',
+      '--write-tree',
+      '--name-only',
+      '--no-messages',
+      `--merge-base=${base}`,
+      current,
+      tip,
+    ])
+    if (m.code !== 0 && m.code !== 1) throw new Error(`git merge-tree failed: ${m.err.trim()}`)
+    const [merged = '', ...conflicted] = m.out.trim().split('\n')
+    if (m.code === 1) return { kind: 'conflict', files: [...new Set(conflicted.filter(Boolean))] }
+    const files = (await git(this.top, ['diff', '--name-only', tip, merged])).split('\n').filter(Boolean)
+    await git(tree.path, ['read-tree', '--reset', '-u', merged])
+    await this.commitWork(tree, `${agent}: bring in the project's current state`)
+    await git(this.top, ['update-ref', tree.baseRef, current])
+    return files.length ? { kind: 'merged', files } : { kind: 'nothing' }
+  }
+
   private async _merge(agent: string): Promise<MergeResult> {
     const tree = this._trees.get(agent)
     if (!tree) return { kind: 'nothing' }

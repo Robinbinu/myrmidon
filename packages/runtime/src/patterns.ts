@@ -82,7 +82,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [...READ, 'append_note', 'publish_artifact', ...BUILD, ...USER, ...escalation]
     if (spec.team?.mode === 'swarm')
-      return [...READ, ...TALK, 'create_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
+      return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
     if (isLead(spec, agent)) {
       const spawn = (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 ? ['spawn_worker'] : []
       // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
@@ -95,6 +95,7 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...TALK,
         'create_task',
         'assign_task',
+        'reject_task',
         ...HOLD,
         'publish_artifact',
         ...USER,
@@ -106,9 +107,9 @@ function roleTools(spec: ColonySpec, agent: AgentSpec): string[] {
   }
   const work = ['publish_artifact', ...BUILD]
   if (isLead(spec, agent))
-    return [...READ, ...TALK, 'create_task', ...HOLD, ...work, 'request_final_verification']
+    return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, ...work, 'request_final_verification']
   if (spec.pattern === 'lead-workers') return [...READ, ...TALK, ...HOLD, ...work]
-  return [...READ, ...TALK, 'create_task', ...HOLD, ...work, 'request_final_verification']
+  return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, ...work, 'request_final_verification']
 }
 
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
@@ -256,8 +257,8 @@ ${roster(spec, agent)}${extra > 0 ? `\nYou may add up to ${extra} more with spaw
     Not in scope: what another task covers.
   Vague briefs ("research X") make workers duplicate each other, miss parts, or stop early.
 - While workers run, stay quiet: do not ask for status. You hear every verdict and any mail or @lead post.
-- When results arrive, read the files yourself and check them against the request. Send rework with assign_task
-  and a specific brief rather than accepting gaps.
+- When results arrive, read the files yourself and check them against the request. If one falls short, send it
+  back with reject_task and a reason naming the exact gap; its owner fixes it. Do not accept gaps.
 - When every task is verified, send the complete final answer with reply_user(final: true), written for the
   person: what was delivered, where, how to use it, and any caveats.
 - A worker's "done" is a claim until you have read the files. If something is incomplete, send a corrective task

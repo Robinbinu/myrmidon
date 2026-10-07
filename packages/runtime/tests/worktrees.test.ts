@@ -106,3 +106,28 @@ test('a folder outside git has no worktrees', async () => {
   mkdirSync(plain)
   expect(await ProjectWorktrees.open(plain, join(dir, 'worktrees'), 'col-5')).toBeUndefined()
 })
+
+test('a worktree takes in what others merged since it was made, keeping its own unmerged work', async () => {
+  const trees = await ProjectWorktrees.open(repo, join(dir, 'worktrees'), 'col-6')
+  if (!trees) throw new Error('expected a git project')
+  const ada = await trees.create('ada')
+  const bo = await trees.create('bo')
+  writeFileSync(join(ada.workdir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+  expect(await trees.merge('ada')).toEqual({ kind: 'merged', files: ['a.txt'] })
+
+  // bo, idle until now, starts its task on the latest code.
+  writeFileSync(join(bo.workdir, 'c.txt'), 'bo started this\n')
+  expect(await trees.refresh('bo')).toEqual({ kind: 'merged', files: ['a.txt'] })
+  expect(readFileSync(join(bo.workdir, 'a.txt'), 'utf8')).toBe('one\ntwo\nthree\nfour\n')
+  expect(readFileSync(join(bo.workdir, 'c.txt'), 'utf8')).toBe('bo started this\n')
+  expect(await trees.refresh('bo')).toEqual({ kind: 'nothing' })
+  // Its merge carries only its own change, not ada's again.
+  expect(await trees.merge('bo')).toEqual({ kind: 'merged', files: ['c.txt'] })
+  expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('one\ntwo\nthree\nfour\n')
+
+  // A refresh that would conflict leaves the worktree alone.
+  writeFileSync(join(repo, 'b.txt'), 'bee (lead)\n')
+  writeFileSync(join(bo.workdir, 'b.txt'), 'bee (bo)\n')
+  expect(await trees.refresh('bo')).toEqual({ kind: 'conflict', files: ['b.txt'] })
+  expect(readFileSync(join(bo.workdir, 'b.txt'), 'utf8')).toBe('bee (bo)\n')
+})
