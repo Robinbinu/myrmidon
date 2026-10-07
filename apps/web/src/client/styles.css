@@ -4,6 +4,8 @@
 
 /* Theme switching is driven by tokens on :root, so utilities need no dark: variants. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+/* In a plain browser there are no window buttons in the title bar, so the app shows its own mark there. */
+@custom-variant browser (&:where([data-shell="browser"], [data-shell="browser"] *));
 
 @theme inline {
   --font-sans: var(--font);
@@ -207,4 +209,21 @@
 .check-line .spring-check__word {
   display: block;
   min-width: 0;
+}
+
+/* Controls inside a draggable title bar stay clickable in the desktop shell. */
+.drag-region :is(button, a, input, select, textarea, [role="button"], [role="separator"]) {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* An inactive window greys its selection and dims its title bars, as macOS does. */
+:root[data-window-active="false"] {
+  --row-selected: var(--row-selected-inactive);
+}
+[data-toolbar] > * {
+  transition: opacity var(--fast) var(--ease);
+}
+:root[data-window-active="false"] [data-toolbar] > * {
+  opacity: 0.55;
 }
