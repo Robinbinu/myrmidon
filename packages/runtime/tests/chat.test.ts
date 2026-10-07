@@ -702,6 +702,77 @@ test('plan mode presents the plan for approval before any work, and thinking can
   expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')
 })
 
+test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
+  const site = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const path = new URL(req.url).pathname
+      if (path === '/data.csv')
+        return new Response('a,b\n1,2\n', {
+          headers: { 'content-type': 'text/csv', 'content-disposition': 'attachment; filename="data.csv"' },
+        })
+      if (path === '/other')
+        return new Response('<title>Other</title><h1>Second page</h1>', {
+          headers: { 'content-type': 'text/html' },
+        })
+      return new Response(
+        `<title>Home</title><a href="/data.csv">Get data</a> <a href="/other" target="_blank">Open other</a>
+           <input type="file" aria-label="Report" onchange="document.title = 'got ' + this.files[0].name">`,
+        { headers: { 'content-type': 'text/html' } },
+      )
+    },
+  })
+  const base = `http://localhost:${site.port}`
+  const browser = new BrowserHub(join(home, 'browser'))
+  const resolver = new ModelResolver()
+  let snapshot = ''
+  const refFor = (name: string) =>
+    new RegExp(`\\[(e\\d+)\\][^\\n]*${name}|${name}[^\\n]*\\[(e\\d+)\\]`).exec(snapshot)
+  const ref = (name: string) => {
+    const m = refFor(name)
+    return m?.[1] ?? m?.[2] ?? 'e0'
+  }
+  const agentModel = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const last = ctx.messages.at(-1) as { content?: { text?: string }[] } | undefined
+      const text = last?.content?.map((c) => c.text ?? '').join('') ?? ''
+      if (text.includes('url:')) snapshot = text
+      const n = ctx.messages.filter((m) => m.role === 'assistant').length
+      const steps = [
+        () => [tool('browser_open', { url: `${base}/` })],
+        () => [tool('browser_click', { ref: ref('Get data') })],
+        () => [tool('browser_downloads', {})],
+        () => [tool('browser_click', { ref: ref('Open other') })],
+        () => [tool('browser_tabs', { switch: 1 })],
+        () => [tool('fs_write', { path: 'report.txt', content: 'hello' })],
+        () => [tool('browser_upload', { ref: ref('Report'), path: 'report.txt' })],
+        () => [tool('browser_tabs', { close: 2 })],
+        () => [tool('reply_user', { text: 'Done.', final: true })],
+      ]
+      return { content: steps[n]?.() ?? ['done'] }
+    },
+  })
+  resolver.register('mock/surfer', { model: agentModel.model, streamFn: agentModel.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+  const { colonyId } = await chats.send('Use the site', { ...solo('mock/surfer'), judgeModel: 'mock/judge' })
+  await waitFor(colonyId)
+  const out = (await events(colonyId))
+    .filter((e) => e.type === 'tool/result')
+    .map((e) => e.payload as EventPayloads['tool/result'])
+  const of = (tool: string, i = 0) => out.filter((r) => r.tool === tool)[i]?.output ?? ''
+  expect(of('browser_downloads')).toContain('downloads/data.csv (8 bytes)')
+  // The link with target=_blank opened a second tab and the browser switched to it.
+  expect(of('browser_click', 1)).toContain('Second page')
+  expect(of('browser_tabs', 0)).toMatch(/\* 1\. Home — http/)
+  expect(of('browser_tabs', 0)).toMatch(/ {2}2\. Other — http/)
+  expect(of('browser_upload')).toContain('Chose report.txt')
+  expect(of('browser_upload')).toContain('title: got report.txt')
+  expect(of('browser_tabs', 1)).not.toContain('Other')
+  await browser.close()
+  site.stop(true)
+})
+
 test.skipIf(!findChrome())(
   'request_login waits for the person to sign in and hand the browser back',
   async () => {

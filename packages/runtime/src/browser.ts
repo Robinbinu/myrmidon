@@ -30,7 +30,11 @@ export type LiveInput =
   | { type: 'navigate'; url: string }
 
 interface Tab {
-  readonly page: Page
+  /** The page the agent is on; `pages` are all its open pages, in the order they opened. */
+  page: Page
+  readonly pages: Page[]
+  /** Where downloads land, when the agent has a scratch directory. */
+  readonly downloads?: string
   /** Element refs from the latest snapshot. */
   refs: Map<string, SerializedAXNode>
   readonly logs: string[]
@@ -125,41 +129,27 @@ export class BrowserHub {
     return this._browser
   }
 
-  /** The agent's tab in this colony, opened on first use. */
-  tab(colony: string, agent: string): Promise<Tab> {
+  /**
+   * The agent's browser in this colony, opened on first use. It can hold several pages (links that open a new
+   * window are followed); `downloads` is the folder its downloads land in.
+   */
+  tab(colony: string, agent: string, options: { downloads?: string } = {}): Promise<Tab> {
     const key = `${colony}/${agent}`
     let tab = this._tabs.get(key)
     if (!tab) {
       tab = (async () => {
         const page = await (await this._launch()).newPage()
-        const logs: string[] = []
-        const log = (line: string) => {
-          logs.push(line)
-          if (logs.length > LOG_LIMIT) logs.shift()
-        }
-        page.on('console', (m) => log(`console.${m.type()}: ${m.text()}`))
-        page.on('pageerror', (e) => log(`page error: ${e instanceof Error ? e.message : String(e)}`))
-        page.on('requestfailed', (r) =>
-          log(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`),
-        )
-        page.on('response', (r) => {
-          if (r.status() >= 400) log(`HTTP ${r.status()}: ${r.url()}`)
-        })
         const tab: Tab = {
           page,
+          pages: [],
+          ...(options.downloads ? { downloads: options.downloads } : {}),
           refs: new Map(),
-          logs,
+          logs: [],
           watchers: new Set(),
           cursor: { x: VIEWPORT.width / 2, y: VIEWPORT.height / 2 },
           controlledBy: 'agent',
         }
-        page.on('framenavigated', (frame) => {
-          if (frame === page.mainFrame())
-            void page.title().then(
-              (title) => emit(tab, { type: 'page', url: page.url(), title }),
-              () => {},
-            )
-        })
+        await adopt(tab, page)
         return tab
       })()
       this._tabs.set(key, tab)
@@ -199,37 +189,10 @@ export class BrowserHub {
     onEvent({ type: 'page', url: tab.page.url(), title: await tab.page.title().catch(() => '') })
     onEvent({ type: 'control', by: tab.controlledBy })
     onEvent({ type: 'cursor', ...tab.cursor, action: 'move' })
-    if (!tab.cdp) {
-      const cdp = await tab.page.createCDPSession()
-      tab.cdp = cdp
-      cdp.on(
-        'Page.screencastFrame',
-        (f: { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } }) => {
-          emit(tab, {
-            type: 'frame',
-            data: f.data,
-            width: f.metadata.deviceWidth,
-            height: f.metadata.deviceHeight,
-          })
-          void cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
-        },
-      )
-      await cdp.send('Page.startScreencast', {
-        format: 'jpeg',
-        quality: 70,
-        maxWidth: VIEWPORT.width,
-        maxHeight: VIEWPORT.height,
-      })
-    }
+    if (!tab.cdp) await startScreencast(tab)
     return () => {
       tab.watchers.delete(onEvent)
-      if (tab.watchers.size > 0 || !tab.cdp) return
-      const cdp = tab.cdp
-      tab.cdp = undefined
-      void cdp
-        .send('Page.stopScreencast')
-        .then(() => cdp.detach())
-        .catch(() => {})
+      if (tab.watchers.size === 0) stopScreencast(tab)
     }
   }
 
@@ -277,7 +240,7 @@ export class BrowserHub {
     const tabs = [...this._tabs.entries()].filter(([k]) => k.startsWith(prefix))
     for (const [key, tab] of tabs) {
       this._tabs.delete(key)
-      await tab.then((t) => t.page.close()).catch(() => {})
+      await tab.then((t) => Promise.all(t.pages.map((p) => p.close().catch(() => {})))).catch(() => {})
     }
   }
 
@@ -353,6 +316,98 @@ export async function pageElement(tab: Tab, ref: string): Promise<ElementHandle>
 }
 
 export type { Tab as BrowserTab }
+
+/** Wires a page into an agent's browser: its logs, live-view page events, popups, and downloads. */
+async function adopt(tab: Tab, page: Page): Promise<void> {
+  const log = (line: string) => {
+    tab.logs.push(line)
+    if (tab.logs.length > LOG_LIMIT) tab.logs.shift()
+  }
+  page.on('console', (m) => log(`console.${m.type()}: ${m.text()}`))
+  page.on('pageerror', (e) => log(`page error: ${e instanceof Error ? e.message : String(e)}`))
+  page.on('requestfailed', (r) => log(`request failed: ${r.url()} (${r.failure()?.errorText ?? 'unknown'})`))
+  page.on('response', (r) => {
+    if (r.status() >= 400) log(`HTTP ${r.status()}: ${r.url()}`)
+  })
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame() && page === tab.page)
+      void page.title().then(
+        (title) => emit(tab, { type: 'page', url: page.url(), title }),
+        () => {},
+      )
+  })
+  // A link that opens a new window is followed, the way a person's browser switches to it.
+  page.on('popup', (popup) => {
+    if (popup) void adopt(tab, popup).then(() => switchPage(tab, popup))
+  })
+  page.on('close', () => {
+    const i = tab.pages.indexOf(page)
+    if (i >= 0) tab.pages.splice(i, 1)
+    const next = tab.pages.at(-1)
+    if (page === tab.page && next) void switchPage(tab, next)
+  })
+  if (tab.downloads) {
+    mkdirSync(tab.downloads, { recursive: true })
+    const session = await page.createCDPSession()
+    await session
+      .send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: tab.downloads })
+      .catch(() => {})
+  }
+  tab.pages.push(page)
+}
+
+/** Makes another of the agent's pages the active one; the live view follows. */
+export async function switchPage(tab: Tab, page: Page): Promise<void> {
+  if (tab.page === page) return
+  const streaming = tab.cdp !== undefined
+  if (streaming) stopScreencast(tab)
+  tab.page = page
+  tab.refs = new Map()
+  await page.bringToFront().catch(() => {})
+  if (streaming) await startScreencast(tab)
+  emit(tab, { type: 'page', url: page.url(), title: await page.title().catch(() => '') })
+}
+
+/** Opens a new page in the agent's browser and switches to it. */
+export async function openPage(tab: Tab): Promise<Page> {
+  const page = await tab.page.browser().newPage()
+  await adopt(tab, page)
+  await switchPage(tab, page)
+  return page
+}
+
+async function startScreencast(tab: Tab): Promise<void> {
+  const cdp = await tab.page.createCDPSession()
+  tab.cdp = cdp
+  cdp.on(
+    'Page.screencastFrame',
+    (f: { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } }) => {
+      emit(tab, {
+        type: 'frame',
+        data: f.data,
+        width: f.metadata.deviceWidth,
+        height: f.metadata.deviceHeight,
+      })
+      void cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
+    },
+  )
+  await cdp.send('Page.startScreencast', {
+    format: 'jpeg',
+    quality: 70,
+    maxWidth: VIEWPORT.width,
+    maxHeight: VIEWPORT.height,
+  })
+}
+
+function stopScreencast(tab: Tab): void {
+  const cdp = tab.cdp
+  if (!cdp) return
+  tab.cdp = undefined
+  void cdp
+    .send('Page.stopScreencast')
+    .then(() => cdp.detach())
+    .catch(() => {})
+}
 
 function emit(tab: Tab, e: LiveEvent) {
   for (const fn of tab.watchers) fn(e)

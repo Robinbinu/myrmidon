@@ -18,6 +18,9 @@ const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
   'browser_open',
   'request_login',
+  'browser_tabs',
+  'browser_downloads',
+  'browser_upload',
   'browser_snapshot',
   'browser_click',
   'browser_type',

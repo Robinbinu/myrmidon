@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ColonyState, EventDraft, EventPayloads, TaskSnapshot } from '@myrmidon/protocol'
@@ -16,10 +16,12 @@ import {
   assertAgentControl,
   type BrowserTab,
   doneWith,
+  openPage,
   pageElement,
   pageSnapshot,
   pointAt,
   refLabel,
+  switchPage,
   watched,
 } from './browser.ts'
 import { agentActor, type ColonyHost } from './host.ts'
@@ -149,7 +151,9 @@ const FINAL_HINT =
 
 async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> {
   if (!host.browser) throw new Error('no browser here: Chrome is not installed on this machine')
-  const tab = await host.browser.tab(host.id, agent)
+  const tab = await host.browser.tab(host.id, agent, {
+    downloads: join(host.workspace.scratch(agent), 'downloads'),
+  })
   assertAgentControl(tab)
   return tab
 }
@@ -308,6 +312,8 @@ async function guardProjectCommand(host: ColonyHost, agent: string, tool: string
 /** Tools whose results are outside content an agent must treat as data, never as instructions. */
 const UNTRUSTED = new Set([
   'request_login',
+  'browser_tabs',
+  'browser_upload',
   'web_search',
   'web_fetch',
   'browser_open',
@@ -1220,6 +1226,92 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         )
       const after = await browserTab(host, agent)
       return `The person signed in to ${args.site} and handed the browser back.\n${await pageSnapshot(after)}`
+    },
+  },
+  {
+    name: 'browser_tabs',
+    tier: 'write',
+    description:
+      'Your browser can have several pages open, like tabs. With no arguments, lists them (the active one is marked). ' +
+      '`open` opens a URL in a new tab and switches to it (to compare pages or keep a results list while you read ' +
+      'one); `switch` makes another tab active; `close` closes one. Links that open a new window switch to it ' +
+      'automatically. Returns the tab list, and the active page when it changed.',
+    parameters: type({
+      'open?': type('string').describe('URL to open in a new tab'),
+      'switch?': type('number').describe('Tab number to switch to'),
+      'close?': type('number').describe('Tab number to close'),
+    }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      let changed = false
+      if (args.close !== undefined) {
+        const page = tab.pages[args.close - 1]
+        if (!page) throw new Error(`no tab ${args.close}`)
+        if (tab.pages.length === 1) throw new Error('that is your only tab; open another first')
+        await page.close()
+        changed = true
+      }
+      if (args.open !== undefined) {
+        if (!/^https?:/.test(args.open)) throw new Error('open must be an http(s) URL')
+        const page = await openPage(tab)
+        await page.goto(args.open, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
+        changed = true
+      }
+      if (args.switch !== undefined) {
+        const page = tab.pages[args.switch - 1]
+        if (!page) throw new Error(`no tab ${args.switch}`)
+        await switchPage(tab, page)
+        changed = true
+      }
+      const list = await Promise.all(
+        tab.pages.map(
+          async (p, i) =>
+            `${p === tab.page ? '*' : ' '} ${i + 1}. ${(await p.title().catch(() => '')) || '(untitled)'} — ${p.url()}`,
+        ),
+      )
+      if (changed) await keyframe(host, agent, tab, 'open')
+      return `Tabs:\n${list.join('\n')}${changed ? `\n\n${await pageSnapshot(tab)}` : ''}`
+    },
+  },
+  {
+    name: 'browser_downloads',
+    tier: 'read',
+    description:
+      'Files your browser downloaded this round (clicking a download link or button saves them). They are in your ' +
+      'scratch directory under downloads/: read them with fs_read, process them with the shell, or publish them.',
+    parameters: type({}),
+    async run(_args, agent, host) {
+      const dir = join(host.workspace.scratch(agent), 'downloads')
+      const files = (() => {
+        try {
+          return readdirSync(dir).filter((f) => !f.endsWith('.crdownload'))
+        } catch {
+          return []
+        }
+      })()
+      if (files.length === 0) return 'No downloads yet. A download starts when you click its link or button.'
+      return files.map((f) => `downloads/${f} (${statSync(join(dir, f)).size} bytes)`).join('\n')
+    },
+  },
+  {
+    name: 'browser_upload',
+    tier: 'write',
+    description:
+      'Choose a file for a file input on the page (an upload field), by its ref from the latest snapshot. The file ' +
+      'comes from your working directory or scratch, e.g. a report you wrote or something you downloaded.',
+    parameters: type({ ref: type('string'), path: type('string').describe('File path, e.g. report.pdf') }),
+    async run(args, agent, host) {
+      const tab = await browserTab(host, agent)
+      const file = host.workspace.resolveInWorkdir(agent, args.path)
+      if (!existsSync(file)) throw new Error(`no such file: ${args.path}`)
+      const handle = await pageElement(tab, args.ref)
+      const isFile = await handle.evaluate((el) => el instanceof HTMLInputElement && el.type === 'file')
+      if (!isFile)
+        throw new Error(`${args.ref} is not a file input; pick the element whose role says file upload`)
+      await (handle as unknown as { uploadFile(...paths: string[]): Promise<void> }).uploadFile(file)
+      await keyframe(host, agent, tab, 'type', refLabel(tab, args.ref))
+      return `Chose ${args.path} for ${args.ref}.\n${await pageSnapshot(tab)}`
     },
   },
   {
