@@ -3,6 +3,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
+import { AWAITING_USER } from './colony.ts'
 
 /** What the chat list needs from one round, without the round's full log. */
 export interface IndexedRound {
@@ -15,6 +16,8 @@ export interface IndexedRound {
   readonly createdAt?: string
   readonly endedAt?: string
   readonly swarm: boolean
+  /** The round stopped to wait for the person's answer. */
+  readonly awaiting?: boolean
   readonly title?: { readonly title: string; readonly at: string }
   readonly project?: { readonly id: string; readonly name: string }
 }
@@ -102,6 +105,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
   const chat = s.chat
   if (!chat) return []
   const title = s.chatTitle
+  const last = s.rounds.at(-1)
   return s.rounds.map((r) => ({
     colonyId,
     chatId: chat.chatId,
@@ -112,6 +116,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     createdAt: r.startedAt,
     ...(r.endedAt ? { endedAt: r.endedAt } : {}),
     swarm: r.swarm,
+    ...(r === last && s.status === 'stopped' && s.statusReason === AWAITING_USER ? { awaiting: true } : {}),
     ...(title ? { title: { title: title.title, at: title.at } } : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),
   }))

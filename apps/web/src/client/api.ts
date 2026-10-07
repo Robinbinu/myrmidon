@@ -248,6 +248,8 @@ export interface ChatSummary {
   title: string
   updatedAt: string
   status: string
+  /** The latest round stopped to wait for the person's answer. */
+  awaiting?: boolean
   rounds: ChatRound[]
   /** The project folder the chat works in. */
   project?: { id: string; name: string }

@@ -152,6 +152,8 @@ export interface ChatSummary {
   readonly title: string
   readonly updatedAt: string
   readonly status: ColonyStatus
+  /** The latest round stopped to wait for the person's answer. */
+  readonly awaiting?: boolean
   readonly rounds: ChatRound[]
   /** The project folder the chat works in, if any. */
   readonly project?: { readonly id: string; readonly name: string }
@@ -270,6 +272,7 @@ export class ChatService {
         ...(first.project ? { project: first.project } : {}),
         updatedAt: last.endedAt ?? last.createdAt ?? '',
         status: last.status,
+        ...(last.awaiting ? { awaiting: true } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,

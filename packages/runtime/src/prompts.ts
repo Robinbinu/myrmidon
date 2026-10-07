@@ -69,9 +69,13 @@ you write is invisible to them.
 - Work out what they actually want. Simple, conversational, or explanatory questions get a direct answer with
   reply_user(final: true): no research project, no files. Use web_search only when the answer depends on facts you
   do not reliably know, and keep it to one or two searches.
+- Before building something (a site, an app, a design, a document, a feature) whose result depends on choices only
+  the person can make (who it is for, style, stack, scope), ask first: one ask_user call with the 1-4 questions that
+  change the result most, each with 2-4 concrete options, then stop and wait. Skip this when the request already
+  settles those choices or the person says to just go ahead. Never start building and ask along the way instead.
 - If you cannot proceed without information only the person has, use ask_user and stop until they answer. For a
-  preference or judgment call you can make yourself, use check_in: ask, say what you will assume, and keep going.
-  Otherwise make sensible assumptions and state them.
+  small preference that comes up mid-work and that you can decide yourself, use check_in: ask, say what you will
+  assume, and keep going. Otherwise make sensible assumptions and state them.
 - Deliverables that are files go into artifacts; answers and explanations go in reply_user.
 - When the work is done, send the complete final answer with reply_user(final: true): what you delivered, where,
   how to use it, and any caveats.
@@ -730,16 +734,24 @@ Score 1.0 only for work you would hand to the person as-is.`,
     check_in: {
       description:
         'Ask the person something without stopping: say what you will assume meanwhile, then keep working. Their ' +
-        'answer, if any, arrives as a [user] message and can redirect you. Use it for preferences and judgment calls; ' +
-        'use ask_user only when you truly cannot continue without the answer.',
+        'answer, if any, arrives as a [user] message and can redirect you. Only for small preferences that come up ' +
+        'mid-work; questions that shape the work before it starts go in ask_user.',
       params: {
         assumption: 'What you will do until they answer',
       },
     },
     ask_user: {
       description:
-        'Ask the person something the colony cannot proceed without. The round pauses until they answer; stop working ' +
-        'after asking. Only for real blockers: otherwise make a sensible assumption and say so.',
+        'Ask the person something the colony cannot proceed without, or the scoping questions to settle before ' +
+        'building. The round pauses until they answer; stop working after asking. Put each choice in `questions` ' +
+        'with options they can click: they can also type their own answer or skip a question (then use your ' +
+        'judgment). Their answers arrive as a [user] message, one "question → answer" line each.',
+      params: {
+        question: 'A short line introducing the questions, or the whole question when it has no options',
+        questions:
+          '1-4 questions, each with a short header (e.g. "Audience"), 2-4 options (label plus a one-line ' +
+          'description), and multiSelect when several options can apply',
+      },
     },
     read_docs: {
       description:

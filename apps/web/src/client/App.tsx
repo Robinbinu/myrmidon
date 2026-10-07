@@ -582,8 +582,10 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(running ? 'running' : chat.status)}>
-                      {running ? copy.app.working : chat.status}
+                    <Pill
+                      tone={chat.awaiting && !running ? 'accent' : toneFor(running ? 'running' : chat.status)}
+                    >
+                      {running ? copy.app.working : chat.awaiting ? copy.app.waitingForYou : chat.status}
                     </Pill>
                   )}
                 </ToolbarTitle>
@@ -665,6 +667,7 @@ export function App() {
                         {...(chat ? { chat } : {})}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
+                        onAnswer={(t) => void send(t).catch(() => {})}
                         onResume={resume}
                         models={models}
                         sending={busy}
@@ -773,6 +776,7 @@ function Transcript(props: {
   chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
+  onAnswer(text: string): void
   onResume(model?: string): Promise<void>
   models: ModelOption[]
   /** A message is on its way to the server; retry stays disabled until it lands. */
@@ -812,6 +816,7 @@ function Transcript(props: {
                 round={r.round}
                 onOpenColony={props.onOpenColony}
                 onRetry={props.onRetry}
+                onAnswer={props.onAnswer}
                 onResume={props.onResume}
                 models={props.models}
                 retry={

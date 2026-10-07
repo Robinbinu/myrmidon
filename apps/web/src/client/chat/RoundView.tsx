@@ -48,6 +48,7 @@ import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
 import { currentStep, deriveSteps } from './steps.ts'
@@ -107,6 +108,8 @@ export function RoundView(props: {
   round?: number
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Sends the person's answer to the questions the round is waiting on. */
+  onAnswer(text: string): void
   /** Picks a stopped round back up where it left off, optionally on another model. */
   onResume(model?: string): Promise<void>
   models: ModelOption[]
@@ -153,15 +156,25 @@ export function RoundView(props: {
         live={state.status === 'running'}
       />
     ) : (
-      <AgentMessage
-        key={m.id}
-        from={m.from}
-        text={m.text}
-        final={m.final}
-        plain={solo}
-        {...(m.assumption ? { assumption: m.assumption } : {})}
-        onInspect={() => setInspect(m.from)}
-      />
+      <div key={m.id} className="flex flex-col">
+        <AgentMessage
+          from={m.from}
+          text={m.text}
+          final={m.final}
+          plain={solo}
+          {...(m.assumption ? { assumption: m.assumption } : {})}
+          onInspect={() => setInspect(m.from)}
+        />
+        {m.choices && (
+          <div className="pl-11">
+            <QuestionCard
+              choices={m.choices}
+              open={latest && state.statusReason === AWAITING && m === state.chatMessages.at(-1)}
+              onAnswer={props.onAnswer}
+            />
+          </div>
+        )}
+      </div>
     )
   // Files this round wrote; earlier rounds' files are still in the colony but belong to their own rounds.
   const from = info?.startSeq ?? 0
@@ -967,6 +980,9 @@ function Outcome({
       </motion.div>
     )
   }
+  // Questions with options are their own call to answer; the banner would only repeat it.
+  if (state.status === 'stopped' && state.statusReason === AWAITING && state.chatMessages.at(-1)?.choices)
+    return null
   if (state.status === 'stopped' && state.statusReason === AWAITING) {
     return (
       <motion.div

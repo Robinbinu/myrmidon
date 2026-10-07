@@ -534,6 +534,18 @@ export const copy = {
     },
   },
 
+  questions: {
+    skip: 'Skip',
+    unskip: 'Answer',
+    skipAll: 'Skip all, you decide',
+    send: 'Send answers',
+    pickAny: 'Pick any that apply',
+    other: 'Other: type your own answer',
+    otherFor: (question: string) => `Your own answer to: ${question}`,
+    /** What the agent reads for a skipped question. */
+    skippedAnswer: '(skipped: use your judgment)',
+  },
+
   roundChanges: {
     checking: (project: string) => `Checking changes in ${project}…`,
     /** "Rewound <project> to before this round", split around the project name. */
@@ -933,6 +945,7 @@ export const copy = {
     newTaskTitle: (combo: string) => `New task (${combo})`,
     /** Status pill beside the chat title while a round runs. */
     working: 'working',
+    waitingForYou: 'waiting for you',
     workspace: 'Workspace',
     workspaceTitle: 'Workspace (⌘J)',
     crewButton: 'Crew',

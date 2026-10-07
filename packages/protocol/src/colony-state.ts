@@ -5,6 +5,7 @@ import type {
   ColonyStatus,
   EventPayloads,
   NoteSection,
+  QuestionChoice,
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
@@ -96,6 +97,8 @@ export interface ChatEntry extends Entry {
   readonly question?: boolean
   /** A check-in: the work goes on assuming this until the user answers. */
   readonly assumption?: string
+  /** Options the user can click to answer (ask_user). */
+  readonly choices?: readonly QuestionChoice[]
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
   /** Agents that have read this message (mid-run user messages only). */
@@ -411,6 +414,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: p.final,
         ...(p.question ? { question: true } : {}),
         ...(p.assumption ? { assumption: p.assumption } : {}),
+        ...(p.choices?.length ? { choices: p.choices } : {}),
       })
       touch(state, p.agent, event.seq)
       break

@@ -2235,6 +2235,40 @@ test('ask_user pauses the round until the person answers', async () => {
   expect(s.signals.filter((x) => x.kind === 'stall')).toHaveLength(0)
 })
 
+test('ask_user can offer options to click, and the round waits for the answer', async () => {
+  const resolver = new ModelResolver()
+  const questions = [
+    {
+      question: 'Who is the site for?',
+      header: 'Audience',
+      options: [
+        { label: 'Me', description: 'A personal portfolio' },
+        { label: 'A studio', description: 'An agency site' },
+      ],
+    },
+    {
+      question: 'Which pages?',
+      header: 'Pages',
+      options: [{ label: 'Work' }, { label: 'About' }, { label: 'Contact' }],
+      multiSelect: true,
+    },
+  ]
+  scripted(resolver, 'mock/lead', [
+    [tool('ask_user', { question: 'A few choices before I start:', questions })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('build me a portfolio site', solo('mock/lead'))
+  const s = await waitFor(colonyId)
+  expect(s.statusReason).toBe('awaiting your reply')
+  expect(s.chatMessages.at(-1)).toMatchObject({
+    question: true,
+    text: 'A few choices before I start:',
+    choices: questions,
+  })
+  await chats.stopAll()
+})
+
 test('older auto/manual team configs still work', () => {
   expect(
     normalizeTeamConfig({

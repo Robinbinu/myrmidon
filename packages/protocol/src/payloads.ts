@@ -239,7 +239,15 @@ export interface EventPayloads {
    * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the
    * work goes on; until they do, the agent proceeds on this assumption (check_in).
    */
-  'chat/reply': { agent: string; text: string; final: boolean; question?: boolean; assumption?: string }
+  'chat/reply': {
+    agent: string
+    text: string
+    final: boolean
+    question?: boolean
+    assumption?: string
+    /** Questions with options the person can click (ask_user); they may also type an answer or skip one. */
+    choices?: QuestionChoice[]
+  }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   'chat/renamed': { title: string }
   'colony/failed': { reason: string }
@@ -291,3 +299,20 @@ export interface EventPayloads {
 }
 
 export type EventType = keyof EventPayloads
+
+/** One option of a question an agent asks. */
+export interface QuestionOption {
+  readonly label: string
+  /** What picking it means, in a line. */
+  readonly description?: string
+}
+
+/** A question an agent asks with options to click, as Claude Code's AskUserQuestion does. */
+export interface QuestionChoice {
+  readonly question: string
+  /** A short tag, e.g. "Audience". */
+  readonly header?: string
+  readonly options: readonly QuestionOption[]
+  /** Several options can be picked. */
+  readonly multiSelect?: boolean
+}

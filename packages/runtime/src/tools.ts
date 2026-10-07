@@ -1285,14 +1285,34 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'ask_user',
     tier: 'write',
     description: prompts.tools.ask_user.description,
-    parameters: type({ question: type('string').atLeastLength(3) }),
+    parameters: type({
+      question: type('string').atLeastLength(3).describe(prompts.tools.ask_user.params.question),
+      'questions?': type({
+        question: type('string').atLeastLength(3),
+        'header?': type('string').atMostLength(20),
+        options: type({ label: type('string').atLeastLength(1), 'description?': 'string' })
+          .array()
+          .atLeastLength(2)
+          .atMostLength(4),
+        'multiSelect?': 'boolean',
+      })
+        .array()
+        .atMostLength(4)
+        .describe(prompts.tools.ask_user.params.questions),
+    }),
     async run(args, agent, host) {
       const last = host.state().chatMessages.at(-1)
       if (last?.question) throw new Error('a question to the person is already open; wait for the answer')
       await host.append({
         type: 'chat/reply',
         actor: agentActor(agent),
-        payload: { agent, text: args.question, final: false, question: true },
+        payload: {
+          agent,
+          text: args.question,
+          final: false,
+          question: true,
+          ...(args.questions?.length ? { choices: args.questions } : {}),
+        },
       })
       return prompts.toolResults.asked
     },

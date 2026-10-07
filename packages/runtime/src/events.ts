@@ -330,6 +330,14 @@ const defs: EventTypeDefinition[] = [
       final: Schema.boolean().default(false),
       question: Schema.boolean(),
       assumption: Schema.string(),
+      choices: Schema.array(
+        Schema.object({
+          question: str(),
+          header: Schema.string(),
+          options: Schema.array(Schema.object({ label: str(), description: Schema.string() })).required(),
+          multiSelect: Schema.boolean(),
+        }),
+      ),
     }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
