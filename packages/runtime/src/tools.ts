@@ -1,7 +1,22 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { ColonyState, EventDraft, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  type ConversationLine,
+  conversationsOf,
+  crewOf,
+  type EventDraft,
+  type EventPayloads,
+  GROUP_NAME,
+  groupMembers,
+  linesOf,
+  type MyrEvent,
+  mentionsIn,
+  resolveConversation,
+  type TaskSnapshot,
+  TEAM_CHAT,
+} from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type } from '@oh-my-pi/pi-ai'
 import * as natives from '@oh-my-pi/pi-natives'
@@ -143,8 +158,6 @@ function inCallOrder<T>(host: ColonyHost, agent: string, run: () => Promise<T>):
   return next
 }
 
-const MENTION = /@([a-z][a-z0-9-]{0,31})/g
-
 // Words every task subject shares; they say nothing about which task it is.
 const FILLER = new Set(
   'the and for with from into about this that each all its are using use write build create make research draft add implement framework frameworks task tasks report file files code page'.split(
@@ -218,7 +231,6 @@ async function artifactUrl(host: ColonyHost, name: string): Promise<string> {
 /** All a swarm peer may do during the opening huddle: look around and talk. */
 const HUDDLE_TOOLS = new Set([
   'read_task',
-  'read_board',
   'read_notes',
   'list_agents',
   'list_tasks',
@@ -226,9 +238,8 @@ const HUDDLE_TOOLS = new Set([
   'read_artifact',
   'observe',
   'read_docs',
-  'post',
-  'send_mail',
-  'read_mail',
+  'message',
+  'read_messages',
 ])
 
 // A peer-made "final answer" task would block task-final, which only appears once every other task is verified.
@@ -538,34 +549,6 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'read_board',
-    tier: 'read',
-    description: prompts.tools.read_board.description,
-    parameters: type({ 'limit?': type('number').describe(prompts.tools.read_board.params.limit) }),
-    async run(args, _agent, host) {
-      const posts = host.state().board.slice(-(args.limit ?? 30))
-      return posts.map((p) => `#${p.seq} ${p.agent}: ${p.text}`).join('\n') || '(board is empty)'
-    },
-  },
-  {
-    name: 'post',
-    tier: 'write',
-    description: prompts.tools.post.description,
-    parameters: type({ text: type('string').describe(prompts.tools.post.params.text).atLeastLength(1) }),
-    async run(args, agent, host) {
-      const known = new Set(Object.keys(host.state().agents))
-      const mentions = [...new Set([...args.text.matchAll(MENTION)].map((m) => m[1] as string))].filter((m) =>
-        known.has(m),
-      )
-      const e = await host.append({
-        type: 'board/posted',
-        actor: agentActor(agent),
-        payload: { agent, text: args.text, mentions },
-      })
-      return `posted #${e.seq}${mentions.length ? ` (notified ${mentions.join(', ')})` : ''}`
-    },
-  },
-  {
     name: 'append_note',
     tier: 'write',
     description: prompts.tools.append_note.description,
@@ -621,54 +604,142 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'send_mail',
+    name: 'message',
     tier: 'write',
-    description: prompts.tools.send_mail.description,
+    description: prompts.tools.message.description,
     parameters: type({
-      to: type('string'),
-      'subject?': type('string'),
-      body: type('string').atLeastLength(1),
-      'reply_to?': type('number').describe(prompts.tools.send_mail.params.reply_to),
+      to: type('string').describe(prompts.tools.message.params.to),
+      text: type('string').atLeastLength(1).describe(prompts.tools.message.params.text),
+      'reply_to?': type('number').describe(prompts.tools.message.params.reply_to),
     }),
     async run(args, agent, host) {
-      if (!host.state().agents[args.to]) throw new Error(`no such agent: ${args.to}`)
-      if (args.to === agent) throw new Error('you cannot mail yourself')
-      const answered =
-        args.reply_to === undefined ? undefined : host.state().mail.find((m) => m.seq === args.reply_to)
-      if (args.reply_to !== undefined && (!answered || (answered.to !== agent && answered.from !== agent)))
-        throw new Error(`#${args.reply_to} is not a mail you sent or received`)
-      await host.append({
+      const state = host.state()
+      if (args.to === agent) throw new Error('you cannot message yourself')
+      const chat = resolveConversation(state, agent, args.to)
+      if (chat.kind === 'direct' && !crewOf(state).includes(args.to))
+        throw new Error(
+          `no such teammate or group: ${args.to}. Teammates: ${crewOf(state).join(', ')}; groups: ${Object.keys(state.groups).join(', ') || 'none'}; or "team"`,
+        )
+      if (chat.kind === 'group' && !chat.members.includes(agent))
+        throw new Error(`you are not in the group ${args.to}; ask a member to add you`)
+      if (args.reply_to !== undefined && !linesOf(state, chat.id).some((l) => l.seq === args.reply_to))
+        throw new Error(`#${args.reply_to} is not a message in your conversation with ${args.to}`)
+      const replyTo = args.reply_to !== undefined ? { replyTo: args.reply_to } : {}
+      if (chat.kind === 'team') {
+        const mentions = mentionsIn(args.text, chat.members).filter((m) => m !== agent)
+        const e = await host.append({
+          type: 'board/posted',
+          actor: agentActor(agent),
+          payload: { agent, text: args.text, mentions, ...replyTo },
+        })
+        return `sent #${e.seq} to the team chat${mentions.length ? ` (woke ${mentions.join(', ')})` : ''}`
+      }
+      const e = await host.append({
         type: 'mail/sent',
         actor: agentActor(agent),
         payload: {
           from: agent,
           to: args.to,
-          subject: args.subject ?? (answered?.subject ? `Re: ${answered.subject.replace(/^Re: /, '')}` : ''),
-          body: args.body,
-          ...(answered ? { replyTo: answered.seq } : {}),
+          subject: '',
+          body: args.text,
+          ...replyTo,
+          ...(chat.kind === 'group' ? { members: [...chat.members] } : {}),
         },
       })
-      return `mail sent to ${args.to}`
+      return `sent #${e.seq} to ${args.to}`
     },
   },
   {
-    name: 'read_mail',
-    tier: 'read',
-    description: prompts.tools.read_mail.description,
-    parameters: type({ 'limit?': type('number') }),
+    name: 'create_group',
+    tier: 'write',
+    description: prompts.tools.create_group.description,
+    parameters: type({
+      name: type('string').describe(prompts.tools.create_group.params.name),
+      members: type('string').array().atLeastLength(1).describe(prompts.tools.create_group.params.members),
+      'text?': type('string').describe(prompts.tools.create_group.params.text),
+    }),
     async run(args, agent, host) {
-      const all = host.state().mail
-      const mail = all.filter((m) => m.to === agent || m.from === agent).slice(-(args.limit ?? 20))
-      const answered = (m: (typeof all)[number]) =>
-        all.some((r) => r.from === agent && r.to === m.from && (r.replyTo === m.seq || r.seq > m.seq))
+      const state = host.state()
+      const crew = crewOf(state)
+      if (!GROUP_NAME.test(args.name))
+        throw new Error('name must be 2-31 lowercase letters, digits and dashes')
+      if (args.name === TEAM_CHAT || state.agents[args.name] || state.groups[args.name])
+        throw new Error(`"${args.name}" is taken; choose another name`)
+      const unknown = args.members.filter((m: string) => !crew.includes(m))
+      if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
+      const members = [...new Set([agent, ...args.members])]
+      if (members.length < 2) throw new Error('a group needs at least one teammate besides you')
+      await host.append({
+        type: 'group/created',
+        actor: agentActor(agent),
+        payload: { name: args.name, members, by: agent },
+      })
+      if (!args.text) return `group ${args.name} created with ${members.join(', ')}`
+      const e = await host.append({
+        type: 'mail/sent',
+        actor: agentActor(agent),
+        payload: { from: agent, to: args.name, subject: '', body: args.text, members },
+      })
+      return `group ${args.name} created with ${members.join(', ')}; sent #${e.seq}`
+    },
+  },
+  {
+    name: 'update_group',
+    tier: 'write',
+    description: prompts.tools.update_group.description,
+    parameters: type({
+      name: type('string'),
+      'add?': type('string').array(),
+      'remove?': type('string').array(),
+    }),
+    async run(args, agent, host) {
+      const state = host.state()
+      const members = groupMembers(state, args.name)
+      if (!state.groups[args.name]) throw new Error(`no such group: ${args.name}`)
+      if (!members.includes(agent)) throw new Error(`you are not in the group ${args.name}`)
+      const add = (args.add ?? []).filter((m: string) => !members.includes(m))
+      const unknown = add.filter((m: string) => !crewOf(state).includes(m))
+      if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
+      const remove = (args.remove ?? []).filter((m: string) => members.includes(m))
+      if (!add.length && !remove.length) return 'nothing to change'
+      await host.append({
+        type: 'group/changed',
+        actor: agentActor(agent),
+        payload: { name: args.name, add, remove, by: agent },
+      })
+      return `${args.name}: ${[...add.map((m: string) => `added ${m}`), ...remove.map((m: string) => (m === agent ? 'you left' : `removed ${m}`))].join(', ')}`
+    },
+  },
+  {
+    name: 'read_messages',
+    tier: 'read',
+    description: prompts.tools.read_messages.description,
+    parameters: type({ 'with?': type('string'), 'limit?': type('number') }),
+    async run(args, agent, host) {
+      const state = host.state()
+      const line = (l: ConversationLine) =>
+        `#${l.seq} ${l.from === agent ? 'you' : l.from}${l.replyTo !== undefined ? ` (re #${l.replyTo})` : ''}: ${l.text}`
+      if (args.with) {
+        const chat = resolveConversation(state, agent, args.with)
+        if (chat.kind === 'group' && !chat.members.includes(agent))
+          throw new Error(`you are not in the group ${args.with}`)
+        const lines = linesOf(state, chat.id).slice(-(args.limit ?? 30))
+        const who = chat.kind === 'direct' ? '' : `members: ${chat.members.join(', ')}\n`
+        return clip(`${who}${lines.map(line).join('\n') || '(no messages yet)'}`)
+      }
       return (
-        mail
-          .map((m) =>
-            m.from === agent
-              ? `#${m.seq} to ${m.to}${m.subject ? ` [${m.subject}]` : ''}: ${m.body}`
-              : `#${m.seq} from ${m.from}${m.subject ? ` [${m.subject}]` : ''}${answered(m) ? '' : ' (not answered yet)'}: ${m.body}`,
-          )
-          .join('\n') || '(no mail)'
+        conversationsOf(state, agent)
+          .map((c) => {
+            const last = linesOf(state, c.id).at(-1)
+            const label =
+              c.kind === 'team'
+                ? 'team chat'
+                : c.kind === 'group'
+                  ? `group ${c.name} (${c.members.join(', ')})`
+                  : c.name
+            return `${label}: ${last ? line(last) : '(quiet)'}`
+          })
+          .join('\n') + '\nRead one with read_messages(with: …).'
       )
     },
   },

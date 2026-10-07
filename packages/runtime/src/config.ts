@@ -51,6 +51,10 @@ export const MAX_WORKERS = 8
 export const PROBE_FRESH_MS = 15 * 60_000
 /** How long the model may take to write the entry page's greeting before the rules' line stays. */
 export const GREETING_MS = 15_000
+/** Gone longer than this, the greeting welcomes the person back. */
+export const GREETING_AWAY_MS = 30 * 60_000
+/** Team-chat messages an agent keeps for its next turn when nobody wakes it; older ones drop off. */
+export const QUIET_KEPT = 30
 /** omp's window for a model it found but knows nothing about; treated as unknown since it is often wrong. */
 export const OMP_UNKNOWN = 128_000
 /** models.dev's catalog of model context windows, and how often the cached copy is refreshed (a day). */

@@ -281,10 +281,25 @@ export interface EventPayloads {
   /** `readOnly`: an MCP tool its server marks read-only, so the call changes nothing. */
   'tool/call': { agent: string; callId: string; tool: string; args: unknown; readOnly?: boolean }
   'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
-  'board/posted': { agent: string; text: string; mentions: string[] }
+  /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
+  'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
-  /** `replyTo`: the number (log seq) of the mail this answers, so mail reads as threads. */
-  'mail/sent': { from: string; to: string; subject: string; body: string; replyTo?: number }
+  /**
+   * A message to one agent, or to a group (`to` is then the group's name and `members` who it reached).
+   * `replyTo`: the number (log seq) of the message this answers, so conversations read as threads.
+   */
+  'mail/sent': {
+    from: string
+    to: string
+    subject: string
+    body: string
+    replyTo?: number
+    members?: string[]
+  }
+  /** A group chat: a name and who is in it (its creator included). */
+  'group/created': { name: string; members: string[]; by: string }
+  /** People added to or taken out of a group; a member who removes themselves has left. */
+  'group/changed': { name: string; add: string[]; remove: string[]; by: string }
   /** `mail` is a mail/sent event, or a chat/user message the agent has now read. */
   'mail/delivered': { mail: EventId; to: string }
   /** `reason` says why, when an agent sent the task back (reject_task). */

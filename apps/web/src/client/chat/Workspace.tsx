@@ -1,6 +1,10 @@
 import {
   type ColonyState,
+  type Conversation as ConversationInfo,
+  type ConversationLine,
+  conversationsOf,
   type EventPayloads,
+  linesOf,
   type MyrEvent,
   roundSlice,
   type TaskSnapshot,
@@ -240,7 +244,7 @@ function WorkspaceBody({
     .filter((t) => t.status !== 'deleted')
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
   const agents = Object.values(state.agents)
-  const messages = useMemo(() => conversation(state), [state])
+  const threads = useMemo(() => threadsOf(state), [state])
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
   const newestShell = shells.at(-1)?.id
@@ -254,7 +258,7 @@ function WorkspaceBody({
     files: files.length + Object.keys(state.madeTools).length,
     tasks: tasks.length,
     team: agents.length,
-    mail: messages.length,
+    mail: threads.reduce((n, t) => n + t.messages.length, 0),
     terminal: shells.length,
   }
 
@@ -652,7 +656,7 @@ function WorkspaceBody({
                           <PluginSlot key={plugin} plugin={plugin} def={def} props={{ colonyId, state }} />
                         ),
                     )}
-                    {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
+                    {tab === 'mail' && <MailTab threads={threads} onInspect={setInspect} />}
                     {tab === 'computer' && (
                       <Computer
                         colonyId={colonyId}
@@ -759,73 +763,29 @@ function WorkspaceBody({
   )
 }
 
-interface Message {
-  readonly id: string
-  readonly seq: number
-  readonly time: string
-  readonly from: string
-  /** An agent's name, or `board` for a post everyone can read. */
-  readonly to: string
-  readonly subject?: string
-  readonly text: string
-  readonly read?: boolean
-  /** The seq of the message this replies to. */
-  readonly replyTo?: number
+/** A conversation in the Mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
+interface Thread extends ConversationInfo {
+  readonly messages: readonly ConversationLine[]
 }
 
-/** Everything the agents said to each other: board posts and direct mail, oldest first. */
-function conversation(state: ColonyState): Message[] {
-  return [
-    ...state.board.map((b) => ({
-      id: b.id,
-      seq: b.seq,
-      time: b.time,
-      from: b.agent,
-      to: 'board',
-      text: b.text,
-    })),
-    ...state.mail.map((m) => ({
-      id: m.id,
-      seq: m.seq,
-      time: m.time,
-      from: m.from,
-      to: m.to,
-      ...(m.subject ? { subject: m.subject } : {}),
-      text: m.body,
-      read: m.delivered,
-      ...(m.replyTo !== undefined ? { replyTo: m.replyTo } : {}),
-    })),
-  ].sort((a, b) => a.seq - b.seq)
+function threadsOf(state: ColonyState): Thread[] {
+  return conversationsOf(state)
+    .map((c) => ({ ...c, messages: linesOf(state, c.id) }))
+    .filter((t) => t.messages.length > 0)
 }
 
-/** A conversation in the Mail tab: the team's group chat (board posts) or the mail between two agents. */
-interface Thread {
-  readonly key: string
-  /** The two agents, or empty for the team chat. */
-  readonly pair: readonly string[]
-  readonly messages: readonly Message[]
-}
-
-function threadsOf(messages: readonly Message[]): Thread[] {
-  const byKey = new Map<string, Message[]>()
-  for (const m of messages) {
-    const key = m.to === 'board' ? 'team' : [m.from, m.to].sort().join('|')
-    byKey.set(key, [...(byKey.get(key) ?? []), m])
-  }
-  return [...byKey]
-    .map(([key, list]) => ({ key, pair: key === 'team' ? [] : key.split('|'), messages: list }))
-    .sort((a, b) => (b.messages.at(-1)?.seq ?? 0) - (a.messages.at(-1)?.seq ?? 0))
-}
+const threadTitle = (t: Thread) =>
+  t.kind === 'team' ? copy.workspace.mail.team : t.kind === 'group' ? t.name : t.members.join(' · ')
 
 /**
  * The agents' messages, laid out like a messaging app: a list of conversations (the team's group chat and each pair
  * of agents who wrote to each other), newest first, and a conversation open as bubbles with replies quoted.
  */
-function MailTab(props: { messages: readonly Message[]; onInspect(name: string): void }) {
+function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): void }) {
   const [open, setOpen] = useState<string>()
-  const threads = threadsOf(props.messages)
-  const thread = threads.find((t) => t.key === open)
-  if (props.messages.length === 0)
+  const threads = props.threads
+  const thread = threads.find((t) => t.id === open)
+  if (threads.length === 0)
     return (
       <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
         {copy.workspace.mail.emptyBody}
@@ -839,31 +799,34 @@ function MailTab(props: { messages: readonly Message[]; onInspect(name: string):
         const last = t.messages.at(-1)
         const unread = t.messages.filter((m) => m.read === false).length
         return (
-          <li key={t.key}>
+          <li key={t.id}>
             <button
               type="button"
-              onClick={() => setOpen(t.key)}
+              onClick={() => setOpen(t.id)}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
             >
-              {t.pair.length ? (
-                <span className="relative h-9 w-11 shrink-0">
-                  <span className="absolute left-0 top-0">
-                    <AgentAvatar name={t.pair[0] ?? ''} status="idle" size={26} awake />
-                  </span>
-                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
-                    <AgentAvatar name={t.pair[1] ?? ''} status="idle" size={26} awake />
-                  </span>
-                </span>
-              ) : (
+              {t.kind === 'team' ? (
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
                   <Users className="size-4" />
+                </span>
+              ) : (
+                <span className="relative h-9 w-11 shrink-0">
+                  <span className="absolute left-0 top-0">
+                    <AgentAvatar name={t.members[0] ?? ''} status="idle" size={26} awake />
+                  </span>
+                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
+                    <AgentAvatar name={t.members[1] ?? ''} status="idle" size={26} awake />
+                  </span>
                 </span>
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
-                  <span className="truncate text-[13px] font-semibold text-fg">
-                    {t.pair.length ? t.pair.join(' · ') : copy.workspace.mail.team}
-                  </span>
+                  <span className="truncate text-[13px] font-semibold text-fg">{threadTitle(t)}</span>
+                  {t.kind === 'group' && (
+                    <span className="shrink-0 text-[11.5px] text-muted">
+                      {copy.workspace.mail.members(t.members.length)}
+                    </span>
+                  )}
                   <time className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
                     {last?.time.slice(11, 16)}
                   </time>
@@ -887,10 +850,13 @@ function MailTab(props: { messages: readonly Message[]; onInspect(name: string):
   )
 }
 
-/** One conversation as chat bubbles; the second agent of a pair writes on the right, like your own messages. */
+/**
+ * One conversation as chat bubbles. One-to-one, the second agent writes on the right, like your own messages; in the
+ * team chat and groups everyone writes on the left, as in a group chat.
+ */
 function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: string): void }) {
   const { thread } = props
-  const right = thread.pair[1]
+  const right = thread.kind === 'direct' ? thread.members[1] : undefined
   const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
   return (
     <div className="flex flex-col">
@@ -898,9 +864,10 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
         <IconButton size="sm" label={copy.workspace.mail.back} onClick={props.onBack}>
           <ChevronRight className="size-4 rotate-180" />
         </IconButton>
-        <span className="truncate text-[13px] font-semibold">
-          {thread.pair.length ? thread.pair.join(' · ') : copy.workspace.mail.team}
-        </span>
+        <span className="truncate text-[13px] font-semibold">{threadTitle(thread)}</span>
+        {thread.kind === 'group' && (
+          <span className="truncate text-[12px] text-muted">{thread.members.join(', ')}</span>
+        )}
         <span className="ml-auto pr-2 text-[12px] text-muted">
           {copy.workspace.mail.count(thread.messages.length)}
         </span>
@@ -940,11 +907,10 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                     {quoted.from}: {quoted.text}
                   </div>
                 )}
-                {m.subject && !quoted && <div className="font-medium text-fg">{m.subject}</div>}
                 <div className="whitespace-pre-wrap break-words">{m.text}</div>
                 <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
                   {m.time.slice(11, 16)}
-                  {m.to !== 'board' && (
+                  {m.read !== undefined && (
                     <span
                       className={m.read ? 'text-ok-ink' : ''}
                       title={m.read ? copy.workspace.mail.read : copy.workspace.mail.unread}

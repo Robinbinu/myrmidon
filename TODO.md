@@ -45,11 +45,15 @@ Open work, in the order it will be done:
       from what happened while the person was away, written by the lead model with a built-in fallback; name from
       the computer account, editable; Settings → You & mascot: eyes, look (pixel flower / pixel bow tie), colour,
       and what the screen shows (rotating clock / HI NAME / crew at work).
-8b. - [ ] **Crew group chats** (asked 2026-10-07) — besides one-to-one mail, agents can start group chats with some
+8b. - [x] **Crew group chats** (asked 2026-10-07) — besides one-to-one mail, agents can start group chats with some
       of the crew, and there is one team chat everyone is in; used like people use WhatsApp groups ("make it more
       human like"). The Mail tab shows them as conversations. Also fix the reminder's side effect seen on
       2026-10-07: agents send "✔ end of thread, please don't reply" / "sent only to clear the unanswered-mail flag"
       just to quiet it; a message that needs no answer (an ack, "no reply needed") should close the thread.
+8c. - [ ] **Browser flow test fails when run alone** (seen 2026-10-07; same on the commit before group chats; passes
+      in the full `bun run check`): "a browser flow is saved after its test run and replays with new inputs", run
+      with `-t`, gets "Protocol error (Accessibility.getFullAXTree): Session closed" instead of the failed-step
+      message. Chrome 154.0.8037.98. Find why the page closes after a failed click in a fresh browser.
 9. - [ ] **Review-before-save cards** (OpenDots) — an agent proposes a file, commit or message and the person approves
       it before it is written; the approval is kept so a retry never writes twice.
 10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)

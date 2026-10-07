@@ -1,6 +1,6 @@
 import { completeSimple } from '@oh-my-pi/pi-ai'
 import type { ChatSummary } from './chat.ts'
-import { GREETING_MS } from './config.ts'
+import { GREETING_AWAY_MS, GREETING_MS } from './config.ts'
 import type { ModelResolver } from './models.ts'
 import { prompts } from './prompts.ts'
 
@@ -54,40 +54,31 @@ export function greetingNews(facts: GreetingFacts) {
 
 export function ruleGreeting(facts: GreetingFacts): Greeting {
   const name = facts.name
+  const say = prompts.greeting.lines
   const news = greetingNews(facts)
   const hour = facts.now.getHours()
   const day = DAYS[facts.now.getDay()] ?? ''
-  const back = (news.away ?? 0) > 30 * 60_000
+  const back = (news.away ?? 0) > GREETING_AWAY_MS
   const line = (headline: string): Greeting => ({ headline })
 
-  if (news.awaiting.length > 1) return line(`${news.awaiting.length} chats need your answer, ${name}.`)
-  if (news.awaiting.length) return line(`${name}, I have a question for you.`)
+  if (news.awaiting.length > 1) return line(say.waitingMany(news.awaiting.length, name))
+  if (news.awaiting.length) return line(say.waitingOne(name))
   const failed = news.failed[0]
-  if (failed) return line(`${name}, ${quote(failed.title)} hit a snag.`)
-  if (news.finished.length > 1) return line(`Welcome back, ${name}. ${news.finished.length} things are done.`)
+  if (failed) return line(say.failed(name, quote(failed.title)))
+  if (news.finished.length > 1) return line(say.finishedMany(name, news.finished.length))
   const finished = news.finished[0]
-  if (finished) return line(`${quote(finished.title)} is done, ${name}.`)
-  if (news.running.length > 1) return line(`${news.running.length} crews are at work, ${name}.`)
-  if (news.running.length) return line(`The crew is still at it, ${name}.`)
-  if (news.first) return line(`Hi ${name}, I'm your lead.`)
+  if (finished) return line(say.finishedOne(name, quote(finished.title)))
+  if (news.running.length > 1) return line(say.runningMany(name, news.running.length))
+  if (news.running.length) return line(say.runningOne(name))
+  if (news.first) return line(say.first(name))
   const days = Math.floor((news.away ?? 0) / 86_400_000)
-  if (days >= 3)
-    return line(variant(facts, 'away', [`It's been ${days} days, ${name}.`, `There you are, ${name}.`]))
-  if (hour < 5) return line(variant(facts, 'night', [`Late one, ${name}?`, `Still up, ${name}?`]))
-  if (day === 'Monday' && hour < 12) return line(`Monday again, ${name}. What's first?`)
-  if (day === 'Friday' && hour >= 15)
-    return line(
-      variant(facts, 'friday', [`Friday, ${name}. Something fun?`, `One more before the weekend, ${name}?`]),
-    )
-  if ((day === 'Saturday' || day === 'Sunday') && hour >= 8) return line(`Weekend project, ${name}?`)
-  return line(back ? `Welcome back, ${name}.` : timeOfDay(hour, name))
-}
-
-function timeOfDay(hour: number, name: string): string {
-  if (hour < 5) return `Still up, ${name}?`
-  if (hour < 12) return `Good morning, ${name}.`
-  if (hour < 18) return `Good afternoon, ${name}.`
-  return `Good evening, ${name}.`
+  if (days >= 3) return line(variant(facts, 'away', say.away(name, days)))
+  if (hour < 5) return line(variant(facts, 'night', say.night(name)))
+  if (day === 'Monday' && hour < 12) return line(say.monday(name))
+  if (day === 'Friday' && hour >= 15) return line(variant(facts, 'friday', say.friday(name)))
+  if ((day === 'Saturday' || day === 'Sunday') && hour >= 8) return line(say.weekend(name))
+  if (back) return line(say.back(name))
+  return line(hour < 12 ? say.morning(name) : hour < 18 ? say.afternoon(name) : say.evening(name))
 }
 
 /**

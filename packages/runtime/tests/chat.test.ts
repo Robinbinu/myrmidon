@@ -141,7 +141,7 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   await chats.stopAll()
 })
 
-test('crew mail is a conversation: a mail left unanswered gets a reminder, and replies thread', async () => {
+test('crew messages are a conversation: a question left unanswered gets a reminder, and replies thread', async () => {
   const resolver = new ModelResolver()
   const prompts: Record<string, string[]> = {}
   const seen = (who: string) => (ctx: LlmContext) => {
@@ -151,13 +151,7 @@ test('crew mail is a conversation: a mail left unanswered gets a reminder, and r
     (ctx) => {
       seen('lead')(ctx)
       const writer = /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
-      return [
-        tool('send_mail', {
-          to: writer,
-          subject: 'Tone',
-          body: 'Playful or solemn? Tell me which you pick.',
-        }),
-      ]
+      return [tool('message', { to: writer, text: 'Playful or solemn? Tell me which you pick.' })]
     },
     (ctx) => {
       seen('lead')(ctx)
@@ -172,12 +166,12 @@ test('crew mail is a conversation: a mail left unanswered gets a reminder, and r
   scripted(resolver, 'mock/writer', [
     (ctx) => {
       seen('writer')(ctx)
-      mailNumber = Number(/mail #(\d+) from lead/.exec(JSON.stringify(ctx.messages))?.[1] ?? 0)
+      mailNumber = Number(/#(\d+) from lead/.exec(JSON.stringify(ctx.messages))?.[1] ?? 0)
       return ['busy with the poem']
     },
     (ctx) => {
       seen('writer')(ctx)
-      return [tool('send_mail', { to: 'lead', body: 'Playful.', reply_to: mailNumber })]
+      return [tool('message', { to: 'lead', text: 'Playful.', reply_to: mailNumber })]
     },
     ['done'],
   ])
@@ -192,13 +186,89 @@ test('crew mail is a conversation: a mail left unanswered gets a reminder, and r
   const s = await waitFor(colonyId, (x) => x.mail.length >= 2)
   expect(mailNumber).toBeGreaterThan(0)
   // The mail asked for a reply, and the writer's turn ended without one, so it was reminded.
-  expect(prompts.writer?.join('\n')).toContain(
-    `You have mail you have not answered: #${mailNumber} from lead [Tone]`,
-  )
-  expect(s.mail.map((m) => [m.from, m.to, m.subject, m.replyTo])).toEqual([
-    ['lead', expect.any(String), 'Tone', undefined],
-    [expect.any(String), 'lead', 'Re: Tone', mailNumber],
+  expect(prompts.writer?.join('\n')).toContain(`Someone is waiting on your answer: #${mailNumber} from lead`)
+  expect(s.mail.map((m) => [m.from, m.to, m.replyTo])).toEqual([
+    ['lead', expect.any(String), undefined],
+    [expect.any(String), 'lead', mailNumber],
   ])
+  await chats.stopAll()
+})
+
+test('group chats wake their members, the team chat wakes only @mentions, and only asks are chased', async () => {
+  const resolver = new ModelResolver()
+  const seen: Record<string, string[]> = {}
+  const look = (who: string, ctx: LlmContext) => {
+    seen[who] = [...(seen[who] ?? []), JSON.stringify(ctx.messages)]
+  }
+  const names: Record<string, string> = {}
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      look('lead', ctx)
+      for (const role of ['writer', 'editor', 'researcher'])
+        names[role] =
+          new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      return [
+        tool('message', { to: 'team', text: 'FYI: the poem is about ants.' }),
+        tool('create_group', {
+          name: 'poem',
+          members: [names.writer, names.editor],
+          text: `@${names.writer} can you draft it? @${names.editor} please review it after.`,
+        }),
+      ]
+    },
+    ...Array.from({ length: 8 }, () => (ctx: LlmContext) => {
+      look('lead', ctx)
+      return ['ok']
+    }),
+  ])
+  scripted(resolver, 'mock/writer', [
+    (ctx) => {
+      look('writer', ctx)
+      const n = Number(/\[group:poem\] #(\d+)/.exec(JSON.stringify(ctx.messages))?.[1] ?? 0)
+      return [
+        tool('message', { to: 'poem', text: 'On it.', reply_to: n }),
+        tool('message', { to: 'lead', text: 'thanks' }),
+      ]
+    },
+    ['done'],
+    ['done'],
+  ])
+  scripted(resolver, 'mock/editor', [
+    (ctx) => {
+      look('editor', ctx)
+      return ['reading']
+    },
+    ...Array.from({ length: 3 }, () => (ctx: LlmContext) => {
+      look('editor', ctx)
+      return ['ok']
+    }),
+  ])
+  scripted(resolver, 'mock/researcher', [['should not run']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const { colonyId } = await chats.send('Write a short poem about ants', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [
+      { role: 'writer', model: 'mock/writer' },
+      { role: 'editor', model: 'mock/editor' },
+      { role: 'researcher', model: 'mock/researcher' },
+    ],
+    judgeModel: 'mock/judge',
+  })
+  await waitFor(colonyId, () => (seen.editor?.length ?? 0) >= 3)
+  await Bun.sleep(300)
+  const log = await events(colonyId)
+  // Both members heard the group message; the one left out of the group was not woken by the team chat FYI.
+  expect(seen.writer?.[0]).toContain('[group:poem]')
+  expect(seen.editor?.[0]).toContain('[group:poem]')
+  expect(turnsOf(log, names.researcher ?? '')).toHaveLength(0)
+  // The team chat FYI reached the members quietly, with their next turn.
+  expect(seen.writer?.[0]).toContain('[team]')
+  // The editor was asked and did not answer, so it is chased; the writer answered, and "thanks" is never chased.
+  expect(seen.editor?.at(-1)).toContain('Someone is waiting on your answer')
+  expect(seen.writer?.join('\n')).not.toContain('Someone is waiting on your answer')
+  expect(seen.lead?.join('\n')).not.toContain('Someone is waiting on your answer')
   await chats.stopAll()
 })
 
@@ -334,7 +404,8 @@ test('swarm: peers huddle before working, the first proposer plans, and a speake
     if (last.includes('Huddle first'))
       return [
         tool('publish_artifact', { name: 'early.txt', content: 'starting alone' }),
-        tool('post', {
+        tool('message', {
+          to: 'team',
           text: `I propose a title task and a haiku task; I (${me}) will take whichever is left.`,
         }),
       ]

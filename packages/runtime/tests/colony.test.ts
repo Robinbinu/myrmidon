@@ -48,7 +48,7 @@ test('a colony coordinates, publishes, and completes only through verification',
   scripted(resolver, 'mock/lead', [
     [tool('create_task', { subject: 'Write greeting' })],
     [tool('publish_artifact', { name: 'hello.txt', content: 'hello colony\n' })],
-    [tool('post', { text: '@helper hello.txt is published, please check it' })],
+    [tool('message', { to: 'team', text: '@helper hello.txt is published, please check it' })],
     [tool('request_final_verification', { summary: 'hello.txt published' })],
   ])
   scripted(resolver, 'mock/helper', [[tool('read_artifact', { name: 'hello.txt' })], ['looks right']])
@@ -198,7 +198,10 @@ test('a token budget stops the colony once the models have used it', async () =>
   const mock = createMockModel({
     handler: () => {
       calls += 1
-      return { content: [tool('post', { text: `step ${calls}` })], usage: { input: 400, output: 100 } }
+      return {
+        content: [tool('message', { to: 'team', text: `step ${calls}` })],
+        usage: { input: 400, output: 100 },
+      }
     },
   })
   resolver.register('mock/hungry', { model: mock.model, streamFn: mock.stream })
@@ -333,7 +336,7 @@ test('a running agent can be switched to another model from its next step', asyn
       calls.push('one')
       // Switched while this call is in flight: the call finishes here, the next step goes to the new model.
       void run?.switchModels({ worker: 'mock/two' })
-      return { content: [tool('post', { text: 'step one' })] }
+      return { content: [tool('message', { to: 'team', text: 'step one' })] }
     },
   })
   const second = createMockModel({

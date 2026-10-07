@@ -4,9 +4,8 @@ import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
 
 const LOOK = [
-  'read_board',
   'read_notes',
-  'read_mail',
+  'read_messages',
   'list_agents',
   'list_tasks',
   'list_artifacts',
@@ -15,7 +14,7 @@ const LOOK = [
 ]
 const WEB = ['web_search', 'web_fetch']
 const READ = ['read_task', ...LOOK, 'observe', ...WEB, 'read_docs', 'use_skill']
-const TALK = ['post', 'append_note', 'send_mail']
+const TALK = ['message', 'create_group', 'update_group', 'append_note']
 const HOLD = ['claim_task', 'release_task', 'submit_task']
 const BROWSER = [
   'browser_open',

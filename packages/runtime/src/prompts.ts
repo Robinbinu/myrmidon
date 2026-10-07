@@ -14,19 +14,24 @@ export const prompts = {
     /** How a colony of several agents coordinates; given to every agent of a team. */
     common: `
 How this colony works:
-- Everything is recorded in an append-only log. Notes, posts, and mail are never edited; append corrections instead.
+- Everything is recorded in an append-only log. Notes and messages are never edited; append corrections instead.
 - Deliver files with publish_artifact. Your scratch directory is private and is not part of the output.
 - Completion is decided by an independent verifier, never by an agent claiming it is done.
 - Coordinate through the task graph: claim before working, pass the revision you read, submit with the files that
   finish the task. Do only what a task asks; do not start work nobody planned.
-- Keep board posts short and useful. Use @name to wake someone; use send_mail for one-to-one detail.
-- Talk to your teammates the way people text each other at work: short, frequent messages (send_mail) to whoever it
-  concerns, all through the work, not only at the end.
+- Talk to your teammates the way people use WhatsApp at work, all through the work and not only at the end. One tool,
+  message, reaches every conversation:
+  - one person: message(to: "kai") for detail only they need, a handoff, or a question about their part;
+  - a group: create_group(name, members) for a few people working on the same thing ("api", "design-review"), then
+    message(to: "api"); everyone in it hears it;
+  - the team chat: message(to: "team") for what everyone should know (a decision, a blocker, a change of plan).
+    Only people you @mention are woken; the rest read it at their next turn.
+- What good messages look like:
   - Say what you are starting when it touches someone else's part ("starting the API client, will need your schema").
   - Ask a quick question instead of guessing ("is the date field UTC?").
   - Share a finding the moment it matters to someone ("the docs moved to v2, use /v2/items").
-  - Reply when someone messages you (reply_to its number): answer, confirm what you will do, or say why not. A quick
-    "got it, on it" is a fine reply.
+  - Answer questions and requests sent to you (reply_to their number): answer, confirm what you will do, or say why
+    not. Acks, thanks and FYIs need no answer; do not reply just to close a thread.
   - Keep each message to a few lines; put long material in a note or file and send its name. No empty pings.
 - When you have nothing useful left to do, stop calling tools and reply with one short line. You will be woken when
   something needs you.
@@ -132,11 +137,11 @@ final answer with reply_user(final: true).${escalation}`,
       peers: number
       specialty?: string
       roster: string
-    }) => `You are ${p.name}, one of ${p.peers} equal peers sharing one goal${p.specialty ? ` (your strength: ${p.specialty})` : ''}. Nobody is in charge; the shared notes and the task board are the only coordination.
+    }) => `You are ${p.name}, one of ${p.peers} equal peers sharing one goal${p.specialty ? ` (your strength: ${p.specialty})` : ''}. Nobody is in charge; you coordinate through the shared notes, the task board and your conversations.
 Peers:
 ${p.roster}
-- Every round opens with a huddle: nobody works until the peers have agreed who does what. Post one board
-  message proposing how to split the request and which part you will take (play to your strength), then stop.
+- Every round opens with a huddle: nobody works until the peers have agreed who does what. Send one team chat
+  message (to "team") proposing how to split the request and which part you will take (play to your strength), then stop.
   When everyone has proposed, the peer who proposed first merges the proposals into the single plan note
   (section "plan") and creates the tasks, each assigned to the peer who volunteered for it.
 - On every wake, read the plan note, the open tasks, and recent findings in the snapshot you are given.
@@ -149,7 +154,7 @@ ${p.roster}
     lead: (
       roster: string,
     ) => `You are the LEAD. Plan the work as a few concrete tasks with create_task (use blockedBy for ordering),
-announce them on the board, review what workers publish, and integrate the final result. Your team:
+announce them in the team chat, review what workers publish, and integrate the final result. Your team:
 ${roster}`,
     chatLead: (p: {
       roster: string
@@ -171,7 +176,7 @@ ${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worke
     Done when: concrete checks the result must pass.
     Not in scope: what another task covers.
   Vague briefs ("research X") make workers duplicate each other, miss parts, or stop early.
-- While workers run, do not poll them for status: you hear every verdict and any mail or @lead post. Do message them
+- While workers run, do not poll them for status: you hear every verdict and any message to you. Do message them
   when the plan changes or something you learned affects their task, and answer their messages promptly.
 - When results arrive, read the files yourself and check them against the request. If one falls short, send it
   back with reject_task and a reason naming the exact gap; its owner fixes it. Do not accept gaps.
@@ -184,7 +189,7 @@ ${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worke
 - Your team stays with you for the whole conversation, and each worker keeps its memory of earlier rounds.
   Reuse them on follow-ups; dismiss_worker one whose skill this conversation no longer needs.`,
     worker:
-      'You are a WORKER. Claim ready tasks from list_tasks, do the work, publish artifacts, and submit_task. Report blockers on the board with @lead.',
+      'You are a WORKER. Claim ready tasks from list_tasks, do the work, publish artifacts, and submit_task. Report blockers to the lead with message(to: "lead").',
     chatWorker: (p: {
       name: string
       specialty?: string
@@ -193,10 +198,10 @@ ${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worke
 - On a task: claim it with the revision shown, do it in your scratch directory, publish the outputs it names,
   check them against the task's "Done when", submit_task, then reply with one line and stop.
 - The task description is your brief. If something is unclear, make a sensible assumption and record it as a
-  "decision" note; only ask @lead when you truly cannot continue.
+  "decision" note; only message the lead when you truly cannot continue.
 - Stay inside your task: do not plan for the team or publish files that belong to another task. You cannot talk to
   the person.`,
-    peer: `You are a peer on a shared blackboard. Read the board and task graph, create tasks for missing work, claim what
+    peer: `You are a peer on a shared blackboard. Read the team chat and task graph, create tasks for missing work, claim what
 nobody owns, publish artifacts, and request final verification once the output meets the acceptance criteria.`,
   },
 
@@ -267,13 +272,13 @@ nobody owns, publish artifacts, and request final verification once the output m
   /** The first message of a round, and what joins it. */
   kickoff: {
     mission: (mission: string) =>
-      `The colony has started. Mission:\n\n${mission}\n\nStart with read_task and read_board, then get to work.`,
+      `The colony has started. Mission:\n\n${mission}\n\nStart with read_task and read_messages, then get to work.`,
     history: (history: string) => `Earlier in this conversation:\n${history}\n\n`,
     planFirst:
       '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), present it with ask_user, and stop. Do not create tasks, publish files, or start the work until they approve.',
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     huddle: (request: string, snapshot: string) =>
-      `${request}\n\nHuddle first: do no work yet. Read who your peers are (list_agents or the roster in your instructions), then post one board message proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every peer has proposed.\n\n${snapshot}`,
+      `${request}\n\nHuddle first: do no work yet. Read who your peers are (list_agents or the roster in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every peer has proposed.\n\n${snapshot}`,
     /** Tells an agent which files the person attached to a message. */
     attached: (names: readonly string[]) =>
       `\n\nThe person attached ${names.join(', ')}; read them with read_artifact.`,
@@ -333,15 +338,24 @@ nobody owns, publish artifacts, and request final verification once the output m
     fixFinalAnswer: (report: string) =>
       `${report}\n\nFix the work, then send an updated final answer with reply_user(final: true).`,
     mail: (p: { seq: number; from: string; subject: string; body: string; replyTo?: number }) =>
-      `mail #${p.seq} from ${p.from}${p.subject ? ` [${p.subject}]` : ''}${p.replyTo !== undefined ? ` (reply to your #${p.replyTo})` : ''}: ${p.body}\n` +
-      `Reply to ${p.from} with send_mail(to: "${p.from}", reply_to: ${p.seq}): answer it, confirm what you will do, or say why not.`,
-    mailReminder: (open: readonly { seq: number; from: string; subject: string }[]) =>
-      `You have mail you have not answered: ${open
-        .map((m) => `#${m.seq} from ${m.from}${m.subject ? ` [${m.subject}]` : ''}`)
-        .join(
-          ', ',
-        )}. A teammate is waiting on you; reply to each with send_mail(reply_to: …), even in one line.`,
-    mentioned: (agent: string, text: string) => `${agent} mentioned you on the board: ${text}`,
+      `#${p.seq} from ${p.from}${p.subject && !p.subject.startsWith('Re: ') ? ` [${p.subject}]` : ''}${p.replyTo !== undefined ? ` (reply to #${p.replyTo})` : ''}: ${p.body}\n` +
+      `If it asks you something, answer with message(to: "${p.from}", reply_to: ${p.seq}).`,
+    /** Delivered tagged [group:<name>], so the group's name is not repeated here. */
+    groupMessage: (p: { seq: number; group: string; from: string; body: string; replyTo?: number }) =>
+      `#${p.seq} ${p.from}${p.replyTo !== undefined ? ` (reply to #${p.replyTo})` : ''}: ${p.body}\n` +
+      `If it is for you, answer in the group with message(to: "${p.group}", reply_to: ${p.seq}).`,
+    /** Delivered tagged [team]. */
+    teamMessage: (seq: number, from: string, text: string) => `#${seq} ${from}: ${text}`,
+    mentioned: (seq: number, agent: string, text: string) =>
+      `${agent} mentioned you in the team chat (#${seq}): ${text}\n` +
+      `Answer with message(to: "team", reply_to: ${seq}), or message ${agent} directly.`,
+    addedToGroup: (by: string, group: string, members: readonly string[]) =>
+      `${by} added you to the group "${group}" (${members.join(', ')}). Talk there with message(to: "${group}").`,
+    removedFromGroup: (by: string, group: string) => `${by} took you out of the group "${group}".`,
+    mailReminder: (open: readonly { seq: number; from: string; group?: string }[]) =>
+      `Someone is waiting on your answer: ${open
+        .map((m) => `#${m.seq} from ${m.from}${m.group ? ` in ${m.group}` : ''}`)
+        .join(', ')}. Answer each with message(to: …, reply_to: …), even in one line.`,
     permissionsChanged: (p: { off: readonly string[]; ask: readonly string[]; project?: string }) =>
       [
         'The person changed what you may do, so your last step was stopped before it finished.',
@@ -364,7 +378,7 @@ nobody owns, publish artifacts, and request final verification once the output m
     }) =>
       `${p.id} r${p.revision} by ${p.owner} was ${p.pass ? 'VERIFIED' : 'REJECTED'}: ${p.evidence}. Open tasks: ${p.open || 'none — integrate and send the final answer'}`,
     holderReminder: (p: { id: string; revision: number; subject: string; sent: number }) =>
-      `You stopped while holding ${p.id} r${p.revision} (${p.subject}). Finish it: publish its outputs and submit_task. If you truly cannot, release_task and post what blocks you. (Reminder ${p.sent} of 2)`,
+      `You stopped while holding ${p.id} r${p.revision} (${p.subject}). Finish it: publish its outputs and submit_task. If you truly cannot, release_task and tell the team what blocks you. (Reminder ${p.sent} of 2)`,
     todoReminder: (open: readonly string[], sent: number) =>
       `You stopped with ${open.length} open item${open.length === 1 ? '' : 's'} on your todo list:\n${open.map((t) => `- [ ] ${t}`).join('\n')}\nContinue with them, or update_todo to mark them done or drop the ones that no longer apply. (Reminder ${sent} of 2)`,
     sentBack: (p: {
@@ -435,7 +449,7 @@ Score 1.0 only for work you would hand to the person as-is.`,
       `${used} of ${limit} tokens used. Finish and deliver what is done; say what is missing.`,
     unclaimed: (tasks: string) => `Ready but unclaimed: ${tasks}.`,
     stall: (tasks: string) =>
-      `No tool calls, board posts, artifact versions, or verdicts for two observer intervals. ${tasks}`,
+      `No tool calls, messages, artifact versions, or verdicts for two observer intervals. ${tasks}`,
     tasks: (p: {
       verified: number
       submitted: number
@@ -524,6 +538,27 @@ Use only the facts given; never invent work, names or numbers. Fold in what matt
 
 Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Shorten a chat title to a word or two if you mention it.`,
     facts: (facts: Record<string, unknown>) => `Facts:\n${JSON.stringify(facts, null, 2)}`,
+    /** The built-in lines, most important news first; `title` comes already quoted and short. */
+    lines: {
+      waitingMany: (n: number, name: string) => `${n} chats need your answer, ${name}.`,
+      waitingOne: (name: string) => `${name}, I have a question for you.`,
+      failed: (name: string, title: string) => `${name}, ${title} hit a snag.`,
+      finishedMany: (name: string, n: number) => `Welcome back, ${name}. ${n} things are done.`,
+      finishedOne: (name: string, title: string) => `${title} is done, ${name}.`,
+      runningMany: (name: string, n: number) => `${n} crews are at work, ${name}.`,
+      runningOne: (name: string) => `The crew is still at it, ${name}.`,
+      first: (name: string) => `Hi ${name}, I'm your lead.`,
+      /** Each list is one line per day, picked so the page does not change on every visit. */
+      away: (name: string, days: number) => [`It's been ${days} days, ${name}.`, `There you are, ${name}.`],
+      night: (name: string) => [`Late one, ${name}?`, `Still up, ${name}?`],
+      monday: (name: string) => `Monday again, ${name}. What's first?`,
+      friday: (name: string) => [`Friday, ${name}. Something fun?`, `One more before the weekend, ${name}?`],
+      weekend: (name: string) => `Weekend project, ${name}?`,
+      back: (name: string) => `Welcome back, ${name}.`,
+      morning: (name: string) => `Good morning, ${name}.`,
+      afternoon: (name: string) => `Good afternoon, ${name}.`,
+      evening: (name: string) => `Good evening, ${name}.`,
+    },
   },
 
   /** Texts in tool results that tell the agent what to do next. */
@@ -557,20 +592,6 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
     read_task: {
       description: 'Read the colony mission, acceptance criteria, deadline, and roster.',
     },
-    read_board: {
-      description: 'Read the most recent shared board posts.',
-      params: {
-        limit: 'How many recent posts (default 30)',
-      },
-    },
-    post: {
-      description:
-        'Post a short message everyone on the team can read: announcements, blockers, decisions others need. Mention ' +
-        '@name to wake someone. For one-to-one detail use send_mail; for lasting knowledge use append_note.',
-      params: {
-        text: 'Message text',
-      },
-    },
     append_note: {
       description:
         'Append to the shared notes, the team\'s lasting memory for this round. Use "finding" for facts others can ' +
@@ -583,19 +604,37 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
     read_notes: {
       description: 'Read all shared notes in order.',
     },
-    send_mail: {
+    message: {
       description:
-        'Send a direct message to one agent (wakes it), like an email to a teammate. Use for detail only it needs: a ' +
-        'handoff, a question about its output, a finding that changes its task, a correction, or a reply. Answer ' +
-        'mail you receive with reply_to set to its number. Do not use it to ask for status; task changes and ' +
-        'verdicts are announced automatically.',
+        'Send a message, like texting at work. `to` is one teammate (wakes them), a group you are in (wakes its ' +
+        'members), or "team" for the team chat everyone is in (wakes only those you @mention; the rest read it at ' +
+        'their next turn). Answer a message with reply_to set to its number. Do not ask for status: task changes ' +
+        'and verdicts are announced automatically.',
       params: {
-        reply_to: 'The number of the mail you are answering (#713 → 713), so the conversation threads',
+        to: 'A teammate\'s name, a group\'s name, or "team"',
+        text: 'The message: a few lines; put long material in a note or file and send its name',
+        reply_to: 'The number of the message you are answering (#713 → 713), so the conversation threads',
       },
     },
-    read_mail: {
+    create_group: {
       description:
-        'Read your mail: what teammates sent you and what you sent, newest last, with each mail number.',
+        'Start a group chat with some of the crew (you are in it too), for people working on the same thing. ' +
+        'Optionally send its first message. Then talk there with message(to: <name>).',
+      params: {
+        name: 'Short lowercase name with dashes, e.g. "api" or "design-review"',
+        members: 'Teammates to add',
+        text: 'A first message to the group',
+      },
+    },
+    update_group: {
+      description:
+        'Add people to a group you are in, take them out, or leave it yourself (remove your own name).',
+    },
+    read_messages: {
+      description:
+        'Read your conversations. Without `with`, lists them (the team chat, your groups, your one-to-one chats) ' +
+        'with their latest message and anything still waiting on your answer. With `with` (a name, a group or ' +
+        '"team"), shows that conversation with each message\'s number.',
     },
     list_agents: {
       description: 'List agents with their status, role, and current task.',

@@ -858,13 +858,14 @@ export const copy = {
     activityEmpty: 'Nothing yet',
     mail: {
       emptyTitle: 'No messages yet',
-      emptyBody: 'Board posts and mail between agents show up here.',
+      emptyBody: 'The team chat, group chats and messages between agents show up here.',
       count: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
       filterLabel: 'Show messages for',
       everyone: 'Everyone',
       open: (name: string) => `Open ${name}`,
-      /** The group chat everyone can read (board posts). */
+      /** The chat everyone on the crew is in. */
       team: 'Team',
+      members: (n: number) => `${n} people`,
       back: 'All conversations',
       read: 'Read',
       unread: 'Not read yet',

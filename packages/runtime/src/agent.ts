@@ -11,7 +11,7 @@ import {
 import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { ContextCompactor } from './compaction.ts'
-import { KEEP_TURNS, MODEL_RETRIES, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
+import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
 import {
@@ -36,6 +36,8 @@ export interface InboxItem {
   readonly mail?: EventId
   /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
   readonly queue?: boolean
+  /** Seen, not a reason to wake: it waits for whatever wakes the agent next (team chat it was not @mentioned in). */
+  readonly quiet?: boolean
 }
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
@@ -176,8 +178,16 @@ export class ColonyAgent {
     return !this.working && this.inbox.length === 0
   }
 
+  /** Quiet items waiting for the next turn. */
+  private readonly _quiet: InboxItem[] = []
+
   notify(item: InboxItem) {
     if (this._stopped) return
+    if (item.quiet) {
+      this._quiet.push(item)
+      this._quiet.splice(0, Math.max(0, this._quiet.length - QUIET_KEPT))
+      return
+    }
     if (this.working) {
       this._stamp = Math.max(Date.now(), this._stamp + 1)
       const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
@@ -225,7 +235,7 @@ export class ColonyAgent {
         await this._status('stopped', `turn limit ${this.host.spec.budget.maxTurns} reached`)
         return
       }
-      const items = this.inbox.splice(0)
+      const items = [...this._quiet.splice(0), ...this.inbox.splice(0)]
       await this._turn(items)
       if (this._failed) return
     }

@@ -461,7 +461,7 @@ const defs: EventTypeDefinition[] = [
     type: 'board/posted',
     version: 1,
     actors: ['agent', 'user'],
-    schema: Schema.object({ agent: str(), text: str(), mentions: strs() }),
+    schema: Schema.object({ agent: str(), text: str(), mentions: strs(), replyTo: Schema.natural() }),
   },
   {
     type: 'note/appended',
@@ -484,7 +484,20 @@ const defs: EventTypeDefinition[] = [
       subject: Schema.string().default(''),
       body: str(),
       replyTo: Schema.natural(),
+      members: Schema.array(Schema.string()),
     }),
+  },
+  {
+    type: 'group/created',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ name: str(), members: strs(), by: str() }),
+  },
+  {
+    type: 'group/changed',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ name: str(), add: strs(), remove: strs(), by: str() }),
   },
   {
     type: 'mail/delivered',

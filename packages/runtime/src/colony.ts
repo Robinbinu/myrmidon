@@ -11,13 +11,16 @@ import {
 } from '@myrmidon/core'
 import {
   applyEvent,
+  asksSomething,
   type ColonyId,
   type ColonyState,
+  crewOf,
   describeEffect,
   type EventDraft,
   type EventPayloads,
   emptyColonyState,
   type MyrEvent,
+  mentionsIn,
   outsideEffects,
   type ProjectPermissions,
   SYSTEM,
@@ -176,6 +179,7 @@ export interface Attachment {
 interface Delivery {
   readonly mail?: MyrEvent['id']
   readonly queue?: boolean
+  readonly quiet?: boolean
 }
 
 export class ColonyRun implements ColonyHost {
@@ -1346,18 +1350,34 @@ export class ColonyRun implements ColonyHost {
       }
       case 'mail/sent': {
         const p = e.payload as EventPayloads['mail/sent']
-        notify(
-          p.to,
-          prompts.colony.mail({
-            seq: e.seq,
-            from: p.from,
-            subject: p.subject,
-            body: p.body,
-            ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
-          }),
-          'mail',
-          { mail: e.id },
-        )
+        const message = {
+          seq: e.seq,
+          from: p.from,
+          subject: p.subject,
+          body: p.body,
+          ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+        }
+        // A group message reaches every member, like a group chat's notification; one-to-one, just the person.
+        const group = p.members?.length ? p.members : undefined
+        if (group)
+          for (const m of group)
+            if (m !== p.from)
+              notify(m, prompts.colony.groupMessage({ ...message, group: p.to }), `group:${p.to}`, {
+                mail: e.id,
+              })
+        if (!group) notify(p.to, prompts.colony.mail(message), 'mail', { mail: e.id })
+        break
+      }
+      case 'group/created':
+      case 'group/changed': {
+        const p = e.payload as EventPayloads['group/created'] & Partial<EventPayloads['group/changed']>
+        const added = e.type === 'group/created' ? p.members : (p.add ?? [])
+        const members = this._state.groups[p.name]?.members ?? []
+        for (const m of added)
+          if (m !== p.by)
+            notify(m, prompts.colony.addedToGroup(p.by, p.name, members), 'group', { quiet: true })
+        for (const m of p.remove ?? [])
+          if (m !== p.by) notify(m, prompts.colony.removedFromGroup(p.by, p.name), 'group', { quiet: true })
         break
       }
       case 'board/posted': {
@@ -1367,7 +1387,11 @@ export class ColonyRun implements ColonyHost {
           if (this._huddle.proposed.size >= this._agents.size) this._closeHuddle('every peer proposed')
         }
         for (const m of p.mentions)
-          if (m !== p.agent) notify(m, prompts.colony.mentioned(p.agent, p.text), 'mention')
+          if (m !== p.agent) notify(m, prompts.colony.mentioned(e.seq, p.agent, p.text), 'mention')
+        // Everyone else sees it at their next turn, the way a team chat is read: not a reason to wake.
+        for (const m of crewOf(this._state))
+          if (m !== p.agent && !p.mentions.includes(m))
+            notify(m, prompts.colony.teamMessage(e.seq, p.agent, p.text), 'team', { quiet: true })
         break
       }
       case 'observer/signal': {
@@ -1472,23 +1496,32 @@ export class ColonyRun implements ColonyHost {
   }
 
   /**
-   * Mail a teammate sent this agent, which it has read but not answered (no mail back to that teammate since), is
-   * waiting on it like an unanswered email. It is reminded once per mail. Returns whether it was reminded.
+   * A message that asks this agent something (a question or a request, sent to it directly or @mentioning it in a
+   * group), read but not answered (nothing from it in that conversation since), is waiting on it like an unanswered
+   * text. Acks and FYIs are never chased. It is reminded once per message. Returns whether it was reminded.
    */
   private _remindMail(agent: string): boolean {
     const all = this._state.mail
-    const open = all.filter(
-      (m) =>
-        m.to === agent &&
-        m.delivered &&
-        this._agents.has(m.from) &&
-        !this._state.agents[m.from]?.dismissed &&
-        !all.some((r) => r.from === agent && r.to === m.from && (r.replyTo === m.seq || r.seq > m.seq)) &&
-        !this._reminded.has(`${agent}:mail:${m.seq}`),
-    )
+    const open = all.filter((m) => {
+      if (!m.delivered || !this._agents.has(m.from) || this._state.agents[m.from]?.dismissed) return false
+      const forMe = m.members ? mentionsIn(m.body, m.members).includes(agent) : m.to === agent
+      if (!forMe || !asksSomething(m.body) || this._reminded.has(`${agent}:mail:${m.seq}`)) return false
+      return !all.some(
+        (r) =>
+          r.from === agent &&
+          r.seq > m.seq &&
+          (r.replyTo === m.seq || (m.members ? r.to === m.to : r.to === m.from && !r.members)),
+      )
+    })
     if (open.length === 0 || this._state.status !== 'running' || this._awaiting) return false
     for (const m of open) this._reminded.set(`${agent}:mail:${m.seq}`, 1)
-    this._wake(agent, prompts.colony.mailReminder(open), 'reminder')
+    this._wake(
+      agent,
+      prompts.colony.mailReminder(
+        open.map((m) => ({ seq: m.seq, from: m.from, ...(m.members ? { group: m.to } : {}) })),
+      ),
+      'reminder',
+    )
     return true
   }
 

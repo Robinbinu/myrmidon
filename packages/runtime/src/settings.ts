@@ -6,7 +6,7 @@ export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
   files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list'],
-  messaging: ['send_mail', 'post', 'append_note'],
+  messaging: ['message', 'create_group', 'update_group', 'append_note'],
   browser: [
     'browser_open',
     'browser_snapshot',

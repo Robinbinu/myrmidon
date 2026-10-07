@@ -54,6 +54,7 @@ export interface BoardEntry extends Entry {
   readonly agent: string
   readonly text: string
   readonly mentions: string[]
+  readonly replyTo?: number
 }
 
 export interface NoteEntry extends Entry {
@@ -70,7 +71,16 @@ export interface MailEntry extends Entry {
   readonly body: string
   /** The number (seq) of the mail this answers. */
   readonly replyTo?: number
+  /** Set on a group message: who it reached (`to` is the group's name). */
+  readonly members?: readonly string[]
   delivered: boolean
+}
+
+export interface GroupView {
+  readonly name: string
+  members: string[]
+  readonly by: string
+  readonly seq: number
 }
 
 export interface ArtifactVersion extends Entry {
@@ -133,6 +143,8 @@ export interface ColonyState {
   board: BoardEntry[]
   notes: NoteEntry[]
   mail: MailEntry[]
+  /** Group chats by name; the team chat (the board) is not one of them. */
+  groups: Record<string, GroupView>
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
   /** Sign-ins agents asked the person for, by agent; `finished` is set once handed back or given up. */
@@ -216,6 +228,7 @@ export function emptyColonyState(id: string): ColonyState {
     board: [],
     notes: [],
     mail: [],
+    groups: {},
     tasks: {},
     artifacts: {},
     madeTools: {},
@@ -544,7 +557,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'board/posted': {
       const p = event.payload as EventPayloads['board/posted']
-      state.board.push({ ...base, agent: p.agent, text: p.text, mentions: p.mentions })
+      state.board.push({
+        ...base,
+        agent: p.agent,
+        text: p.text,
+        mentions: p.mentions,
+        ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+      })
       const targets =
         p.mentions.length > 0 ? p.mentions : Object.keys(state.agents).filter((a) => a !== p.agent)
       for (const to of targets) link(state, p.agent, to)
@@ -566,10 +585,24 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         subject: p.subject,
         body: p.body,
         ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+        // The log's schema fills a missing list with [], so a group message is one that names its members.
+        ...(p.members?.length ? { members: p.members } : {}),
         delivered: false,
       })
-      link(state, p.from, p.to)
+      for (const to of p.members?.length ? p.members : [p.to]) if (to !== p.from) link(state, p.from, to)
       touch(state, p.from, event.seq)
+      break
+    }
+    case 'group/created': {
+      const p = event.payload as EventPayloads['group/created']
+      state.groups[p.name] = { name: p.name, members: [...new Set(p.members)], by: p.by, seq: event.seq }
+      break
+    }
+    case 'group/changed': {
+      const p = event.payload as EventPayloads['group/changed']
+      const group = state.groups[p.name]
+      if (group)
+        group.members = [...new Set([...group.members, ...p.add])].filter((m) => !p.remove.includes(m))
       break
     }
     case 'mail/delivered': {
