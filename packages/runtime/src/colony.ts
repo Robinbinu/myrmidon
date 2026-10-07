@@ -641,6 +641,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
       ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
       ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
+      ...(this.spec.askTools?.length ? { askTools: this.spec.askTools } : {}),
     }
   }
 

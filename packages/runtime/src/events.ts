@@ -85,6 +85,7 @@ const colonySpec = Schema.object({
   thinking: Schema.union(['low', 'medium', 'high']),
   taskJudge: Schema.string(),
   disabledTools: Schema.array(str()),
+  askTools: Schema.array(str()),
 })
 
 const defs: EventTypeDefinition[] = [

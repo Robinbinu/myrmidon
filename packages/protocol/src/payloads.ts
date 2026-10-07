@@ -105,6 +105,8 @@ export interface EventPayloads {
     thinking?: 'low' | 'medium' | 'high'
     taskJudge?: string
     disabledTools?: string[]
+    /** Tools whose every call waits for the person's approval. */
+    askTools?: string[]
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a

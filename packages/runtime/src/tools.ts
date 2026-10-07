@@ -279,6 +279,23 @@ function writableFor(host: ColonyHost, agent: string): string[] {
   return [...new Set([host.workspace.workdir(agent), scratch])]
 }
 
+/** Tools the person set to "ask" in Settings wait for their approval on every call, showing what it would do. */
+async function askFirst(host: ColonyHost, agent: string, tool: string, params: unknown) {
+  const ask = host.spec.askTools
+  if (!ask?.length || !(ask.includes(tool) || (tool.startsWith('mcp__') && ask.includes('mcp')))) return
+  const args = JSON.stringify(params ?? {})
+  if (
+    !(await host.requestApproval(
+      agent,
+      tool,
+      `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
+    ))
+  )
+    throw new Error(
+      `the person did not approve this ${tool} call; ask them (ask_user) or take another approach`,
+    )
+}
+
 /** A write to a file in the project folder (not scratch) follows the project's permissions. */
 async function guardProjectEdit(host: ColonyHost, agent: string, tool: string, path: string) {
   const project = host.spec.chat?.project
@@ -2268,6 +2285,7 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
           throw new Error('the swarm is still huddling: post your proposal (post) and stop')
         const refused = breaker?.refusal()
         if (refused) throw new Error(refused)
+        await askFirst(host, agent, tool.name, params)
         await host.beforeTool(agent, tool.name, params)
         ran = true
         result = await tool.execute(callId, params as never, signal)
@@ -2333,6 +2351,7 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
                 'the swarm is still huddling: post your proposal (post) and stop; work starts once every peer has proposed',
               )
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
+            await askFirst(host, agent, def.name, params)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)

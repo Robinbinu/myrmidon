@@ -33,6 +33,7 @@ import {
   type SettingsStore,
   type SkillLibrary,
   startScheduler,
+  TOOL_DEFS,
   type ToolLibrary,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
@@ -297,6 +298,14 @@ export function startServer(options: ServeOptions): WebServer {
             home: options.home,
             agentDir: options.omp?.agentDir,
             ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
+            // What per-tool rules can name: every built-in tool, and `mcp` for all MCP tools.
+            toolCatalog: [
+              ...TOOL_DEFS.map((d) => ({
+                name: d.name,
+                description: d.description.split(/(?<=\.)\s/)[0] ?? '',
+              })),
+              { name: 'mcp', description: 'Every tool of the connected MCP servers.' },
+            ],
           })
         }),
         PUT: guard(async (req) => {

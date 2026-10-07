@@ -2029,6 +2029,33 @@ test('a secret an agent reads is kept out of the log and its transcript', async 
   rmSync(folder, { recursive: true, force: true })
 })
 
+test('per-tool rules turn a tool off and make another wait for approval', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { web_search: 'off', fs_write: 'ask' } })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/solo', [
+    [tool('fs_write', { path: 'a.txt', content: 'x' })],
+    [tool('reply_user', { text: 'Wrote it.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send('Write a.txt', { ...solo('mock/solo'), judgeModel: 'mock/judge' })
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  expect(waiting.agents.lead?.info.tools).not.toContain('web_search')
+  const ask = Object.values(waiting.approvals)[0]
+  expect(ask).toMatchObject({ tool: 'fs_write' })
+  expect(ask?.summary).toContain('a.txt')
+  await chats.decideApproval(colonyId, ask?.id ?? '', true)
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  const write = (await events(colonyId)).find(
+    (e) => e.type === 'tool/result' && (e.payload as EventPayloads['tool/result']).tool === 'fs_write',
+  )
+  expect((write?.payload as EventPayloads['tool/result'] | undefined)?.ok).toBe(true)
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

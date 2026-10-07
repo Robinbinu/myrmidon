@@ -749,6 +749,7 @@ export class ChatService {
           }
         : {}),
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
+      ...(created.askTools?.length ? { askTools: created.askTools } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
     }
   }
@@ -859,11 +860,16 @@ export class ChatService {
                 return { name, role: 'peer', model: config.leadModel }
               })
           : [lead, ...crew('worker')]
-    const disabledTools = s
-      ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
-          .filter((g) => !s.tools[g])
-          .flatMap((g) => [...TOOL_GROUPS[g]])
-      : []
+    const rules = Object.entries(s?.permissions ?? {})
+    const disabledTools = [
+      ...(s
+        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
+            .filter((g) => !s.tools[g])
+            .flatMap((g) => [...TOOL_GROUPS[g]])
+        : []),
+      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
+    ]
+    const askTools = rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool)
     const wallMs = Math.round((config.wallMinutes ?? s?.team.wallMinutes ?? 30) * 60_000)
     const limits = {
       ...(s?.team.costUsd ? { costUsd: s.team.costUsd } : {}),
@@ -894,6 +900,7 @@ export class ChatService {
           : { wallMs, maxTurns: s?.team.maxTurns ?? 40, ...limits },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
+      ...(askTools.length ? { askTools } : {}),
       chat: {
         chatId,
         round: previous.length + 1,

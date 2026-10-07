@@ -8,7 +8,11 @@ import { useToast } from '../ui/Toast.tsx'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
-  tool === 'shell' ? 'run a command' : tool.startsWith('tool_') ? `use ${tool}` : 'change a file'
+  tool === 'shell'
+    ? 'run a command'
+    : tool === 'fs_write' || tool === 'fs_edit'
+      ? 'change a file'
+      : `use ${tool.replace(/^mcp__/, '').replaceAll('_', ' ')}`
 
 /** Tool calls waiting for the person in an "Ask first" project: Approve or Deny each, right in the chat. */
 export function ApprovalCards({ colonyId, state }: { colonyId: string; state: ColonyState }) {

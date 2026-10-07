@@ -58,6 +58,8 @@ export interface ColonySpec {
   team?: TeamPolicy
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
+  /** Tools whose every call needs the person's approval (`mcp` for every MCP tool). */
+  askTools?: string[]
   /** Chat rounds: how much machinery this request gets (decided by triage). */
   tier?: Tier
   /** How hard reasoning models think in work rounds; omitted lets each role decide. */

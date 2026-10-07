@@ -48,6 +48,11 @@ export interface MyrSettings {
   observer: { intervalSeconds: number }
   /** `hidden`: model refs; `hiddenProviders`: provider ids whose models stay out of pickers. */
   models: { hidden: string[]; hiddenProviders: string[] }
+  /**
+   * Per-tool rules on top of the groups above, by tool name (`mcp` for every MCP tool): `ask` needs the person's
+   * approval for each call, `off` removes the tool. Tools not listed are allowed.
+   */
+  permissions: Record<string, 'ask' | 'off'>
 }
 
 export const settingsSchema = Schema.object({
@@ -89,6 +94,7 @@ export const settingsSchema = Schema.object({
     hidden: Schema.array(Schema.string()).default([]),
     hiddenProviders: Schema.array(Schema.string()).default([]),
   }).default({}),
+  permissions: Schema.dict(Schema.union(['ask', 'off'])).default({}),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
@@ -107,6 +113,7 @@ function parse(input: unknown): MyrSettings {
     instructions: s.instructions,
     observer: s.observer,
     models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders },
+    permissions: s.permissions,
   }
 }
 

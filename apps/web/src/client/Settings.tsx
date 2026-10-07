@@ -103,6 +103,8 @@ export interface ServerSettings {
   observer: { intervalSeconds: number }
   search: { provider: string }
   models: { hidden: string[]; hiddenProviders: string[] }
+  /** Per-tool rules: `ask` before every call, or `off`; unlisted tools are allowed. */
+  permissions: Record<string, 'ask' | 'off'>
 }
 
 interface SettingsResponse {
@@ -114,6 +116,7 @@ interface SettingsResponse {
   home: string
   agentDir?: string
   ompSetup: boolean
+  toolCatalog: { name: string; description: string }[]
 }
 
 export type Section =
@@ -1440,6 +1443,70 @@ const TOOL_INFO: {
   },
 ]
 
+/** Per-tool rules on top of the groups: ask before each call, or turn a single tool off. */
+function ToolRules(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const [query, setQuery] = useState('')
+  const rules = props.data.settings.permissions ?? {}
+  const q = query.trim().toLowerCase()
+  const tools = props.data.toolCatalog
+    .filter((t) => !q || t.name.includes(q) || t.description.toLowerCase().includes(q))
+    // Tools with a rule first, so what you set is easy to find again.
+    .sort((a, b) => Number(!!rules[b.name]) - Number(!!rules[a.name]) || a.name.localeCompare(b.name))
+  const set = (name: string, rule: string) =>
+    props.update((s) => {
+      const next = { ...(s.permissions ?? {}) }
+      if (rule === 'ask' || rule === 'off') next[name] = rule
+      else delete next[name]
+      return { ...s, permissions: next }
+    }, true)
+  return (
+    <>
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+        <ShieldCheck className="size-4 text-muted" /> Per-tool rules
+        <span className="font-normal text-muted">
+          ask before each call, or turn one tool off; applies to new rounds
+        </span>
+      </h4>
+      <Card>
+        <Row>
+          <TextInput
+            aria-label="Find a tool"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a tool, e.g. browser, shell, mcp"
+          />
+        </Row>
+        <div className="max-h-80 overflow-y-auto">
+          {tools.map((t) => (
+            <Row key={t.name}>
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-[12.5px] font-medium">{t.name}</div>
+                  <div className="truncate text-[12px] text-muted" title={t.description}>
+                    {t.description}
+                  </div>
+                </div>
+                <Select
+                  aria-label={`Rule for ${t.name}`}
+                  value={rules[t.name] ?? 'allow'}
+                  onChange={(e) => set(t.name, e.target.value)}
+                >
+                  <option value="allow">Allow</option>
+                  <option value="ask">Ask first</option>
+                  <option value="off">Off</option>
+                </Select>
+              </div>
+            </Row>
+          ))}
+        </div>
+      </Card>
+    </>
+  )
+}
+
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
@@ -1488,6 +1555,7 @@ function ToolsSection(props: {
           </Row>
         ))}
       </Card>
+      <ToolRules data={props.data} update={props.update} />
       <McpServers />
       <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
         <Wrench className="size-4 text-muted" /> Your tool library
