@@ -4,6 +4,46 @@ export const channelCopy = {
   setup: {
     telegram:
       'In Telegram, message @BotFather, send /newbot and follow its steps, then paste the token it gives you. Then message your bot: it replies with a code to approve here. The first person approved is the owner.',
+    signal:
+      'Signal needs signal-cli running as a daemon with its HTTP API, on a number of its own: register or link it with signal-cli, then run `signal-cli -a +NUMBER daemon --http 127.0.0.1:8080`. Give its address and the number here, then message that number from your phone: it replies with a code to approve here. The first person approved is the owner.',
+    imessage:
+      'iMessage goes through a BlueBubbles server on a Mac signed in to the Apple ID it should use. Install BlueBubbles there, set a server password, and give its address (e.g. http://192.168.1.20:1234) and the password here. Then send that Apple ID an iMessage: it replies with a code to approve here. In group chats it answers when its name is in the message.',
+    matrix:
+      'Make a Matrix account for the bot, copy its access token (log in to it in Element, then Settings → Help & About → Advanced → Access Token), and give the homeserver address and the token here. Invite it to a chat: it joins and replies with a code to approve here. Encrypted rooms are not supported yet: DMs started in Element are encrypted by default, so make a room with encryption off and invite the bot to it.',
+  },
+  /** The settings each platform asks for. */
+  fields: {
+    signal: {
+      url: { label: 'signal-cli address', hint: 'Where its daemon listens with --http' },
+      account: { label: 'Bot phone number', hint: 'The number signal-cli is registered or linked with' },
+    },
+    imessage: {
+      url: { label: 'BlueBubbles server address', hint: 'Its address as this machine reaches it' },
+      password: { label: 'Server password' },
+      name: {
+        label: 'Name in group chats',
+        hint: 'Group messages that start with or @mention this name are for it (default: Myrmidon)',
+      },
+    },
+    matrix: {
+      homeserver: { label: 'Homeserver address' },
+      token: { label: 'Access token' },
+      userId: { label: 'Bot user ID', hint: 'Checked against the token when given, e.g. @myrbot:matrix.org' },
+    },
+  },
+  signal: {
+    refused: (account: string) =>
+      `signal-cli has no account ${account}: register or link it with signal-cli first, then give the same number here`,
+  },
+  imessage: {
+    refused: 'BlueBubbles refused this password; copy it again from the server settings in BlueBubbles',
+  },
+  matrix: {
+    refused:
+      'Matrix refused this access token; copy it again from the bot account (or log in to make a new one)',
+    otherUser: (expected: string, actual: string) => `This token belongs to ${actual}, not ${expected}`,
+    encrypted:
+      "This room is end-to-end encrypted, and I can't read encrypted Matrix messages yet. Make a room with encryption off and invite me there.",
   },
   pairing: {
     code: (code: string, channel: string) =>
