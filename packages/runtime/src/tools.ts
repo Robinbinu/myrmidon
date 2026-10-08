@@ -2499,10 +2499,7 @@ async function runBrowserFlow(
         extracted.push(JSON.stringify(data, null, 2))
       }
     } catch (err) {
-      return {
-        ok: false,
-        output: `step ${i + 1} (${JSON.stringify(step)}) failed: ${err instanceof Error ? err.message : String(err)}\n${await pageSnapshot(tab)}`,
-      }
+      return { ok: false, output: await flowStepFailure(i, step, err, () => pageSnapshot(tab)) }
     }
   }
   const output = extracted.length ? extracted.join('\n') : await pageSnapshot(tab)
@@ -2511,6 +2508,24 @@ async function runBrowserFlow(
     ok: true,
     output: spotlight(host.boundary, `${MADE_PREFIX}${tool.name} ${tab.page.url()}`, clip(output)),
   }
+}
+
+/**
+ * What a failed browser-flow step tells the agent: the step and its error, then the page as it is. The page is extra
+ * context; when it cannot be read (the tab closed, the browser's session ended) the step's own error still comes
+ * through instead of the snapshot's.
+ */
+export async function flowStepFailure(
+  index: number,
+  step: unknown,
+  err: unknown,
+  snapshot: () => Promise<string>,
+): Promise<string> {
+  const head = `step ${index + 1} (${JSON.stringify(step)}) failed: ${err instanceof Error ? err.message : String(err)}`
+  const page = await snapshot().catch(
+    (e) => `(the page could not be read: ${e instanceof Error ? e.message : String(e)})`,
+  )
+  return `${head}\n${page}`
 }
 
 function madeTool(agent: string, tool: EventPayloads['tool/created'], host: ColonyHost): AgentTool {

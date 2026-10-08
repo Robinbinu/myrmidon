@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
@@ -92,6 +92,36 @@ test('editing the code reloads the plugin; switching it off removes everything i
   expect(host.prompts('lead')).toEqual([])
   expect(host.status('nova').loaded).toBe(false)
 }, 30_000)
+
+/** A plugin that counts its activations in a file of its own. */
+const counting = `
+import { appendFileSync } from 'node:fs'
+export function activate(ctx) {
+  appendFileSync(ctx.dir + '/activations', 'x')
+  ctx.tools.add({ name: 'greet', description: 'Greets', run: () => 'hi' })
+}
+`
+const activations = (at: string) =>
+  existsSync(join(at, 'activations')) ? readFileSync(join(at, 'activations'), 'utf8').length : 0
+
+test('starting loads a plugin once: file events from before the watch began do not reload it', async () => {
+  const at = plugin('nova', counting)
+  await host.start()
+  // Past the reload debounce and the file system's own delay in reporting.
+  await Bun.sleep(1500)
+  expect(activations(at)).toBe(1)
+})
+
+test('overlapping reloads of one plugin run one after another and leave one working copy', async () => {
+  const at = plugin('nova', counting)
+  await host.start()
+  const info = store.list().find((p) => p.name === 'nova')
+  if (!info) throw new Error('no plugin')
+  await Promise.all([host.load(info), host.load(info), host.load(info)])
+  expect(host.status('nova')).toMatchObject({ loaded: true, tools: ['nova_greet'] })
+  expect(host.status('nova').error).toBeUndefined()
+  expect(activations(at)).toBe(4)
+})
 
 test('a plugin that fails to load is reported and leaves the others working', async () => {
   plugin('broken', 'export function activate() { throw new Error("no API key set") }')

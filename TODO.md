@@ -219,12 +219,14 @@ Open work, in the order it will be done:
       human like"). The Mail tab shows them as conversations. Also fix the reminder's side effect seen on
       2026-10-07: agents send "✔ end of thread, please don't reply" / "sent only to clear the unanswered-mail flag"
       just to quiet it; a message that needs no answer (an ack, "no reply needed") should close the thread.
-8d. - [ ] **Plugin reload test is flaky under load** — "editing the code reloads the plugin…" failed once in a full
-      `bun run check` (15 s, fs.watch timing) and passes alone; make its wait condition-based.
-8c. - [ ] **Browser flow test fails when run alone** (seen 2026-10-07; same on the commit before group chats; passes
-      in the full `bun run check`): "a browser flow is saved after its test run and replays with new inputs", run
-      with `-t`, gets "Protocol error (Accessibility.getFullAXTree): Session closed" instead of the failed-step
-      message. Chrome 154.0.8037.98. Find why the page closes after a failed click in a fresh browser.
+8d. - [x] **Plugin reload test is flaky under load** — done 2026-10-08. Reproduced (4 of 8 parallel runs): on macOS a
+      new watch drops writes made in its first moment, and it also reports writes from before it began, so every
+      plugin loaded twice at start and one that keeps data in its own folder reloaded itself in a loop. A file event
+      now rebuilds and reloads only when the code differs, loads of one plugin run one after another, and a check
+      shortly after the watch begins catches a missed edit (16 of 16 parallel runs pass).
+8c. - [x] **Browser flow test fails when run alone** — 2026-10-08: no longer reproduces (9 of 9, alone and in parallel,
+      same Chrome 154.0.8037.98); why the page closed then is not known. Fixed what made it fail confusingly: a failed
+      step's message no longer gives way to the page snapshot's own error ("Session closed").
 9. - [x] **Review-before-save cards** (OpenDots) — wherever Myrmidon already asks, the card shows the change in full
       (a file against what is there, a commit's patch, a command, a call's arguments); text can be rewritten before
       approving and a decline can carry a note; `propose` lets an agent show a file or commit first; approved writes,

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { ColonyHost } from '../src/host.ts'
-import { logLines, mcpBreaker, similar } from '../src/tools.ts'
+import { flowStepFailure, logLines, mcpBreaker, similar } from '../src/tools.ts'
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -92,4 +92,15 @@ test('MCP tools ask first unless their server marks them read-only; the person c
     false,
   )
   expect(needsApproval({ askTools: ['shell'] }, 'shell', false)).toBe(true)
+})
+
+test('a failed browser-flow step reports its own error even when the page can no longer be read', async () => {
+  const step = { click: 'text=No such button' }
+  const gone = await flowStepFailure(1, step, new Error('no element matches'), () =>
+    Promise.reject(new Error('Protocol error (Accessibility.getFullAXTree): Session closed')),
+  )
+  expect(gone).toStartWith('step 2 ({"click":"text=No such button"}) failed: no element matches\n')
+  expect(gone).toContain('the page could not be read: Protocol error')
+  const read = await flowStepFailure(0, step, 'timeout', async () => 'url: http://x/')
+  expect(read).toBe('step 1 ({"click":"text=No such button"}) failed: timeout\nurl: http://x/')
 })

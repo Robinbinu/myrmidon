@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { type FSWatcher, mkdirSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
@@ -78,6 +79,8 @@ export interface PluginStatus {
 const LOG_LINES = 50
 /** Saving a file usually touches it more than once; a reload waits for the burst to end. */
 const RELOAD_DEBOUNCE_MS = 300
+/** How long after a watch begins its plugin is checked once for changes the watch may have missed. */
+const WATCH_SETTLE_MS = 1000
 
 export class PluginHost {
   private readonly _loaded = new Map<string, Loaded>()
@@ -85,6 +88,11 @@ export class PluginHost {
   private readonly _logs = new Map<string, string[]>()
   private readonly _watchers = new Map<string, FSWatcher>()
   private readonly _timers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Each plugin's loads and unloads, one after another: two at once would undo each other's work. */
+  private readonly _queues = new Map<string, Promise<unknown>>()
+  /** A hash of the code last built for each plugin, so a file event that changed no code reloads nothing. */
+  private readonly _built = new Map<string, string>()
+  private _builds = 0
   private readonly _buildDir: string
   /** Tools Myrmidon itself adds through the host (not a plugin's), by owner. */
   private readonly _builtIn = new Map<string, PluginToolDefinition[]>()
@@ -124,7 +132,25 @@ export class PluginHost {
     }
   }
 
-  async load(plugin: PluginInfo): Promise<void> {
+  /** Loads (or reloads) a plugin's code, after any load or unload of it already under way. */
+  load(plugin: PluginInfo): Promise<void> {
+    return this._serial(plugin.name, async () => {
+      const code = await this._build(plugin)
+      this._isNew(plugin.name, code)
+      await this._load(plugin, code)
+    })
+  }
+
+  private _serial(name: string, work: () => Promise<void>): Promise<void> {
+    const next = (this._queues.get(name) ?? Promise.resolve()).then(work, work)
+    this._queues.set(name, next)
+    void next.finally(() => {
+      if (this._queues.get(name) === next) this._queues.delete(name)
+    })
+    return next
+  }
+
+  private async _load(plugin: PluginInfo, code: string | Error): Promise<void> {
     await this._dispose(plugin.name)
     this._errors.delete(plugin.name)
     if (!plugin.server) return
@@ -137,7 +163,8 @@ export class PluginHost {
     }
     const ctx = this._context(plugin, loaded)
     try {
-      const module = (await import(await this._bundle(plugin))) as {
+      if (code instanceof Error) throw code
+      const module = (await import(this._write(plugin.name, code))) as {
         activate?: (ctx: PluginContext) => unknown
         deactivate?: () => void | Promise<void>
       }
@@ -157,13 +184,16 @@ export class PluginHost {
     }
   }
 
-  async unload(name: string): Promise<void> {
+  unload(name: string): Promise<void> {
     this._watchers.get(name)?.close()
     this._watchers.delete(name)
     clearTimeout(this._timers.get(name))
     this._timers.delete(name)
-    this._errors.delete(name)
-    await this._dispose(name)
+    return this._serial(name, async () => {
+      this._errors.delete(name)
+      this._built.delete(name)
+      await this._dispose(name)
+    })
   }
 
   async stop(): Promise<void> {
@@ -290,24 +320,41 @@ export class PluginHost {
     } as AgentTool
   }
 
+  /** Bundles the plugin's code into one module; a failed build comes back as the error, to report on load. */
+  private async _build(plugin: PluginInfo): Promise<string | Error> {
+    try {
+      const built = await Bun.build({ entrypoints: [join(plugin.dir, plugin.server ?? '')], target: 'bun' })
+      if (!built.success) throw new Error(built.logs.map((l) => l.message).join('\n') || 'the build failed')
+      const out = built.outputs[0]
+      if (!out) throw new Error('the build produced nothing')
+      return await out.text()
+    } catch (err) {
+      return err instanceof Error ? err : new Error(String(err))
+    }
+  }
+
+  /** Whether this build differs from the last one tried for the plugin; records it as the last one. */
+  private _isNew(name: string, code: string | Error): boolean {
+    const hash = createHash('sha256')
+      .update(code instanceof Error ? `error:${code.message}` : code)
+      .digest('hex')
+    if (this._built.get(name) === hash) return false
+    this._built.set(name, hash)
+    return true
+  }
+
   /**
-   * Bundles the plugin's code into one module, in a folder of its own per build: Bun remembers a folder's files once
-   * it has resolved an import there, so a new file in an old folder can look missing, and a new path is never a
-   * stale cache.
+   * Writes a build to a folder of its own: Bun remembers a folder's files once it has resolved an import there, so
+   * a new file in an old folder can look missing, and a new path is never a stale cache.
    */
-  private async _bundle(plugin: PluginInfo): Promise<string> {
-    const built = await Bun.build({ entrypoints: [join(plugin.dir, plugin.server ?? '')], target: 'bun' })
-    if (!built.success) throw new Error(built.logs.map((l) => l.message).join('\n') || 'the build failed')
-    const out = built.outputs[0]
-    if (!out) throw new Error('the build produced nothing')
+  private _write(name: string, code: string): string {
     mkdirSync(this._buildDir, { recursive: true })
     for (const old of readdirSync(this._buildDir))
-      if (old.startsWith(`${plugin.name}-`))
-        rmSync(join(this._buildDir, old), { recursive: true, force: true })
-    const folder = join(this._buildDir, `${plugin.name}-${Date.now()}`)
+      if (old.startsWith(`${name}-`)) rmSync(join(this._buildDir, old), { recursive: true, force: true })
+    const folder = join(this._buildDir, `${name}-${Date.now()}-${++this._builds}`)
     mkdirSync(folder)
     const file = join(folder, 'index.js')
-    writeFileSync(file, await out.text())
+    writeFileSync(file, code)
     return file
   }
 
@@ -329,20 +376,34 @@ export class PluginHost {
     if (this._watchers.has(plugin.name)) return
     try {
       const watcher = watch(plugin.dir, { recursive: true }, (_event, file) => {
-        if (String(file ?? '').startsWith('.')) return
-        clearTimeout(this._timers.get(plugin.name))
-        this._timers.set(
-          plugin.name,
-          setTimeout(() => {
-            const fresh = this.store.list().find((p) => p.name === plugin.name)
-            if (fresh?.enabled) void this.load(fresh)
-          }, RELOAD_DEBOUNCE_MS),
-        )
+        if (!String(file ?? '').startsWith('.')) this._check(plugin.name, RELOAD_DEBOUNCE_MS)
       })
       this._watchers.set(plugin.name, watcher)
+      // A watch takes a moment to start reporting (macOS drops writes made in that moment), so look once more after.
+      this._check(plugin.name, WATCH_SETTLE_MS)
     } catch (err) {
       this._log(plugin.name, `cannot watch for changes: ${String(err)}`)
     }
+  }
+
+  /**
+   * Reloads a plugin after `delay` if its code changed. A file event is not a code change: the file system reports
+   * writes from before the watch began, and a plugin may keep its own data in its folder. Only a different build
+   * reloads it.
+   */
+  private _check(name: string, delay: number) {
+    clearTimeout(this._timers.get(name))
+    this._timers.set(
+      name,
+      setTimeout(() => {
+        const fresh = this.store.list().find((p) => p.name === name)
+        if (!fresh?.enabled || !this._watchers.has(name)) return
+        void this._serial(name, async () => {
+          const code = await this._build(fresh)
+          if (this._isNew(name, code)) await this._load(fresh, code)
+        })
+      }, delay),
+    )
   }
 
   private _log(name: string, message: string) {
