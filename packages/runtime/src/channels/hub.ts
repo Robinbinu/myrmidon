@@ -210,6 +210,8 @@ export class ChannelHub {
   private readonly _lanes = new Map<string, Promise<void>>()
   private readonly _trackers = new Map<string, Tracker>()
   private readonly _recent = new Map<string, number[]>()
+  /** Chats told to slow down in their current burst, so a flood hears it once. */
+  private readonly _slowed = new Set<string>()
   private readonly _approvals = new Map<string, OpenApproval>()
   private readonly _questions = new Map<string, OpenQuestions>()
   private readonly _retries = new Set<ReturnType<typeof setTimeout>>()
@@ -608,8 +610,14 @@ export class ChannelHub {
         t.activity.in(person.name, m.chat.kind === 'group' ? m.chat.title : undefined),
       )
     if (m.press) return this._press(channel, adapter, person, m)
-    if (this._flooded(channel, m.chat.id)) return
     const reply = (text: string) => adapter.send(m.chat, { text })
+    const lane = `${channel}:${m.chat.id}`
+    if (this._flooded(channel, m.chat.id)) {
+      if (this._slowed.has(lane)) return
+      this._slowed.add(lane)
+      return void (await reply(t.slowDown))
+    }
+    this._slowed.delete(lane)
     let text = m.text.trim()
     const attachments: { name: string; bytes: Uint8Array }[] = []
     for (const file of m.files ?? []) {

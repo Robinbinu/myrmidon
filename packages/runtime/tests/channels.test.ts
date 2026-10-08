@@ -307,6 +307,16 @@ test('a damaged channels.json is refused loudly and never overwritten; each save
   expect(readFileSync(file, 'utf8')).toBe('{"telegram": {"values": {"token": "tok"}, "peop')
 })
 
+test('a flood is answered once with a "slow down", not dropped silently and not answered every time', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  for (let i = 0; i < 25; i++) await say(ALICE, `message ${i}`)
+  await until(() => adapter.to('100').some((t) => t.startsWith("That's a lot of messages")))
+  await Bun.sleep(30)
+  expect(adapter.to('100').filter((t) => t.startsWith("That's a lot of messages"))).toHaveLength(1)
+  expect(chats.sends.length).toBeLessThanOrEqual(20)
+})
+
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {
   const { hub, adapter, chats, say, pair, dir } = await setup()
   await pair(ALICE)

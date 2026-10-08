@@ -256,6 +256,7 @@ export const channelCopy = {
       "I can't listen to voice notes yet: add an OpenAI or Groq key in Settings → Models (they transcribe audio), or type it.",
     failed: "I couldn't transcribe that; type it instead. The owner can see why in Myrmidon.",
   },
+  slowDown: "That's a lot of messages at once, so I'm skipping some. Wait a minute, then send what you need.",
   fileTooBig: (name: string) => `${name} is too large to bring in; send a smaller file.`,
   recovered: '♻️ Recovered reply: the gateway restarted while sending it, so it may be a duplicate:\n\n',
   notify: {
