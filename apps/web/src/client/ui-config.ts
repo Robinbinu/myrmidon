@@ -24,11 +24,11 @@ export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 /**
- * The room the composer toolbar's chips need in full (attach, model, thinking, reviewer, helpers, project), measured
- * at about 740px with a typical model and project name. With less, thinking, reviewer and helpers fold into one Team
- * chip so the model and project keep their names.
+ * When the composer toolbar's chips don't fit at their full width, thinking, reviewer and helpers fold into one Team
+ * chip so the model and project keep their names. They unfold only once this much more room than they need is free,
+ * so a width at the edge doesn't flip them back and forth.
  */
-export const TOOLBAR_ALL_CHIPS_PX = 740
+export const TOOLBAR_FOLD_SLACK_PX = 24
 
 /* ------------------------------------------------------------------ scrolling */
 

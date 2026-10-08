@@ -11,7 +11,15 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  type ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   type CrewMember,
   getReviewMode,
@@ -26,13 +34,14 @@ import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { MAX_FILE_BYTES, MAX_FILES, spring, TOOLBAR_ALL_CHIPS_PX } from '../ui-config.ts'
+import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
+import { idleRoom, naturalWidth, shouldFold } from './toolbar-fit.ts'
 
 export const MODES = [
   {
@@ -332,15 +341,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const { config } = props
 
   // Where the toolbar can't fit every chip, Thinking, Reviewer and Helpers fold into one Team chip, so the model and
-  // project chips keep their names. The chip group takes the room the send buttons leave (they grow while running),
-  // whatever it holds, so measuring it never flips back and forth as chips fold.
+  // project chips keep their names. The chips' full width is measured while they are all shown (it changes with the
+  // model and project names) and remembered while folded.
   const chipRow = useRef<HTMLDivElement>(null)
+  const actions = useRef<HTMLDivElement>(null)
+  const folded = useRef(false)
+  const fullChips = useRef(0)
   const [narrow, setNarrow] = useState(false)
+  const fitChips = useRef(() => {})
+  fitChips.current = () => {
+    const row = chipRow.current
+    const right = actions.current
+    if (!row || !right) return
+    if (!folded.current) fullChips.current = naturalWidth(row)
+    folded.current = shouldFold(folded.current, idleRoom(row, right), fullChips.current)
+    setNarrow(folded.current)
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure before paint when what the chips say changes
+  useLayoutEffect(() => {
+    fitChips.current()
+  }, [config, review, props.project, props.models])
   useEffect(() => {
-    const el = chipRow.current
-    if (!el) return
-    const observer = new ResizeObserver(() => setNarrow(el.clientWidth < TOOLBAR_ALL_CHIPS_PX))
-    observer.observe(el)
+    const observer = new ResizeObserver(() => fitChips.current())
+    for (const el of [chipRow.current, actions.current]) if (el) observer.observe(el)
     return () => observer.disconnect()
   }, [])
 
@@ -664,7 +687,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               ))}
               {props.project}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div ref={actions} className="flex shrink-0 items-center gap-1.5">
               <AnimatePresence initial={false}>
                 {props.running && (
                   <motion.button
