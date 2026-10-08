@@ -4,6 +4,30 @@ export const channelCopy = {
   setup: {
     telegram:
       'In Telegram, message @BotFather, send /newbot and follow its steps, then paste the token it gives you. Then message your bot: it replies with a code to approve here. The first person approved is the owner.',
+    discord:
+      'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent and copy the token (Reset Token). Invite the bot with OAuth2 → URL Generator (scope "bot"; View Channels, Send Messages, Send Messages in Threads, Read Message History, Attach Files). Then DM the bot: it replies with a code to approve here. The first person approved is the owner.',
+    slack:
+      'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…). Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
+  },
+  /** What each platform's settings mean, under their fields in Settings → Channels. */
+  fields: {
+    slackBot: 'OAuth & Permissions → Bot User OAuth Token',
+    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope',
+  },
+  /** Why a platform will not connect, shown as the channel's status. */
+  discord: {
+    refused: 'Discord refused this token; copy it again from the Developer Portal (Bot → Reset Token)',
+    intents:
+      'Discord refused the Message Content intent: turn it on in the Developer Portal (Bot → Privileged Gateway Intents), then save again',
+    gateway: (code: number) => `Discord closed the connection for good (code ${code})`,
+  },
+  slack: {
+    refused: 'Slack refused the bot token; copy the Bot User OAuth Token (xoxb-…) again',
+    appRefused: 'Slack refused the app-level token; make one with connections:write (xapp-…)',
+    notAppToken: 'The app-level token starts with xapp- (Basic Information → App-Level Tokens)',
+    socketOff: 'Socket Mode is off for this Slack app: turn it on under Settings → Socket Mode',
+    notInChannel: 'The app is not in that channel: invite it there with /invite @your-app',
+    fileHtml: 'Slack sent a page instead of the file: give the app the files:read scope and reinstall it',
   },
   pairing: {
     code: (code: string, channel: string) =>
