@@ -270,12 +270,12 @@ export const copy = {
     curious: 'curious',
     focused: 'focused',
     concerned: 'on it',
-    love: 'love',
-    happy: 'hehe',
-    proud: 'done!',
-    wink: 'wink',
-    surprised: 'oh!',
-    dizzy: 'whoa',
+    love: 'glad to help',
+    happy: 'all good',
+    proud: 'done',
+    wink: 'hello',
+    surprised: 'oh',
+    dizzy: 'a bit dizzy',
     sad: 'oh no',
     sleepy: 'zzz',
     night: 'late night',
@@ -913,7 +913,7 @@ export const copy = {
     confirm: {
       title: 'Rewind this run’s changes?',
       body: (project: string, n: number) =>
-        `The ${n} file${n === 1 ? '' : 's'} this run changed in ${project} go${n === 1 ? 'es' : ''} back to how ${n === 1 ? 'it was' : 'they were'} before it: changed files are restored and files it added are removed. Nothing else in the folder is touched, and files edited again since the run are kept unless you choose otherwise. The current state is saved first, so you can undo this.`,
+        `The ${n} file${n === 1 ? '' : 's'} this run changed in ${project} go${n === 1 ? 'es' : ''} back to before it, and files it added are removed; nothing else changes. Later edits stay unless you choose. You can undo it.`,
       skippedTitle: (n: number) =>
         `${n} file${n === 1 ? ' was' : 's were'} edited again after this run, so ${n === 1 ? 'it was' : 'they were'} kept:`,
       rewindThemToo: 'Rewind them too',
@@ -2031,7 +2031,7 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. The call assistant, on a fast model, talks with you and hands real work to the crew as a run in the chat, then tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
       enabled: 'Voice calls',
       /** Sizes are written like "1.3 MB", or empty when the server does not say. */
       enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
@@ -2121,7 +2121,7 @@ export const copy = {
     gateways: {
       title: 'Gateways',
       intro:
-        'Other Myrmidons this one can show, such as a VPS or a home server. Switch between them at the top of the sidebar; chats, files and settings always belong to the one shown. Their access is kept on this machine and never reaches the page.',
+        'Other Myrmidons, like one on a VPS, to switch to at the top of the sidebar; each keeps its own chats and settings. Their access stays here, never in the page.',
       add: 'Add a gateway',
       link: 'Pairing link',
       linkHint: 'Run `myrmidon pair` on the gateway (or use its Settings → Devices) and paste the link here.',
@@ -2278,7 +2278,7 @@ export const copy = {
       },
       title: 'Schedules',
       intro:
-        'Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new chat with your default crew, reviewed like any other; turn on notifications in General to hear when one finishes. The server has to be running for a schedule to fire.',
+        'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running; notifications (General) say when one ends.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
       when: 'When',
@@ -2315,7 +2315,7 @@ export const copy = {
       title: 'Hooks',
       /** Intro text around the tool-name examples `fs_edit`, `shell`, `Edit|Write` and `Bash`. */
       introBeforeFsEdit:
-        "Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent: format after every edit, refuse commands that touch secrets, notify you when a run ends. Same format as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool tells the agent. Tool names match Myrmidon's (",
+        "Commands run before or after a tool or when a run ends, so a rule always holds. They get the event as JSON on stdin; exit 2 blocks the tool, or after it tells the agent. Tool names are Myrmidon's (",
       introBeforeShell: ', ',
       introBeforeEditWrite: ") or Claude Code's (",
       introBeforeBash: ', ',
@@ -2337,7 +2337,7 @@ export const copy = {
     plugins: {
       title: 'Plugins',
       intro:
-        'A plugin adds skills, slash commands, hooks and MCP servers in one go, and switches on and off as one. Plugins use Claude Code’s layout, so Claude Code plugins work here unchanged. Add one from a folder or a git URL; it runs as you, so add only plugins you trust.',
+        'A plugin bundles skills, commands, hooks and MCP servers, on and off as one. Claude Code plugins work unchanged. It runs as you: add only plugins you trust.',
       sourcePlaceholder: 'Folder path or git URL, e.g. ~/code/my-plugin or https://github.com/you/plugin',
       sourceLabel: 'Plugin folder or git URL',
       add: 'Add plugin',
