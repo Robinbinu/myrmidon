@@ -36,13 +36,14 @@ import {
   Sun,
   Terminal,
   Trash2,
+  TriangleAlert,
   UserCog,
   Users,
   Webhook,
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   activeGateway,
   api,
@@ -64,8 +65,11 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
+import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
@@ -83,7 +87,7 @@ import {
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
-import { AGENT_MIN_WINDOW, MASCOT_COLORS, softSpring, spring } from './ui-config.ts'
+import { AGENT_MIN_WINDOW, MASCOT_COLORS, SETTINGS_NAV_COLLAPSE_PX, softSpring, spring } from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -165,96 +169,114 @@ export type Section =
   | 'instructions'
   | 'memory'
 
-const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
-  {
-    id: 'general',
-    label: copy.settings.sections.general.label,
-    hint: copy.settings.sections.general.hint,
-    icon: Palette,
-  },
-  {
-    id: 'mascot',
-    label: copy.settings.sections.mascot.label,
-    hint: copy.settings.sections.mascot.hint,
-    icon: Smile,
-  },
-  {
-    id: 'specialists',
-    label: copy.settings.sections.specialists.label,
-    hint: copy.settings.sections.specialists.hint,
-    icon: UserCog,
-  },
-  {
-    id: 'devices',
-    label: copy.settings.sections.devices.label,
-    hint: copy.settings.sections.devices.hint,
-    icon: MonitorSmartphone,
-  },
-  {
-    id: 'gateways',
-    label: copy.settings.sections.gateways.label,
-    hint: copy.settings.sections.gateways.hint,
-    icon: Network,
-  },
+type SectionGroup = keyof typeof copy.settings.page.groups
+
+/** The sections in the order the list shows them, each under its group's heading. */
+const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
   {
     id: 'models',
+    group: 'setup',
     label: copy.settings.sections.models.label,
     hint: copy.settings.sections.models.hint,
     icon: Brain,
   },
   {
     id: 'team',
+    group: 'setup',
     label: copy.settings.sections.team.label,
     hint: copy.settings.sections.team.hint,
     icon: Users,
   },
   {
-    id: 'tools',
-    label: copy.settings.sections.tools.label,
-    hint: copy.settings.sections.tools.hint,
-    icon: Wrench,
-  },
-  {
-    id: 'skills',
-    label: copy.settings.sections.skills.label,
-    hint: copy.settings.sections.skills.hint,
-    icon: GraduationCap,
-  },
-  {
-    id: 'plugins',
-    label: copy.settings.sections.plugins.label,
-    hint: copy.settings.sections.plugins.hint,
-    icon: Puzzle,
-  },
-  {
-    id: 'hooks',
-    label: copy.settings.sections.hooks.label,
-    hint: copy.settings.sections.hooks.hint,
-    icon: Webhook,
-  },
-  {
-    id: 'schedules',
-    label: copy.settings.sections.schedules.label,
-    hint: copy.settings.sections.schedules.hint,
-    icon: CalendarClock,
-  },
-  {
     id: 'verification',
+    group: 'setup',
     label: copy.settings.sections.verification.label,
     hint: copy.settings.sections.verification.hint,
     icon: Gavel,
   },
   {
+    id: 'specialists',
+    group: 'agents',
+    label: copy.settings.sections.specialists.label,
+    hint: copy.settings.sections.specialists.hint,
+    icon: UserCog,
+  },
+  {
     id: 'instructions',
+    group: 'agents',
     label: copy.settings.sections.instructions.label,
     hint: copy.settings.sections.instructions.hint,
     icon: MessageSquareText,
   },
   {
     id: 'memory',
+    group: 'agents',
     label: copy.settings.sections.memory.label,
     hint: copy.settings.sections.memory.hint,
     icon: BookMarked,
+  },
+  {
+    id: 'skills',
+    group: 'agents',
+    label: copy.settings.sections.skills.label,
+    hint: copy.settings.sections.skills.hint,
+    icon: GraduationCap,
+  },
+  {
+    id: 'tools',
+    group: 'extend',
+    label: copy.settings.sections.tools.label,
+    hint: copy.settings.sections.tools.hint,
+    icon: Wrench,
+  },
+  {
+    id: 'plugins',
+    group: 'extend',
+    label: copy.settings.sections.plugins.label,
+    hint: copy.settings.sections.plugins.hint,
+    icon: Puzzle,
+  },
+  {
+    id: 'hooks',
+    group: 'extend',
+    label: copy.settings.sections.hooks.label,
+    hint: copy.settings.sections.hooks.hint,
+    icon: Webhook,
+  },
+  {
+    id: 'schedules',
+    group: 'extend',
+    label: copy.settings.sections.schedules.label,
+    hint: copy.settings.sections.schedules.hint,
+    icon: CalendarClock,
+  },
+  {
+    id: 'general',
+    group: 'you',
+    label: copy.settings.sections.general.label,
+    hint: copy.settings.sections.general.hint,
+    icon: Palette,
+  },
+  {
+    id: 'mascot',
+    group: 'you',
+    label: copy.settings.sections.mascot.label,
+    hint: copy.settings.sections.mascot.hint,
+    icon: Smile,
+  },
+  {
+    id: 'devices',
+    group: 'you',
+    label: copy.settings.sections.devices.label,
+    hint: copy.settings.sections.devices.hint,
+    icon: MonitorSmartphone,
+  },
+  {
+    id: 'gateways',
+    group: 'you',
+    label: copy.settings.sections.gateways.label,
+    hint: copy.settings.sections.gateways.hint,
+    icon: Network,
   },
 ]
 
@@ -272,7 +294,21 @@ const API_HINT_URL: Record<Api, string> = {
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
 }
 
-/** Full-page settings, shown in place of the chat. Every change autosaves. */
+/** Whether the window is at least `px` wide, following it as it resizes. */
+function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const change = () => setMatch(media.matches)
+    change()
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [query])
+  return match
+}
+
+/** Full-page settings, shown in place of the chat. Every change autosaves, except hooks (see HooksSection). */
 export function Settings(props: {
   onClose(): void
   theme: ThemeChoice
@@ -284,16 +320,49 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /**
+   * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
+   * edits are unsaved), for the ways out of Settings that the app itself offers.
+   */
+  guard?: { current?: (go: () => void) => void }
 }) {
   const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
   const [data, setData] = useState<SettingsResponse>()
   const [error, setError] = useState<string>()
-  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [saveError, setSaveError] = useState<string>()
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const onClose = useRef(props.onClose)
-  onClose.current = props.onClose
+  // The settings last sent, so a failed save can be retried as it was.
+  const unsaved = useRef<ServerSettings>(undefined)
+  const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
+  // Hooks are the one section with an explicit Save; leaving it with edits asks first.
+  const [hooksDirty, setHooksDirty] = useState(false)
+  const [leaving, setLeaving] = useState<() => void>()
+  const leave = (go: () => void) => (hooksDirty ? setLeaving(() => go) : go())
+  const onClose = useRef(() => leave(props.onClose))
+  onClose.current = () => leave(props.onClose)
+  const { guard } = props
+  // Every render, since leave changes with hooksDirty; a Settings that remounts clears only its own.
+  useEffect(() => {
+    if (!guard) return
+    guard.current = leave
+    return () => {
+      if (guard.current === leave) guard.current = undefined
+    }
+  })
+  // Reloading or closing the window would drop unsaved hook edits too.
+  useEffect(() => {
+    if (!hooksDirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Safari before 17 asks only when returnValue is set.
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hooksDirty])
 
   useEffect(() => {
     api<SettingsResponse>('/api/settings')
@@ -310,29 +379,33 @@ export function Settings(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const persist = (next: ServerSettings) => {
+    unsaved.current = next
+    setSaving('saving')
+    send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
+      .then((r) => {
+        setData((d) => (d ? { ...d, settings: r.settings } : d))
+        setSaving('saved')
+        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
+        props.onModelsChanged()
+        window.dispatchEvent(new Event(SETTINGS_SAVED))
+      })
+      .catch((err) => {
+        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
+        setSaving('failed')
+        setSaveError(String(err.message ?? err))
+        toast(String(err.message ?? err), 'error')
+      })
+  }
+
   /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
   const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
     if (!data) return
     const next = patch(structuredClone(data.settings))
     setData({ ...data, settings: next })
     clearTimeout(timer.current)
-    const save = () => {
-      setSaving('saving')
-      send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
-        .then((r) => {
-          setData((d) => (d ? { ...d, settings: r.settings } : d))
-          setSaving('saved')
-          setTimeout(() => setSaving('idle'), 1200)
-          props.onModelsChanged()
-          window.dispatchEvent(new Event(SETTINGS_SAVED))
-        })
-        .catch((err) => {
-          setSaving('idle')
-          toast(String(err.message ?? err), 'error')
-        })
-    }
-    if (immediate) save()
-    else timer.current = setTimeout(save, 450)
+    if (immediate) persist(next)
+    else timer.current = setTimeout(() => persist(next), 450)
   }
 
   const providersChanged = (providers: ProviderInfo[]) => {
@@ -348,7 +421,12 @@ export function Settings(props: {
         data-toolbar
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
-        <Button variant="ghost" size="sm" onClick={props.onClose} icon={<ArrowLeft className="size-4" />}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => leave(props.onClose)}
+          icon={<ArrowLeft className="size-4" />}
+        >
           {copy.settings.page.back}
         </Button>
         <span className="text-[13px] font-semibold">{copy.settings.page.title}</span>
@@ -356,20 +434,46 @@ export function Settings(props: {
         <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
         <span className="flex-1" />
         <AnimatePresence>
-          {saving !== 'idle' && (
+          {saving === 'failed' ? (
             <motion.span
+              key="failed"
+              role="alert"
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+              title={saveError}
+              className="inline-flex items-center gap-1.5 text-[12px] text-bad-ink"
             >
-              {saving === 'saving' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Check className="size-3.5 text-ok-ink" />
-              )}
-              {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
+              <CircleX className="size-3.5" />
+              {copy.settings.page.saveFailed}
+              <span aria-hidden>·</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => unsaved.current && persist(unsaved.current)}
+                icon={<RefreshCw className="size-3" />}
+              >
+                {copy.settings.page.retry}
+              </Button>
             </motion.span>
+          ) : (
+            saving !== 'idle' && (
+              <motion.span
+                key="saving"
+                role="status"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+              >
+                {saving === 'saving' ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Check className="size-3.5 text-ok-ink" />
+                )}
+                {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
+              </motion.span>
+            )
           )}
         </AnimatePresence>
         <span className="hidden text-[11.5px] text-muted md:inline">
@@ -378,52 +482,86 @@ export function Settings(props: {
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
-        <nav className="hidden w-64 shrink-0 flex-col gap-1 overflow-auto border-r border-line p-3 md:flex">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              aria-current={section === s.id ? 'page' : undefined}
-              className={cn(
-                'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
-                section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+        <nav
+          aria-label={copy.settings.page.title}
+          className={cn(
+            'hidden shrink-0 flex-col overflow-auto border-r border-line p-3 md:flex',
+            wideNav ? 'w-64' : 'w-[68px] items-center',
+          )}
+        >
+          {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
+            <div key={group} className="flex w-full flex-col gap-1">
+              {wideNav ? (
+                <div
+                  className={cn(
+                    'px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted',
+                    i > 0 && 'pt-4',
+                  )}
+                >
+                  {copy.settings.page.groups[group]}
+                </div>
+              ) : (
+                i > 0 && <div aria-hidden className="mx-2 my-2 border-t border-line" />
               )}
-            >
-              {section === s.id && (
-                <motion.span
-                  layoutId="settings-nav"
-                  transition={spring}
-                  className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
-                />
-              )}
-              <span
-                className={cn(
-                  'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                  section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
-                )}
-              >
-                <s.icon className="size-4" />
-              </span>
-              <span className="relative min-w-0">
-                <span className="block text-[13.5px] font-medium">{s.label}</span>
-                <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
-              </span>
-            </button>
+              {SECTIONS.filter((s) => s.group === group).map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => leave(() => setSection(s.id))}
+                  aria-current={section === s.id ? 'page' : undefined}
+                  aria-label={wideNav ? undefined : s.label}
+                  title={wideNav ? undefined : s.label}
+                  className={cn(
+                    'relative flex items-center gap-3 rounded-xl text-left transition-colors',
+                    wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+                  )}
+                >
+                  {section === s.id && (
+                    <motion.span
+                      layoutId="settings-nav"
+                      transition={spring}
+                      className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
+                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
+                    )}
+                  >
+                    <s.icon className="size-4" />
+                  </span>
+                  {wideNav && (
+                    <span className="relative min-w-0">
+                      <span className="block text-[13.5px] font-medium">{s.label}</span>
+                      <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="border-b border-line p-3 md:hidden">
             <Select
               value={section}
-              onChange={(e) => setSection(e.target.value as Section)}
+              onChange={(e) => {
+                const next = e.target.value as Section
+                leave(() => setSection(next))
+              }}
               className="w-full"
               aria-label={copy.settings.page.sectionPicker}
             >
-              {SECTIONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
+              {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group) => (
+                <optgroup key={group} label={copy.settings.page.groups[group]}>
+                  {SECTIONS.filter((s) => s.group === group).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </Select>
           </div>
@@ -514,7 +652,7 @@ export function Settings(props: {
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
               {section === 'plugins' && <PluginsSection />}
-              {section === 'hooks' && <HooksSection />}
+              {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
@@ -525,6 +663,28 @@ export function Settings(props: {
           </AnimatePresence>
         </div>
       </div>
+      <AnimatePresence>
+        {leaving && (
+          <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
+            <p className="text-[13.5px] leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setLeaving(undefined)}>
+                {copy.settings.page.unsaved.keep}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setLeaving(undefined)
+                  setHooksDirty(false)
+                  leaving()
+                }}
+              >
+                {copy.settings.page.unsaved.discard}
+              </Button>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -918,6 +1078,8 @@ interface LoginOption {
   name: string
   provider: string
   ready: boolean
+  /** Myrmidon holds an OAuth sign-in for the provider, not only an API key. */
+  signedIn: boolean
 }
 
 interface LoginState {
@@ -979,6 +1141,21 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
     return () => clearInterval(t)
   }, [waiting, sessionId])
 
+  // Only the sign-in goes: an API key stored for the same provider stays.
+  const signOut = async (l: LoginOption) => {
+    try {
+      const r = await send<{ providers: ProviderInfo[]; logins: LoginOption[] }>(
+        'DELETE',
+        `/api/credentials/${encodeURIComponent(l.provider)}/oauth`,
+      )
+      props.onProviders(r.providers)
+      setLogins(r.logins)
+      toast(copy.settings.signIns.signedOut(l.name), 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+
   const start = async (login: string) => {
     setAnswer('')
     try {
@@ -1028,14 +1205,24 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                     {copy.settings.shared.cancel}
                   </Button>
                 ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => start(l.id)}
-                    disabled={waiting}
-                    icon={<LogIn className="size-3.5" />}
-                  >
-                    {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {l.signedIn && (
+                      <ConfirmButton
+                        label={copy.settings.signIns.signOut}
+                        confirm={copy.settings.signIns.confirmSignOut}
+                        disabled={waiting}
+                        onConfirm={() => void signOut(l)}
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={() => start(l.id)}
+                      disabled={waiting}
+                      icon={<LogIn className="size-3.5" />}
+                    >
+                      {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
+                    </Button>
+                  </div>
                 )}
               </div>
               {active && (
@@ -1139,13 +1326,12 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title={copy.settings.providers.title}>
-        {copy.settings.providers.introBeforeFile}
-        <span className="font-mono">models.yml</span>
-        {copy.settings.providers.introBeforeDir}
-        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span>
-        {copy.settings.providers.introAfterDir}
-      </Heading>
+      <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
+      {props.data.agentDir && (
+        <p className="-mt-4 mb-6 truncate font-mono text-[11.5px] text-muted" title={props.data.agentDir}>
+          {copy.settings.providers.storedIn(props.data.agentDir)}
+        </p>
+      )}
 
       {props.data.ompSetup && (
         <Card className="mb-8">
@@ -1283,32 +1469,30 @@ function Providers(props: {
                 </span>
               )}
               {p.stored && !p.custom && (
-                <IconButton
-                  size="sm"
+                <ConfirmButton
+                  icon
                   label={copy.settings.providers.removeCredentials(p.id)}
-                  onClick={() =>
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
                       copy.settings.providers.removedCredentials(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
               {p.custom && (
-                <IconButton
-                  size="sm"
+                <ConfirmButton
+                  icon
                   label={copy.settings.providers.remove(p.id)}
-                  onClick={() =>
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
                       copy.settings.providers.removed(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
             </div>
             {editing === p.id && p.custom && (
@@ -1409,11 +1593,24 @@ function ProviderForm(props: {
   const [key, setKey] = useState('')
   const [manual, setManual] = useState((init?.modelIds ?? []).join(', '))
   const [busy, setBusy] = useState(false)
-  const nameOk = editing || (/^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name))
-  const urlOk = /^https?:\/\//.test(baseUrl)
+  // A field's reason shows once the person has left it filled in, and every reason once Connect is pressed too early.
+  const [tried, setTried] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const touch = (field: string) => (e: { target: { value: string } }) =>
+    e.target.value && setTouched((t) => ({ ...t, [field]: true }))
+  const formId = useId()
   const models = [...new Set(manual.split(/[\s,]+/).filter(Boolean))]
   const discovers = apiType === 'openai-completions' || apiType === 'openai-responses'
-  const keyOk = auth === 'none' || !!key.trim() || (editing && !!init?.hasKey)
+  const errors = {
+    name: editing ? undefined : providerNameError(name, props.existing),
+    baseUrl: baseUrlError(baseUrl),
+    key:
+      auth === 'none' || key.trim() || (editing && init?.hasKey)
+        ? undefined
+        : copy.settings.validation.keyRequired,
+    models: discovers || models.length > 0 ? undefined : copy.settings.validation.modelsRequired,
+  }
+  const shown = (field: keyof typeof errors) => (tried || touched[field] ? errors[field] : undefined)
   return (
     <Card className={cn(!editing && 'mb-3', 'border-accent/30')}>
       <div className="grid gap-4 p-4">
@@ -1421,13 +1618,14 @@ function ProviderForm(props: {
           <Field
             label={copy.settings.providerForm.name}
             hint={editing ? copy.settings.providerForm.nameFixed : copy.settings.providerForm.nameHint}
+            error={shown('name')}
           >
             <TextInput
               value={name}
               disabled={editing}
+              onBlur={touch('name')}
               onChange={(e) => setName(e.target.value.toLowerCase())}
               placeholder="lmstudio"
-              aria-invalid={!!name && !nameOk}
             />
           </Field>
           <Field label={copy.settings.providerForm.apiType}>
@@ -1440,9 +1638,11 @@ function ProviderForm(props: {
             </Select>
           </Field>
         </div>
-        <Field label={copy.settings.providerForm.baseUrl}>
+        <Field label={copy.settings.providerForm.baseUrl} error={shown('baseUrl')}>
           <TextInput
+            type="url"
             value={baseUrl}
+            onBlur={touch('baseUrl')}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder={API_HINT_URL[apiType]}
           />
@@ -1472,21 +1672,28 @@ function ProviderForm(props: {
                     : copy.settings.providerForm.apiKey
                 }
                 aria-label={copy.settings.providerForm.apiKey}
+                aria-invalid={tried && !!errors.key}
+                aria-describedby={tried && errors.key ? `${formId}key-error` : undefined}
               />
             </div>
           )}
         </div>
+        {tried && errors.key && (
+          <p id={`${formId}key-error`} className="-mt-2 text-[12px] leading-snug text-bad-ink">
+            {errors.key}
+          </p>
+        )}
         <Field
           label={copy.settings.providerForm.models}
           hint={
             discovers ? copy.settings.providerForm.modelsDiscoverHint : copy.settings.providerForm.modelsHint
           }
+          error={tried ? errors.models : undefined}
         >
           <TextArea
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
-            aria-label={copy.settings.providerForm.modelIds}
             className="min-h-16 font-mono text-[12.5px]"
           />
         </Field>
@@ -1496,9 +1703,10 @@ function ProviderForm(props: {
           </Button>
           <Button
             variant="primary"
-            disabled={!nameOk || !urlOk || busy || !keyOk || (!discovers && models.length === 0)}
+            disabled={busy}
             icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             onClick={async () => {
+              if (Object.values(errors).some(Boolean)) return setTried(true)
               setBusy(true)
               await props.onSave({
                 name,
@@ -1560,6 +1768,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
+              label={copy.settings.team.timeLimit}
               value={t.wallMinutes}
               min={1}
               max={240}
@@ -1571,6 +1780,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
+              label={copy.settings.team.spendLimit}
               value={t.costUsd}
               min={0}
               max={1000}
@@ -1583,6 +1793,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
+              label={copy.settings.team.tokenLimit}
               value={t.tokens}
               min={0}
               max={1_000_000_000}
@@ -1595,6 +1806,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
+              label={copy.settings.team.turns}
               value={t.maxTurns}
               min={1}
               max={200}
@@ -1605,6 +1817,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
+              label={copy.settings.team.observer}
               value={props.data.settings.observer.intervalSeconds}
               min={10}
               max={600}
@@ -1618,7 +1831,12 @@ function TeamSection(props: {
   )
 }
 
+/**
+ * A number with limits. Typing applies each value inside the limits at once; leaving the box keeps an out-of-range
+ * value at the nearest limit and an empty one at what it was, and while the value is outside them the box says so.
+ */
 function NumberField(props: {
+  label: string
   value: number
   min: number
   max: number
@@ -1628,21 +1846,50 @@ function NumberField(props: {
   wide?: boolean
   onChange(v: number): void
 }) {
+  const id = useId()
+  const [draft, setDraft] = useState<string>()
+  const text = draft ?? String(props.value)
+  const n = Number(text)
+  const ok = !!text.trim() && Number.isFinite(n) && n >= props.min && n <= props.max
+  const range = copy.settings.validation.range(props.min.toLocaleString(), props.max.toLocaleString())
+  const commit = () => {
+    if (draft === undefined) return
+    const next = clampNumber(draft, props.min, props.max, props.value)
+    setDraft(undefined)
+    if (next !== props.value) props.onChange(next)
+  }
   return (
-    <div className="flex items-center gap-2">
-      <TextInput
-        type="number"
-        min={props.min}
-        max={props.max}
-        step={props.step ?? 1}
-        value={props.value}
-        onChange={(e) => {
-          const v = Number(e.target.value)
-          if (Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
-        }}
-        className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
-      />
-      {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-2">
+        <TextInput
+          type="number"
+          min={props.min}
+          max={props.max}
+          step={props.step ?? 1}
+          value={text}
+          aria-label={props.label}
+          aria-invalid={!ok}
+          aria-describedby={ok ? undefined : id}
+          title={range}
+          onChange={(e) => {
+            const value = e.target.value
+            setDraft(value)
+            const v = Number(value)
+            if (value.trim() && Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+          }}
+          className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
+        />
+        {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+      </div>
+      {!ok && (
+        <p id={id} className="text-[12px] text-warn-ink">
+          {range}
+        </p>
+      )}
     </div>
   )
 }
@@ -2042,18 +2289,17 @@ function McpServers() {
                     )
                   }
                 />
-                <IconButton
+                <ConfirmButton
+                  icon
                   label={copy.settings.mcp.remove(m.name)}
-                  size="sm"
-                  onClick={() =>
-                    act(
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
+                    void act(
                       () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
                       copy.settings.mcp.removed(m.name),
                     )
                   }
-                >
-                  <Trash2 className="size-3.5" />
-                </IconButton>
+                />
               </div>
             </Row>
           ))
@@ -2110,49 +2356,62 @@ function DevicesSection() {
   return (
     <>
       <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
-      <Card className="mb-6">
-        <Row>
-          <Field label={t.scope} hint={t.scopeHints[scope]} inline>
-            <Segmented
-              id="pair-scope"
-              value={scope}
-              options={[
-                { value: 'full', label: t.scopes.full },
-                { value: 'chat', label: t.scopes.chat },
-              ]}
-              onChange={(s) => {
-                setScope(s)
-                setLink(undefined)
-              }}
-            />
-          </Field>
-        </Row>
-        <Row>
-          {link ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-[13px] text-fg-2">{t.link}</p>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
-                  {link.link}
-                </code>
-                <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
-                  {copied ? t.copied : t.copy}
-                </Button>
+      {data?.remote === false ? (
+        <div
+          role="note"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[13px]"
+        >
+          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
+          <div>
+            <div className="font-semibold">{t.pairNeedsRemoteTitle}</div>
+            <div className="text-fg-2">{t.pairNeedsRemote}</div>
+          </div>
+        </div>
+      ) : (
+        <Card className="mb-6">
+          <Row>
+            <Field label={t.scope} hint={t.scopeHints[scope]} inline>
+              <Segmented
+                id="pair-scope"
+                value={scope}
+                options={[
+                  { value: 'full', label: t.scopes.full },
+                  { value: 'chat', label: t.scopes.chat },
+                ]}
+                onChange={(s) => {
+                  setScope(s)
+                  setLink(undefined)
+                }}
+              />
+            </Field>
+          </Row>
+          <Row>
+            {link ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-[13px] text-fg-2">{t.link}</p>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
+                    {link.link}
+                  </code>
+                  <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                    {copied ? t.copied : t.copy}
+                  </Button>
+                </div>
+                <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
               </div>
-              <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Plus className="size-3.5" />}
-              onClick={() => void makeLink()}
-            >
-              {t.pair}
-            </Button>
-          )}
-        </Row>
-      </Card>
+            ) : (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="size-3.5" />}
+                onClick={() => void makeLink()}
+              >
+                {t.pair}
+              </Button>
+            )}
+          </Row>
+        </Card>
+      )}
       {data && data.devices.length === 0 ? (
         <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
       ) : (
@@ -2171,9 +2430,12 @@ function DevicesSection() {
                   {d.lastSeenAt ? t.lastSeen(new Date(d.lastSeenAt).toLocaleString()) : t.never}
                 </div>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => void revoke(d)}>
-                {t.revoke}
-              </Button>
+              <ConfirmButton
+                label={t.revoke}
+                confirm={d.current ? t.confirmRevokeSelf : t.confirmRevoke}
+                warning={d.current ? t.revokeSelfWarning : undefined}
+                onConfirm={() => void revoke(d)}
+              />
             </div>
           ))}
         </Card>
@@ -2295,9 +2557,11 @@ function GatewaysSection() {
                   {t.show}
                 </Button>
               )}
-              <Button size="sm" variant="ghost" onClick={() => void remove(g)}>
-                {t.remove}
-              </Button>
+              <ConfirmButton
+                label={t.remove}
+                confirm={copy.settings.shared.confirmRemove}
+                onConfirm={() => void remove(g)}
+              />
             </div>
           ))}
         </Card>
@@ -2368,18 +2632,16 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                 <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
                   {t.edit}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
+                <ConfirmButton
+                  label={t.remove}
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() =>
                     void removeSpecialist(s.id).then(
                       () => toast(t.removed(s.name), 'info'),
                       (err: Error) => toast(err.message, 'error'),
                     )
                   }
-                >
-                  {t.remove}
-                </Button>
+                />
               </div>
             ),
           )}
@@ -2718,6 +2980,8 @@ function SchedulesSection() {
       })
       .catch((err: Error) => toast(err.message, 'error'))
   const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
+  const cronId = useId()
+  const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
       <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
@@ -2754,6 +3018,8 @@ function SchedulesSection() {
               <div className="w-40">
                 <TextInput
                   aria-label={copy.settings.schedules.cronExpression}
+                  aria-invalid={!!badCron}
+                  aria-describedby={badCron ? cronId : undefined}
                   value={draft.cron}
                   onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
                   placeholder={copy.settings.schedules.cronPlaceholder}
@@ -2778,7 +3044,7 @@ function SchedulesSection() {
               size="sm"
               variant="primary"
               icon={<Plus className="size-3.5" />}
-              disabled={!draft.request.trim()}
+              disabled={!draft.request.trim() || !!badCron}
               onClick={() =>
                 act(async () => {
                   await send('POST', '/api/schedules', {
@@ -2793,6 +3059,11 @@ function SchedulesSection() {
               {copy.settings.schedules.schedule}
             </Button>
           </div>
+          {badCron && (
+            <p id={cronId} className="mt-1.5 text-[12px] leading-snug text-bad-ink">
+              {badCron}
+            </p>
+          )}
         </Row>
       </Card>
       {!list ? (
@@ -2846,12 +3117,12 @@ function SchedulesSection() {
                   label={copy.settings.schedules.runOnSchedule(s.name)}
                   onChange={(enabled) => act(() => send('PATCH', `/api/schedules/${s.id}`, { enabled }))}
                 />
-                <IconButton
+                <ConfirmButton
+                  icon
                   label={copy.settings.schedules.delete}
-                  onClick={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
+                />
               </div>
             </Row>
           ))}
@@ -2910,12 +3181,17 @@ function fileOf(rows: HookRow[]): HooksFile {
 
 /**
  * The person's hooks, in Claude Code's format: commands Myrmidon runs before or after matching tools, or when a
- * round ends. They run as the person, outside the sandbox.
+ * round ends. They run as the person, outside the sandbox, which is why they save only on Save rather than as each
+ * character is typed: a half-written command would already run on the next tool call.
  */
-function HooksSection() {
+function HooksSection(props: { onDirty(dirty: boolean): void }) {
   const toast = useToast()
   const [rows, setRows] = useState<HookRow[]>()
   const [dirty, setDirty] = useState(false)
+  const { onDirty } = props
+  useEffect(() => {
+    onDirty(dirty)
+  }, [dirty, onDirty])
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     api<HooksFile>('/api/hooks')
@@ -2949,6 +3225,16 @@ function HooksSection() {
         <code className="font-mono text-[12.5px]">Bash</code>
         {copy.settings.hooks.introAfterBash}
       </Heading>
+      <div
+        role="note"
+        className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-[13px]"
+      >
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn-ink" />
+        <div>
+          <div className="font-semibold">{copy.settings.hooks.warningTitle}</div>
+          <div className="text-fg-2">{copy.settings.hooks.warning}</div>
+        </div>
+      </div>
       {!rows ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
@@ -3125,7 +3411,6 @@ function PluginsSection() {
   const [data, setData] = useState<{ plugins: PluginEntry[]; dir?: string }>()
   const [source, setSource] = useState('')
   const [adding, setAdding] = useState(false)
-  const [removing, setRemoving] = useState<string>()
   const load = () =>
     api<{ plugins: PluginEntry[]; dir?: string }>('/api/plugins')
       .then(setData)
@@ -3271,24 +3556,16 @@ function PluginsSection() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (removing !== p.name) return setRemoving(p.name)
-                        setRemoving(undefined)
+                    <ConfirmButton
+                      label={copy.settings.plugins.remove}
+                      confirm={copy.settings.plugins.confirmRemove}
+                      onConfirm={() =>
                         void send('DELETE', `/api/plugins/${p.name}`)
                           .then(() => toast(copy.settings.plugins.removed(p.name), 'success'))
                           .then(load)
                           .catch((err: Error) => toast(err.message, 'error'))
-                      }}
-                      onBlur={() => setRemoving(undefined)}
-                      className={cn(removing === p.name && 'text-bad-ink')}
-                    >
-                      {removing === p.name
-                        ? copy.settings.plugins.confirmRemove
-                        : copy.settings.plugins.remove}
-                    </Button>
+                      }
+                    />
                     <Switch
                       checked={p.enabled}
                       label={copy.settings.plugins.canUse(p.name)}
@@ -3305,6 +3582,43 @@ function PluginsSection() {
           </Card>
           <p className="mt-2 text-[12px] text-muted">{copy.settings.plugins.applies}</p>
         </>
+      )}
+    </>
+  )
+}
+
+/**
+ * A skill's description, two lines at most until expanded: some are paragraphs written for the model. Its folder
+ * shows only when expanded (and as the name's tooltip), since a path says little at a glance.
+ */
+function SkillDescription(props: { text: string; dir: string }) {
+  const [open, setOpen] = useState(false)
+  const [long, setLong] = useState(false)
+  const box = useRef<HTMLParagraphElement>(null)
+  // Whether the text overflows two lines can only be measured once it is laid out.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1)
+  }, [open])
+  return (
+    <>
+      <p ref={box} className={cn('mt-1 text-[13px] leading-relaxed text-fg-2', !open && 'line-clamp-2')}>
+        {props.text}
+      </p>
+      {open && (
+        <p className="mt-1 break-all font-mono text-[11.5px] text-muted" title={props.dir}>
+          {props.dir}
+        </p>
+      )}
+      {(long || open) && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="mt-0.5 text-[12px] font-medium text-muted hover:text-fg"
+        >
+          {open ? copy.settings.skills.showLess : copy.settings.skills.showMore}
+        </button>
       )}
     </>
   )
@@ -3365,15 +3679,14 @@ function SkillsSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[13.5px] font-medium">{s.name}</span>
+                    <span className="font-mono text-[13.5px] font-medium" title={s.dir}>
+                      {s.name}
+                    </span>
                     <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
                     </Pill>
                   </div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{s.description}</p>
-                  <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={s.dir}>
-                    {s.dir}
-                  </p>
+                  <SkillDescription text={s.description} dir={s.dir} />
                 </div>
                 <Switch
                   checked={s.enabled}
@@ -3599,18 +3912,24 @@ function MemorySection() {
                             {copy.settings.memory.keep}
                           </Button>
                         ) : null}
-                        <IconButton
-                          label={copy.settings.memory.forget}
-                          onClick={() =>
-                            void act(() =>
-                              m.status === 'proposed'
-                                ? send('POST', `/api/memory/${m.id}/decide`, { keep: false })
-                                : send('DELETE', `/api/memory/${m.id}`),
-                            )
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </IconButton>
+                        {m.status === 'proposed' ? (
+                          <IconButton
+                            size="sm"
+                            label={copy.settings.memory.forget}
+                            onClick={() =>
+                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </IconButton>
+                        ) : (
+                          <ConfirmButton
+                            icon
+                            label={copy.settings.memory.forget}
+                            confirm={copy.settings.memory.confirmForget}
+                            onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
+                          />
+                        )}
                       </div>
                     </div>
                   </Row>

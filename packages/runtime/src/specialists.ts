@@ -30,7 +30,7 @@ export type SpecialistInput = Pick<Specialist, 'name' | 'specialty' | 'instructi
 }
 
 /** Names the harness uses itself, which a specialist cannot take. */
-const RESERVED = new Set([
+export const RESERVED_SPECIALIST_NAMES: ReadonlySet<string> = new Set([
   'lead',
   'team',
   'user',
@@ -76,7 +76,8 @@ export class SpecialistStore {
     const name = input.name.trim().toLowerCase()
     if (!NAME.test(name))
       throw new Error('name: 2-24 lowercase letters, digits and dashes, starting with a letter')
-    if (RESERVED.has(name)) throw new Error(`"${name}" is a name Myrmidon uses itself; choose another`)
+    if (RESERVED_SPECIALIST_NAMES.has(name))
+      throw new Error(`"${name}" is a name Myrmidon uses itself; choose another`)
     if (all.some((s) => s.name === name && s.id !== id))
       throw new Error(`there is already a specialist called ${name}`)
     if (!current && all.length >= MAX_SPECIALISTS) throw new Error(`at most ${MAX_SPECIALISTS} specialists`)

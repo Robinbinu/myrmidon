@@ -206,6 +206,12 @@ export function App() {
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
   const [settingsSection, setSettingsSection] = useState<Section>('general')
+  // Ways out of Settings go through its guard, which asks first when hook edits are unsaved.
+  const settingsGuard = useRef<(go: () => void) => void>(undefined)
+  const leaveSettings = useCallback(
+    (go: () => void) => (settingsGuard.current ? settingsGuard.current(go) : go()),
+    [],
+  )
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -328,14 +334,15 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string) => {
-      setNewProject(project)
-      setActiveChat(undefined)
-      setView('chat')
-      setSettingsOpen(false)
-      requestAnimationFrame(() => composer.current?.focus())
-    },
-    [setActiveChat],
+    (project?: string) =>
+      leaveSettings(() => {
+        setNewProject(project)
+        setActiveChat(undefined)
+        setView('chat')
+        setSettingsOpen(false)
+        requestAnimationFrame(() => composer.current?.focus())
+      }),
+    [setActiveChat, leaveSettings],
   )
 
   useHotkeys([
@@ -501,7 +508,7 @@ export function App() {
         return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
       case 'mcp':
       case 'settings':
-        return openSettings(name === 'mcp' ? 'tools' : 'general')
+        return leaveSettings(() => openSettings(name === 'mcp' ? 'tools' : 'general'))
       default: {
         const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
         if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
@@ -552,11 +559,13 @@ export function App() {
       view={view}
       theme={theme}
       onTheme={setTheme}
-      onSelect={(id) => {
-        setActiveChat(id)
-        setView('chat')
-        setSettingsOpen(false)
-      }}
+      onSelect={(id) =>
+        leaveSettings(() => {
+          setActiveChat(id)
+          setView('chat')
+          setSettingsOpen(false)
+        })
+      }
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
@@ -577,12 +586,14 @@ export function App() {
             },
           }
         : {})}
-      onView={(v) => {
-        setView(v)
-        setSettingsOpen(false)
-      }}
+      onView={(v) =>
+        leaveSettings(() => {
+          setView(v)
+          setSettingsOpen(false)
+        })
+      }
       onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
-      onGateways={() => openSettings('gateways')}
+      onGateways={() => leaveSettings(() => openSettings('gateways'))}
       onCollapse={() => setCollapsed(true)}
     />
   )
@@ -619,6 +630,7 @@ export function App() {
             <Settings
               key={settingsSection}
               initialSection={settingsSection}
+              guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
               theme={theme}
               onTheme={setTheme}

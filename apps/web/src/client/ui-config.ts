@@ -122,3 +122,17 @@ export const SIGNED_OUT_RECHECK_MS = 10_000
 
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000
+
+/* ------------------------------------------------------------------ settings */
+
+/**
+ * Below this window width Settings shows its section list as icons only: next to the app sidebar (260px) the full
+ * list (256px) would leave the page too little room.
+ */
+export const SETTINGS_NAV_COLLAPSE_PX = 1100
+
+/**
+ * A two-step remove ignores its second step for this long after the first, so a double-click or a held Enter that
+ * arms it cannot also confirm it.
+ */
+export const CONFIRM_ARM_DELAY_MS = 400

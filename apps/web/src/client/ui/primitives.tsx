@@ -1,11 +1,14 @@
 import { motion } from 'motion/react'
 import {
   type ButtonHTMLAttributes,
+  cloneElement,
   forwardRef,
   type InputHTMLAttributes,
+  isValidElement,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
+  useId,
 } from 'react'
 import { spring } from '../ui-config.ts'
 import { type Tone, toneFor } from './status.ts'
@@ -220,22 +223,64 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   )
 }
 
+/** Controls a label can point at; Field gives them its id. Anything else is labelled as a group instead. */
+const LABELABLE = new Set<unknown>(['input', 'select', 'textarea', TextInput, TextArea, Select])
+
+type ControlProps = { id?: string; 'aria-describedby'?: string }
+
 export function Field(props: {
   label: string
   hint?: ReactNode
+  /** Why the value is not accepted: shown with the field, and the control is marked invalid. */
+  error?: string
   children: ReactNode
   htmlFor?: string
   inline?: boolean
 }) {
+  const id = useId()
+  const control =
+    isValidElement<ControlProps>(props.children) && LABELABLE.has(props.children.type)
+      ? props.children
+      : undefined
+  const controlId = props.htmlFor ?? control?.props.id ?? `${id}control`
+  const linked = !!props.htmlFor || !!control
+  const hintId = props.hint ? `${id}hint` : undefined
+  const errorId = props.error ? `${id}error` : undefined
+  const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined
+  const error = props.error && (
+    <p id={errorId} className="mt-0.5 text-[12px] leading-snug text-bad-ink">
+      {props.error}
+    </p>
+  )
   return (
-    <div className={cn('flex gap-2', props.inline ? 'items-center justify-between' : 'flex-col')}>
+    <div
+      className={cn('flex gap-2', props.inline ? 'items-center justify-between' : 'flex-col')}
+      {...(linked ? {} : { role: 'group', 'aria-labelledby': `${id}label`, 'aria-describedby': describedBy })}
+    >
       <div className="min-w-0">
-        <label htmlFor={props.htmlFor} className="block text-[13px] font-medium text-fg">
+        <label
+          id={`${id}label`}
+          htmlFor={linked ? controlId : undefined}
+          className="block text-[13px] font-medium text-fg"
+        >
           {props.label}
         </label>
-        {props.hint && <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{props.hint}</p>}
+        {props.hint && (
+          <p id={hintId} className="mt-0.5 text-[12.5px] leading-snug text-muted">
+            {props.hint}
+          </p>
+        )}
+        {props.inline && error}
       </div>
-      {props.children}
+      {control
+        ? cloneElement(control, {
+            id: controlId,
+            'aria-describedby':
+              [control.props['aria-describedby'], describedBy].filter(Boolean).join(' ') || undefined,
+            ...(props.error ? { 'aria-invalid': true } : {}),
+          } as ControlProps)
+        : props.children}
+      {!props.inline && error}
     </div>
   )
 }
