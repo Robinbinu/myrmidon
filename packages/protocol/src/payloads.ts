@@ -269,6 +269,8 @@ export interface EventPayloads {
     ask: string[]
     allow: string[]
     project?: string
+    /** From here on the round asks before every outside step: someone other than the person wrote into it. */
+    askAll?: boolean
     interrupted: string[]
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */

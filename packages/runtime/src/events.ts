@@ -333,6 +333,7 @@ const defs: EventTypeDefinition[] = [
       ask: strs(),
       allow: strs(),
       project: Schema.string(),
+      askAll: Schema.boolean(),
       interrupted: strs(),
     }),
   },

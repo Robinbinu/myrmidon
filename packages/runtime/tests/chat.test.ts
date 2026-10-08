@@ -2803,6 +2803,49 @@ test('a round someone else started asks before every call that changes something
   await chats.stopAll()
 })
 
+test('a member writing into a running round makes it ask from then on, and a resumed round keeps asking', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+  const resolver = new ModelResolver()
+  let release!: () => void
+  const busy = new Promise<void>((r) => {
+    release = r
+  })
+  let calls = 0
+  const lead = createMockModel({
+    handler: async () => {
+      calls++
+      if (calls === 1) {
+        await busy
+        return { content: [tool('list_artifacts', {})] }
+      }
+      if (calls === 2) return { content: [tool('fs_write', { path: 'a.txt', content: 'x' })] }
+      return { content: [tool('fs_write', { path: 'b.txt', content: 'y' })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const { chatId, colonyId } = await chats.send('Tidy the files', config)
+  await waitFor(colonyId, () => calls === 1)
+  await chats.send('a member says: also write a.txt', config, chatId, { askAll: true })
+  release()
+  const asked = (s: ColonyState) => Object.values(s.approvals).filter((a) => !a.decided)
+  const first = await waitFor(colonyId, (s) => asked(s).length > 0)
+  expect(asked(first).map((a) => a.tool)).toEqual(['fs_write'])
+  const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+  expect((change?.payload as EventPayloads['permissions/changed'] | undefined)?.askAll).toBe(true)
+
+  await chats.stop(chatId)
+  await waitFor(colonyId)
+  await chats.resume(chatId)
+  const again = await waitFor(colonyId, (s) => s.status === 'running' && asked(s).length > 0)
+  expect(asked(again).map((a) => a.tool)).toEqual(['fs_write'])
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [
