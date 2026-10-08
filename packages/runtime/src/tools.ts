@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   type ColonyState,
@@ -330,6 +330,27 @@ const COLONY_ONLY = new Set([
   'dismiss_worker',
   'update_todo',
 ])
+
+/** File tools that read from the working directory, which is the person's project in a chat that has one. */
+const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
+
+/**
+ * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
+ * (`askAll`) asks before these, so a member cannot have secrets such as `.env` read and sent back to them.
+ */
+function readsProject(host: ColonyHost, agent: string, tool: string, params: unknown): boolean {
+  if (!host.spec.chat?.project || !PROJECT_READS.has(tool)) return false
+  const path = (params as { path?: unknown } | undefined)?.path
+  let target: string
+  try {
+    target = host.workspace.resolveInWorkdir(agent, typeof path === 'string' ? path : '.')
+  } catch {
+    // The tool refuses that path itself.
+    return false
+  }
+  const scratch = host.workspace.scratch(agent)
+  return target !== scratch && !target.startsWith(scratch + sep)
+}
 
 /**
  * Whether a call needs the person's approval first. A round started by someone else (`askAll`) asks for every call
@@ -2753,7 +2774,9 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
             if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            const readOnly = def.tier === 'read' || COLONY_ONLY.has(def.name)
+            const readOnly =
+              (def.tier === 'read' && !readsProject(host, agent, def.name, params)) ||
+              COLONY_ONLY.has(def.name)
             const edited = await askFirst(host, agent, def.name, params, readOnly, key)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)

@@ -715,8 +715,9 @@ sent to the bot come in as attachments; files cannot be sent back (Zalo takes ph
 - **Approvals**: a risky step waiting for approval is sent to the owner with **Allow once**, **Always allow <tool>**
   (which sets that tool to "allow" in Settings → Tools) and **Deny**. Only the owner's press counts. A run a
   member (anyone but the owner) starts or writes into asks the owner, in the owner's own chat, before every step
-  that changes something outside the run (files, commands, the browser, MCP and plugin tools), even tools set to
-  "allow", and offers no **Always allow**. Unanswered after 15 minutes, it is denied. Without buttons, reply
+  that changes something outside the run (files, commands, the browser, MCP and plugin tools) and before reading
+  the chat's project folder, even tools set to "allow", and offers no **Always allow**. Web searches and page reads,
+  and the agents' own notes and scratch files, need no approval. Unanswered after 15 minutes, it is denied. Without buttons, reply
   `/approve KEY`, `/approve KEY always` or `/deny KEY`. Deciding in the app closes the message too.
 - **Photos and files** you send go to the crew as attachments (up to 10 MB). **Voice notes** are transcribed (with an
   OpenAI or Groq key in Settings → Models) and the transcript is echoed back so you see what was heard.
@@ -744,7 +745,8 @@ commands are typed with `!` instead: `!approve KEY`, `!new`, `!stop`, `!status`,
   approving a code or with **Make owner** under People. A handle matches only where the platform vouches for it;
   on IRC, where anyone can take a free nick, list the full `nick!user@host`.
 - **Members**' messages reach the agents marked as theirs (not the owner's), and their runs ask the owner before
-  every step that changes something.
+  every step that changes something or reads the project. In a group, only whoever asked for a run (or the owner)
+  can answer its questions.
 - **Groups**: add the bot to a group and mention it; the bot sends a code for the group, which you approve. It then
   answers only when mentioned or replied to (unless you turn that off), and only to approved people. Groups can be
   *approve each*, *any group* or *off*; with *a conversation per person*, each person gets their own chat with the

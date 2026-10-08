@@ -1905,10 +1905,10 @@ export const copy = {
       dm: 'Direct messages',
       dmHint: {
         pairing:
-          'Strangers get a code; nothing they write is acted on until you approve it. Runs anyone but the owner starts ask the owner before every step that changes something.',
+          'Strangers get a code; nothing they write is acted on until you approve it. Runs anyone but the owner starts ask the owner before every step that changes something or reads the project; they can still search the web and get answers.',
         allowlist:
-          'Only approved people and the list below; everyone else is ignored without a reply. Runs anyone but the owner starts ask the owner before every step that changes something.',
-        open: 'Anyone who finds the bot can use your crew, at your cost. Their runs ask the owner before every step that changes something, even tools you always allow. Only for a bot no one else knows.',
+          'Only approved people and the list below; everyone else is ignored without a reply. Runs anyone but the owner starts ask the owner before every step that changes something or reads the project; they can still search the web and get answers.',
+        open: 'Anyone who finds the bot can use your crew, at your cost. Their runs ask the owner before every step that changes something or reads the project, even tools you always allow; they can still search the web. Only for a bot no one else knows.',
         disabled: 'The bot answers no direct messages.',
       },
       dmOptions: {

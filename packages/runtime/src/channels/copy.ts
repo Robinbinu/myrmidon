@@ -220,7 +220,7 @@ export const channelCopy = {
   approval: {
     ask: (agent: string, summary: string) => `🔐 **${agent}** wants to ${summary}`,
     member: (name: string) =>
-      `${name} (a member, not the owner) asked for this run, so every step that changes something asks you, even tools you always allow.`,
+      `${name} (a member, not the owner) asked for this run, so every step that changes something or reads your project asks you, even tools you always allow.`,
     expires: (minutes: number) => `Unanswered after ${minutes} minutes, it is denied.`,
     elsewhere: "Waiting for the owner's approval.",
     onlyOwner: 'Only the owner can approve this.',
