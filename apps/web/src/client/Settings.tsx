@@ -1053,6 +1053,8 @@ interface LoginOption {
   name: string
   provider: string
   ready: boolean
+  /** Myrmidon holds an OAuth sign-in for the provider, not only an API key. */
+  signedIn: boolean
 }
 
 interface LoginState {
@@ -1077,7 +1079,7 @@ const FEATURED_LOGINS = [
 ]
 
 /** Sign in with a subscription (Claude Pro/Max, ChatGPT, Gemini, Copilot…) through omp's OAuth flows. */
-function SignIns(props: { providers: ProviderInfo[]; onProviders(p: ProviderInfo[]): void }) {
+function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   const toast = useToast()
   const [logins, setLogins] = useState<LoginOption[]>()
   const [session, setSession] = useState<LoginState>()
@@ -1114,16 +1116,16 @@ function SignIns(props: { providers: ProviderInfo[]; onProviders(p: ProviderInfo
     return () => clearInterval(t)
   }, [waiting, sessionId])
 
-  // Signing out removes what Myrmidon stored for the provider; credentials from outside (environment) stay.
+  // Only the sign-in goes: an API key stored for the same provider stays.
   const signOut = async (l: LoginOption) => {
     try {
-      const r = await send<{ providers: ProviderInfo[] }>(
+      const r = await send<{ providers: ProviderInfo[]; logins: LoginOption[] }>(
         'DELETE',
-        `/api/credentials/${encodeURIComponent(l.provider)}`,
+        `/api/credentials/${encodeURIComponent(l.provider)}/oauth`,
       )
       props.onProviders(r.providers)
+      setLogins(r.logins)
       toast(copy.settings.signIns.signedOut(l.name), 'success')
-      void load()
     } catch (err) {
       toast(String((err as Error).message), 'error')
     }
@@ -1179,15 +1181,13 @@ function SignIns(props: { providers: ProviderInfo[]; onProviders(p: ProviderInfo
                   </Button>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {l.ready && props.providers.some((p) => p.id === l.provider && p.stored) && (
-                      <span title={copy.settings.signIns.signOutTitle(l.provider)}>
-                        <ConfirmButton
-                          label={copy.settings.signIns.signOut}
-                          confirm={copy.settings.signIns.confirmSignOut}
-                          disabled={waiting}
-                          onConfirm={() => void signOut(l)}
-                        />
-                      </span>
+                    {l.signedIn && (
+                      <ConfirmButton
+                        label={copy.settings.signIns.signOut}
+                        confirm={copy.settings.signIns.confirmSignOut}
+                        disabled={waiting}
+                        onConfirm={() => void signOut(l)}
+                      />
                     )}
                     <Button
                       size="sm"
@@ -1359,7 +1359,7 @@ function Providers(props: {
         </Card>
       )}
 
-      <SignIns providers={providers} onProviders={props.onProviders} />
+      <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">

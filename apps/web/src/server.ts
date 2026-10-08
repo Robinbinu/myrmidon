@@ -851,6 +851,13 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true, providers: options.omp.providers() })
         }),
       },
+      '/api/credentials/:provider/oauth': {
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          await options.omp.signOut(req.params.provider ?? '')
+          return json({ ok: true, providers: options.omp.providers(), logins: options.omp.logins() })
+        }),
+      },
       '/api/providers': {
         POST: guard(async (req) => {
           if (!options.omp) return json({ error: 'providers need the chat runtime' }, 503)

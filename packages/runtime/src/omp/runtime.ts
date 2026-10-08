@@ -90,6 +90,8 @@ export interface LoginOption {
   readonly provider: string
   /** omp can call this provider's models right now. */
   readonly ready: boolean
+  /** Myrmidon holds an OAuth sign-in for the provider (not just an API key), so there is something to sign out of. */
+  readonly signedIn: boolean
 }
 
 /** How a sign-in talks to the person doing it. */
@@ -118,6 +120,8 @@ export interface OmpRuntime {
   providers(): ProviderInfo[]
   setApiKey(provider: string, key: string): Promise<void>
   removeCredentials(provider: string): Promise<void>
+  /** Removes the provider's OAuth sign-ins and keeps any API key stored for it. */
+  signOut(provider: string): Promise<void>
   logins(): LoginOption[]
   /** Runs an interactive OAuth sign-in and stores the credential in the vault. */
   login(id: string, handlers: LoginHandlers): Promise<LoginResult | undefined>
@@ -181,6 +185,9 @@ async function start(home: string): Promise<OmpRuntime> {
     providers(): Iterable<string>
     storeLoginApiKey(provider: string, key: string): Promise<void>
     remove(provider: string): Promise<void>
+    hasOAuth(provider: string): boolean
+    list(provider: string): { id: number; credential: { type: 'api_key' | 'oauth' } }[]
+    removeById(provider: string, id: number): Promise<boolean>
   }
   const open = async () => {
     const settings = await Settings.init({ agentDir, cwd: agentDir })
@@ -295,13 +302,25 @@ async function start(home: string): Promise<OmpRuntime> {
       await core.credentials.remove(provider)
       await core.registry.refresh('offline').catch(() => {})
     },
+    async signOut(provider) {
+      // remove(provider) would also delete an API key stored next to the sign-in.
+      for (const row of core.credentials.list(provider))
+        if (row.credential.type === 'oauth') await core.credentials.removeById(provider, row.id)
+      await core.registry.refresh('offline').catch(() => {})
+    },
     logins() {
       const ready = new Set(core.registry.getAvailable('chat').map((m) => m.provider))
       return getOAuthProviders()
         .filter((p) => p.available)
         .map((p) => {
           const provider = p.storeCredentialsAs ?? p.id
-          return { id: p.id, name: p.name, provider, ready: ready.has(provider) }
+          return {
+            id: p.id,
+            name: p.name,
+            provider,
+            ready: ready.has(provider),
+            signedIn: core.credentials.hasOAuth(provider),
+          }
         })
     },
     async login(id, handlers) {

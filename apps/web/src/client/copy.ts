@@ -1405,7 +1405,6 @@ export const copy = {
       signIn: 'Sign in',
       signOut: 'Sign out',
       confirmSignOut: 'Sign out for good',
-      signOutTitle: (provider: string) => `Removes every saved credential for ${provider}`,
       signedOut: (name: string) => `Signed out of ${name}`,
       finishInBrowser: 'Finish signing in in the browser tab; this updates by itself.',
       openPage: 'Open the sign-in page',
