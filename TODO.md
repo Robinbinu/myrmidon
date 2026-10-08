@@ -257,7 +257,7 @@ Open work, in the order it will be done:
         off the page, /gw/<id> forwards API calls and bridges sockets, previews through the hub's preview origin,
         sidebar switcher per window, HTTP + socket health, a "can't reach" screen; revoking a device now closes all
         its sockets (terminals too); Bun's stop() hang after server-closed sockets worked around.
-11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"; research docs/research/2026-10-08-channels.md,
+11d. - [x] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"; research docs/research/2026-10-08-channels.md,
       spec docs/superpowers/specs/2026-10-08-channels-design.md)
       - [x] Step 1: channel core + Telegram text — ChannelHub (pairing codes, owner/members, groups by approval and
         mention, one chat per conversation, /new /stop /status /help, status line, chunked answers, dedupe and saved
@@ -268,11 +268,14 @@ Open work, in the order it will be done:
         streaming modes (progress | partial | final), access policies (pairing | allowlist | open | disabled for
         DMs and groups, mention on/off), group sessions per user, a `send_message` tool for agents, schedules that
         deliver to a channel, `ctx.channels.register` for plugins, webhook ingress for webhook-based platforms.
-      - [ ] Step 3: WhatsApp (Baileys linked device; Meta Cloud API).
-      - [ ] Step 4: Discord, Slack.
-      - [ ] Step 5: Signal (signal-cli), iMessage (imsg / BlueBubbles), Matrix, Mattermost, email (IMAP/SMTP).
-      - [ ] Step 6: Microsoft Teams, Google Chat, LINE, SMS (Twilio), Feishu/Lark, DingTalk, WeCom.
-      - [ ] Step 7: IRC, Twitch, X, Nostr, Zalo, Synology Chat, Nextcloud Talk, ntfy, SimpleX, Tlon, WeChat, QQ, webhook.
+      - [x] Step 3: WhatsApp (Baileys linked device; Meta Cloud API).
+      - [x] Step 4: Discord, Slack.
+      - [x] Step 5: Signal (signal-cli), iMessage (BlueBubbles), Matrix, Mattermost, email (IMAP/SMTP).
+      - [x] Step 6: Microsoft Teams, Google Chat, LINE, SMS (Twilio), Feishu/Lark, DingTalk, WeCom.
+      - [x] Step 7: IRC, Twitch, X, Nostr, Zalo, Synology Chat, Nextcloud Talk, ntfy, SimpleX, Tlon, WeChat, QQ, webhook.
+      - [ ] Follow-ups: try each against the real service (all tested only with fakes); Feishu long connection,
+        DingTalk Stream and QQ gateway were written without SDK source; Matrix encryption; Teams/Google Chat/LINE
+        file sending; Slack/Discord webhook modes; press notes flagged by the hub instead of string checks.
 11e. - [ ] **Channels UI and usage redesign** (asked 2026-10-08: "the ui looks boring", "the channels ui and usage
       feels very bad"): each messaging app's logo (picker, cards, chats that came from a channel), and a proper
       design pass on setting a channel up and using it; show options before building.
