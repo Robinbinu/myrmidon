@@ -416,7 +416,10 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         fs_write: copy.steps.now.drafting(args.path),
         shell: copy.steps.now.runningCommand,
         request_final_verification: copy.steps.now.waitingForJudge,
-        spawn_worker: copy.steps.now.bringingIn(args.name),
+        // Chats from before the crewmate tools still show their old calls by name.
+        spawn_worker: copy.steps.now.bringingIn(args.specialist ?? args.role),
+        add_crewmate: copy.steps.now.bringingIn(args.specialist ?? args.role),
+        ask_crewmate: copy.steps.now.askingCrewmate(args.to),
         create_task: copy.steps.now.planningTasks,
         reply_user: copy.steps.now.writingReply,
       }

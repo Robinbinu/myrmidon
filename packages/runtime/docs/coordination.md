@@ -13,9 +13,9 @@ files (`outputs`) it will produce.
   hold the same task.
 - `submit_task(id, revision, artifacts)` — the verifier checks the task and reports back.
 - `release_task` gives a task back; tasks held by an agent that went quiet are released automatically.
-- `reject_task(id, revision, reason)` — the lead (or a peer in a swarm) sends submitted or verified work back with
+- `reject_task(id, revision, reason)` — the lead (or a crewmate in a swarm) sends submitted or verified work back with
   a required reason; the owner is woken with it, claims the task again, and fixes exactly that.
-- In a git project a team worker codes in its own worktree; claiming a task first brings the project's latest
+- In a git project a team crewmate codes in its own worktree; claiming a task first brings the project's latest
   changes into it, and submitting merges the worker's changes back.
 
 ## Checking what happened

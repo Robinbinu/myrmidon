@@ -6,12 +6,12 @@
  * judge, verifier, verdict, observer, steer, queue, newTask); those stay identifiers and never reach the screen.
  *   chat        one conversation with the lead, listed in the sidebar. Not "task" or "conversation"; a task is only
  *               a card on the task board.
- *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team". Each chat's crew and
+ *   crew        everyone working on a chat: the lead and its crewmates. Not "colony" or "team". Each chat's crew and
  *               its history is listed under Crews, and Compare puts two crews side by side.
- *   lead        the agent you talk to; it plans and brings in helpers.
- *   helper      an agent working with the lead. Not "worker". In Swarm mode there is no lead and the agents are
- *               "peers", equals sharing one plan.
- *   specialist  a helper you defined once in Settings and bring back by name.
+ *   lead        the agent you talk to; it plans, asks crewmates for work, and brings more in.
+ *   crewmate    an agent working with the lead. Not "helper", "worker", "teammate" or "peer". In Swarm mode there is
+ *               no lead and the crewmates are equals sharing one plan. The agents' prompts use the same word.
+ *   specialist  a crewmate you defined once in Settings and bring back by name.
  *   run         one message that starts work, and the work it causes. Not "round".
  *   turn        one step of one agent: a model call and the tools it used.
  *   review      the independent check of the work, by the reviewer. Not judge, verdict, verifier, verification.
@@ -321,15 +321,15 @@ export const copy = {
     modes: {
       orchestrated: {
         name: 'Orchestrated',
-        hint: 'A lead assigns tasks to helpers, each on the model that fits',
+        hint: 'A lead assigns tasks to crewmates, each on the model that fits',
       },
       swarm: {
         name: 'Swarm',
-        hint: 'Equal peers share one plan, notes, and tasks; no boss',
+        hint: 'Equal crewmates share one plan, notes, and tasks; no boss',
       },
     },
     teamLabel: (swarm: boolean, n: number) =>
-      swarm ? `Swarm · ${n} peer${n === 1 ? '' : 's'}` : `Orchestrated · ${n} helper${n === 1 ? '' : 's'}`,
+      `${swarm ? 'Swarm' : 'Orchestrated'} · ${n} crewmate${n === 1 ? '' : 's'}`,
     thinking: { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' },
     review: { off: 'Off', auto: 'Auto', always: 'Always' },
     lead: 'Lead',
@@ -345,22 +345,22 @@ export const copy = {
     thinkingHint: 'Auto: quick for questions, deeper for work',
     sameProvider:
       'The reviewer shares a provider with the crew; one from another provider catches more of its blind spots.',
-    helpers: 'Helpers',
-    /** The fold under the helpers setting that lists each helper and its model. */
-    helperList: 'Who helps',
+    helpers: 'Crewmates',
+    /** The fold under the crewmates setting that lists each crewmate and its model. */
+    helperList: 'Who is on the crew',
     deliveries: {
       steer: { label: 'Send now', hint: 'Read at the crew’s next step' },
       queue: { label: 'Send when done', hint: 'Read once the current work is done' },
     },
     attachedOnly: 'See the attached files.',
     reasoning: ' · reasoning',
-    /** Writing to a crew member directly by typing @ and their name. */
+    /** Writing to a crewmate directly by typing @ and their name. */
     mention: {
       section: 'Write directly to',
-      label: 'Crew members to write to',
+      label: 'Crewmates to write to',
     },
     teamDialog: 'Crew and models',
-    teamHeading: 'Lead & helpers',
+    teamHeading: 'Lead & crewmates',
     teamApplies: 'Applies to your next messages',
     removeFile: (name: string) => `Remove ${name}`,
     /** Several attachments refused at once; one file uses copy.app.fileTooLarge, which names the same size. */
@@ -440,7 +440,8 @@ export const copy = {
       drafting: (path: unknown) => `drafting ${String(path ?? 'a file')}`,
       runningCommand: 'running a command',
       waitingForJudge: 'waiting for the reviewer',
-      bringingIn: (name: unknown) => `bringing in ${String(name ?? 'a helper')}`,
+      bringingIn: (name: unknown) => `bringing in ${String(name ?? 'a crewmate')}`,
+      askingCrewmate: (name: unknown) => `asking ${String(name ?? 'a crewmate')}`,
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       using: (tool: string) => `using ${tool}`,
@@ -538,22 +539,22 @@ export const copy = {
       valueAuto: 'Review',
       model: 'Reviewer model',
     },
-    /** The one chip thinking, reviewer and helpers fold into when the toolbar is narrow. */
+    /** The one chip thinking, reviewer and crewmates fold into when the toolbar is narrow. */
     team: {
       label: 'Crew',
       summary: (thinking: string, reviewer: string, helpers: string) =>
         `Crew: thinking ${thinking.toLowerCase()} · ${reviewer.toLowerCase()} · ${helpers.toLowerCase()}`,
     },
-    /** One set of words for the helpers setting, used on the chip and in every summary of it. */
+    /** One set of words for the crewmates setting, used on the chip and in every summary of it. */
     helpers: {
-      label: 'Helpers',
-      none: 'No helpers',
+      label: 'Crewmates',
+      none: 'No crewmates',
       summary: (n: number, swarm: boolean, mode: string) =>
-        `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'} · ${mode.toLowerCase()}`,
+        `${n} crewmate${n === 1 ? '' : 's'} · ${mode.toLowerCase()}`,
     },
     helperModes: {
       never: { title: 'Never', hint: 'The lead works alone, like a chat' },
-      auto: { title: 'Auto', hint: 'The lead brings helpers in when a job needs them' },
+      auto: { title: 'Auto', hint: 'The lead brings crewmates in when a job needs them' },
       always: { title: 'Always', hint: 'Every message starts with the whole crew' },
     },
     stepper: {
@@ -562,25 +563,25 @@ export const copy = {
     },
     editor: {
       style: 'Style',
-      orchestrated: 'Lead + helpers',
-      swarm: 'Equal peers',
-      peer: (n: number) => `Peer ${n}`,
-      peerLower: (n: number) => `peer ${n}`,
-      roleOf: (n: number) => `Role of helper ${n}`,
-      helper: 'Helper',
-      minReason: (window: string) => `Under ${window}: too small for a helper's tools`,
+      orchestrated: 'Lead + crewmates',
+      swarm: 'Equal crewmates',
+      peer: (n: number) => `Crewmate ${n}`,
+      peerLower: (n: number) => `crewmate ${n}`,
+      roleOf: (n: number) => `Role of crewmate ${n}`,
+      helper: 'Crewmate',
+      minReason: (window: string) => `Under ${window}: too small for a crewmate's tools`,
       remove: (who: string) => `Remove ${who}`,
-      addPeer: 'Add peer',
-      addHelperLabel: 'Add a helper',
-      addHelper: 'Add helper…',
+      addPeer: 'Add crewmate',
+      addHelperLabel: 'Add a crewmate',
+      addHelper: 'Add crewmate…',
       custom: 'Custom',
-      /** The saved specialists in the add-helper list. */
+      /** The saved specialists in the add-crewmate list. */
       yourSpecialists: 'Your specialists',
       specialistOf: (name: string, specialty: string) => `${name} · ${specialty}`,
       moreOnDemand: {
         label: 'More on demand',
-        hint: 'Extra helpers the lead may add when the job needs them',
-        stepper: 'extra helpers',
+        hint: 'Extra crewmates the lead may add when the job needs them',
+        stepper: 'extra crewmates',
       },
     },
   },
@@ -601,13 +602,13 @@ export const copy = {
       retry: { description: 'Run the last request again' },
       model: { args: '<name>', description: 'Switch the lead model, right away if a run is going' },
       mode: {
-        description: 'A lead with helpers, or equal peers',
+        description: 'A lead with crewmates, or crewmates as equals',
         options: {
           orchestrated: {
             label: 'Orchestrated',
-            description: 'A lead plans and assigns work to helpers',
+            description: 'A lead plans and assigns work to crewmates',
           },
-          swarm: { label: 'Swarm', description: 'Equal peers agree a plan and claim the work' },
+          swarm: { label: 'Swarm', description: 'Equal crewmates agree a plan and claim the work' },
         },
       },
       thinking: {
@@ -654,7 +655,7 @@ export const copy = {
         { keys: ['Shift', 'Enter'], does: 'New line' },
         { keys: ['Alt', 'Enter'], does: 'During a run, send the other way (now or when done)' },
         { keys: ['/'], does: 'Commands, typed at the start of a message' },
-        { keys: ['@'], does: 'Write directly to a crew member by name' },
+        { keys: ['@'], does: 'Write directly to a crewmate by name' },
         { keys: ['Tab'], does: 'Complete the highlighted command' },
         { keys: ['Esc'], does: 'Close this menu and keep what you typed' },
       ],
@@ -789,7 +790,7 @@ export const copy = {
     },
     /** Shown under Role/Focus when the agent joined without a focus of its own. */
     defaultFocus: {
-      lead: 'Plans the work, brings in helpers, and answers you.',
+      lead: 'Plans the work, brings in crewmates, and answers you.',
       worker: 'Picks up tasks from the board.',
     },
     reasoning: 'Reasoning',
@@ -1038,7 +1039,7 @@ export const copy = {
       `v${version} · ${size}B · ${author}`,
     fileVersion: (version: number | undefined) => `v${version}`,
     message: {
-      /** Before the names of the crew members the person wrote to directly. */
+      /** Before the names of the crewmates the person wrote to directly. */
       to: 'To',
       steer: 'Sent now',
       queued: 'Sent when done',
@@ -1073,7 +1074,7 @@ export const copy = {
       waiting: 'Waiting for your reply',
       /** The run is paused on a call the person has to approve. */
       approval: 'Waiting for you to allow a step',
-      toTeam: 'Bringing in helpers',
+      toTeam: 'Bringing in crewmates',
       toAgent: 'Handing this to one agent with every tool',
       doneIn: (time: string) => `Done in ${time}`,
       failed: 'Failed',
@@ -1085,7 +1086,7 @@ export const copy = {
       learnTitle: 'Learn a skill from how this was done',
     },
     helpers: {
-      /** Each helper as "nova (researcher)". */
+      /** Each crewmate as "nova (researcher)". */
       broughtIn: (helpers: string[]) =>
         `Brought in ${helpers.length > 1 ? `${helpers.slice(0, -1).join(', ')} and ${helpers.at(-1)}` : helpers[0]}`,
       helper: (name: string, specialty?: string) => (specialty ? `${name} (${specialty})` : name),
@@ -1217,7 +1218,7 @@ export const copy = {
     },
     team: {
       emptyTitle: 'No one on the crew yet',
-      emptyBody: 'The lead and any helpers it brings in appear here once the work starts.',
+      emptyBody: 'The lead and any crewmates it brings in appear here once the work starts.',
       workingOn: (subject: string) => `Working on ${subject}`,
       turns: 'turns',
       tokens: 'tokens',
@@ -1329,8 +1330,8 @@ export const copy = {
       openChatToRename: 'Open a chat to rename it',
       renamed: 'Renamed',
       modeUsage: 'Use /mode orchestrated or /mode swarm',
-      modeSwarm: 'Swarm: equal peers',
-      modeOrchestrated: 'Orchestrated: a lead with helpers',
+      modeSwarm: 'Swarm: equal crewmates',
+      modeOrchestrated: 'Orchestrated: a lead with crewmates',
       noModelMatches: (query: string) => `No model matches “${query}”`,
       modelSwitched: (agents: string, model: string) => `${agents} now on ${model}, from the next step`,
       leadModel: (model: string) => `Lead model: ${model}`,
@@ -1377,11 +1378,11 @@ export const copy = {
     crewButtonTitle: 'This chat’s crew: agents, tool calls, tasks, replay',
     composer: {
       status: 'Crew is working…',
-      messagePeers: 'Message the peers while they work…',
+      messagePeers: 'Message the crewmates while they work…',
       messageLead: 'Message the lead while it works…',
       followUp: 'Ask a follow-up or request changes…',
-      /** Added when the chat has a crew: typing @ and a name writes to that crew member directly. */
-      mentionHint: ' (@name writes to a crew member)',
+      /** Added when the chat has a crew: typing @ and a name writes to that crewmate directly. */
+      mentionHint: ' (@name writes to a crewmate)',
       newTask: 'Describe what you want done…',
       /** In place of the message box until the models it offers have loaded. */
       loading: 'Loading models…',
@@ -1537,7 +1538,7 @@ export const copy = {
   colonyMap: {
     turn: (n: number) => `turn ${n}`,
     tokens: (n: string) => `${n} tok`,
-    noAgents: 'No agents yet. The lead and its helpers show here once the run starts.',
+    noAgents: 'No agents yet. The lead and its crewmates show here once the run starts.',
   },
 
   git: {
@@ -2197,15 +2198,15 @@ export const copy = {
     specialists: {
       title: 'Specialists',
       intro:
-        'Helpers you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a crew from the composer, or the lead brings it in when the work fits it.',
+        'Crewmates you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a crew from the composer, or the lead brings it in when the work fits it.',
       empty: 'No specialists yet.',
-      emptyHint: 'Create one here, or save a helper that did well from its sheet in a chat.',
+      emptyHint: 'Create one here, or save a crewmate that did well from its sheet in a chat.',
       add: 'New specialist',
       edit: 'Edit',
       remove: 'Delete',
       confirmRemove: 'Yes, delete specialist',
       removed: (name: string) => `Deleted ${name}`,
-      modelHint: "Leave it unset to use the crew's helper model.",
+      modelHint: "Leave it unset to use the crew's model for crewmates.",
       useTeamModel: "Use the crew's model",
       saved: (name: string) => `Saved ${name}`,
       name: 'Name',
@@ -2215,7 +2216,7 @@ export const copy = {
       instructions: 'How it works',
       instructionsHint: 'Its own instructions: approach, standards, what to always or never do.',
       model: 'Model',
-      teamModel: "The crew's helper model",
+      teamModel: "The crew's model for crewmates",
       tools: 'May use',
       groups: { web: 'Web', shell: 'Shell', files: 'Files', browser: 'Browser', mcp: 'MCP servers' },
       save: 'Save',
@@ -2287,8 +2288,8 @@ export const copy = {
       lead: 'Lead',
       leadHint: 'Planning, delegation, and how to talk to you.',
       leadPlaceholder: 'e.g. Prefer TypeScript. Keep plans to three bullets. Always cite sources.',
-      workers: 'Helpers',
-      workersHint: 'How helpers should do and report their part.',
+      workers: 'Crewmates',
+      workersHint: 'How crewmates should do and report their part.',
       workersPlaceholder: 'e.g. Write tests first. Report blockers immediately.',
     },
     schedules: {

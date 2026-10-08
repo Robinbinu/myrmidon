@@ -331,10 +331,14 @@ const COLONY_ONLY = new Set([
   'check_in',
   'ask_user',
   'propose',
-  'spawn_worker',
-  'dismiss_worker',
+  'add_crewmate',
+  'dismiss_crewmate',
+  'ask_crewmate',
   'update_todo',
 ])
+
+/** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
+const IN_PARALLEL = new Set(['ask_crewmate'])
 
 /** File tools that read from the working directory, which is the person's project in a chat that has one. */
 const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
@@ -810,7 +814,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const chat = resolveConversation(state, agent, args.to)
       if (chat.kind === 'direct' && !crewOf(state).includes(args.to))
         throw new Error(
-          `no such teammate or group: ${args.to}. Teammates: ${crewOf(state).join(', ')}; groups: ${Object.keys(state.groups).join(', ') || 'none'}; or "team"`,
+          `no such crewmate or group: ${args.to}. Crewmates: ${crewOf(state).join(', ')}; groups: ${Object.keys(state.groups).join(', ') || 'none'}; or "team"`,
         )
       if (chat.kind === 'group' && !chat.members.includes(agent))
         throw new Error(`you are not in the group ${args.to}; ask a member to add you`)
@@ -860,7 +864,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const unknown = args.members.filter((m: string) => !crew.includes(m))
       if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
       const members = [...new Set([agent, ...args.members])]
-      if (members.length < 2) throw new Error('a group needs at least one teammate besides you')
+      if (members.length < 2) throw new Error('a group needs at least one crewmate besides you')
       await host.append({
         type: 'group/created',
         actor: agentActor(agent),
@@ -1815,25 +1819,37 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'spawn_worker',
+    name: 'ask_crewmate',
     tier: 'write',
-    description: prompts.tools.spawn_worker.description,
+    description: prompts.tools.ask_crewmate.description,
     parameters: type({
-      'role?': type('string').atMostLength(40).describe(prompts.tools.spawn_worker.params.role),
-      focus: type('string').atLeastLength(10).describe(prompts.tools.spawn_worker.params.focus),
-      'model?': type('string').describe(prompts.tools.spawn_worker.params.model),
-      'specialist?': type('string').describe(prompts.tools.spawn_worker.params.specialist),
+      to: type('string').atLeastLength(1).describe(prompts.tools.ask_crewmate.params.to),
+      job: type('string').atLeastLength(10).describe(prompts.tools.ask_crewmate.params.job),
+    }),
+    async run(args, agent, host) {
+      return host.askCrewmate(agent, args.to, args.job)
+    },
+  },
+  {
+    name: 'add_crewmate',
+    tier: 'write',
+    description: prompts.tools.add_crewmate.description,
+    parameters: type({
+      'role?': type('string').atMostLength(40).describe(prompts.tools.add_crewmate.params.role),
+      focus: type('string').atLeastLength(10).describe(prompts.tools.add_crewmate.params.focus),
+      'model?': type('string').describe(prompts.tools.add_crewmate.params.model),
+      'specialist?': type('string').describe(prompts.tools.add_crewmate.params.specialist),
     }),
     async run(args, agent, host) {
       if (!args.specialist && (args.role?.trim().length ?? 0) < 2)
-        throw new Error("give the new worker a role, or bring in one of the person's specialists by name")
+        throw new Error("give the new crewmate a role, or bring in one of the person's specialists by name")
       return host.spawnWorker(agent, args.role?.trim() ?? '', args.focus, args.model, args.specialist)
     },
   },
   {
-    name: 'dismiss_worker',
+    name: 'dismiss_crewmate',
     tier: 'write',
-    description: prompts.tools.dismiss_worker.description,
+    description: prompts.tools.dismiss_crewmate.description,
     parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
@@ -2785,7 +2801,10 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
             const edited = await askFirst(host, agent, def.name, params, readOnly, key)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
-            const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
+            const result =
+              def.tier === 'read' || IN_PARALLEL.has(def.name)
+                ? await run()
+                : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
             const hookNote = await host.afterTool(agent, def.name, params, output)

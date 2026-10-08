@@ -1260,6 +1260,11 @@ export class ChatService {
               })
           : [lead, ...crew('worker')]
     ).map((a) => this._asSpecialist(a))
+    // A lead working alone keeps the crew on call: it asks one for a piece of work instead of calling the team.
+    const crewmates =
+      tier === 'solo' && config.mode === 'orchestrated'
+        ? crew('worker').map((a) => this._asSpecialist(a))
+        : []
     const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
@@ -1313,6 +1318,7 @@ export class ChatService {
         ...(tier === 'team' && !swarm
           ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
           : {}),
+        ...(crewmates.length ? { crewmates } : {}),
       },
     }
   }

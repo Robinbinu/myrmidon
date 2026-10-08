@@ -96,6 +96,11 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...review,
       ]
     const plugin = speaksForColony(spec, agent) ? PLUGIN : []
+    // A crewmate the lead asked for a piece of work: it works and answers the lead, never the person.
+    if (spec.tier === 'solo' && agent.role === 'worker')
+      return [...READ, 'message', 'append_note', 'publish_artifact', ...BUILD]
+    const crewmates =
+      spec.tier === 'solo' && isLead(spec, agent) && spec.team?.crewmates?.length ? ['ask_crewmate'] : []
     if (spec.tier !== 'team' || spec.agents.length === 1)
       return [
         ...READ,
@@ -103,6 +108,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'publish_artifact',
         ...BUILD,
         ...USER,
+        ...crewmates,
         ...escalation,
         ...review,
         ...plugin,
@@ -123,7 +129,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
       // A lead can add workers while it has room, and bring in the person's specialists whenever some can join.
       const spawn =
         (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 || spec.team?.specialists?.length
-          ? ['spawn_worker']
+          ? ['add_crewmate']
           : []
       // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
       // It plans, assigns, reviews, integrates, and speaks; specialists research and build.
@@ -142,7 +148,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...review,
         ...plugin,
         ...spawn,
-        ...(spec.agents.length > 1 ? ['dismiss_worker'] : []),
+        ...(spec.agents.length > 1 ? ['dismiss_crewmate'] : []),
       ]
     }
     // A worker speaks to the person only when they wrote to it directly (@name).
@@ -225,8 +231,20 @@ function escalationNote(spec: ColonySpec): string {
 
 function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
   if (spec.chat && spec.tier === 'answer') return prompts.roles.answer(escalationNote(spec))
-  if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1))
-    return prompts.roles.solo(escalationNote(spec))
+  if (spec.chat && spec.tier === 'solo' && agent.role === 'worker') {
+    const lead = spec.agents.find((a) => isLead(spec, a))?.name ?? 'lead'
+    return prompts.roles.crewmate({
+      name: agent.name,
+      ...(agent.specialty ? { specialty: agent.specialty } : {}),
+      model: agent.model,
+      lead,
+    })
+  }
+  if (spec.chat && (spec.tier !== 'team' || spec.agents.length === 1)) {
+    const onCall = isLead(spec, agent) ? (spec.team?.crewmates ?? []) : []
+    const list = onCall.map((c) => `- ${c.name}: ${c.specialty ?? 'crewmate'} (${c.model})`).join('\n')
+    return prompts.roles.solo(escalationNote(spec), list ? prompts.roles.crewmates(list) : '')
+  }
   if (spec.chat && spec.team?.mode === 'swarm') {
     return prompts.roles.swarmPeer({
       name: agent.name,
@@ -379,7 +397,7 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
         has('mcp') && say.mcp,
         has('create_tool') && env.sandbox !== 'none' && say.makeTools,
         has('create_task') && say.createTasks,
-        has('spawn_worker') && say.addWorkers,
+        has('add_crewmate') && say.addWorkers,
         has('reply_user') && say.talk,
       ]
         .filter(Boolean)

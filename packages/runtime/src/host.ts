@@ -34,6 +34,11 @@ export interface ColonyHost {
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
   /** Adds a worker: a new one for `label`, or (with `specialist`) one of the person's saved specialists by name. */
   spawnWorker(by: string, label: string, focus: string, model?: string, specialist?: string): Promise<string>
+  /**
+   * The lead asks one of its on-call crewmates for a piece of work: the crewmate joins (or, already here, gets the
+   * job by mail), does it, and its reply to the lead comes back here, not as a wake-up.
+   */
+  askCrewmate(by: string, name: string, job: string): Promise<string>
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number

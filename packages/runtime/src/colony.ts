@@ -1112,13 +1112,13 @@ export class ColonyRun implements ColonyHost {
     specialist?: string,
   ): Promise<string> {
     const team = this.spec.team
-    if (team?.mode !== 'orchestrated') throw new Error('only an orchestrated team can add workers')
+    if (team?.mode !== 'orchestrated') throw new Error('only an orchestrated team can add crewmates')
     if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
-      throw new Error('only the lead can spawn workers')
+      throw new Error('only the lead can add crewmates')
     const workers = this.spec.agents.filter((a) => a.role !== 'lead').length
     // The person's own specialists may join past the extra-worker allowance, up to the team's ceiling.
     const limit = specialist ? MAX_WORKERS : team.maxWorkers
-    if (workers >= limit) throw new Error(`worker limit reached (${limit})`)
+    if (workers >= limit) throw new Error(`crewmate limit reached (${limit})`)
     const saved = specialist ? team.specialists?.find((s) => s.name === specialist) : undefined
     if (specialist && !saved) {
       const here = this.spec.agents.some((a) => a.name === specialist)
@@ -1168,11 +1168,80 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.spawned({ name, label, model: chosen })
   }
 
+  /** Crewmates the lead is waiting on (ask_crewmate): their next reply to the lead answers it. */
+  private readonly _asked = new Map<
+    string,
+    { lead: string; since: number; resolve(text: string): void; reject(err: Error): void }
+  >()
+
+  async askCrewmate(by: string, name: string, job: string): Promise<string> {
+    if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
+      throw new Error('only the lead asks its crewmates')
+    const onCall = this.spec.team?.crewmates ?? []
+    const want = name.trim().toLowerCase()
+    const here = this.spec.agents.find((a) => a.role === 'worker' && a.name.toLowerCase() === want)
+    const called = here ?? onCall.find((c) => c.name.toLowerCase() === want)
+    if (!called)
+      throw new Error(
+        `no crewmate called ${name}; yours are: ${onCall.map((c) => c.name).join(', ') || 'none'}`,
+      )
+    if (this._state.agents[called.name]?.dismissed) throw new Error(`${called.name} has left this round`)
+    if (this._asked.has(called.name))
+      throw new Error(`${called.name} is still working on what you asked; wait for that answer first`)
+    const since = this._state.lastSeq
+    const answer = new Promise<string>((resolve, reject) =>
+      this._asked.set(called.name, { lead: by, since, resolve, reject }),
+    )
+    try {
+      if (!here) {
+        // On call until now: it joins the round, its job in its instructions, and is woken by the job's mail below.
+        const spec: AgentSpec = {
+          ...called,
+          role: 'worker',
+          instructions: [called.instructions, prompts.colony.crewmateJob(by)].filter(Boolean).join('\n\n'),
+        }
+        this.spec.agents.push(spec)
+        await this.append({
+          type: 'agent/joined',
+          actor: SYSTEM,
+          payload: {
+            agent: {
+              name: spec.name,
+              role: 'worker',
+              model: spec.model,
+              tools: toolsFor(this.spec, spec),
+              ...(spec.specialty ? { specialty: spec.specialty } : {}),
+              focus: job,
+            },
+            by,
+            focus: `${spec.specialty ?? 'crewmate'}: ${job}`,
+          },
+        })
+        await this._isolate(spec.name)
+        const agent = new ColonyAgent(spec, this, this.resolver)
+        this._agents.set(spec.name, agent)
+        this._runAgent(agent)
+      }
+      // The job goes by mail, as any message between crewmates does, so it shows in the round's Mail.
+      await this.append({
+        type: 'mail/sent',
+        actor: { kind: 'agent', id: by },
+        payload: { from: by, to: called.name, subject: '', body: job },
+      })
+      const ended = this.done.then(() => {
+        throw new Error('the round ended before the answer came')
+      })
+      return prompts.toolResults.crewmateAnswer(called.name, await Promise.race([answer, ended]))
+    } finally {
+      this._asked.delete(called.name)
+    }
+  }
+
   async dismissWorker(by: string, name: string, reason: string): Promise<string> {
     if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
-      throw new Error('only the lead can dismiss workers')
+      throw new Error('only the lead can dismiss crewmates')
     const worker = this.spec.agents.find((a) => a.name === name)
-    if (!worker || worker.role === 'lead') throw new Error(`no worker named ${name}`)
+    if (!worker || worker.role === 'lead') throw new Error(`no crewmate named ${name}`)
     if (this._state.agents[name]?.dismissed) throw new Error(`${name} was already dismissed`)
     await this.append({ type: 'agent/dismissed', actor: SYSTEM, payload: { agent: name, by, reason } })
     this._agents.get(name)?.stop()
@@ -1451,6 +1520,13 @@ export class ColonyRun implements ColonyHost {
               notify(m, prompts.colony.groupMessage({ ...message, group: p.to }), `group:${p.to}`, {
                 mail: e.id,
               })
+        // A crewmate answering what the lead asked it (ask_crewmate): the answer goes back as the tool's result.
+        const asked = !group ? this._asked.get(p.from) : undefined
+        if (asked && p.to === asked.lead && e.seq > asked.since) {
+          this._asked.delete(p.from)
+          asked.resolve(p.body)
+          break
+        }
         if (!group) notify(p.to, prompts.colony.mail(message), 'mail', { mail: e.id })
         break
       }
@@ -1526,6 +1602,20 @@ export class ColonyRun implements ColonyHost {
         if (p.task.status === 'verified') this._announceUnblocked(p.task.id)
         break
       }
+      case 'agent/status':
+      case 'agent/dismissed': {
+        const p = e.payload as { agent: string; status?: string; detail?: string; reason?: string }
+        const asked = this._asked.get(p.agent)
+        if (asked && (e.type === 'agent/dismissed' || p.status === 'failed')) {
+          this._asked.delete(p.agent)
+          asked.reject(
+            new Error(
+              `${p.agent} ${e.type === 'agent/dismissed' ? 'was dismissed' : 'failed'}: ${p.detail ?? p.reason ?? ''}`,
+            ),
+          )
+        }
+        break
+      }
       case 'agent/turn':
       case 'llm/response': {
         // Fallback for wakes held past a batch: release them when the creator speaks again or ends its turn.
@@ -1533,7 +1623,15 @@ export class ColonyRun implements ColonyHost {
         if (e.type === 'llm/response' || (e.payload as EventPayloads['agent/turn']).phase === 'end')
           this.batchEnded(agent)
         if (e.type === 'agent/turn') {
-          if ((e.payload as EventPayloads['agent/turn']).phase === 'end') this._remindHolder(agent)
+          if ((e.payload as EventPayloads['agent/turn']).phase === 'end') {
+            this._remindHolder(agent)
+            // A crewmate that stops without answering the lead: the lead is told, not left waiting.
+            const asked = this._asked.get(agent)
+            if (asked && e.seq > asked.since) {
+              this._asked.delete(agent)
+              asked.resolve(prompts.toolResults.crewmateSilent(agent))
+            }
+          }
           break
         }
         const { costUsd, tokens } = this.spec.budget

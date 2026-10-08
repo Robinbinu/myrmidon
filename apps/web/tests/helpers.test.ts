@@ -30,12 +30,12 @@ const models: ModelOption[] = ['a/lead', 'b/judge'].map((ref) => ({
 
 test('the helpers setting reads the same wherever it is summed up', () => {
   expect(helperMode({ ...base, roster: [], extraWorkers: 0 })).toBe('never')
-  expect(helpersLabel({ ...base, roster: [], extraWorkers: 0 })).toBe('No helpers')
-  expect(helpersLabel(base)).toBe('2 helpers · auto')
-  // "Always" is still the same two helpers, not a differently counted "team of 3".
-  expect(helpersLabel({ ...base, helpers: 'always' })).toBe('2 helpers · always')
-  expect(helpersLabel({ ...base, roster: base.roster.slice(0, 1) })).toBe('1 helper · auto')
-  expect(helpersLabel({ ...base, mode: 'swarm', helpers: 'always' })).toBe('2 peers · always')
+  expect(helpersLabel({ ...base, roster: [], extraWorkers: 0 })).toBe('No crewmates')
+  expect(helpersLabel(base)).toBe('2 crewmates · auto')
+  // "Always" is still the same two crewmates, not a differently counted "team of 3".
+  expect(helpersLabel({ ...base, helpers: 'always' })).toBe('2 crewmates · always')
+  expect(helpersLabel({ ...base, roster: base.roster.slice(0, 1) })).toBe('1 crewmate · auto')
+  expect(helpersLabel({ ...base, mode: 'swarm', helpers: 'always' })).toBe('2 crewmates · always')
   // The line under a summary is the chosen option's own hint, so it never contradicts the label.
   expect(helpersHint({ ...base, helpers: 'always' })).toBe('Every message starts with the whole crew')
 })

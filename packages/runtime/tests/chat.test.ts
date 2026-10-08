@@ -454,7 +454,7 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   scripted(resolver, 'mock/lead', [
     (ctx) => {
       look('lead')(ctx)
-      return [tool('spawn_worker', { specialist: 'scout', focus: 'Find three sources on ant colonies' })]
+      return [tool('add_crewmate', { specialist: 'scout', focus: 'Find three sources on ant colonies' })]
     },
     [tool('reply_user', { text: 'Done.', final: true })],
   ])
@@ -480,6 +480,62 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   // Ada is already on the team, so she is not offered again.
   expect(keeps).not.toContain('- ada:')
   expect(s.agents.scout?.info).toMatchObject({ role: 'worker', specialty: 'web researcher' })
+  await chats.stopAll()
+})
+
+test('crewmates on call: a lead working alone asks them for work and gets their answers back as results', async () => {
+  const resolver = new ModelResolver()
+  const seen: { system?: string; tools?: string[]; results?: string } = {}
+  const names = (system: string) =>
+    [...(system.split('Your crewmates, on call')[1] ?? '').matchAll(/^- (\w+): (\w+) \(/gm)].map((m) => [
+      m[2],
+      m[1],
+    ])
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      seen.system = ctx.systemPrompt?.join('\n') ?? ''
+      seen.tools = ctx.tools?.map((t) => t.name)
+      const by = Object.fromEntries(names(seen.system))
+      // Two independent jobs in one step: both crewmates work at once.
+      return [
+        tool('ask_crewmate', { to: by.researcher, job: 'Find how many ants live in a typical colony.' }),
+        tool('ask_crewmate', { to: by.writer, job: 'Draft a one-line title for an ant poem.' }),
+      ]
+    },
+    (ctx) => {
+      seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
+      return [tool('reply_user', { text: 'About 300,000 ants.', final: true })]
+    },
+  ])
+  // The researcher answers the lead by message; the writer stops without answering.
+  scripted(resolver, 'mock/researcher', [
+    [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })],
+    ['Answered the lead.'],
+  ])
+  scripted(resolver, 'mock/writer', [['Thinking about titles.']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('How many ants are in a colony?', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [
+      { role: 'researcher', model: 'mock/researcher' },
+      { role: 'writer', model: 'mock/writer' },
+    ],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(seen.tools).toContain('ask_crewmate')
+  expect(names(seen.system ?? '').map(([role]) => role)).toEqual(['researcher', 'writer'])
+  // The answer came back as the tool's result, and a crewmate that went quiet is reported, not waited on.
+  expect(seen.results).toContain('answered:\\nTypically 300,000 ants.')
+  expect(seen.results).toContain('stopped without answering')
+  const joined = Object.values(s.agents).filter((a) => a.info.role === 'worker')
+  expect(joined.map((a) => a.info.specialty).sort()).toEqual(['researcher', 'writer'])
+  // Crewmates answer the lead, never the person.
+  for (const a of joined) expect(a.info.tools).not.toContain('reply_user')
+  expect(s.chatMessages.filter((m) => m.from !== 'lead' && m.from !== 'user')).toEqual([])
   await chats.stopAll()
 })
 
@@ -1108,7 +1164,7 @@ test('a chat keeps its workers and their memory across rounds; the lead can dism
         return {
           content: [
             tool('create_task', { subject: 'Collect the facts', assignee: specialist(ctx, 'researcher') }),
-            tool('dismiss_worker', {
+            tool('dismiss_crewmate', {
               name: specialist(ctx, 'coder'),
               reason: 'no code in this conversation',
             }),
