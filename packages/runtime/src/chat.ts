@@ -1012,6 +1012,16 @@ export class ChatService {
   >()
 
   /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
+  /** Every event as it is appended to any colony, e.g. for a channel following a round it started. */
+  onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void {
+    return this.runtime.ctx.on('log/appended', listener)
+  }
+
+  /** A colony's whole log. */
+  events(colonyId: string): Promise<MyrEvent[]> {
+    return this.store.read(colonyId as never)
+  }
+
   onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
     this._streams.add(listener)
     return () => this._streams.delete(listener)

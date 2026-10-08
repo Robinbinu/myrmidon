@@ -42,6 +42,7 @@ import {
   ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
+import { channels } from './channels.ts'
 import { setupCopy } from './copy.ts'
 import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
 import { style, terminal } from './terminal.ts'
@@ -60,7 +61,9 @@ Usage:
   myrmidon login [ID]          Sign in with a subscription; works on a server with no browser (paste the link back)
   myrmidon key [PROVIDER]      Add an API key (typed hidden, or piped: myrmidon key openai < key.txt)
   myrmidon model [REF]         Show or set the default model (provider/model); it is tested before it is saved
-  myrmidon doctor              Check the server, models, sandbox, browser tools, previews and devices
+  myrmidon doctor              Check the server, models, sandbox, browser tools, previews, devices and channels
+  myrmidon channels [telegram [on|off] | approve <channel> <code> | revoke <channel> <who>]
+               Talk to your agents from Telegram: give the bot its token (hidden or piped), approve people
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -427,6 +430,8 @@ async function main() {
       return key((await runningServer()).call, terminal(), arg)
     case 'model':
       return model((await runningServer()).call, terminal(), arg)
+    case 'channels':
+      return channels((await runningServer()).call, terminal(), positionals.slice(1))
     case 'doctor': {
       const server = await runningServer().catch(() => undefined)
       const problems = await withScratch((scratch) =>

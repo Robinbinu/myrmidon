@@ -1,6 +1,7 @@
 export * from './agent.ts'
 export * from './browser.ts'
 export * from './catalog.ts'
+export * from './channels/index.ts'
 export * from './chat.ts'
 export * from './checkpoints.ts'
 export * from './colony.ts'
