@@ -1,10 +1,7 @@
 import {
   ArchiveRestore,
   ArrowLeft,
-  AudioLines,
-  BookMarked,
   Bot,
-  CalendarClock,
   Check,
   ChevronRight,
   CircleCheck,
@@ -13,30 +10,18 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  FishingHook,
-  Globe,
-  GraduationCap,
   LoaderCircle,
   LogIn,
-  MessageSquareText,
+  type LucideIcon,
   Monitor,
   Moon,
-  Palette,
   Pin,
-  Plug,
   Plus,
-  Puzzle,
   RefreshCw,
   Search,
-  SlidersHorizontal,
-  Smile,
   Sun,
-  Terminal,
   Trash2,
   TriangleAlert,
-  UserCog,
-  Users,
-  Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -218,127 +203,128 @@ type SectionGroup = keyof typeof copy.settings.page.groups
 const GROUPS: readonly SectionGroup[] = ['setup', 'agents', 'extend', 'connect', 'you']
 
 /** The sections in the order the list shows them, each under its group's heading. */
-const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
-  {
-    id: 'models',
-    group: 'setup',
-    label: copy.settings.sections.models.label,
-    hint: copy.settings.sections.models.hint,
-    icon: FEATURE_ICONS.models,
-  },
-  {
-    id: 'team',
-    group: 'setup',
-    label: copy.settings.sections.team.label,
-    hint: copy.settings.sections.team.hint,
-    icon: Users,
-  },
-  {
-    id: 'verification',
-    group: 'setup',
-    label: copy.settings.sections.verification.label,
-    hint: copy.settings.sections.verification.hint,
-    icon: FEATURE_ICONS.reviewer,
-  },
-  {
-    id: 'specialists',
-    group: 'agents',
-    label: copy.settings.sections.specialists.label,
-    hint: copy.settings.sections.specialists.hint,
-    icon: UserCog,
-  },
-  {
-    id: 'instructions',
-    group: 'agents',
-    label: copy.settings.sections.instructions.label,
-    hint: copy.settings.sections.instructions.hint,
-    icon: MessageSquareText,
-  },
-  {
-    id: 'memory',
-    group: 'agents',
-    label: copy.settings.sections.memory.label,
-    hint: copy.settings.sections.memory.hint,
-    icon: BookMarked,
-  },
-  {
-    id: 'skills',
-    group: 'agents',
-    label: copy.settings.sections.skills.label,
-    hint: copy.settings.sections.skills.hint,
-    icon: GraduationCap,
-  },
-  {
-    id: 'tools',
-    group: 'extend',
-    label: copy.settings.sections.tools.label,
-    hint: copy.settings.sections.tools.hint,
-    icon: Wrench,
-  },
-  {
-    id: 'plugins',
-    group: 'extend',
-    label: copy.settings.sections.plugins.label,
-    hint: copy.settings.sections.plugins.hint,
-    icon: Puzzle,
-  },
-  {
-    id: 'hooks',
-    group: 'extend',
-    label: copy.settings.sections.hooks.label,
-    hint: copy.settings.sections.hooks.hint,
-    icon: FishingHook,
-  },
-  {
-    id: 'schedules',
-    group: 'extend',
-    label: copy.settings.sections.schedules.label,
-    hint: copy.settings.sections.schedules.hint,
-    icon: CalendarClock,
-  },
-  {
-    id: 'general',
-    group: 'you',
-    label: copy.settings.sections.general.label,
-    hint: copy.settings.sections.general.hint,
-    icon: Palette,
-  },
-  {
-    id: 'mascot',
-    group: 'you',
-    label: copy.settings.sections.mascot.label,
-    hint: copy.settings.sections.mascot.hint,
-    icon: Smile,
-  },
-  {
-    id: 'devices',
-    group: 'connect',
-    label: copy.settings.sections.devices.label,
-    hint: copy.settings.sections.devices.hint,
-    icon: FEATURE_ICONS.devices,
-  },
-  {
-    id: 'gateways',
-    group: 'connect',
-    label: copy.settings.sections.gateways.label,
-    hint: copy.settings.sections.gateways.hint,
-    icon: FEATURE_ICONS.gateways,
-  },
-  {
-    id: 'channels',
-    group: 'connect',
-    label: copy.settings.sections.channels.label,
-    hint: copy.settings.sections.channels.hint,
-    icon: FEATURE_ICONS.channels,
-  },
-  {
-    id: 'voice',
-    group: 'connect',
-    label: copy.settings.sections.voice.label,
-    hint: copy.settings.sections.voice.hint,
-    icon: AudioLines,
-  },
-]
+export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: LucideIcon }[] =
+  [
+    {
+      id: 'models',
+      group: 'setup',
+      label: copy.settings.sections.models.label,
+      hint: copy.settings.sections.models.hint,
+      icon: FEATURE_ICONS.models,
+    },
+    {
+      id: 'team',
+      group: 'setup',
+      label: copy.settings.sections.team.label,
+      hint: copy.settings.sections.team.hint,
+      icon: FEATURE_ICONS.crew,
+    },
+    {
+      id: 'verification',
+      group: 'setup',
+      label: copy.settings.sections.verification.label,
+      hint: copy.settings.sections.verification.hint,
+      icon: FEATURE_ICONS.reviewer,
+    },
+    {
+      id: 'specialists',
+      group: 'agents',
+      label: copy.settings.sections.specialists.label,
+      hint: copy.settings.sections.specialists.hint,
+      icon: FEATURE_ICONS.specialists,
+    },
+    {
+      id: 'instructions',
+      group: 'agents',
+      label: copy.settings.sections.instructions.label,
+      hint: copy.settings.sections.instructions.hint,
+      icon: FEATURE_ICONS.instructions,
+    },
+    {
+      id: 'memory',
+      group: 'agents',
+      label: copy.settings.sections.memory.label,
+      hint: copy.settings.sections.memory.hint,
+      icon: FEATURE_ICONS.memory,
+    },
+    {
+      id: 'skills',
+      group: 'agents',
+      label: copy.settings.sections.skills.label,
+      hint: copy.settings.sections.skills.hint,
+      icon: FEATURE_ICONS.skills,
+    },
+    {
+      id: 'tools',
+      group: 'extend',
+      label: copy.settings.sections.tools.label,
+      hint: copy.settings.sections.tools.hint,
+      icon: FEATURE_ICONS.tools,
+    },
+    {
+      id: 'plugins',
+      group: 'extend',
+      label: copy.settings.sections.plugins.label,
+      hint: copy.settings.sections.plugins.hint,
+      icon: FEATURE_ICONS.plugins,
+    },
+    {
+      id: 'hooks',
+      group: 'extend',
+      label: copy.settings.sections.hooks.label,
+      hint: copy.settings.sections.hooks.hint,
+      icon: FEATURE_ICONS.hooks,
+    },
+    {
+      id: 'schedules',
+      group: 'extend',
+      label: copy.settings.sections.schedules.label,
+      hint: copy.settings.sections.schedules.hint,
+      icon: FEATURE_ICONS.schedules,
+    },
+    {
+      id: 'general',
+      group: 'you',
+      label: copy.settings.sections.general.label,
+      hint: copy.settings.sections.general.hint,
+      icon: FEATURE_ICONS.appearance,
+    },
+    {
+      id: 'mascot',
+      group: 'you',
+      label: copy.settings.sections.mascot.label,
+      hint: copy.settings.sections.mascot.hint,
+      icon: FEATURE_ICONS.mascot,
+    },
+    {
+      id: 'devices',
+      group: 'connect',
+      label: copy.settings.sections.devices.label,
+      hint: copy.settings.sections.devices.hint,
+      icon: FEATURE_ICONS.devices,
+    },
+    {
+      id: 'gateways',
+      group: 'connect',
+      label: copy.settings.sections.gateways.label,
+      hint: copy.settings.sections.gateways.hint,
+      icon: FEATURE_ICONS.gateways,
+    },
+    {
+      id: 'channels',
+      group: 'connect',
+      label: copy.settings.sections.channels.label,
+      hint: copy.settings.sections.channels.hint,
+      icon: FEATURE_ICONS.channels,
+    },
+    {
+      id: 'voice',
+      group: 'connect',
+      label: copy.settings.sections.voice.label,
+      hint: copy.settings.sections.voice.hint,
+      icon: FEATURE_ICONS.voice,
+    },
+  ]
 
 const API_LABELS: Record<Api, string> = {
   'openai-completions': copy.settings.providerForm.apiLabels['openai-completions'],
@@ -1928,41 +1914,41 @@ function NumberField(props: {
   )
 }
 
-const TOOL_INFO: {
+export const TOOL_INFO: {
   key: keyof ServerSettings['tools']
   label: string
   hint: string
-  icon: typeof Terminal
+  icon: LucideIcon
 }[] = [
   {
     key: 'shell',
     label: copy.settings.tools.groups.shell.label,
     hint: copy.settings.tools.groups.shell.hint,
-    icon: Terminal,
+    icon: FEATURE_ICONS.agentShell,
   },
   {
     key: 'web',
     label: copy.settings.tools.groups.web.label,
     hint: copy.settings.tools.groups.web.hint,
-    icon: Globe,
+    icon: FEATURE_ICONS.web,
   },
   {
     key: 'files',
     label: copy.settings.tools.groups.files.label,
     hint: copy.settings.tools.groups.files.hint,
-    icon: SlidersHorizontal,
+    icon: FEATURE_ICONS.scratchFiles,
   },
   {
     key: 'messaging',
     label: copy.settings.tools.groups.messaging.label,
     hint: copy.settings.tools.groups.messaging.hint,
-    icon: MessageSquareText,
+    icon: FEATURE_ICONS.mail,
   },
   {
     key: 'mcp',
     label: copy.settings.tools.groups.mcp.label,
     hint: copy.settings.tools.groups.mcp.hint,
-    icon: Plug,
+    icon: FEATURE_ICONS.mcp,
   },
 ]
 
@@ -2093,7 +2079,7 @@ function ToolsSection(props: {
       <McpServers />
       <SectionHeader
         className="mb-2 mt-8"
-        icon={<Wrench className="size-4 text-muted" />}
+        icon={<FEATURE_ICONS.tools className="size-4 text-muted" />}
         title={copy.settings.tools.libraryTitle}
         note={copy.settings.tools.librarySubtitle}
       />
@@ -2203,7 +2189,7 @@ function McpServers() {
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
         <SectionHeader
-          icon={<Plug className="size-4 text-muted" />}
+          icon={<FEATURE_ICONS.mcp className="size-4 text-muted" />}
           title={copy.settings.mcp.title}
           note={copy.settings.mcp.subtitle}
         />
@@ -3851,7 +3837,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
         </Card>
       )}
       {list.length === 0 && open !== 'new' ? (
-        <Empty icon={<UserCog className="size-5" />} title={t.empty}>
+        <Empty icon={<FEATURE_ICONS.specialists className="size-5" />} title={t.empty}>
           {t.emptyHint}
         </Empty>
       ) : (
@@ -4368,7 +4354,10 @@ function SchedulesSection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.schedules.loading}
         </div>
       ) : list.length === 0 ? (
-        <Empty icon={<CalendarClock className="size-5" />} title={copy.settings.schedules.emptyTitle}>
+        <Empty
+          icon={<FEATURE_ICONS.schedules className="size-5" />}
+          title={copy.settings.schedules.emptyTitle}
+        >
           {copy.settings.schedules.emptyBody}
         </Empty>
       ) : (
@@ -4786,7 +4775,7 @@ function PluginsSection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.plugins.loading}
         </div>
       ) : data.plugins.length === 0 ? (
-        <Empty icon={<Puzzle className="size-5" />} title={copy.settings.plugins.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.plugins className="size-5" />} title={copy.settings.plugins.emptyTitle}>
           {copy.settings.plugins.emptyBody}
         </Empty>
       ) : (
@@ -4982,7 +4971,7 @@ function SkillsSection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}
         </div>
       ) : data.skills.length === 0 ? (
-        <Empty icon={<GraduationCap className="size-5" />} title={copy.settings.skills.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.skills className="size-5" />} title={copy.settings.skills.emptyTitle}>
           {copy.settings.skills.emptyBody}
         </Empty>
       ) : (
@@ -5185,7 +5174,7 @@ function MemorySection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
         </div>
       ) : memories.length === 0 ? (
-        <Empty icon={<BookMarked className="size-5" />} title={copy.settings.memory.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={copy.settings.memory.emptyTitle}>
           {copy.settings.memory.emptyBody}
         </Empty>
       ) : (

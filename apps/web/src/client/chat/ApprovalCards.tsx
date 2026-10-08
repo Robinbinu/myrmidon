@@ -1,5 +1,5 @@
 import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, GraduationCap, PencilLine, X } from 'lucide-react'
+import { BookmarkPlus, Check, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -461,7 +461,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
     >
       <div className="flex items-center gap-2 text-reading">
-        <GraduationCap className="size-4 shrink-0 text-accent-fg" />
+        <FEATURE_ICONS.skills className="size-4 shrink-0 text-accent-fg" />
         <span className="min-w-0">
           {p.update ? t.improve : t.learned} <span className="font-mono font-semibold">{p.name}</span>
         </span>

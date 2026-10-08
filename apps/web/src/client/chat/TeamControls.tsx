@@ -1,4 +1,4 @@
-import { ChevronDown, Gauge, Minus, Plus, Sparkles, User, Users, UsersRound, X } from 'lucide-react'
+import { ChevronDown, Gauge, Minus, Plus, Sparkles, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
@@ -311,7 +311,7 @@ export function TeamChip(props: { config: TeamConfig; review?: ReviewMode; open:
       onClick={props.onClick}
       className={cn(PILL, 'shrink-0', props.open && 'bg-fill text-fg')}
     >
-      <Users className="size-3.5 shrink-0" />
+      <FEATURE_ICONS.crew className="size-3.5 shrink-0" />
       {copy.teamControls.team.label}
       <ChevronDown className="size-3 shrink-0 text-muted" />
     </button>
@@ -331,7 +331,7 @@ export function HelpersChip(props: {
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}
-      icon={<Users className="size-3.5 shrink-0" />}
+      icon={<FEATURE_ICONS.helpers className="size-3.5 shrink-0" />}
       value={helpersLabel(config)}
       width={380}
     >
@@ -366,19 +366,19 @@ const HELPER_MODES = [
     key: 'never',
     title: copy.teamControls.helperModes.never.title,
     hint: copy.teamControls.helperModes.never.hint,
-    icon: User,
+    icon: FEATURE_ICONS.solo,
   },
   {
     key: 'auto',
     title: copy.teamControls.helperModes.auto.title,
     hint: copy.teamControls.helperModes.auto.hint,
-    icon: Users,
+    icon: FEATURE_ICONS.helpersAuto,
   },
   {
     key: 'always',
     title: copy.teamControls.helperModes.always.title,
     hint: copy.teamControls.helperModes.always.hint,
-    icon: UsersRound,
+    icon: FEATURE_ICONS.helpers,
   },
 ] as const
 

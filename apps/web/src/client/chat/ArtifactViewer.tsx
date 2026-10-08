@@ -1,10 +1,11 @@
 import type { ArtifactVersion } from '@myrmidon/protocol'
-import { BookOpen, Check, Copy, Download, ExternalLink, FileCode, GitCompare, Monitor } from 'lucide-react'
+import { BookOpen, Check, Copy, Download, ExternalLink, GitCompare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { blobText, previewUrl } from '../api.ts'
 import { copy } from '../copy.ts'
 import { diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Select, Skeleton, Tabs, tabPanel } from '../ui/primitives.tsx'
 import { Markdown } from './Markdown.tsx'
@@ -98,7 +99,7 @@ export function ArtifactViewer(props: {
       value: 'code' as const,
       label: (
         <>
-          <FileCode className="size-3.5" />{' '}
+          <FEATURE_ICONS.files className="size-3.5" />{' '}
           {isMarkdown ? copy.artifactViewer.tabs.source : copy.artifactViewer.tabs.code}
         </>
       ),

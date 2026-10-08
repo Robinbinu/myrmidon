@@ -1,5 +1,5 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import { ChevronLeft, ChevronRight, Globe, Hand, Maximize2, Minimize2, Radio, Undo2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Hand, Maximize2, Minimize2, Radio, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, browserSocket, keyframeImage } from '../api.ts'
 import { copy } from '../copy.ts'
@@ -448,7 +448,7 @@ function LiveTab({
         <div className="min-w-0 flex-1">
           <div className="text-body font-semibold">{copy.computer.agentsComputer(agent)}</div>
           <div className="flex items-center gap-1 truncate text-footnote text-muted">
-            <Globe className="size-3 shrink-0" />{' '}
+            <FEATURE_ICONS.web className="size-3 shrink-0" />{' '}
             {(replaying ? replaying.title || replaying.url : page.title || page.url) ||
               copy.computer.blankPage}
           </div>

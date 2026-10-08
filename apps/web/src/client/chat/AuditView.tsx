@@ -1,5 +1,5 @@
 import { type AuditKind, auditOf, type MyrEvent } from '@myrmidon/protocol'
-import { Ban, FileCode, Globe, Search, SquareTerminal, Wrench } from 'lucide-react'
+import { Ban, type LucideIcon, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
@@ -16,12 +16,12 @@ const KINDS: { value: AuditKind | 'all'; label: string }[] = [
   { value: 'other', label: copy.audit.kinds.other },
 ]
 
-const ICONS: Record<AuditKind, typeof FileCode> = {
-  file: FileCode,
-  url: Globe,
-  command: SquareTerminal,
+const ICONS: Record<AuditKind, LucideIcon> = {
+  file: FEATURE_ICONS.files,
+  url: FEATURE_ICONS.web,
+  command: FEATURE_ICONS.agentShell,
   search: Search,
-  other: Wrench,
+  other: FEATURE_ICONS.tools,
 }
 
 const STOPPED_BY = {

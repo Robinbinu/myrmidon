@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { Glob } from 'bun'
 import * as lucide from 'lucide-react'
 import { FEATURE_ICONS } from '../src/client/ui/icons.ts'
@@ -36,4 +36,29 @@ test("screens take a feature's glyph from the registry, so it cannot quietly mea
         if (registered.has(name)) strays.push(`${file}: ${name}`)
   }
   expect(strays).toEqual([])
+})
+
+// The screens pull in api.ts, which reads the page's address and storage when it loads.
+const page = globalThis as unknown as Record<string, unknown>
+beforeAll(() => {
+  page.window = Object.assign(new EventTarget(), { innerWidth: 1440 })
+  page.location = { hash: '', pathname: '/', search: '', host: 'localhost', protocol: 'http:' }
+})
+afterAll(() => {
+  delete page.window
+  delete page.location
+})
+
+test('the lists that name features (Settings sections, tool groups, workspace views, crew modes) use the registry', async () => {
+  const { SECTIONS, TOOL_INFO } = await import('../src/client/Settings.tsx')
+  const { VIEWS } = await import('../src/client/chat/Workspace.tsx')
+  const { MODES } = await import('../src/client/chat/Composer.tsx')
+  const entries: [string, unknown][] = [
+    ...SECTIONS.map((s): [string, unknown] => [`settings section ${s.id}`, s.icon]),
+    ...TOOL_INFO.map((t): [string, unknown] => [`tool group ${t.key}`, t.icon]),
+    ...VIEWS.map((v): [string, unknown] => [`workspace view ${v.value}`, v.icon]),
+    ...MODES.map((m): [string, unknown] => [`crew mode ${m.id}`, m.icon]),
+  ]
+  const outside = entries.filter(([, icon]) => !glyphs.has(icon)).map(([name]) => name)
+  expect(outside).toEqual([])
 })

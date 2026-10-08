@@ -10,13 +10,10 @@ import {
   Paperclip,
   Pencil,
   Play,
-  Plug,
   Plus,
   RotateCcw,
   Settings,
   Square,
-  Users,
-  Workflow,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Fragment, useEffect, useRef } from 'react'
@@ -47,14 +44,14 @@ const ICONS: Record<string, LucideIcon> = {
   resume: Play,
   retry: RotateCcw,
   model: FEATURE_ICONS.models,
-  mode: Workflow,
+  mode: FEATURE_ICONS.orchestrated,
   thinking: FEATURE_ICONS.thinking,
-  team: Users,
+  team: FEATURE_ICONS.crew,
   new: Plus,
   rename: Pencil,
   attach: Paperclip,
   export: Download,
-  mcp: Plug,
+  mcp: FEATURE_ICONS.mcp,
   settings: Settings,
   help: CircleHelp,
 }

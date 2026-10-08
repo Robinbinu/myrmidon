@@ -1,14 +1,4 @@
-import {
-  CircleAlert,
-  FileCode,
-  Globe,
-  ListChecks,
-  Megaphone,
-  Search,
-  Terminal,
-  TriangleAlert,
-  UserPlus,
-} from 'lucide-react'
+import { CircleAlert, Megaphone, Search, TriangleAlert, UserPlus } from 'lucide-react'
 import { motion } from 'motion/react'
 import { clock } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
@@ -18,13 +8,13 @@ import type { Step, StepKind } from './steps.ts'
 
 const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   search: { icon: Search, color: 'text-fg-2' },
-  fetch: { icon: Globe, color: 'text-fg-2' },
-  file: { icon: FileCode, color: 'text-accent-fg' },
-  task: { icon: ListChecks, color: 'text-warn-ink' },
+  fetch: { icon: FEATURE_ICONS.web, color: 'text-fg-2' },
+  file: { icon: FEATURE_ICONS.files, color: 'text-accent-fg' },
+  task: { icon: FEATURE_ICONS.tasks, color: 'text-warn-ink' },
   team: { icon: UserPlus, color: 'text-work-ink' },
   verdict: { icon: FEATURE_ICONS.verdict, color: 'text-ok-ink' },
   error: { icon: TriangleAlert, color: 'text-bad-ink' },
-  shell: { icon: Terminal, color: 'text-fg-2' },
+  shell: { icon: FEATURE_ICONS.agentShell, color: 'text-fg-2' },
   talk: { icon: Megaphone, color: 'text-muted' },
   signal: { icon: CircleAlert, color: 'text-warn-ink' },
   think: { icon: FEATURE_ICONS.thinking, color: 'text-muted' },

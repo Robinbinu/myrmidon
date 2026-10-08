@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Copy,
   Folder,
-  GitBranch,
   LoaderCircle,
   Maximize2,
   Minus,
@@ -17,6 +16,7 @@ import { AnimatePresence } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, CountBadge, cn, Empty, IconButton } from '../ui/primitives.tsx'
@@ -284,7 +284,7 @@ export function GitView({ project }: { project: string }) {
     )
   if (!status.repo)
     return (
-      <Empty icon={<GitBranch className="size-5" />} title={copy.git.notRepo}>
+      <Empty icon={<FEATURE_ICONS.git className="size-5" />} title={copy.git.notRepo}>
         {copy.git.notRepoHint}
       </Empty>
     )
@@ -302,7 +302,7 @@ export function GitView({ project }: { project: string }) {
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center gap-1.5">
         <span className="flex min-w-0 items-center gap-1.5 rounded-xl bg-fill px-2.5 py-1 text-callout">
-          <GitBranch className="size-3.5 shrink-0 text-muted" />
+          <FEATURE_ICONS.git className="size-3.5 shrink-0 text-muted" />
           <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
             <span

@@ -12,7 +12,6 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
-  Plug,
   RefreshCw,
   SquarePen,
   Trash2,
@@ -59,6 +58,7 @@ import {
   useReduceMotion,
   useTheme,
 } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
@@ -1166,7 +1166,7 @@ function SetupCard(props: { onConnect?(): void }) {
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
-        <Plug className="size-4" />
+        <FEATURE_ICONS.providers className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-reading font-semibold">{t.title}</p>

@@ -1,23 +1,50 @@
 import {
+  Activity,
+  AudioLines,
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  BookMarked,
   Brain,
+  CalendarClock,
   Container,
   Cpu,
   Feather,
+  FileCode,
+  FishingHook,
   Gavel,
+  GitBranch,
+  Globe,
+  GraduationCap,
   KeyRound,
+  ListChecks,
   ListFilter,
   LockKeyhole,
+  Mail,
+  MessageSquareText,
   MessagesSquare,
   MonitorSmartphone,
+  Palette,
+  Plug,
+  Puzzle,
   ScreenShare,
   ScrollText,
   Server,
   ServerCog,
   ShieldCheck,
   ShieldQuestion,
+  SlidersHorizontal,
+  Smile,
+  SquareTerminal,
+  Terminal,
+  User,
+  UserCog,
+  UserRoundPlus,
+  Users,
+  UsersRound,
+  Waypoints,
+  Workflow,
+  Wrench,
   Zap,
 } from 'lucide-react'
 
@@ -67,4 +94,58 @@ export const FEATURE_ICONS = {
   channels: MessagesSquare,
   /** An agent asking the person to sign in to a website for it. */
   siteSignIn: LockKeyhole,
+  /** The crew: everyone on a chat's team, the Crew settings, the /team command. */
+  crew: Users,
+  /** Helpers the lead brings in, and the setting for them. */
+  helpers: UsersRound,
+  /** Helpers when the lead decides it needs them. */
+  helpersAuto: UserRoundPlus,
+  /** The lead working alone, no helpers. */
+  solo: User,
+  /** A lead assigning work: the orchestrated mode, the /mode command. */
+  orchestrated: Workflow,
+  /** Equal peers sharing one plan: the swarm mode. */
+  swarm: Waypoints,
+  /** House rules every agent follows (Settings → Instructions). */
+  instructions: MessageSquareText,
+  /** Agents writing to each other: the Mail view, mail events, the messaging tools. */
+  mail: Mail,
+  /** MCP servers and their tools. */
+  mcp: Plug,
+  /** Specialists the person keeps. */
+  specialists: UserCog,
+  /** What agents remember across chats. */
+  memory: BookMarked,
+  /** Skills: playbooks agents load, learn and propose. */
+  skills: GraduationCap,
+  /** Tools agents call, the tool library and tools they make. */
+  tools: Wrench,
+  /** Plugins and the views they add. */
+  plugins: Puzzle,
+  /** Hooks: commands around every tool call. */
+  hooks: FishingHook,
+  /** Requests that run on a schedule. */
+  schedules: CalendarClock,
+  /** How the app looks: Settings → General. */
+  appearance: Palette,
+  /** The mascot and the person's name. */
+  mascot: Smile,
+  /** Voice calls with the crew. */
+  voice: AudioLines,
+  /** The web: search, fetching pages, a page an agent opened. */
+  web: Globe,
+  /** Scratch files: private drafts before publishing. */
+  scratchFiles: SlidersHorizontal,
+  /** Files the crew published. */
+  files: FileCode,
+  /** The project's git history. */
+  git: GitBranch,
+  /** Tasks on the crew's board. */
+  tasks: ListChecks,
+  /** The person's own shell in the workspace. */
+  personalShell: Terminal,
+  /** Commands agents run in their sandbox. */
+  agentShell: SquareTerminal,
+  /** The live record of what the crew did. */
+  activity: Activity,
 } as const

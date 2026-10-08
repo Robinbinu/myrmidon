@@ -1,15 +1,4 @@
-import {
-  ArrowUp,
-  ChevronRight,
-  FileText,
-  ListEnd,
-  Navigation,
-  Paperclip,
-  Square,
-  Users,
-  Workflow,
-  X,
-} from 'lucide-react'
+import { ArrowUp, ChevronRight, FileText, ListEnd, Navigation, Paperclip, Square, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   forwardRef,
@@ -32,6 +21,7 @@ import {
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -48,12 +38,12 @@ export const MODES = [
   {
     id: 'orchestrated',
     ...copy.composer.modes.orchestrated,
-    icon: Workflow,
+    icon: FEATURE_ICONS.orchestrated,
   },
   {
     id: 'swarm',
     ...copy.composer.modes.swarm,
-    icon: Users,
+    icon: FEATURE_ICONS.swarm,
   },
 ] as const
 

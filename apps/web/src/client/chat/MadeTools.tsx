@@ -1,9 +1,10 @@
 import type { ColonyState, MadeToolInput } from '@myrmidon/protocol'
-import { BookmarkCheck, BookmarkPlus, ChevronRight, Wrench } from 'lucide-react'
+import { BookmarkCheck, BookmarkPlus, ChevronRight } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Badge, Button, cn } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
@@ -33,7 +34,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
     <div className="rounded-lg border border-line bg-surface">
       <div className="flex items-start gap-3 px-3 py-2.5">
         <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
-          <Wrench className="size-4" />
+          <FEATURE_ICONS.tools className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-mono text-body font-medium">tool_{t.name}</div>

@@ -18,9 +18,7 @@ import {
   CircleStop,
   Copy,
   ExternalLink,
-  FileCode,
   FileText,
-  GraduationCap,
   LoaderCircle,
   MessageCircleQuestion,
   Network,
@@ -28,7 +26,6 @@ import {
   Play,
   RotateCcw,
   TriangleAlert,
-  Users,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
@@ -389,7 +386,7 @@ export function RoundView(props: {
             <span className="mr-1 text-callout text-muted">{copy.round.files}</span>
             {files.map(([name, versions]) => {
               const latest = versions.at(-1)
-              const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
+              const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FEATURE_ICONS.files
               return (
                 <button
                   key={name}
@@ -619,7 +616,7 @@ function Helpers(props: {
           aria-expanded={open}
           className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-fill hover:text-fg-2"
         >
-          <Users className="size-3.5 shrink-0" />
+          <FEATURE_ICONS.helpers className="size-3.5 shrink-0" />
           <span className="truncate">
             {copy.round.helpers.broughtIn(
               helpers.map((a) => copy.round.helpers.helper(a.info.name, a.info.specialty)),
@@ -856,7 +853,7 @@ function LeadActivity(props: {
             aria-label={copy.round.lead.learnTitle}
             className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
           >
-            <GraduationCap className="size-3.5" />
+            <FEATURE_ICONS.skills className="size-3.5" />
           </button>
         )}
       </div>
@@ -1035,7 +1032,7 @@ function RunCard(props: {
         </Button>
         {!running && props.onLearn && state.status === 'completed' && (
           <IconButton size="sm" label={copy.round.lead.learnTitle} onClick={props.onLearn}>
-            <GraduationCap className="size-3.5" />
+            <FEATURE_ICONS.skills className="size-3.5" />
           </IconButton>
         )}
       </div>

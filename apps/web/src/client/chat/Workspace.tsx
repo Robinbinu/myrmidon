@@ -9,21 +9,7 @@ import {
   roundSlice,
   type TaskSnapshot,
 } from '@myrmidon/protocol'
-import {
-  Activity,
-  ChevronRight,
-  Crown,
-  FileCode,
-  FileText,
-  GitBranch,
-  ListChecks,
-  Mail,
-  Puzzle,
-  SquareTerminal,
-  Terminal,
-  Users,
-  X,
-} from 'lucide-react'
+import { ChevronRight, Crown, FileText, type LucideIcon, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type CSSProperties, Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
@@ -78,7 +64,7 @@ type Tab =
 interface ViewDef {
   value: Tab
   label: string
-  icon: typeof FileCode
+  icon: LucideIcon
   /** Views that sit together on the rail, between dividers. */
   group: number
   /** The digit of its shortcut (see VIEW_COMBO). */
@@ -92,11 +78,25 @@ interface ViewDef {
  * The panel's views, listed down its activity bar like an IDE's, in groups: the work, the machines agents use, the
  * crew, and the record. `terminal` is the agents' sandboxed commands; `shell` is the person's own.
  */
-const VIEWS: ViewDef[] = [
-  { value: 'files', label: copy.workspace.views.files, icon: FileCode, group: 0, key: '1' },
-  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
-  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
-  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4', fullOnly: true },
+export const VIEWS: ViewDef[] = [
+  { value: 'files', label: copy.workspace.views.files, icon: FEATURE_ICONS.files, group: 0, key: '1' },
+  {
+    value: 'git',
+    label: copy.workspace.views.git,
+    icon: FEATURE_ICONS.git,
+    group: 0,
+    key: '2',
+    projectOnly: true,
+  },
+  { value: 'tasks', label: copy.workspace.views.tasks, icon: FEATURE_ICONS.tasks, group: 0, key: '3' },
+  {
+    value: 'shell',
+    label: copy.workspace.views.shell,
+    icon: FEATURE_ICONS.personalShell,
+    group: 1,
+    key: '4',
+    fullOnly: true,
+  },
   {
     value: 'computer',
     label: copy.workspace.views.computer,
@@ -104,10 +104,22 @@ const VIEWS: ViewDef[] = [
     group: 1,
     key: '5',
   },
-  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
-  { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
-  { value: 'mail', label: copy.workspace.views.mail, icon: Mail, group: 2, key: '8' },
-  { value: 'activity', label: copy.workspace.views.activity, icon: Activity, group: 3, key: '9' },
+  {
+    value: 'terminal',
+    label: copy.workspace.views.terminal,
+    icon: FEATURE_ICONS.agentShell,
+    group: 1,
+    key: '6',
+  },
+  { value: 'team', label: copy.workspace.views.team, icon: FEATURE_ICONS.crew, group: 2, key: '7' },
+  { value: 'mail', label: copy.workspace.views.mail, icon: FEATURE_ICONS.mail, group: 2, key: '8' },
+  {
+    value: 'activity',
+    label: copy.workspace.views.activity,
+    icon: FEATURE_ICONS.activity,
+    group: 3,
+    key: '9',
+  },
   { value: 'audit', label: copy.workspace.views.audit, icon: FEATURE_ICONS.audit, group: 3, key: '0' },
 ]
 const PLUGIN_GROUP = 4
@@ -236,7 +248,7 @@ function WorkspaceBody({
     ...pluginTabs.map(({ plugin, def }) => ({
       value: `plugin:${plugin}` as Tab,
       label: def.title ?? plugin,
-      icon: Puzzle,
+      icon: FEATURE_ICONS.plugins,
       group: PLUGIN_GROUP,
     })),
   ]
@@ -256,7 +268,7 @@ function WorkspaceBody({
       // The last view is a convenience; private mode simply forgets it.
     }
   }
-  const View = views.find((v) => v.value === tab)?.icon ?? FileCode
+  const View = views.find((v) => v.value === tab)?.icon ?? FEATURE_ICONS.files
   // Cards in the chat (a sign-in request) can open a view here, e.g. one agent's browser.
   const [focus, setFocus] = useState<string>()
   // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and show are stable enough for a listener
@@ -426,7 +438,7 @@ function WorkspaceBody({
                       (files.length === 0 ? (
                         Object.keys(state.madeTools).length > 0 ? null : (
                           <Empty
-                            icon={<FileCode className="size-5" />}
+                            icon={<FEATURE_ICONS.files className="size-5" />}
                             title={copy.workspace.files.emptyTitle}
                           >
                             {copy.workspace.files.emptyBody}
@@ -436,7 +448,7 @@ function WorkspaceBody({
                         <div className="p-2">
                           {files.map(([name, versions]) => {
                             const latest = versions.at(-1)
-                            const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FileCode
+                            const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FEATURE_ICONS.files
                             return (
                               <button
                                 key={name}
@@ -463,7 +475,7 @@ function WorkspaceBody({
                     {tab === 'tasks' &&
                       (tasks.length === 0 ? (
                         <Empty
-                          icon={<ListChecks className="size-5" />}
+                          icon={<FEATURE_ICONS.tasks className="size-5" />}
                           title={copy.workspace.tasks.emptyTitle}
                         >
                           {copy.workspace.tasks.emptyBody}
@@ -605,7 +617,10 @@ function WorkspaceBody({
                         </>
                       ))}
                     {tab === 'team' && agents.length === 0 && (
-                      <Empty icon={<Users className="size-5" />} title={copy.workspace.team.emptyTitle}>
+                      <Empty
+                        icon={<FEATURE_ICONS.crew className="size-5" />}
+                        title={copy.workspace.team.emptyTitle}
+                      >
                         {copy.workspace.team.emptyBody}
                       </Empty>
                     )}
@@ -672,7 +687,10 @@ function WorkspaceBody({
                     )}
                     {tab === 'terminal' &&
                       (shells.length === 0 ? (
-                        <Empty icon={<Terminal className="size-5" />} title={copy.workspace.shell.emptyTitle}>
+                        <Empty
+                          icon={<FEATURE_ICONS.personalShell className="size-5" />}
+                          title={copy.workspace.shell.emptyTitle}
+                        >
                           {copy.workspace.shell.emptyBody}
                         </Empty>
                       ) : (
@@ -757,7 +775,10 @@ function WorkspaceBody({
                     )}
                     {tab === 'activity' &&
                       (steps.length === 0 ? (
-                        <Empty icon={<Activity className="size-5" />} title={copy.workspace.activityEmpty} />
+                        <Empty
+                          icon={<FEATURE_ICONS.activity className="size-5" />}
+                          title={copy.workspace.activityEmpty}
+                        />
                       ) : (
                         <ol className="flex flex-col px-4 py-2">
                           {[...steps].reverse().map((s) => (
@@ -874,7 +895,7 @@ function WorkspaceBody({
   )
 }
 
-/** A conversation in the Mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
+/** A conversation in the FEATURE_ICONS.mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
 interface Thread extends ConversationInfo {
   readonly messages: readonly ConversationLine[]
 }
@@ -898,7 +919,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
   const thread = threads.find((t) => t.id === open)
   if (threads.length === 0)
     return (
-      <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
+      <Empty icon={<FEATURE_ICONS.mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
         {copy.workspace.mail.emptyBody}
       </Empty>
     )
@@ -918,7 +939,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
             >
               {t.kind === 'team' ? (
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
-                  <Users className="size-4" />
+                  <FEATURE_ICONS.crew className="size-4" />
                 </span>
               ) : (
                 <span className="relative h-9 w-11 shrink-0">

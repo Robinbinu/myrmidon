@@ -8,12 +8,9 @@ import {
   stopCause,
 } from '@myrmidon/protocol'
 import {
-  Activity,
   ChevronRight,
   CircleDot,
-  FileCode,
-  ListChecks,
-  Mail,
+  type LucideIcon,
   Megaphone,
   MessageSquare,
   Network,
@@ -24,8 +21,6 @@ import {
   SkipForward,
   TriangleAlert,
   UserPlus,
-  Users,
-  Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
@@ -61,7 +56,7 @@ type Item =
       id: string
       time: string
       agent: string
-      icon: typeof Mail
+      icon: LucideIcon
       tone: string
       text: string
       body?: string
@@ -132,7 +127,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         items.push({
           ...base,
           kind: 'event',
-          icon: Mail,
+          icon: FEATURE_ICONS.mail,
           tone: 'text-work-ink',
           text: `${p.from} → ${p.to}${p.subject ? ` · ${p.subject}` : ''}`,
           body: p.body,
@@ -181,7 +176,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         items.push({
           ...base,
           kind: 'event',
-          icon: ListChecks,
+          icon: FEATURE_ICONS.tasks,
           tone: 'text-warn-ink',
           text: `${p.task.id} → ${p.task.status.replace('_', ' ')}: ${p.task.subject}`,
         })
@@ -192,7 +187,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         items.push({
           ...base,
           kind: 'event',
-          icon: FileCode,
+          icon: FEATURE_ICONS.files,
           tone: 'text-accent-fg',
           text: copy.colonyScreen.activity.published(p.name, p.version, compact(p.size)),
         })
@@ -316,7 +311,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
           <AgentButton
             active={!agent}
             onClick={() => setAgent(undefined)}
-            icon={<Users className="size-4" />}
+            icon={<FEATURE_ICONS.crew className="size-4" />}
             name={copy.colonyScreen.everyone}
             detail={copy.colonyScreen.agentCount(agents.length)}
           />
@@ -346,7 +341,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'activity',
                 label: (
                   <>
-                    <Activity className="size-3.5" /> {copy.colonyScreen.tabs.activity}
+                    <FEATURE_ICONS.activity className="size-3.5" /> {copy.colonyScreen.tabs.activity}
                   </>
                 ),
               },
@@ -363,7 +358,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'tasks',
                 label: (
                   <>
-                    <ListChecks className="size-3.5" /> {copy.colonyScreen.tabs.tasks}
+                    <FEATURE_ICONS.tasks className="size-3.5" /> {copy.colonyScreen.tabs.tasks}
                   </>
                 ),
                 count: tasks.length,
@@ -372,7 +367,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'files',
                 label: (
                   <>
-                    <FileCode className="size-3.5" /> {copy.colonyScreen.tabs.files}
+                    <FEATURE_ICONS.files className="size-3.5" /> {copy.colonyScreen.tabs.files}
                   </>
                 ),
                 count: Object.keys(state.artifacts).length,
@@ -484,7 +479,7 @@ function ActivityStream({ items, filtered }: { items: Item[]; filtered: boolean 
   if (items.length === 0)
     return (
       <Empty
-        icon={<Activity className="size-5" />}
+        icon={<FEATURE_ICONS.activity className="size-5" />}
         title={filtered ? copy.colonyScreen.noAgentActivity : copy.colonyScreen.noActivity}
       />
     )
@@ -535,7 +530,9 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
         <motion.span animate={{ rotate: open ? 90 : 0 }} className="text-muted">
           <ChevronRight className="size-3.5" />
         </motion.span>
-        <Wrench className={cn('size-3.5 shrink-0', item.ok === false ? 'text-bad-ink' : 'text-muted')} />
+        <FEATURE_ICONS.tools
+          className={cn('size-3.5 shrink-0', item.ok === false ? 'text-bad-ink' : 'text-muted')}
+        />
         <span className="font-mono text-callout font-semibold">{item.tool}</span>
         <span className="min-w-0 truncate font-mono text-small text-muted">{summary}</span>
         {item.ok === undefined && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-work" />}
@@ -667,7 +664,7 @@ function Kanban({ state }: { state: ColonyState }) {
   const tasks = Object.values(state.tasks)
   if (tasks.length === 0)
     return (
-      <Empty icon={<ListChecks className="size-5" />} title={copy.colonyScreen.noTasks}>
+      <Empty icon={<FEATURE_ICONS.tasks className="size-5" />} title={copy.colonyScreen.noTasks}>
         {copy.colonyScreen.noTasksHint}
       </Empty>
     )
@@ -720,7 +717,7 @@ function Kanban({ state }: { state: ColonyState }) {
 function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): void }) {
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
   if (files.length === 0)
-    return <Empty icon={<FileCode className="size-5" />} title={copy.colonyScreen.noFiles} />
+    return <Empty icon={<FEATURE_ICONS.files className="size-5" />} title={copy.colonyScreen.noFiles} />
   return (
     <div className="h-full overflow-auto p-3">
       <div className="mx-auto grid max-w-3xl gap-1">
@@ -734,7 +731,7 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
               className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-fill"
             >
               <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-fg">
-                <FileCode className="size-4" />
+                <FEATURE_ICONS.files className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-reading font-medium">{name}</span>
