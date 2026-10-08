@@ -569,3 +569,54 @@ export const googleChatText = (markdown: string) =>
     code: true,
     link: (label, url) => `<${url}|${label}>`,
   })
+
+/**
+ * One line cut into pieces of at most `maxBytes` UTF-8 bytes (IRC counts bytes, not characters), at a space when
+ * one is near the end, never inside a character (Hermes's `_chunk_paragraph`).
+ */
+export function splitBytes(line: string, maxBytes: number): string[] {
+  const out: string[] = []
+  let rest = line.trim()
+  while (rest) {
+    if (Buffer.byteLength(rest) <= maxBytes) {
+      out.push(rest)
+      break
+    }
+    let end = 0
+    let bytes = 0
+    for (const char of rest) {
+      const size = Buffer.byteLength(char)
+      if (bytes + size > maxBytes) break
+      bytes += size
+      end += char.length
+    }
+    if (end === 0) end = String.fromCodePoint(rest.codePointAt(0) ?? 32).length
+    const space = rest.lastIndexOf(' ', end)
+    if (space > end / 3) end = space
+    out.push(rest.slice(0, end).trimEnd())
+    rest = rest.slice(end).trimStart()
+  }
+  return out
+}
+
+/** Text in pieces of at most `max` characters (code points), at a line break or space when one is near. */
+export function splitChars(text: string, max: number): string[] {
+  const out: string[] = []
+  let rest = text.trim()
+  while (rest) {
+    const chars = [...rest]
+    if (chars.length <= max) {
+      out.push(rest)
+      break
+    }
+    let end = chars.slice(0, max).join('').length
+    const window = rest.slice(0, end + 1)
+    const newline = window.lastIndexOf('\n')
+    const space = Math.max(window.lastIndexOf(' '), newline)
+    if (newline > end / 2) end = newline
+    else if (space > end / 3) end = space
+    out.push(rest.slice(0, end).trimEnd())
+    rest = rest.slice(end).trimStart()
+  }
+  return out
+}

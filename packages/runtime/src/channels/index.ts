@@ -8,11 +8,13 @@ import { FEISHU_API, FeishuAdapter, LARK_API } from './feishu.ts'
 import { GoogleChatAdapter } from './googlechat.ts'
 import type { ChannelHub, ChannelKind } from './hub.ts'
 import { IMessageAdapter } from './imessage.ts'
+import { IrcAdapter } from './irc.ts'
 import { LineAdapter } from './line.ts'
 import { MatrixAdapter } from './matrix.ts'
 import { MattermostAdapter } from './mattermost.ts'
 import { TeamsAdapter } from './msteams.ts'
 import { NextcloudTalkAdapter } from './nextcloud-talk.ts'
+import { NostrAdapter } from './nostr.ts'
 import { NTFY_SERVER, NtfyAdapter } from './ntfy.ts'
 import { QQAdapter } from './qq.ts'
 import { SignalAdapter } from './signal.ts'
@@ -22,11 +24,14 @@ import { SmsAdapter, TWILIO_API } from './sms.ts'
 import { SynologyChatAdapter } from './synology-chat.ts'
 import { TELEGRAM_API, TelegramAdapter } from './telegram.ts'
 import { TlonAdapter } from './tlon.ts'
+import { TwitchAdapter } from './twitch.ts'
 import { WebhookAdapter } from './webhook.ts'
 import { WeComAdapter } from './wecom.ts'
 import { WeixinAdapter } from './weixin.ts'
 import { WhatsAppAdapter } from './whatsapp.ts'
 import { WhatsAppCloudAdapter } from './whatsapp-cloud.ts'
+import { X_API, XAdapter } from './x.ts'
+import { ZALO_API, ZaloAdapter } from './zalo.ts'
 
 export * from './dingtalk.ts'
 export * from './discord.ts'
@@ -36,12 +41,14 @@ export * from './format.ts'
 export * from './googlechat.ts'
 export * from './hub.ts'
 export * from './imessage.ts'
+export * from './irc.ts'
 export * from './jwt.ts'
 export * from './line.ts'
 export * from './matrix.ts'
 export * from './mattermost.ts'
 export * from './msteams.ts'
 export * from './nextcloud-talk.ts'
+export * from './nostr.ts'
 export * from './ntfy.ts'
 export * from './qq.ts'
 export * from './signal.ts'
@@ -52,12 +59,15 @@ export * from './store.ts'
 export * from './synology-chat.ts'
 export * from './telegram.ts'
 export * from './tlon.ts'
+export * from './twitch.ts'
 export * from './types.ts'
 export * from './webhook.ts'
 export * from './wecom.ts'
 export * from './weixin.ts'
 export * from './whatsapp.ts'
 export * from './whatsapp-cloud.ts'
+export * from './x.ts'
+export * from './zalo.ts'
 
 const cloud = channelCopy.fields.whatsappCloud
 
@@ -494,6 +504,86 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
         secret: v.secret ?? '',
         markdown: v.markdown?.trim().toLowerCase() !== 'off',
       }),
+  },
+  irc: {
+    label: 'IRC',
+    setup: channelCopy.setup.irc,
+    fields: [
+      { key: 'server', label: 'Server', placeholder: 'irc.libera.chat' },
+      {
+        key: 'port',
+        label: 'Port',
+        placeholder: '6697',
+        optional: true,
+        hint: '6697 with TLS, 6667 without',
+      },
+      { key: 'tls', label: 'TLS', placeholder: 'on', optional: true, hint: 'on or off' },
+      { key: 'nick', label: 'Nick', placeholder: 'mybot' },
+      {
+        key: 'password',
+        label: 'Password',
+        secret: true,
+        optional: true,
+        hint: 'SASL when the server offers it, else the server password',
+      },
+      { key: 'channels', label: 'Channels to join', placeholder: '#mychannel, #ops', optional: true },
+    ],
+    make: (values) => new IrcAdapter(values),
+  },
+  twitch: {
+    label: 'Twitch',
+    setup: channelCopy.setup.twitch,
+    fields: [
+      { key: 'username', label: "Bot's username", placeholder: 'mybot' },
+      { key: 'token', label: 'OAuth token', secret: true, placeholder: 'oauth:…' },
+      {
+        key: 'channels',
+        label: 'Channels to join',
+        placeholder: 'mychannel',
+        optional: true,
+        hint: "the bot's own channel when empty",
+      },
+    ],
+    make: (values) => new TwitchAdapter(values),
+  },
+  x: {
+    label: 'X',
+    setup: channelCopy.setup.x,
+    fields: [
+      { key: 'apiKey', label: 'API key', secret: true },
+      { key: 'apiSecret', label: 'API key secret', secret: true },
+      { key: 'accessToken', label: 'Access token', secret: true },
+      { key: 'accessSecret', label: 'Access token secret', secret: true },
+      {
+        key: 'replyTo',
+        label: 'Answers publicly',
+        placeholder: '@you, 123456789',
+        hint: 'the X accounts whose mentions it answers; everyone else is ignored',
+      },
+    ],
+    make: (values) => new XAdapter(values, process.env.MYR_X_API || X_API),
+  },
+  nostr: {
+    label: 'Nostr',
+    setup: channelCopy.setup.nostr,
+    fields: [
+      { key: 'privateKey', label: 'Private key', secret: true, placeholder: 'nsec1…' },
+      {
+        key: 'relays',
+        label: 'Relays',
+        placeholder: 'wss://relay.damus.io, wss://nos.lol',
+        optional: true,
+        hint: 'relay.damus.io and nos.lol when empty',
+      },
+    ],
+    make: (values) => new NostrAdapter(values),
+  },
+  zalo: {
+    label: 'Zalo',
+    setup: channelCopy.setup.zalo,
+    fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: '12345689:abc-xyz' }],
+    // MYR_ZALO_API points at another Bot API address (a proxy, a test server).
+    make: (values) => new ZaloAdapter(values.token ?? '', process.env.MYR_ZALO_API || ZALO_API),
   },
 }
 
