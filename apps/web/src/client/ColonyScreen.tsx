@@ -218,7 +218,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: Gavel,
           tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
-          text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, p.target)}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
+          text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, copy.reviewTarget(p.target))}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
           body: p.evidence,
         })
         break
@@ -243,7 +243,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: TriangleAlert,
           tone: 'text-warn-ink',
-          text: `${p.kind} · ${p.severity}`,
+          text: `${copy.checkIn.kinds[p.kind] ?? p.kind} · ${copy.checkIn.severities[p.severity] ?? p.severity}`,
           body: p.facts,
         })
         break
@@ -780,7 +780,9 @@ function Verdicts({ state }: { state: ColonyState }) {
                 {v.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail}
               </Pill>
               <span className="font-mono">{v.verifierId}</span>
-              <span className="text-muted">{copy.colonyScreen.verdictTarget(v.target)}</span>
+              <span className="text-muted">
+                {copy.colonyScreen.verdictTarget(copy.reviewTarget(v.target))}
+              </span>
               {v.score !== undefined && (
                 <span className="font-semibold tabular-nums">
                   {copy.colonyScreen.score(v.score.toFixed(2))}

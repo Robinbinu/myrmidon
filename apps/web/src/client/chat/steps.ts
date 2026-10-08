@@ -390,8 +390,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
           out.push({
             ...base,
             kind: 'signal',
-            agent: 'observer',
-            lead: copy.steps.observer(p.kind),
+            agent: copy.colonyScreen.agents.observer,
+            lead: copy.steps.observer(copy.checkIn.kinds[p.kind] ?? p.kind),
             tail: cut(p.facts, 120),
           })
         break

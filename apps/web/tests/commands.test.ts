@@ -72,7 +72,7 @@ test('availability follows the chat', () => {
   const resume = SLASH_COMMANDS.find((c) => c.name === 'resume')
   if (!resume) throw new Error('missing /resume')
   expect(unavailable(resume, { running: false, chat: true, resumable: true })).toBeUndefined()
-  expect(unavailable(resume, idle)).toBe('No stopped round to resume')
+  expect(unavailable(resume, idle)).toBe('No stopped run to resume')
 })
 
 test('argument choices match labels, values and descriptions', () => {

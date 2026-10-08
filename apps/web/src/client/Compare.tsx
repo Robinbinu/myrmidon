@@ -86,7 +86,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
                   <Pill tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Pill>
                   {c.statusReason && <div className="muted small">{c.statusReason}</div>}
                 </td>
-                <td>{c.pattern}</td>
+                <td>{copy.compare.patterns[c.pattern] ?? c.pattern}</td>
                 <td className="small">{[...new Set(c.agents.map((a) => a.model))].join(', ')}</td>
                 <td className="num">{duration(c.metrics.wallMs)}</td>
                 <td className="num">{c.metrics.tokens.toLocaleString()}</td>

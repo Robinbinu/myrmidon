@@ -17,7 +17,7 @@ export function describeEvent(e: MyrEvent): string {
       return copy.events.crewCompleted
     case 'agent/status': {
       const s = p as EventPayloads['agent/status']
-      return `${s.agent} → ${s.status}${s.detail ? ` (${short(s.detail, 50)})` : ''}`
+      return `${s.agent} → ${copy.status.agent[s.status === 'completed' ? 'done' : s.status]}${s.detail ? ` (${short(s.detail, 50)})` : ''}`
     }
     case 'agent/turn': {
       const s = p as EventPayloads['agent/turn']
@@ -51,7 +51,7 @@ export function describeEvent(e: MyrEvent): string {
       return copy.events.mailDelivered((p as EventPayloads['mail/delivered']).to)
     case 'task/changed': {
       const s = p as EventPayloads['task/changed']
-      return `${s.task.id} → ${s.task.status}${s.task.owner ? ` (${s.task.owner})` : ''}: ${short(s.task.subject, 50)}`
+      return `${s.task.id} → ${copy.workspace.taskStatus[s.task.status]}${s.task.owner ? ` (${s.task.owner})` : ''}: ${short(s.task.subject, 50)}`
     }
     case 'artifact/versioned': {
       const s = p as EventPayloads['artifact/versioned']
@@ -59,14 +59,18 @@ export function describeEvent(e: MyrEvent): string {
     }
     case 'observer/signal': {
       const s = p as EventPayloads['observer/signal']
-      return copy.events.observer(s.kind, s.severity, short(s.facts))
+      return copy.events.observer(
+        copy.checkIn.kinds[s.kind] ?? s.kind,
+        copy.checkIn.severities[s.severity] ?? s.severity,
+        short(s.facts),
+      )
     }
     case 'verifier/requested':
       return copy.events.verificationRequested((p as EventPayloads['verifier/requested']).by)
     case 'verifier/verdict': {
       const s = p as EventPayloads['verifier/verdict']
       if (s.verifierId === DELIVERED_VERIFIER) return copy.events.notReviewed
-      return copy.events.verdict(s.verifierId, s.target, s.pass)
+      return copy.events.verdict(s.verifierId, copy.reviewTarget(s.target), s.pass)
     }
     default:
       return e.type
