@@ -33,129 +33,137 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 ### A — Runtime bugs (`packages/runtime`)
 
-- [ ] **Shell commands write into the project** — `sandbox.ts:63` sets `HOME` to the working folder, so one
+- [x] **Shell commands write into the project** — `sandbox.ts:63` sets `HOME` to the working folder, so one
       `python3 -m unittest` left 68 files under `<project>/Library/Caches/…` ("71 files changed", Commit all
       would commit them). Give commands a private home outside the project.
-- [ ] **Plan mode never shows the plan** — plan mode says "present it with ask_user" (`prompts.ts:310`) but
+- [x] **Plan mode never shows the plan** — plan mode says "present it with ask_user" (`prompts.ts:310`) but
       `ask_user` has nowhere to put a plan (`question` is "a short line"). Add a plan/detail field, render it above
       the choices.
-- [ ] **A worker's reply to an @mention never reaches the chat** — `@ion …` after a finished round: ion answered
+- [x] **A worker's reply to an @mention never reaches the chat** — `@ion …` after a finished round: ion answered
       (visible only in the Crews console), the lead's thinking showed instead, and the observer stopped the round
       as "stalled: every agent is idle and the work is not finished".
-- [ ] **"Verified" on unreviewed rounds** — with No review, steps show "judge · Judge approved" and the console
+- [x] **"Verified" on unreviewed rounds** — with No review, steps show "judge · Judge approved" and the console
       "crew COMPLETED (verified)" while the same console says "this round is not reviewed"; Compare says "judge
       passed" next to a score of "—".
-- [ ] **Status line says "Drafting …" while waiting for an approval** — show "Waiting for your approval".
+- [x] **Status line says "Drafting …" while waiting for an approval** — show "Waiting for your approval".
 
 ### B — Composer & slash menu (`chat/Composer.tsx`, `chat/TeamControls.tsx`, `chat/CommandMenu.tsx`, `chat/ModelPicker.tsx`)
 
-- [ ] **Stop hides while you type during a run** (`Composer.tsx:634`) — show Stop next to Send.
-- [ ] **Esc in the slash menu erases the draft** (`Composer.tsx:529`) — Esc closes the menu only.
-- [ ] **`/mode` + Enter runs `/model`** — an exact command name wins over a prefix match.
-- [ ] **`/plan` listed twice** (recent + Round); **inapplicable commands crowd the menu** ("Nothing is running" ×5
+- [x] **Stop hides while you type during a run** (`Composer.tsx:634`) — show Stop next to Send.
+- [x] **Esc in the slash menu erases the draft** (`Composer.tsx:529`) — Esc closes the menu only.
+- [x] **`/mode` + Enter runs `/model`** — an exact command name wins over a prefix match.
+- [x] **`/plan` listed twice** (recent + Round); **inapplicable commands crowd the menu** ("Nothing is running" ×5
       on a new task) — sink them below the applicable ones.
-- [ ] **`/help` reopens the same menu**; **`/export` gives no feedback** — a toast naming the file.
-- [ ] **Focus stays on the Steer/Queue toggle after clicking it**, so Enter flips it instead of sending.
-- [ ] **Files over the limit are dropped silently** (`Composer.tsx:300`, size only checked at send) — say so when
+- [x] **`/help` reopens the same menu**; **`/export` gives no feedback** — a toast naming the file.
+- [x] **Focus stays on the Steer/Queue toggle after clicking it**, so Enter flips it instead of sending.
+- [x] **Files over the limit are dropped silently** (`Composer.tsx:300`, size only checked at send) — say so when
       they are added.
-- [ ] **Chips truncate their own labels** ("DeepSe…", "No pr…", "D") — collapse Thinking/Reviewer/Helpers into one
+- [x] **Chips truncate their own labels** ("DeepSe…", "No pr…", "D") — collapse Thinking/Reviewer/Helpers into one
       Team chip when the composer is narrow; keep the model name readable.
-- [ ] **Helper naming drifts** — "Never" shows as "Solo", "Always" as "Team of 3", "Auto" as "2 helpers"; the
+- [x] **Helper naming drifts** — "Never" shows as "Solo", "Always" as "Team of 3", "Auto" as "2 helpers"; the
       `/team` popover says "2 helpers · called by the lead" while the chip says "Team of 3".
-- [ ] **Solo throws the helper roster away** (`TeamControls.tsx:321`) — keep it and flip a flag.
+- [x] **Solo throws the helper roster away** (`TeamControls.tsx:321`) — keep it and flip a flag.
 - [ ] **Model picker**: duplicate entries (Claude Haiku 4.5, Opus 4.5 under two ids), mixed naming ("Claude 4 Opus"
       vs "Claude Opus 4"), the sticky provider header covers half a row; helper model picker opens on top of the
       helpers popover.
-- [ ] **@mention menu** — show each agent's face; include the lead.
+      **Left:** duplicate dated ids and header overlap fixed; mixed names ("Claude 4 Opus" vs "Claude Opus 4") come from the model registry and were left alone.
+- [x] **@mention menu** — show each agent's face; include the lead.
 - [ ] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
+      **Left:** the result toast exists, but the "Reading this chat…" toast disappears after 3.5s while the job runs longer; needs a lasting progress line.
 
 ### C — Status, colour & time (`ui/primitives.tsx`, `chat/Sidebar.tsx`, `chat/AgentSheet.tsx`, `chat/Workspace.tsx`, `chat/StepRow.tsx`, `chat/AuditView.tsx`, `ColonyScreen.tsx`, `ColonyMap.tsx`, `Compare.tsx`, `legacy.css`)
 
-- [ ] **One status → tone map** — "waiting for you" is a red dot in the sidebar; every finished agent shows a red
+- [x] **One status → tone map** — "waiting for you" is a red dot in the sidebar; every finished agent shows a red
       "stopped" badge above "completed"; the same state is stopped / Resting / completed on three screens; stopped
       is red, amber or grey depending on the screen. Awaiting = accent, stopped/idle = neutral, failed = red.
-- [ ] **Times are UTC** — `step.time.slice(11,16)` on ISO strings (`StepRow.tsx:71`, `Workspace.tsx`,
+- [x] **Times are UTC** — `step.time.slice(11,16)` on ISO strings (`StepRow.tsx:71`, `Workspace.tsx`,
       `AuditView.tsx`, `ColonyScreen.tsx:493`); format in local time.
-- [ ] **Unknown cost shows `$0.000`** (Crews, Compare) — show "n/a"; durations as "23m 35s", not "1415s".
-- [ ] **Compare** — table overflows at 1440 (last column cut), run ids wrap over many lines, "solo · orchestrated",
+- [x] **Unknown cost shows `$0.000`** (Crews, Compare) — show "n/a"; durations as "23m 35s", not "1415s".
+- [x] **Compare** — table overflows at 1440 (last column cut), run ids wrap over many lines, "solo · orchestrated",
       no warning when two different tasks are compared.
 - [ ] **Map** — "lead lead", "stopped … stopped", no links between agents.
-- [ ] **Accessible names include the sleeping "z"** ("z lead stopped …") from the pixel face.
-- [ ] **legacy.css uses the amber accent as text** (~1.9:1, `legacy.css:121,174`); `.pill`/`.dot` duplicate
+      **Left:** "lead lead" and repeated status fixed; links between agents not drawn.
+- [x] **Accessible names include the sleeping "z"** ("z lead stopped …") from the pixel face.
+- [x] **legacy.css uses the amber accent as text** (~1.9:1, `legacy.css:121,174`); `.pill`/`.dot` duplicate
       `Badge`/`Dot`.
 
 ### D — Chat stream & cards (`chat/RoundView.tsx`, `chat/Markdown.tsx`, `chat/QuestionCard.tsx`, `chat/ApprovalCards.tsx`, `chat/RoundChanges.tsx`, `chat/DiffView.tsx`, `chat/GitView.tsx`)
 
-- [ ] **Bold text containing code shows raw backticks** (`Markdown.tsx:28` doesn't parse inside `**…**`); markdown
+- [x] **Bold text containing code shows raw backticks** (`Markdown.tsx:28` doesn't parse inside `**…**`); markdown
       headings render as `<p>`.
-- [ ] **Question answers are lost if sending fails** (`QuestionCard.tsx:57` marks sent first); "Adjust the plan"
+- [x] **Question answers are lost if sending fails** (`QuestionCard.tsx:57` marks sent first); "Adjust the plan"
       should open its text box; two Skip buttons ("Skip", "Skip all, you decide").
-- [ ] **Approval cards** — an approved card vanishes from the chat; the card renders above the lead text that came
+- [x] **Approval cards** — an approved card vanishes from the chat; the card renders above the lead text that came
       before it; Approve/Deny are 22px tall.
-- [ ] **No "jump to latest"** once you scroll up during a run (`hooks.ts:124`).
-- [ ] **Screen readers re-read the reply on every streamed chunk** (`RoundView.tsx:559` aria-live).
-- [ ] **"No changes in <project>" rows** after every turn and before work starts — hide when nothing changed.
-- [ ] **Run stopped card + red Stopped banner** say the same thing twice — merge.
-- [ ] **"Checking…" can spin forever** when the changes fetch fails (`RoundChanges.tsx:50,89`).
-- [ ] **Diff / Git** — junk files listed first, no folder grouping or "binary" label, paths cut at the end (cut
+- [x] **No "jump to latest"** once you scroll up during a run (`hooks.ts:124`).
+- [x] **Screen readers re-read the reply on every streamed chunk** (`RoundView.tsx:559` aria-live).
+- [x] **"No changes in <project>" rows** after every turn and before work starts — hide when nothing changed.
+- [x] **Run stopped card + red Stopped banner** say the same thing twice — merge.
+- [x] **"Checking…" can spin forever** when the changes fetch fails (`RoundChanges.tsx:50,89`).
+- [x] **Diff / Git** — junk files listed first, no folder grouping or "binary" label, paths cut at the end (cut
       the middle), Git panel not refreshed after Rewind.
 
 ### E — Settings (`Settings.tsx`, `ui/primitives.tsx` Field, `chat/SpecialistEditor.tsx`, `chat/MadeTools.tsx`)
 
-- [ ] **One-click deletes with no confirm or undo** — credentials, custom providers, MCP servers, specialists,
+- [x] **One-click deletes with no confirm or undo** — credentials, custom providers, MCP servers, specialists,
       schedules, memories, kept tools (`MadeTools.tsx:150`); **Revoke device** has no confirm and shows for this
       device (`Settings.tsx:2153`). Reuse the plugin page's two-step remove.
-- [ ] **Validation fails silently** — custom endpoint: name silently lowercased ("my server!"), "not a url"
+- [x] **Validation fails silently** — custom endpoint: name silently lowercased ("my server!"), "not a url"
       accepted, Connect just stays disabled; `NumberField` snaps back; custom cron never checked. Inline errors.
-- [ ] **Form labels aren't linked to fields** (0 `htmlFor` across 36 `Field`s) — `Field` generates the id.
-- [ ] **Hooks lose unsaved edits silently** when you switch section; **a failed autosave** only toasts and the header
+- [x] **Form labels aren't linked to fields** (0 `htmlFor` across 36 `Field`s) — `Field` generates the id.
+- [x] **Hooks lose unsaved edits silently** when you switch section; **a failed autosave** only toasts and the header
       returns to "saved" — keep "Couldn't save · Retry".
-- [ ] **Settings navigation** — 14 flat sections in an odd order; group into Setup (Models, Team & budget,
+- [x] **Settings navigation** — 14 flat sections in an odd order; group into Setup (Models, Team & budget,
       Reviewer), Agents (Specialists, Instructions, Memory, Skills), Extend (Tools, Plugins, Hooks, Schedules),
       You (General, You & mascot, Devices); at 960 wide the nav and app sidebar leave ~400px.
 - [ ] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
       select for hundreds of models → ModelPicker.
-- [ ] **Providers page** — jargon ("omp's provider stack in-process", models.dev), a raw folder path, 80 sign-ins,
+      **Left:** validation and ModelPicker done; the default tool set is unchanged, see [decide].
+- [x] **Providers page** — jargon ("omp's provider stack in-process", models.dev), a raw folder path, 80 sign-ins,
       "Sign in again" but no Sign out; Devices offers "Pair a device" on a local-only install; the Hooks "run as
       you, outside the sandbox" warning is plain small text.
 - [ ] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
+      **Left:** descriptions clamped and paths moved to tooltips; which skills are on by default is a [decide] item below.
 
 ### F — First run, loading & errors (`App.tsx`, `chat/Hero.tsx`, `api.ts`, `DeviceGate.tsx`, `chat/FolderPicker.tsx`)
 
-- [ ] **No path from first run to a model** — with no key the model picker says `No models match ""` and Send toasts
+- [x] **No path from first run to a model** — with no key the model picker says `No models match ""` and Send toasts
       "Choose a lead model first"; Settings can't be opened at Models. Setup card on the home screen, call to action
       in the picker, providers page pins the big providers when none is ready.
-- [ ] **No composer until `/api/models` succeeds** (`App.tsx:669`) — render it disabled with a retry.
-- [ ] **Server down shows raw "Failed to fetch"** banner + toast — "Reconnecting…" state; map HTTP errors to plain
+- [x] **No composer until `/api/models` succeeds** (`App.tsx:669`) — render it disabled with a retry.
+- [x] **Server down shows raw "Failed to fetch"** banner + toast — "Reconnecting…" state; map HTTP errors to plain
       copy (`api.ts:44`); 401 on a remote gateway goes back to pairing.
-- [ ] **"Chats only" devices see everything** — `whoami().me.scope` is never read; hide Settings, Terminal, Devices,
+- [x] **"Chats only" devices see everything** — `whoami().me.scope` is never read; hide Settings, Terminal, Devices,
       Plugins for that scope.
-- [ ] **Empty states flash before data loads** (sidebar, Crews, `?chat=` deep link; a bad id stays on the hero).
+- [x] **Empty states flash before data loads** (sidebar, Crews, `?chat=` deep link; a bad id stays on the hero).
 - [ ] **New chat resets the composer** to the default lead and helpers, dropping what the person picked.
-- [ ] **Adding a project leaves the open chat** and lands on a new task.
-- [ ] **The home greeting quotes the last chat title** (`"Add a multiply(a,…" is done`); the "G 26×29" selection
+      **Left:** could not reproduce in-session (choices persist via localStorage); fixed the one real loss (`helpers: always` dropped on reload). If it recurs, keep the last composer config on the server.
+- [x] **Adding a project leaves the open chat** and lands on a new task.
+- [x] **The home greeting quotes the last chat title** (`"Add a multiply(a,…" is done`); the "G 26×29" selection
       box over the greeting reads as a bug.
-- [ ] **960×600: the mascot pushes the composer off-screen** — shrink it on short windows.
+- [x] **960×600: the mascot pushes the composer off-screen** — shrink it on short windows.
 
 ### G — Workspace panel & sidebar (`chat/Workspace.tsx` rail, `chat/Sidebar.tsx`, `App.tsx` layout)
 
-- [ ] **The Files panel opens on every chat, even "No files yet"** (~440px) — open it when there is content.
-- [ ] **Rail of 10 unlabeled icons with "99+" badges**; Terminal does nothing without a project and doesn't say
+- [x] **The Files panel opens on every chat, even "No files yet"** (~440px) — open it when there is content.
+- [x] **Rail of 10 unlabeled icons with "99+" badges**; Terminal does nothing without a project and doesn't say
       why; the rail doesn't scroll at 600px tall; Team tab has no empty state.
 - [ ] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
+      **Left:** message search done; undo after deleting a chat skipped (delete removes the folder at once; undo needs a pending-delete state).
 - [ ] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles.
-- [ ] **Unexplained sidebar numbers** (5, 2, 3).
-- [ ] **Dead mobile code** contradicts the 960px minimum (`App.tsx:559-583`, Sidebar `md:` variants).
+      **Left:** not done: short titles need a model call (cost), see [decide].
+- [x] **Unexplained sidebar numbers** (5, 2, 3).
+- [x] **Dead mobile code** contradicts the 960px minimum (`App.tsx:559-583`, Sidebar `md:` variants).
 
 ### H — Copy & design system (`copy.ts`, `tokens.css`, `styles.css`)
 
-- [ ] **Glossary pass** — crew/colony/team/helpers/peers, Judge/Reviewer/Verdicts/verifier, round, "Observer
+- [x] **Glossary pass** — crew/colony/team/helpers/peers, Judge/Reviewer/Verdicts/verifier, round, "Observer
       interval", "PASS on colony", Steer/Queue ("Send now" / "After this step"); raw backend strings rendered as-is.
-- [ ] **Tokens bypassed** — 12 arbitrary radii and no `--radius*` use, 7 sizes between 11–14px, `--scrim` unused,
+- [x] **Tokens bypassed** — 12 arbitrary radii and no `--radius*` use, 7 sizes between 11–14px, `--scrim` unused,
       dark theme written twice; destructive fill ~2.9:1 white-on-red; hit targets under 24px.
-- [ ] **In-app Reduce motion** doesn't reach `useReducedMotion()` users (Hero, cursor, pixel); `.caret` blinks
+- [x] **In-app Reduce motion** doesn't reach `useReducedMotion()` users (Hero, cursor, pixel); `.caret` blinks
       forever.
-- [ ] **Modals** — no focus trap; one Esc closes two stacked modals (`Modal.tsx:24`); AgentSheet doesn't move or
+- [x] **Modals** — no focus trap; one Esc closes two stacked modals (`Modal.tsx:24`); AgentSheet doesn't move or
       restore focus.
 
 ### [decide] Product calls
@@ -169,6 +177,9 @@ server down). Letters are fix groups; each group owns its files so they can be w
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
       files.
 - [ ] Merge Crews (ColonyScreen) into the chat Workspace so there is one console.
+- [ ] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
+- [ ] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on?
+- [ ] Short generated chat titles (one cheap model call per new chat)?
 
 ## Next
 
