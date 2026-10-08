@@ -226,15 +226,16 @@ export class SkillLibrary {
 
   /**
    * Moves learned skills unused for SKILL_ARCHIVE_DAYS (and not kept) to the archive; returns their names. A learned
-   * skill with no record of use (written before usage was kept) starts its clock now: its file's age says nothing
-   * about whether anyone used it.
+   * skill with no clock yet (written before usage was kept, or only ever kept and let go) starts it now: its file's
+   * age says nothing about whether anyone used it.
    */
   curate(now = Date.now()): string[] {
     const out: string[] = []
     for (const skill of this.list(undefined, now)) {
       const c = skill.curation
       if (!c || c.kept || skill.source !== 'myrmidon') continue
-      if (!this._usage()[skill.name]) {
+      const u = this._usage()[skill.name]
+      if (!u?.since && !u?.lastUsed) {
         this._updateUsage(skill.name, (u) => {
           u.since = new Date(now).toISOString()
         })

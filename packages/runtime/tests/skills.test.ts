@@ -136,3 +136,21 @@ test('on upgrade, learned skills with no record of use start their clock now rat
     names: ['old-learned'],
   })
 })
+
+test('an old skill kept and then let go starts its clock then, rather than never going stale', () => {
+  const home = join(dir, 'home')
+  const day = 24 * 60 * 60_000
+  const t0 = Date.parse('2026-01-01T00:00:00Z')
+  const learned = join(home, 'skills', 'old-learned')
+  mkdirSync(learned, { recursive: true })
+  writeFileSync(
+    join(learned, 'SKILL.md'),
+    '---\nname: old-learned\ndescription: Learned long ago.\nsource: learned\n---\n\nSteps.\n',
+  )
+  const library = new SkillLibrary(home, join(dir, 'claude'))
+  // Kept and let go before any curation: a record with no clock.
+  library.setKept('old-learned', true)
+  library.setKept('old-learned', false)
+  expect(library.curate(t0)).toEqual([])
+  expect(library.curate(t0 + 90 * day)).toEqual(['old-learned'])
+})
