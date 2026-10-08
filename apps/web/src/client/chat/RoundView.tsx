@@ -26,6 +26,7 @@ import {
   LoaderCircle,
   MessageCircleQuestion,
   Network,
+  Phone,
   Play,
   RotateCcw,
   ShieldQuestion,
@@ -241,6 +242,7 @@ export function RoundView(props: {
         mode={m.mode}
         readBy={m.readBy}
         live={state.status === 'running'}
+        voice={m.voice}
       />
     ) : (
       <div key={m.id} className="flex flex-col">
@@ -287,7 +289,13 @@ export function RoundView(props: {
   return (
     <section className="flex flex-col gap-4">
       {opening && (
-        <UserMessage text={opening.text} to={opening.to} attachments={opening.attachments} onOpen={setFile} />
+        <UserMessage
+          text={opening.text}
+          to={opening.to}
+          attachments={opening.attachments}
+          onOpen={setFile}
+          voice={opening.voice}
+        />
       )}
       <AnimatePresence initial={false}>{timeline.slice(0, split).map(item)}</AnimatePresence>
       {solo && <Thoughts events={events} running={isRunning(state.status)} />}
@@ -447,6 +455,8 @@ function UserMessage(props: {
   attachments?: readonly string[] | undefined
   /** Crew members the person wrote to directly (@name). */
   to?: readonly string[] | undefined
+  /** Said aloud on a voice call. */
+  voice?: boolean | undefined
   onOpen?(name: string): void
 }) {
   const [copied, copyText] = useCopy()
@@ -472,6 +482,12 @@ function UserMessage(props: {
         </div>
       ) : null}
       <div className="flex items-center gap-1.5">
+        {props.voice && (
+          <span className="flex items-center gap-1 text-footnote text-muted">
+            <Phone className="size-3" />
+            {copy.round.message.saidOnCall}
+          </span>
+        )}
         {props.to?.length ? (
           <span className="flex items-center gap-1 text-footnote text-muted">
             {copy.round.message.to}
