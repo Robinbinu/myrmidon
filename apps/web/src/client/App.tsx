@@ -257,7 +257,8 @@ export function App() {
   const loadProjects = useCallback(() => {
     api<{ projects: Project[] }>('/api/projects')
       .then((r) => setProjects(r.projects))
-      .catch((err) => toast(String(err.message ?? err), 'error'))
+      // With the server away the banner says so, and the list loads again once it is back.
+      .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
   }, [toast])
 
   useEffect(loadProjects, [loadProjects])

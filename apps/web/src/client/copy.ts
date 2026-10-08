@@ -29,6 +29,7 @@ export const copy = {
   /** Why a request to the server failed, when the server did not say. */
   api: {
     unreachable: "Can't reach Myrmidon right now.",
+    interrupted: 'The connection dropped before Myrmidon answered. Try again.',
     status: (status: number) =>
       status === 403
         ? "This device isn't allowed to do that."

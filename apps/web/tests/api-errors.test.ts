@@ -44,6 +44,18 @@ test('a server that does not answer fails in plain words, and the page hears it 
   expect(events).toEqual([api.CONNECTION_CHANGED])
 })
 
+test('one request cut short fails on its own; the page stays online while the server still answers', async () => {
+  const { copy } = await import('../src/client/copy.ts')
+  events.length = 0
+  globalThis.fetch = (async (url: string) => {
+    if (url === '/api/whoami') return Response.json({ scope: 'full', remote: false })
+    throw new TypeError('network connection was lost')
+  }) as unknown as typeof fetch
+  await expect(api.post('/api/chats/c1/learn', {})).rejects.toThrow(copy.api.interrupted)
+  expect(api.reachable()).toBe(true)
+  expect(events).not.toContain(api.CONNECTION_CHANGED)
+})
+
 test('a failed response says what went wrong, never the status and path', async () => {
   const { copy } = await import('../src/client/copy.ts')
   answer(500)

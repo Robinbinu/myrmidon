@@ -32,7 +32,7 @@ export const CONNECTION_CHANGED = 'myr-connection-changed'
 export const SIGNED_OUT = 'myr-signed-out'
 
 let answering = true
-/** Whether the server answered the last request; it recovers by itself, so the page waits rather than complains. */
+/** Whether the server is answering at all; it recovers by itself, so the page waits rather than complains. */
 export const reachable = () => answering
 
 function noteReachable(next: boolean) {
@@ -44,14 +44,32 @@ function noteReachable(next: boolean) {
 /** Set by `whoami`: on a remote gateway a lost sign-in means pairing again, not opening the CLI's link. */
 let remoteGateway = false
 
-/** fetch, noting whether the server answered at all, so a request that never arrived fails in plain words. */
+let probing: Promise<boolean> | undefined
+/** Whether this machine's server answers: one cheap request, shared by every failure that asks meanwhile. */
+function probe(): Promise<boolean> {
+  probing ??= fetch('/api/whoami', { headers: auth })
+    .then(
+      () => true,
+      () => false,
+    )
+    .finally(() => {
+      probing = undefined
+    })
+  return probing
+}
+
+/**
+ * fetch, in plain words when it fails. One request cut short (a dropped upload, a long one the connection gave up on)
+ * is that request's failure; only when the server does not answer a probe either is the whole page offline.
+ */
 async function call(path: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
     res = await fetch(path, init)
   } catch {
-    noteReachable(false)
-    throw new ApiError(copy.api.unreachable)
+    const up = await probe()
+    noteReachable(up)
+    throw new ApiError(up ? copy.api.interrupted : copy.api.unreachable)
   }
   noteReachable(true)
   if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
