@@ -86,6 +86,9 @@ test("the server's technical words become plain ones", async () => {
     await expect(api.api('/api/colonies/c-123')).rejects.toThrow(copy.api.chatGone)
     answer(400, { error: 'invalid request: Expected string, received number at "text"' })
     await expect(api.post('/api/chats', {})).rejects.toThrow(copy.api.badRequest)
+    // What the person can fix comes through as the server said it.
+    answer(400, { error: 'Attach at most 10 files to one message.' })
+    await expect(api.post('/api/chats', {})).rejects.toThrow('Attach at most 10 files to one message.')
     answer(503, { error: 'skills need the chat runtime' })
     await expect(api.api('/api/skills')).rejects.toThrow(copy.api.noChats('skills'))
     answer(503, { error: 'memory needs the chat runtime' })

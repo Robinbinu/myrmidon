@@ -222,9 +222,24 @@ const WEBHOOK_MAX = 5 * 1024 * 1024
 
 const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_MESSAGE_CHARS = 20_000
+
+/**
+ * What the person can fix in a message the schema would refuse, in words that say how. Anything else the schema
+ * refuses is the page's or a script's mistake and stays technical.
+ */
+function sendProblem(raw: unknown): string | undefined {
+  const { text, attachments } = (raw ?? {}) as { text?: unknown; attachments?: unknown }
+  const count = (n: number) => n.toLocaleString('en-US')
+  if (typeof text === 'string' && text.length > MAX_MESSAGE_CHARS)
+    return `That message is ${count(text.length)} characters; the most one message can hold is ${count(MAX_MESSAGE_CHARS)}. Shorten it, or attach it as a file.`
+  if (Array.isArray(attachments) && attachments.length > MAX_ATTACHMENTS)
+    return `Attach at most ${MAX_ATTACHMENTS} files to one message.`
+  return undefined
+}
 
 const sendSchema = Schema.object({
-  text: Schema.string().min(1).max(20_000).required(),
+  text: Schema.string().min(1).max(MAX_MESSAGE_CHARS).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
@@ -1757,12 +1772,14 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           let body: ReturnType<typeof sendSchema>
           try {
-            body = sendSchema((await req.json()) as never)
+            const raw = await req.json()
+            const problem = sendProblem(raw)
+            if (problem) return json({ error: problem }, 400)
+            body = sendSchema(raw as never)
           } catch (err) {
-            return json(
-              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
-              400,
-            )
+            const detail = err instanceof Error ? err.message : String(err)
+            console.warn(`POST /api/chats refused: ${detail}`)
+            return json({ error: `invalid request: ${detail}` }, 400)
           }
           try {
             // A request without a team (the CLI, a script) runs with the person's default team from Settings.
