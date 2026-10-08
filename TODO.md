@@ -24,6 +24,77 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] Live-run fixes: ordered `create_task` in one batch, blocked tasks don't wake assignees, numbered tasks not
       deduped, no peer-made "final answer" task, `task-final` points to `reply_user`.
 
+## Review: channels, voice, design (2026-10-08, evening)
+
+From the re-checks of develop at 33c545e, 0b2ee59 and aeadef6: code audits, an axe-core WCAG 2.1 AA scan of 26
+screen states, keyboard and 200% zoom tests, a design-system audit (71/100) and a UX copy review. Phase 1 groups run
+in parallel; phase 2 (design system, copy) touches every screen and runs after phase 1 merges.
+
+### Channels (`packages/runtime/src/channels`, Settings → Channels)
+
+- [ ] **Pairing code never checked; first approved becomes owner** — approve by typed code; toast opens the sheet;
+      "Make owner" shows handle and id.
+- [ ] **Non-owners run with the owner's tool permissions** — their runs ask the owner for every non-read-only tool.
+- [ ] **IRC nicks can claim ownership** — match unverified platforms by id; never auto-assign owner from a handle.
+- [ ] Revoke and Dismiss one click → ConfirmButton; strangers see internal errors → generic reply; corrupt
+      `channels.json` overwritten → fail loudly with a backup; flood guard silent → reply once.
+- [ ] "Connected" heading over an "Off" channel; token errors only as toasts; optional fields unmarked; allow-list
+      without feedback; blank while loading; repeated error toasts while polling.
+
+### Voice runtime (`packages/runtime/src/voice`, the call socket)
+
+- [ ] **Spoken yes/no prefix-matched and decides the newest approval** — whole-utterance, the one read out, read
+      back; no early turn end while an approval waits.
+- [ ] **Crew updates reach the call model as the person's words** — send them as tool results; `answer_approval`
+      only after a spoken yes/no.
+- [ ] Call kept alive after its socket closes during warm-up; refusals arrive as a bare 1006; several calls per chat.
+- [ ] Transcripts outlive deleted chats; orphan calls; no retention.
+- [ ] Kitten unpinned/unhashed and trusts a remote file name; Phonon unpinned; enabling voice doesn't download what it
+      promises.
+- [ ] Re-transcribes the whole turn on every pause; direct calls split thoughts; turn-model failure toasts per pause;
+      overlapping streams silence each other; lead narration spoken; barge-in too sensitive without the turn model;
+      unguarded JSON/binary frames; "That round failed".
+
+### Voice in the app (`apps/web/src/client/voice`, Settings → Voice)
+
+- [ ] **Hanging up while connecting leaves the mic and socket live**.
+- [ ] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
+      "Crew"; members labelled "worker"; Call button 22px; menu without arrow keys; whole bar a live region.
+- [ ] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
+      unchecked; polls every 2 s; duplicated headings; raw engine errors; spoken messages look typed.
+
+### Trust, System page, gating
+
+- [ ] **Untrue statements**: "agents never edit your files directly", "can only write to their own scratch folder".
+- [ ] Raw server errors in toasts ("unauthorized", "no such colony", zod text, "needs the chat runtime").
+- [ ] Chats-only devices: skill keep/restore, delivering schedules, the System page.
+- [ ] System: "confined (unknown)", raw sandbox names and errors, own status dots, Restart without state, nothing
+      while loading, "No channels set up" for a channel that is off.
+- [ ] Skill curator archives every old learned skill on upgrade, silently.
+- [ ] Chat naming can overwrite an older chat's own name; naming a deleted chat leaves a file.
+- [ ] omp writes request logs to the real `~/.omp/logs`; model-failure fallback preselects "Claude 4 Opus"; adding a
+      project keeps you in a project-less chat.
+
+### Phase 2 — design system and accessibility
+
+- [ ] Radius scale out of order (`lg` 14px, `xl` 12px); 21 arbitrary radii; 56 arbitrary text sizes; no display type
+      steps.
+- [ ] Six status dots, four badges, five hand-rolled popovers, four section/row copies, ~15 banners → `Dot`,
+      `usePopover`/`Menu`, `Card`, `SectionHeader`, `Banner`; Button aliases and no loading state.
+- [ ] Inline field errors in 5 of 66 fields; one-click revoke/remove left; seven icons shared by two features.
+- [ ] WCAG: muted text 3.7:1 (30 nodes); accessible names miss the visible text (36 nodes); 49 tabs to the message
+      box; menus and tabs without arrow keys; Settings badge 2.1:1; side panel covers the chat at 200% zoom.
+- [ ] Settings IA: a "Connect" group for Devices, Gateways, Channels, Voice; shortcuts list missing ⌥⌘1–0.
+
+### Phase 2 — copy
+
+- [ ] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
+      use, error messages with a cause and a fix, shorter long hints, calmer mascot moods.
+
+### [decide] New
+
+- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead?
+
 ## UX audit (2026-10-08)
 
 From the product-readiness inspection: every screen at 1440×900 and 960×600, two code audits, and a hands-on run
