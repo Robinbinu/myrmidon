@@ -1,6 +1,5 @@
 import {
   Brain,
-  Check,
   ChevronDown,
   Gauge,
   Minus,
@@ -16,24 +15,28 @@ import {
   Zap,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useSpecialists } from '../specialists.ts'
+import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
+import { AGENT_MIN_WINDOW } from '../ui-config.ts'
 import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
   'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
 
-/** A glass pill in the composer toolbar that opens its own menu above it. */
+/**
+ * A glass pill in the composer toolbar that opens its own panel above it. The pill reads as its value (the label is
+ * its tooltip and description), so what a person sees is what a screen reader says and what voice control matches.
+ */
 function ChipMenu(props: {
   label: string
   icon: ReactNode
-  value: ReactNode
+  value: string
   width?: number
   children(close: () => void): ReactNode
 }) {
@@ -42,28 +45,12 @@ function ChipMenu(props: {
   const [alignRight, setAlignRight] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const pop = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const outside = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
-    }
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [open])
   return (
     <div className="relative shrink-0" ref={box}>
       <button
         type="button"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={props.label}
         title={props.label}
         onClick={() => {
           const left = box.current?.getBoundingClientRect().left ?? 0
@@ -78,21 +65,21 @@ function ChipMenu(props: {
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div
-            ref={pop}
-            role="menu"
-            initial={{ opacity: 0, y: 6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.1 } }}
-            transition={spring}
+          <Popover
+            role="dialog"
+            label={props.label}
+            onClose={() => setOpen(false)}
+            within={box}
+            box={pop}
+            up
             style={{ width: props.width ?? 300 }}
             className={cn(
-              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-xl border border-line p-1.5',
+              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-lg border border-line p-1.5',
               alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
             )}
           >
             <PickerHost.Provider value={pop}>{props.children(() => setOpen(false))}</PickerHost.Provider>
-          </motion.div>
+          </Popover>
         )}
       </AnimatePresence>
     </div>
@@ -108,27 +95,25 @@ function Option(props: {
   onSelect(): void
 }) {
   return (
-    <button
-      type="button"
-      role="menuitemradio"
-      aria-checked={props.selected}
-      onClick={props.onSelect}
-      className="flex w-full items-center gap-3 rounded-base px-2 py-1.5 text-left transition-colors hover:bg-fill"
-    >
-      <span
-        className={cn(
-          'grid size-8 shrink-0 place-items-center rounded-base border transition-colors',
-          props.selected ? 'border-transparent bg-accent text-on-accent' : 'border-line bg-fill/60 text-fg-2',
-        )}
-      >
-        {props.icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-body font-medium text-fg">{props.title}</span>
-        <span className="block text-footnote leading-snug text-muted">{props.hint}</span>
-      </span>
-      {props.selected && <Check className="size-4 shrink-0 text-accent-fg" />}
-    </button>
+    <MenuItem
+      checked={props.selected}
+      onSelect={props.onSelect}
+      title={props.title}
+      detail={props.hint}
+      multiline
+      icon={
+        <span
+          className={cn(
+            'grid size-8 shrink-0 place-items-center rounded-base border transition-colors',
+            props.selected
+              ? 'border-transparent bg-accent text-on-accent'
+              : 'border-line bg-fill/60 text-fg-2',
+          )}
+        >
+          {props.icon}
+        </span>
+      }
+    />
   )
 }
 
@@ -213,20 +198,22 @@ export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig
         <>
           <MenuHead title={copy.teamControls.thinking.label} note={current.title} />
           <EffortRuler level={current.level} />
-          {EFFORT.map((e) => (
-            <Option
-              key={e.key}
-              icon={<e.icon className="size-4" />}
-              title={e.title}
-              hint={e.hint}
-              selected={e.key === current.key}
-              onSelect={() => {
-                const { thinking: _, ...rest } = props.config
-                props.onConfig(e.key === 'auto' ? rest : { ...rest, thinking: e.key })
-                close()
-              }}
-            />
-          ))}
+          <MenuList label={copy.teamControls.thinking.label}>
+            {EFFORT.map((e) => (
+              <Option
+                key={e.key}
+                icon={<e.icon className="size-4" />}
+                title={e.title}
+                hint={e.hint}
+                selected={e.key === current.key}
+                onSelect={() => {
+                  const { thinking: _, ...rest } = props.config
+                  props.onConfig(e.key === 'auto' ? rest : { ...rest, thinking: e.key })
+                  close()
+                }}
+              />
+            ))}
+          </MenuList>
         </>
       )}
     </ChipMenu>
@@ -279,16 +266,18 @@ export function ReviewChip(props: {
       {() => (
         <>
           <MenuHead title={copy.teamControls.reviewer.label} />
-          {REVIEW.map((r) => (
-            <Option
-              key={r.key}
-              icon={<r.icon className="size-4" />}
-              title={r.title}
-              hint={r.hint}
-              selected={r.key === props.review}
-              onSelect={() => props.onReview(r.key)}
-            />
-          ))}
+          <MenuList label={copy.teamControls.reviewer.label}>
+            {REVIEW.map((r) => (
+              <Option
+                key={r.key}
+                icon={<r.icon className="size-4" />}
+                title={r.title}
+                hint={r.hint}
+                selected={r.key === props.review}
+                onSelect={() => props.onReview(r.key)}
+              />
+            ))}
+          </MenuList>
           {props.review !== 'off' && (
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-2 pb-1 pt-2.5">
               <span className="whitespace-nowrap text-callout text-fg-2">
@@ -328,7 +317,6 @@ export function TeamChip(props: { config: TeamConfig; review?: ReviewMode; open:
       type="button"
       aria-haspopup="dialog"
       aria-expanded={props.open}
-      aria-label={summary}
       title={summary}
       onClick={props.onClick}
       className={cn(PILL, 'shrink-0', props.open && 'bg-fill text-fg')}
@@ -360,16 +348,18 @@ export function HelpersChip(props: {
       {() => (
         <>
           <MenuHead title={copy.teamControls.helpers.label} />
-          {HELPER_MODES.map((h) => (
-            <Option
-              key={h.key}
-              icon={<h.icon className="size-4" />}
-              title={h.title}
-              hint={h.hint}
-              selected={h.key === mode}
-              onSelect={() => choose(h.key)}
-            />
-          ))}
+          <MenuList label={copy.teamControls.helpers.label}>
+            {HELPER_MODES.map((h) => (
+              <Option
+                key={h.key}
+                icon={<h.icon className="size-4" />}
+                title={h.title}
+                hint={h.hint}
+                selected={h.key === mode}
+                onSelect={() => choose(h.key)}
+              />
+            ))}
+          </MenuList>
           {on && (
             <div className="mt-1.5 rounded-base border border-line bg-surface/60">
               <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />

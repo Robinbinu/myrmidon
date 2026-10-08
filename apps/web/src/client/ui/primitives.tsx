@@ -6,6 +6,7 @@ import {
   forwardRef,
   type InputHTMLAttributes,
   isValidElement,
+  type KeyboardEvent,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -339,7 +340,10 @@ export function Segmented<T extends string>(props: {
   )
 }
 
-/** Underline tabs whose amber indicator glides between items. */
+/**
+ * Underline tabs whose amber indicator glides between items. One Tab stop: the arrow keys, Home and End move between
+ * tabs and show each one. The content they switch spreads `tabPanel(id, value)` so the two are linked.
+ */
 export function Tabs<T extends string>(props: {
   value: T
   tabs: { value: NoInfer<T>; label: ReactNode; count?: number }[]
@@ -347,17 +351,44 @@ export function Tabs<T extends string>(props: {
   id: string
   className?: string
 }) {
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = props.tabs.findIndex((t) => t.value === props.value)
+    const last = props.tabs.length - 1
+    const next =
+      e.key === 'ArrowRight'
+        ? at === last
+          ? 0
+          : at + 1
+        : e.key === 'ArrowLeft'
+          ? at <= 0
+            ? last
+            : at - 1
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? last
+              : undefined
+    const tab = next === undefined ? undefined : props.tabs[next]
+    if (!tab) return
+    e.preventDefault()
+    props.onChange(tab.value)
+    e.currentTarget.querySelector<HTMLElement>(`#${CSS.escape(tabId(props.id, tab.value))}`)?.focus()
+  }
   return (
     <div
       role="tablist"
+      onKeyDown={onKeyDown}
       className={cn('flex gap-1 overflow-x-auto border-b border-line px-3', props.className)}
     >
       {props.tabs.map((t) => (
         <button
           key={t.value}
+          id={tabId(props.id, t.value)}
           type="button"
           role="tab"
           aria-selected={props.value === t.value}
+          aria-controls={`${props.id}-panel`}
+          tabIndex={props.value === t.value ? 0 : -1}
           onClick={() => props.onChange(t.value)}
           className={cn(
             'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-callout font-medium transition-colors',
@@ -377,6 +408,13 @@ export function Tabs<T extends string>(props: {
       ))}
     </div>
   )
+}
+
+const tabId = (id: string, value: string) => `${id}-tab-${value}`
+
+/** What the content under a Tabs spreads, so the tab and the panel it shows name each other. */
+export function tabPanel(id: string, value: string) {
+  return { role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': tabId(id, value) } as const
 }
 
 export function Skeleton({ className }: { className?: string }) {

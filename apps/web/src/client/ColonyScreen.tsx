@@ -38,7 +38,7 @@ import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
-import { Badge, cn, Dot, Empty, Tabs, toneFor } from './ui/primitives.tsx'
+import { Badge, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
 import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
@@ -395,7 +395,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
               },
             ]}
           />
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div {...tabPanel(`colony-${id}`, tab)} className="min-h-0 flex-1 overflow-hidden">
             {tab === 'activity' && <ActivityStream items={items} filtered={!!agent} />}
             {tab === 'board' && <Board state={state} />}
             {tab === 'tasks' && <Kanban state={state} />}

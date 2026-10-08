@@ -1,11 +1,12 @@
-import { Check, ChevronDown, Laptop, Server, Settings2 } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { ChevronDown, Laptop, Server, Settings2 } from 'lucide-react'
+import { AnimatePresence } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { activeGateway, GATEWAYS_CHANGED, type GatewayInfo, listGateways, switchGateway } from '../api.ts'
 import { copy } from '../copy.ts'
+import { MenuItem, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { isMac } from '../ui/platform.ts'
 import { cn, Dot } from '../ui/primitives.tsx'
-import { GATEWAY_POLL_MS, spring } from '../ui-config.ts'
+import { GATEWAY_POLL_MS } from '../ui-config.ts'
 
 /** The gateways this machine knows, checked again every so often; undefined until the first answer. */
 export function useGateways(): GatewayInfo[] | undefined {
@@ -39,21 +40,6 @@ export function GatewaySwitcher(props: { onManage(): void }) {
   const active = activeGateway()
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const outside = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
   if (!list || (list.length === 0 && !active)) return null
 
   const local = t.local(isMac)
@@ -63,24 +49,19 @@ export function GatewaySwitcher(props: { onManage(): void }) {
     if (id !== active) switchGateway(id)
   }
   const item = (props: { id?: string; name: string; detail: string; ok?: boolean; icon: typeof Server }) => (
-    <button
+    <MenuItem
       key={props.id ?? 'local'}
-      type="button"
-      role="menuitemradio"
-      aria-checked={props.id === active}
-      onClick={() => pick(props.id)}
-      className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left transition-colors hover:bg-fill"
-    >
-      <props.icon className="size-4 shrink-0 text-muted" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-body font-medium text-fg">
+      checked={props.id === active}
+      onSelect={() => pick(props.id)}
+      icon={<props.icon className="size-4 shrink-0 text-muted" />}
+      title={
+        <span className="flex items-center gap-1.5">
           <span className="truncate">{props.name}</span>
           {props.ok !== undefined && <Dot tone={props.ok ? 'ok' : 'bad'} />}
         </span>
-        <span className="block truncate text-footnote text-muted">{props.detail}</span>
-      </span>
-      {props.id === active && <Check className="size-4 shrink-0 text-accent-fg" />}
-    </button>
+      }
+      detail={props.detail}
+    />
   )
 
   return (
@@ -104,13 +85,12 @@ export function GatewaySwitcher(props: { onManage(): void }) {
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div
+          <Popover
             role="menu"
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
-            transition={spring}
-            className="material-menu absolute left-2.5 right-2.5 top-[calc(100%-2px)] z-40 origin-top rounded-xl border border-line p-1.5"
+            label={t.switcher}
+            onClose={() => setOpen(false)}
+            within={box}
+            className="material-menu absolute left-2.5 z-40 right-2.5 top-[calc(100%-2px)] origin-top rounded-lg border border-line p-1.5"
           >
             {item({ name: local, detail: location.host, icon: Laptop })}
             {list.map((g) =>
@@ -122,20 +102,16 @@ export function GatewaySwitcher(props: { onManage(): void }) {
                 icon: Server,
               }),
             )}
-            <div className="my-1 h-px bg-line" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
+            <MenuSeparator />
+            <MenuItem
+              icon={<Settings2 className="size-4 shrink-0 text-muted" />}
+              title={t.manage}
+              onSelect={() => {
                 setOpen(false)
                 props.onManage()
               }}
-              className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left text-body text-fg-2 transition-colors hover:bg-fill"
-            >
-              <Settings2 className="size-4 shrink-0 text-muted" />
-              {t.manage}
-            </button>
-          </motion.div>
+            />
+          </Popover>
         )}
       </AnimatePresence>
     </div>

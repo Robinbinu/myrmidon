@@ -25,8 +25,9 @@ function onDialogKey(e: KeyboardEvent) {
     return
   }
   if (e.key !== 'Tab') return
+  // Items a group reaches by arrow keys (tabindex -1) are not Tab stops.
   const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => el.getClientRects().length > 0,
+    (el) => el.getClientRects().length > 0 && el.tabIndex >= 0,
   )
   const active = document.activeElement
   const inside = !!active && box.contains(active)

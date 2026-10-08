@@ -32,6 +32,7 @@ import {
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
+import { Popover } from '../ui/Popover.tsx'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
@@ -390,20 +391,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     el.style.height = `${Math.min(el.scrollHeight, 300)}px`
   }, [text])
 
-  useEffect(() => {
-    if (!showTeam) return
-    const close = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setShowTeam(false)
-    }
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setShowTeam(false)
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [showTeam])
-
   const [menuIndex, setMenuIndex] = useState(0)
   const [showHelp, setShowHelp] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight whenever the typed command changes
@@ -511,14 +498,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             />
           )}
           {showTeam && (
-            <motion.div
-              ref={teamPanel}
+            <Popover
               role="dialog"
-              aria-label={copy.composer.teamDialog}
-              initial={{ opacity: 0, y: 10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.12 } }}
-              transition={spring}
+              label={copy.composer.teamDialog}
+              onClose={() => setShowTeam(false)}
+              within={wrap}
+              box={teamPanel}
+              up
               className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
             >
               <div className="mb-3 flex items-baseline justify-between px-1">
@@ -534,7 +520,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   onReview={changeReview}
                 />
               </PickerHost.Provider>
-            </motion.div>
+            </Popover>
           )}
         </AnimatePresence>
         <motion.div

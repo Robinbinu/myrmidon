@@ -96,6 +96,7 @@ import {
   Tabs,
   TextArea,
   TextInput,
+  tabPanel,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
 import {
@@ -2846,7 +2847,7 @@ function ChannelSheet(props: {
       }
     >
       <Tabs id={`channel-${c.id}`} value={tab} tabs={tabs} onChange={setTab} className="shrink-0" />
-      <div className="min-h-[24rem] flex-1 overflow-auto p-5">
+      <div {...tabPanel(`channel-${c.id}`, tab)} className="min-h-[24rem] flex-1 overflow-auto p-5">
         {tab === 'setup' && (
           <div className="flex flex-col gap-4">
             {c.setup && (

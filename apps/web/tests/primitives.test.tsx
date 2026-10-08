@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Button, CountBadge, Dot, IconButton } from '../src/client/ui/primitives.tsx'
+import { MenuItem } from '../src/client/ui/Popover.tsx'
+import { Button, CountBadge, Dot, IconButton, Tabs, tabPanel } from '../src/client/ui/primitives.tsx'
 
 test('a loading button waits: it is busy, cannot be pressed again, and shows a spinner instead of its icon', () => {
   const html = renderToStaticMarkup(
@@ -39,4 +40,32 @@ test('a count badge reads as its sentence when it has one, and caps long counts'
   expect(html).toContain('aria-label="3 people waiting"')
   expect(html).toContain('text-on-accent')
   expect(renderToStaticMarkup(<CountBadge count={140} />)).toContain('99+')
+})
+
+test('tabs are one Tab stop, and each names the panel it shows', () => {
+  const html = renderToStaticMarkup(
+    <Tabs
+      id="t"
+      value="b"
+      onChange={() => {}}
+      tabs={[
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+      ]}
+    />,
+  )
+  expect(html).toContain('id="t-tab-a"')
+  expect(html.match(/tabindex="0"/g)?.length).toBe(1)
+  expect(html).toContain('aria-controls="t-panel"')
+  expect(tabPanel('t', 'b')).toEqual({ role: 'tabpanel', id: 't-panel', 'aria-labelledby': 't-tab-b' })
+})
+
+test('menu items are reached by arrow keys; a chosen radio item is the one Tab stop', () => {
+  const plain = renderToStaticMarkup(<MenuItem title="Lead" onSelect={() => {}} />)
+  expect(plain).toContain('role="menuitem"')
+  expect(plain).toContain('tabindex="-1"')
+  const chosen = renderToStaticMarkup(<MenuItem title="Auto" checked onSelect={() => {}} />)
+  expect(chosen).toContain('role="menuitemradio"')
+  expect(chosen).toContain('aria-checked="true"')
+  expect(chosen).toContain('tabindex="0"')
 })

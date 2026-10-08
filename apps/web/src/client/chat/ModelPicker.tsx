@@ -1,5 +1,5 @@
 import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence } from 'motion/react'
 import {
   createContext,
   type ReactNode,
@@ -12,9 +12,10 @@ import {
 } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX, spring } from '../ui-config.ts'
+import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX } from '../ui-config.ts'
 import { withoutDatedAliases } from './model-list.ts'
 
 /** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
@@ -77,15 +78,6 @@ export function ModelPicker(props: {
   )
   const host = useContext(PickerHost)
   const current = props.models.find((m) => m.ref === props.value)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
 
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -152,11 +144,12 @@ export function ModelPicker(props: {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={variant === 'field' ? undefined : copy.modelPicker.buttonLabel(props.label)}
+        // The button reads as the model it shows, so what is seen is what is heard and what voice control matches;
+        // which model it is (lead, reviewer, a helper) is its tooltip and description.
         title={
-          variant === 'chip'
-            ? copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
-            : undefined
+          variant === 'field'
+            ? undefined
+            : copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
         }
         className={
           variant === 'chip'
@@ -195,11 +188,12 @@ export function ModelPicker(props: {
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: up ? 6 : -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
-            transition={spring}
+          <Popover
+            role="dialog"
+            label={copy.modelPicker.buttonLabel(props.label)}
+            onClose={() => setOpen(false)}
+            within={box}
+            up={up}
             style={{ maxHeight: fit.max, ...(fit.lift ? { bottom: `calc(100% + ${fit.lift}px)` } : {}) }}
             className={cn(
               'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-pop',
@@ -212,8 +206,8 @@ export function ModelPicker(props: {
               <Search className="pointer-events-none absolute left-4.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
               <input
                 type="search"
-                // biome-ignore lint/a11y/noAutofocus: the popover exists to search
-                autoFocus
+                // The popover exists to search; it focuses this once it has noted the button to return to.
+                data-autofocus
                 placeholder={copy.modelPicker.search(visible.length)}
                 value={query}
                 onChange={(e) => {
@@ -221,11 +215,7 @@ export function ModelPicker(props: {
                   setActive(0)
                 }}
                 onKeyDown={(e) => {
-                  // Escape closes the list only, not a dialog or popover the picker sits in.
-                  if (e.key === 'Escape') {
-                    e.stopPropagation()
-                    setOpen(false)
-                  } else if (e.key === 'ArrowDown') {
+                  if (e.key === 'ArrowDown') {
                     e.preventDefault()
                     setActive((a) => Math.min(hits.length - 1, a + 1))
                   } else if (e.key === 'ArrowUp') {
@@ -317,7 +307,7 @@ export function ModelPicker(props: {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </Popover>
         )}
       </AnimatePresence>
     </div>
