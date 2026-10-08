@@ -2975,6 +2975,36 @@ test('the chat list reads only the logs that changed since the last listing', as
   }
 })
 
+test('chats are found by what was said in them, with the words around the match', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/searched', [
+    [
+      tool('reply_user', {
+        text: `Checked the ledger.\nThe total is 391 units, all paid.${' More.'.repeat(40)}`,
+        final: true,
+      }),
+    ],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const { chatId, colonyId } = await chats.send('add up the invoices', solo('mock/searched'))
+  await waitFor(colonyId)
+  expect((await chats.search('391'))[0]?.chatId).toBe(chatId)
+  await chats.stopAll()
+
+  const later = new ChatService(runtime, { resolver })
+  const [hit] = await later.search('  391 ')
+  expect(hit).toMatchObject({ chatId, from: 'lead' })
+  expect(hit?.snippet.startsWith('Checked the ledger. The total is 391 units')).toBe(true)
+  expect(hit?.snippet.endsWith('…')).toBe(true)
+  // The person's own words count too, in any case; LIKE's wildcards are plain characters.
+  expect((await later.search('INVOICES'))[0]).toMatchObject({ chatId, from: 'user' })
+  expect(await later.search('39_')).toEqual([])
+  expect(await later.search('   ')).toEqual([])
+
+  await later.delete(chatId)
+  expect(await later.search('391')).toEqual([])
+})
+
 test('deleting a chat removes every round and its data', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/brief', [

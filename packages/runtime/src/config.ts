@@ -156,3 +156,10 @@ export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 export const MCP_STARTUP_MS = 10_000
 /** A run logged without a pid counts as orphaned once this far past its wall budget. */
 export const RECOVERY_GRACE_MS = 60_000
+
+// Chat list (chat-index.ts)
+
+/** The most chats one message search returns, and how much of the matching message shows around the match. */
+export const CHAT_SEARCH_LIMIT = 50
+export const SNIPPET_BEFORE = 40
+export const SNIPPET_AFTER = 100

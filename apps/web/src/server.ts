@@ -1490,6 +1490,12 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Chats by what was said in them; the chat list already matches titles itself.
+      '/api/chats/search': {
+        GET: guard(async (_req, url) =>
+          json(options.chats ? await options.chats.search(url.searchParams.get('q') ?? '') : []),
+        ),
+      },
       '/api/chats/:chatId': {
         PATCH: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)

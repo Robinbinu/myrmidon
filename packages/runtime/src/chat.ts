@@ -14,7 +14,7 @@ import {
   type RoundInfo,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { ChatIndex, type CrewMember, type IndexedRound } from './chat-index.ts'
+import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
@@ -496,6 +496,11 @@ export class ChatService {
       })
     }
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
+  search(text: string): Promise<MessageHit[]> {
+    return this.index.search(text, this._liveState)
   }
 
   /**
