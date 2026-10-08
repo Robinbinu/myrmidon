@@ -34,12 +34,13 @@ import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
-import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
+import { day, NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
+import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
 import { MAX_FILE_BYTES, softSpring } from './ui-config.ts'
@@ -632,11 +633,7 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill
-                      tone={chat.awaiting && !running ? 'accent' : toneFor(running ? 'running' : chat.status)}
-                    >
-                      {running ? copy.app.working : chat.awaiting ? copy.app.waitingForYou : chat.status}
-                    </Pill>
+                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && chat && (
@@ -930,7 +927,7 @@ function ColoniesPane() {
         >
           {colonies.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} · {c.status} · {c.createdAt?.slice(0, 16).replace('T', ' ')}
+              {c.name} · {copy.status.run[runPhase(c)]} · {day(c.createdAt, true)}
             </option>
           ))}
         </Select>

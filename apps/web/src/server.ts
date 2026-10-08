@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
-import { type ColonyId, colonyMetrics, foldColony, runDiff } from '@myrmidon/protocol'
+import { type ColonyId, colonyMetrics, foldColony, runDiff, stopCause } from '@myrmidon/protocol'
 import {
   accountName,
   type BrowserHub,
@@ -1561,6 +1561,7 @@ export function startServer(options: ServeOptions): WebServer {
             name: state.name,
             status: state.status,
             statusReason: state.statusReason,
+            ...stopCause(state),
             pattern: state.pattern,
             createdAt: state.createdAt,
             agents: Object.values(state.agents).map((a) => ({

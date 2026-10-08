@@ -65,7 +65,7 @@ import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
-import { NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import { day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
@@ -3563,7 +3563,7 @@ function MemorySection() {
                             {m.source.by === 'agent'
                               ? copy.settings.memory.fromAgent(m.source.agent ?? copy.settings.memory.anAgent)
                               : copy.settings.memory.addedByYou}{' '}
-                            · {m.updatedAt.slice(0, 10)}
+                            · {day(m.updatedAt)}
                           </span>
                           {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
                         </div>

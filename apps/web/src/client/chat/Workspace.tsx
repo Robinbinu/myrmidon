@@ -31,10 +31,11 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { clock, compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
+import { agentPhase } from '../ui/status.ts'
 import { softSpring } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
@@ -529,6 +530,7 @@ function WorkspaceBody({
                             (t) => t.owner === a.info.name && t.status === 'in_progress',
                           )
                           const lead = a.info.role === 'lead'
+                          const { phase, detail } = agentPhase(a, state)
                           return (
                             <li key={a.info.name}>
                               <button
@@ -536,7 +538,7 @@ function WorkspaceBody({
                                 onClick={() => setInspect(a.info.name)}
                                 className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
                               >
-                                <AgentAvatar name={a.info.name} status={a.status} size={40} />
+                                <AgentAvatar name={a.info.name} status={phase} size={40} />
                                 <div className="grid min-w-0 flex-1 gap-1">
                                   <div className="flex items-center gap-2">
                                     <span className="font-semibold">{a.info.name}</span>
@@ -546,16 +548,16 @@ function WorkspaceBody({
                                         {a.info.specialty}
                                       </span>
                                     )}
-                                    <Pill tone={toneFor(a.status)}>
-                                      <Dot status={a.status} /> {copy.workspace.agentStatus[a.status]}
+                                    <Pill tone={toneFor(phase)}>
+                                      <Dot status={phase} /> {copy.status.agent[phase]}
                                     </Pill>
                                   </div>
                                   <div className="truncate font-mono text-[11.5px] text-muted">
                                     {a.info.model}
                                   </div>
-                                  {(task || a.detail) && (
+                                  {(task || detail) && (
                                     <div className="text-[12.5px]">
-                                      {task ? copy.workspace.team.workingOn(task.subject) : a.detail}
+                                      {task ? copy.workspace.team.workingOn(task.subject) : detail}
                                     </div>
                                   )}
                                   <div className="mt-1 flex flex-wrap gap-4">
@@ -609,7 +611,7 @@ function WorkspaceBody({
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
-                                      <span>{s.time.slice(11, 19)}</span>
+                                      <span>{clock(s.time, true)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
                                         <span className="text-work-ink">{copy.workspace.shell.running}</span>
@@ -683,7 +685,7 @@ function WorkspaceBody({
                                 {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
                                 {s.tail && <span className="text-muted">{s.tail}</span>}
                               </span>
-                              <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
+                              <time className="tabular-nums text-muted">{clock(s.time, true)}</time>
                             </li>
                           ))}
                         </ol>
@@ -830,7 +832,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
                     </span>
                   )}
                   <time className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
-                    {last?.time.slice(11, 16)}
+                    {clock(last?.time)}
                   </time>
                 </span>
                 <span className="flex items-center gap-2">
@@ -913,7 +915,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                   )}
                   <div className="whitespace-pre-wrap break-words">{m.text}</div>
                   <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
-                    {m.time.slice(11, 16)}
+                    {clock(m.time)}
                     {m.read !== undefined && (
                       <span
                         className={m.read ? 'text-ok-ink' : ''}

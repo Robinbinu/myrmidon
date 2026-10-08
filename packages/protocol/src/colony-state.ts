@@ -720,6 +720,22 @@ export interface ColonyMetrics {
   bestScore?: number
 }
 
+/** Stop reason for a chat round that ended with a question or update for the human. */
+export const AWAITING_USER = 'awaiting your reply'
+
+/**
+ * What a stopped run is waiting on, beyond its status: the person's answer, or a model that failed. A model failure
+ * stops the run rather than failing it so it can be resumed, so the status alone reads like any other stop.
+ */
+export function stopCause(state: Pick<ColonyState, 'status' | 'statusReason' | 'modelError'>): {
+  awaiting?: true
+  failed?: true
+} {
+  if (state.status !== 'stopped') return {}
+  if (state.modelError) return { failed: true }
+  return state.statusReason === AWAITING_USER ? { awaiting: true } : {}
+}
+
 export function colonyMetrics(state: ColonyState, now = Date.now()): ColonyMetrics {
   const agents = Object.values(state.agents)
   const start = state.createdAt ? Date.parse(state.createdAt) : now

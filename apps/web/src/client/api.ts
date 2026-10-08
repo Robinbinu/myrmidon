@@ -125,6 +125,10 @@ export interface ColonySummary {
   name: string
   status: string
   statusReason?: string
+  /** It stopped to wait for the person's answer. */
+  awaiting?: boolean
+  /** It stopped because a model failed. */
+  failed?: boolean
   pattern: string
   createdAt?: string
   agents: { name: string; model: string; role: string }[]
@@ -364,6 +368,8 @@ export interface ChatSummary {
   status: string
   /** The latest round stopped to wait for the person's answer. */
   awaiting?: boolean
+  /** The latest round stopped because a model failed. */
+  failed?: boolean
   rounds: ChatRound[]
   /** The project folder the chat works in. */
   project?: { id: string; name: string }

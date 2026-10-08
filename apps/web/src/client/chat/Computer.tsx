@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, browserSocket, keyframeImage } from '../api.ts'
 import { copy } from '../copy.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
+import { clock } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
 import { type Activity, activityOf } from './activity.ts'
@@ -592,7 +593,7 @@ function LiveTab({
                   key={f.seq}
                   type="button"
                   onClick={() => setAt(i)}
-                  title={`${copy.computer.actions[f.action]}${f.label ? ` · ${f.label}` : ''} · ${f.time.slice(11, 19)}`}
+                  title={`${copy.computer.actions[f.action]}${f.label ? ` · ${f.label}` : ''} · ${clock(f.time, true)}`}
                   aria-label={copy.computer.stepLabel(i + 1, copy.computer.actions[f.action])}
                   className={cn(
                     'h-4 min-w-[6px] flex-1 rounded-sm transition-colors',
@@ -626,7 +627,7 @@ function LiveTab({
           </div>
           <div className="truncate text-[11.5px] text-muted">
             {replaying
-              ? `${copy.computer.stepOf((at as number) + 1, frames.length)} · ${copy.computer.actions[replaying.action]}${replaying.label ? ` · ${replaying.label}` : ''} · ${replaying.time.slice(11, 19)}`
+              ? `${copy.computer.stepOf((at as number) + 1, frames.length)} · ${copy.computer.actions[replaying.action]}${replaying.label ? ` · ${replaying.label}` : ''} · ${clock(replaying.time, true)}`
               : copy.computer.recorded(frames.length, agent)}
           </div>
         </div>

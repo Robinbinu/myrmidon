@@ -5,6 +5,7 @@ import {
   type EventPayloads,
   type MyrEvent,
   reviewVerdicts,
+  stopCause,
 } from '@myrmidon/protocol'
 import {
   Activity,
@@ -35,9 +36,10 @@ import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
-import { compact, duration } from './ui/hooks.ts'
+import { clock, compact, duration, money } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
+import { agentPhase, runPhase } from './ui/status.ts'
 import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
@@ -273,6 +275,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const [file, setFile] = useState<string>()
   const m = colonyMetrics(state)
   const reviewed = reviewVerdicts(state)
+  const run = runPhase({ status: state.status, ...stopCause(state) })
   const items = useMemo(() => buildItems(events, cursor, agent), [events, cursor, agent])
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
@@ -288,8 +291,8 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-[15px] font-semibold tracking-tight">{state.name}</h2>
-            <Pill tone={toneFor(state.status)}>
-              <Dot status={state.status} /> {state.status}
+            <Pill tone={toneFor(run)}>
+              <Dot status={run} /> {copy.status.run[run]}
             </Pill>
           </div>
           {state.statusReason && <p className="truncate text-[12.5px] text-muted">{state.statusReason}</p>}
@@ -297,10 +300,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         <div className="flex flex-wrap gap-4 text-[12.5px] tabular-nums text-muted">
           <Stat label={copy.colonyScreen.stats.time} value={duration(m.wallMs)} />
           <Stat label={copy.colonyScreen.stats.tokens} value={compact(m.tokens)} />
-          <Stat
-            label={copy.colonyScreen.stats.cost}
-            value={m.cost === undefined ? copy.colonyScreen.stats.noCost : `$${m.cost.toFixed(3)}`}
-          />
+          <Stat label={copy.colonyScreen.stats.cost} value={money(m.cost, m.tokens)} />
           <Stat label={copy.colonyScreen.stats.toolCalls} value={String(m.toolCalls)} />
           <Stat label={copy.colonyScreen.stats.files} value={String(Object.keys(state.artifacts).length)} />
           <Stat
@@ -321,18 +321,21 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
             name={copy.colonyScreen.everyone}
             detail={copy.colonyScreen.agentCount(agents.length)}
           />
-          {agents.map((a) => (
-            <AgentButton
-              key={a.info.name}
-              active={agent === a.info.name}
-              onClick={() => setAgent(a.info.name)}
-              icon={<AgentAvatar name={a.info.name} status={a.status} size={32} />}
-              name={a.info.name}
-              detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
-              status={a.status}
-              meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
-            />
-          ))}
+          {agents.map((a) => {
+            const { phase } = agentPhase(a, state)
+            return (
+              <AgentButton
+                key={a.info.name}
+                active={agent === a.info.name}
+                onClick={() => setAgent(a.info.name)}
+                icon={<AgentAvatar name={a.info.name} status={phase} size={32} />}
+                name={a.info.name}
+                detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
+                status={phase}
+                meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
+              />
+            )
+          })}
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           <Tabs
@@ -509,7 +512,7 @@ function RowMeta({ agent, time }: { agent: string; time: string }) {
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted">
       <span className="font-medium">{agent}</span>
-      <time>{time.slice(11, 19)}</time>
+      <time>{clock(time, true)}</time>
     </span>
   )
 }

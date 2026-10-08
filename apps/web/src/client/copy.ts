@@ -21,6 +21,33 @@ export const copy = {
     daysAgo: (n: number) => `${n}d ago`,
   },
 
+  /** One name per state, shared by every badge, dot label and sheet; ui/status.ts decides which applies. */
+  status: {
+    agent: {
+      provisioning: 'Starting up',
+      ready: 'Ready',
+      working: 'Working',
+      idle: 'Waiting for work',
+      done: 'Done',
+      resting: 'Resting',
+      stopped: 'Stopped',
+      failed: 'Failed',
+    },
+    /** Read after a chat's title by screen readers, which cannot see its status dot. */
+    spoken: (label: string) => `, ${label}`,
+    /** A chat or crew run, beside its title. */
+    run: {
+      working: 'working',
+      awaiting: 'waiting for you',
+      completed: 'completed',
+      stopped: 'stopped',
+      failed: 'failed',
+    },
+  },
+
+  /** Shown for a cost when the model has no price, rather than a made-up $0. */
+  unknownCost: 'n/a',
+
   auth: {
     notAuthorized: 'Not authorized: open the link printed by the CLI.',
   },
@@ -504,15 +531,6 @@ export const copy = {
   agentSheet: {
     label: (name: string) => `${name} details`,
     close: 'Close',
-    status: {
-      provisioning: 'Starting up',
-      ready: 'Ready',
-      working: 'Working',
-      idle: 'Waiting for work',
-      completed: 'Done',
-      stopped: 'Resting',
-      failed: 'Failed',
-    },
     leadBadge: 'lead',
     sections: {
       role: 'Role',
@@ -916,15 +934,6 @@ export const copy = {
       rejected: 'rejected',
       deleted: 'deleted',
     },
-    agentStatus: {
-      provisioning: 'provisioning',
-      ready: 'ready',
-      working: 'working',
-      idle: 'idle',
-      completed: 'completed',
-      stopped: 'stopped',
-      failed: 'failed',
-    },
     team: {
       workingOn: (subject: string) => `Working on ${subject}`,
       turns: 'turns',
@@ -1052,9 +1061,6 @@ export const copy = {
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
     newTask: 'New task',
     newTaskTitle: (combo: string) => `New task (${combo})`,
-    /** Status pill beside the chat title while a round runs. */
-    working: 'working',
-    waitingForYou: 'waiting for you',
     workspace: 'Workspace',
     workspaceTitle: 'Workspace (⌘J)',
     crewButton: 'Crew',
@@ -1108,7 +1114,6 @@ export const copy = {
       time: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
-      noCost: 'n/a',
       toolCalls: 'Tool calls',
       files: 'Files',
       verdicts: 'Verdicts',
@@ -1191,6 +1196,8 @@ export const copy = {
     },
     judge: (passed: boolean) => `· judge ${passed ? 'passed' : 'failed'}`,
     runDiff: 'Run diff',
+    /** Warns that two compared runs were asked to do different things. */
+    differentTasks: 'These runs had different tasks, so their numbers are not like for like.',
     close: 'Close the comparison',
     measure: 'Measure',
     versus: 'B vs A',

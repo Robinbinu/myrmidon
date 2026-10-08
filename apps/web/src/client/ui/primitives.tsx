@@ -8,6 +8,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react'
 import { spring } from '../ui-config.ts'
+import { type Tone, toneFor } from './status.ts'
 
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
@@ -91,24 +92,16 @@ export const IconButton = forwardRef<
   )
 })
 
-const TONES = {
+const TONES: Record<Tone, string> = {
   neutral: 'bg-fill-strong text-fg-2',
   ok: 'bg-ok-soft text-ok-ink',
   bad: 'bg-bad-soft text-bad-ink',
   warn: 'bg-warn-soft text-warn-ink',
   work: 'bg-work/10 text-work-ink',
   accent: 'bg-accent-soft text-accent-fg',
-} as const
-export type Tone = keyof typeof TONES
-
-export function toneFor(status: string): Tone {
-  if (['completed', 'verified', 'ready'].includes(status)) return 'ok'
-  if (['failed', 'rejected', 'stopped'].includes(status)) return 'bad'
-  if (['submitted'].includes(status)) return 'warn'
-  if (['running', 'created', 'working', 'in_progress'].includes(status)) return 'work'
-  if (['waiting'].includes(status)) return 'accent'
-  return 'neutral'
 }
+
+export { type Tone, toneFor }
 
 /** A small status capsule. */
 export function Badge({

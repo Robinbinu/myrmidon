@@ -108,6 +108,45 @@ export function duration(ms: number): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
+const CLOCK = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
+const CLOCK_SECONDS = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+const DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+const DAY_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+function local(format: Intl.DateTimeFormat, iso: string | undefined): string {
+  const at = iso ? Date.parse(iso) : Number.NaN
+  return Number.isNaN(at) ? '' : format.format(at)
+}
+
+/** The time of day of an event, in the reader's own zone and clock style; events are stamped in UTC. */
+export function clock(iso: string | undefined, seconds = false): string {
+  return local(seconds ? CLOCK_SECONDS : CLOCK, iso)
+}
+
+/** The local date of a UTC timestamp, with its time of day when `withTime`. */
+export function day(iso: string | undefined, withTime = false): string {
+  return local(withTime ? DAY_TIME : DAY, iso)
+}
+
+/**
+ * A run's cost when it is known. Providers report $0 for a model they have no price for, so a zero after tokens were
+ * spent means unknown rather than free.
+ */
+export function knownCost(cost: number | undefined, tokens: number): number | undefined {
+  return cost === 0 && tokens > 0 ? undefined : cost
+}
+
+/** A run's cost for display, or "n/a" when it is not known. */
+export function money(cost: number | undefined, tokens: number): string {
+  const known = knownCost(cost, tokens)
+  return known === undefined ? copy.unknownCost : `$${known.toFixed(3)}`
+}
+
 export function compact(n: number): string {
   return n >= 1_000_000
     ? `${(n / 1_000_000).toFixed(1)}M`

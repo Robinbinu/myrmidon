@@ -85,3 +85,23 @@ test('a round nobody reviewed has no judge result, while a judged one keeps its 
   expect(unreviewed.verdicts).toHaveLength(1)
   expect(reviewVerdicts(unreviewed)).toEqual([])
 })
+
+test('a run side names its task, and a team mode only when the run used a team', () => {
+  const withTeam = (tier: string) =>
+    run('m/one', [], {}).map((e) =>
+      e.type === 'colony/created'
+        ? {
+            ...e,
+            payload: {
+              ...(e.payload as object),
+              tier,
+              team: { mode: 'orchestrated', maxWorkers: 3, workerModels: [] },
+            },
+          }
+        : e,
+    ) as MyrEvent[]
+  const diff = runDiff({ id: 'a', events: withTeam('solo') }, { id: 'b', events: withTeam('team') })
+  expect(diff.a.task).toBe('Build it')
+  expect(diff.a.mode).toBeUndefined()
+  expect(diff.b.mode).toBe('orchestrated')
+})

@@ -8,20 +8,11 @@ import { useSpecialists } from '../specialists.ts'
 import { compact } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { Button, cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { agentPhase } from '../ui/status.ts'
 import { softSpring } from '../ui-config.ts'
 import { SpecialistEditor } from './SpecialistEditor.tsx'
 import { StepRow } from './StepRow.tsx'
 import { deriveSteps } from './steps.ts'
-
-const STATUS_LABEL: Record<string, string> = {
-  provisioning: copy.agentSheet.status.provisioning,
-  ready: copy.agentSheet.status.ready,
-  working: copy.agentSheet.status.working,
-  idle: copy.agentSheet.status.idle,
-  completed: copy.agentSheet.status.completed,
-  stopped: copy.agentSheet.status.stopped,
-  failed: copy.agentSheet.status.failed,
-}
 
 function Section(props: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -78,6 +69,7 @@ export function AgentSheet(props: {
   const files = Object.entries(props.state.artifacts).filter(([, v]) => v.at(-1)?.author === props.name)
   if (!agent) return null
   const lead = agent.info.role === 'lead'
+  const { phase } = agentPhase(agent, props.state)
 
   return (
     <>
@@ -100,7 +92,7 @@ export function AgentSheet(props: {
         transition={softSpring}
       >
         <header className="flex items-start gap-4 px-5 pb-4 pt-5">
-          <AgentAvatar name={props.name} status={agent.status} size={64} />
+          <AgentAvatar name={props.name} status={phase} size={64} />
           <div className="min-w-0 flex-1 pt-1">
             <div className="flex items-center gap-2">
               <h2 className="text-[20px] font-semibold tracking-tight">{props.name}</h2>
@@ -109,8 +101,8 @@ export function AgentSheet(props: {
               </span>
             </div>
             <div className="mt-1 flex items-center gap-1.5 text-[13px] text-fg-2">
-              <Dot status={agent.status === 'stopped' ? 'idle' : agent.status} />
-              {STATUS_LABEL[agent.status] ?? agent.status}
+              <Dot status={phase} />
+              {copy.status.agent[phase]}
             </div>
             <div className="mt-0.5 truncate font-mono text-[11.5px] text-muted">{agent.info.model}</div>
           </div>

@@ -1,4 +1,4 @@
-import { type ColonyMetrics, colonyMetrics, foldColony, reviewVerdicts } from './colony-state.ts'
+import { type ColonyMetrics, colonyMetrics, foldColony, reviewVerdicts, stopCause } from './colony-state.ts'
 import type { MyrEvent } from './event.ts'
 import type { EventPayloads } from './payloads.ts'
 
@@ -7,7 +7,14 @@ export interface RunSide {
   id: string
   name: string
   status: string
+  /** It stopped to wait for the person's answer. */
+  awaiting?: true
+  /** It stopped because a model failed. */
+  failed?: true
+  /** What the run was asked to do; a comparison means most when both had the same task. */
+  task: string
   tier?: string
+  /** The team's mode, only when the run used a team: a solo round carries the chat's team settings unused. */
   mode?: string
   models: string[]
   metrics: ColonyMetrics
@@ -43,8 +50,10 @@ function side(id: string, events: readonly MyrEvent[]) {
     id,
     name: state.name,
     status: state.status,
+    ...stopCause(state),
+    task: state.chat?.request ?? state.mission,
     ...(state.tier ? { tier: state.tier } : {}),
-    ...(state.team?.mode ? { mode: state.team.mode } : {}),
+    ...(state.team?.mode && (state.tier ?? 'team') === 'team' ? { mode: state.team.mode } : {}),
     models: [...new Set(Object.values(state.agents).map((a) => a.info.model))],
     metrics: colonyMetrics(state),
     ...(verdict

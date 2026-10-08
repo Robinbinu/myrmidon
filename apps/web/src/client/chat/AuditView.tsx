@@ -2,6 +2,7 @@ import { type AuditKind, auditOf, type MyrEvent } from '@myrmidon/protocol'
 import { Ban, FileCode, Globe, Search, ShieldCheck, SquareTerminal, Wrench } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
+import { clock } from '../ui/hooks.ts'
 import { cn, Empty, Pill, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
@@ -66,7 +67,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
             {audit.stops.map((s) => (
               <li key={`${s.time}-${s.tool}-${s.why}`} className="text-[12.5px] text-fg-2">
                 <span className="text-muted">
-                  {s.time.slice(11, 19)} · {s.agent || copy.audit.agentFallback} · {s.tool} ·{' '}
+                  {clock(s.time, true)} · {s.agent || copy.audit.agentFallback} · {s.tool} ·{' '}
                 </span>
                 <span className="break-all">{s.why}</span>{' '}
                 <span className="text-muted">({STOPPED_BY[s.by]})</span>
@@ -164,14 +165,14 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                   </span>
                   <span className="shrink-0 text-right text-[11.5px] tabular-nums text-muted">
                     {t.count > 1 && <span className="block">×{t.count}</span>}
-                    <time>{t.last.slice(11, 19)}</time>
+                    <time>{clock(t.last, true)}</time>
                   </span>
                 </button>
                 {open && (
                   <ol className="mb-2 ml-9 flex flex-col gap-0.5 text-[12px]">
                     {calls.map((e) => (
                       <li key={e.id} className="flex gap-2 text-fg-2">
-                        <time className="tabular-nums text-muted">{e.time.slice(11, 19)}</time>
+                        <time className="tabular-nums text-muted">{clock(e.time, true)}</time>
                         <span className="min-w-0 flex-1 truncate">
                           {e.agent} · {e.tool}
                         </span>

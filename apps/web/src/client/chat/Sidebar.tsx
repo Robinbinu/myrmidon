@@ -26,6 +26,7 @@ import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
 import { cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
+import { runPhase } from '../ui/status.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
@@ -161,8 +162,9 @@ export function Sidebar(props: {
               />
             )}
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
-              <Dot status={c.status === 'running' || c.status === 'created' ? 'working' : c.status} />
+              <Dot status={runPhase(c)} />
               <span className="truncate">{c.title}</span>
+              <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
               {c.rounds.length > 1 && (
                 <span className="ml-auto text-[11px] tabular-nums text-muted">{c.rounds.length}</span>
               )}

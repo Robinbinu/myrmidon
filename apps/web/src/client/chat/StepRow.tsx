@@ -12,6 +12,7 @@ import {
   UserPlus,
 } from 'lucide-react'
 import { motion } from 'motion/react'
+import { clock } from '../ui/hooks.ts'
 import { cn } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
 import type { Step, StepKind } from './steps.ts'
@@ -68,7 +69,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
         </span>
       )}
       <time dateTime={step.time} className="pt-0.5 text-[11.5px] tabular-nums text-muted">
-        {step.time.slice(11, 16)}
+        {clock(step.time)}
       </time>
     </motion.li>
   )
