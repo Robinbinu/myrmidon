@@ -1069,6 +1069,9 @@ export const copy = {
       action: 'New task',
     },
     chatsOnly: 'This device can use chats only.',
+    /** A chat link opened while the chat list will not load. */
+    chatFailed: "Couldn't load this chat",
+    crewsFailed: "Couldn't load crews",
     showSidebar: 'Show sidebar',
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
     newTask: 'New task',

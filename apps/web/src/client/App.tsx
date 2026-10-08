@@ -694,9 +694,35 @@ export function App() {
 
               {view === 'chat' &&
                 (() => {
-                  if (missing) return <ChatNotFound onNew={() => newTask()} />
+                  if (missing)
+                    return (
+                      <PaneNotice
+                        icon={<MessageCircleQuestion className="size-6 text-muted" />}
+                        title={copy.app.chatNotFound.title}
+                        body={copy.app.chatNotFound.body}
+                        action={{
+                          label: copy.app.chatNotFound.action,
+                          icon: <SquarePen className="size-3.5" />,
+                          run: () => newTask(),
+                        }}
+                      />
+                    )
                   // A chat link waits for the chat list rather than showing the entry page meanwhile.
-                  if (activeChat && !chat && !waiting) return <div className="flex-1" />
+                  if (activeChat && !chat && !waiting)
+                    return chatsError ? (
+                      <PaneNotice
+                        icon={<CircleAlert className="size-6 text-bad-ink" />}
+                        title={copy.app.chatFailed}
+                        body={chatsError}
+                        action={{
+                          label: copy.app.composer.retry,
+                          icon: <RefreshCw className="size-3.5" />,
+                          run: refreshChats,
+                        }}
+                      />
+                    ) : (
+                      <div className="flex-1" />
+                    )
                   const box = config ? (
                     <Composer
                       ref={composer}
@@ -910,19 +936,25 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
   )
 }
 
-/** A chat link to a chat this gateway does not have. */
-function ChatNotFound(props: { onNew(): void }) {
-  const t = copy.app.chatNotFound
+/** In place of a pane that cannot show: a chat link to a chat this gateway lacks, or a list that would not load. */
+function PaneNotice(props: {
+  icon: ReactNode
+  title: string
+  body: string
+  action?: { label: string; icon: ReactNode; run(): void }
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
-      <MessageCircleQuestion className="size-6 text-muted" />
+      {props.icon}
       <div>
-        <p className="text-[15px] font-semibold">{t.title}</p>
-        <p className="text-[13px] text-muted">{t.body}</p>
+        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-[13px] text-muted">{props.body}</p>
       </div>
-      <Button variant="primary" icon={<SquarePen className="size-3.5" />} onClick={props.onNew}>
-        {t.action}
-      </Button>
+      {props.action && (
+        <Button variant="primary" icon={props.action.icon} onClick={props.action.run}>
+          {props.action.label}
+        </Button>
+      )}
     </div>
   )
 }
@@ -1015,10 +1047,19 @@ function ColonyRounds(props: {
 }
 
 function ColoniesPane() {
-  const [colonies, , , loaded] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
+  const [colonies, , error, loaded] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
   const [selected, setSelected] = useState<string>()
   const active = selected ?? colonies[0]?.id
-  if (!loaded) return <div className="flex-1" />
+  if (!loaded)
+    return error ? (
+      <PaneNotice
+        icon={<CircleAlert className="size-6 text-bad-ink" />}
+        title={copy.app.crewsFailed}
+        body={error}
+      />
+    ) : (
+      <div className="flex-1" />
+    )
   if (!active) return <div className="flex-1 p-10 text-center text-muted">{copy.app.noCrews}</div>
   return (
     <div className="flex min-h-0 flex-1 flex-col">
