@@ -1,8 +1,8 @@
-import { Hash, Mail, MessageSquare, MessageSquareText, Webhook } from 'lucide-react'
+import { AtSign, Hash, MessageCircle, Smartphone, Webhook } from 'lucide-react'
 import { CHANNEL_LOGOS, FALLBACK_LOGO } from '../channel-logos.ts'
 import { cn } from './primitives.tsx'
 
-const ICONS = { mail: Mail, sms: MessageSquareText, hash: Hash, webhook: Webhook, chat: MessageSquare }
+const ICONS = { mail: AtSign, sms: Smartphone, hash: Hash, webhook: Webhook, chat: MessageCircle }
 
 /** A messaging app's mark on its brand colour, as a rounded tile: in channel tiles, chat rows and status lists. */
 export function ChannelLogo(props: { id: string; size?: number; className?: string; title?: string }) {

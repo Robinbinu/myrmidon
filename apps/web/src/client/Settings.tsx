@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  FishingHook,
   Gavel,
   Globe,
   GraduationCap,
@@ -40,7 +41,6 @@ import {
   TriangleAlert,
   UserCog,
   Users,
-  Webhook,
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
@@ -248,7 +248,7 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     group: 'extend',
     label: copy.settings.sections.hooks.label,
     hint: copy.settings.sections.hooks.hint,
-    icon: Webhook,
+    icon: FishingHook,
   },
   {
     id: 'schedules',
