@@ -57,6 +57,7 @@ import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { fallbackModel } from './model-list.ts'
 import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
@@ -1118,6 +1119,8 @@ function RunCard(props: {
 function ModelFailure(props: {
   failed: NonNullable<ColonyState['modelError']>
   models: ModelOption[]
+  /** The models the chat's crew runs on. */
+  used: readonly string[]
   retry: boolean
   onResume(model?: string): Promise<void>
 }) {
@@ -1132,7 +1135,7 @@ function ModelFailure(props: {
   const usable = models.filter((m) => !m.hidden)
   const suggested = needed
     ? usable.filter(fits).sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0))[0]
-    : usable.find(fits)
+    : fallbackModel(failed.model, usable, fits, props.used)
   const pick = nextModel || suggested?.ref || ''
   // Folding again only helps a model with room for the agent's own instructions and tools.
   const canRetry = !overflow || (failed.window ?? 0) >= AGENT_MIN_WINDOW
@@ -1405,7 +1408,15 @@ function Outcome({
     )
   }
   if (failed)
-    return <ModelFailure failed={failed} models={models} retry={retry !== 'hidden'} onResume={onResume} />
+    return (
+      <ModelFailure
+        failed={failed}
+        models={models}
+        used={Object.values(state.agents).map((a) => a.info.model)}
+        retry={retry !== 'hidden'}
+        onResume={onResume}
+      />
+    )
   if (state.escalated) {
     return (
       <motion.div
