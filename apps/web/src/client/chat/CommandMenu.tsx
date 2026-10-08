@@ -303,7 +303,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                 }}
                 className={cn(
                   'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
-                  active && 'bg-surface-2',
+                  active && 'bg-fill',
                   it.disabled && 'opacity-45',
                 )}
               >
@@ -313,7 +313,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   <span
                     className={cn(
                       'grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
-                      active && !it.disabled ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2 text-fg-2',
+                      active && !it.disabled ? 'bg-accent-soft text-accent-fg' : 'bg-fill text-fg-2',
                     )}
                   >
                     <ItemIcon className="size-4" />
@@ -341,7 +341,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   )}
                 </span>
                 {it.value && (
-                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-caption text-fg-2">
+                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-fill px-1.5 py-0.5 text-caption text-fg-2">
                     {it.value}
                   </span>
                 )}

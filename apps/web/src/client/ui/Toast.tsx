@@ -2,7 +2,7 @@ import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react'
 import { copy } from '../copy.ts'
-import { spring } from '../ui-config.ts'
+import { fade, spring, TOAST_MS } from '../ui-config.ts'
 import { cn } from './primitives.tsx'
 
 type Kind = 'info' | 'success' | 'error'
@@ -36,8 +36,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           ? t
           : [...t.slice(-3), { id, kind, text, ...(action ? { action } : {}) }],
       )
-      // One with a button stays long enough to reach for it.
-      setTimeout(() => dismiss(id), action ? 15000 : kind === 'error' ? 7000 : 3500)
+      setTimeout(
+        () => dismiss(id),
+        action ? TOAST_MS.action : kind === 'error' ? TOAST_MS.error : TOAST_MS.info,
+      )
     },
     [dismiss],
   )
@@ -57,7 +59,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 layout
                 initial={{ opacity: 0, y: 16, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 40, transition: { duration: 0.15 } }}
+                exit={{ opacity: 0, x: 40, transition: fade }}
                 transition={spring}
                 role={t.kind === 'error' ? 'alert' : 'status'}
                 className="glass pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line px-3.5 py-3 text-reading shadow-pop"

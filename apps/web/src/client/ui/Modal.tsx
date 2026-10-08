@@ -2,7 +2,7 @@ import { X } from 'lucide-react'
 import { motion, useIsPresent } from 'motion/react'
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
-import { spring } from '../ui-config.ts'
+import { fade, spring } from '../ui-config.ts'
 import { cn, IconButton } from './primitives.tsx'
 
 interface OpenDialog {
@@ -92,7 +92,7 @@ export function Modal(props: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
+      transition={fade}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) props.onClose()
       }}

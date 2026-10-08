@@ -91,7 +91,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             <button
               type="button"
               onClick={() => open(listing.parent ?? '/')}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-fill"
             >
               <ArrowUp className="size-4 text-muted" /> ..
             </button>
@@ -101,7 +101,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
               key={f}
               type="button"
               onClick={() => open(`${listing.path}/${f}`)}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-fill"
             >
               <Folder className="size-4 shrink-0 text-muted" />
               <span className="truncate">{f}</span>
@@ -146,7 +146,7 @@ export function ProjectPill(props: {
   const current = props.projects.find((p) => p.id === props.value)
   return (
     <label
-      className={`${pill} relative transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
+      className={`${pill} relative transition-colors duration-150 hover:bg-fill hover:text-fg`}
       title={current ? current.path : copy.folderPicker.pill.title}
     >
       <Folder className="size-3.5 shrink-0" />

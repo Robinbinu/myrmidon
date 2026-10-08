@@ -140,7 +140,7 @@ export function JumpToLatest({ follow }: { follow: Omit<FollowLatest<HTMLElement
             <button
               type="button"
               onClick={follow.jump}
-              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-callout font-medium text-fg-2 shadow-pop transition-colors hover:bg-surface-2 hover:text-fg"
+              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-callout font-medium text-fg-2 shadow-pop transition-colors hover:bg-fill hover:text-fg"
             >
               {follow.fresh ? copy.round.jump.fresh : copy.round.jump.latest}
               <ArrowDown className="size-3.5" />
@@ -396,7 +396,7 @@ export function RoundView(props: {
                   type="button"
                   onClick={() => setFile(name)}
                   title={copy.round.fileTitle(latest?.version, compact(latest?.size ?? 0), latest?.author)}
-                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-xl border border-line bg-surface-2/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
+                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-xl border border-line bg-fill/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-fill"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{name}</span>
@@ -470,7 +470,7 @@ function UserMessage(props: {
               key={name}
               type="button"
               onClick={() => props.onOpen?.(name)}
-              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
+              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-fill"
             >
               <FileText className="size-3.5 shrink-0 text-muted" />
               <span className="truncate">{name.replace(/^uploads\//, '')}</span>
@@ -518,7 +518,7 @@ function UserMessage(props: {
           type="button"
           onClick={() => copyText(props.text)}
           aria-label={copy.round.message.copyMessage}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
@@ -617,7 +617,7 @@ function Helpers(props: {
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-2 hover:text-fg-2"
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-fill hover:text-fg-2"
         >
           <Users className="size-3.5 shrink-0" />
           <span className="truncate">
@@ -634,7 +634,7 @@ function Helpers(props: {
           onClick={props.onOpenColony}
           title={copy.round.helpers.crew}
           aria-label={copy.round.helpers.crew}
-          className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+          className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
         >
           <Network className="size-3.5" />
         </button>
@@ -714,7 +714,7 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
+        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-fill hover:text-fg-2"
       >
         <FEATURE_ICONS.thinking className="size-3.5" />
         <span className="tabular-nums">
@@ -822,7 +822,7 @@ function LeadActivity(props: {
           onClick={() => setOpen(!open)}
           disabled={steps.length === 0}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors enabled:hover:bg-surface-2 enabled:hover:text-fg-2"
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors enabled:hover:bg-fill enabled:hover:text-fg-2"
         >
           <motion.span key={label} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="truncate">
             {running ? <span className="font-medium text-fg-2">{label}</span> : label}
@@ -843,7 +843,7 @@ function LeadActivity(props: {
             onClick={props.onOpenColony}
             title={copy.round.lead.detailsTitle}
             aria-label={copy.round.lead.detailsLabel}
-            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
           >
             <Network className="size-3.5" />
           </button>
@@ -854,7 +854,7 @@ function LeadActivity(props: {
             onClick={props.onLearn}
             title={copy.round.lead.learnTitle}
             aria-label={copy.round.lead.learnTitle}
-            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
           >
             <GraduationCap className="size-3.5" />
           </button>
@@ -923,7 +923,7 @@ function LiveServers({ state }: { state: ColonyState }) {
           target="_blank"
           rel="noreferrer"
           title={copy.round.serverTitle(s.command, s.agent)}
-          className="inline-flex items-center gap-1.5 rounded-xl px-1.5 py-0.5 hover:bg-surface-2"
+          className="inline-flex items-center gap-1.5 rounded-xl px-1.5 py-0.5 hover:bg-fill"
         >
           <span className="font-medium">{s.name}</span>
           <span className="font-mono text-small text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
@@ -1005,7 +1005,7 @@ function RunCard(props: {
           type="button"
           onClick={() => setOpen(!expanded)}
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
         >
           <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-screen">
             <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
@@ -1040,7 +1040,7 @@ function RunCard(props: {
         )}
       </div>
       {running && (
-        <div className="relative h-0.5 overflow-hidden bg-surface-2">
+        <div className="relative h-0.5 overflow-hidden bg-fill">
           {tasks.length ? (
             <motion.span
               className="absolute inset-y-0 left-0 bg-accent"

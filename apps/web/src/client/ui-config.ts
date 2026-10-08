@@ -6,6 +6,14 @@
 export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
 /** A gentler spring for content entering the page. */
 export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as const
+/** A bouncy pop for things that arrive with some character: an agent's chip joining the crew. */
+export const popSpring = { type: 'spring', stiffness: 520, damping: 17 } as const
+/** Eyes following where they look: quick, without the overshoot of a pop. */
+export const lookSpring = { type: 'spring', stiffness: 420, damping: 30 } as const
+/** A plain fade: a dialog's backdrop, a toast leaving. */
+export const fade = { duration: 0.15 } as const
+/** How long a toast stays: one with a button long enough to reach for it, an error long enough to read. */
+export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
 
 /* ------------------------------------------------------------------ models */
 
@@ -109,7 +117,12 @@ export const CURSOR = {
   fullTurnSpeed: 1400,
   labelTiltMax: 8,
   labelTiltPerPx: 0.11,
-}
+  /** The arrow and its name tag popping in; the tag a beat after. */
+  arrowPop: { type: 'spring', stiffness: 600, damping: 24 },
+  labelPop: { type: 'spring', stiffness: 500, damping: 26, delay: 0.05 },
+  /** The ring a click leaves. */
+  clickRing: { duration: 0.5, ease: 'easeOut' },
+} as const
 
 /* ------------------------------------------------------------------ connection */
 

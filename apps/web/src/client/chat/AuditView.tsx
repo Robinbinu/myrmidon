@@ -88,7 +88,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
               'rounded-full border px-2.5 py-1 text-small transition-colors',
               kind === k.value
                 ? 'border-accent/40 bg-accent-soft text-accent-fg'
-                : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
+                : 'border-line text-muted hover:bg-fill hover:text-fg',
             )}
           >
             {k.label} <span className="tabular-nums opacity-70">{count(k.value)}</span>
@@ -142,7 +142,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                   type="button"
                   onClick={() => folds.toggle(key)}
                   aria-expanded={open}
-                  className="flex w-full items-start gap-2 rounded-xl px-1.5 py-2 text-left hover:bg-surface-2"
+                  className="flex w-full items-start gap-2 rounded-xl px-1.5 py-2 text-left hover:bg-fill"
                 >
                   <FoldChevron open={open} className="mt-1 text-muted" />
                   <Icon className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />

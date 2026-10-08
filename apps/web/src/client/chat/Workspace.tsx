@@ -430,7 +430,7 @@ function WorkspaceBody({
                                 key={name}
                                 type="button"
                                 onClick={() => setFile(name)}
-                                className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+                                className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
                               >
                                 <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
                                   <Icon className="size-4" />
@@ -481,7 +481,7 @@ function WorkspaceBody({
                                 )}
                               </span>
                             </div>
-                            <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
+                            <div className="flex h-1.5 overflow-hidden rounded-full bg-fill">
                               <motion.span
                                 className="bg-ok"
                                 animate={{ width: pct(by('verified')) }}
@@ -517,7 +517,7 @@ function WorkspaceBody({
                                   onClick={() => setBoard(value)}
                                   className={cn(
                                     'rounded-md px-2 py-0.5 text-small transition-colors',
-                                    board === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+                                    board === value ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
                                   )}
                                 >
                                   {label}
@@ -547,7 +547,7 @@ function WorkspaceBody({
                                       onClick={() => taskFolds.toggle(t.id)}
                                       aria-expanded={details ? open : undefined}
                                       disabled={!details}
-                                      className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-surface-2"
+                                      className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-fill"
                                     >
                                       <FoldChevron
                                         open={open && details}
@@ -610,7 +610,7 @@ function WorkspaceBody({
                               <button
                                 type="button"
                                 onClick={() => setInspect(a.info.name)}
-                                className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
+                                className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-fill"
                               >
                                 <AgentAvatar name={a.info.name} status={phase} size={40} />
                                 <div className="grid min-w-0 flex-1 gap-1">
@@ -668,7 +668,7 @@ function WorkspaceBody({
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-lg border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-lg border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-[color:var(--terminal-text)]">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -679,20 +679,20 @@ function WorkspaceBody({
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
-                                    <span className="flex items-center gap-2 text-caption text-slate-400">
+                                    <span className="flex items-center gap-2 text-caption text-[color:var(--terminal-muted)]">
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
                                       <span>{clock(s.time, true)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
-                                        <span className="text-work-ink">{copy.workspace.shell.running}</span>
+                                        <span className="text-signal">{copy.workspace.shell.running}</span>
                                       ) : (
                                         <span
                                           className={
                                             s.ok && /^exit 0/.test(s.output ?? '')
-                                              ? 'text-emerald-400'
-                                              : 'text-amber-400'
+                                              ? 'text-[color:var(--terminal-command)]'
+                                              : 'text-[color:var(--terminal-error)]'
                                           }
                                         >
                                           {(s.output ?? '').split('\n')[0]}
@@ -705,12 +705,14 @@ function WorkspaceBody({
                                         open ? 'whitespace-pre-wrap' : 'truncate',
                                       )}
                                     >
-                                      <span className="select-none text-emerald-400">$ </span>
+                                      <span className="select-none text-[color:var(--terminal-command)]">
+                                        ${' '}
+                                      </span>
                                       {s.command}
                                     </span>
                                   </button>
                                   {open && s.output && (
-                                    <pre className="mx-3.5 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
+                                    <pre className="mx-3.5 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[color:var(--terminal-muted)]">
                                       {s.output
                                         .split('\n')
                                         .slice(1)
@@ -806,7 +808,7 @@ function WorkspaceBody({
                     aria-keyshortcuts={v.key ? `${isMac ? 'Meta' : 'Control'}+Alt+${v.key}` : undefined}
                     className={cn(
                       'relative grid size-8 shrink-0 place-items-center rounded-md transition-colors',
-                      on ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                      on ? 'bg-fill text-fg' : 'text-muted hover:bg-fill/60 hover:text-fg',
                     )}
                   >
                     {on && (
@@ -900,7 +902,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
             <button
               type="button"
               onClick={() => setOpen(t.id)}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-fill"
             >
               {t.kind === 'team' ? (
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
@@ -993,7 +995,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                 <div
                   className={cn(
                     'max-w-[80%] rounded-2xl px-3 py-1.5 text-callout leading-relaxed',
-                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
+                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-fill text-fg-2',
                   )}
                 >
                   {first && (

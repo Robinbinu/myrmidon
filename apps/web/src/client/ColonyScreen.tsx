@@ -39,7 +39,7 @@ import { FEATURE_ICONS } from './ui/icons.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { Badge, Banner, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
-import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
+import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS, spring } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
 type Tab = 'activity' | 'board' | 'tasks' | 'files' | 'map' | 'verdicts'
@@ -455,17 +455,17 @@ function AgentButton(props: {
       onClick={props.onClick}
       className={cn(
         'relative flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors',
-        props.active ? 'text-fg' : 'text-fg-2 hover:bg-surface-2',
+        props.active ? 'text-fg' : 'text-fg-2 hover:bg-fill',
       )}
     >
       {props.active && (
         <motion.span
           layoutId="colony-agent"
           className="absolute inset-0 rounded-xl bg-accent-soft"
-          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+          transition={spring}
         />
       )}
-      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-surface-2">
+      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-fill">
         {props.icon}
       </span>
       <span className="relative min-w-0 flex-1">
@@ -530,7 +530,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-fill"
       >
         <motion.span animate={{ rotate: open ? 90 : 0 }} className="text-muted">
           <ChevronRight className="size-3.5" />
@@ -581,7 +581,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
     <div
       className={cn(
         'rounded-lg border px-3.5 py-2.5',
-        item.error ? 'border-bad/30 bg-bad-soft' : 'border-transparent bg-surface-2/60',
+        item.error ? 'border-bad/30 bg-bad-soft' : 'border-transparent bg-fill/60',
       )}
     >
       <div className="mb-1 flex items-center gap-2 text-small">
@@ -618,7 +618,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
 
 function EventRow({ item }: { item: Item & { kind: 'event' } }) {
   return (
-    <div className="flex gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface-2/60">
+    <div className="flex gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-fill/60">
       <item.icon className={cn('mt-0.5 size-4 shrink-0', item.tone)} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-body">
@@ -676,7 +676,7 @@ function Kanban({ state }: { state: ColonyState }) {
       {COLUMNS.map((col) => {
         const list = tasks.filter((t) => col.statuses.includes(t.status))
         return (
-          <div key={col.title} className="flex min-h-0 flex-col rounded-2xl bg-surface-2/60 p-2">
+          <div key={col.title} className="flex min-h-0 flex-col rounded-2xl bg-fill/60 p-2">
             <div className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-callout font-semibold">
               <Dot status={col.statuses[0] ?? 'pending'} pulse={false} />
               {col.title}
@@ -731,7 +731,7 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
               key={name}
               type="button"
               onClick={() => onOpen(name)}
-              className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+              className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-fill"
             >
               <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-fg">
                 <FileCode className="size-4" />
@@ -806,7 +806,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
   }, [playing, speed, cursor, head, setCursor])
   const current = events[cursor - 1]
   const btn =
-    'grid size-8 place-items-center rounded-xl text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-30'
+    'grid size-8 place-items-center rounded-xl text-fg-2 transition-colors hover:bg-fill hover:text-fg disabled:opacity-30'
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-3 py-2">
       <button

@@ -163,7 +163,7 @@ export function ArtifactViewer(props: {
               href={preview}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-callout font-medium transition-colors hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-callout font-medium transition-colors hover:bg-fill"
             >
               <ExternalLink className="size-3.5" /> {copy.artifactViewer.open}
             </a>
@@ -214,7 +214,7 @@ export function ArtifactViewer(props: {
                 // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
                 key={i}
                 className={cn(
-                  'flex px-0 hover:bg-surface-2/60',
+                  'flex px-0 hover:bg-fill/60',
                   l.kind === 'add' && 'bg-ok-soft',
                   l.kind === 'del' && 'bg-bad-soft',
                 )}

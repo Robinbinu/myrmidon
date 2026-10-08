@@ -57,7 +57,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
         <span className="ml-auto">{open ? copy.madeTools.hideSource : copy.madeTools.source}</span>
       </button>
       {open && (
-        <pre className="max-h-72 overflow-auto border-t border-line bg-surface-2 px-3 py-2 font-mono text-footnote leading-relaxed">
+        <pre className="max-h-72 overflow-auto border-t border-line bg-fill px-3 py-2 font-mono text-footnote leading-relaxed">
           {t.source}
         </pre>
       )}

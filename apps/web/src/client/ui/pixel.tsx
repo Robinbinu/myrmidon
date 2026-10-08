@@ -2,7 +2,7 @@ import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { AGENT_DOZE_MS } from '../ui-config.ts'
+import { AGENT_DOZE_MS, popSpring } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -15,11 +15,19 @@ export function agentColor(name: string): string {
   return identityOf(name).color
 }
 
-/** Dark or light text, whichever reads on the given fill. */
+/**
+ * Dark or light text, whichever has more contrast on the given fill by WCAG's relative luminance. A brightness cut-off
+ * put white on mid blues and violets at under 4:1.
+ */
 export function inkOn(hex: string): string {
   const n = Number.parseInt(hex.slice(1), 16)
-  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-  return lum > 0.6 ? 'var(--on-bright)' : 'var(--on-deep)'
+  const channel = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+  const lum =
+    0.2126 * channel(((n >> 16) & 255) / 255) +
+    0.7152 * channel(((n >> 8) & 255) / 255) +
+    0.0722 * channel((n & 255) / 255)
+  // --on-bright (#0b0b0d) has a luminance of about 0.0034, --on-deep (white) 1.
+  return (lum + 0.05) / 0.0534 > 1.05 / (lum + 0.05) ? 'var(--on-bright)' : 'var(--on-deep)'
 }
 
 /* ------------------------------------------------------------------ pixel face */
@@ -581,8 +589,8 @@ export function AgentChip(props: {
       layout
       initial={{ opacity: 0, scale: 0.3 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 520, damping: 17 }}
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-small transition-colors hover:border-line-strong hover:bg-surface-2"
+      transition={popSpring}
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-small transition-colors hover:border-line-strong hover:bg-fill"
       style={props.active ? { borderColor: `${color}88`, boxShadow: `0 0 0 3px ${color}22` } : undefined}
       title={props.detail}
     >

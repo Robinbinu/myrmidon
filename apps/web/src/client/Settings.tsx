@@ -562,7 +562,7 @@ export function Settings(props: {
                   className={cn(
                     'relative flex items-center gap-3 rounded-lg text-left transition-colors',
                     wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
-                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
                   )}
                 >
                   {section === s.id && (
@@ -575,7 +575,7 @@ export function Settings(props: {
                   <span
                     className={cn(
                       'relative grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
-                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
+                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-fill',
                     )}
                   >
                     <s.icon className="size-4" />
@@ -1268,7 +1268,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 )}
               </div>
               {active && (
-                <div className="mt-3 space-y-2.5 rounded-lg border border-line bg-surface-2 p-3 text-callout">
+                <div className="mt-3 space-y-2.5 rounded-lg border border-line bg-fill p-3 text-callout">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
                     {active.progress ?? copy.settings.signIns.finishInBrowser}
@@ -2077,7 +2077,7 @@ function ToolsSection(props: {
         {TOOL_INFO.map((t) => (
           <CardRow key={t.key}>
             <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-fg-2">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-fill text-fg-2">
                 <t.icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
@@ -2404,7 +2404,7 @@ function DevicesSection() {
       {data?.remote === false ? (
         <div
           role="note"
-          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-fill px-4 py-3 text-body"
         >
           <FEATURE_ICONS.devices className="mt-0.5 size-4 shrink-0 text-muted" />
           <div>
@@ -2602,7 +2602,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                 key={c.id}
                 type="button"
                 onClick={() => setOpen(c.id)}
-                className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left shadow-soft transition-colors hover:bg-surface-2"
+                className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left shadow-soft transition-colors hover:bg-fill"
               >
                 <ChannelLogo id={c.id} size={40} />
                 <div className="min-w-0 flex-1">
@@ -2659,7 +2659,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                       key={c.id}
                       type="button"
                       onClick={() => setOpen(c.id)}
-                      className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-surface-2"
+                      className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-fill"
                     >
                       <ChannelLogo id={c.id} size={32} />
                       <span className="w-full truncate text-small">{c.label}</span>
@@ -2844,7 +2844,7 @@ function ChannelSheet(props: {
         {tab === 'setup' && (
           <div className="flex flex-col gap-4">
             {c.setup && (
-              <p className="whitespace-pre-line rounded-lg bg-surface-2 px-4 py-3 text-callout text-fg-2">
+              <p className="whitespace-pre-line rounded-lg bg-fill px-4 py-3 text-callout text-fg-2">
                 {c.setup}
               </p>
             )}
@@ -4687,7 +4687,7 @@ function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
       .then(props.onSaved)
       .catch((err: Error) => toast(err.message, 'error'))
   return (
-    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-surface-2/40 p-3">
+    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-fill/40 p-3">
       {Object.entries(props.plugin.settings).map(([key, spec]) => {
         const value = props.plugin.values[key]
         return (

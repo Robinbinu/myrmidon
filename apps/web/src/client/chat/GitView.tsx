@@ -18,6 +18,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
+import { agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, CountBadge, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import {
@@ -80,8 +81,6 @@ const initials = (name: string) =>
     .toUpperCase()
 
 /** A stable colour per author, for the avatar dots in the history. */
-const hue = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7)
-
 const SECTIONS_KEY = 'myr-git-closed'
 
 function useClosedSections(): [ReadonlySet<string>, (key: string) => void] {
@@ -153,7 +152,7 @@ function RowAction(props: { label: string; onClick(): void; children: ReactNode;
         props.onClick()
       }}
       className={cn(
-        'grid size-6 place-items-center rounded-md text-muted hover:bg-surface-3',
+        'grid size-6 place-items-center rounded-md text-muted hover:bg-fill-strong',
         props.danger ? 'hover:text-bad-ink' : 'hover:text-fg',
       )}
     >
@@ -187,7 +186,7 @@ function ChangeRow(props: {
   }, [open, props.project, props.kind, props.path, props.version])
   return (
     <div>
-      <div className="group flex items-center gap-2 rounded-xl px-2 hover:bg-surface-2">
+      <div className="group flex items-center gap-2 rounded-xl px-2 hover:bg-fill">
         <button
           type="button"
           onClick={() => setOpen(!open)}
@@ -302,7 +301,7 @@ export function GitView({ project }: { project: string }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center gap-1.5">
-        <span className="flex min-w-0 items-center gap-1.5 rounded-xl bg-surface-2 px-2.5 py-1 text-callout">
+        <span className="flex min-w-0 items-center gap-1.5 rounded-xl bg-fill px-2.5 py-1 text-callout">
           <GitBranch className="size-3.5 shrink-0 text-muted" />
           <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
@@ -515,17 +514,17 @@ export function GitView({ project }: { project: string }) {
                 <button
                   type="button"
                   onClick={() => setFull({ kind: 'commit', commit: c })}
-                  className="flex w-full items-start gap-2 rounded-xl py-1.5 pl-3 pr-2 text-left hover:bg-surface-2"
+                  className="flex w-full items-start gap-2 rounded-xl py-1.5 pl-3 pr-2 text-left hover:bg-fill"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body">{c.subject}</span>
                     <span className="flex items-center gap-1.5 text-footnote text-muted">
+                      {/* The author's colour beside their name; too small for readable initials. */}
                       <span
-                        className="grid size-4 place-items-center rounded-full text-[8px] font-bold text-white"
-                        style={{ background: `hsl(${hue(c.author)} 45% 45%)` }}
-                      >
-                        {initials(c.author)}
-                      </span>
+                        aria-hidden
+                        className="size-3 shrink-0 rounded-full"
+                        style={{ background: agentColor(c.author) }}
+                      />
                       {c.author} · {ago(c.date)}
                     </span>
                   </span>
@@ -600,7 +599,7 @@ function Tree(props: {
               type="button"
               style={pad}
               onClick={() => props.onPick(n.file as string)}
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout hover:bg-fill"
             >
               <span className="min-w-0 flex-1 truncate font-mono">{n.name}</span>
               {f?.added !== undefined && (
@@ -629,7 +628,7 @@ function Tree(props: {
                   return next
                 })
               }
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout text-fg-2 hover:bg-fill"
             >
               <ChevronRight className={cn('size-3 shrink-0 transition-transform', !shut && 'rotate-90')} />
               <Folder className="size-3.5 shrink-0 text-muted" />
@@ -688,8 +687,12 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
             <>
               <span className="flex items-center gap-1.5">
                 <span
-                  className="grid size-5 place-items-center rounded-full text-caption font-bold text-white"
-                  style={{ background: `hsl(${hue(target.commit.author)} 45% 45%)` }}
+                  aria-hidden
+                  className="grid size-5 place-items-center rounded-full text-caption font-bold"
+                  style={{
+                    background: agentColor(target.commit.author),
+                    color: inkOn(agentColor(target.commit.author)),
+                  }}
                 >
                   {initials(target.commit.author)}
                 </span>
@@ -702,7 +705,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                   void navigator.clipboard.writeText(target.commit.hash)
                   toast(copy.git.full.copiedSha, 'success')
                 }}
-                className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-footnote text-fg-2 hover:text-fg"
+                className="flex items-center gap-1 rounded-md bg-fill px-1.5 py-0.5 font-mono text-footnote text-fg-2 hover:text-fg"
                 title={copy.git.full.copySha}
               >
                 {target.commit.short} <Copy className="size-3" />
@@ -720,7 +723,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           <span className="flex-1" />
           <button
             type="button"
-            className="rounded-md px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg"
+            className="rounded-md px-1.5 py-0.5 hover:bg-fill hover:text-fg"
             onClick={() =>
               setClosed(closed.size === 0 ? new Set((data?.files ?? []).map((f) => f.path)) : new Set())
             }

@@ -239,7 +239,7 @@ export function formatSize(bytes: number) {
 
 /** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
 const CHIP =
-  'inline-flex h-8 items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
+  'inline-flex h-8 items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-fg disabled:opacity-40'
 
 const DELIVERIES = [
   { value: 'steer', icon: Navigation, ...copy.composer.deliveries.steer },
@@ -548,7 +548,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-small"
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-fill py-0.5 pl-2 pr-0.5 text-small"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{f.name}</span>
@@ -557,7 +557,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     type="button"
                     aria-label={copy.composer.removeFile(f.name)}
                     onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
-                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-3 hover:text-fg"
+                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-fill-strong hover:text-fg"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -724,7 +724,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     title={copy.composer.sendTitle}
                     className={cn(
                       'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
-                      canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',
+                      canSend
+                        ? 'bg-ink text-on-ink shadow-card hover:opacity-90'
+                        : 'bg-fill-strong text-muted',
                     )}
                   >
                     <ArrowUp className="size-4" strokeWidth={2.5} />

@@ -94,7 +94,7 @@ export function QuestionCard(props: {
       {props.plan && (
         <section aria-label={copy.questions.plan} className="flex flex-col gap-1.5">
           <span className="section-label text-muted">{copy.questions.plan}</span>
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-line bg-surface-2/40 px-3.5 py-2.5 text-reading">
+          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-line bg-fill/40 px-3.5 py-2.5 text-reading">
             <Markdown text={props.plan} />
           </div>
         </section>
@@ -138,7 +138,7 @@ export function QuestionCard(props: {
                   onClick={() => pick(i, o.label, multi)}
                   className={cn(
                     'flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors',
-                    on ? 'border-accent bg-accent-soft/60' : 'border-line hover:bg-surface-2',
+                    on ? 'border-accent bg-accent-soft/60' : 'border-line hover:bg-fill',
                   )}
                 >
                   <span
@@ -177,7 +177,7 @@ export function QuestionCard(props: {
                 }}
                 placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
-                className="h-9 rounded-lg border border-line bg-surface-2/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
+                className="h-9 rounded-lg border border-line bg-fill/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
               />
             )}
           </fieldset>

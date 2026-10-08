@@ -229,7 +229,7 @@ export function ModelPicker(props: {
                   }
                 }}
                 aria-label={copy.modelPicker.searchLabel(props.label)}
-                className="w-full rounded-xl bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+                className="w-full rounded-xl bg-fill py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div
@@ -266,7 +266,7 @@ export function ModelPicker(props: {
                         className={cn(
                           // The margin keeps a row scrolled into view clear of the sticky provider heading.
                           'flex w-full scroll-mt-9 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors',
-                          i === active && !blocked && 'bg-surface-2',
+                          i === active && !blocked && 'bg-fill',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',
                           blocked && 'cursor-not-allowed',

@@ -32,8 +32,6 @@
   --font-mono: var(--mono);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
   --color-line-strong: var(--border-strong);
   --color-fg: var(--text);

@@ -153,9 +153,7 @@ export function Computer({
               onClick={() => setAgent(t.agent)}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2.5 text-small font-medium',
-                t.agent === current.agent
-                  ? 'border-fg bg-surface-2'
-                  : 'border-line text-fg-2 hover:bg-surface-2',
+                t.agent === current.agent ? 'border-fg bg-fill' : 'border-line text-fg-2 hover:bg-fill',
               )}
             >
               <AgentAvatar name={t.agent} status="working" size={20} awake />
@@ -203,7 +201,7 @@ function AgentScreen(props: {
               onClick={() => setMode(m)}
               className={cn(
                 'flex-1 rounded-md px-2 py-1 font-medium transition-colors',
-                mode === m ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+                mode === m ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
               )}
             >
               {m === 'follow'
@@ -481,7 +479,7 @@ function LiveTab({
           {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </IconButton>
       </div>
-      <div className="truncate rounded-xl border border-line bg-surface-2 px-2.5 py-1 font-mono text-footnote text-fg-2">
+      <div className="truncate rounded-xl border border-line bg-fill px-2.5 py-1 font-mono text-footnote text-fg-2">
         {(replaying ? replaying.url : page.url) || 'about:blank'}
       </div>
       <div
@@ -615,7 +613,7 @@ function LiveTab({
                       ? 'bg-fg'
                       : f.action === 'open'
                         ? 'bg-fg-2/50 hover:bg-fg-2'
-                        : 'bg-surface-3 hover:bg-fg-2/60',
+                        : 'bg-fill-strong hover:bg-fg-2/60',
                   )}
                 />
               ))}

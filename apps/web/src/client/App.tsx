@@ -938,7 +938,7 @@ export function App() {
               {!online ? (
                 <div
                   role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
                 >
                   <LoaderCircle className="size-3.5 animate-spin text-muted" />
                   {copy.app.reconnecting}

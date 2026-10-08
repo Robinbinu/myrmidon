@@ -114,7 +114,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
               initial={{ scale: 0.2, opacity: 0.9 }}
               animate={{ scale: 1.8, opacity: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
+              transition={CURSOR.clickRing}
             />
           )}
         </AnimatePresence>
@@ -123,7 +123,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
           style={{ rotate, originX: 3 / 24, originY: 2.5 / 24 }}
           initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: props.clicking ? CURSOR.pressScale : 1, opacity: 1 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 24 }}
+          transition={CURSOR.arrowPop}
         >
           <Arrowhead color={props.color} />
         </motion.div>
@@ -141,7 +141,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
         }}
         initial={{ scale: 0.6, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 26, delay: 0.05 }}
+        transition={CURSOR.labelPop}
       >
         {props.name}
       </motion.span>

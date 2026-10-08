@@ -112,10 +112,10 @@
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  background: var(--surface-2);
+  background: var(--fill);
 }
 .compare tbody tr:hover {
-  background: var(--surface-2);
+  background: var(--fill);
 }
 .compare .num {
   text-align: right;

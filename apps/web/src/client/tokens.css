@@ -120,8 +120,6 @@
   /* Older names, kept until every screen uses the ones above. */
   --bg: var(--window);
   --surface: var(--content);
-  --surface-2: var(--fill);
-  --surface-3: var(--fill-strong);
   --border: var(--separator);
   --border-strong: var(--separator-strong);
   --text: var(--label);

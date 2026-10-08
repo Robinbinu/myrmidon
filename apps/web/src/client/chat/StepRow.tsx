@@ -56,7 +56,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
             {!hideAgent && <span>{step.agent} · </span>}
             {step.lead} <span className="italic">{step.strong}</span>
           </summary>
-          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-line bg-surface-2 px-3 py-2 text-callout leading-relaxed text-fg-2">
+          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-line bg-fill px-3 py-2 text-callout leading-relaxed text-fg-2">
             {step.detail}
           </div>
         </details>

@@ -193,7 +193,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
   return (
     <div className="min-w-0 rounded-lg border border-line bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span className="grid size-5 place-items-center rounded-md bg-surface-2 font-mono text-caption font-bold">
+        <span className="grid size-5 place-items-center rounded-md bg-fill font-mono text-caption font-bold">
           {label}
         </span>
         <button
@@ -230,7 +230,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
   return (
     <section
       aria-label={copy.compare.runDiff}
-      className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-surface-2/40 p-4"
+      className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-fill/40 p-4"
     >
       <div className="flex items-start gap-3">
         <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
@@ -302,7 +302,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             <button
               type="button"
               onClick={() => setAllTools(!allTools)}
-              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-surface-2 hover:text-fg"
+              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-fill hover:text-fg"
             >
               {allTools ? copy.compare.showFewer : copy.compare.showAllTools(tools.length)}
             </button>

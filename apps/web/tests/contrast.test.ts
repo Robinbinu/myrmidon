@@ -45,3 +45,11 @@ describe('text tokens keep WCAG AA contrast', async () => {
           expect(contrast(fg as string, bg as string)).toBeGreaterThanOrEqual(4.5)
         })
 })
+
+test('text on an agent colour takes whichever ink has more contrast', async () => {
+  const { inkOn } = await import('../src/client/ui/pixel.tsx')
+  // A mid blue: white reads at only 3.7:1 on it, near-black at 5.3:1.
+  expect(inkOn('#4d7cff')).toBe('var(--on-bright)')
+  expect(inkOn('#1d4ed8')).toBe('var(--on-deep)')
+  expect(inkOn('#ffb31a')).toBe('var(--on-bright)')
+})

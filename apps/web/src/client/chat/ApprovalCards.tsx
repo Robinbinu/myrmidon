@@ -186,7 +186,7 @@ function ReviewBody(props: {
                   onClick={() => setEditing(isEditing ? undefined : f.key)}
                   aria-pressed={isEditing}
                   aria-label={copy.approvals.review.editLabel(f.label)}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-fill hover:text-fg"
                 >
                   <PencilLine className="size-3.5" />
                   {isEditing ? copy.approvals.review.preview : copy.approvals.review.edit}
@@ -267,7 +267,7 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
     <div className="max-h-80 overflow-auto font-mono text-small leading-[1.55]">
       {rows.map((r) =>
         'fold' in r ? (
-          <div key={`f${r.i}`} className="bg-surface-2/60 px-3 py-0.5 text-footnote text-muted">
+          <div key={`f${r.i}`} className="bg-fill/60 px-3 py-0.5 text-footnote text-muted">
             {copy.approvals.review.moreLines(r.fold)}
           </div>
         ) : (
@@ -469,7 +469,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           type="button"
           onClick={() => setEditing(!editing)}
           aria-pressed={editing}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-fill hover:text-fg"
         >
           <PencilLine className="size-3.5" />
           {editing ? t.preview : t.edit}

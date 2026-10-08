@@ -1,6 +1,7 @@
 import { type Form, identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useState } from 'react'
+import { lookSpring } from '../ui-config.ts'
 import { type Mood, Snore, useAgentMood } from './pixel.tsx'
 
 /*
@@ -133,7 +134,7 @@ function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, nu
           rx="3.5"
           initial={false}
           animate={{ x: x - 3.5 + props.look[0], y: y - h / 2 + props.look[1], height: h }}
-          transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+          transition={lookSpring}
         />
       ))}
     </g>

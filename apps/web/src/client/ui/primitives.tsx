@@ -494,7 +494,7 @@ export function Banner(props: {
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-md bg-surface-2', className)} />
+  return <div className={cn('animate-pulse rounded-md bg-fill', className)} />
 }
 
 export function Empty(props: { icon?: ReactNode; title: string; children?: ReactNode }) {
