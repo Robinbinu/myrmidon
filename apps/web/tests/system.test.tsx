@@ -48,3 +48,24 @@ test('System shows that it is loading before the first answer, not an empty page
   expect(html).toContain('aria-busy="true"')
   expect(html).toContain(copy.system.loading)
 })
+
+test('a restart that turned the channel off but could not turn it back on says it is off', async () => {
+  const { restartChannel } = await import('../src/client/System.tsx')
+  const calls: boolean[] = []
+  const put = (fails: boolean[]) => async (enabled: boolean) => {
+    calls.push(enabled)
+    if (fails.shift()) throw new Error('the server said no')
+  }
+  expect(await restartChannel(put([false, false]))).toEqual({ outcome: 'restarted' })
+  // One failed attempt to switch back on is tried again.
+  calls.length = 0
+  expect(await restartChannel(put([false, true, false]))).toEqual({ outcome: 'restarted' })
+  expect(calls).toEqual([false, true, true])
+  // Turning it off failed: it is still on.
+  expect(await restartChannel(put([true]))).toMatchObject({ outcome: 'failed' })
+  // Off, and twice it would not come back on.
+  expect(await restartChannel(put([false, true, true]))).toMatchObject({
+    outcome: 'off',
+    error: new Error('the server said no'),
+  })
+})

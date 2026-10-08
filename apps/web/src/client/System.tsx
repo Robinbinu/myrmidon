@@ -201,6 +201,26 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
 
 type ChannelStatus = NonNullable<GatewayStatus['channels']>[number]
 
+/**
+ * Turns a channel off and on again. Switching back on is tried twice, so a passing hiccup does not leave it off;
+ * `off` says it went off and stayed that way, `failed` that it never went off.
+ */
+export async function restartChannel(
+  put: (enabled: boolean) => Promise<unknown>,
+): Promise<{ outcome: 'restarted' } | { outcome: 'failed' | 'off'; error: Error }> {
+  try {
+    await put(false)
+  } catch (err) {
+    return { outcome: 'failed', error: err as Error }
+  }
+  try {
+    await put(true).catch(() => put(true))
+    return { outcome: 'restarted' }
+  } catch (err) {
+    return { outcome: 'off', error: err as Error }
+  }
+}
+
 /** One channel's health in plain words, its own reason behind Show details, and Restart. */
 function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
   const t = copy.system
@@ -222,24 +242,25 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
   // The last error is often the one the status already gives.
   const lastError = state !== 'on' && c.health.lastError !== c.status.error ? c.health.lastError : undefined
   const details = [c.status.error, lastError && h.lastError(lastError)].filter(Boolean).join('\n')
-  const enable = () => send('PUT', `/api/channels/${c.id}`, { enabled: true })
+  const put = (enabled: boolean) => send('PUT', `/api/channels/${c.id}`, { enabled })
+  // Left off, the row loses its Restart button, so the toast carries the way back on.
+  const leftOff = (error: Error) =>
+    toast(t.leftOff(c.label, error.message), 'error', {
+      label: t.turnOn,
+      run: () =>
+        void put(true).then(() => {
+          toast(t.turnedOn(c.label), 'success')
+          props.onRestarted()
+        }, leftOff),
+    })
   const restart = async () => {
     setRestarting(true)
-    try {
-      await send('PUT', `/api/channels/${c.id}`, { enabled: false })
-      try {
-        await enable()
-      } catch {
-        // It is off now; one more try so a passing hiccup does not leave it that way.
-        await enable()
-      }
-      toast(t.restarted(c.label), 'success')
-    } catch (err) {
-      toast(t.restartFailed(c.label, (err as Error).message), 'error')
-    } finally {
-      setRestarting(false)
-      props.onRestarted()
-    }
+    const result = await restartChannel(put)
+    setRestarting(false)
+    props.onRestarted()
+    if (result.outcome === 'restarted') toast(t.restarted(c.label), 'success')
+    else if (result.outcome === 'failed') toast(t.restartFailed(c.label, result.error.message), 'error')
+    else leftOff(result.error)
   }
   return (
     <div className="flex items-start gap-3 px-4 py-3 text-[13px]">
