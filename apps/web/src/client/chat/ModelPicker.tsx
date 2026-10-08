@@ -143,15 +143,11 @@ export function ModelPicker(props: {
             ),
           )
         }}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         // The button reads as the model it shows, so what is seen is what is heard and what voice control matches;
         // which model it is (lead, reviewer, a helper) is its tooltip and description.
-        title={
-          variant === 'field'
-            ? undefined
-            : copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
-        }
+        title={variant === 'field' ? undefined : props.label}
         className={
           variant === 'chip'
             ? cn(

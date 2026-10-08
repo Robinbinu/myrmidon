@@ -289,7 +289,6 @@ export const copy = {
     windowGuess: (size: string) => `${size}, a guess: set the real size in Settings → Models`,
     windowTooSmall: (size: string) => `${size}: too small for agent work, fine for short chats`,
     buttonLabel: (label: string) => `${label} model`,
-    chipTitle: (label: string, model: string) => `${label}: ${model}`,
     choose: 'Choose a model',
     search: (count: number) => `Search ${count} models…`,
     searchLabel: (label: string) => `Search ${label} models`,

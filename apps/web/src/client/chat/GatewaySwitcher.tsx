@@ -77,7 +77,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={t.switcher}
+        // Named by the gateway it shows; what it does is its tooltip and description.
         title={t.switcher}
         onClick={() => setOpen(!open)}
         className={cn(
