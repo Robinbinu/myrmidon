@@ -57,11 +57,13 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### Voice in the app (`apps/web/src/client/voice`, Settings → Voice)
 
-- [ ] **Hanging up while connecting leaves the mic and socket live**.
-- [ ] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
+- [x] **Hanging up while connecting leaves the mic and socket live**.
+- [x] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
       "Crew"; members labelled "worker"; Call button 22px; menu without arrow keys; whole bar a live region.
-- [ ] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
+- [x] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
       unchecked; polls every 2 s; duplicated headings; raw engine errors; spoken messages look typed.
+      ("Via the call assistant" not shown yet: `start_task` sends no flag the client can read. The call bar hides while
+      Settings is open, so a live call keeps running out of sight; the shortcuts still work.)
 
 ### Trust, System page, gating
 
