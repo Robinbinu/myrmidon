@@ -87,6 +87,8 @@ const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 const CODE_LENGTH = 8
 export const PAIR_TTL_MS = 60 * 60_000
 const PAIR_EVERY_MS = 10 * 60_000
+/** Earlier versions of channels.json kept beside it: .bak, .bak.2, .bak.3. */
+const BACKUPS = 3
 /** Codes waiting at once per channel; more strangers are ignored until some expire. */
 const MAX_PENDING = 3
 
@@ -178,14 +180,19 @@ export class ChannelStore {
   }
 
   private _save(all: Record<string, unknown>) {
-    // The version before each save stays beside it, so a bad save or hand edit can be undone.
-    if (existsSync(this._file)) {
-      copyFileSync(this._file, `${this._file}.bak`)
-      chmodSync(`${this._file}.bak`, 0o600)
-    }
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 })
     chmodSync(tmp, 0o600)
+    // Read back before it replaces anything: a write cut short never becomes the file or pushes out a backup.
+    JSON.parse(readFileSync(tmp, 'utf8'))
+    // The versions before the last few saves stay beside it (newest in .bak), so one bad save, or a hand edit, can
+    // be undone even after the next save.
+    if (existsSync(this._file)) {
+      const backup = (n: number) => `${this._file}.bak${n > 1 ? `.${n}` : ''}`
+      for (let n = BACKUPS; n > 1; n--) if (existsSync(backup(n - 1))) renameSync(backup(n - 1), backup(n))
+      copyFileSync(this._file, backup(1))
+      chmodSync(backup(1), 0o600)
+    }
     renameSync(tmp, this._file)
   }
 

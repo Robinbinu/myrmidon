@@ -282,7 +282,7 @@ export const channelCopy = {
   failed: "I couldn't do that. The owner can see why in Myrmidon.",
   /** Why channels are off when their settings file is damaged; nothing is saved over it until it is repaired. */
   unreadable: (why: string) =>
-    `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak from the same folder.`,
+    `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak (or the older .bak.2 or .bak.3) from the same folder.`,
   notObject: 'it does not hold a list of channels',
   missing: (labels: string[]) => `Still needed: ${labels.join(', ')}`,
   /** What "Let in without a code" takes on each platform, shown as its placeholder and when an entry is wrong. */

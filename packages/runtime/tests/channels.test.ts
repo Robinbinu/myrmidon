@@ -307,9 +307,15 @@ test('approving takes the code the requester was sent: a request id alone, or an
 test('a damaged channels.json is refused loudly and never overwritten; each save keeps the version before it', async () => {
   const { hub, dir } = await setup()
   const file = join(dir, 'channels.json')
-  const saved = readFileSync(file, 'utf8')
-  await hub.configure('telegram', { mention: false })
-  expect(readFileSync(`${file}.bak`, 'utf8')).toBe(saved)
+  const versions = [readFileSync(file, 'utf8')]
+  for (const stream of ['partial', 'final', 'progress'] as const) {
+    await hub.configure('telegram', { stream })
+    versions.push(readFileSync(file, 'utf8'))
+  }
+  // The last three versions before the current one, newest first: a bad save does not take the good one with it.
+  expect(readFileSync(`${file}.bak`, 'utf8')).toBe(versions[2] ?? '')
+  expect(readFileSync(`${file}.bak.2`, 'utf8')).toBe(versions[1] ?? '')
+  expect(readFileSync(`${file}.bak.3`, 'utf8')).toBe(versions[0] ?? '')
   expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600)
 
   writeFileSync(file, '{"telegram": {"values": {"token": "tok"}, "peop')
