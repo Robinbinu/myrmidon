@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api, type ColonySummary } from './api.ts'
 import { copy } from './copy.ts'
 import { duration, knownCost, money } from './ui/hooks.ts'
-import { Badge, cn, IconButton, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, cn, IconButton, toneFor } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 
 /** Side-by-side run metrics for research comparisons; tick two runs to see what differs between them. */
@@ -242,9 +242,9 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
         </IconButton>
       </div>
       {a.task.trim() !== b.task.trim() && (
-        <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-callout text-warn-ink">
+        <Banner tone="warn" role="note">
           {copy.compare.differentTasks}
-        </p>
+        </Banner>
       )}
 
       <div className="overflow-x-auto">

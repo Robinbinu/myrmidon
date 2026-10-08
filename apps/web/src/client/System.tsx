@@ -14,7 +14,7 @@ import { copy } from './copy.ts'
 import { type GatewayStatus, useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ago, day, useCopy } from './ui/hooks.ts'
-import { Button, cn, Dot, Skeleton } from './ui/primitives.tsx'
+import { Banner, Button, Card, cn, Dot, Skeleton } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 
@@ -26,18 +26,6 @@ export function shortPath(path: string): string {
 /** Channels set up on this gateway, on or off. A status without `configured` already lists only those. */
 export function setUpChannels<T extends { enabled: boolean; configured?: boolean }>(channels: T[]): T[] {
   return channels.filter((c) => c.enabled || c.configured !== false)
-}
-
-function Section(props: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-line bg-surface">
-      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <h2 className="text-body font-semibold">{props.title}</h2>
-        {props.action}
-      </header>
-      <div className="divide-y divide-line">{props.children}</div>
-    </section>
-  )
 }
 
 const Line = (props: { children: ReactNode; className?: string }) => (
@@ -97,17 +85,17 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
         </div>
 
         {!!status?.problems.length && (
-          <div className="flex flex-col gap-1.5 rounded-lg bg-warn-soft px-4 py-3 text-body text-warn-ink">
+          <Banner tone="warn" className="flex flex-col gap-1.5">
             {status.problems.map((p) => (
               <div key={p.kind === 'channel' ? p.channel : p.kind}>
                 {p.kind === 'no-models' ? t.problems.noModels : t.problems.channel(p.label)}
               </div>
             ))}
-          </div>
+          </Banner>
         )}
 
         {status?.startedAt && (
-          <Section title={t.gateway}>
+          <Card title={t.gateway}>
             <Line>
               <span className="flex-1">{status.remote ? t.remote(status.publicUrl) : t.local}</span>
               {ping !== undefined && !offline && <span className="text-muted">{t.ping(ping)}</span>}
@@ -137,11 +125,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             <Line>
               <span className="flex-1">{t.sandbox(status.sandbox)}</span>
             </Line>
-          </Section>
+          </Card>
         )}
 
         {status?.running && (
-          <Section title={t.running}>
+          <Card title={t.running}>
             {status.running.length === 0 ? (
               <Line className="text-muted">{t.nothingRunning}</Line>
             ) : (
@@ -157,11 +145,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                 </button>
               ))
             )}
-          </Section>
+          </Card>
         )}
 
         {channels && (
-          <Section
+          <Card
             title={t.channels}
             action={
               <Button
@@ -179,11 +167,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             ) : (
               channels.map((c) => <ChannelRow key={c.id} channel={c} onRestarted={refresh} />)
             )}
-          </Section>
+          </Card>
         )}
 
         {status?.activity && (
-          <Section title={t.activity}>
+          <Card title={t.activity}>
             {status.activity.length === 0 ? (
               <Line className="text-muted">{t.noActivity}</Line>
             ) : (
@@ -202,7 +190,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                 </Line>
               ))
             )}
-          </Section>
+          </Card>
         )}
       </div>
     </div>

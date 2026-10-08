@@ -61,7 +61,7 @@ import {
 } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Badge, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
@@ -1087,11 +1087,7 @@ export function App() {
                 </span>
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
-              {isRunning(deleting.status) && (
-                <p className="rounded-lg bg-warn-soft px-3 py-2 text-body text-warn-ink">
-                  {copy.app.deleteChat.stillRunning}
-                </p>
-              )}
+              {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
               <div className="flex justify-end gap-2">
                 <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
                   {copy.app.deleteChat.cancel}

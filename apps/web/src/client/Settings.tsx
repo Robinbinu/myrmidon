@@ -82,7 +82,10 @@ import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Badge,
+  Banner,
   Button,
+  Card,
+  CardRow,
   CountBadge,
   cn,
   Dot,
@@ -90,6 +93,8 @@ import {
   Field,
   IconButton,
   Kbd,
+  PageHeader,
+  SectionHeader,
   Segmented,
   Select,
   Switch,
@@ -624,7 +629,9 @@ export function Settings(props: {
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
+            <Banner tone="bad" className="m-5">
+              {error}
+            </Banner>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -751,27 +758,6 @@ export function Settings(props: {
   )
 }
 
-function Heading(props: { title: string; children?: ReactNode }) {
-  return (
-    <div className="mb-6">
-      <h3 className="text-heading font-semibold tracking-tight">{props.title}</h3>
-      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
-    </div>
-  )
-}
-
-function Card(props: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn('divide-y divide-line rounded-2xl border border-line bg-surface', props.className)}>
-      {props.children}
-    </div>
-  )
-}
-
-function Row(props: { children: ReactNode }) {
-  return <div className="px-4 py-3.5">{props.children}</div>
-}
-
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
@@ -808,9 +794,9 @@ function General(props: {
 }) {
   return (
     <>
-      <Heading title={copy.settings.general.title}>{copy.settings.general.intro}</Heading>
+      <PageHeader title={copy.settings.general.title}>{copy.settings.general.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
             <Segmented
               id="theme"
@@ -844,8 +830,8 @@ function General(props: {
               ]}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field
             label={copy.settings.general.reduceMotion}
             hint={copy.settings.general.reduceMotionHint}
@@ -857,10 +843,10 @@ function General(props: {
               label={copy.settings.general.reduceMotion}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <NotifyToggle />
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -917,9 +903,9 @@ function ModelsSection(props: {
 
   return (
     <>
-      <Heading title={copy.settings.models.title}>
+      <PageHeader title={copy.settings.models.title}>
         {copy.settings.models.intro(props.models.length, shown)}
-      </Heading>
+      </PageHeader>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
@@ -1237,10 +1223,12 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
 
   return (
     <div className="mb-8">
-      <h4 className="mb-2 flex items-center gap-2 text-body font-semibold">
-        <LogIn className="size-4 text-muted" /> {copy.settings.signIns.title}
-        <span className="font-normal text-muted">{copy.settings.signIns.subtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2"
+        icon={<LogIn className="size-4 text-muted" />}
+        title={copy.settings.signIns.title}
+        note={copy.settings.signIns.subtitle}
+      />
       <Card>
         {shown.map((l) => {
           const active = session?.login === l.id && session.status === 'waiting' ? session : undefined
@@ -1386,7 +1374,7 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
+      <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
       {props.data.agentDir && (
         <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
           {copy.settings.providers.storedIn(props.data.agentDir)}
@@ -1442,12 +1430,11 @@ function Providers(props: {
       <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-body font-semibold">
-          <KeyRound className="size-4 text-muted" /> {copy.settings.providers.heading}
-          <span className="font-normal text-muted">
-            {copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
-          </span>
-        </h4>
+        <SectionHeader
+          icon={<KeyRound className="size-4 text-muted" />}
+          title={copy.settings.providers.heading}
+          note={copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
+        />
         {!adding && (
           <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
             {copy.settings.providers.customEndpoint}
@@ -1792,7 +1779,7 @@ function TeamSection(props: {
   const t = props.data.settings.team
   return (
     <>
-      <Heading title={copy.settings.team.title}>{copy.settings.team.intro}</Heading>
+      <PageHeader title={copy.settings.team.title}>{copy.settings.team.intro}</PageHeader>
       {props.config && (
         <Card className="mb-6">
           <div className="p-4">
@@ -1819,7 +1806,7 @@ function TeamSection(props: {
         </Card>
       )}
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
               label={copy.settings.team.timeLimit}
@@ -1830,8 +1817,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
               label={copy.settings.team.spendLimit}
@@ -1843,8 +1830,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
               label={copy.settings.team.tokenLimit}
@@ -1856,8 +1843,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
               label={copy.settings.team.turns}
@@ -1867,8 +1854,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, maxTurns: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
               label={copy.settings.team.observer}
@@ -1879,7 +1866,7 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -2009,22 +1996,24 @@ function ToolRules(props: {
     }, true)
   return (
     <>
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <ShieldCheck className="size-4 text-muted" /> {copy.settings.tools.rulesTitle}
-        <span className="font-normal text-muted">{copy.settings.tools.rulesSubtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<ShieldCheck className="size-4 text-muted" />}
+        title={copy.settings.tools.rulesTitle}
+        note={copy.settings.tools.rulesSubtitle}
+      />
       <Card>
-        <Row>
+        <CardRow>
           <TextInput
             aria-label={copy.settings.tools.findTool}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={copy.settings.tools.findToolPlaceholder}
           />
-        </Row>
+        </CardRow>
         <div className="max-h-80 overflow-y-auto">
           {tools.map((t) => (
-            <Row key={t.name}>
+            <CardRow key={t.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="font-mono text-callout font-medium">{t.name}</div>
@@ -2051,7 +2040,7 @@ function ToolRules(props: {
                   <option value="off">{copy.settings.shared.off}</option>
                 </Select>
               </div>
-            </Row>
+            </CardRow>
           ))}
         </div>
       </Card>
@@ -2066,7 +2055,7 @@ function ToolsSection(props: {
   const sandboxed = props.data.sandbox !== 'none'
   return (
     <>
-      <Heading title={copy.settings.tools.title}>{copy.settings.tools.intro}</Heading>
+      <PageHeader title={copy.settings.tools.title}>{copy.settings.tools.intro}</PageHeader>
       <div
         className={cn(
           'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-body',
@@ -2087,7 +2076,7 @@ function ToolsSection(props: {
       </div>
       <Card>
         {TOOL_INFO.map((t) => (
-          <Row key={t.key}>
+          <CardRow key={t.key}>
             <div className="flex items-center gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-fg-2">
                 <t.icon className="size-4" />
@@ -2102,21 +2091,25 @@ function ToolsSection(props: {
                 onChange={(v) => props.update((s) => ({ ...s, tools: { ...s.tools, [t.key]: v } }), true)}
               />
             </div>
-          </Row>
+          </CardRow>
         ))}
       </Card>
       <ToolRules data={props.data} update={props.update} />
       <McpServers />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <Wrench className="size-4 text-muted" /> {copy.settings.tools.libraryTitle}
-        <span className="font-normal text-muted">{copy.settings.tools.librarySubtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<Wrench className="size-4 text-muted" />}
+        title={copy.settings.tools.libraryTitle}
+        note={copy.settings.tools.librarySubtitle}
+      />
       <ToolLibraryList />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <Search className="size-4 text-muted" /> {copy.settings.tools.webSearch}
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<Search className="size-4 text-muted" />}
+        title={copy.settings.tools.webSearch}
+      />
       <Card>
-        <Row>
+        <CardRow>
           <Field
             label={copy.settings.tools.searchProvider}
             hint={copy.settings.tools.searchProviderHint}
@@ -2136,7 +2129,7 @@ function ToolsSection(props: {
               ))}
             </Select>
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -2214,10 +2207,11 @@ function McpServers() {
   return (
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-body font-semibold">
-          <Plug className="size-4 text-muted" /> {copy.settings.mcp.title}
-          <span className="font-normal text-muted">{copy.settings.mcp.subtitle}</span>
-        </h4>
+        <SectionHeader
+          icon={<Plug className="size-4 text-muted" />}
+          title={copy.settings.mcp.title}
+          note={copy.settings.mcp.subtitle}
+        />
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -2305,16 +2299,16 @@ function McpServers() {
       )}
       <Card>
         {servers === undefined ? (
-          <Row>
+          <CardRow>
             <span className="text-body text-muted">{copy.settings.shared.loading}</span>
-          </Row>
+          </CardRow>
         ) : servers.length === 0 ? (
-          <Row>
+          <CardRow>
             <span className="text-body text-muted">{copy.settings.mcp.empty}</span>
-          </Row>
+          </CardRow>
         ) : (
           servers.map((m) => (
-            <Row key={m.name}>
+            <CardRow key={m.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
@@ -2353,7 +2347,7 @@ function McpServers() {
                   }
                 />
               </div>
-            </Row>
+            </CardRow>
           ))
         )}
       </Card>
@@ -2407,7 +2401,7 @@ function DevicesSection() {
     )
   return (
     <>
-      <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
+      <PageHeader title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</PageHeader>
       {data?.remote === false ? (
         <div
           role="note"
@@ -2421,7 +2415,7 @@ function DevicesSection() {
         </div>
       ) : (
         <Card className="mb-6">
-          <Row>
+          <CardRow>
             <Field label={t.scope} hint={t.scopeHints[scope]} inline>
               <Segmented
                 id="pair-scope"
@@ -2436,8 +2430,8 @@ function DevicesSection() {
                 }}
               />
             </Field>
-          </Row>
-          <Row>
+          </CardRow>
+          <CardRow>
             {link ? (
               <div className="flex flex-col gap-2">
                 <p className="text-body text-fg-2">{t.link}</p>
@@ -2461,7 +2455,7 @@ function DevicesSection() {
                 {t.pair}
               </Button>
             )}
-          </Row>
+          </CardRow>
         </Card>
       )}
       {data && data.devices.length === 0 ? (
@@ -2594,15 +2588,15 @@ function ChannelsSection(props: { initial?: string | undefined }) {
   const shown = list?.find((c) => c.id === open)
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       {loadError && (
-        <div role="alert" className="mb-6 rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
+        <Banner tone="bad" role="alert" className="mb-6">
           {t.loadError(loadError)}
-        </div>
+        </Banner>
       )}
       {connected.length > 0 && (
         <section className="mb-8">
-          <h3 className="mb-2 text-body font-semibold">{t.yours}</h3>
+          <SectionHeader as="h3" className="mb-2" title={t.yours} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {connected.map((c) => (
               <button
@@ -2639,7 +2633,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
         <section>
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-body font-semibold">{t.add}</h3>
+              <SectionHeader as="h3" title={t.add} />
               <p className="text-small text-muted">{t.addHint}</p>
             </div>
             <div className="relative w-56">
@@ -2865,7 +2859,7 @@ function ChannelSheet(props: {
             {(c.fields.length > 0 || !c.enabled || c.configured) && (
               <Card>
                 {c.fields.map((f) => (
-                  <Row key={f.key}>
+                  <CardRow key={f.key}>
                     <Field
                       label={f.optional ? t.optional(f.label) : f.label}
                       hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
@@ -2885,10 +2879,10 @@ function ChannelSheet(props: {
                         className="font-mono"
                       />
                     </Field>
-                  </Row>
+                  </CardRow>
                 ))}
                 {c.fields.length > 0 ? (
-                  <Row>
+                  <CardRow>
                     <div className="flex flex-wrap items-center gap-3">
                       <Button
                         size="sm"
@@ -2911,18 +2905,18 @@ function ChannelSheet(props: {
                         {setupError}
                       </p>
                     )}
-                  </Row>
+                  </CardRow>
                 ) : (
                   !c.enabled && (
-                    <Row>
+                    <CardRow>
                       <Button size="sm" variant="primary" onClick={() => void configure({ enabled: true })}>
                         {t.turnOn}
                       </Button>
-                    </Row>
+                    </CardRow>
                   )
                 )}
                 {c.configured && (
-                  <Row>
+                  <CardRow>
                     <Field label={t.project} hint={t.projectHint} inline>
                       <Select
                         value={c.project ?? ''}
@@ -2937,7 +2931,7 @@ function ChannelSheet(props: {
                         ))}
                       </Select>
                     </Field>
-                  </Row>
+                  </CardRow>
                 )}
               </Card>
             )}
@@ -2967,10 +2961,8 @@ function ChannelSheet(props: {
         {tab === 'people' && (
           <div className="flex flex-col gap-4">
             {unconfirmed && (
-              <div className="flex flex-wrap items-center gap-3 rounded-lg bg-warn-soft px-4 py-3">
-                <p className="min-w-0 flex-1 text-callout text-warn-ink">
-                  {t.confirmOwner(unconfirmed.name)}
-                </p>
+              <Banner tone="warn" className="flex flex-wrap items-center gap-3">
+                <p className="min-w-0 flex-1">{t.confirmOwner(unconfirmed.name)}</p>
                 <Button
                   size="sm"
                   variant="primary"
@@ -2983,18 +2975,18 @@ function ChannelSheet(props: {
                 >
                   {t.confirmOwnerButton}
                 </Button>
-              </div>
+              </Banner>
             )}
             {c.pending.length > 0 && (
               <Card>
-                <Row>
+                <CardRow>
                   <div className="text-body font-semibold">{t.waiting}</div>
                   <div className="text-small text-muted">{t.waitingHint}</div>
-                </Row>
+                </CardRow>
                 {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
-                  <Row>
+                  <CardRow>
                     <p className="text-callout text-warn-ink">{t.ownerFirst}</p>
-                  </Row>
+                  </CardRow>
                 )}
                 {c.pending.map((p) => {
                   const asOwner = !hasOwner && p.kind === 'person'
@@ -3052,9 +3044,9 @@ function ChannelSheet(props: {
               </Card>
             )}
             <Card>
-              <Row>
+              <CardRow>
                 <div className="text-body font-semibold">{t.people}</div>
-              </Row>
+              </CardRow>
               {c.people.length === 0 && <div className="px-4 py-3 text-callout text-muted">{t.none}</div>}
               {c.people.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 px-4 py-3">
@@ -3086,9 +3078,9 @@ function ChannelSheet(props: {
                 </div>
               ))}
               {c.approvedGroups.length > 0 && (
-                <Row>
+                <CardRow>
                   <div className="text-body font-semibold">{t.groups}</div>
-                </Row>
+                </CardRow>
               )}
               {c.approvedGroups.map((g) => (
                 <div key={g.id} className="flex items-center gap-3 px-4 py-3">
@@ -3108,7 +3100,7 @@ function ChannelSheet(props: {
 
         {tab === 'rules' && (
           <Card>
-            <Row>
+            <CardRow>
               <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
                 <Select
                   value={c.dm}
@@ -3122,8 +3114,8 @@ function ChannelSheet(props: {
                   ))}
                 </Select>
               </Field>
-            </Row>
-            <Row>
+            </CardRow>
+            <CardRow>
               <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
                 <Select
                   value={c.groups}
@@ -3137,8 +3129,8 @@ function ChannelSheet(props: {
                   ))}
                 </Select>
               </Field>
-            </Row>
-            <Row>
+            </CardRow>
+            <CardRow>
               <Field label={t.mention} hint={t.mentionHint} inline>
                 <Switch
                   checked={c.mention}
@@ -3146,8 +3138,8 @@ function ChannelSheet(props: {
                   label={t.mention}
                 />
               </Field>
-            </Row>
-            <Row>
+            </CardRow>
+            <CardRow>
               <Field label={t.perPerson} hint={t.perPersonHint} inline>
                 <Switch
                   checked={c.perPerson}
@@ -3155,8 +3147,8 @@ function ChannelSheet(props: {
                   label={t.perPerson}
                 />
               </Field>
-            </Row>
-            <Row>
+            </CardRow>
+            <CardRow>
               <Field
                 label={t.allow}
                 hint={
@@ -3180,8 +3172,8 @@ function ChannelSheet(props: {
                   placeholder={c.allowExample ?? t.allowPlaceholder}
                 />
               </Field>
-            </Row>
-            <Row>
+            </CardRow>
+            <CardRow>
               <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
                 <Select
                   value={c.stream}
@@ -3195,7 +3187,7 @@ function ChannelSheet(props: {
                   ))}
                 </Select>
               </Field>
-            </Row>
+            </CardRow>
           </Card>
         )}
 
@@ -3208,14 +3200,12 @@ function ChannelSheet(props: {
               {c.health.owed > 0 && <span className="text-warn-ink">{h.owed(c.health.owed)}</span>}
             </div>
             {c.health.lastError && channelState(c) !== 'on' && (
-              <div className="rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
-                {h.lastError(c.health.lastError)}
-              </div>
+              <Banner tone="bad">{h.lastError(c.health.lastError)}</Banner>
             )}
             {eventsError && (
-              <div role="alert" className="rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
+              <Banner tone="bad" role="alert">
                 {eventsError}
-              </div>
+              </Banner>
             )}
             <Card>
               {events?.length === 0 && (
@@ -3383,7 +3373,7 @@ function VoiceSection(props: {
     const e = v[which]
     return (
       <>
-        <Row>
+        <CardRow>
           <Field
             label={t.baseUrl}
             hint={plainHttp(urls[which].trim()) ? t.hints.plainHttp : t.hints.endpoint}
@@ -3405,8 +3395,8 @@ function VoiceSection(props: {
               className="font-mono"
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.model}>
             <TextInput
               defaultValue={e.model ?? ''}
@@ -3419,9 +3409,9 @@ function VoiceSection(props: {
               className="font-mono"
             />
           </Field>
-        </Row>
+        </CardRow>
         {which === 'tts' && (
-          <Row>
+          <CardRow>
             <Field label={t.voice}>
               <TextInput
                 defaultValue={v.tts.endpointVoice ?? ''}
@@ -3433,9 +3423,9 @@ function VoiceSection(props: {
                 aria-label={t.voice}
               />
             </Field>
-          </Row>
+          </CardRow>
         )}
-        <Row>
+        <CardRow>
           <Field label={t.key} hint={status?.[which].keySet ? t.keySet : undefined}>
             <div className="flex gap-2">
               <TextInput
@@ -3451,13 +3441,13 @@ function VoiceSection(props: {
               </Button>
             </div>
           </Field>
-        </Row>
+        </CardRow>
       </>
     )
   }
   const onOff = (
     <Card className="mb-6">
-      <Row>
+      <CardRow>
         <Field
           label={t.enabled}
           hint={
@@ -3478,22 +3468,22 @@ function VoiceSection(props: {
             label={t.enabled}
           />
         </Field>
-      </Row>
+      </CardRow>
     </Card>
   )
   if (!v.enabled)
     return (
       <>
-        <Heading title={t.title}>{t.intro}</Heading>
+        <PageHeader title={t.title}>{t.intro}</PageHeader>
         {onOff}
       </>
     )
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       {onOff}
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={t.callModel} hint={t.callModelHint}>
             <div className="flex flex-wrap items-center gap-2">
               <Segmented
@@ -3530,8 +3520,8 @@ function VoiceSection(props: {
               )}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
             <Select
               value={v.sensitivity}
@@ -3545,12 +3535,12 @@ function VoiceSection(props: {
               ))}
             </Select>
           </Field>
-        </Row>
+        </CardRow>
       </Card>
 
-      <h3 className="mb-2 text-body font-semibold">{t.sttTitle}</h3>
+      <SectionHeader as="h3" className="mb-2" title={t.sttTitle} />
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field
             label={t.engineLabel}
             hint={
@@ -3573,9 +3563,9 @@ function VoiceSection(props: {
               <option value="endpoint">{t.providers.endpoint}</option>
             </Select>
           </Field>
-        </Row>
+        </CardRow>
         {v.stt.provider === 'phonon' && status && (
-          <Row>
+          <CardRow>
             <div className="flex items-center gap-3 text-body">
               {status.stt.phonon.state === 'error' ? (
                 <EngineTrouble engine="phonon" raw={status.stt.phonon.error ?? ''} />
@@ -3593,14 +3583,14 @@ function VoiceSection(props: {
                 {status.stt.phonon.state === 'missing' ? t.install : t.reinstall}
               </Button>
             </div>
-          </Row>
+          </CardRow>
         )}
         {v.stt.provider === 'endpoint' && endpointFields('stt')}
       </Card>
 
-      <h3 className="mb-2 text-body font-semibold">{t.ttsTitle}</h3>
+      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} />
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field
             label={t.engineLabel}
             hint={
@@ -3623,10 +3613,10 @@ function VoiceSection(props: {
               <option value="endpoint">{t.providers.endpoint}</option>
             </Select>
           </Field>
-        </Row>
+        </CardRow>
         {v.tts.provider === 'kitten' && (
           <>
-            <Row>
+            <CardRow>
               <Field label={t.kittenModel} inline>
                 <Select
                   value={v.tts.kittenModel}
@@ -3645,9 +3635,9 @@ function VoiceSection(props: {
                   ))}
                 </Select>
               </Field>
-            </Row>
+            </CardRow>
             {status && (
-              <Row>
+              <CardRow>
                 <div className="flex items-center gap-3 text-body">
                   {status.tts.kitten.state === 'error' ? (
                     <EngineTrouble engine="kitten" raw={status.tts.kitten.error ?? ''} />
@@ -3665,9 +3655,9 @@ function VoiceSection(props: {
                     </Button>
                   )}
                 </div>
-              </Row>
+              </CardRow>
             )}
-            <Row>
+            <CardRow>
               <Field label={t.voice} inline>
                 <Select
                   value={v.tts.voice}
@@ -3681,11 +3671,11 @@ function VoiceSection(props: {
                   ))}
                 </Select>
               </Field>
-            </Row>
+            </CardRow>
           </>
         )}
         {v.tts.provider === 'endpoint' && endpointFields('tts')}
-        <Row>
+        <CardRow>
           <Field label={t.speed} inline>
             <Select
               value={String(v.tts.speed)}
@@ -3699,12 +3689,12 @@ function VoiceSection(props: {
               ))}
             </Select>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Button size="sm" variant="primary" disabled={trying} onClick={() => void tryIt()}>
             {t.tryIt}
           </Button>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -3763,9 +3753,9 @@ function GatewaysSection() {
     )
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={t.link} hint={t.linkHint}>
             <TextInput
               value={link}
@@ -3775,8 +3765,8 @@ function GatewaysSection() {
               className="font-mono"
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.name} hint={t.nameHint}>
             <TextInput
               value={name}
@@ -3785,8 +3775,8 @@ function GatewaysSection() {
               aria-label={t.name}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Button
             size="sm"
             variant="primary"
@@ -3797,7 +3787,7 @@ function GatewaysSection() {
           >
             {busy ? t.adding : t.add}
           </Button>
-        </Row>
+        </CardRow>
       </Card>
       {list && list.length === 0 ? (
         <Empty icon={<ServerCog className="size-5" />} title={t.empty} />
@@ -3845,7 +3835,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
     ref ? (props.models.find((m) => m.ref === ref)?.name ?? ref) : t.teamModel
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <div className="mb-4 flex justify-end">
         <Button
           size="sm"
@@ -3978,9 +3968,9 @@ function MascotSection(props: {
     props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
             <TextInput
               value={profile.name ?? ''}
@@ -3996,8 +3986,8 @@ function MascotSection(props: {
               className="w-48"
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
             <Segmented
               id="greeting"
@@ -4011,8 +4001,8 @@ function MascotSection(props: {
               }
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
             <Segmented
               id="titles"
@@ -4026,15 +4016,15 @@ function MascotSection(props: {
               }
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
       <Card>
-        <Row>
+        <CardRow>
           <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
             <MiniMascot look={look} cell={9} />
           </figure>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.eyes}>
             <div className="flex flex-wrap gap-3">
               {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
@@ -4049,8 +4039,8 @@ function MascotSection(props: {
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.look}>
             <div className="flex flex-wrap gap-4">
               {(['neutral', 'flower', 'bow'] as const).map((l) => (
@@ -4062,8 +4052,8 @@ function MascotSection(props: {
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.color}>
             <div className="flex flex-wrap gap-3">
               {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
@@ -4080,8 +4070,8 @@ function MascotSection(props: {
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.screen} inline>
             <Segmented
               id="mascot-screen"
@@ -4093,7 +4083,7 @@ function MascotSection(props: {
               onChange={(screen) => set({ screen })}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -4107,9 +4097,9 @@ function VerificationSection(props: {
   const off = v.reviewer === 'off'
   return (
     <>
-      <Heading title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</Heading>
+      <PageHeader title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.reviewer.when} hint={REVIEWER_HINT[v.reviewer]} inline>
             <Segmented
               id="reviewer"
@@ -4124,8 +4114,8 @@ function VerificationSection(props: {
               }
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.reviewer.threshold} hint={copy.settings.reviewer.thresholdHint} inline>
             <div className="flex items-center gap-3">
               <input
@@ -4149,8 +4139,8 @@ function VerificationSection(props: {
               </span>
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.reviewer.rubric} hint={copy.settings.reviewer.rubricHint}>
             <TextArea
               value={v.rubric ?? ''}
@@ -4162,7 +4152,7 @@ function VerificationSection(props: {
               disabled={off}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -4175,9 +4165,9 @@ function InstructionsSection(props: {
   const i = props.settings.instructions
   return (
     <>
-      <Heading title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</Heading>
+      <PageHeader title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.instructions.lead} hint={copy.settings.instructions.leadHint}>
             <TextArea
               value={i.lead ?? ''}
@@ -4188,8 +4178,8 @@ function InstructionsSection(props: {
               rows={5}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.instructions.workers} hint={copy.settings.instructions.workersHint}>
             <TextArea
               value={i.worker ?? ''}
@@ -4200,7 +4190,7 @@ function InstructionsSection(props: {
               rows={5}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -4281,9 +4271,9 @@ function SchedulesSection() {
   const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
-      <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
+      <PageHeader title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={copy.settings.schedules.request}>
             <TextArea
               rows={2}
@@ -4376,7 +4366,7 @@ function SchedulesSection() {
               {badCron}
             </p>
           )}
-        </Row>
+        </CardRow>
       </Card>
       {!list ? (
         <div className="flex items-center gap-2 text-body text-muted">
@@ -4389,7 +4379,7 @@ function SchedulesSection() {
       ) : (
         <Card>
           {list.map((s) => (
-            <Row key={s.id}>
+            <CardRow key={s.id}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
@@ -4443,7 +4433,7 @@ function SchedulesSection() {
                   onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
         </Card>
       )}
@@ -4533,7 +4523,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
   }
   return (
     <>
-      <Heading title={copy.settings.hooks.title}>
+      <PageHeader title={copy.settings.hooks.title}>
         {copy.settings.hooks.introBeforeFsEdit}
         <code className="font-mono text-callout">fs_edit</code>
         {copy.settings.hooks.introBeforeShell}
@@ -4543,7 +4533,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
         {copy.settings.hooks.introBeforeBash}
         <code className="font-mono text-callout">Bash</code>
         {copy.settings.hooks.introAfterBash}
-      </Heading>
+      </PageHeader>
       <div
         role="note"
         className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-body"
@@ -4561,13 +4551,13 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
       ) : (
         <Card>
           {rows.length === 0 && (
-            <Row>
+            <CardRow>
               <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
-            </Row>
+            </CardRow>
           )}
           {rows.map((r, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place by position
-            <Row key={i}>
+            <CardRow key={i}>
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Select
@@ -4618,9 +4608,9 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
                   className="font-mono"
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
-          <Row>
+          <CardRow>
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
@@ -4641,7 +4631,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
                 {copy.settings.shared.save}
               </Button>
             </div>
-          </Row>
+          </CardRow>
         </Card>
       )}
     </>
@@ -4771,7 +4761,7 @@ function PluginsSection() {
     ].filter(Boolean)
   return (
     <>
-      <Heading title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</Heading>
+      <PageHeader title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</PageHeader>
       <form
         className="mb-4 flex gap-2"
         onSubmit={(e) => {
@@ -4808,7 +4798,7 @@ function PluginsSection() {
         <>
           <Card>
             {data.plugins.map((p) => (
-              <Row key={p.name}>
+              <CardRow key={p.name}>
                 <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -4905,7 +4895,7 @@ function PluginsSection() {
                     />
                   </div>
                 </div>
-              </Row>
+              </CardRow>
             ))}
           </Card>
           <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
@@ -4971,7 +4961,7 @@ function SkillsSection() {
   }, [])
   return (
     <>
-      <Heading title={copy.settings.skills.title}>
+      <PageHeader title={copy.settings.skills.title}>
         {copy.settings.skills.introBeforeDir}
         <code className="font-mono text-callout">{data?.dir ?? 'skills/'}</code>
         {copy.settings.skills.introBeforeUserDir}
@@ -4981,12 +4971,10 @@ function SkillsSection() {
         {copy.settings.skills.introAfterProjectDir}
         {data?.retire &&
           ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
-      </Heading>
+      </PageHeader>
       {proposed.length > 0 && (
         <div className="mb-6 flex flex-col gap-3">
-          <h4 className="text-body font-semibold text-fg-2">
-            {copy.settings.skills.proposed(proposed.length)}
-          </h4>
+          <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
           <AnimatePresence initial={false}>
             {proposed.map((p) => (
               <SkillProposalCard key={p.id} proposal={p} onDecided={() => void load()} />
@@ -5005,7 +4993,7 @@ function SkillsSection() {
       ) : (
         <Card>
           {data.skills.map((s) => (
-            <Row key={s.name}>
+            <CardRow key={s.name}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -5058,19 +5046,17 @@ function SkillsSection() {
                   }
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
         </Card>
       )}
       {!!data?.archived.length && (
         <div className="mt-8">
-          <h4 className="text-body font-semibold text-fg-2">
-            {copy.settings.skills.archivedTitle(data.archived.length)}
-          </h4>
+          <SectionHeader title={copy.settings.skills.archivedTitle(data.archived.length)} />
           <p className="mb-3 text-footnote text-muted">{copy.settings.skills.archivedHint}</p>
           <Card>
             {data.archived.map((a) => (
-              <Row key={a.name}>
+              <CardRow key={a.name}>
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="font-mono text-reading font-medium text-fg-2">{a.name}</div>
@@ -5092,7 +5078,7 @@ function SkillsSection() {
                     {copy.settings.skills.restore}
                   </Button>
                 </div>
-              </Row>
+              </CardRow>
             ))}
           </Card>
         </div>
@@ -5146,9 +5132,9 @@ function MemorySection() {
   )
   return (
     <>
-      <Heading title={copy.settings.memory.title}>{copy.settings.memory.intro}</Heading>
+      <PageHeader title={copy.settings.memory.title}>{copy.settings.memory.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
             <TextArea
               value={draft.text}
@@ -5197,7 +5183,7 @@ function MemorySection() {
               {copy.settings.memory.rememberButton}
             </Button>
           </div>
-        </Row>
+        </CardRow>
       </Card>
       {!memories ? (
         <div className="flex items-center gap-2 text-body text-muted">
@@ -5215,7 +5201,7 @@ function MemorySection() {
               {memories
                 .filter((m) => (m.project ?? '') === g)
                 .map((m) => (
-                  <Row key={m.id}>
+                  <CardRow key={m.id}>
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">
                         {editing?.id === m.id ? (
@@ -5327,7 +5313,7 @@ function MemorySection() {
                         )}
                       </div>
                     </div>
-                  </Row>
+                  </CardRow>
                 ))}
             </Card>
           </section>
@@ -5353,7 +5339,7 @@ const SHORTCUTS: [string, string[]][] = [
 function Shortcuts() {
   return (
     <>
-      <Heading title={copy.settings.shortcuts.title} />
+      <PageHeader title={copy.settings.shortcuts.title} />
       <Card>
         {SHORTCUTS.map(([label, keys]) => (
           <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
@@ -5373,14 +5359,14 @@ function Shortcuts() {
 function About({ data }: { data?: SettingsResponse }) {
   return (
     <>
-      <Heading title={copy.settings.about.title}>{copy.settings.about.intro}</Heading>
+      <PageHeader title={copy.settings.about.title}>{copy.settings.about.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.about.dataDirectory} inline>
             <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field
             label={copy.settings.about.providersReady}
             hint={copy.settings.about.providersReadyHint}
@@ -5390,15 +5376,15 @@ function About({ data }: { data?: SettingsResponse }) {
               {data ? data.providers.filter((p) => p.ready).length : '…'}
             </span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.about.sandbox} inline>
             <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
-        </Row>
+        </CardRow>
       </Card>
       <div className="mt-4 flex items-center gap-2 text-small text-muted">
         <Bot className="size-3.5" /> {copy.settings.about.builtOn}

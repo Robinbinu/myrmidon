@@ -38,7 +38,7 @@ import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
-import { Badge, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
 import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
@@ -282,7 +282,9 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 
   if (colony.error)
     return (
-      <div className="m-4 rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
+      <Banner tone="bad" className="m-4">
+        {colony.error}
+      </Banner>
     )
 
   return (

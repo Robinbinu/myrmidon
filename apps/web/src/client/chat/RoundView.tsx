@@ -49,7 +49,7 @@ import {
   type Mood,
   PixelFace,
 } from '../ui/pixel.tsx'
-import { Badge, Button, cn, Dot, IconButton, Skeleton } from '../ui/primitives.tsx'
+import { Badge, Banner, Button, cn, Dot, IconButton, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -184,8 +184,7 @@ export function RoundView(props: {
   const [file, setFile] = useState<string>()
   const [inspect, setInspect] = useState<string>()
 
-  if (colony.error)
-    return <div className="rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
+  if (colony.error) return <Banner tone="bad">{colony.error}</Banner>
   if (events.length === 0) {
     return (
       <section className="flex flex-col gap-3" aria-busy="true">

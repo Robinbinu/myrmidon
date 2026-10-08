@@ -1,7 +1,16 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MenuItem } from '../src/client/ui/Popover.tsx'
-import { Button, CountBadge, Dot, IconButton, Tabs, tabPanel } from '../src/client/ui/primitives.tsx'
+import {
+  Banner,
+  Button,
+  Card,
+  CountBadge,
+  Dot,
+  IconButton,
+  Tabs,
+  tabPanel,
+} from '../src/client/ui/primitives.tsx'
 
 test('a loading button waits: it is busy, cannot be pressed again, and shows a spinner instead of its icon', () => {
   const html = renderToStaticMarkup(
@@ -46,7 +55,7 @@ test('tabs are one Tab stop, and each names the panel it shows', () => {
   const html = renderToStaticMarkup(
     <Tabs
       id="t"
-      value="b"
+      value={'b' as 'a' | 'b'}
       onChange={() => {}}
       tabs={[
         { value: 'a', label: 'A' },
@@ -68,4 +77,19 @@ test('menu items are reached by arrow keys; a chosen radio item is the one Tab s
   expect(chosen).toContain('role="menuitemradio"')
   expect(chosen).toContain('aria-checked="true"')
   expect(chosen).toContain('tabindex="0"')
+})
+
+test('a card with a title is a section named by its heading; a banner speaks only when asked', () => {
+  const card = renderToStaticMarkup(<Card title="Gateway">row</Card>)
+  expect(card).toStartWith('<section')
+  expect(card).toContain('<h2')
+  expect(renderToStaticMarkup(<Card>row</Card>)).toStartWith('<div')
+  expect(renderToStaticMarkup(<Banner tone="bad">x</Banner>)).not.toContain('role=')
+  expect(
+    renderToStaticMarkup(
+      <Banner tone="bad" role="alert">
+        x
+      </Banner>,
+    ),
+  ).toContain('role="alert"')
 })

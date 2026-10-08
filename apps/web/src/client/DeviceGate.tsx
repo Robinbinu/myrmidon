@@ -13,7 +13,7 @@ import {
 import { copy } from './copy.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, Field, TextInput } from './ui/primitives.tsx'
+import { Banner, Button, Field, TextInput } from './ui/primitives.tsx'
 import { SIGNED_OUT_RECHECK_MS } from './ui-config.ts'
 
 /** A name the person will recognise in Settings → Devices: what this is and which browser. */
@@ -140,9 +140,7 @@ function GatewayGate(props: { children: ReactNode }) {
         </div>
         {gateway !== 'checking' && (
           <>
-            <p className="rounded-xl bg-bad-soft px-3 py-2 text-callout text-bad-ink">
-              {gateway.health.error ?? t.unreachable}
-            </p>
+            <Banner tone="bad">{gateway.health.error ?? t.unreachable}</Banner>
             <div className="flex gap-2">
               <Button
                 variant="primary"
@@ -236,7 +234,7 @@ function PairScreen(props: { onPaired(): void }) {
             aria-label={t.name}
           />
         </Field>
-        {error && <p className="rounded-xl bg-bad-soft px-3 py-2 text-callout text-bad-ink">{error}</p>}
+        {error && <Banner tone="bad">{error}</Banner>}
         <Button
           type="submit"
           variant="primary"

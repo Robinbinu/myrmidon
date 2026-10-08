@@ -33,7 +33,7 @@ import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { Popover } from '../ui/Popover.tsx'
-import { cn, Segmented } from '../ui/primitives.tsx'
+import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
@@ -508,7 +508,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
             >
               <div className="mb-3 flex items-baseline justify-between px-1">
-                <h3 className="text-body font-semibold">{copy.composer.teamHeading}</h3>
+                <SectionHeader as="h3" title={copy.composer.teamHeading} />
                 <span className="text-footnote text-muted">{copy.composer.teamApplies}</span>
               </div>
               <PickerHost.Provider value={teamPanel}>

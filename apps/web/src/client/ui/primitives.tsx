@@ -417,6 +417,82 @@ export function tabPanel(id: string, value: string) {
   return { role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': tabId(id, value) } as const
 }
 
+/** A page's title and what the page is for, at the top of a Settings section. */
+export function PageHeader(props: { title: string; children?: ReactNode }) {
+  return (
+    <div className="mb-6">
+      <h3 className="text-heading font-semibold tracking-tight">{props.title}</h3>
+      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
+    </div>
+  )
+}
+
+/** The heading over one part of a page: an optional icon, its name, and a quieter note after it. */
+export function SectionHeader(props: {
+  as?: 'h2' | 'h3' | 'h4'
+  icon?: ReactNode
+  title: ReactNode
+  note?: ReactNode
+  className?: string
+}) {
+  const Heading = props.as ?? 'h4'
+  return (
+    <Heading className={cn('flex items-center gap-2 text-body font-semibold', props.className)}>
+      {props.icon}
+      {props.title}
+      {props.note && <span className="font-normal text-muted">{props.note}</span>}
+    </Heading>
+  )
+}
+
+/**
+ * Rows on a rounded panel, separated by hairlines. With a `title` the panel is a section with that heading (and an
+ * `action` beside it) across its top.
+ */
+export function Card(props: { children: ReactNode; className?: string; title?: string; action?: ReactNode }) {
+  const panel = 'rounded-2xl border border-line bg-surface'
+  if (props.title === undefined)
+    return <div className={cn('divide-y divide-line', panel, props.className)}>{props.children}</div>
+  return (
+    <section className={cn(panel, props.className)}>
+      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
+        <SectionHeader as="h2" title={props.title} />
+        {props.action}
+      </header>
+      <div className="divide-y divide-line">{props.children}</div>
+    </section>
+  )
+}
+
+/** One row of a Card. */
+export function CardRow(props: { children: ReactNode }) {
+  return <div className="px-4 py-3.5">{props.children}</div>
+}
+
+const BANNER: Record<'bad' | 'warn' | 'ok' | 'info', string> = {
+  bad: 'bg-bad-soft text-bad-ink',
+  warn: 'bg-warn-soft text-warn-ink',
+  ok: 'bg-ok-soft text-ok-ink',
+  info: 'bg-fill text-fg-2',
+}
+
+/** A notice in the flow of a page: something failed, needs a look, or worked. An `alert` is read out when it appears. */
+export function Banner(props: {
+  tone: keyof typeof BANNER
+  role?: 'alert' | 'status' | 'note'
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={props.role}
+      className={cn('rounded-lg px-4 py-3 text-callout', BANNER[props.tone], props.className)}
+    >
+      {props.children}
+    </div>
+  )
+}
+
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-md bg-surface-2', className)} />
 }

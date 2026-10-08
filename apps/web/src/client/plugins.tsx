@@ -14,6 +14,7 @@ import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import {
   Badge,
+  Banner,
   Button,
   cn,
   Empty,
@@ -140,13 +141,7 @@ class SlotBoundary extends Component<{ plugin: string; children: ReactNode }, { 
   }
   override render() {
     if (this.state.error)
-      return (
-        <div
-          className={cn('rounded-xl border border-bad/25 bg-bad-soft px-3 py-2 text-callout text-bad-ink')}
-        >
-          {copy.pluginSlot.failed(this.props.plugin, this.state.error)}
-        </div>
-      )
+      return <Banner tone="bad">{copy.pluginSlot.failed(this.props.plugin, this.state.error)}</Banner>
     return this.props.children
   }
 }
