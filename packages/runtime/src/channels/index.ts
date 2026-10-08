@@ -3,10 +3,13 @@ import { prompts } from '../prompts.ts'
 import { channelCopy } from './copy.ts'
 import { DiscordAdapter } from './discord.ts'
 import { EmailAdapter } from './email.ts'
+import { GoogleChatAdapter } from './googlechat.ts'
 import type { ChannelHub, ChannelKind } from './hub.ts'
 import { IMessageAdapter } from './imessage.ts'
+import { LineAdapter } from './line.ts'
 import { MatrixAdapter } from './matrix.ts'
 import { MattermostAdapter } from './mattermost.ts'
+import { TeamsAdapter } from './msteams.ts'
 import { NextcloudTalkAdapter } from './nextcloud-talk.ts'
 import { NTFY_SERVER, NtfyAdapter } from './ntfy.ts'
 import { SignalAdapter } from './signal.ts'
@@ -23,10 +26,14 @@ import { WhatsAppCloudAdapter } from './whatsapp-cloud.ts'
 export * from './discord.ts'
 export * from './email.ts'
 export * from './format.ts'
+export * from './googlechat.ts'
 export * from './hub.ts'
 export * from './imessage.ts'
+export * from './jwt.ts'
+export * from './line.ts'
 export * from './matrix.ts'
 export * from './mattermost.ts'
+export * from './msteams.ts'
 export * from './nextcloud-talk.ts'
 export * from './ntfy.ts'
 export * from './signal.ts'
@@ -326,6 +333,51 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
       { key: 'name', label: 'Name', optional: true, placeholder: 'Home Assistant' },
     ],
     make: (values) => new WebhookAdapter(values.secret ?? '', values.callback ?? '', values.name),
+  },
+  msteams: {
+    label: 'Microsoft Teams',
+    setup: channelCopy.setup.msteams,
+    fields: [
+      { key: 'appId', label: 'App ID', placeholder: '00000000-0000-0000-0000-000000000000' },
+      { key: 'password', label: 'Client secret', secret: true },
+      {
+        key: 'tenant',
+        label: 'Tenant ID',
+        optional: true,
+        hint: channelCopy.hints.msteamsTenant,
+      },
+    ],
+    make: (values) => new TeamsAdapter(values.appId ?? '', values.password ?? '', values.tenant ?? ''),
+  },
+  googlechat: {
+    label: 'Google Chat',
+    setup: channelCopy.setup.googlechat,
+    fields: [
+      {
+        key: 'serviceAccount',
+        label: 'Service account key',
+        secret: true,
+        placeholder: '{"type": "service_account", …}',
+        hint: channelCopy.hints.googlechatKey,
+      },
+      {
+        key: 'audience',
+        label: 'Project number',
+        optional: true,
+        placeholder: '123456789012',
+        hint: channelCopy.hints.googlechatAudience,
+      },
+    ],
+    make: (values) => new GoogleChatAdapter(values.serviceAccount ?? '', values.audience ?? ''),
+  },
+  line: {
+    label: 'LINE',
+    setup: channelCopy.setup.line,
+    fields: [
+      { key: 'token', label: 'Channel access token', secret: true },
+      { key: 'secret', label: 'Channel secret', secret: true },
+    ],
+    make: (values) => new LineAdapter(values.token ?? '', values.secret ?? ''),
   },
 }
 

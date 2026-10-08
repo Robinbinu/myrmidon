@@ -33,6 +33,11 @@ export const channelCopy = {
     tlon: 'Paste your ship’s URL and its access code (in Landscape: System Preferences → Access Key, or +code in the dojo). DM the ship from another one: it replies with a code to approve here. In groups, mention the ship (or its nickname).',
     webhook:
       'For scripts, home automation and anything that can send HTTP. Needs this gateway to have a public HTTPS address: POST JSON to <public-url>/hooks/channels/webhook signed with the shared secret (see docs/channels.md); replies are POSTed to the callback URL, signed the same way.',
+    msteams:
+      "Create an Azure Bot (portal.azure.com), set its messaging endpoint to this gateway's /hooks/channels/msteams address, turn on its Microsoft Teams channel, and paste its app ID and a client secret. Then install the bot in Teams and message it: it replies with a code to approve here. Needs a public HTTPS address (myrmidon serve --public-url).",
+    googlechat:
+      "In Google Cloud, make a service account and a JSON key, enable the Google Chat API and configure the app with this gateway's /hooks/channels/googlechat address as its HTTP endpoint. Paste the key and the project number. Then message the app: it replies with a code to approve here. Needs a public HTTPS address (myrmidon serve --public-url).",
+    line: 'In the LINE Developers console, make a Messaging API channel, issue a channel access token, and paste it with the channel secret; Myrmidon sets the webhook address itself (turn on Use webhook). Then add the bot as a friend and message it: it replies with a code to approve here. Needs a public HTTPS address (myrmidon serve --public-url).',
   },
   /** Settings the WhatsApp Cloud API needs. */
   fields: {
@@ -256,4 +261,13 @@ export const channelCopy = {
   /** A platform that pushes messages to this gateway cannot run without a public address. */
   needsPublicUrl: (label: string) =>
     `${label} sends messages to this gateway, so it needs a public HTTPS address: start it with --public-url (see remote.md)`,
+  /** Hints under some platforms' settings. */
+  hints: {
+    msteamsTenant:
+      'Only for a single-tenant app: its directory (tenant) ID. Leave empty for a multi-tenant one.',
+    googlechatKey:
+      "The service account's JSON key, pasted whole, or the path to the .json file on the gateway.",
+    googlechatAudience:
+      "Your Google Cloud project number, when the app's Authentication Audience is Project Number. Leave empty when it is the HTTP endpoint URL.",
+  },
 }
