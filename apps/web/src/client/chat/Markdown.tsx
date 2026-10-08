@@ -23,15 +23,16 @@ function inline(text: string): ReactNode[] {
         </code>,
       )
     } else if (token.startsWith('**'))
+      // Emphasis carries its own markup (`**`calc.py`**`); its inside is strictly shorter, so this ends.
       out.push(
         <strong key={at} className="font-semibold text-fg">
-          {token.slice(2, -2)}
+          {inline(token.slice(2, -2))}
         </strong>,
       )
     else if (token.startsWith('*') || token.startsWith('_'))
       out.push(
         <em key={at} className="italic">
-          {token.slice(1, -1)}
+          {inline(token.slice(1, -1))}
         </em>,
       )
     else if (token.startsWith('[') && !/\]\(https?:\/\//.test(token))
@@ -168,8 +169,10 @@ export function Markdown({ text }: { text: string }) {
     const heading = /^(#{1,4})\s+(.*)$/.exec(line)
     if (heading) {
       const level = heading[1]?.length ?? 1
+      // A reply sits under the page's own headings, so its `#` starts at h3.
+      const Heading = level === 1 ? 'h3' : level === 2 ? 'h4' : 'h5'
       blocks.push(
-        <p
+        <Heading
           key={key++}
           className={
             level === 1
@@ -180,7 +183,7 @@ export function Markdown({ text }: { text: string }) {
           }
         >
           {inline(heading[2] ?? '')}
-        </p>,
+        </Heading>,
       )
       i++
       continue
