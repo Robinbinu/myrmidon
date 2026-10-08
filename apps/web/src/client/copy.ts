@@ -78,8 +78,13 @@ export const copy = {
           : status === 413
             ? 'That is too large to send.'
             : status >= 500
-              ? 'Something went wrong on the server. Try again in a moment.'
-              : `That didn't work (error ${status}).`,
+              ? copy.api.serverProblem
+              : "That didn't work. Try again; if it keeps failing, reload the page.",
+    serverProblem: 'Myrmidon hit a problem. Try again; if it repeats, restart it from System.',
+    badRequest: "Myrmidon couldn't read that request. Reload and try again.",
+    chatGone: 'That chat no longer exists.',
+    /** `feature` is the server's own lower-case name for it: skills, memory, MCP, the tool library. */
+    noChats: (feature: string) => `This Myrmidon was started without chats, so ${feature} can't be used.`,
   },
 
   /** Pairing a device with a remote gateway. */
