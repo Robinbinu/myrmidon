@@ -2,6 +2,7 @@ import { beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { copy } from '../src/client/copy.ts'
 import { CallBar, callee, speaker } from '../src/client/voice/CallBar.tsx'
+import { engineTrouble } from '../src/client/voice/engine-trouble.ts'
 
 // call-client.ts reaches the API module, which reads the page's address and storage when it loads.
 const g = globalThis as Record<string, unknown>
@@ -178,4 +179,13 @@ test('speakers and callees read as names', () => {
   expect(speaker('lead')).toBe(copy.call.speaker.lead)
   expect(speaker('ana')).toBe('ana')
   expect(callee('assistant')).toBe(copy.call.assistantName)
+})
+
+test('an engine’s raw error becomes a plain cause and fix', () => {
+  const t = copy.settings.voice.trouble
+  expect(
+    engineTrouble('phonon', 'uv is not installed: get it from https://docs.astral.sh/uv/ and try again'),
+  ).toBe(t.noUv)
+  expect(engineTrouble('phonon', 'error: Failed to download mlx==0.29')).toBe(t.phonon)
+  expect(engineTrouble('kitten', 'downloading voices.npz failed (502)')).toBe(t.kitten)
 })

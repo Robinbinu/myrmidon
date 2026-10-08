@@ -1927,29 +1927,41 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a round in the chat, then tells you when it is done. Speech can stay on this machine, or use a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a run in the chat, then tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
       enabled: 'Voice calls',
       enabledHint:
-        'Off by default. Turning them on downloads the speech engines you choose that are not here yet (the speech detector is 1.3 MB) and keeps them ready, so a call answers at once.',
+        'Off by default. Turning them on downloads, once, what is not here yet: the speech detector (1.3 MB), the turn model (8.7 MB), and the engines below that run on this Mac (sizes beside each). Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.',
       callModel: 'Call model',
       callModelHint: 'A fast model reads best on a call; it only talks and hands work on.',
       sameAsLead: 'Same as the lead',
+      ownModel: 'Its own model',
+      leadModel: (model: string) => `Uses ${model}.`,
       sttTitle: 'Speech to text',
       ttsTitle: 'Text to speech',
+      engineLabel: 'Engine',
       providers: {
-        phonon: 'Phonon-2 (on this Mac)',
+        phonon: 'Phonon-2 (on this Mac, 164 MB)',
         omp: 'Cloud (your signed-in providers)',
         endpoint: 'OpenAI-compatible endpoint',
         kitten: 'Kitten TTS (on this Mac)',
       },
       hints: {
-        phonon: 'Fermion Research’s 164 MB English model, run locally; nothing you say leaves this machine.',
+        phonon:
+          'Fermion Research’s English model (164 MB, plus a Python runtime installed with uv). Your voice is transcribed on this Mac; the text goes to your call model like any message.',
         ompStt: (models: string) =>
-          models ? `Uses ${models}.` : 'Needs an OpenAI or Groq key in Settings → Models.',
+          models
+            ? `Uses ${models}: your audio is sent to that provider to be transcribed.`
+            : 'Needs an OpenAI or Groq key in Settings → Models; your audio would be sent to that provider.',
         ompTts: (models: string) =>
-          models ? `Uses ${models}.` : 'Needs an OpenAI or xAI key in Settings → Models.',
+          models
+            ? `Uses ${models}: what the call says is sent to that provider to be spoken.`
+            : 'Needs an OpenAI or xAI key in Settings → Models; what the call says would be sent to that provider.',
         endpoint: 'Any service with the OpenAI audio API: Groq, OpenAI, a local whisper or Kokoro server…',
-        kitten: 'KittenML’s small voices, run locally on the CPU.',
+        endpointStt: 'Your audio is sent to this address to be transcribed.',
+        endpointTts: 'What the call says is sent to this address to be spoken.',
+        plainHttp:
+          'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on this machine.',
+        kitten: 'KittenML’s small voices, run locally on the CPU; nothing is sent anywhere.',
       },
       engine: {
         missing: 'Not installed',
@@ -1958,7 +1970,22 @@ export const copy = {
         starting: 'Starting (the first start downloads the model)…',
         running: 'Running',
         downloading: (done: number, total: number) => `Downloading (${done}/${total})…`,
-        error: (error: string) => `Error: ${error}`,
+      },
+      /** An engine that failed, in plain words: what went wrong and what to do; the raw message is behind details. */
+      trouble: {
+        noUv: {
+          cause: 'Phonon-2 needs uv, the Python installer, and it is not on this Mac.',
+          fix: 'Install uv from docs.astral.sh/uv, then press Install again.',
+        },
+        phonon: {
+          cause: 'Phonon-2 could not install or start.',
+          fix: 'Check the internet connection and press Reinstall, or pick Cloud for speech to text.',
+        },
+        kitten: {
+          cause: 'The Kitten TTS model could not download.',
+          fix: 'Check the internet connection and press Download again, or pick Cloud for text to speech.',
+        },
+        details: 'Show details',
       },
       install: 'Install',
       reinstall: 'Reinstall',
@@ -1969,7 +1996,11 @@ export const copy = {
       keySet: 'Saved; type a new one to replace it',
       saveKey: 'Save key',
       kittenModel: 'Model size',
-      kittenModels: { nano: 'Nano (fastest)', micro: 'Micro', mini: 'Mini (best sounding)' },
+      kittenModels: {
+        nano: 'Nano (fastest, 60 MB)',
+        micro: 'Micro (45 MB)',
+        mini: 'Mini (best sounding, 82 MB)',
+      },
       voice: 'Voice',
       speed: 'Speed',
       tryIt: 'Try it',
@@ -2303,6 +2334,8 @@ export const copy = {
       send: 'Send message',
       newLine: 'New line',
       close: 'Close dialogs and panels',
+      muteCall: 'Mute or unmute a call',
+      hangUp: 'Hang up a call',
     },
     about: {
       title: 'About Myrmidon',
