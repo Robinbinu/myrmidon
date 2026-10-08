@@ -93,6 +93,8 @@ export interface AdapterIO {
   log(message: string): void
   /** Where the platform should send webhooks for this channel, when the gateway has a public address. */
   readonly webhookUrl?: string
+  /** A folder of the channel's own (mode 0700) for session files a platform keeps (WhatsApp's linked device). */
+  readonly dir: string
 }
 
 export type AdapterStatus =

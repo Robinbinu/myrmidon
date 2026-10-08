@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   type ApprovalRequest,
   type EventPayloads,
@@ -353,7 +355,10 @@ export class ChannelHub {
     const adapter = kind.make(c.values)
     this._running.set(id, adapter)
     const webhookUrl = this.options.webhookUrl?.(id)
+    const dir = join(this.options.dir, id)
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     await adapter.start({
+      dir,
       receive: (message) => this._receive(id, adapter, message),
       get: (k) => this._ledger.get(`${id}:${k}`),
       set: (k, value) => this._ledger.set(`${id}:${k}`, value),

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
+import { tmpdir } from 'node:os'
 import { type AdapterIO, type AdapterStatus, type Inbound, TelegramAdapter } from '../src/channels/index.ts'
 
 type Call = { method: string; body: Record<string, unknown> }
@@ -43,6 +44,7 @@ function io() {
     set: (k, v) => kv.set(k, v),
     status: (s) => statuses.push(s),
     log: () => {},
+    dir: tmpdir(),
   }
   return { handle, received, statuses, kv }
 }
