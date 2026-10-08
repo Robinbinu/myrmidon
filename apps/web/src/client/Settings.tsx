@@ -1275,7 +1275,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                     {l.signedIn && (
                       <ConfirmButton
                         label={copy.settings.signIns.signOut}
-                        confirm={copy.settings.signIns.confirmSignOut}
+                        confirm={copy.settings.signIns.confirmSignOut(l.name)}
                         disabled={waiting}
                         onConfirm={() => void signOut(l)}
                       />

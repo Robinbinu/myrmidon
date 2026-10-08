@@ -26,8 +26,8 @@
  *   Changes asked       the reviewer sent work back. Not "rejections".
  *   Try again   the button after a failure. Not "Retry".
  *   Delete      things you made (chat, schedule, hook, specialist). Remove: connections (project, plugin, provider,
- *               channel, gateway, tool library). Revoke: access (devices, people). Discard: proposals. A confirm
- *               button repeats the verb and its object ("Delete hook").
+ *               channel, gateway, tool library). Revoke: access (devices, people). Discard: proposals. An armed
+ *               confirm button starts with "Yes," and repeats the verb and its object ("Yes, remove channel").
  *   Send now / Send when done   how a message typed during a run reaches the crew (the /steer and /queue commands).
  */
 export const copy = {
@@ -942,7 +942,7 @@ export const copy = {
     remove: 'Remove',
     removeLabel: (name: string) => `Remove tool_${name}`,
     removedToast: (name: string) => `Removed tool_${name} from your library`,
-    confirmRemove: 'Remove tool',
+    confirmRemove: 'Yes, remove tool',
     /** Settings list when nothing has been kept yet. */
     empty:
       "When an agent makes itself a tool for a job, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
@@ -1721,7 +1721,7 @@ export const copy = {
       signInAgain: 'Sign in again',
       signIn: 'Sign in',
       signOut: 'Sign out',
-      confirmSignOut: 'Sign out',
+      confirmSignOut: (name: string) => `Yes, sign out of ${name}`,
       signedOut: (name: string) => `Signed out of ${name}`,
       finishInBrowser: 'Finish signing in in the browser tab; this updates by itself.',
       openPage: 'Open the sign-in page',
@@ -1757,10 +1757,10 @@ export const copy = {
         'Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models.',
       use: (id: string) => `Use ${id}`,
       removeCredentials: (id: string) => `Remove ${id} credentials`,
-      confirmRemoveCredentials: 'Remove credentials',
+      confirmRemoveCredentials: 'Yes, remove credentials',
       removedCredentials: (id: string) => `Removed ${id} credentials`,
       remove: (id: string) => `Remove ${id}`,
-      confirmRemove: 'Remove provider',
+      confirmRemove: 'Yes, remove provider',
       removed: (id: string) => `Removed ${id}`,
       updated: (id: string) => `Updated ${id}`,
       savedKey: (id: string) => `Saved the ${id} key`,
@@ -1894,7 +1894,7 @@ export const copy = {
       enabled: (name: string) => `Enabled ${name}`,
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
-      confirmRemove: 'Remove server',
+      confirmRemove: 'Yes, remove server',
       removed: (name: string) => `Removed ${name}`,
     },
     channels: {
@@ -1921,7 +1921,7 @@ export const copy = {
       },
       noActivity: 'Nothing has happened on this channel yet. Messages and answers show here.',
       remove: 'Remove channel',
-      removeConfirm: 'Remove channel',
+      removeConfirm: 'Yes, remove channel',
       removeWarning:
         'Disconnects it and forgets its token, approved people and groups, and any linked device. Chats it started stay.',
       removed: (label: string) => `Removed ${label}`,
@@ -1960,7 +1960,7 @@ export const copy = {
       approve: 'Approve',
       makeOwner: 'Make owner',
       makeOwnerName: (name: string) => `Make ${name} the owner`,
-      makeOwnerConfirm: 'Make owner',
+      makeOwnerConfirm: 'Yes, make owner',
       makeOwnerWarning:
         'They approve risky steps and can allow tools for good; the current owner becomes a member.',
       makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
@@ -1971,14 +1971,14 @@ export const copy = {
       ownerConfirmed: (name: string) => `Confirmed ${name} as the owner`,
       decline: 'Decline',
       declineName: (name: string) => `Decline ${name}`,
-      declineConfirm: 'Decline request',
+      declineConfirm: 'Yes, decline request',
       people: 'Approved people',
       groups: 'Approved groups',
       owner: 'Owner',
       member: 'Member',
       revoke: 'Revoke',
       revokeName: (name: string) => `Revoke ${name}`,
-      revokeConfirm: 'Revoke access',
+      revokeConfirm: 'Yes, revoke access',
       revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
       revokeOwnerWarning:
         'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
@@ -2129,7 +2129,7 @@ export const copy = {
       adding: 'Pairing…',
       added: (name: string) => `Added ${name}`,
       remove: 'Remove',
-      confirmRemove: 'Remove gateway',
+      confirmRemove: 'Yes, remove gateway',
       removed: (name: string) => `Removed ${name}; this Myrmidon is no longer paired with it.`,
       show: 'Switch to this gateway',
       shown: 'Shown here',
@@ -2166,8 +2166,8 @@ export const copy = {
       lastSeen: (when: string) => `last seen ${when}`,
       never: 'not seen yet',
       revoke: 'Revoke',
-      confirmRevoke: 'Revoke access',
-      confirmRevokeSelf: 'Revoke and lose access',
+      confirmRevoke: 'Yes, revoke access',
+      confirmRevokeSelf: 'Yes, revoke and lose access',
       revokeSelfWarning: 'This is the device you are using now: it loses access as soon as you revoke it.',
       revoked: (name: string) => `${name} can no longer use this Myrmidon`,
     },
@@ -2180,7 +2180,7 @@ export const copy = {
       add: 'New specialist',
       edit: 'Edit',
       remove: 'Delete',
-      confirmRemove: 'Delete specialist',
+      confirmRemove: 'Yes, delete specialist',
       removed: (name: string) => `Deleted ${name}`,
       modelHint: "Leave it unset to use the crew's helper model.",
       useTeamModel: "Use the crew's model",
@@ -2302,7 +2302,7 @@ export const copy = {
       runNow: 'Run now',
       runOnSchedule: (name: string) => `Run ${name} on schedule`,
       delete: 'Delete schedule',
-      confirmDelete: 'Delete schedule',
+      confirmDelete: 'Yes, delete schedule',
     },
     hooks: {
       events: {
@@ -2359,7 +2359,7 @@ export const copy = {
       hideLog: 'Hide log',
       secretSet: 'Set; type to replace',
       remove: 'Remove',
-      confirmRemove: 'Remove plugin',
+      confirmRemove: 'Yes, remove plugin',
       removed: (name: string) => `Removed ${name}`,
       applies:
         'Code, tools and MCP servers start now; skills, commands, hooks and prompt sections apply from the next message.',
@@ -2432,7 +2432,7 @@ export const copy = {
       why: (why: string) => `Why: ${why}`,
       keep: 'Keep',
       forget: 'Forget this',
-      confirmForget: 'Forget memory',
+      confirmForget: 'Yes, forget this memory',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',
