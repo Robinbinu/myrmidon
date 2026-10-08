@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <span className="flex-1">{t.text}</span>
                 <button
                   type="button"
-                  className="text-muted transition-colors hover:text-fg"
+                  className="-my-1 -mr-1.5 grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-fill hover:text-fg"
                   onClick={() => dismiss(t.id)}
                   aria-label={copy.common.dismiss}
                 >
