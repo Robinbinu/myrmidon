@@ -1741,15 +1741,21 @@ export function startServer(options: ServeOptions): WebServer {
         if (ws.data.kind === 'terminal') {
           const data = ws.data
           terminals += 1
-          data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
-            cwd: data.cwd,
-            env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
-            terminal: {
-              cols: data.cols,
-              rows: data.rows,
-              data: (_t, chunk) => ws.send(chunk),
-            },
-          })
+          try {
+            data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
+              cwd: data.cwd,
+              env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+              terminal: {
+                cols: data.cols,
+                rows: data.rows,
+                data: (_t, chunk) => ws.send(chunk),
+              },
+            })
+          } catch {
+            // A project folder that was moved or deleted: say so instead of an empty terminal.
+            ws.close(1011, 'Could not start a shell in this folder. Was it moved or deleted?')
+            return
+          }
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
           return
         }
