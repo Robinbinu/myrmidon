@@ -42,7 +42,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   activeGateway,
   api,
@@ -64,6 +64,7 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
@@ -1408,11 +1409,24 @@ function ProviderForm(props: {
   const [key, setKey] = useState('')
   const [manual, setManual] = useState((init?.modelIds ?? []).join(', '))
   const [busy, setBusy] = useState(false)
-  const nameOk = editing || (/^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name))
-  const urlOk = /^https?:\/\//.test(baseUrl)
+  // A field's reason shows once the person has left it filled in, and every reason once Connect is pressed too early.
+  const [tried, setTried] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const touch = (field: string) => (e: { target: { value: string } }) =>
+    e.target.value && setTouched((t) => ({ ...t, [field]: true }))
+  const formId = useId()
   const models = [...new Set(manual.split(/[\s,]+/).filter(Boolean))]
   const discovers = apiType === 'openai-completions' || apiType === 'openai-responses'
-  const keyOk = auth === 'none' || !!key.trim() || (editing && !!init?.hasKey)
+  const errors = {
+    name: editing ? undefined : providerNameError(name, props.existing),
+    baseUrl: baseUrlError(baseUrl),
+    key:
+      auth === 'none' || key.trim() || (editing && init?.hasKey)
+        ? undefined
+        : copy.settings.validation.keyRequired,
+    models: discovers || models.length > 0 ? undefined : copy.settings.validation.modelsRequired,
+  }
+  const shown = (field: keyof typeof errors) => (tried || touched[field] ? errors[field] : undefined)
   return (
     <Card className={cn(!editing && 'mb-3', 'border-accent/30')}>
       <div className="grid gap-4 p-4">
@@ -1420,13 +1434,14 @@ function ProviderForm(props: {
           <Field
             label={copy.settings.providerForm.name}
             hint={editing ? copy.settings.providerForm.nameFixed : copy.settings.providerForm.nameHint}
+            error={shown('name')}
           >
             <TextInput
               value={name}
               disabled={editing}
+              onBlur={touch('name')}
               onChange={(e) => setName(e.target.value.toLowerCase())}
               placeholder="lmstudio"
-              aria-invalid={!!name && !nameOk}
             />
           </Field>
           <Field label={copy.settings.providerForm.apiType}>
@@ -1439,9 +1454,11 @@ function ProviderForm(props: {
             </Select>
           </Field>
         </div>
-        <Field label={copy.settings.providerForm.baseUrl}>
+        <Field label={copy.settings.providerForm.baseUrl} error={shown('baseUrl')}>
           <TextInput
+            type="url"
             value={baseUrl}
+            onBlur={touch('baseUrl')}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder={API_HINT_URL[apiType]}
           />
@@ -1471,21 +1488,28 @@ function ProviderForm(props: {
                     : copy.settings.providerForm.apiKey
                 }
                 aria-label={copy.settings.providerForm.apiKey}
+                aria-invalid={tried && !!errors.key}
+                aria-describedby={tried && errors.key ? `${formId}key-error` : undefined}
               />
             </div>
           )}
         </div>
+        {tried && errors.key && (
+          <p id={`${formId}key-error`} className="-mt-2 text-[12px] leading-snug text-bad-ink">
+            {errors.key}
+          </p>
+        )}
         <Field
           label={copy.settings.providerForm.models}
           hint={
             discovers ? copy.settings.providerForm.modelsDiscoverHint : copy.settings.providerForm.modelsHint
           }
+          error={tried ? errors.models : undefined}
         >
           <TextArea
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
-            aria-label={copy.settings.providerForm.modelIds}
             className="min-h-16 font-mono text-[12.5px]"
           />
         </Field>
@@ -1495,9 +1519,10 @@ function ProviderForm(props: {
           </Button>
           <Button
             variant="primary"
-            disabled={!nameOk || !urlOk || busy || !keyOk || (!discovers && models.length === 0)}
+            disabled={busy}
             icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             onClick={async () => {
+              if (Object.values(errors).some(Boolean)) return setTried(true)
               setBusy(true)
               await props.onSave({
                 name,
@@ -1559,6 +1584,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
+              label={copy.settings.team.timeLimit}
               value={t.wallMinutes}
               min={1}
               max={240}
@@ -1570,6 +1596,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
+              label={copy.settings.team.spendLimit}
               value={t.costUsd}
               min={0}
               max={1000}
@@ -1582,6 +1609,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
+              label={copy.settings.team.tokenLimit}
               value={t.tokens}
               min={0}
               max={1_000_000_000}
@@ -1594,6 +1622,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
+              label={copy.settings.team.turns}
               value={t.maxTurns}
               min={1}
               max={200}
@@ -1604,6 +1633,7 @@ function TeamSection(props: {
         <Row>
           <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
+              label={copy.settings.team.observer}
               value={props.data.settings.observer.intervalSeconds}
               min={10}
               max={600}
@@ -1617,7 +1647,12 @@ function TeamSection(props: {
   )
 }
 
+/**
+ * A number with limits. Typing applies each value inside the limits at once; leaving the box keeps an out-of-range
+ * value at the nearest limit and an empty one at what it was, and while the value is outside them the box says so.
+ */
 function NumberField(props: {
+  label: string
   value: number
   min: number
   max: number
@@ -1627,21 +1662,50 @@ function NumberField(props: {
   wide?: boolean
   onChange(v: number): void
 }) {
+  const id = useId()
+  const [draft, setDraft] = useState<string>()
+  const text = draft ?? String(props.value)
+  const n = Number(text)
+  const ok = !!text.trim() && Number.isFinite(n) && n >= props.min && n <= props.max
+  const range = copy.settings.validation.range(props.min.toLocaleString(), props.max.toLocaleString())
+  const commit = () => {
+    if (draft === undefined) return
+    const next = clampNumber(draft, props.min, props.max, props.value)
+    setDraft(undefined)
+    if (next !== props.value) props.onChange(next)
+  }
   return (
-    <div className="flex items-center gap-2">
-      <TextInput
-        type="number"
-        min={props.min}
-        max={props.max}
-        step={props.step ?? 1}
-        value={props.value}
-        onChange={(e) => {
-          const v = Number(e.target.value)
-          if (Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
-        }}
-        className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
-      />
-      {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-2">
+        <TextInput
+          type="number"
+          min={props.min}
+          max={props.max}
+          step={props.step ?? 1}
+          value={text}
+          aria-label={props.label}
+          aria-invalid={!ok}
+          aria-describedby={ok ? undefined : id}
+          title={range}
+          onChange={(e) => {
+            const value = e.target.value
+            setDraft(value)
+            const v = Number(value)
+            if (value.trim() && Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+          }}
+          className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
+        />
+        {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+      </div>
+      {!ok && (
+        <p id={id} className="text-[12px] text-warn-ink">
+          {range}
+        </p>
+      )}
     </div>
   )
 }
@@ -2719,6 +2783,8 @@ function SchedulesSection() {
       })
       .catch((err: Error) => toast(err.message, 'error'))
   const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
+  const cronId = useId()
+  const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
       <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
@@ -2755,6 +2821,8 @@ function SchedulesSection() {
               <div className="w-40">
                 <TextInput
                   aria-label={copy.settings.schedules.cronExpression}
+                  aria-invalid={!!badCron}
+                  aria-describedby={badCron ? cronId : undefined}
                   value={draft.cron}
                   onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
                   placeholder={copy.settings.schedules.cronPlaceholder}
@@ -2779,7 +2847,7 @@ function SchedulesSection() {
               size="sm"
               variant="primary"
               icon={<Plus className="size-3.5" />}
-              disabled={!draft.request.trim()}
+              disabled={!draft.request.trim() || !!badCron}
               onClick={() =>
                 act(async () => {
                   await send('POST', '/api/schedules', {
@@ -2794,6 +2862,11 @@ function SchedulesSection() {
               {copy.settings.schedules.schedule}
             </Button>
           </div>
+          {badCron && (
+            <p id={cronId} className="mt-1.5 text-[12px] leading-snug text-bad-ink">
+              {badCron}
+            </p>
+          )}
         </Row>
       </Card>
       {!list ? (

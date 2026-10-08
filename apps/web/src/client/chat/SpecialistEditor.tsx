@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { ModelOption, Specialist } from '../api.ts'
 import { copy } from '../copy.ts'
-import { type SpecialistDraft, saveSpecialist } from '../specialists.ts'
+import { specialistNameError } from '../settings-forms.ts'
+import { type SpecialistDraft, saveSpecialist, useSpecialists } from '../specialists.ts'
 import { Button, Field, Select, Switch, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
@@ -27,8 +28,17 @@ export function SpecialistEditor(props: {
     off: props.initial?.off ?? [],
   })
   const [busy, setBusy] = useState(false)
+  // A reason shows once the person has left a filled-in name, or for every field after a save that could not go ahead.
+  const [tried, setTried] = useState(false)
+  const [nameLeft, setNameLeft] = useState(false)
+  const others = useSpecialists()
+    .filter((s) => s.id !== props.initial?.id)
+    .map((s) => s.name)
+  const nameError = specialistNameError(draft.name, others)
+  const specialtyError = draft.specialty.trim() ? undefined : copy.settings.validation.required
   const set = (patch: Partial<SpecialistDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const save = async () => {
+    if (nameError || specialtyError) return setTried(true)
     setBusy(true)
     try {
       const saved = await saveSpecialist(draft, props.initial?.id)
@@ -52,23 +62,22 @@ export function SpecialistEditor(props: {
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t.name} hint={t.nameHint}>
+        <Field label={t.name} hint={t.nameHint} error={nameLeft || tried ? nameError : undefined}>
           <TextInput
             value={draft.name}
+            onBlur={(e) => e.target.value && setNameLeft(true)}
             onChange={(e) => set({ name: e.target.value.toLowerCase() })}
             maxLength={24}
             placeholder="ada"
-            aria-label={t.name}
             autoFocus
           />
         </Field>
-        <Field label={t.specialty} hint={t.specialtyHint}>
+        <Field label={t.specialty} hint={t.specialtyHint} error={tried ? specialtyError : undefined}>
           <TextInput
             value={draft.specialty}
             onChange={(e) => set({ specialty: e.target.value })}
             maxLength={60}
             placeholder="data analyst"
-            aria-label={t.specialty}
           />
         </Field>
       </div>
@@ -78,7 +87,6 @@ export function SpecialistEditor(props: {
           onChange={(e) => set({ instructions: e.target.value })}
           rows={5}
           maxLength={8000}
-          aria-label={t.instructions}
         />
       </Field>
       <Field label={t.model}>
@@ -115,7 +123,7 @@ export function SpecialistEditor(props: {
         <Button type="button" variant="ghost" size="sm" onClick={props.onCancel} disabled={busy}>
           {t.cancel}
         </Button>
-        <Button type="submit" variant="primary" size="sm" disabled={busy || !draft.name || !draft.specialty}>
+        <Button type="submit" variant="primary" size="sm" disabled={busy}>
           {t.save}
         </Button>
       </div>

@@ -1289,6 +1289,26 @@ export const copy = {
       confirmRemove: 'Remove for good',
       confirmDelete: 'Delete for good',
     },
+    /** Why a Settings form value is not accepted, shown under the field. */
+    validation: {
+      required: 'Required.',
+      startWithLetter: 'Start with a letter.',
+      nameChars: 'Use only lowercase letters, digits and dashes.',
+      nameLength: (min: number, max: number) => `Use ${min} to ${max} characters.`,
+      providerTaken: (name: string) => `There is already a provider called ${name}.`,
+      specialistTaken: (name: string) => `There is already a specialist called ${name}.`,
+      reserved: (name: string) => `Myrmidon uses "${name}" itself; choose another name.`,
+      url: 'Enter a full address starting with http:// or https://.',
+      keyRequired: 'Enter an API key, or choose None for an endpoint that needs none.',
+      modelsRequired: 'List at least one model id: only OpenAI-compatible endpoints can list their own.',
+      cronFieldCount: (n: number) =>
+        `A schedule needs five fields (minute hour day month weekday); this has ${n}.`,
+      cronBadField: (field: string, text: string) => `The ${field} field "${text}" is not valid cron.`,
+      cronRange: (field: string, min: number, max: number) =>
+        `The ${field} must be between ${min} and ${max}.`,
+      cronFields: { minute: 'minute', hour: 'hour', day: 'day', month: 'month', weekday: 'weekday' },
+      range: (min: string, max: string) => `Between ${min} and ${max}.`,
+    },
     sections: {
       general: { label: 'General', hint: 'Theme, motion, shortcuts' },
       mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
