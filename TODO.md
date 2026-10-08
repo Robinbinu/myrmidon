@@ -166,6 +166,18 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Modals** — no focus trap; one Esc closes two stacked modals (`Modal.tsx:24`); AgentSheet doesn't move or
       restore focus.
 
+### Follow-ups found while fixing
+
+- [ ] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
+- [ ] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
+- [ ] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
+      replay bar shows the raw `checkpoint/restored` event type.
+- [ ] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
+      the crew console was not exercised by hand.
+- [ ] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
+- [ ] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
+      can't match queries under 3 characters).
+
 ### [decide] Product calls
 
 - [ ] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
