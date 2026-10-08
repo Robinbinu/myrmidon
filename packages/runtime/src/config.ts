@@ -285,6 +285,8 @@ export const VOICE_VAD_SHA256 = '7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8
 export const VOICE_VAD_BYTES = 1_289_603
 export const VOICE_VAD_START = { low: 0.7, normal: 0.5, high: 0.35 } as const
 export const VOICE_VAD_HYSTERESIS = 0.15
+/** Calls this gateway takes at once (each holds a call model and speech engines busy); one per chat at most. */
+export const VOICE_MAX_CALLS = 4
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3

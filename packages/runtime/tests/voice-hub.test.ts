@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
 import { SettingsStore } from '../src/settings.ts'
-import { VoiceHub, type VoiceSettings } from '../src/voice/hub.ts'
+import { CallRefused, VoiceHub, type VoiceSettings } from '../src/voice/hub.ts'
 import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { FunctionTts, KittenTts } from '../src/voice/tts.ts'
@@ -120,7 +120,7 @@ test('voice calls start off: nothing is downloaded or started, and no call can b
     decideApproval: async () => {},
   }
   expect(() => hub.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})).toThrow(
-    'voice calls are off',
+    'Voice calls are off',
   )
 })
 
@@ -192,4 +192,37 @@ test('the real pins tell Settings the real sizes', () => {
     vad: 1_289_603,
     turn: 8_679_182,
   })
+})
+
+test('one call per chat, a few calls at most, and engines that are not ready refuse a call with a code', () => {
+  const { hub } = setup({
+    stt: { provider: 'omp' },
+    tts: { provider: 'omp', kittenModel: 'nano', voice: 'Leo', speed: 1 },
+  })
+  const chats = {
+    send: async () => ({ chatId: 'c', colonyId: 'x', started: true }),
+    onEvents: () => () => {},
+    decideApproval: async () => {},
+  }
+  const refusal = (start: () => unknown) => {
+    try {
+      start()
+    } catch (err) {
+      return err instanceof CallRefused ? err.code : 'not refused'
+    }
+    return 'started'
+  }
+  const open = (chatId: string) => hub.call(chats, { chatId, name: 'Robin', sampleRate: 16_000 }, () => {})
+  const first = open('c1')
+  expect(refusal(() => open('c1'))).toBe(4423)
+  const more = [open('c2'), open('c3'), open('c4')]
+  expect(refusal(() => open('c5'))).toBe(4429)
+  first.hangUp()
+  expect(refusal(() => open('c1'))).toBe('started')
+  for (const c of more) c.hangUp()
+
+  const kitten = setup({ stt: { provider: 'omp' } }).hub
+  expect(() => kitten.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})).toThrow(
+    'the Kitten TTS model is still downloading',
+  )
 })

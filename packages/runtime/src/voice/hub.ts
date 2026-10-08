@@ -9,6 +9,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import {
+  VOICE_MAX_CALLS,
   VOICE_PHONON_MODEL_BYTES,
   VOICE_SMART_TURN_BYTES,
   VOICE_THRESHOLDS,
@@ -37,6 +38,19 @@ import {
 import { SileroVad } from './vad.ts'
 
 export type VoiceSettings = MyrSettings['voice']
+
+/**
+ * Why a call cannot start, with the WebSocket close code the person's side reads it by: 4409 voice calls are off,
+ * 4423 a call is already on in this chat, 4429 too many calls at once, 4503 the speech engines are not ready.
+ */
+export class CallRefused extends Error {
+  constructor(
+    readonly code: 4409 | 4423 | 4429 | 4503,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 /** The speech parts of omp a call can use (its cloud speech models). */
 export interface OmpSpeech {
@@ -277,12 +291,15 @@ export class VoiceHub {
     return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
   }
 
-  /** Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. */
   /** Whether voice calls are on in Settings → Voice. */
   get enabled(): boolean {
     return this.options.settings().voice.enabled
   }
 
+  /**
+   * Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. Throws
+   * CallRefused when it cannot: voice off, a call already in the chat, too many calls, or engines not ready.
+   */
   call(
     chats: CallChats,
     options: {
@@ -297,15 +314,29 @@ export class VoiceHub {
     emit: (out: CallOutput) => void,
   ): CallSession {
     const { voice, fallbackModel } = this.options.settings()
-    if (!voice.enabled) throw new Error('voice calls are off: turn them on in Settings → Voice')
+    const r = prompts.voice.refused
+    if (!voice.enabled) throw new CallRefused(4409, r.off)
+    const calls = [...this._calls.values()]
+    if (options.chatId && calls.some((c) => c.chatId === options.chatId)) throw new CallRefused(4423, r.busy)
+    if (calls.length >= VOICE_MAX_CALLS) throw new CallRefused(4429, r.full(VOICE_MAX_CALLS))
     const model = voice.callModel ?? fallbackModel
-    if (!model) throw new Error('pick a call model in Settings → Voice')
+    if (!model) throw new CallRefused(4503, r.noModel)
+    const unready = this._unready()
+    if (unready) throw new CallRefused(4503, unready)
+    let stt: SpeechToText
+    let tts: TextToSpeech
+    try {
+      stt = this.stt()
+      tts = this.tts()
+    } catch (err) {
+      throw new CallRefused(4503, err instanceof Error ? err.message : String(err))
+    }
     const session = new CallSession(
       {
         chats,
         resolver: this.options.resolver,
-        stt: this.stt(),
-        tts: this.tts(),
+        stt,
+        tts,
         // Downloaded by warm(); until then turns are found by level, and end after a longer quiet.
         ...(this.vad.ready ? { detector: this.vad } : {}),
         ...(this.turn.ready ? { judge: this.turn } : {}),
@@ -328,6 +359,24 @@ export class VoiceHub {
     )
     this._calls.set(session.id, session)
     return session
+  }
+
+  /** Why the chosen engines on this machine cannot take a call now (after warm(), which fetches what it can). */
+  private _unready(): string | undefined {
+    const { voice } = this.options.settings()
+    const r = prompts.voice.refused
+    if (voice.stt.provider === 'phonon') {
+      const phonon = this.phonon.status()
+      if (phonon.state === 'missing') return r.phononMissing
+      if (phonon.state === 'installing') return r.phononInstalling
+      if (phonon.state === 'error') return r.failed('Phonon-2', phonon.error)
+    }
+    if (voice.tts.provider === 'kitten') {
+      const kitten = this.kitten.status()
+      if (kitten.state === 'missing' || kitten.state === 'downloading') return r.kittenMissing
+      if (kitten.state === 'error') return r.failed('Kitten TTS', kitten.error)
+    }
+    return undefined
   }
 
   /** The calls made in a chat, oldest first. */

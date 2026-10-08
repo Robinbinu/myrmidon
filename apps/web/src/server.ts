@@ -9,6 +9,7 @@ import {
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
+  CallRefused,
   type CallSession,
   type ChannelChats,
   ChannelHub,
@@ -173,8 +174,19 @@ type StreamData = Opened &
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
-    /** A voice call: the person's audio in, the call's speech and state out. */
-    | { kind: 'call'; chat?: string; rate: number; talk?: string; session?: CallSession }
+    /**
+     * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
+     * the socket's close code and reason once it opens; `closed`: the person's side went away.
+     */
+    | {
+        kind: 'call'
+        chat?: string
+        rate: number
+        talk?: string
+        session?: CallSession
+        refusal?: { code: number; reason: string }
+        closed?: boolean
+      }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -217,6 +229,9 @@ const STOP_WAIT_MS = 500
 const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
 /** The longest text "Try it" in Settings → Voice speaks. */
 const VOICE_SAMPLE_CHARS = 300
+/** The largest audio frame (about a second at 48 kHz) and control message a call takes from the person's side. */
+const VOICE_FRAME_MAX = 96_000
+const VOICE_MESSAGE_MAX = 1024
 /** The largest webhook body a platform may post (media comes by reference, not inline). */
 const WEBHOOK_MAX = 5 * 1024 * 1024
 
@@ -1994,18 +2009,28 @@ export function startServer(options: ServeOptions): WebServer {
       // A call's audio both ways; chats-only devices may call too.
       '/api/voice/call': (req: Request) => {
         const url = new URL(req.url)
-        // Microphone audio over a WebSocket: only from this app's own pages (authorized() rejects other origins).
-        const access = req.headers.get('origin') ? authorized(req, url) : undefined
-        if (!access) return json({ error: 'unauthorized' }, 401)
-        if (!voice || !chatsPort) return json({ error: 'voice needs the chat runtime' }, 503)
-        if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
+        // Microphone audio over a WebSocket: only from this app's own pages.
+        if (!req.headers.get('origin') || !sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        // A refused upgrade reaches the page as a bare 1006 with no reason; a refusal is an upgrade closed at once
+        // with a code and a reason the page can show.
+        const refusal = !access
+          ? { code: 4401, reason: 'not signed in' }
+          : access.scope !== 'full' && needsFull('GET', url.pathname)
+            ? { code: 4403, reason: 'this device cannot make calls; pair it with full access' }
+            : !voice || !chatsPort
+              ? { code: 4503, reason: 'voice needs the chat runtime' }
+              : !voice.enabled
+                ? { code: 4409, reason: VOICE_OFF }
+                : undefined
         const rate = Number(url.searchParams.get('rate'))
         const data = {
           kind: 'call' as const,
           rate: rate >= 8000 && rate <= 48_000 ? rate : 16_000,
           ...(url.searchParams.get('chat') ? { chat: url.searchParams.get('chat') ?? '' } : {}),
           ...(url.searchParams.get('talk') ? { talk: url.searchParams.get('talk') ?? '' } : {}),
-          ...(access.device ? { device: access.device.id } : {}),
+          ...(access?.device ? { device: access.device.id } : {}),
+          ...(refusal ? { refusal } : {}),
         }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
@@ -2133,12 +2158,19 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'call') {
           const data = ws.data
+          if (data.refusal) {
+            ws.close(data.refusal.code, data.refusal.reason.slice(0, 120))
+            return
+          }
           void (async () => {
-            if (!voice || !chats || !chatsPort) throw new Error('voice needs the chat runtime')
+            if (!voice || !chats || !chatsPort) throw new CallRefused(4503, 'voice needs the chat runtime')
             // Usually already warm; the first call after a start or a new choice waits here, and says so.
             ws.send(JSON.stringify({ type: 'state', state: 'preparing' }))
             await voice.warm()
+            // Each wait is a chance for the person to have gone: no call is made for a closed socket.
+            if (data.closed) return
             const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
+            if (data.closed) return
             const session = voice.call(
               chatsPort,
               {
@@ -2173,7 +2205,10 @@ export function startServer(options: ServeOptions): WebServer {
             data.session = session
             await session.start()
           })().catch((err) =>
-            ws.close(1011, (err instanceof Error ? err.message : String(err)).slice(0, 120)),
+            ws.close(
+              err instanceof CallRefused ? err.code : 1011,
+              (err instanceof Error ? err.message : String(err)).slice(0, 120),
+            ),
           )
           return
         }
@@ -2205,6 +2240,7 @@ export function startServer(options: ServeOptions): WebServer {
           return
         }
         if (ws.data.kind === 'call') {
+          ws.data.closed = true
           ws.data.session?.hangUp()
           return
         }
@@ -2216,16 +2252,25 @@ export function startServer(options: ServeOptions): WebServer {
           const session = ws.data.session
           if (!session) return
           if (typeof raw !== 'string') {
+            if (raw.byteLength > VOICE_FRAME_MAX) return ws.close(1009, 'audio frame too large')
+            // 16-bit samples: an odd trailing byte is not half a sample worth keeping.
             const bytes = new Uint8Array(raw)
-            session.audio(
-              new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
-            )
+            const even = bytes.byteLength - (bytes.byteLength % 2)
+            session.audio(new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + even)))
             return
           }
-          const msg = JSON.parse(raw) as { type?: string; muted?: unknown }
-          if (msg.type === 'interrupt') session.interrupt()
-          else if (msg.type === 'mute') session.mute(msg.muted === true)
-          else if (msg.type === 'hangup') session.hangUp()
+          if (raw.length > VOICE_MESSAGE_MAX) return ws.close(1009, 'message too large')
+          let msg: unknown
+          try {
+            msg = JSON.parse(raw)
+          } catch {
+            ws.send(JSON.stringify({ type: 'error', message: 'a call message must be JSON' }))
+            return
+          }
+          const { type, muted } = (msg ?? {}) as { type?: unknown; muted?: unknown }
+          if (type === 'interrupt') session.interrupt()
+          else if (type === 'mute') session.mute(muted === true)
+          else if (type === 'hangup') session.hangUp()
           return
         }
         if (ws.data.kind === 'bridge') {

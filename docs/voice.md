@@ -94,6 +94,9 @@ installing engines and keys needs full access.
 
 ## Troubleshooting
 
+- **A call will not start**: it says why. One call per chat (another window may have it), at most four at once on
+  this gateway, and the chosen speech engines must be ready (installed, downloaded).
+
 - **"Phonon-2 is not installed"**: install it in Settings → Voice, or choose another speech-to-text.
 - **"Preparing voice…" for a while**: the engines are downloading or compiling once; later starts take seconds.
 - **It hears itself / interrupts itself**: use headphones, or lower the sensitivity; Myrmidon relies on the browser's

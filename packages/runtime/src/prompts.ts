@@ -728,6 +728,17 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
       question: (text: string) => `The crew asks: ${text}`,
       answer: (from: string, text: string) => `${from} answered: ${text}`,
     },
+    /** Why a call could not start, shown to the person as the call closes. */
+    refused: {
+      off: 'Voice calls are off: turn them on in Settings → Voice.',
+      busy: 'There is already a call in this chat (in another window?).',
+      full: (n: number) => `There are already ${n} calls going on; hang one up first.`,
+      noModel: 'Pick a call model in Settings → Voice.',
+      phononMissing: 'Speech to text is not ready: install Phonon-2 in Settings → Voice.',
+      phononInstalling: 'Speech to text is not ready: Phonon-2 is still installing.',
+      kittenMissing: 'Text to speech is not ready: the Kitten TTS model is still downloading.',
+      failed: (engine: string, error: string) => `${engine} is not ready: ${error}`,
+    },
     /** Read back once the person's yes or no has decided an approval. */
     decided: (approved: boolean, summary: string) => `${approved ? 'Allowed' : 'Refused'}: ${summary}`,
     /** A call straight to the lead or one crew member: no call assistant, their replies read aloud. */
