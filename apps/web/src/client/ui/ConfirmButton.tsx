@@ -1,5 +1,6 @@
 import { Trash2 } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
+import { CONFIRM_ARM_DELAY_MS } from '../ui-config.ts'
 import { Button, IconButton } from './primitives.tsx'
 
 /**
@@ -22,6 +23,11 @@ export function ConfirmButton(props: {
   const [armed, setArmed] = useState(false)
   // Disarming with Escape puts focus back on the first button rather than losing it to the page.
   const [refocus, setRefocus] = useState(false)
+  const armedAt = useRef(0)
+  const arm = () => {
+    armedAt.current = performance.now()
+    setArmed(true)
+  }
   if (armed)
     return (
       <span className="inline-flex items-center gap-2">
@@ -35,11 +41,16 @@ export function ConfirmButton(props: {
           variant="danger"
           // The armed button replaces the one just clicked, so focus has to move onto it for blur to disarm it.
           autoFocus
+          // Safari does not focus a clicked button, so pressing this one would otherwise blur it and disarm it
+          // before the click lands.
+          onMouseDown={(e) => e.preventDefault()}
           onBlur={() => {
             setArmed(false)
             setRefocus(false)
           }}
           onKeyDown={(e) => {
+            // A held Enter repeats, and each repeat would press this button.
+            if (e.repeat) return e.preventDefault()
             // Escape here only disarms; it must not also close the page around it.
             if (e.key !== 'Escape') return
             e.stopPropagation()
@@ -47,6 +58,7 @@ export function ConfirmButton(props: {
             setRefocus(true)
           }}
           onClick={() => {
+            if (performance.now() - armedAt.current < CONFIRM_ARM_DELAY_MS) return
             setArmed(false)
             setRefocus(false)
             props.onConfirm()
@@ -57,13 +69,7 @@ export function ConfirmButton(props: {
       </span>
     )
   return props.icon ? (
-    <IconButton
-      size="sm"
-      label={props.label}
-      disabled={props.disabled}
-      autoFocus={refocus}
-      onClick={() => setArmed(true)}
-    >
+    <IconButton size="sm" label={props.label} disabled={props.disabled} autoFocus={refocus} onClick={arm}>
       <Trash2 className="size-4" />
     </IconButton>
   ) : (
@@ -73,7 +79,7 @@ export function ConfirmButton(props: {
       aria-label={props.name}
       disabled={props.disabled}
       autoFocus={refocus}
-      onClick={() => setArmed(true)}
+      onClick={arm}
     >
       {props.label}
     </Button>
