@@ -2956,13 +2956,12 @@ function ChannelSheet(props: {
                         />
                       </Field>
                       <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                        >
-                          {t.dismiss}
-                        </Button>
+                        <ConfirmButton
+                          label={t.decline}
+                          name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
+                          confirm={t.declineConfirm}
+                          onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
+                        />
                         <Button size="sm" variant="primary" onClick={() => void approve(p)}>
                           {asOwner ? t.makeOwner : t.approve}
                         </Button>
@@ -2997,13 +2996,13 @@ function ChannelSheet(props: {
                       }
                     />
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(p.name)}
+                    confirm={t.revokeConfirm}
+                    warning={p.role === 'owner' ? t.revokeOwnerWarning : t.revokeWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                  />
                 </div>
               ))}
               {c.approvedGroups.length > 0 && (
@@ -3014,13 +3013,13 @@ function ChannelSheet(props: {
               {c.approvedGroups.map((g) => (
                 <div key={g.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(g.title)}
+                    confirm={t.revokeConfirm}
+                    warning={t.revokeGroupWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                  />
                 </div>
               ))}
             </Card>
