@@ -63,6 +63,17 @@ function inline(text: string): ReactNode[] {
   return out
 }
 
+/** The words of Markdown without its markup, for reading out (a screen reader would say every `*` and `#`). */
+export function plainText(text: string): string {
+  return text
+    .replace(/^```.*$/gm, '')
+    .replace(/^[ \t]{0,3}(#{1,6}|>|[-*]|\d+\.)[ \t]+/gm, '')
+    .replace(/\[([^\]\n]+)\]\([^\s)]+\)/g, '$1')
+    .replace(/(\*\*|`)/g, '')
+    .replace(/(?<![\w*])[*_]([^*_\s][^*_\n]*?)[*_](?![\w*])/g, '$1')
+    .trim()
+}
+
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, copyCode] = useCopy()
   return (

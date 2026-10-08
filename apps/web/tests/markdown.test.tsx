@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Markdown } from '../src/client/chat/Markdown.tsx'
+import { Markdown, plainText } from '../src/client/chat/Markdown.tsx'
 
 const html = (text: string) => renderToStaticMarkup(<Markdown text={text} />)
 
@@ -26,4 +26,13 @@ test('model output never becomes HTML, even inside emphasis', () => {
   expect(out).not.toContain('<img')
   expect(out).not.toContain('<b>')
   expect(out).toContain('&lt;img')
+})
+
+test('plain text keeps the words and drops the markup, for reading out', () => {
+  expect(
+    plainText(
+      "I'll fix **`calc.py`** first.\n\n## Plan\n\n- Fix `add`\n- Run *the tests*\n\nSee [docs](https://x.y)",
+    ),
+  ).toBe("I'll fix calc.py first.\n\nPlan\n\nFix add\nRun the tests\n\nSee docs")
+  expect(plainText('snake_case_name stays')).toBe('snake_case_name stays')
 })

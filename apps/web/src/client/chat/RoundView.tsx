@@ -53,7 +53,7 @@ import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { Approval, LoginCards, MemoryCards, type Pending, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
-import { Markdown } from './Markdown.tsx'
+import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
@@ -231,7 +231,7 @@ export function RoundView(props: {
   const announce = streaming[0]
     ? copy.round.agent.replying(streaming[0][0])
     : lastReply
-      ? copy.round.agent.said(lastReply.from, lastReply.text)
+      ? copy.round.agent.said(lastReply.from, plainText(lastReply.text))
       : ''
   const message = (m: ChatEntry) =>
     m.from === 'user' ? (
