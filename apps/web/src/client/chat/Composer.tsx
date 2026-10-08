@@ -30,6 +30,7 @@ import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
+import { helpersHint, helpersLabel } from './helpers.ts'
 import { ModelPicker } from './ModelPicker.tsx'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './TeamControls.tsx'
 
@@ -89,8 +90,6 @@ export function TeamSettings(props: {
     [swarm ? undefined : config.leadModel, ...config.roster.map((r) => r.model)].some(
       (m) => m && providerOf(m) === judging,
     ) && props.models.some((m) => !m.hidden && m.provider !== judging)
-  const n = config.roster.length
-  const summary = n === 0 ? copy.composer.helpersNone : copy.composer.helpersCount(n, swarm)
   const reviewOff = props.review === 'off'
 
   return (
@@ -166,9 +165,7 @@ export function TeamSettings(props: {
             className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
           />
           <span className="flex-1 text-[13px]">{copy.composer.helpers}</span>
-          <span className="text-[12px] text-muted">
-            {summary} · {copy.composer.helpersMode(swarm)}
-          </span>
+          <span className="text-[12px] text-muted">{helpersLabel(config)}</span>
         </button>
         <AnimatePresence initial={false}>
           {helpersOpen && (
@@ -191,7 +188,7 @@ export function TeamSettings(props: {
           )}
         </AnimatePresence>
       </div>
-      <p className="px-1 text-[11.5px] leading-snug text-muted">{copy.composer.helpersNote}</p>
+      <p className="px-1 text-[11.5px] leading-snug text-muted">{helpersHint(config)}</p>
     </div>
   )
 }

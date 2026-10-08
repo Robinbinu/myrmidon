@@ -23,6 +23,7 @@ import { useSpecialists } from '../specialists.ts'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
+import { type HelperMode, helperMode, helpersLabel, readSavedHelpers, saveHelpers } from './helpers.ts'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
@@ -314,22 +315,19 @@ export function HelpersChip(props: {
   onConfig(c: TeamConfig): void
 }) {
   const { config } = props
-  const n = config.roster.length
-  const on = n > 0 || config.extraWorkers > 0
-  const mode: 'never' | 'auto' | 'always' = !on ? 'never' : config.helpers === 'always' ? 'always' : 'auto'
-  // Turning helpers off keeps the list, so turning them back on restores it.
-  const saved = useRef<Pick<TeamConfig, 'roster' | 'extraWorkers' | 'mode'>>(undefined)
-  const choose = (next: typeof mode) => {
+  const mode = helperMode(config)
+  const on = mode !== 'never'
+  const choose = (next: HelperMode) => {
     const { helpers: _, ...rest } = config
     if (next === 'never') {
-      if (on) saved.current = { roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode }
+      if (on) saveHelpers({ roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode })
       return props.onConfig({ ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 })
     }
     props.onConfig({
       ...rest,
       ...(on
         ? {}
-        : (saved.current ?? {
+        : (readSavedHelpers() ?? {
             mode: 'orchestrated',
             roster: [
               { role: 'researcher', model: config.leadModel },
@@ -340,19 +338,11 @@ export function HelpersChip(props: {
       ...(next === 'always' ? { helpers: 'always' as const } : {}),
     })
   }
-  const size = n || config.extraWorkers
-  const who = config.mode === 'swarm' ? copy.teamControls.helpers.peers : copy.teamControls.helpers.helpers
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}
       icon={<Users className="size-3.5 shrink-0" />}
-      value={
-        mode === 'never'
-          ? copy.teamControls.helpers.solo
-          : mode === 'always'
-            ? copy.teamControls.helpers.teamOf(size + 1)
-            : copy.teamControls.helpers.count(size, who)
-      }
+      value={helpersLabel(config)}
       width={380}
     >
       {() => (

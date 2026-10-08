@@ -112,8 +112,6 @@ export const copy = {
         : `Orchestrated · ${n} specialist${n === 1 ? '' : 's'}`,
     thinking: { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' },
     review: { off: 'Off', auto: 'Auto', always: 'Always' },
-    helpersNone: 'None',
-    helpersCount: (n: number, swarm: boolean) => `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'}`,
     lead: 'Lead',
     leadHint: 'Who you talk to',
     reviewer: 'Reviewer',
@@ -128,8 +126,6 @@ export const copy = {
     sameProvider:
       'The reviewer shares a provider with the team; one from another provider catches more of its blind spots.',
     helpers: 'Helpers',
-    helpersMode: (swarm: boolean) => (swarm ? 'equal peers' : 'called by the lead'),
-    helpersNote: 'The lead answers itself and calls helpers only for big jobs.',
     deliveries: {
       steer: { label: 'Steer', hint: 'Read at the next step' },
       queue: { label: 'Queue', hint: 'Read once the current work is done' },
@@ -294,13 +290,12 @@ export const copy = {
       valueAuto: 'Review',
       model: 'Reviewer model',
     },
+    /** One set of words for the helpers setting, used on the chip and in every summary of it. */
     helpers: {
       label: 'Helpers',
-      solo: 'Solo',
-      teamOf: (n: number) => `Team of ${n}`,
-      count: (n: number, who: string) => `${n} ${who}`,
-      peers: 'peers',
-      helpers: 'helpers',
+      none: 'No helpers',
+      summary: (n: number, swarm: boolean, mode: string) =>
+        `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'} · ${mode.toLowerCase()}`,
     },
     helperModes: {
       never: { title: 'Never', hint: 'The lead works alone, like a chat' },
