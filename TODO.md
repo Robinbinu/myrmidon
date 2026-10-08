@@ -291,9 +291,16 @@ Open work, in the order it will be done:
 11f. - [x] **Gateway indicator and inspector** (asked 2026-10-08) — done after OpenClaw: a sidebar chip only when
       something is wrong ("Offline · Retry", or the problem, opening System); a System page with the gateway, models,
       sandbox, what is running, each channel's health (last in/out, reconnects, last error, Restart) and recent activity.
-12. - [ ] **Voice calls** — a fast call model that hands work to the crew (OpenDots idea). Research
-      docs/research/2026-10-08-voice-calls.md, spec docs/superpowers/specs/2026-10-08-voice-calls-design.md (waiting
-      for review): Phonon-2 STT, Kitten TTS, any provider selectable; in the app first, phone (Twilio) next.
+12. - [x] **Voice calls (in the app)** — done 2026-10-08 (docs/voice.md; spec 2026-10-08-voice-calls-design): Call in
+      the chat toolbar; Phonon-2 STT (local, installed with uv) and Kitten TTS (local, worker process) by default, or
+      omp's cloud speech, or any OpenAI-compatible endpoint; a fast call model that hands work to the crew as rounds,
+      keeps talking, reports back, asks before approvals; barge-in; transcripts as call cards; Settings → Voice.
+      Follow-ups:
+      - [ ] Try a real call with the mic (only the engines, the socket and Settings were checked live).
+      - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
+      - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
+      - [ ] Phonon `--hotwords` from agent and project names.
+      - [ ] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
