@@ -10,6 +10,10 @@
     "@myrmidon/core": "workspace:*",
     "@myrmidon/protocol": "workspace:*",
     "@myrmidon/runtime": "workspace:*",
-    "@myrmidon/web": "workspace:*"
+    "@myrmidon/web": "workspace:*",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "1.5.6"
   }
 }

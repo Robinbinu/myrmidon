@@ -12,7 +12,6 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
-  Plug,
   RefreshCw,
   SquarePen,
   Trash2,
@@ -37,6 +36,7 @@ import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
+import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
@@ -45,8 +45,11 @@ import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
+import { SETTINGS_SAVED } from './mascot.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
+import { SystemPage } from './System.tsx'
+import { useStatus } from './status.tsx'
 import {
   day,
   NOTIFY_KEY,
@@ -56,18 +59,32 @@ import {
   useReduceMotion,
   useTheme,
 } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
-import { AGENT_MIN_WINDOW, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
+import {
+  AGENT_MIN_WINDOW,
+  CALL_HANG_UP_COMBO,
+  CALL_LINES,
+  CALL_MUTE_COMBO,
+  MAX_FILE_BYTES,
+  softSpring,
+} from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
+import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
+import { CallCard, type SavedCall } from './voice/CallCard.tsx'
+import { CallMenu, type CallTarget } from './voice/CallMenu.tsx'
+import { CallClient, type CallState } from './voice/call-client.ts'
 
 const CONFIG_KEY = 'myr-team-config'
+/** When this browser last told the person about learned skills the curator archived. */
+const SKILLS_ARCHIVED_SEEN_KEY = 'myr-skills-archived-seen'
 
 /** What the page needs to know about a plugin. */
 interface PluginSummary {
@@ -167,13 +184,14 @@ async function exportChat(chat: ChatSummary) {
 }
 
 /** A desktop notification while Myrmidon is in the background, if the person turned them on in Settings. */
-function notify(text: string, chatId: string) {
+function notify(text: string, chatId?: string, tag = chatId) {
   try {
     if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted' || !document.hidden) return
-    const n = new Notification(copy.brand.name, { body: text, tag: chatId })
+    const n = new Notification(copy.brand.name, { body: text, tag })
     n.onclick = () => {
       window.focus()
+      if (!chatId) return
       const url = new URL(location.href)
       url.searchParams.set('chat', chatId)
       location.href = url.toString()
@@ -181,6 +199,22 @@ function notify(text: string, chatId: string) {
   } catch {
     // Notifications are a convenience; a browser that refuses them just shows the toast.
   }
+}
+
+const VIEW_PARAM = 'view'
+const SETTINGS_PARAM = 'settings'
+const VIEWS: readonly View[] = ['chat', 'colonies', 'compare', 'system']
+/** The new-chat screen's draft, beside each chat's own. */
+const NEW_CHAT_DRAFT = 'new'
+
+function viewFromAddress(): View {
+  const v = new URLSearchParams(location.search).get(VIEW_PARAM)
+  return VIEWS.find((view) => view === v) ?? 'chat'
+}
+
+/** The Settings section an address names; Settings shows its first section for a name it doesn't know. */
+function sectionFromAddress(): Section | undefined {
+  return (new URLSearchParams(location.search).get(SETTINGS_PARAM) as Section | null) ?? undefined
 }
 
 export function App() {
@@ -193,27 +227,29 @@ export function App() {
   const [models, setModels] = useState<ModelOption[]>([])
   const [modelsError, setModelsError] = useState<string>()
   const [config, setConfig] = useState<TeamConfig>()
-  const [view, setView] = useState<View>('chat')
+  const [view, setView] = useState<View>(() => viewFromAddress())
   const [activeChat, setActiveChatState] = useState<string | undefined>(
     () => new URLSearchParams(location.search).get('chat') ?? undefined,
   )
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
   const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
-  // Below the docking width the panel covers the chat, so it never reopens on its own there.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
-  useEffect(() => {
-    if (window.innerWidth < 1280) setWorkspaceOpen(false)
-  }, [])
   const [colonyModal, setColonyModal] = useState<string>()
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
     setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
-  const [settingsSection, setSettingsSection] = useState<Section>('general')
+  const [settingsSection, setSettingsSection] = useState<Section>(() => sectionFromAddress() ?? 'general')
+  /** The section Settings shows now; it moves on its own as the person picks sections, unlike the one it opens on. */
+  const [shownSection, setShownSection] = useState<Section>(settingsSection)
+  /** A channel whose sheet Settings → Channels opens on, from a request's toast; forgotten once Settings closes. */
+  const [settingsChannel, setSettingsChannel] = useState<string>()
+  useEffect(() => {
+    if (!settingsOpen) setSettingsChannel(undefined)
+  }, [settingsOpen])
   // Ways out of Settings go through its guard, which asks first when hook edits are unsaved.
   const settingsGuard = useRef<(go: () => void) => void>(undefined)
   const leaveSettings = useCallback(
@@ -246,6 +282,22 @@ export function App() {
     else url.searchParams.delete('chat')
     history.replaceState(null, '', url)
   }, [])
+
+  // A refresh comes back to the same screen: the screen and an open Settings section live in the address beside the
+  // chat. A chats-only device has neither Settings nor System, so an address naming them falls back to the chat.
+  useEffect(() => {
+    if (!fullAccess && (settingsOpen || view === 'system')) {
+      setSettingsOpen(false)
+      if (view === 'system') setView('chat')
+      return
+    }
+    const url = new URL(location.href)
+    if (view === 'chat') url.searchParams.delete(VIEW_PARAM)
+    else url.searchParams.set(VIEW_PARAM, view)
+    if (settingsOpen) url.searchParams.set(SETTINGS_PARAM, shownSection)
+    else url.searchParams.delete(SETTINGS_PARAM)
+    if (url.href !== location.href) history.replaceState(null, '', url)
+  }, [view, settingsOpen, shownSection, fullAccess])
 
   const loadModels = useCallback(() => {
     api<{ models: ModelOption[]; default?: string; defaults?: Record<string, unknown> }>(
@@ -289,7 +341,10 @@ export function App() {
     return () => window.removeEventListener(CONNECTION_CHANGED, back)
   }, [config, loadModels, loadProjects])
 
-  // Announce rounds that finish while the user is elsewhere.
+  // Announce rounds that finish while the user is elsewhere: another chat, another view, or another window. The chat
+  // on screen shows its own answer arriving, so a pop-up there only repeats it.
+  const onScreen = useRef<string | undefined>(undefined)
+  onScreen.current = !settingsOpen && view === 'chat' ? activeChat : undefined
   useEffect(() => {
     for (const c of chats) {
       const before = seen.current.get(c.chatId)
@@ -298,12 +353,175 @@ export function App() {
           c.status === 'completed'
             ? copy.app.toasts.roundDone(c.title)
             : copy.app.toasts.roundEnded(c.title, c.status === 'stopped' ? copy.app.toasts.paused : c.status)
-        toast(text, c.status === 'completed' ? 'success' : 'info')
+        const watching =
+          c.chatId === onScreen.current && document.visibilityState === 'visible' && document.hasFocus()
+        if (!watching) toast(text, c.status === 'completed' ? 'success' : 'info')
         notify(text, c.chatId)
       }
       seen.current.set(c.chatId, c.status)
     }
   }, [chats, toast])
+
+  // Someone new asking to talk to the crew on a channel: a toast that opens their channel's People tab (approving
+  // takes the code they were sent, typed there), and a desktop notice.
+  const { status } = useStatus()
+  const knownRequests = useRef<Set<string>>(undefined)
+  useEffect(() => {
+    const waiting = status?.waiting
+    if (!waiting) return
+    const known = knownRequests.current
+    knownRequests.current = new Set(waiting.map((w) => `${w.channel}/${w.id}`))
+    // The requests already waiting when the page opened are on the Channels page; only new ones interrupt.
+    if (!known) return
+    for (const w of waiting) {
+      if (known.has(`${w.channel}/${w.id}`)) continue
+      const text = copy.channelRequest[w.kind](w.name, w.label)
+      toast(text, 'info', {
+        label: copy.channelRequest.review,
+        run: () =>
+          leaveSettings(() => {
+            setSettingsSection('channels')
+            setSettingsChannel(w.channel)
+            setSettingsOpen(true)
+          }),
+      })
+      notify(text, undefined, `channel-request-${w.channel}-${w.id}`)
+    }
+  }, [status?.waiting, toast, leaveSettings])
+
+  // Learned skills the curator archived: said once per archiving, with the way to restore them.
+  const archived = status?.skillsArchived
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per archiving; openSettings is a fresh closure
+  useEffect(() => {
+    if (!archived) return
+    try {
+      if (localStorage.getItem(SKILLS_ARCHIVED_SEEN_KEY) === archived.at) return
+      localStorage.setItem(SKILLS_ARCHIVED_SEEN_KEY, archived.at)
+    } catch {
+      // Storage blocked: said on every load rather than never.
+    }
+    toast(copy.app.toasts.skillsArchived(archived.names), 'info', {
+      label: copy.app.toasts.reviewSkills,
+      run: () => openSettings('skills'),
+    })
+  }, [archived?.at])
+
+  // A voice call from this window: its socket and audio live in the client, what the bar shows lives here.
+  const callRef = useRef<CallClient>(undefined)
+  const [call, setCall] = useState<{
+    state: CallState
+    lines: CallLine[]
+    muted: boolean
+    /** Who the call reached: `assistant`, `lead` or a crew member's name. */
+    talk: string
+    chatId?: string
+    /** The chat's title as the server named it, until the chat list has it. */
+    chatTitle?: string
+    latency?: number
+    /** What waits for the person's yes or no, newest last. */
+    approvals: { id: string; summary: string }[]
+  }>()
+  const [calls, setCalls] = useState<SavedCall[]>([])
+  const [callsSeen, setCallsSeen] = useState(0)
+  // The Call button shows only once voice calls are on in Settings → Voice.
+  const [voiceOn, setVoiceOn] = useState(false)
+  useEffect(() => {
+    const load = () =>
+      api<{ enabled?: boolean }>('/api/voice')
+        .then((r) => setVoiceOn(r.enabled === true))
+        .catch(() => setVoiceOn(false))
+    void load()
+    window.addEventListener(SETTINGS_SAVED, load)
+    return () => window.removeEventListener(SETTINGS_SAVED, load)
+  }, [])
+  const callChat = activeChat
+  // biome-ignore lint/correctness/useExhaustiveDependencies: callsSeen reloads the list after a call ends
+  useEffect(() => {
+    if (!callChat) return setCalls([])
+    api<{ calls: SavedCall[] }>(`/api/chats/${callChat}/calls`)
+      .then((r) => setCalls(r.calls))
+      .catch(() => setCalls([]))
+  }, [callChat, callsSeen])
+  const startCall = async (to: CallTarget) => {
+    if (callRef.current) return
+    if (!window.isSecureContext || !navigator.mediaDevices) return toast(copy.call.insecure, 'error')
+    const client = new CallClient(
+      activeChat,
+      {
+        state: (state) => setCall((c) => c && { ...c, state }),
+        hello: (hello) =>
+          setCall(
+            (c) =>
+              c && {
+                ...c,
+                talk: hello.talk,
+                ...(hello.chatId ? { chatId: hello.chatId } : {}),
+                ...(hello.chatTitle ? { chatTitle: hello.chatTitle } : {}),
+              },
+          ),
+        line: (who, text, from) =>
+          setCall(
+            (c) =>
+              c && { ...c, lines: [...c.lines, { who, text, ...(from ? { from } : {}) }].slice(-CALL_LINES) },
+          ),
+        level: setMicLevel,
+        chat: (id) => {
+          setCall((c) => c && { ...c, chatId: id })
+          setActiveChat(id)
+          setView('chat')
+          refreshChats()
+        },
+        task: (request) => toast(copy.call.started(request), 'info'),
+        latency: (ms) => setCall((c) => c && { ...c, latency: ms }),
+        approval: (id, summary) =>
+          setCall(
+            (c) => c && { ...c, approvals: [...c.approvals.filter((a) => a.id !== id), { id, summary }] },
+          ),
+        approvalDone: (id) =>
+          setCall((c) => c && { ...c, approvals: c.approvals.filter((a) => a.id !== id) }),
+        // Voice off (4409) or not ready (4503: an engine to install, no call model…) is fixed in Settings → Voice.
+        error: (message, code) =>
+          toast(
+            message,
+            'error',
+            fullAccess && (code === 4409 || code === 4503)
+              ? { label: copy.call.openVoiceSettings, run: () => openSettings('voice') }
+              : undefined,
+          ),
+        ended: () => {
+          callRef.current = undefined
+          setCall(undefined)
+          setMicLevel(0)
+          setCallsSeen((n) => n + 1)
+        },
+      },
+      to,
+    )
+    callRef.current = client
+    setCall({
+      state: 'connecting',
+      lines: [],
+      muted: false,
+      talk: to ?? 'assistant',
+      ...(activeChat ? { chatId: activeChat } : {}),
+      approvals: [],
+    })
+    try {
+      await client.start()
+    } catch (err) {
+      // Hung up before the mic or audio was ready: what failed after that is of no interest any more.
+      if (callRef.current !== client) return
+      toast((err as Error).name === 'NotAllowedError' ? copy.call.noMic : (err as Error).message, 'error')
+      client.hangUp()
+    }
+  }
+  const muteCall = (muted: boolean) => {
+    callRef.current?.mute(muted)
+    setCall((c) => c && { ...c, muted })
+  }
+  const callChatTitle = call?.chatId
+    ? (chats.find((c) => c.chatId === call.chatId)?.title ?? call.chatTitle)
+    : undefined
 
   const updateConfig = (c: TeamConfig) => {
     setConfig(c)
@@ -367,6 +585,13 @@ export function App() {
     ...(!settingsOpen && view === 'chat' && chat
       ? []
       : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
+    ...(call
+      ? [
+          // Not while typing: on a Mac, Ctrl+D (which `mod` also matches) deletes forward in a text field.
+          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted) },
+          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp() },
+        ]
+      : []),
   ])
 
   const send = async (
@@ -539,6 +764,7 @@ export function App() {
     setDeleteBusy(true)
     try {
       await request('DELETE', `/api/chats/${deleting.chatId}`)
+      forgetDraft(deleting.chatId)
       toast(copy.app.toasts.deleted(deleting.title), 'success')
       if (deleting.chatId === activeChat) newTask()
       setDeleting(undefined)
@@ -611,12 +837,24 @@ export function App() {
       ? (chat?.title ?? (missing ? copy.app.chatNotFound.title : copy.app.titles.newTask))
       : view === 'colonies'
         ? copy.app.titles.crews
-        : copy.app.titles.compare
+        : view === 'system'
+          ? copy.system.title
+          : copy.app.titles.compare
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
       <div className="flex h-dvh overflow-hidden bg-bg text-fg">
+        {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
+        {!settingsOpen && view === 'chat' && config && (
+          <button
+            type="button"
+            onClick={() => composer.current?.focus()}
+            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+          >
+            {copy.app.skipToComposer}
+          </button>
+        )}
         <AnimatePresence initial={false}>
           {!collapsed && (
             <motion.div
@@ -636,8 +874,10 @@ export function App() {
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
           {settingsOpen ? (
             <Settings
-              key={settingsSection}
+              key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
               initialSection={settingsSection}
+              onSection={setShownSection}
+              {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
               guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
               theme={theme}
@@ -680,12 +920,15 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
+                    <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                   )}
                 </ToolbarTitle>
+                {view === 'chat' && voiceOn && !call && (
+                  <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
+                )}
                 {view === 'chat' && chat && (
                   <Button
-                    variant="toolbar"
+                    variant="borderless"
                     size="sm"
                     icon={<Network className="size-4" />}
                     onClick={() => {
@@ -698,10 +941,40 @@ export function App() {
                   </Button>
                 )}
               </Toolbar>
+              <AnimatePresence>
+                {call && (
+                  <CallBar
+                    key="call"
+                    talk={call.talk}
+                    {...(call.chatId && callChatTitle
+                      ? {
+                          chat: {
+                            title: callChatTitle,
+                            onOpen: () => {
+                              setActiveChat(call.chatId)
+                              setView('chat')
+                            },
+                          },
+                        }
+                      : {})}
+                    {...(call.latency !== undefined ? { latency: call.latency } : {})}
+                    {...(call.approvals.length ? { approval: call.approvals.at(-1)?.summary } : {})}
+                    state={call.state}
+                    lines={call.lines}
+                    muted={call.muted}
+                    onMute={muteCall}
+                    onHangUp={() => {
+                      callRef.current?.hangUp()
+                      // The bar and its button go; the message box is where the conversation carries on.
+                      composer.current?.focus()
+                    }}
+                  />
+                )}
+              </AnimatePresence>
               {!online ? (
                 <div
                   role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
                 >
                   <LoaderCircle className="size-3.5 animate-spin text-muted" />
                   {copy.app.reconnecting}
@@ -745,7 +1018,9 @@ export function App() {
                     )
                   const box = config ? (
                     <Composer
+                      key={activeChat ?? NEW_CHAT_DRAFT}
                       ref={composer}
+                      draftKey={activeChat ?? NEW_CHAT_DRAFT}
                       models={models}
                       config={config}
                       onConfig={updateConfig}
@@ -794,6 +1069,7 @@ export function App() {
                     <>
                       <Transcript
                         {...(chat ? { chat } : {})}
+                        calls={calls}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
                         onLearn={() => void learn()}
@@ -824,6 +1100,15 @@ export function App() {
                 })()}
               {view === 'colonies' && <ColoniesPane />}
               {view === 'compare' && <ComparePane onOpen={setColonyModal} />}
+              {view === 'system' && (
+                <SystemPage
+                  onManageChannels={() => openSettings('channels')}
+                  onOpenChat={(id) => {
+                    setActiveChat(id)
+                    setView('chat')
+                  }}
+                />
+              )}
             </>
           )}
         </main>
@@ -850,13 +1135,9 @@ export function App() {
                 </span>
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
-              {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
-                  {copy.app.deleteChat.stillRunning}
-                </p>
-              )}
+              {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+                <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
                   {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
@@ -886,8 +1167,16 @@ export function App() {
             onAdded={(p, all) => {
               setProjects(all)
               setPicking(false)
-              // The open chat stays open; a new task about to start works in the folder just added.
+              // The open chat stays open, so the toast offers a chat in the new folder; a new task about to start
+              // works in it already.
               if (!activeChat) setNewProject(p.id)
+              toast(
+                copy.folderPicker.added(p.name),
+                'success',
+                activeChat
+                  ? { label: copy.folderPicker.startChat(p.name), run: () => newTask(p.id) }
+                  : undefined,
+              )
             }}
           />
         )}
@@ -915,8 +1204,8 @@ function SetupCard(props: { onConnect?(): void }) {
   const t = copy.app.setup
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
-        <Plug className="size-4" />
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+        <FEATURE_ICONS.providers className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-reading font-semibold">{t.title}</p>
@@ -938,7 +1227,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />
@@ -947,7 +1236,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
         )}
         <span className="flex-1">{props.error ? t.failed : t.loading}</span>
         {props.error && (
-          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+          <Button variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
             {t.retry}
           </Button>
         )}
@@ -967,7 +1256,7 @@ function PaneNotice(props: {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
       {props.icon}
       <div>
-        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-headline font-semibold tracking-tight">{props.title}</p>
         <p className="text-body text-muted">{props.body}</p>
       </div>
       {props.action && (
@@ -992,9 +1281,25 @@ function Transcript(props: {
   sending: boolean
   /** A request whose round has not started yet. */
   pending?: string
+  /** Voice calls in this chat, placed among the rounds by when they started. */
+  calls: readonly SavedCall[]
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
+  // Each call shows before the first round that began after it; calls since the last round began come after it.
+  const callsBefore = (r: ChatRound) => {
+    const at = rounds.indexOf(r)
+    const from = rounds
+      .slice(0, at)
+      .map((x) => x.startedAt)
+      .filter(Boolean)
+      .at(-1)
+    return r.startedAt
+      ? props.calls.filter((c) => c.startedAt <= (r.startedAt ?? '') && (!from || c.startedAt > from))
+      : []
+  }
+  const placed = new Set(rounds.flatMap(callsBefore).map((c) => c.id))
+  const loose = props.calls.filter((c) => !placed.has(c.id))
   const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -1006,26 +1311,34 @@ function Transcript(props: {
             rounds={group.rounds}
             first={g === 0}
             render={(colony, r) => (
-              <RoundView
-                colonyId={r.colonyId}
-                colony={colony}
-                round={r.round}
-                onOpenColony={props.onOpenColony}
-                onRetry={props.onRetry}
-                onLearn={props.onLearn}
-                onAnswer={props.onAnswer}
-                onResume={props.onResume}
-                models={props.models}
-                retry={
-                  r === rounds.at(-1) && !running && !props.pending
-                    ? props.sending
-                      ? 'starting'
-                      : 'ready'
-                    : 'hidden'
-                }
-              />
+              <>
+                {callsBefore(r).map((c) => (
+                  <CallCard key={c.id} call={c} />
+                ))}
+                <RoundView
+                  colonyId={r.colonyId}
+                  colony={colony}
+                  round={r.round}
+                  onOpenColony={props.onOpenColony}
+                  onRetry={props.onRetry}
+                  onLearn={props.onLearn}
+                  onAnswer={props.onAnswer}
+                  onResume={props.onResume}
+                  models={props.models}
+                  retry={
+                    r === rounds.at(-1) && !running && !props.pending
+                      ? props.sending
+                        ? 'starting'
+                        : 'ready'
+                      : 'hidden'
+                  }
+                />
+              </>
             )}
           />
+        ))}
+        {loose.map((c) => (
+          <CallCard key={c.id} call={c} />
         ))}
         {props.pending && (
           <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>

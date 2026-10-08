@@ -17,7 +17,7 @@
 - **Rounds.** A chat runs in one colony: each follow-up is the next round of it. Files (with their versions),
   notes, tools, and each agent's own conversation carry on (earlier rounds' tool output is shortened); tasks
   and the plan are per round, and so are the time and turn budgets. The team persists unless the lead dismisses
-  a worker.
+  a crewmate.
 - **Context.** When your conversation nears your model's context window, its older part is replaced (for the
   model only) by a summary of your work so far; the log keeps everything. Keep facts you will need later in
   notes, files, or your todo list rather than only in the conversation.

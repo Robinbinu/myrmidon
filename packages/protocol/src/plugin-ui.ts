@@ -14,6 +14,8 @@ export type PluginSlotName = (typeof PLUGIN_SLOTS)[number]
 export const PLUGIN_UI_KIT = [
   'Button',
   'IconButton',
+  'Badge',
+  // The older name for Badge, kept so plugins that import it keep working.
   'Pill',
   'Switch',
   'TextInput',

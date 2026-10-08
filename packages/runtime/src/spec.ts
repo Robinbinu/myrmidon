@@ -57,6 +57,10 @@ export interface ColonySpec {
     memory?: string[]
     /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
     addressed?: string[]
+    /** The opening message was said aloud on a voice call (its answer is read aloud). */
+    voice?: boolean
+    /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+    context?: string
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy
@@ -69,6 +73,11 @@ export interface ColonySpec {
    * `mcp`) lets it run without asking.
    */
   allowTools?: string[]
+  /**
+   * Every call that changes something outside the colony waits for approval, whatever the person allowed: the round
+   * was started by someone other than the person (a channel member), who must not borrow the person's permissions.
+   */
+  askAll?: boolean
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */
@@ -91,8 +100,13 @@ export interface TeamPolicy {
   maxWorkers: number
   /** Models the lead may assign to spawned workers; the first is the default. */
   workerModels: string[]
-  /** The person's saved specialists the lead may bring in by name (spawn_worker), as they would join. */
+  /** The person's saved specialists the lead may bring in by name (add_crewmate), as they would join. */
   specialists?: AgentSpec[]
+  /**
+   * In a round the lead works alone: the crewmates the person set up, on call. The lead asks one for a piece of work
+   * with ask_crewmate (it joins then, and waits for the answer) instead of handing the whole request to the team.
+   */
+  crewmates?: AgentSpec[]
 }
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/

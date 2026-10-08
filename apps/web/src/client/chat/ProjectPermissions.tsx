@@ -1,40 +1,47 @@
-import { Lock, ShieldCheck, ShieldQuestion, Zap } from 'lucide-react'
+import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, TextArea } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
 export type PermissionMode = 'auto' | 'ask' | 'read-only'
 
-const MODES: { value: PermissionMode; label: string; icon: typeof Zap; hint: string }[] = [
-  {
-    value: 'auto',
-    label: copy.permissions.modes.auto.label,
-    icon: Zap,
-    hint: copy.permissions.modes.auto.hint,
-  },
-  {
-    value: 'ask',
-    label: copy.permissions.modes.ask.label,
-    icon: ShieldQuestion,
-    hint: copy.permissions.modes.ask.hint,
-  },
-  {
-    value: 'read-only',
-    label: copy.permissions.modes.readOnly.label,
-    icon: Lock,
-    hint: copy.permissions.modes.readOnly.hint,
-  },
-]
+const MODES: { value: PermissionMode; label: string; icon: typeof FEATURE_ICONS.autonomous; hint: string }[] =
+  [
+    {
+      value: 'auto',
+      label: copy.permissions.modes.auto.label,
+      icon: FEATURE_ICONS.autonomous,
+      hint: copy.permissions.modes.auto.hint,
+    },
+    {
+      value: 'ask',
+      label: copy.permissions.modes.ask.label,
+      icon: FEATURE_ICONS.approvalAsk,
+      hint: copy.permissions.modes.ask.hint,
+    },
+    {
+      value: 'read-only',
+      label: copy.permissions.modes.readOnly.label,
+      icon: Lock,
+      hint: copy.permissions.modes.readOnly.hint,
+    },
+  ]
 
 /** The small mark shown beside a project's name for its mode; nothing for autonomous. */
 export function PermissionMark({ mode }: { mode?: PermissionMode }) {
   if (mode === 'read-only')
     return <Lock className="size-3 shrink-0 text-muted" aria-label={copy.permissions.mark.readOnly} />
   if (mode === 'ask')
-    return <ShieldQuestion className="size-3 shrink-0 text-warn-ink" aria-label={copy.permissions.mark.ask} />
+    return (
+      <FEATURE_ICONS.approvalAsk
+        className="size-3 shrink-0 text-warn-ink"
+        aria-label={copy.permissions.mark.ask}
+      />
+    )
   return null
 }
 
@@ -75,7 +82,7 @@ export function ProjectPermissions(props: {
           variant="primary"
           disabled={busy}
           onClick={() => void save()}
-          icon={<ShieldCheck className="size-3.5" />}
+          icon={<FEATURE_ICONS.permissions className="size-3.5" />}
         >
           {copy.permissions.save}
         </Button>
@@ -90,8 +97,8 @@ export function ProjectPermissions(props: {
             <label
               key={m.value}
               className={cn(
-                'flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
-                mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-surface-2',
+                'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
+                mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-fill',
               )}
             >
               <input

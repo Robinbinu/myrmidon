@@ -6,6 +6,14 @@
 export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
 /** A gentler spring for content entering the page. */
 export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as const
+/** A bouncy pop for things that arrive with some character: an agent's chip joining the crew. */
+export const popSpring = { type: 'spring', stiffness: 520, damping: 17 } as const
+/** Eyes following where they look: quick, without the overshoot of a pop. */
+export const lookSpring = { type: 'spring', stiffness: 420, damping: 30 } as const
+/** A plain fade: a dialog's backdrop, a toast leaving. */
+export const fade = { duration: 0.15 } as const
+/** How long a toast stays: one with a button long enough to reach for it, an error long enough to read. */
+export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
 
 /* ------------------------------------------------------------------ models */
 
@@ -29,6 +37,14 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024
  * so a width at the edge doesn't flip them back and forth.
  */
 export const TOOLBAR_FOLD_SLACK_PX = 24
+
+/* ------------------------------------------------------------------ workspace panel */
+
+/**
+ * From this window width (Tailwind's xl) the workspace panel docks beside the chat; below it, it covers the chat, so
+ * it opens only when asked for, never by itself because a chat has files.
+ */
+export const WORKSPACE_DOCK_PX = 1280
 
 /* ------------------------------------------------------------------ sidebar */
 
@@ -109,7 +125,12 @@ export const CURSOR = {
   fullTurnSpeed: 1400,
   labelTiltMax: 8,
   labelTiltPerPx: 0.11,
-}
+  /** The arrow and its name tag popping in; the tag a beat after. */
+  arrowPop: { type: 'spring', stiffness: 600, damping: 24 },
+  labelPop: { type: 'spring', stiffness: 500, damping: 26, delay: 0.05 },
+  /** The ring a click leaves. */
+  clickRing: { duration: 0.5, ease: 'easeOut' },
+} as const
 
 /* ------------------------------------------------------------------ connection */
 
@@ -136,3 +157,20 @@ export const SETTINGS_NAV_COLLAPSE_PX = 1100
  * arms it cannot also confirm it.
  */
 export const CONFIRM_ARM_DELAY_MS = 400
+
+/** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
+export const STATUS_POLL_MS = 10_000
+/** Voice calls: the rate the mic is sent at (what Phonon-2 takes), and samples per frame sent (20 ms). */
+export const CALL_RATE = 16_000
+export const CALL_FRAME = 320
+/** Lines of the live transcript the call bar keeps. */
+export const CALL_LINES = 6
+/** Call shortcuts: ⌘D mutes as in Google Meet, ⇧⌘H hangs up as in Microsoft Teams. */
+export const CALL_MUTE_COMBO = 'mod+d'
+export const CALL_HANG_UP_COMBO = 'mod+shift+h'
+/** How often Settings → Voice looks again while an engine installs or downloads, to show its progress. */
+export const VOICE_POLL_MS = 2000
+/** Speech speeds offered in Settings → Voice. */
+export const VOICE_SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
+/** Thumbnails of pictures in the message box before sending, in pixels. */
+export const ATTACH_THUMB_PX = 64

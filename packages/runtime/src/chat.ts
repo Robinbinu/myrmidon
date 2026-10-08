@@ -16,9 +16,10 @@ import {
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
+import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
-import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
+import { CHAT_TITLE_ROUNDS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -119,6 +120,15 @@ export interface SendOptions {
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
   readonly tier?: Tier
+  /** Said aloud on a voice call: the answer will be read aloud, so it should be short and plain. */
+  readonly voice?: boolean
+  /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+  readonly context?: string
+  /**
+   * Someone other than the person wrote it (a channel member): the round asks before every call that changes
+   * something outside it, whatever the person allowed (`ColonySpec.askAll`).
+   */
+  readonly askAll?: boolean
 }
 
 /** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
@@ -196,6 +206,8 @@ export interface ChatRound {
   readonly request: string
   /** Swarm rounds have no lead to address. */
   readonly swarm: boolean
+  /** When the round began, so the chat can place other things (voice calls) among rounds by time. */
+  readonly startedAt?: string
 }
 
 export interface ChatSummary {
@@ -239,10 +251,17 @@ function title(text: string) {
   return line.length > 60 ? `${line.slice(0, 57)}…` : line
 }
 
+/** A chat has a name once any of its rounds was renamed: older chats ran each round in a colony of its own. */
+const named = (rounds: readonly RoundRef[]) => rounds.some((r) => r.state.chatTitle)
+
 /** Conversations as sequences of colony rounds. Follow-ups after a round ends start a new round on its files. */
 export class ChatService {
   private readonly _live = new Map<string, ColonyRun>()
   private readonly _sending = new Map<string, Promise<unknown>>()
+  /** Chats being deleted: a name arriving meanwhile must not write to (and so recreate) their logs. */
+  private readonly _deleting = new Set<string>()
+  /** A chat's name on its way into the log, which deleting the chat waits for. */
+  private readonly _naming = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -497,6 +516,7 @@ export class ChatService {
           status: r.status,
           request: r.request,
           swarm: r.swarm,
+          ...(r.createdAt ? { startedAt: r.createdAt } : {}),
         })),
       })
     }
@@ -523,7 +543,9 @@ export class ChatService {
     chatId?: string,
     options: SendOptions = {},
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const message = text.trim()
+    // Files alone (a photo sent without a caption) are a message too: it says what was sent.
+    const names = (options.attachments ?? []).map((a) => a.name)
+    const message = text.trim() || (names.length ? prompts.chat.filesOnly(names) : '')
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())
@@ -543,11 +565,14 @@ export class ChatService {
     config: TeamConfig,
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const { delivery = 'steer', attachments = [], planFirst = false } = options
+    const { delivery = 'steer', attachments = [], planFirst = false, voice = false, context } = options
+    const extra = { ...(voice ? { voice: true } : {}), ...(context ? { context } : {}) }
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()))
+      // Their message steers a round someone else started: from now on it asks too, as if they had started it.
+      if (options.askAll) await live.askForAll()
+      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = await this.rounds(id)
@@ -561,6 +586,8 @@ export class ChatService {
       : (options.tier ??
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
+    if (spec.chat) Object.assign(spec.chat, extra)
+    if (options.askAll) spec.askAll = true
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
@@ -576,7 +603,8 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
-      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
+      onStream: (agent: string, text: string, done: boolean, plain: boolean) =>
+        this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -610,6 +638,7 @@ export class ChatService {
           text: message,
           ...(names.length ? { attachments: names } : {}),
           ...(to.length ? { to } : {}),
+          ...extra,
         },
       })
       for (const later of said.slice(1))
@@ -639,7 +668,17 @@ export class ChatService {
     })
     void run.done.then((final) => {
       if (final.escalated)
-        this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
+        this._rerun(id, message, config, {
+          ...options,
+          // The rerun repeats every message of this round, a member's among them.
+          ...(run.spec.askAll ? { askAll: true } : {}),
+          attachments: [],
+          tier: final.escalated.to,
+        })
+      if (final.status === 'completed')
+        this._nameChat(id, config.leadModel).catch((err) =>
+          console.error(`naming ${id} failed: ${err instanceof Error ? err.message : err}`),
+        )
       // A finished round that took real work is read for a skill worth keeping, after the fact.
       if (final.status === 'completed' && this.options.skillProposals && this.options.skills)
         this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
@@ -647,6 +686,43 @@ export class ChatService {
         )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
+  }
+
+  /**
+   * Names a chat from what it is about, after a round: not one anyone named (the person, a channel, a schedule), and
+   * not once it has a name. "hi" has nothing to name, so the next rounds try again, up to CHAT_TITLE_ROUNDS.
+   */
+  private async _nameChat(chatId: string, model: string) {
+    // Without a settings store (tests, bare runtimes) chats keep their first message as their name.
+    if (this.options.settings?.get().profile.titles !== 'model') return
+    const rounds = await this.rounds(chatId)
+    const latest = rounds.at(-1)
+    if (!latest || rounds.length > CHAT_TITLE_ROUNDS || named(rounds)) return
+    const answer = messagesOf(latest)
+      .filter((m) => m.from !== 'user' && m.final)
+      .at(-1)?.text
+    const title = await nameChat(this.options.resolver, model, {
+      asked: rounds.map((r) => r.round.request),
+      ...(answer ? { answer } : {}),
+    })
+    if (!title) return
+    // Renamed meanwhile (by the person, say): theirs stands. Deleted meanwhile: it stays deleted.
+    const again = await this.rounds(chatId)
+    if (!again.length || named(again) || this._deleting.has(chatId)) return
+    const draft = {
+      type: 'chat/renamed',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: { title, by: 'auto' },
+    } as const
+    const live = this._live.get(chatId)
+    const write =
+      live?.id === latest.id ? live.append(draft) : this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    this._naming.set(chatId, write)
+    try {
+      await write
+    } finally {
+      if (this._naming.get(chatId) === write) this._naming.delete(chatId)
+    }
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */
@@ -905,7 +981,8 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
-      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
+      onStream: (agent: string, text: string, done: boolean, plain: boolean) =>
+        this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -948,6 +1025,15 @@ export class ChatService {
     const start = events.findLast((e) => e.type === 'colony/created' || e.type === 'round/started')
     if (!start) throw new Error('the colony has no colony/created event')
     const created = start.payload as EventPayloads['colony/created']
+    // A member who wrote into the round made it ask for everything from then on.
+    const askAll =
+      created.askAll ||
+      events.some(
+        (e) =>
+          e.seq > start.seq &&
+          e.type === 'permissions/changed' &&
+          (e.payload as EventPayloads['permissions/changed']).askAll,
+      )
     const joined = events
       .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
       .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
@@ -988,6 +1074,7 @@ export class ChatService {
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
       ...(created.askTools?.length ? { askTools: created.askTools } : {}),
       ...(created.allowTools?.length ? { allowTools: created.allowTools } : {}),
+      ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
     }
@@ -995,18 +1082,25 @@ export class ChatService {
 
   /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */
   async delete(chatId: string): Promise<string[]> {
-    const live = this._live.get(chatId)
-    if (live) {
-      await live.stop('chat deleted')
-      await live.done
-      this._live.delete(chatId)
+    this._deleting.add(chatId)
+    try {
+      const live = this._live.get(chatId)
+      if (live) {
+        await live.stop('chat deleted')
+        await live.done
+        this._live.delete(chatId)
+      }
+      const ids = [...new Set((await this.rounds(chatId)).map((r) => r.id))]
+      // A name already on its way lands first; deleting under it would let the append recreate the log.
+      await this._naming.get(chatId)?.catch(() => {})
+      for (const id of ids) {
+        this.store.deleteColony(id as never)
+        this.index.forget(id)
+      }
+      return ids
+    } finally {
+      this._deleting.delete(chatId)
     }
-    const ids = [...new Set((await this.rounds(chatId)).map((r) => r.id))]
-    for (const id of ids) {
-      this.store.deleteColony(id as never)
-      this.index.forget(id)
-    }
-    return ids
   }
 
   /**
@@ -1024,10 +1118,9 @@ export class ChatService {
   }
 
   private readonly _streams = new Set<
-    (colonyId: string, agent: string, text: string, done: boolean) => void
+    (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void
   >()
 
-  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
   /** Every event as it is appended to any colony, e.g. for a channel following a round it started. */
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void {
     return this.runtime.ctx.on('log/appended', listener)
@@ -1038,13 +1131,16 @@ export class ChatService {
     return this.store.read(colonyId as never)
   }
 
-  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
+  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
+  onStream(
+    listener: (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void,
+  ): () => void {
     this._streams.add(listener)
     return () => this._streams.delete(listener)
   }
 
-  private _streamed(colonyId: string, agent: string, text: string, done: boolean) {
-    for (const listener of this._streams) listener(colonyId, agent, text, done)
+  private _streamed(colonyId: string, agent: string, text: string, done: boolean, plain: boolean) {
+    for (const listener of this._streams) listener(colonyId, agent, text, done, plain)
   }
 
   async stopAll(): Promise<void> {
@@ -1164,6 +1260,11 @@ export class ChatService {
               })
           : [lead, ...crew('worker')]
     ).map((a) => this._asSpecialist(a))
+    // A lead working alone keeps the crew on call: it asks one for a piece of work instead of calling the team.
+    const crewmates =
+      tier === 'solo' && config.mode === 'orchestrated'
+        ? crew('worker').map((a) => this._asSpecialist(a))
+        : []
     const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
@@ -1217,6 +1318,7 @@ export class ChatService {
         ...(tier === 'team' && !swarm
           ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
           : {}),
+        ...(crewmates.length ? { crewmates } : {}),
       },
     }
   }

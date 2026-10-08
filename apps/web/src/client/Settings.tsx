@@ -1,9 +1,7 @@
 import {
+  ArchiveRestore,
   ArrowLeft,
-  BookMarked,
   Bot,
-  Brain,
-  CalendarClock,
   Check,
   ChevronRight,
   CircleCheck,
@@ -12,36 +10,18 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Gavel,
-  Globe,
-  GraduationCap,
-  KeyRound,
   LoaderCircle,
   LogIn,
-  MessageSquareText,
-  MessagesSquare,
+  type LucideIcon,
   Monitor,
-  MonitorSmartphone,
   Moon,
-  Network,
-  Palette,
-  Plug,
+  Pin,
   Plus,
-  Puzzle,
   RefreshCw,
   Search,
-  Server,
-  ShieldCheck,
-  SlidersHorizontal,
-  Smile,
   Sun,
-  Terminal,
   Trash2,
   TriangleAlert,
-  UserCog,
-  Users,
-  Webhook,
-  Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -54,41 +34,73 @@ import {
   listGateways,
   type ModelOption,
   post,
+  postForBlob,
   send,
   switchGateway,
   type TeamConfig,
 } from './api.ts'
+import { CHANNEL_GROUPS } from './channel-logos.ts'
+import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
+import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
-import { windowLabel } from './chat/ModelPicker.tsx'
+import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
-import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
+import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
+import { useStatus } from './status.tsx'
+import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
-import { day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import {
+  ago,
+  day,
+  NOTIFY_KEY,
+  type ThemeChoice,
+  useCopy,
+  useMinWidth,
+  usePersistentFlag,
+} from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
+  Badge,
+  Banner,
   Button,
+  Card,
+  CardRow,
+  CountBadge,
   cn,
   Dot,
   Empty,
   Field,
   IconButton,
   Kbd,
-  Pill,
+  PageHeader,
+  SectionHeader,
   Segmented,
   Select,
   Switch,
+  Tabs,
   TextArea,
   TextInput,
+  tabPanel,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
-import { AGENT_MIN_WINDOW, MASCOT_COLORS, SETTINGS_NAV_COLLAPSE_PX, softSpring, spring } from './ui-config.ts'
+import {
+  AGENT_MIN_WINDOW,
+  MASCOT_COLORS,
+  SETTINGS_NAV_COLLAPSE_PX,
+  softSpring,
+  spring,
+  VOICE_POLL_MS,
+  VOICE_SPEEDS,
+} from './ui-config.ts'
+import { engineTrouble } from './voice/engine-trouble.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -135,8 +147,23 @@ export interface ServerSettings {
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
   permissions: Record<string, 'allow' | 'ask' | 'off'>
-  profile?: { name?: string; greeting: 'model' | 'rules' }
+  profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
   mascot?: MascotLook
+  voice: {
+    enabled: boolean
+    callModel?: string
+    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    tts: {
+      provider: 'kitten' | 'omp' | 'endpoint'
+      kittenModel: 'nano' | 'micro' | 'mini'
+      voice: string
+      speed: number
+      baseUrl?: string
+      model?: string
+      endpointVoice?: string
+    }
+    sensitivity: 'low' | 'normal' | 'high'
+  }
 }
 
 interface SettingsResponse {
@@ -160,6 +187,7 @@ export type Section =
   | 'devices'
   | 'gateways'
   | 'channels'
+  | 'voice'
   | 'models'
   | 'team'
   | 'tools'
@@ -172,122 +200,132 @@ export type Section =
   | 'memory'
 
 type SectionGroup = keyof typeof copy.settings.page.groups
+/** The order the section list shows its groups in. */
+const GROUPS: readonly SectionGroup[] = ['setup', 'agents', 'extend', 'connect', 'you']
 
 /** The sections in the order the list shows them, each under its group's heading. */
-const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
-  {
-    id: 'models',
-    group: 'setup',
-    label: copy.settings.sections.models.label,
-    hint: copy.settings.sections.models.hint,
-    icon: Brain,
-  },
-  {
-    id: 'team',
-    group: 'setup',
-    label: copy.settings.sections.team.label,
-    hint: copy.settings.sections.team.hint,
-    icon: Users,
-  },
-  {
-    id: 'verification',
-    group: 'setup',
-    label: copy.settings.sections.verification.label,
-    hint: copy.settings.sections.verification.hint,
-    icon: Gavel,
-  },
-  {
-    id: 'specialists',
-    group: 'agents',
-    label: copy.settings.sections.specialists.label,
-    hint: copy.settings.sections.specialists.hint,
-    icon: UserCog,
-  },
-  {
-    id: 'instructions',
-    group: 'agents',
-    label: copy.settings.sections.instructions.label,
-    hint: copy.settings.sections.instructions.hint,
-    icon: MessageSquareText,
-  },
-  {
-    id: 'memory',
-    group: 'agents',
-    label: copy.settings.sections.memory.label,
-    hint: copy.settings.sections.memory.hint,
-    icon: BookMarked,
-  },
-  {
-    id: 'skills',
-    group: 'agents',
-    label: copy.settings.sections.skills.label,
-    hint: copy.settings.sections.skills.hint,
-    icon: GraduationCap,
-  },
-  {
-    id: 'tools',
-    group: 'extend',
-    label: copy.settings.sections.tools.label,
-    hint: copy.settings.sections.tools.hint,
-    icon: Wrench,
-  },
-  {
-    id: 'plugins',
-    group: 'extend',
-    label: copy.settings.sections.plugins.label,
-    hint: copy.settings.sections.plugins.hint,
-    icon: Puzzle,
-  },
-  {
-    id: 'hooks',
-    group: 'extend',
-    label: copy.settings.sections.hooks.label,
-    hint: copy.settings.sections.hooks.hint,
-    icon: Webhook,
-  },
-  {
-    id: 'schedules',
-    group: 'extend',
-    label: copy.settings.sections.schedules.label,
-    hint: copy.settings.sections.schedules.hint,
-    icon: CalendarClock,
-  },
-  {
-    id: 'general',
-    group: 'you',
-    label: copy.settings.sections.general.label,
-    hint: copy.settings.sections.general.hint,
-    icon: Palette,
-  },
-  {
-    id: 'mascot',
-    group: 'you',
-    label: copy.settings.sections.mascot.label,
-    hint: copy.settings.sections.mascot.hint,
-    icon: Smile,
-  },
-  {
-    id: 'devices',
-    group: 'you',
-    label: copy.settings.sections.devices.label,
-    hint: copy.settings.sections.devices.hint,
-    icon: MonitorSmartphone,
-  },
-  {
-    id: 'gateways',
-    group: 'you',
-    label: copy.settings.sections.gateways.label,
-    hint: copy.settings.sections.gateways.hint,
-    icon: Network,
-  },
-  {
-    id: 'channels',
-    group: 'you',
-    label: copy.settings.sections.channels.label,
-    hint: copy.settings.sections.channels.hint,
-    icon: MessagesSquare,
-  },
-]
+export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: LucideIcon }[] =
+  [
+    {
+      id: 'models',
+      group: 'setup',
+      label: copy.settings.sections.models.label,
+      hint: copy.settings.sections.models.hint,
+      icon: FEATURE_ICONS.models,
+    },
+    {
+      id: 'team',
+      group: 'setup',
+      label: copy.settings.sections.team.label,
+      hint: copy.settings.sections.team.hint,
+      icon: FEATURE_ICONS.crew,
+    },
+    {
+      id: 'verification',
+      group: 'setup',
+      label: copy.settings.sections.verification.label,
+      hint: copy.settings.sections.verification.hint,
+      icon: FEATURE_ICONS.reviewer,
+    },
+    {
+      id: 'specialists',
+      group: 'agents',
+      label: copy.settings.sections.specialists.label,
+      hint: copy.settings.sections.specialists.hint,
+      icon: FEATURE_ICONS.specialists,
+    },
+    {
+      id: 'instructions',
+      group: 'agents',
+      label: copy.settings.sections.instructions.label,
+      hint: copy.settings.sections.instructions.hint,
+      icon: FEATURE_ICONS.instructions,
+    },
+    {
+      id: 'memory',
+      group: 'agents',
+      label: copy.settings.sections.memory.label,
+      hint: copy.settings.sections.memory.hint,
+      icon: FEATURE_ICONS.memory,
+    },
+    {
+      id: 'skills',
+      group: 'agents',
+      label: copy.settings.sections.skills.label,
+      hint: copy.settings.sections.skills.hint,
+      icon: FEATURE_ICONS.skills,
+    },
+    {
+      id: 'tools',
+      group: 'extend',
+      label: copy.settings.sections.tools.label,
+      hint: copy.settings.sections.tools.hint,
+      icon: FEATURE_ICONS.tools,
+    },
+    {
+      id: 'plugins',
+      group: 'extend',
+      label: copy.settings.sections.plugins.label,
+      hint: copy.settings.sections.plugins.hint,
+      icon: FEATURE_ICONS.plugins,
+    },
+    {
+      id: 'hooks',
+      group: 'extend',
+      label: copy.settings.sections.hooks.label,
+      hint: copy.settings.sections.hooks.hint,
+      icon: FEATURE_ICONS.hooks,
+    },
+    {
+      id: 'schedules',
+      group: 'extend',
+      label: copy.settings.sections.schedules.label,
+      hint: copy.settings.sections.schedules.hint,
+      icon: FEATURE_ICONS.schedules,
+    },
+    {
+      id: 'general',
+      group: 'you',
+      label: copy.settings.sections.general.label,
+      hint: copy.settings.sections.general.hint,
+      icon: FEATURE_ICONS.appearance,
+    },
+    {
+      id: 'mascot',
+      group: 'you',
+      label: copy.settings.sections.mascot.label,
+      hint: copy.settings.sections.mascot.hint,
+      icon: FEATURE_ICONS.mascot,
+    },
+    {
+      id: 'devices',
+      group: 'connect',
+      label: copy.settings.sections.devices.label,
+      hint: copy.settings.sections.devices.hint,
+      icon: FEATURE_ICONS.devices,
+    },
+    {
+      id: 'gateways',
+      group: 'connect',
+      label: copy.settings.sections.gateways.label,
+      hint: copy.settings.sections.gateways.hint,
+      icon: FEATURE_ICONS.gateways,
+    },
+    {
+      id: 'channels',
+      group: 'connect',
+      label: copy.settings.sections.channels.label,
+      hint: copy.settings.sections.channels.hint,
+      icon: FEATURE_ICONS.channels,
+    },
+    {
+      id: 'voice',
+      group: 'connect',
+      label: copy.settings.sections.voice.label,
+      hint: copy.settings.sections.voice.hint,
+      icon: FEATURE_ICONS.voice,
+    },
+  ]
 
 const API_LABELS: Record<Api, string> = {
   'openai-completions': copy.settings.providerForm.apiLabels['openai-completions'],
@@ -303,20 +341,6 @@ const API_HINT_URL: Record<Api, string> = {
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
 }
 
-/** Whether the window is at least `px` wide, following it as it resizes. */
-function useMinWidth(px: number): boolean {
-  const query = `(min-width: ${px}px)`
-  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    const change = () => setMatch(media.matches)
-    change()
-    media.addEventListener('change', change)
-    return () => media.removeEventListener('change', change)
-  }, [query])
-  return match
-}
-
 /** Full-page settings, shown in place of the chat. Every change autosaves, except hooks (see HooksSection). */
 export function Settings(props: {
   onClose(): void
@@ -329,14 +353,23 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /** A channel whose sheet Settings → Channels opens on (a new request's toast). */
+  initialChannel?: string
   /**
    * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
    * edits are unsaved), for the ways out of Settings that the app itself offers.
    */
   guard?: { current?: (go: () => void) => void }
+  /** Told the section on screen, so the app can keep it in the address and a refresh comes back to it. */
+  onSection?(section: Section): void
 }) {
   const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
+  const onSection = useRef(props.onSection)
+  onSection.current = props.onSection
+  useEffect(() => {
+    onSection.current?.(section)
+  }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
   const [data, setData] = useState<SettingsResponse>()
   const [error, setError] = useState<string>()
@@ -423,6 +456,7 @@ export function Settings(props: {
   }
 
   const current = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]
+  const waiting = useStatus().status?.waiting?.length ?? 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -431,7 +465,7 @@ export function Settings(props: {
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
         <Button
-          variant="ghost"
+          variant="borderless"
           size="sm"
           onClick={() => leave(props.onClose)}
           icon={<ArrowLeft className="size-4" />}
@@ -458,7 +492,7 @@ export function Settings(props: {
               <span aria-hidden>·</span>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 onClick={() => unsaved.current && persist(unsaved.current)}
                 icon={<RefreshCw className="size-3" />}
               >
@@ -498,15 +532,10 @@ export function Settings(props: {
             wideNav ? 'w-64' : 'w-[68px] items-center',
           )}
         >
-          {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
+          {GROUPS.map((group, i) => (
             <div key={group} className="flex w-full flex-col gap-1">
               {wideNav ? (
-                <div
-                  className={cn(
-                    'px-3 pb-1 font-mono text-caption uppercase tracking-[0.14em] text-muted',
-                    i > 0 && 'pt-4',
-                  )}
-                >
+                <div className={cn('px-3 pb-1 section-label text-muted', i > 0 && 'pt-4')}>
                   {copy.settings.page.groups[group]}
                 </div>
               ) : (
@@ -521,25 +550,33 @@ export function Settings(props: {
                   aria-label={wideNav ? undefined : s.label}
                   title={wideNav ? undefined : s.label}
                   className={cn(
-                    'relative flex items-center gap-3 rounded-xl text-left transition-colors',
+                    'relative flex items-center gap-3 rounded-lg text-left transition-colors',
                     wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
-                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
                   )}
                 >
                   {section === s.id && (
                     <motion.span
                       layoutId="settings-nav"
                       transition={spring}
-                      className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
+                      className="absolute inset-0 rounded-lg border border-line bg-surface shadow-soft"
                     />
                   )}
                   <span
                     className={cn(
-                      'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
+                      'relative grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
+                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-fill',
                     )}
                   >
                     <s.icon className="size-4" />
+                    {s.id === 'channels' && waiting > 0 && (
+                      <CountBadge
+                        count={waiting}
+                        tone="accent"
+                        corner
+                        label={copy.settings.channels.waitingBadge(waiting)}
+                      />
+                    )}
                   </span>
                   {wideNav && (
                     <span className="relative min-w-0">
@@ -563,7 +600,7 @@ export function Settings(props: {
               className="w-full"
               aria-label={copy.settings.page.sectionPicker}
             >
-              {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group) => (
+              {GROUPS.map((group) => (
                 <optgroup key={group} label={copy.settings.page.groups[group]}>
                   {SECTIONS.filter((s) => s.group === group).map((s) => (
                     <option key={s.id} value={s.id}>
@@ -575,7 +612,9 @@ export function Settings(props: {
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
+            <Banner tone="bad" className="m-5">
+              {error}
+            </Banner>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -610,7 +649,7 @@ export function Settings(props: {
                           value: 'models',
                           label: (
                             <>
-                              <Brain className="size-3.5" /> {copy.settings.page.modelsTab}
+                              <FEATURE_ICONS.models className="size-3.5" /> {copy.settings.page.modelsTab}
                             </>
                           ),
                         },
@@ -618,7 +657,8 @@ export function Settings(props: {
                           value: 'providers',
                           label: (
                             <>
-                              <KeyRound className="size-3.5" /> {copy.settings.page.providersTab}
+                              <FEATURE_ICONS.providers className="size-3.5" />{' '}
+                              {copy.settings.page.providersTab}
                             </>
                           ),
                         },
@@ -651,7 +691,10 @@ export function Settings(props: {
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
               {section === 'gateways' && <GatewaysSection />}
-              {section === 'channels' && <ChannelsSection />}
+              {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
+              {section === 'voice' && data && (
+                <VoiceSection settings={data.settings} update={update} models={props.models} />
+              )}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -678,7 +721,7 @@ export function Settings(props: {
           <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
             <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setLeaving(undefined)}>
+              <Button variant="borderless" onClick={() => setLeaving(undefined)}>
                 {copy.settings.page.unsaved.keep}
               </Button>
               <Button
@@ -697,27 +740,6 @@ export function Settings(props: {
       </AnimatePresence>
     </div>
   )
-}
-
-function Heading(props: { title: string; children?: ReactNode }) {
-  return (
-    <div className="mb-6">
-      <h3 className="text-[17px] font-semibold tracking-tight">{props.title}</h3>
-      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
-    </div>
-  )
-}
-
-function Card(props: { children: ReactNode; className?: string }) {
-  return (
-    <div className={cn('divide-y divide-line rounded-2xl border border-line bg-surface', props.className)}>
-      {props.children}
-    </div>
-  )
-}
-
-function Row(props: { children: ReactNode }) {
-  return <div className="px-4 py-3.5">{props.children}</div>
 }
 
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
@@ -756,9 +778,9 @@ function General(props: {
 }) {
   return (
     <>
-      <Heading title={copy.settings.general.title}>{copy.settings.general.intro}</Heading>
+      <PageHeader title={copy.settings.general.title}>{copy.settings.general.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
             <Segmented
               id="theme"
@@ -792,8 +814,8 @@ function General(props: {
               ]}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field
             label={copy.settings.general.reduceMotion}
             hint={copy.settings.general.reduceMotionHint}
@@ -805,10 +827,10 @@ function General(props: {
               label={copy.settings.general.reduceMotion}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <NotifyToggle />
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -865,9 +887,9 @@ function ModelsSection(props: {
 
   return (
     <>
-      <Heading title={copy.settings.models.title}>
+      <PageHeader title={copy.settings.models.title}>
         {copy.settings.models.intro(props.models.length, shown)}
-      </Heading>
+      </PageHeader>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
@@ -890,11 +912,12 @@ function ModelsSection(props: {
               .catch((err) => toast(String(err.message ?? err), 'error'))
               .finally(() => setRefreshing(false))
           }}
-          icon={<RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />}
+          loading={refreshing}
+          icon={<RefreshCw className="size-3.5" />}
         >
           {copy.settings.models.refresh}
         </Button>
-        <Button variant="soft" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
+        <Button variant="primary" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
           {copy.settings.models.addModels}
         </Button>
       </div>
@@ -908,7 +931,7 @@ function ModelsSection(props: {
           const off = hiddenProviders.has(provider)
           const expanded = open[provider] ?? (!!q || models.length <= 20)
           return (
-            <Card key={provider} className={cn(off && 'opacity-60')}>
+            <Card key={provider}>
               <div className="flex items-center gap-3 px-4 py-2.5">
                 <button
                   type="button"
@@ -919,7 +942,10 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
-                  <span className="font-mono text-body font-medium">{provider}</span>
+                  {/* Off reads in the muted ink rather than a faded card, which would drop below AA contrast. */}
+                  <span className={cn('font-mono text-body font-medium', off && 'text-muted')}>
+                    {provider}
+                  </span>
                   <span className="text-small tabular-nums text-muted">{models.length}</span>
                 </button>
                 <span className="text-small text-muted">
@@ -944,7 +970,7 @@ function ModelsSection(props: {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
-                            {m.reasoning && <Brain className="size-3.5 text-muted" />}
+                            {m.reasoning && <FEATURE_ICONS.thinking className="size-3.5 text-muted" />}
                           </div>
                           <div className="truncate font-mono text-caption text-muted">{m.id}</div>
                           {t && t !== 'running' && (
@@ -975,12 +1001,9 @@ function ModelsSection(props: {
                         />
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="borderless"
                           onClick={() => void test(m.ref)}
-                          disabled={t === 'running'}
-                          icon={
-                            t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined
-                          }
+                          loading={t === 'running'}
                         >
                           {copy.settings.models.test}
                         </Button>
@@ -1187,10 +1210,12 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
 
   return (
     <div className="mb-8">
-      <h4 className="mb-2 flex items-center gap-2 text-body font-semibold">
-        <LogIn className="size-4 text-muted" /> {copy.settings.signIns.title}
-        <span className="font-normal text-muted">{copy.settings.signIns.subtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2"
+        icon={<LogIn className="size-4 text-muted" />}
+        title={copy.settings.signIns.title}
+        note={copy.settings.signIns.subtitle}
+      />
       <Card>
         {shown.map((l) => {
           const active = session?.login === l.id && session.status === 'waiting' ? session : undefined
@@ -1200,14 +1225,14 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
                     {l.name}
-                    {l.ready ? <Pill tone="ok">{copy.settings.signIns.signedIn}</Pill> : null}
+                    {l.ready ? <Badge tone="ok">{copy.settings.signIns.signedIn}</Badge> : null}
                   </div>
                   <div className="font-mono text-footnote text-muted">{l.provider}</div>
                 </div>
                 {active ? (
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="borderless"
                     onClick={() =>
                       send('DELETE', `/api/logins/${active.id}`).then(() => setSession(undefined))
                     }
@@ -1219,7 +1244,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                     {l.signedIn && (
                       <ConfirmButton
                         label={copy.settings.signIns.signOut}
-                        confirm={copy.settings.signIns.confirmSignOut}
+                        confirm={copy.settings.signIns.confirmSignOut(l.name)}
                         disabled={waiting}
                         onConfirm={() => void signOut(l)}
                       />
@@ -1236,7 +1261,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 )}
               </div>
               {active && (
-                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-callout">
+                <div className="mt-3 space-y-2.5 rounded-lg border border-line bg-fill p-3 text-callout">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
                     {active.progress ?? copy.settings.signIns.finishInBrowser}
@@ -1336,7 +1361,7 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
+      <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
       {props.data.agentDir && (
         <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
           {copy.settings.providers.storedIn(props.data.agentDir)}
@@ -1346,7 +1371,7 @@ function Providers(props: {
       {props.data.ompSetup && (
         <Card className="mb-8">
           <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
@@ -1359,7 +1384,7 @@ function Providers(props: {
             </div>
             {importing === 'confirm' ? (
               <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setImporting('idle')}>
+                <Button size="sm" variant="borderless" onClick={() => setImporting('idle')}>
                   {copy.settings.shared.cancel}
                 </Button>
                 <Button
@@ -1381,12 +1406,7 @@ function Providers(props: {
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                onClick={() => setImporting('confirm')}
-                disabled={importing === 'busy'}
-                icon={importing === 'busy' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
-              >
+              <Button size="sm" onClick={() => setImporting('confirm')} loading={importing === 'busy'}>
                 {copy.settings.providers.import}
               </Button>
             )}
@@ -1397,12 +1417,11 @@ function Providers(props: {
       <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-body font-semibold">
-          <KeyRound className="size-4 text-muted" /> {copy.settings.providers.heading}
-          <span className="font-normal text-muted">
-            {copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
-          </span>
-        </h4>
+        <SectionHeader
+          icon={<FEATURE_ICONS.providers className="size-4 text-muted" />}
+          title={copy.settings.providers.heading}
+          note={copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
+        />
         {!adding && (
           <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
             {copy.settings.providers.customEndpoint}
@@ -1437,7 +1456,10 @@ function Providers(props: {
       </AnimatePresence>
       <Card>
         {shown.length === 0 && (
-          <Empty icon={<Server className="size-5" />} title={copy.settings.providers.emptyTitle}>
+          <Empty
+            icon={<FEATURE_ICONS.providers className="size-5" />}
+            title={copy.settings.providers.emptyTitle}
+          >
             {copy.settings.providers.emptyBody}
           </Empty>
         )}
@@ -1448,7 +1470,7 @@ function Providers(props: {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-body">{p.id}</span>
-                  {p.custom && <Pill tone="accent">{copy.settings.providers.custom}</Pill>}
+                  {p.custom && <Badge tone="accent">{copy.settings.providers.custom}</Badge>}
                   <span className="text-small text-muted">
                     {copy.settings.providers.modelCount(p.models)}
                   </span>
@@ -1457,7 +1479,7 @@ function Providers(props: {
               </div>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 onClick={() => setEditing(editing === p.id ? undefined : p.id)}
               >
                 {p.custom
@@ -1482,7 +1504,7 @@ function Providers(props: {
                 <ConfirmButton
                   icon
                   label={copy.settings.providers.removeCredentials(p.id)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.providers.confirmRemoveCredentials}
                   onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
@@ -1495,7 +1517,7 @@ function Providers(props: {
                 <ConfirmButton
                   icon
                   label={copy.settings.providers.remove(p.id)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.providers.confirmRemove}
                   onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
@@ -1708,13 +1730,12 @@ function ProviderForm(props: {
           />
         </Field>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={props.onCancel}>
+          <Button variant="borderless" onClick={props.onCancel}>
             {copy.settings.shared.cancel}
           </Button>
           <Button
             variant="primary"
-            disabled={busy}
-            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+            loading={busy}
             onClick={async () => {
               if (Object.values(errors).some(Boolean)) return setTried(true)
               setBusy(true)
@@ -1748,7 +1769,7 @@ function TeamSection(props: {
   const t = props.data.settings.team
   return (
     <>
-      <Heading title={copy.settings.team.title}>{copy.settings.team.intro}</Heading>
+      <PageHeader title={copy.settings.team.title}>{copy.settings.team.intro}</PageHeader>
       {props.config && (
         <Card className="mb-6">
           <div className="p-4">
@@ -1775,7 +1796,7 @@ function TeamSection(props: {
         </Card>
       )}
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
               label={copy.settings.team.timeLimit}
@@ -1786,8 +1807,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
               label={copy.settings.team.spendLimit}
@@ -1799,8 +1820,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
               label={copy.settings.team.tokenLimit}
@@ -1812,8 +1833,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
               label={copy.settings.team.turns}
@@ -1823,8 +1844,8 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, maxTurns: v } }))}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
               label={copy.settings.team.observer}
@@ -1835,7 +1856,7 @@ function TeamSection(props: {
               onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -1904,41 +1925,41 @@ function NumberField(props: {
   )
 }
 
-const TOOL_INFO: {
+export const TOOL_INFO: {
   key: keyof ServerSettings['tools']
   label: string
   hint: string
-  icon: typeof Terminal
+  icon: LucideIcon
 }[] = [
   {
     key: 'shell',
     label: copy.settings.tools.groups.shell.label,
     hint: copy.settings.tools.groups.shell.hint,
-    icon: Terminal,
+    icon: FEATURE_ICONS.agentShell,
   },
   {
     key: 'web',
     label: copy.settings.tools.groups.web.label,
     hint: copy.settings.tools.groups.web.hint,
-    icon: Globe,
+    icon: FEATURE_ICONS.web,
   },
   {
     key: 'files',
     label: copy.settings.tools.groups.files.label,
     hint: copy.settings.tools.groups.files.hint,
-    icon: SlidersHorizontal,
+    icon: FEATURE_ICONS.scratchFiles,
   },
   {
     key: 'messaging',
     label: copy.settings.tools.groups.messaging.label,
     hint: copy.settings.tools.groups.messaging.hint,
-    icon: MessageSquareText,
+    icon: FEATURE_ICONS.mail,
   },
   {
     key: 'mcp',
     label: copy.settings.tools.groups.mcp.label,
     hint: copy.settings.tools.groups.mcp.hint,
-    icon: Plug,
+    icon: FEATURE_ICONS.mcp,
   },
 ]
 
@@ -1965,22 +1986,24 @@ function ToolRules(props: {
     }, true)
   return (
     <>
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <ShieldCheck className="size-4 text-muted" /> {copy.settings.tools.rulesTitle}
-        <span className="font-normal text-muted">{copy.settings.tools.rulesSubtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.toolRules className="size-4 text-muted" />}
+        title={copy.settings.tools.rulesTitle}
+        note={copy.settings.tools.rulesSubtitle}
+      />
       <Card>
-        <Row>
+        <CardRow>
           <TextInput
             aria-label={copy.settings.tools.findTool}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={copy.settings.tools.findToolPlaceholder}
           />
-        </Row>
+        </CardRow>
         <div className="max-h-80 overflow-y-auto">
           {tools.map((t) => (
-            <Row key={t.name}>
+            <CardRow key={t.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="font-mono text-callout font-medium">{t.name}</div>
@@ -2007,7 +2030,7 @@ function ToolRules(props: {
                   <option value="off">{copy.settings.shared.off}</option>
                 </Select>
               </div>
-            </Row>
+            </CardRow>
           ))}
         </div>
       </Card>
@@ -2022,14 +2045,16 @@ function ToolsSection(props: {
   const sandboxed = props.data.sandbox !== 'none'
   return (
     <>
-      <Heading title={copy.settings.tools.title}>{copy.settings.tools.intro}</Heading>
+      <PageHeader title={copy.settings.tools.title}>{copy.settings.tools.intro}</PageHeader>
       <div
         className={cn(
           'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-body',
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
-        <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
+        <FEATURE_ICONS.sandbox
+          className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')}
+        />
         <div>
           <div className="font-semibold">
             {sandboxed
@@ -2043,9 +2068,9 @@ function ToolsSection(props: {
       </div>
       <Card>
         {TOOL_INFO.map((t) => (
-          <Row key={t.key}>
+          <CardRow key={t.key}>
             <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-fg-2">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-fill text-fg-2">
                 <t.icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
@@ -2058,21 +2083,25 @@ function ToolsSection(props: {
                 onChange={(v) => props.update((s) => ({ ...s, tools: { ...s.tools, [t.key]: v } }), true)}
               />
             </div>
-          </Row>
+          </CardRow>
         ))}
       </Card>
       <ToolRules data={props.data} update={props.update} />
       <McpServers />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <Wrench className="size-4 text-muted" /> {copy.settings.tools.libraryTitle}
-        <span className="font-normal text-muted">{copy.settings.tools.librarySubtitle}</span>
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<FEATURE_ICONS.tools className="size-4 text-muted" />}
+        title={copy.settings.tools.libraryTitle}
+        note={copy.settings.tools.librarySubtitle}
+      />
       <ToolLibraryList />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
-        <Search className="size-4 text-muted" /> {copy.settings.tools.webSearch}
-      </h4>
+      <SectionHeader
+        className="mb-2 mt-8"
+        icon={<Search className="size-4 text-muted" />}
+        title={copy.settings.tools.webSearch}
+      />
       <Card>
-        <Row>
+        <CardRow>
           <Field
             label={copy.settings.tools.searchProvider}
             hint={copy.settings.tools.searchProviderHint}
@@ -2092,7 +2121,7 @@ function ToolsSection(props: {
               ))}
             </Select>
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -2170,14 +2199,15 @@ function McpServers() {
   return (
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-body font-semibold">
-          <Plug className="size-4 text-muted" /> {copy.settings.mcp.title}
-          <span className="font-normal text-muted">{copy.settings.mcp.subtitle}</span>
-        </h4>
+        <SectionHeader
+          icon={<FEATURE_ICONS.mcp className="size-4 text-muted" />}
+          title={copy.settings.mcp.title}
+          note={copy.settings.mcp.subtitle}
+        />
         <div className="flex gap-2">
           <Button
             size="sm"
-            variant="ghost"
+            variant="borderless"
             disabled={busy}
             onClick={() => act(() => send('POST', '/api/mcp-reload'), copy.settings.mcp.reconnected)}
             icon={<RefreshCw className="size-3.5" />}
@@ -2242,19 +2272,17 @@ function McpServers() {
             )}
           </div>
           <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
-            <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            <Button size="sm" variant="borderless" onClick={() => setAdding(false)}>
               {copy.settings.shared.cancel}
             </Button>
             <Button
               size="sm"
               variant="primary"
               disabled={
-                busy ||
-                !form.name.trim() ||
-                (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())
+                !form.name.trim() || (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())
               }
               onClick={add}
-              icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+              loading={busy}
             >
               {copy.settings.mcp.addAndConnect}
             </Button>
@@ -2263,21 +2291,21 @@ function McpServers() {
       )}
       <Card>
         {servers === undefined ? (
-          <Row>
+          <CardRow>
             <span className="text-body text-muted">{copy.settings.shared.loading}</span>
-          </Row>
+          </CardRow>
         ) : servers.length === 0 ? (
-          <Row>
+          <CardRow>
             <span className="text-body text-muted">{copy.settings.mcp.empty}</span>
-          </Row>
+          </CardRow>
         ) : (
           servers.map((m) => (
-            <Row key={m.name}>
+            <CardRow key={m.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
                     {m.name}
-                    <Pill tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Pill>
+                    <Badge tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Badge>
                     {m.tools.length > 0 && (
                       <span className="text-small text-muted">
                         {copy.settings.mcp.toolCount(m.tools.length)}
@@ -2302,7 +2330,7 @@ function McpServers() {
                 <ConfirmButton
                   icon
                   label={copy.settings.mcp.remove(m.name)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.mcp.confirmRemove}
                   onConfirm={() =>
                     void act(
                       () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
@@ -2311,7 +2339,7 @@ function McpServers() {
                   }
                 />
               </div>
-            </Row>
+            </CardRow>
           ))
         )}
       </Card>
@@ -2365,13 +2393,13 @@ function DevicesSection() {
     )
   return (
     <>
-      <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
+      <PageHeader title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</PageHeader>
       {data?.remote === false ? (
         <div
           role="note"
-          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-fill px-4 py-3 text-body"
         >
-          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
+          <FEATURE_ICONS.devices className="mt-0.5 size-4 shrink-0 text-muted" />
           <div>
             <div className="font-semibold">{t.pairNeedsRemoteTitle}</div>
             <div className="text-fg-2">{t.pairNeedsRemote}</div>
@@ -2379,7 +2407,7 @@ function DevicesSection() {
         </div>
       ) : (
         <Card className="mb-6">
-          <Row>
+          <CardRow>
             <Field label={t.scope} hint={t.scopeHints[scope]} inline>
               <Segmented
                 id="pair-scope"
@@ -2394,16 +2422,16 @@ function DevicesSection() {
                 }}
               />
             </Field>
-          </Row>
-          <Row>
+          </CardRow>
+          <CardRow>
             {link ? (
               <div className="flex flex-col gap-2">
                 <p className="text-body text-fg-2">{t.link}</p>
                 <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-callout">
+                  <code className="min-w-0 flex-1 truncate rounded-xl bg-fill px-3 py-2 font-mono text-callout">
                     {link.link}
                   </code>
-                  <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                  <Button size="sm" variant="borderless" onClick={() => copyText(link.link)}>
                     {copied ? t.copied : t.copy}
                   </Button>
                 </div>
@@ -2419,20 +2447,20 @@ function DevicesSection() {
                 {t.pair}
               </Button>
             )}
-          </Row>
+          </CardRow>
         </Card>
       )}
       {data && data.devices.length === 0 ? (
-        <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
+        <Empty icon={<FEATURE_ICONS.devices className="size-5" />} title={t.empty} />
       ) : (
         <Card>
           {data?.devices.map((d) => (
             <div key={d.id} className="flex items-center gap-3 px-4 py-3">
-              <MonitorSmartphone className="size-4 shrink-0 text-muted" />
+              <FEATURE_ICONS.devices className="size-4 shrink-0 text-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="truncate text-reading font-semibold">{d.name}</span>
-                  {d.current && <Pill tone="accent">{t.thisDevice}</Pill>}
+                  {d.current && <Badge tone="accent">{t.thisDevice}</Badge>}
                 </div>
                 <div className="truncate text-small text-muted">
                   {t.scopeNames[d.scope]}
@@ -2457,239 +2485,1209 @@ function DevicesSection() {
 interface ChannelView {
   id: string
   label: string
+  setup?: string
+  fields: {
+    key: string
+    label: string
+    secret?: boolean
+    placeholder?: string
+    hint?: string
+    optional?: boolean
+  }[]
+  values: Record<string, string>
+  secretsSet: string[]
   configured: boolean
   enabled: boolean
   project?: string
-  status:
-    | { state: 'off' | 'connecting' }
-    | { state: 'on'; account: string }
-    | { state: 'retrying' | 'error'; error: string }
-  people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
-  groups: { id: string; title: string }[]
+  dm: 'pairing' | 'allowlist' | 'open' | 'disabled'
+  groups: 'approve' | 'open' | 'disabled'
+  mention: boolean
+  stream: 'progress' | 'partial' | 'final'
+  perPerson: boolean
+  allow: string[]
+  allowExample?: string
+  allowInvalid: string[]
+  status: ChannelConnection
+  health: {
+    connectedAt?: string
+    reconnects: number
+    lastError?: string
+    lastIn?: string
+    lastOut?: string
+    owed: number
+  }
+  people: { id: string; name: string; handle?: string; role: 'owner' | 'member'; by?: 'code' | 'settings' }[]
+  approvedGroups: { id: string; title: string }[]
   pending: {
     id: string
     kind: 'person' | 'group'
-    sender: { name: string; handle?: string }
+    sender: { id: string; name: string; handle?: string }
     chat: { title?: string }
     expires: string
   }[]
 }
 
+/**
+ * Shown in full once the person has started on it: switched on, or with settings saved. A platform whose settings
+ * are all optional (SimpleX) or that has none (WhatsApp) counts as configured from the start, so that alone is not it.
+ */
+const inUse = (c: ChannelView) =>
+  c.enabled || c.secretsSet.length > 0 || Object.keys(c.values).length > 0 || c.people.length > 0
+
+/** The pairing codes the bot sends are this long (`packages/runtime/src/channels/store.ts`). */
+const PAIRING_CODE_LENGTH = 8
+
 /** How often Settings → Channels looks again, so a code someone just asked for shows up. */
 const CHANNELS_POLL_MS = 3000
 
+type ChannelTab = 'setup' | 'people' | 'rules' | 'activity'
+
+const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
+
 /**
- * Messaging channels: the bot token, whether it runs and its project, who is waiting for approval, and who is
- * approved. Telegram is built in; more come as plugins.
+ * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
+ * their state and who is waiting, then every other app to add, grouped and searchable. A tile opens the app's sheet.
  */
-function ChannelsSection() {
+function ChannelsSection(props: { initial?: string | undefined }) {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [tokens, setTokens] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState<string>()
+  const [open, setOpen] = useState<string | undefined>(props.initial)
+  const [query, setQuery] = useState('')
+  // Shown on the page while it lasts (a damaged channels.json, the server away), not toasted again on every poll.
+  const [loadError, setLoadError] = useState<string>()
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
-      .then((r) => setList(r.channels))
-      .catch((err: Error) => toast(err.message, 'error'))
+      .then((r) => {
+        setList(r.channels)
+        setLoadError(undefined)
+      })
+      .catch((err: Error) => setLoadError(err.message))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
   useEffect(() => {
     void load()
-    void api<{ projects: { id: string; name: string }[] }>('/api/projects').then((r) =>
-      setProjects(r.projects),
-    )
+    void api<{ projects: { id: string; name: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch((err: Error) => toast(err.message, 'error'))
     const timer = setInterval(() => void load(), CHANNELS_POLL_MS)
     return () => clearInterval(timer)
   }, [])
-  const configure = async (c: ChannelView, patch: Record<string, unknown>) => {
-    setBusy(c.id)
+  const connected = list?.filter(inUse) ?? []
+  const q = query.trim().toLowerCase()
+  const others = (list ?? []).filter((c) => !inUse(c) && (!q || c.label.toLowerCase().includes(q)))
+  const groups = Object.keys(t.groupsTitle) as (keyof typeof t.groupsTitle)[]
+  const shown = list?.find((c) => c.id === open)
+  return (
+    <>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {loadError && (
+        <Banner tone="bad" role="alert" className="mb-6">
+          {t.loadError(loadError)}
+        </Banner>
+      )}
+      {connected.length > 0 && (
+        <section className="mb-8">
+          <SectionHeader as="h3" className="mb-2" title={t.yours} />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {connected.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setOpen(c.id)}
+                className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left shadow-soft transition-colors hover:bg-fill"
+              >
+                <ChannelLogo id={c.id} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-reading font-semibold">{c.label}</span>
+                    {c.pending.length > 0 && <Badge tone="warn">{t.waitingBadge(c.pending.length)}</Badge>}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-small text-muted">
+                    <Dot status={channelState(c)} />
+                    <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
+                      {channelStatusText(c)}
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      {!list && !loadError && (
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
+        </div>
+      )}
+      {list && (
+        <section>
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <SectionHeader as="h3" title={t.add} />
+              <p className="text-small text-muted">{t.addHint}</p>
+            </div>
+            <div className="relative w-56">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
+              <TextInput
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t.search}
+                aria-label={t.search}
+                className="pl-8"
+              />
+            </div>
+          </div>
+          {others.length === 0 && q && <p className="text-callout text-muted">{t.noMatch}</p>}
+          {groups.map((g) => {
+            const apps = others.filter((c) => (CHANNEL_GROUPS[c.id] ?? 'other') === g)
+            if (apps.length === 0) return null
+            return (
+              <div key={g} className="mb-5">
+                <div className="mb-2 section-label text-muted">{t.groupsTitle[g]}</div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+                  {apps.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setOpen(c.id)}
+                      className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-fill"
+                    >
+                      <ChannelLogo id={c.id} size={32} />
+                      <span className="w-full truncate text-small">{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </section>
+      )}
+      <AnimatePresence>
+        {shown && (
+          <ChannelSheet
+            key={shown.id}
+            channel={shown}
+            projects={projects}
+            onChanged={load}
+            onClose={() => setOpen(undefined)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+/** One app's sheet: its setup, who may use it, its rules, and what has happened on it. */
+function ChannelSheet(props: {
+  channel: ChannelView
+  projects: { id: string; name: string }[]
+  onChanged(): Promise<unknown>
+  onClose(): void
+}) {
+  const t = copy.settings.channels
+  const c = props.channel
+  const toast = useToast()
+  const [tab, setTab] = useState<ChannelTab>(c.pending.length > 0 ? 'people' : 'setup')
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [allowDraft, setAllowDraft] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [events, setEvents] = useState<{ at: string; kind: string; text: string }[]>()
+  // Shown in the tab while it lasts, not toasted again on every poll.
+  const [eventsError, setEventsError] = useState<string>()
+  const [allowError, setAllowError] = useState<string>()
+  const [allowSaved, setAllowSaved] = useState(false)
+  const saved = new Set([...c.secretsSet, ...Object.keys(c.values).filter((k) => c.values[k])])
+  const setup = channelSetup(c.fields, saved, draft)
+  const changed = Object.keys(setup.values).length > 0
+  // Why the settings were not saved: on the one field it is about, or for the form when it is about several.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [setupError, setSetupError] = useState<string>()
+  useEffect(() => {
+    if (tab !== 'activity') return
+    const get = () =>
+      api<{ events: { at: string; kind: string; text: string }[] }>(`/api/channels/${c.id}/activity`)
+        .then((r) => {
+          setEvents(r.events)
+          setEventsError(undefined)
+        })
+        .catch((err: Error) => setEventsError(err.message))
+    void get()
+    const timer = setInterval(() => void get(), CHANNELS_POLL_MS)
+    return () => clearInterval(timer)
+  }, [tab, c.id])
+  const configure = async (patch: Record<string, unknown>) => {
+    setBusy(true)
     try {
-      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, patch)
-      if (typeof patch.token === 'string') {
-        setTokens((all) => ({ ...all, [c.id]: '' }))
-        if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
-      }
-      await load()
+      await send('PUT', `/api/channels/${c.id}`, patch)
+      await props.onChanged()
     } catch (err) {
       toast((err as Error).message, 'error')
     } finally {
-      setBusy(undefined)
+      setBusy(false)
+    }
+  }
+  const saveValues = async () => {
+    setSetupError(undefined)
+    if (setup.missing.length)
+      return setFieldErrors(
+        Object.fromEntries(setup.missing.map((k) => [k, copy.settings.validation.required])),
+      )
+    setFieldErrors({})
+    setBusy(true)
+    try {
+      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, {
+        values: setup.values,
+      })
+      setDraft({})
+      if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
+      await props.onChanged()
+    } catch (err) {
+      const why = (err as Error).message
+      const typed = Object.keys(setup.values)
+      if (typed.length === 1 && typed[0]) setFieldErrors({ [typed[0]]: why })
+      else setSetupError(why)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const saveAllow = async () => {
+    if (allowDraft === undefined) return
+    const allow = allowDraft
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+    try {
+      await send('PUT', `/api/channels/${c.id}`, { allow })
+      setAllowDraft(undefined)
+      setAllowError(undefined)
+      setAllowSaved(true)
+      await props.onChanged()
+    } catch (err) {
+      setAllowError((err as Error).message)
+      setAllowSaved(false)
     }
   }
   const act = (promise: Promise<unknown>, done?: string) =>
     promise.then(
       () => {
         if (done) toast(done, 'success')
-        void load()
+        void props.onChanged()
       },
       (err: Error) => toast(err.message, 'error'),
     )
-  const statusText = (s: ChannelView['status']) =>
-    s.state === 'on'
-      ? t.status.on(s.account)
-      : s.state === 'retrying'
-        ? t.status.retrying(s.error)
-        : s.state === 'error'
-          ? t.status.error(s.error)
-          : t.status[s.state]
+  const hasOwner = c.people.some((p) => p.role === 'owner')
+  // An owner from before ownership was recorded may have become it only by being on the allowlist.
+  const unconfirmed = c.allow.length > 0 ? c.people.find((p) => p.role === 'owner' && !p.by) : undefined
+  // Approving takes the code the bot sent the requester: the server checks it, so a stranger who wrote first (even
+  // under the owner's name) cannot be approved by a click.
+  const [codes, setCodes] = useState<Record<string, string>>({})
+  const [codeErrors, setCodeErrors] = useState<Record<string, string>>({})
+  const approve = async (p: ChannelView['pending'][number]) => {
+    const code = (codes[p.id] ?? '').trim()
+    if (!code) return setCodeErrors((all) => ({ ...all, [p.id]: copy.settings.validation.required }))
+    try {
+      await post(`/api/channels/${c.id}/approve`, { code, request: p.id })
+      toast(t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name), 'success')
+      setCodes(({ [p.id]: _, ...rest }) => rest)
+      await props.onChanged()
+    } catch (err) {
+      setCodeErrors((all) => ({ ...all, [p.id]: (err as Error).message }))
+    }
+  }
+  const tabs: { value: ChannelTab; label: string; count?: number }[] = [
+    { value: 'setup', label: t.tabs.setup },
+    ...(c.configured
+      ? [
+          { value: 'people' as const, label: t.tabs.people, count: c.pending.length },
+          { value: 'rules' as const, label: t.tabs.rules },
+        ]
+      : []),
+    { value: 'activity', label: t.tabs.activity },
+  ]
+  const h = t.health
   return (
-    <>
-      <Heading title={t.title}>{t.intro}</Heading>
-      {list?.map((c) => (
-        <div key={c.id} className="mb-6 flex flex-col gap-4">
-          <Card>
-            <Row>
-              <div className="flex items-center gap-3">
-                <MessagesSquare className="size-4 shrink-0 text-muted" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold">{c.label}</div>
-                  <div
-                    className={cn(
-                      'truncate text-[12px]',
-                      c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
-                    )}
-                  >
-                    {statusText(c.status)}
-                  </div>
-                </div>
-                {c.configured && (
-                  <Switch
-                    checked={c.enabled}
-                    onChange={(enabled) => void configure(c, { enabled })}
-                    label={t.on}
-                  />
-                )}
-              </div>
-            </Row>
-            <Row>
-              <Field label={t.token} hint={c.configured ? t.tokenSet : t.telegramSteps}>
-                <div className="flex gap-2">
-                  <TextInput
-                    type="password"
-                    autoComplete="off"
-                    value={tokens[c.id] ?? ''}
-                    onChange={(e) => setTokens((all) => ({ ...all, [c.id]: e.target.value }))}
-                    placeholder="123456:ABC-…"
-                    aria-label={t.token}
-                    className="font-mono"
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={busy === c.id || !tokens[c.id]?.trim()}
-                    onClick={() => void configure(c, { token: tokens[c.id] ?? '' })}
-                  >
-                    {busy === c.id ? t.saving : t.save}
-                  </Button>
-                </div>
-              </Field>
-            </Row>
-            {c.configured && (
-              <Row>
-                <Field label={t.project} hint={t.projectHint} inline>
-                  <Select
-                    value={c.project ?? ''}
-                    onChange={(e) => void configure(c, { project: e.target.value || null })}
-                    aria-label={t.project}
-                  >
-                    <option value="">{t.noProject}</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </Row>
+    <Modal
+      size="md"
+      flush
+      onClose={props.onClose}
+      title={
+        <span className="flex items-center gap-3">
+          <ChannelLogo id={c.id} size={28} />
+          <span className="min-w-0">
+            <span className="block truncate">{c.label}</span>
+            <span className="flex items-center gap-1.5 text-small font-normal text-muted">
+              <Dot status={channelState(c)} />
+              <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
+                {channelStatusText(c)}
+              </span>
+            </span>
+          </span>
+        </span>
+      }
+      actions={
+        c.configured && (
+          <Switch checked={c.enabled} onChange={(enabled) => void configure({ enabled })} label={t.on} />
+        )
+      }
+    >
+      <Tabs id={`channel-${c.id}`} value={tab} tabs={tabs} onChange={setTab} className="shrink-0" />
+      <div {...tabPanel(`channel-${c.id}`, tab)} className="min-h-[24rem] flex-1 overflow-auto p-5">
+        {tab === 'setup' && (
+          <div className="flex flex-col gap-4">
+            {c.setup && (
+              <p className="whitespace-pre-line rounded-lg bg-fill px-4 py-3 text-callout text-fg-2">
+                {c.setup}
+              </p>
             )}
-          </Card>
-          {c.pending.length > 0 && (
-            <Card>
-              <Row>
-                <div className="text-[13px] font-semibold">{t.waiting}</div>
-                <div className="text-[12px] text-muted">{t.waitingHint}</div>
-              </Row>
-              {c.pending.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-semibold">
-                      {p.sender.name}
-                      {p.sender.handle ? ` (@${p.sender.handle})` : ''}
-                      {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+            {c.status.state === 'linking' && (
+              <img
+                src={c.status.image}
+                alt={t.status.linking}
+                className="size-56 self-center rounded-xl bg-white p-2"
+              />
+            )}
+            {(c.fields.length > 0 || !c.enabled || c.configured) && (
+              <Card>
+                {c.fields.map((f) => (
+                  <CardRow key={f.key}>
+                    <Field
+                      label={f.optional ? t.optional(f.label) : f.label}
+                      hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
+                      error={fieldErrors[f.key]}
+                    >
+                      <TextInput
+                        type={f.secret ? 'password' : 'text'}
+                        autoComplete="off"
+                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setDraft((d) => ({ ...d, [f.key]: value }))
+                          setFieldErrors(({ [f.key]: _, ...rest }) => rest)
+                          setSetupError(undefined)
+                        }}
+                        placeholder={f.placeholder}
+                        className="font-mono"
+                      />
+                    </Field>
+                  </CardRow>
+                ))}
+                {c.fields.length > 0 ? (
+                  <CardRow>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || !changed}
+                        onClick={() => void saveValues()}
+                      >
+                        {busy ? t.saving : t.save}
+                      </Button>
+                      {setup.missing.length > 0 && (
+                        <span className="text-small text-muted">
+                          {t.stillNeeded(
+                            c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
+                          )}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[12px] text-muted">
-                      {t.expires(new Date(p.expires).toLocaleTimeString())}
+                    {setupError && (
+                      <p role="alert" className="mt-2 text-small leading-snug text-bad-ink">
+                        {setupError}
+                      </p>
+                    )}
+                  </CardRow>
+                ) : (
+                  !c.enabled && (
+                    <CardRow>
+                      <Button size="sm" variant="primary" onClick={() => void configure({ enabled: true })}>
+                        {t.turnOn}
+                      </Button>
+                    </CardRow>
+                  )
+                )}
+                {c.configured && (
+                  <CardRow>
+                    <Field label={t.project} hint={t.projectHint} inline>
+                      <Select
+                        value={c.project ?? ''}
+                        onChange={(e) => void configure({ project: e.target.value || null })}
+                        aria-label={t.project}
+                      >
+                        <option value="">{t.noProject}</option>
+                        {props.projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </CardRow>
+                )}
+              </Card>
+            )}
+            {inUse(c) && (
+              <div className="flex justify-end">
+                <ConfirmButton
+                  label={t.remove}
+                  confirm={t.removeConfirm}
+                  warning={t.removeWarning}
+                  disabled={busy}
+                  onConfirm={() =>
+                    void send('DELETE', `/api/channels/${c.id}`).then(
+                      () => {
+                        toast(t.removed(c.label), 'success')
+                        props.onClose()
+                        void props.onChanged()
+                      },
+                      (err: Error) => toast(err.message, 'error'),
+                    )
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'people' && (
+          <div className="flex flex-col gap-4">
+            {unconfirmed && (
+              <Banner tone="warn" className="flex flex-wrap items-center gap-3">
+                <p className="min-w-0 flex-1">{t.confirmOwner(unconfirmed.name)}</p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() =>
+                    void act(
+                      post(`/api/channels/${c.id}/owner`, { person: unconfirmed.id }),
+                      t.ownerConfirmed(unconfirmed.name),
+                    )
+                  }
+                >
+                  {t.confirmOwnerButton}
+                </Button>
+              </Banner>
+            )}
+            {c.pending.length > 0 && (
+              <Card>
+                <CardRow>
+                  <div className="text-body font-semibold">{t.waiting}</div>
+                  <div className="text-small text-muted">{t.waitingHint}</div>
+                </CardRow>
+                {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
+                  <CardRow>
+                    <p className="text-callout text-warn-ink">{t.ownerFirst}</p>
+                  </CardRow>
+                )}
+                {c.pending.map((p) => {
+                  const asOwner = !hasOwner && p.kind === 'person'
+                  return (
+                    <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-reading font-semibold">
+                          {p.sender.name}
+                          {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                        </div>
+                        <div className="truncate font-mono text-small text-muted">
+                          {t.sender(c.label, p.sender.id, p.sender.handle)}
+                        </div>
+                        <div className="text-small text-muted">
+                          {t.expires(new Date(p.expires).toLocaleTimeString())}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="w-48">
+                          <Field label={t.code} error={codeErrors[p.id]}>
+                            <TextInput
+                              value={codes[p.id] ?? ''}
+                              onChange={(e) => {
+                                const code = e.target.value
+                                setCodes((all) => ({ ...all, [p.id]: code }))
+                                setCodeErrors(({ [p.id]: _, ...rest }) => rest)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void approve(p)
+                              }}
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={PAIRING_CODE_LENGTH}
+                              className="font-mono uppercase"
+                            />
+                          </Field>
+                        </div>
+                        <div className="ml-auto flex gap-2">
+                          <ConfirmButton
+                            label={t.decline}
+                            name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
+                            confirm={t.declineConfirm}
+                            onConfirm={() =>
+                              void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))
+                            }
+                          />
+                          <Button size="sm" variant="primary" onClick={() => void approve(p)}>
+                            {asOwner ? t.makeOwner : t.approve}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() =>
-                      void act(
-                        post(`/api/channels/${c.id}/approve`, { request: p.id }),
-                        t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
-                      )
-                    }
-                  >
-                    {t.approve}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                  >
-                    {t.dismiss}
-                  </Button>
-                </div>
-              ))}
-            </Card>
-          )}
-          {c.configured && (
+                  )
+                })}
+              </Card>
+            )}
             <Card>
-              <Row>
-                <div className="text-[13px] font-semibold">{t.people}</div>
-              </Row>
-              {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
+              <CardRow>
+                <div className="text-body font-semibold">{t.people}</div>
+              </CardRow>
+              {c.people.length === 0 && <div className="px-4 py-3 text-callout text-muted">{t.none}</div>}
               {c.people.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">
+                  <div className="min-w-0 flex-1 truncate text-reading">
                     {p.name}
                     {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
                   </div>
-                  <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                  <Badge tone={p.role === 'owner' ? 'accent' : 'neutral'}>
                     {p.role === 'owner' ? t.owner : t.member}
-                  </Pill>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  </Badge>
+                  {p.role === 'member' && (
+                    <ConfirmButton
+                      label={t.makeOwner}
+                      name={t.makeOwnerName(p.name)}
+                      confirm={t.makeOwnerConfirm}
+                      warning={hasOwner ? t.makeOwnerWarning : t.makeOwnerFirstWarning}
+                      onConfirm={() =>
+                        void act(post(`/api/channels/${c.id}/owner`, { person: p.id }), t.madeOwner(p.name))
+                      }
+                    />
+                  )}
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(p.name)}
+                    confirm={t.revokeConfirm}
+                    warning={p.role === 'owner' ? t.revokeOwnerWarning : t.revokeWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                  />
                 </div>
               ))}
-              {c.groups.length > 0 && (
-                <Row>
-                  <div className="text-[13px] font-semibold">{t.groups}</div>
-                </Row>
+              {c.approvedGroups.length > 0 && (
+                <CardRow>
+                  <div className="text-body font-semibold">{t.groups}</div>
+                </CardRow>
               )}
-              {c.groups.map((g) => (
+              {c.approvedGroups.map((g) => (
                 <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  <div className="min-w-0 flex-1 truncate text-reading">{g.title}</div>
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(g.title)}
+                    confirm={t.revokeConfirm}
+                    warning={t.revokeGroupWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                  />
                 </div>
               ))}
             </Card>
-          )}
-        </div>
-      ))}
+          </div>
+        )}
+
+        {tab === 'rules' && (
+          <Card>
+            <CardRow>
+              <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
+                <Select
+                  value={c.dm}
+                  onChange={(e) => void configure({ dm: e.target.value })}
+                  aria-label={t.dm}
+                >
+                  {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
+                    <option key={v} value={v}>
+                      {t.dmOptions[v]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
+                <Select
+                  value={c.groups}
+                  onChange={(e) => void configure({ groups: e.target.value })}
+                  aria-label={t.groupsLabel}
+                >
+                  {(['approve', 'open', 'disabled'] as const).map((v) => (
+                    <option key={v} value={v}>
+                      {t.groupsOptions[v]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.mention} hint={t.mentionHint} inline>
+                <Switch
+                  checked={c.mention}
+                  onChange={(mention) => void configure({ mention })}
+                  label={t.mention}
+                />
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.perPerson} hint={t.perPersonHint} inline>
+                <Switch
+                  checked={c.perPerson}
+                  onChange={(perPerson) => void configure({ perPerson })}
+                  label={t.perPerson}
+                />
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field
+                label={t.allow}
+                hint={
+                  <>
+                    {t.allowHint}
+                    {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
+                  </>
+                }
+                error={
+                  allowError ??
+                  (c.allowInvalid.length ? t.allowStale(c.allowInvalid, c.allowExample) : undefined)
+                }
+              >
+                <TextInput
+                  value={allowDraft ?? c.allow.join(', ')}
+                  onChange={(e) => {
+                    setAllowDraft(e.target.value)
+                    setAllowSaved(false)
+                  }}
+                  onBlur={() => void saveAllow()}
+                  placeholder={c.allowExample ?? t.allowPlaceholder}
+                />
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
+                <Select
+                  value={c.stream}
+                  onChange={(e) => void configure({ stream: e.target.value })}
+                  aria-label={t.stream}
+                >
+                  {(['progress', 'partial', 'final'] as const).map((v) => (
+                    <option key={v} value={v}>
+                      {t.streamOptions[v]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </CardRow>
+          </Card>
+        )}
+
+        {tab === 'activity' && (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-callout text-muted">
+              <span>{h.lastIn(c.health.lastIn ? ago(c.health.lastIn) : h.never)}</span>
+              <span>{h.lastOut(c.health.lastOut ? ago(c.health.lastOut) : h.never)}</span>
+              {c.health.reconnects > 0 && <span>{h.reconnects(c.health.reconnects)}</span>}
+              {c.health.owed > 0 && <span className="text-warn-ink">{h.owed(c.health.owed)}</span>}
+            </div>
+            {c.health.lastError && channelState(c) !== 'on' && (
+              <Banner tone="bad">{h.lastError(c.health.lastError)}</Banner>
+            )}
+            {eventsError && (
+              <Banner tone="bad" role="alert">
+                {eventsError}
+              </Banner>
+            )}
+            <Card>
+              {events?.length === 0 && (
+                <div className="px-4 py-3 text-callout text-muted">{t.noActivity}</div>
+              )}
+              {events?.map((e) => (
+                <div key={`${e.at}-${e.text}`} className="flex items-center gap-3 px-4 py-2.5 text-body">
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 truncate',
+                      (e.kind === 'failed' || e.kind === 'trouble') && 'text-bad-ink',
+                    )}
+                  >
+                    {e.text}
+                  </span>
+                  <span className="shrink-0 text-small text-muted">{ago(e.at)}</span>
+                </div>
+              ))}
+            </Card>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+interface VoiceStatusView {
+  enabled: boolean
+  callModel?: string
+  stt: {
+    provider: ServerSettings['voice']['stt']['provider']
+    phonon: { state: string; line?: string; error?: string }
+    omp: string[]
+    keySet: boolean
+  }
+  tts: {
+    provider: ServerSettings['voice']['tts']['provider']
+    /** While downloading: files `done` of `total`, and bytes `received` of `size`. */
+    kitten: { state: string; done?: number; total?: number; received?: number; size?: number; error?: string }
+    voices: string[]
+    omp: string[]
+    keySet: boolean
+  }
+  /** Bytes each local engine downloads the first time; absent from older servers. */
+  sizes?: { phonon: number; kitten: Record<'nano' | 'micro' | 'mini', number>; vad: number; turn: number }
+  /** Days a call's transcript is kept. */
+  transcriptDays?: number
+}
+
+/** An engine installing, starting or downloading: Settings → Voice looks again until it is done. */
+function voiceBusy(s: VoiceStatusView | undefined): boolean {
+  return (
+    !!s &&
+    (s.stt.phonon.state === 'installing' ||
+      s.stt.phonon.state === 'starting' ||
+      s.tts.kitten.state === 'downloading')
+  )
+}
+
+/** A plain http address to another machine, where a key and audio would travel unencrypted. */
+function plainHttp(url: string | undefined): boolean {
+  if (!url?.startsWith('http://')) return false
+  try {
+    return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
+function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
+  const t = copy.settings.voice.trouble
+  const trouble = engineTrouble(props.engine, props.raw)
+  return (
+    <div className="min-w-0 flex-1 text-body">
+      <p className="text-bad-ink">{trouble.cause}</p>
+      <p className="text-fg-2">{trouble.fix}</p>
+      {props.raw && (
+        <details className="mt-1 text-callout text-muted">
+          <summary>{t.details}</summary>
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+            {props.raw}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Voice calls: the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and Kitten TTS,
+ * installed from here — or the person's cloud providers, or any OpenAI-compatible endpoint), and how loud speech must
+ * be to count.
+ */
+function VoiceSection(props: {
+  settings: ServerSettings
+  update(p: (s: ServerSettings) => ServerSettings): void
+  models: ModelOption[]
+}) {
+  const t = copy.settings.voice
+  const toast = useToast()
+  const v = props.settings.voice
+  const [status, setStatus] = useState<VoiceStatusView>()
+  const [keys, setKeys] = useState({ stt: '', tts: '' })
+  const [trying, setTrying] = useState(false)
+  const [urls, setUrls] = useState({ stt: v.stt.baseUrl ?? '', tts: v.tts.baseUrl ?? '' })
+  const [urlErrors, setUrlErrors] = useState<{ stt?: string; tts?: string }>({})
+  // A failing look is said once, not again on every later look that fails the same way.
+  const failed = useRef<string>(undefined)
+  // Counts finished looks, so each one, answered or failed, can schedule the next.
+  const [looks, setLooks] = useState(0)
+  const load = () =>
+    api<VoiceStatusView>('/api/voice')
+      .then((s) => {
+        failed.current = undefined
+        setStatus(s)
+      })
+      .catch((err: Error) => {
+        if (failed.current === err.message) return
+        failed.current = err.message
+        toast(err.message, 'error')
+      })
+      .finally(() => setLooks((n) => n + 1))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once, and again after each save
+  useEffect(() => {
+    void load()
+    window.addEventListener(SETTINGS_SAVED, load)
+    return () => window.removeEventListener(SETTINGS_SAVED, load)
+  }, [])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each finished look schedules the next while one is due
+  useEffect(() => {
+    if (!voiceBusy(status) && !failed.current) return
+    const timer = setTimeout(() => void load(), VOICE_POLL_MS)
+    return () => clearTimeout(timer)
+  }, [looks])
+  const set = (patch: (voice: ServerSettings['voice']) => ServerSettings['voice']) =>
+    props.update((s) => ({ ...s, voice: patch(s.voice) }))
+  const act = (promise: Promise<unknown>) => promise.then(load, (err: Error) => toast(err.message, 'error'))
+  const engine = (s: { state: string; done?: number; total?: number; received?: number; size?: number }) =>
+    s.state === 'downloading'
+      ? s.size
+        ? t.engine.downloadingBytes(formatSize(s.received ?? 0), formatSize(s.size))
+        : t.engine.downloading(s.done ?? 0, s.total ?? 0)
+      : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
+  const sizes = status?.sizes
+  const size = (bytes: number | undefined) => (bytes ? formatSize(bytes) : '')
+  const tryIt = async () => {
+    setTrying(true)
+    try {
+      const url = URL.createObjectURL(await postForBlob('/api/voice/sample', { text: t.trySentence }))
+      const audio = new Audio(url)
+      audio.onended = () => URL.revokeObjectURL(url)
+      await audio.play()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setTrying(false)
+    }
+  }
+  const saveKey = (which: 'stt' | 'tts') =>
+    void act(send('PUT', '/api/voice/keys', { [which]: keys[which] })).then(() =>
+      setKeys((k) => ({ ...k, [which]: '' })),
+    )
+  const endpointFields = (which: 'stt' | 'tts') => {
+    const e = v[which]
+    return (
+      <>
+        <CardRow>
+          <Field
+            label={t.baseUrl}
+            hint={plainHttp(urls[which].trim()) ? t.hints.plainHttp : t.hints.endpoint}
+            error={urlErrors[which]}
+          >
+            <TextInput
+              value={urls[which]}
+              placeholder="https://api.groq.com/openai/v1"
+              onChange={(ev) => setUrls((u) => ({ ...u, [which]: ev.target.value }))}
+              onBlur={() => {
+                const baseUrl = urls[which].trim()
+                const error = baseUrlError(baseUrl)
+                setUrlErrors((u) => ({ ...u, [which]: error }))
+                // An address that is not one is not saved; clearing the field is.
+                if (!error || !baseUrl)
+                  set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
+              }}
+              aria-label={t.baseUrl}
+              className="font-mono"
+            />
+          </Field>
+        </CardRow>
+        <CardRow>
+          <Field label={t.model}>
+            <TextInput
+              defaultValue={e.model ?? ''}
+              placeholder={which === 'stt' ? 'whisper-large-v3' : 'tts-1'}
+              onBlur={(ev) => {
+                const model = ev.target.value.trim()
+                set((x) => ({ ...x, [which]: { ...x[which], model: model || undefined } }))
+              }}
+              aria-label={t.model}
+              className="font-mono"
+            />
+          </Field>
+        </CardRow>
+        {which === 'tts' && (
+          <CardRow>
+            <Field label={t.voice}>
+              <TextInput
+                defaultValue={v.tts.endpointVoice ?? ''}
+                placeholder="alloy"
+                onBlur={(ev) => {
+                  const endpointVoice = ev.target.value.trim()
+                  set((x) => ({ ...x, tts: { ...x.tts, endpointVoice: endpointVoice || undefined } }))
+                }}
+                aria-label={t.voice}
+              />
+            </Field>
+          </CardRow>
+        )}
+        <CardRow>
+          <Field label={t.key} hint={status?.[which].keySet ? t.keySet : undefined}>
+            <div className="flex gap-2">
+              <TextInput
+                type="password"
+                autoComplete="off"
+                value={keys[which]}
+                onChange={(ev) => setKeys((k) => ({ ...k, [which]: ev.target.value }))}
+                aria-label={t.key}
+                className="font-mono"
+              />
+              <Button size="sm" disabled={!keys[which].trim()} onClick={() => saveKey(which)}>
+                {t.saveKey}
+              </Button>
+            </div>
+          </Field>
+        </CardRow>
+      </>
+    )
+  }
+  const onOff = (
+    <Card className="mb-6">
+      <CardRow>
+        <Field
+          label={t.enabled}
+          hint={
+            <>
+              {t.enabledHint({
+                detector: size(sizes?.vad),
+                turn: size(sizes?.turn),
+                kitten: size(sizes?.kitten[v.tts.kittenModel]),
+              })}
+              {status?.transcriptDays !== undefined && ` ${t.transcripts(status.transcriptDays)}`}
+            </>
+          }
+          inline
+        >
+          <Switch
+            checked={v.enabled}
+            onChange={(enabled) => set((x) => ({ ...x, enabled }))}
+            label={t.enabled}
+          />
+        </Field>
+      </CardRow>
+    </Card>
+  )
+  if (!v.enabled)
+    return (
+      <>
+        <PageHeader title={t.title}>{t.intro}</PageHeader>
+        {onOff}
+      </>
+    )
+  return (
+    <>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {onOff}
+      <Card className="mb-6">
+        <CardRow>
+          <Field label={t.callModel} hint={t.callModelHint}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                id="call-model"
+                value={v.callModel ? 'own' : 'lead'}
+                options={[
+                  { value: 'lead', label: t.sameAsLead },
+                  { value: 'own', label: t.ownModel },
+                ]}
+                onChange={(choice) =>
+                  set((x) => ({
+                    ...x,
+                    callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
+                  }))
+                }
+              />
+              {v.callModel ? (
+                <ModelPicker
+                  variant="compact"
+                  label={t.callModel}
+                  value={v.callModel}
+                  models={props.models}
+                  placement="down"
+                  onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+                />
+              ) : (
+                status?.callModel && (
+                  <span className="text-callout text-muted">
+                    {t.leadModel(
+                      props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
+                    )}
+                  </span>
+                )
+              )}
+            </div>
+          </Field>
+        </CardRow>
+        <CardRow>
+          <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
+            <Select
+              value={v.sensitivity}
+              onChange={(e) => set((x) => ({ ...x, sensitivity: e.target.value as typeof v.sensitivity }))}
+              aria-label={t.sensitivity}
+            >
+              {(['low', 'normal', 'high'] as const).map((k) => (
+                <option key={k} value={k}>
+                  {t.sensitivities[k]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </CardRow>
+      </Card>
+
+      <SectionHeader as="h3" className="mb-2" title={t.sttTitle} />
+      <Card className="mb-6">
+        <CardRow>
+          <Field
+            label={t.engineLabel}
+            hint={
+              v.stt.provider === 'phonon'
+                ? t.hints.phonon(size(sizes?.phonon))
+                : v.stt.provider === 'omp'
+                  ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
+                  : t.hints.endpointStt
+            }
+          >
+            <Select
+              value={v.stt.provider}
+              onChange={(e) =>
+                set((x) => ({ ...x, stt: { ...x.stt, provider: e.target.value as typeof v.stt.provider } }))
+              }
+              aria-label={t.sttTitle}
+            >
+              <option value="phonon">{t.providers.phonon}</option>
+              <option value="omp">{t.providers.omp}</option>
+              <option value="endpoint">{t.providers.endpoint}</option>
+            </Select>
+          </Field>
+        </CardRow>
+        {v.stt.provider === 'phonon' && status && (
+          <CardRow>
+            <div className="flex items-center gap-3 text-body">
+              {status.stt.phonon.state === 'error' ? (
+                <EngineTrouble engine="phonon" raw={status.stt.phonon.error ?? ''} />
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-fg-2" title={status.stt.phonon.line}>
+                  {engine(status.stt.phonon)}
+                  {status.stt.phonon.line && <span className="text-muted"> · {status.stt.phonon.line}</span>}
+                </span>
+              )}
+              <Button
+                size="sm"
+                disabled={status.stt.phonon.state === 'installing'}
+                onClick={() => void act(post('/api/voice/phonon/install', {}))}
+              >
+                {status.stt.phonon.state === 'missing' ? t.install : t.reinstall}
+              </Button>
+            </div>
+          </CardRow>
+        )}
+        {v.stt.provider === 'endpoint' && endpointFields('stt')}
+      </Card>
+
+      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} />
+      <Card className="mb-6">
+        <CardRow>
+          <Field
+            label={t.engineLabel}
+            hint={
+              v.tts.provider === 'kitten'
+                ? t.hints.kitten
+                : v.tts.provider === 'omp'
+                  ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
+                  : t.hints.endpointTts
+            }
+          >
+            <Select
+              value={v.tts.provider}
+              onChange={(e) =>
+                set((x) => ({ ...x, tts: { ...x.tts, provider: e.target.value as typeof v.tts.provider } }))
+              }
+              aria-label={t.ttsTitle}
+            >
+              <option value="kitten">{t.providers.kitten}</option>
+              <option value="omp">{t.providers.omp}</option>
+              <option value="endpoint">{t.providers.endpoint}</option>
+            </Select>
+          </Field>
+        </CardRow>
+        {v.tts.provider === 'kitten' && (
+          <>
+            <CardRow>
+              <Field label={t.kittenModel} inline>
+                <Select
+                  value={v.tts.kittenModel}
+                  onChange={(e) =>
+                    set((x) => ({
+                      ...x,
+                      tts: { ...x.tts, kittenModel: e.target.value as typeof v.tts.kittenModel },
+                    }))
+                  }
+                  aria-label={t.kittenModel}
+                >
+                  {(['nano', 'micro', 'mini'] as const).map((m) => (
+                    <option key={m} value={m}>
+                      {sizes ? `${t.kittenModels[m]} · ${formatSize(sizes.kitten[m])}` : t.kittenModels[m]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </CardRow>
+            {status && (
+              <CardRow>
+                <div className="flex items-center gap-3 text-body">
+                  {status.tts.kitten.state === 'error' ? (
+                    <EngineTrouble engine="kitten" raw={status.tts.kitten.error ?? ''} />
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate text-fg-2">{engine(status.tts.kitten)}</span>
+                  )}
+                  {(status.tts.kitten.state === 'missing' || status.tts.kitten.state === 'error') && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        void act(post('/api/voice/kitten/download', { model: v.tts.kittenModel }))
+                      }
+                    >
+                      {t.download}
+                    </Button>
+                  )}
+                </div>
+              </CardRow>
+            )}
+            <CardRow>
+              <Field label={t.voice} inline>
+                <Select
+                  value={v.tts.voice}
+                  onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, voice: e.target.value } }))}
+                  aria-label={t.voice}
+                >
+                  {(status?.tts.voices ?? [v.tts.voice]).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </CardRow>
+          </>
+        )}
+        {v.tts.provider === 'endpoint' && endpointFields('tts')}
+        <CardRow>
+          <Field label={t.speed} inline>
+            <Select
+              value={String(v.tts.speed)}
+              onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, speed: Number(e.target.value) } }))}
+              aria-label={t.speed}
+            >
+              {VOICE_SPEEDS.map((sp) => (
+                <option key={sp} value={String(sp)}>
+                  {`${sp}×`}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </CardRow>
+        <CardRow>
+          <Button size="sm" variant="primary" disabled={trying} onClick={() => void tryIt()}>
+            {t.tryIt}
+          </Button>
+        </CardRow>
+      </Card>
     </>
   )
 }
@@ -2747,9 +3745,9 @@ function GatewaysSection() {
     )
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={t.link} hint={t.linkHint}>
             <TextInput
               value={link}
@@ -2759,8 +3757,8 @@ function GatewaysSection() {
               className="font-mono"
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.name} hint={t.nameHint}>
             <TextInput
               value={name}
@@ -2769,32 +3767,31 @@ function GatewaysSection() {
               aria-label={t.name}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Button
             size="sm"
             variant="primary"
-            disabled={busy || !link.trim()}
-            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            disabled={!link.trim()}
+            loading={busy}
+            icon={<Plus className="size-3.5" />}
             onClick={() => void add()}
           >
             {busy ? t.adding : t.add}
           </Button>
-        </Row>
+        </CardRow>
       </Card>
       {list && list.length === 0 ? (
-        <Empty icon={<Network className="size-5" />} title={t.empty} />
+        <Empty icon={<FEATURE_ICONS.gateways className="size-5" />} title={t.empty} />
       ) : (
         <Card>
           {list?.map((g) => (
             <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-              <span
-                className={cn('inline-flex size-2 shrink-0 rounded-full', g.health.ok ? 'bg-ok' : 'bg-bad')}
-              />
+              <Dot tone={g.health.ok ? 'ok' : 'bad'} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="truncate text-reading font-semibold">{g.name}</span>
-                  {g.id === active && <Pill tone="accent">{t.shown}</Pill>}
+                  {g.id === active && <Badge tone="accent">{t.shown}</Badge>}
                 </div>
                 <div className="truncate text-small text-muted">
                   {new URL(g.url).host} · {copy.settings.devices.scopeNames[g.scope]} ·{' '}
@@ -2803,13 +3800,13 @@ function GatewaysSection() {
                 </div>
               </div>
               {g.id !== active && (
-                <Button size="sm" variant="ghost" onClick={() => switchGateway(g.id)}>
+                <Button size="sm" variant="borderless" onClick={() => switchGateway(g.id)}>
                   {t.show}
                 </Button>
               )}
               <ConfirmButton
                 label={t.remove}
-                confirm={copy.settings.shared.confirmRemove}
+                confirm={copy.settings.gateways.confirmRemove}
                 onConfirm={() => void remove(g)}
               />
             </div>
@@ -2830,7 +3827,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
     ref ? (props.models.find((m) => m.ref === ref)?.name ?? ref) : t.teamModel
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <div className="mb-4 flex justify-end">
         <Button
           size="sm"
@@ -2851,7 +3848,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
         </Card>
       )}
       {list.length === 0 && open !== 'new' ? (
-        <Empty icon={<UserCog className="size-5" />} title={t.empty}>
+        <Empty icon={<FEATURE_ICONS.specialists className="size-5" />} title={t.empty}>
           {t.emptyHint}
         </Empty>
       ) : (
@@ -2879,12 +3876,12 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                     {s.off.length > 0 && ` · ${t.toolsOff(s.off.map((g) => t.groups[g]).join(', '))}`}
                   </div>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
+                <Button size="sm" variant="borderless" onClick={() => setOpen(s.id)}>
                   {t.edit}
                 </Button>
                 <ConfirmButton
                   label={t.remove}
-                  confirm={copy.settings.shared.confirmDelete}
+                  confirm={copy.settings.specialists.confirmRemove}
                   onConfirm={() =>
                     void removeSpecialist(s.id).then(
                       () => toast(t.removed(s.name), 'info'),
@@ -2912,7 +3909,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
     >
       <span
         className={cn(
-          'grid place-items-center rounded-xl p-0.5 ring-2 transition-shadow',
+          'grid place-items-center rounded-lg p-0.5 ring-2 transition-shadow',
           props.selected ? 'ring-accent' : 'ring-transparent hover:ring-line-strong',
         )}
       >
@@ -2927,7 +3924,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
 function MiniMascot(props: { look: MascotLook; cell?: number }) {
   const cell = props.cell ?? 4
   return (
-    <span className="relative inline-block rounded-lg bg-screen p-2.5">
+    <span className="relative inline-block rounded-xl bg-screen p-2.5">
       <PixelFace
         mood="idle"
         color={MASCOT_COLORS[props.look.color]}
@@ -2963,9 +3960,9 @@ function MascotSection(props: {
     props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
   return (
     <>
-      <Heading title={t.title}>{t.intro}</Heading>
+      <PageHeader title={t.title}>{t.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
             <TextInput
               value={profile.name ?? ''}
@@ -2981,8 +3978,8 @@ function MascotSection(props: {
               className="w-48"
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
             <Segmented
               id="greeting"
@@ -2996,15 +3993,30 @@ function MascotSection(props: {
               }
             />
           </Field>
-        </Row>
+        </CardRow>
+        <CardRow>
+          <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
+            <Segmented
+              id="titles"
+              value={profile.titles ?? 'model'}
+              options={[
+                { value: 'model', label: t.titlesModel },
+                { value: 'first-message', label: t.titlesFirst },
+              ]}
+              onChange={(titles) =>
+                props.update((s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }), true)
+              }
+            />
+          </Field>
+        </CardRow>
       </Card>
       <Card>
-        <Row>
+        <CardRow>
           <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
             <MiniMascot look={look} cell={9} />
           </figure>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.eyes}>
             <div className="flex flex-wrap gap-3">
               {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
@@ -3019,8 +4031,8 @@ function MascotSection(props: {
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.look}>
             <div className="flex flex-wrap gap-4">
               {(['neutral', 'flower', 'bow'] as const).map((l) => (
@@ -3032,8 +4044,8 @@ function MascotSection(props: {
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.color}>
             <div className="flex flex-wrap gap-3">
               {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
@@ -3044,14 +4056,14 @@ function MascotSection(props: {
                   onClick={() => set({ color })}
                 >
                   <span className="grid size-10 place-items-center rounded-base bg-screen">
-                    <span className="size-4 rounded-[5px]" style={{ background: MASCOT_COLORS[color] }} />
+                    <span className="size-4 rounded-sm" style={{ background: MASCOT_COLORS[color] }} />
                   </span>
                 </Tile>
               ))}
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={t.screen} inline>
             <Segmented
               id="mascot-screen"
@@ -3063,7 +4075,7 @@ function MascotSection(props: {
               onChange={(screen) => set({ screen })}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -3077,9 +4089,9 @@ function VerificationSection(props: {
   const off = v.reviewer === 'off'
   return (
     <>
-      <Heading title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</Heading>
+      <PageHeader title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.reviewer.when} hint={REVIEWER_HINT[v.reviewer]} inline>
             <Segmented
               id="reviewer"
@@ -3094,8 +4106,8 @@ function VerificationSection(props: {
               }
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.reviewer.threshold} hint={copy.settings.reviewer.thresholdHint} inline>
             <div className="flex items-center gap-3">
               <input
@@ -3119,8 +4131,8 @@ function VerificationSection(props: {
               </span>
             </div>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.reviewer.rubric} hint={copy.settings.reviewer.rubricHint}>
             <TextArea
               value={v.rubric ?? ''}
@@ -3132,7 +4144,7 @@ function VerificationSection(props: {
               disabled={off}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -3145,9 +4157,9 @@ function InstructionsSection(props: {
   const i = props.settings.instructions
   return (
     <>
-      <Heading title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</Heading>
+      <PageHeader title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.instructions.lead} hint={copy.settings.instructions.leadHint}>
             <TextArea
               value={i.lead ?? ''}
@@ -3158,8 +4170,8 @@ function InstructionsSection(props: {
               rows={5}
             />
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.instructions.workers} hint={copy.settings.instructions.workersHint}>
             <TextArea
               value={i.worker ?? ''}
@@ -3170,7 +4182,7 @@ function InstructionsSection(props: {
               rows={5}
             />
           </Field>
-        </Row>
+        </CardRow>
       </Card>
     </>
   )
@@ -3182,6 +4194,8 @@ interface ScheduleEntry {
   request: string
   cron: string
   project?: string
+  /** A channel the owner follows each run on. */
+  deliver?: string
   enabled: boolean
   nextRun?: string
   lastRun?: { at: string; chatId?: string; error?: string }
@@ -3210,7 +4224,15 @@ function SchedulesSection() {
   const toast = useToast()
   const [list, setList] = useState<ScheduleEntry[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [draft, setDraft] = useState({ request: '', cron: '0 9 * * 1-5', custom: false, project: '' })
+  const [draft, setDraft] = useState({
+    request: '',
+    cron: '0 9 * * 1-5',
+    custom: false,
+    project: '',
+    deliver: '',
+  })
+  // Channels with an owner can report each run there.
+  const [channels, setChannels] = useState<{ id: string; label: string }[]>([])
   const load = () =>
     api<{ schedules: ScheduleEntry[] }>('/api/schedules')
       .then((r) => setList(r.schedules))
@@ -3218,6 +4240,13 @@ function SchedulesSection() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     void load()
+    api<{ channels: { id: string; label: string; configured: boolean; people: { role: string }[] }[] }>(
+      '/api/channels',
+    )
+      .then((r) =>
+        setChannels(r.channels.filter((c) => c.configured && c.people.some((p) => p.role === 'owner'))),
+      )
+      .catch(() => {})
     api<{ projects: { id: string; name: string }[] }>('/api/projects')
       .then((r) => setProjects(r.projects))
       .catch(() => {})
@@ -3234,9 +4263,9 @@ function SchedulesSection() {
   const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
-      <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
+      <PageHeader title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={copy.settings.schedules.request}>
             <TextArea
               rows={2}
@@ -3289,6 +4318,20 @@ function SchedulesSection() {
                 </option>
               ))}
             </Select>
+            {channels.length > 0 && (
+              <Select
+                aria-label={copy.settings.schedules.deliver}
+                value={draft.deliver}
+                onChange={(e) => setDraft({ ...draft, deliver: e.target.value })}
+              >
+                <option value="">{copy.settings.schedules.noDeliver}</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {copy.settings.schedules.deliverTo(c.label)}
+                  </option>
+                ))}
+              </Select>
+            )}
             <span className="flex-1" />
             <Button
               size="sm"
@@ -3301,6 +4344,7 @@ function SchedulesSection() {
                     request: draft.request,
                     cron: draft.cron,
                     ...(draft.project ? { project: draft.project } : {}),
+                    ...(draft.deliver ? { deliver: draft.deliver } : {}),
                   })
                   setDraft({ ...draft, request: '' })
                 }, copy.settings.schedules.scheduled)
@@ -3314,20 +4358,23 @@ function SchedulesSection() {
               {badCron}
             </p>
           )}
-        </Row>
+        </CardRow>
       </Card>
       {!list ? (
         <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.schedules.loading}
         </div>
       ) : list.length === 0 ? (
-        <Empty icon={<CalendarClock className="size-5" />} title={copy.settings.schedules.emptyTitle}>
+        <Empty
+          icon={<FEATURE_ICONS.schedules className="size-5" />}
+          title={copy.settings.schedules.emptyTitle}
+        >
           {copy.settings.schedules.emptyBody}
         </Empty>
       ) : (
         <Card>
           {list.map((s) => (
-            <Row key={s.id}>
+            <CardRow key={s.id}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
@@ -3337,6 +4384,13 @@ function SchedulesSection() {
                       <span>
                         {copy.settings.schedules.inProject(
                           projects.find((p) => p.id === s.project)?.name ?? s.project,
+                        )}
+                      </span>
+                    )}
+                    {s.deliver && (
+                      <span>
+                        {copy.settings.schedules.deliverTo(
+                          channels.find((c) => c.id === s.deliver)?.label ?? s.deliver,
                         )}
                       </span>
                     )}
@@ -3355,7 +4409,7 @@ function SchedulesSection() {
                 </div>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="borderless"
                   onClick={() =>
                     act(() => send('POST', `/api/schedules/${s.id}/run`), copy.settings.schedules.started)
                   }
@@ -3370,11 +4424,11 @@ function SchedulesSection() {
                 <ConfirmButton
                   icon
                   label={copy.settings.schedules.delete}
-                  confirm={copy.settings.shared.confirmDelete}
+                  confirm={copy.settings.schedules.confirmDelete}
                   onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
         </Card>
       )}
@@ -3464,7 +4518,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
   }
   return (
     <>
-      <Heading title={copy.settings.hooks.title}>
+      <PageHeader title={copy.settings.hooks.title}>
         {copy.settings.hooks.introBeforeFsEdit}
         <code className="font-mono text-callout">fs_edit</code>
         {copy.settings.hooks.introBeforeShell}
@@ -3474,7 +4528,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
         {copy.settings.hooks.introBeforeBash}
         <code className="font-mono text-callout">Bash</code>
         {copy.settings.hooks.introAfterBash}
-      </Heading>
+      </PageHeader>
       <div
         role="note"
         className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-body"
@@ -3492,13 +4546,13 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
       ) : (
         <Card>
           {rows.length === 0 && (
-            <Row>
+            <CardRow>
               <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
-            </Row>
+            </CardRow>
           )}
           {rows.map((r, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: rows are edited in place by position
-            <Row key={i}>
+            <CardRow key={i}>
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Select
@@ -3549,13 +4603,13 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
                   className="font-mono"
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
-          <Row>
+          <CardRow>
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 icon={<Plus className="size-3.5" />}
                 onClick={() => {
                   setRows((rs) => [
@@ -3572,7 +4626,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
                 {copy.settings.shared.save}
               </Button>
             </div>
-          </Row>
+          </CardRow>
         </Card>
       )}
     </>
@@ -3585,6 +4639,14 @@ interface SkillEntry {
   dir: string
   source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
+  curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
+}
+
+interface SkillsResponse {
+  skills: SkillEntry[]
+  archived: { name: string; description: string }[]
+  dir?: string
+  retire?: { staleDays: number; archiveDays: number }
 }
 
 const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
@@ -3621,7 +4683,7 @@ function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
       .then(props.onSaved)
       .catch((err: Error) => toast(err.message, 'error'))
   return (
-    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-line bg-surface-2/40 p-3">
+    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-fill/40 p-3">
       {Object.entries(props.plugin.settings).map(([key, spec]) => {
         const value = props.plugin.values[key]
         return (
@@ -3694,7 +4756,7 @@ function PluginsSection() {
     ].filter(Boolean)
   return (
     <>
-      <Heading title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</Heading>
+      <PageHeader title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</PageHeader>
       <form
         className="mb-4 flex gap-2"
         onSubmit={(e) => {
@@ -3712,8 +4774,9 @@ function PluginsSection() {
         <Button
           type="submit"
           variant="primary"
-          disabled={!source.trim() || adding}
-          icon={adding ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+          disabled={!source.trim()}
+          loading={adding}
+          icon={<Plus className="size-3.5" />}
         >
           {adding ? copy.settings.plugins.adding : copy.settings.plugins.add}
         </Button>
@@ -3723,18 +4786,20 @@ function PluginsSection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.plugins.loading}
         </div>
       ) : data.plugins.length === 0 ? (
-        <Empty icon={<Puzzle className="size-5" />} title={copy.settings.plugins.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.plugins className="size-5" />} title={copy.settings.plugins.emptyTitle}>
           {copy.settings.plugins.emptyBody}
         </Empty>
       ) : (
         <>
           <Card>
             {data.plugins.map((p) => (
-              <Row key={p.name}>
-                <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
+              <CardRow key={p.name}>
+                <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-reading font-medium">{p.name}</span>
+                      <span className={cn('font-mono text-reading font-medium', !p.enabled && 'text-muted')}>
+                        {p.name}
+                      </span>
                       {p.version && <span className="text-small text-muted">v{p.version}</span>}
                       {p.author && (
                         <span className="text-small text-muted">{copy.settings.plugins.by(p.author)}</span>
@@ -3745,9 +4810,9 @@ function PluginsSection() {
                     )}
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {parts(p).map((part) => (
-                        <Pill key={part} tone="neutral">
+                        <Badge key={part} tone="neutral">
                           {part}
-                        </Pill>
+                        </Badge>
                       ))}
                     </div>
                     {p.error && <p className="mt-1.5 text-callout text-bad-ink">{p.error}</p>}
@@ -3795,7 +4860,7 @@ function PluginsSection() {
                           {logOpen === p.name ? copy.settings.plugins.hideLog : copy.settings.plugins.showLog}
                         </button>
                         {logOpen === p.name && (
-                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+                          <pre className="mt-1 max-h-48 overflow-auto rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
                             {p.status.log.join('\n')}
                           </pre>
                         )}
@@ -3827,7 +4892,7 @@ function PluginsSection() {
                     />
                   </div>
                 </div>
-              </Row>
+              </CardRow>
             ))}
           </Card>
           <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
@@ -3877,13 +4942,13 @@ function SkillDescription(props: { text: string; dir: string }) {
 /** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
 function SkillsSection() {
   const toast = useToast()
-  const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
+  const [data, setData] = useState<SkillsResponse>()
   const [proposed, setProposed] = useState<SkillProposalView[]>([])
   const load = () => {
     api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
       .then((r) => setProposed(r.proposals))
       .catch(() => {})
-    return api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+    return api<SkillsResponse>('/api/skills')
       .then(setData)
       .catch((err: Error) => toast(err.message, 'error'))
   }
@@ -3893,7 +4958,7 @@ function SkillsSection() {
   }, [])
   return (
     <>
-      <Heading title={copy.settings.skills.title}>
+      <PageHeader title={copy.settings.skills.title}>
         {copy.settings.skills.introBeforeDir}
         <code className="font-mono text-callout">{data?.dir ?? 'skills/'}</code>
         {copy.settings.skills.introBeforeUserDir}
@@ -3901,12 +4966,12 @@ function SkillsSection() {
         {copy.settings.skills.introBeforeProjectDir}
         <code className="font-mono text-callout">.claude/skills</code>
         {copy.settings.skills.introAfterProjectDir}
-      </Heading>
+        {data?.retire &&
+          ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
+      </PageHeader>
       {proposed.length > 0 && (
         <div className="mb-6 flex flex-col gap-3">
-          <h4 className="text-body font-semibold text-fg-2">
-            {copy.settings.skills.proposed(proposed.length)}
-          </h4>
+          <SectionHeader title={copy.settings.skills.proposed(proposed.length)} />
           <AnimatePresence initial={false}>
             {proposed.map((p) => (
               <SkillProposalCard key={p.id} proposal={p} onDecided={() => void load()} />
@@ -3919,25 +4984,55 @@ function SkillsSection() {
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}
         </div>
       ) : data.skills.length === 0 ? (
-        <Empty icon={<GraduationCap className="size-5" />} title={copy.settings.skills.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.skills className="size-5" />} title={copy.settings.skills.emptyTitle}>
           {copy.settings.skills.emptyBody}
         </Empty>
       ) : (
         <Card>
           {data.skills.map((s) => (
-            <Row key={s.name}>
+            <CardRow key={s.name}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-reading font-medium" title={s.dir}>
                       {s.name}
                     </span>
-                    <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
+                    <Badge tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
-                    </Pill>
+                    </Badge>
+                    {s.curation && <Badge>{copy.settings.skills.learned}</Badge>}
+                    {s.curation?.stale && (
+                      <span title={data.retire && copy.settings.skills.staleHint(data.retire.archiveDays)}>
+                        <Badge tone="warn">{copy.settings.skills.stale}</Badge>
+                      </span>
+                    )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
+                  {s.curation && (
+                    <div className="mt-1 text-footnote text-muted">
+                      {copy.settings.skills.uses(
+                        s.curation.uses,
+                        s.curation.lastUsed ? ago(s.curation.lastUsed) : undefined,
+                      )}
+                    </div>
+                  )}
                 </div>
+                {s.curation && (
+                  <Button
+                    size="sm"
+                    variant="borderless"
+                    icon={<Pin className={cn('size-3.5', s.curation.kept && 'fill-current')} />}
+                    aria-pressed={s.curation.kept}
+                    title={copy.settings.skills.keepHint}
+                    onClick={() =>
+                      void send('PUT', `/api/skills/${s.name}`, { kept: !s.curation?.kept })
+                        .then(load)
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  >
+                    {s.curation.kept ? copy.settings.skills.kept : copy.settings.skills.keep}
+                  </Button>
+                )}
                 <Switch
                   checked={s.enabled}
                   label={copy.settings.skills.canUse(s.name)}
@@ -3948,9 +5043,42 @@ function SkillsSection() {
                   }
                 />
               </div>
-            </Row>
+            </CardRow>
           ))}
         </Card>
+      )}
+      {!!data?.archived.length && (
+        <div className="mt-8">
+          <SectionHeader title={copy.settings.skills.archivedTitle(data.archived.length)} />
+          <p className="mb-3 text-footnote text-muted">{copy.settings.skills.archivedHint}</p>
+          <Card>
+            {data.archived.map((a) => (
+              <CardRow key={a.name}>
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-reading font-medium text-fg-2">{a.name}</div>
+                    <div className="text-footnote text-muted">{a.description}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="borderless"
+                    icon={<ArchiveRestore className="size-3.5" />}
+                    onClick={() =>
+                      void post(`/api/skills/${a.name}/restore`, {})
+                        .then(() => {
+                          toast(copy.settings.skills.restored(a.name), 'success')
+                          return load()
+                        })
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  >
+                    {copy.settings.skills.restore}
+                  </Button>
+                </div>
+              </CardRow>
+            ))}
+          </Card>
+        </div>
       )}
     </>
   )
@@ -4001,9 +5129,9 @@ function MemorySection() {
   )
   return (
     <>
-      <Heading title={copy.settings.memory.title}>{copy.settings.memory.intro}</Heading>
+      <PageHeader title={copy.settings.memory.title}>{copy.settings.memory.intro}</PageHeader>
       <Card className="mb-6">
-        <Row>
+        <CardRow>
           <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
             <TextArea
               value={draft.text}
@@ -4052,27 +5180,25 @@ function MemorySection() {
               {copy.settings.memory.rememberButton}
             </Button>
           </div>
-        </Row>
+        </CardRow>
       </Card>
       {!memories ? (
         <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
         </div>
       ) : memories.length === 0 ? (
-        <Empty icon={<BookMarked className="size-5" />} title={copy.settings.memory.emptyTitle}>
+        <Empty icon={<FEATURE_ICONS.memory className="size-5" />} title={copy.settings.memory.emptyTitle}>
           {copy.settings.memory.emptyBody}
         </Empty>
       ) : (
         groups.map((g) => (
           <section key={g || 'all'} className="mb-6">
-            <h4 className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
-              {scopeName(g || undefined)}
-            </h4>
+            <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
             <Card>
               {memories
                 .filter((m) => (m.project ?? '') === g)
                 .map((m) => (
-                  <Row key={m.id}>
+                  <CardRow key={m.id}>
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">
                         {editing?.id === m.id ? (
@@ -4128,7 +5254,9 @@ function MemorySection() {
                               : copy.settings.memory.addedByYou}{' '}
                             · {day(m.updatedAt)}
                           </span>
-                          {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
+                          {m.status === 'proposed' && (
+                            <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+                          )}
                         </div>
                         {m.source.why && (
                           <p className="mt-1 text-small text-muted">
@@ -4182,7 +5310,7 @@ function MemorySection() {
                         )}
                       </div>
                     </div>
-                  </Row>
+                  </CardRow>
                 ))}
             </Card>
           </section>
@@ -4197,16 +5325,19 @@ const SHORTCUTS: [string, string[]][] = [
   [copy.settings.shortcuts.focusComposer, ['/']],
   [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
   [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
+  [copy.settings.shortcuts.workspaceView, ['⌥', '⌘', '1–0']],
   [copy.settings.shortcuts.openSettings, ['⌘', ',']],
   [copy.settings.shortcuts.send, ['Enter']],
   [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
   [copy.settings.shortcuts.close, ['Esc']],
+  [copy.settings.shortcuts.muteCall, ['⌘', 'D']],
+  [copy.settings.shortcuts.hangUp, ['⌘', '⇧', 'H']],
 ]
 
 function Shortcuts() {
   return (
     <>
-      <Heading title={copy.settings.shortcuts.title} />
+      <PageHeader title={copy.settings.shortcuts.title} />
       <Card>
         {SHORTCUTS.map(([label, keys]) => (
           <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
@@ -4226,14 +5357,14 @@ function Shortcuts() {
 function About({ data }: { data?: SettingsResponse }) {
   return (
     <>
-      <Heading title={copy.settings.about.title}>{copy.settings.about.intro}</Heading>
+      <PageHeader title={copy.settings.about.title}>{copy.settings.about.intro}</PageHeader>
       <Card>
-        <Row>
+        <CardRow>
           <Field label={copy.settings.about.dataDirectory} inline>
             <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field
             label={copy.settings.about.providersReady}
             hint={copy.settings.about.providersReadyHint}
@@ -4243,15 +5374,15 @@ function About({ data }: { data?: SettingsResponse }) {
               {data ? data.providers.filter((p) => p.ready).length : '…'}
             </span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <Field label={copy.settings.about.sandbox} inline>
             <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
           </Field>
-        </Row>
-        <Row>
+        </CardRow>
+        <CardRow>
           <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
-        </Row>
+        </CardRow>
       </Card>
       <div className="mt-4 flex items-center gap-2 text-small text-muted">
         <Bot className="size-3.5" /> {copy.settings.about.builtOn}

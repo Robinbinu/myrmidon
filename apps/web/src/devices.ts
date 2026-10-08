@@ -154,7 +154,10 @@ export function needsFull(method: string, path: string): boolean {
   )
     return true
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
-  if (write && /^\/api\/(settings|plugins|mcp|hooks)(\/|$)/.test(path)) return true
+  // Skills and schedules are managed in Settings; a schedule can also deliver to a channel.
+  if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules)(\/|$)/.test(path)) return true
+  // Installing speech engines, keys and samples; calling (a GET that upgrades) stays open.
+  if (write && /^\/api\/voice\/(phonon|kitten|keys|sample)(\/|$)/.test(path)) return true
   // Adding or removing a project; reading the list stays open so chats show their folder.
   if (write && /^\/api\/projects(\/[^/]+)?$/.test(path)) return true
   return false

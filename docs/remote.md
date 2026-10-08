@@ -170,4 +170,4 @@ Run without a terminal (a script, a pipe), `myrmidon setup` prints these command
   add `--preview-port` and `--preview-url` (or forward the preview port in your tunnel).
 - **The preview frame says "unauthorized"**: the preview URL's host is not the one in `--preview-url`, or the device
   was revoked.
-- **"this device can use chats only"**: it was paired with chats-only access; pair it again with full access.
+- **"This device can use chats only"**: it was paired with chats-only access; pair it again with full access.

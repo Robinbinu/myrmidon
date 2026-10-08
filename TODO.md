@@ -24,6 +24,91 @@ Requests queued while other work is in progress. Top of each section is next.
 - [x] Live-run fixes: ordered `create_task` in one batch, blocked tasks don't wake assignees, numbered tasks not
       deduped, no peer-made "final answer" task, `task-final` points to `reply_user`.
 
+## Review: channels, voice, design (2026-10-08, evening)
+
+From the re-checks of develop at 33c545e, 0b2ee59 and aeadef6: code audits, an axe-core WCAG 2.1 AA scan of 26
+screen states, keyboard and 200% zoom tests, a design-system audit (71/100) and a UX copy review. Phase 1 groups run
+in parallel; phase 2 (design system, copy) touches every screen and runs after phase 1 merges.
+
+### Channels (`packages/runtime/src/channels`, Settings → Channels)
+
+- [x] **Pairing code never checked; first approved becomes owner** — approve by typed code; toast opens the sheet;
+      "Make owner" shows handle and id.
+- [x] **Non-owners run with the owner's tool permissions** — their runs ask the owner for every non-read-only tool.
+- [x] **IRC nicks can claim ownership** — match unverified platforms by id; never auto-assign owner from a handle.
+- [x] Revoke and Dismiss one click → ConfirmButton; strangers see internal errors → generic reply; corrupt
+      `channels.json` overwritten → fail loudly with a backup; flood guard silent → reply once.
+- [x] "Connected" heading over an "Off" channel; token errors only as toasts; optional fields unmarked; allow-list
+      without feedback; blank while loading; repeated error toasts while polling.
+
+### Voice runtime (`packages/runtime/src/voice`, the call socket)
+
+- [x] **Spoken yes/no prefix-matched and decides the newest approval** — whole-utterance, the one read out, read
+      back; no early turn end while an approval waits.
+- [x] **Crew updates reach the call model as the person's words** — send them as tool results; `answer_approval`
+      only after a spoken yes/no.
+- [x] Call kept alive after its socket closes during warm-up; refusals arrive as a bare 1006; several calls per chat.
+- [x] Transcripts outlive deleted chats; orphan calls; no retention.
+- [x] Kitten unpinned/unhashed and trusts a remote file name; Phonon unpinned; enabling voice doesn't download what it
+      promises. (Phonon-2 still installs only from its Install button: it is a `uv` tool install, not a file.)
+- [x] Re-transcribes the whole turn on every pause; direct calls split thoughts; turn-model failure toasts per pause;
+      overlapping streams silence each other; lead narration spoken; barge-in too sensitive without the turn model;
+      unguarded JSON/binary frames; "That round failed".
+
+### Voice in the app (`apps/web/src/client/voice`, Settings → Voice)
+
+- [x] **Hanging up while connecting leaves the mic and socket live**.
+- [x] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
+      "Crew"; members labelled "worker"; Call button 22px; menu without arrow keys; whole bar a live region.
+- [x] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
+      unchecked; polls every 2 s; duplicated headings; raw engine errors; spoken messages look typed.
+      ("Via the call assistant" not shown yet: `start_task` sends no flag the client can read. The call bar hides while
+      Settings is open, so a live call keeps running out of sight; the shortcuts still work.)
+
+### Trust, System page, gating
+
+- [x] **Untrue statements**: "agents never edit your files directly", "can only write to their own scratch folder".
+- [x] Raw server errors in toasts ("unauthorized", "no such colony", zod text, "needs the chat runtime").
+- [x] Chats-only devices: skill keep/restore, delivering schedules, the System page.
+- [x] System: "confined (unknown)", raw sandbox names and errors, own status dots, Restart without state, nothing
+      while loading, "No channels set up" for a channel that is off.
+- [x] Skill curator archives every old learned skill on upgrade, silently.
+- [x] Chat naming can overwrite an older chat's own name; naming a deleted chat leaves a file.
+- [x] omp writes request logs to the real `~/.omp/logs`; model-failure fallback preselects "Claude 4 Opus"; adding a
+      project keeps you in a project-less chat. (The fallback can't yet avoid a provider-wide auth or quota failure:
+      model errors aren't classified by cause.)
+
+### Phase 2 — design system and accessibility
+
+- [x] Radius scale out of order (`lg` 14px, `xl` 12px); 21 arbitrary radii; 56 arbitrary text sizes; no display type
+      steps.
+- [x] Six status dots, four badges, five hand-rolled popovers, four section/row copies, ~15 banners → `Dot`,
+      `usePopover`/`Menu`, `Card`, `SectionHeader`, `Banner`; Button aliases and no loading state.
+- [x] Inline field errors in 5 of 66 fields; one-click revoke/remove left; seven icons shared by two features.
+- [x] WCAG: muted text 3.7:1 (30 nodes); accessible names miss the visible text (36 nodes); 49 tabs to the message
+      box; menus and tabs without arrow keys; Settings badge 2.1:1; side panel covers the chat at 200% zoom.
+- [x] Settings IA: a "Connect" group for Devices, Gateways, Channels, Voice; shortcuts list missing ⌥⌘1–0.
+      (axe-core WCAG 2.1 AA: 0 violations on 18 screens in light and dark, down from 24 + 5 found on real data.)
+
+### Phase 2 — copy
+
+- [x] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
+      use, error messages with a cause and a fix, shorter long hints, calmer mascot moods.
+      (Kept on purpose: "Crews" for the list of chats' crews; channel `/new` and `/approve` keep the platforms' own
+      words. The changes check can't show the server's reason yet: RoundChanges drops it.)
+
+### Asked during the fixes
+
+- [x] **A refresh keeps the message box's text** (asked 2026-10-08) — each chat and the new-chat screen keep their own
+      unsent text in the browser; it goes when the message is sent or the chat is deleted. Attached files can't
+      survive a reload.
+- [x] **A refresh stays where you were** (asked 2026-10-08) — the screen (Crews, Compare, System) and an open Settings
+      section join the chat in the address, so a reload comes back to them; chats-only devices fall back to the chat.
+
+### [decide] New
+
+- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead?
+
 ## UX audit (2026-10-08)
 
 From the product-readiness inspection: every screen at 1440×900 and 960×600, two code audits, and a hands-on run
@@ -219,12 +304,14 @@ Open work, in the order it will be done:
       human like"). The Mail tab shows them as conversations. Also fix the reminder's side effect seen on
       2026-10-07: agents send "✔ end of thread, please don't reply" / "sent only to clear the unanswered-mail flag"
       just to quiet it; a message that needs no answer (an ack, "no reply needed") should close the thread.
-8d. - [ ] **Plugin reload test is flaky under load** — "editing the code reloads the plugin…" failed once in a full
-      `bun run check` (15 s, fs.watch timing) and passes alone; make its wait condition-based.
-8c. - [ ] **Browser flow test fails when run alone** (seen 2026-10-07; same on the commit before group chats; passes
-      in the full `bun run check`): "a browser flow is saved after its test run and replays with new inputs", run
-      with `-t`, gets "Protocol error (Accessibility.getFullAXTree): Session closed" instead of the failed-step
-      message. Chrome 154.0.8037.98. Find why the page closes after a failed click in a fresh browser.
+8d. - [x] **Plugin reload test is flaky under load** — done 2026-10-08. Reproduced (4 of 8 parallel runs): on macOS a
+      new watch drops writes made in its first moment, and it also reports writes from before it began, so every
+      plugin loaded twice at start and one that keeps data in its own folder reloaded itself in a loop. A file event
+      now rebuilds and reloads only when the code differs, loads of one plugin run one after another, and a check
+      shortly after the watch begins catches a missed edit (16 of 16 parallel runs pass).
+8c. - [x] **Browser flow test fails when run alone** — 2026-10-08: no longer reproduces (9 of 9, alone and in parallel,
+      same Chrome 154.0.8037.98); why the page closed then is not known. Fixed what made it fail confusingly: a failed
+      step's message no longer gives way to the page snapshot's own error ("Session closed").
 9. - [x] **Review-before-save cards** (OpenDots) — wherever Myrmidon already asks, the card shows the change in full
       (a file against what is there, a commit's patch, a command, a call's arguments); text can be rewritten before
       approving and a decline can carry a note; `propose` lets an agent show a file or commit first; approved writes,
@@ -240,8 +327,13 @@ Open work, in the order it will be done:
       finished round with 20+ tool calls (or any, with /learn or the round's button) and proposes a skill or an update
       to a learned one (`source: learned`, never the person's own); kept or discarded in the chat card or Settings →
       Skills; kept skills go to every chat.
-11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
-      archived after 90; needs use counts from use_skill.
+11b. - [x] **Retire stale learned skills** — done 2026-10-08, after Hermes's curator (the curator noted here as Qwen
+      Code's is Hermes's). Each use_skill load is counted (`skills-usage.json`); learned skills unused 30 days show
+      "unused" (still offered; using one makes it active), at 90 they move to `skills/.archive/` (never deleted);
+      Keep pins one; Settings → Skills shows uses and restores archived ones. Checked at start and every 6 hours.
+      Skills the person wrote or installed are never touched. Not done: Hermes's model pass that merges
+      near-duplicates (the skill reviewer already proposes changes). Badges not yet seen in the browser (no learned
+      skills on this machine yet).
 11c. - [x] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw"; research
       docs/research/2026-10-08-remote-gateways.md, spec docs/superpowers/specs/2026-10-08-remote-gateways-design.md)
       - [x] Step 1: remote server mode — --host/--public-url, exact Host/Origin allowlist, device pairing
@@ -257,15 +349,69 @@ Open work, in the order it will be done:
         off the page, /gw/<id> forwards API calls and bridges sockets, previews through the hub's preview origin,
         sidebar switcher per window, HTTP + socket health, a "can't reach" screen; revoking a device now closes all
         its sockets (terminals too); Bun's stop() hang after server-closed sockets worked around.
-11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"; research docs/research/2026-10-08-channels.md,
+11d. - [x] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"; research docs/research/2026-10-08-channels.md,
       spec docs/superpowers/specs/2026-10-08-channels-design.md)
       - [x] Step 1: channel core + Telegram text — ChannelHub (pairing codes, owner/members, groups by approval and
         mention, one chat per conversation, /new /stop /status /help, status line, chunked answers, dedupe and saved
         offset), Telegram over plain HTTP, Settings → Channels, `myrmidon channels`, doctor, docs/channels.md.
-      - [ ] Step 2: approvals and questions in the chat (buttons), delivery ledger.
-      - [ ] Step 3: media in/out, voice notes, schedules delivering to a channel.
-      - [ ] Step 4: WhatsApp and other platforms as plugins.
-12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
+      Asked 2026-10-08: "port everything they do" (OpenClaw + Hermes, both MIT; adapt onto ChannelHub, credit them).
+      - [x] Step 2 (core parity): approve/deny and question buttons (text /approve fallback), delivery ledger with
+        retries and restart replay, media in (photos, files) and out (round files), voice notes transcribed,
+        streaming modes (progress | partial | final), access policies (pairing | allowlist | open | disabled for
+        DMs and groups, mention on/off), group sessions per user, a `send_message` tool for agents, schedules that
+        deliver to a channel, `ctx.channels.register` for plugins, webhook ingress for webhook-based platforms.
+      - [x] Step 3: WhatsApp (Baileys linked device; Meta Cloud API).
+      - [x] Step 4: Discord, Slack.
+      - [x] Step 5: Signal (signal-cli), iMessage (BlueBubbles), Matrix, Mattermost, email (IMAP/SMTP).
+      - [x] Step 6: Microsoft Teams, Google Chat, LINE, SMS (Twilio), Feishu/Lark, DingTalk, WeCom.
+      - [x] Step 7: IRC, Twitch, X, Nostr, Zalo, Synology Chat, Nextcloud Talk, ntfy, SimpleX, Tlon, WeChat, QQ, webhook.
+      - [ ] Follow-ups: try each against the real service (all tested only with fakes); Feishu long connection,
+        DingTalk Stream and QQ gateway were written without SDK source; Matrix encryption; Teams/Google Chat/LINE
+        file sending; Slack/Discord webhook modes; press notes flagged by the hub instead of string checks.
+11e. - [x] **Channels UI and usage redesign** (asked 2026-10-08) — done: every app's logo (Simple Icons, CC0, inline);
+      Settings → Channels as a logo gallery (connected first, then grouped and searchable) with a sheet per app (Setup,
+      People, Rules, Activity); logos on chats from a channel; a waiting count on Settings and Channels; a toast with
+      Approve and a desktop notice on a new request. Spec 2026-10-08-channels-ui-and-gateway-status-design.
+      Follow-up: try the request toast and the waiting badges against a real platform.
+11f. - [x] **Gateway indicator and inspector** (asked 2026-10-08) — done after OpenClaw: a sidebar chip only when
+      something is wrong ("Offline · Retry", or the problem, opening System); a System page with the gateway, models,
+      sandbox, what is running, each channel's health (last in/out, reconnects, last error, Restart) and recent activity.
+12. - [x] **Voice calls (in the app)** — done 2026-10-08 (docs/voice.md; spec 2026-10-08-voice-calls-design): Call in
+      the chat toolbar; Phonon-2 STT (local, installed with uv) and Kitten TTS (local, worker process) by default, or
+      omp's cloud speech, or any OpenAI-compatible endpoint; a fast call model that hands work to the crew as rounds,
+      keeps talking, reports back, asks before approvals; barge-in; transcripts as call cards; Settings → Voice.
+      Follow-ups:
+      - [ ] Try a real call with the mic (only the engines, the socket and Settings were checked live).
+      - [x] Voice calls off by default; on, the chosen engines download (if missing) and warm, so calls answer at
+        once; Silero VAD (16 kHz, 1.3 MB) finds turns instead of loudness alone (asked 2026-10-08).
+      - [x] Call the lead or a crew member directly, or the call assistant (which can now ask them); the next message
+        after a call carries its transcript to the crew; call cards placed among rounds by time (asked 2026-10-08).
+      - [ ] Mark spoken messages in the chat (they carry `voice: true`).
+      - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
+      - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
+      - [ ] Phonon `--hotwords` from agent and project names.
+      - [ ] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode.
+12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
+      is about (Open WebUI's task-model pattern); "hi" has nothing to name, so it tries again after rounds 2 and 3.
+      Names given by the person, a channel or a schedule are kept (`chat/renamed` now says `by: 'auto'` for ours).
+      Settings → You & mascot → Chat names: from the topic, or the first message.
+12c. - [x] **No pop-up on every answer** (asked 2026-10-08) — done: the "… is done" toast is skipped for the chat on
+      screen in a focused window; it still shows for other chats and other views, and the desktop notice when away.
+12d. - [x] **Telegram media** (asked 2026-10-08) — done: voice notes failed because omp picked a local Whisper it
+      cannot call ("Unsupported transcription API: local-inference"); channel voice notes now go to the voice engine
+      chosen in Settings → Voice while voice is on (Phonon-2 reads Telegram's OGG/Opus as is), and omp's fallback
+      only picks models it can call. A photo without a caption failed with "message is empty": files alone are now a
+      message. Stickers: a still one comes as its WebP image with its emoji, an animated one as its emoji.
+      Not yet checked against the real Telegram (needs a message sent to the bot).
+12e. - [ ] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
+      "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
+      passes alone.
+      Also channels-feishu "check() names the bot…" once (Feishu refused this App ID…) in a full run; passes alone.
+12f. - [ ] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
+      drops as they read a conversation and rises when new messages arrive.
+12g. - [ ] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
+      state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
+      status dot in the app.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned

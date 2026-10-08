@@ -14,6 +14,8 @@ export interface Schedule {
   /** Five-field cron, local time: minute hour day-of-month month day-of-week. */
   readonly cron: string
   readonly project?: string
+  /** A channel (e.g. `telegram`) the owner follows each run on: its status line and its answer. */
+  readonly deliver?: string
   readonly enabled: boolean
   readonly createdAt: string
   readonly nextRun?: string
@@ -102,7 +104,10 @@ export class ScheduleStore {
     }
   }
 
-  add(input: { name?: string; request: string; cron: string; project?: string }, now = new Date()): Schedule {
+  add(
+    input: { name?: string; request: string; cron: string; project?: string; deliver?: string },
+    now = new Date(),
+  ): Schedule {
     const request = input.request.trim()
     if (!request) throw new Error('a schedule needs a request')
     const schedule: Schedule = {
@@ -111,6 +116,7 @@ export class ScheduleStore {
       request,
       cron: input.cron.trim(),
       ...(input.project ? { project: input.project } : {}),
+      ...(input.deliver ? { deliver: input.deliver } : {}),
       enabled: true,
       createdAt: now.toISOString(),
       nextRun: nextRun(input.cron, now).toISOString(),
@@ -121,21 +127,30 @@ export class ScheduleStore {
 
   update(
     id: string,
-    patch: { name?: string; request?: string; cron?: string; enabled?: boolean; project?: string | null },
+    patch: {
+      name?: string
+      request?: string
+      cron?: string
+      enabled?: boolean
+      project?: string | null
+      deliver?: string | null
+    },
     now = new Date(),
   ): Schedule {
     const list = this.list()
     const current = list.find((s) => s.id === id)
     if (!current) throw new Error('no such schedule')
-    const { project: _p, ...rest } = current
+    const { project: _p, deliver: _d, ...rest } = current
     const cron = patch.cron?.trim() ?? current.cron
     const project = patch.project === null ? undefined : (patch.project ?? current.project)
+    const deliver = patch.deliver === null ? undefined : (patch.deliver ?? current.deliver)
     const next: Schedule = {
       ...rest,
       ...(patch.name !== undefined ? { name: patch.name.trim().slice(0, 80) || current.name } : {}),
       ...(patch.request !== undefined && patch.request.trim() ? { request: patch.request.trim() } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
       ...(project ? { project } : {}),
+      ...(deliver ? { deliver } : {}),
       cron,
       nextRun: nextRun(cron, now).toISOString(),
     }

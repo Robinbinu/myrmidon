@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
 
 /**
@@ -130,6 +130,18 @@ export interface OmpRuntime {
   removeProvider(name: string): Promise<void>
   /** Re-reads `models.yml` and asks providers for their current model lists. */
   refreshModels(): Promise<void>
+  /**
+   * Speech to text with the first speech model omp can call (an OpenAI or Groq key, say); throws when there is none.
+   * For voice notes arriving on a channel.
+   */
+  transcribe(audio: Uint8Array, mimeType: string, fileName: string): Promise<string>
+  /** Text to speech (WAV) with the first speech model omp can call (OpenAI or xAI); throws when there is none. */
+  speak(
+    text: string,
+    options?: { voice?: string; speed?: number },
+  ): Promise<{ audio: Uint8Array; mimeType: string }>
+  /** The speech models omp can call now, as `provider/id`, for Settings → Voice. */
+  speechModels(): { stt: string[]; tts: string[] }
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
@@ -146,12 +158,14 @@ export function ompAgentDir(home: string): string {
 
 /**
  * Must run before any `@oh-my-pi/*` module is imported anywhere in the process: omp captures its agent
- * directory from the environment at first import.
+ * directory, and its root for logs and caches (PI_CONFIG_DIR, relative to the home directory), from the
+ * environment at first import.
  */
 export function pointOmpAt(home: string): string {
   const dir = ompAgentDir(home)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   process.env.PI_CODING_AGENT_DIR = dir
+  process.env.PI_CONFIG_DIR = relative(homedir(), join(home, 'omp'))
   return dir
 }
 
@@ -179,6 +193,8 @@ async function start(home: string): Promise<OmpRuntime> {
   const search = await import('@oh-my-pi/pi-coding-agent/web/search/index')
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
+  const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
+  const { isSpeechApi, synthesizeSpeech } = await import('@oh-my-pi/pi-ai/speech/index')
   const modelsPath = join(agentDir, 'models.yml')
 
   type Credentials = {
@@ -372,6 +388,51 @@ async function start(home: string): Promise<OmpRuntime> {
     },
     async refreshModels() {
       await core.registry.refresh('online')
+    },
+    async transcribe(audio, mimeType, fileName) {
+      // Only models this transcriber can call: omp also lists local ones it runs another way ("local-inference").
+      const models = core.registry.getAvailable('stt').filter((m) => m.api === 'openai-transcriptions')
+      // Whisper-style models first; any speech model otherwise.
+      const model = models.find((m) => /whisper/i.test(m.id)) ?? models[0]
+      if (!model)
+        throw new Error(
+          'no speech-to-text model: turn on Voice calls in Settings → Voice (Phonon-2 runs on this Mac), or add an OpenAI or Groq key in Settings → Models',
+        )
+      const apiKey = (await core.registry.getApiKey(model)) as string | undefined
+      if (!apiKey) throw new Error(`no key for ${model.provider}`)
+      const result = await transcribeAudio(
+        model,
+        { audio, mimeType, fileName, responseFormat: 'json' },
+        { apiKey: apiKey as never },
+      )
+      return result.text
+    },
+    async speak(text, options = {}) {
+      const model = core.registry.getAvailable('tts').find((m) => isSpeechApi(m.api))
+      if (!model) throw new Error('no text-to-speech model: add an OpenAI or xAI key in Settings → Models')
+      const apiKey = (await core.registry.getApiKey(model)) as string | undefined
+      if (!apiKey) throw new Error(`no key for ${model.provider}`)
+      const result = await synthesizeSpeech(
+        model,
+        {
+          text,
+          format: 'wav',
+          ...(options.voice ? { voice: options.voice } : {}),
+          ...(options.speed ? { speed: options.speed } : {}),
+        },
+        { apiKey: apiKey as never },
+      )
+      return { audio: result.audio, mimeType: result.mimeType }
+    },
+    speechModels() {
+      const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
+      return {
+        stt: core.registry.getAvailable('stt').map(ref),
+        tts: core.registry
+          .getAvailable('tts')
+          .filter((m) => isSpeechApi(m.api))
+          .map(ref),
+      }
     },
     async search(query, options = {}) {
       const result = await search.runSearchQuery(

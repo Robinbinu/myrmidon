@@ -64,8 +64,9 @@ Usage:
   myrmidon key [PROVIDER]      Add an API key (typed hidden, or piped: myrmidon key openai < key.txt)
   myrmidon model [REF]         Show or set the default model (provider/model); it is tested before it is saved
   myrmidon doctor              Check the server, models, sandbox, browser tools, previews, devices and channels
-  myrmidon channels [telegram [on|off] | approve <channel> <code> | revoke <channel> <who>]
-               Talk to your agents from Telegram: give the bot its token (hidden or piped), approve people
+  myrmidon channels [<channel> [on|off|set <name> <value>] | approve <channel> <code> | revoke <channel> <who>]
+               Talk to your agents from Telegram and more: set a channel up (secrets hidden or piped), approve
+               people, and choose who may write (set dm|groups|mention|per-person|allow|stream)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -327,6 +328,12 @@ async function main() {
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
+      // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
+      skills.curateEvery((archived, err) =>
+        err
+          ? console.error(c.yellow(`skills: ${err instanceof Error ? err.message : err}`))
+          : console.log(c.dim(`skills archived (unused for a while): ${archived.join(', ')}`)),
+      )
       const hooks = new HookStore(home, () => plugins.hooks())
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
@@ -379,6 +386,8 @@ async function main() {
         debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      // Speech engines load in the background now, so the first call does not wait on them.
+      void server.warmVoice()
       if (server.remote)
         console.log(
           `${c.green('remote gateway')}${server.publicUrl ? ` at ${server.publicUrl}` : ''}: pair a device with ${c.bold('myrmidon pair')} (see docs/remote.md)`,

@@ -124,6 +124,15 @@ test('pairing codes expire after enough wrong guesses, and chat devices are kept
   expect(needsFull('POST', '/api/projects')).toBe(true)
   expect(needsFull('DELETE', '/api/projects/p1')).toBe(true)
   expect(needsFull('GET', '/api/projects')).toBe(false)
+  // Keeping or restoring a learned skill, and schedules (which can deliver to a channel), are Settings only.
+  expect(needsFull('PUT', '/api/skills/tidy-notes')).toBe(true)
+  expect(needsFull('POST', '/api/skills/tidy-notes/restore')).toBe(true)
+  expect(needsFull('GET', '/api/skills')).toBe(false)
+  expect(needsFull('POST', '/api/schedules')).toBe(true)
+  expect(needsFull('PATCH', '/api/schedules/s1')).toBe(true)
+  expect(needsFull('DELETE', '/api/schedules/s1')).toBe(true)
+  expect(needsFull('POST', '/api/schedules/s1/run')).toBe(true)
+  expect(needsFull('GET', '/api/schedules')).toBe(false)
 })
 
 /** A port that was free a moment ago, for a fixed preview port. */

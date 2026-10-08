@@ -3,7 +3,8 @@
 <img src="docs/assets/banner.svg" alt="Myrmidon: one chat, a whole crew of AI agents behind it" width="100%">
 
 Myrmidon is a local-first, open-source agent harness. You talk to one lead; it answers, codes, browses, or brings
-in a crew of specialists when the job is big. Every step is logged, sandboxed, and reviewable.
+in a crew of specialists when the job is big. Reach it from the browser, from 30 messaging channels, or by voice call.
+Every step is logged, sandboxed, and reviewable.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 [![Runtime: Bun](https://img.shields.io/badge/runtime-Bun_%E2%89%A51.3.14-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
@@ -17,7 +18,7 @@ in a crew of specialists when the job is big. Every step is logged, sandboxed, a
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/assets/home-light.png">
-  <img src="docs/assets/home-dark.png" alt="Myrmidon's home screen: a dot-matrix mascot, crew cursors, and a composer with model, thinking, reviewer and helper controls" width="100%">
+  <img src="docs/assets/home-dark.png" alt="Myrmidon's home screen: a dot-matrix mascot that greets you by name, crew cursors, and a composer with lead model and crew controls" width="100%">
 </picture>
 
 </div>
@@ -37,6 +38,10 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
   The lead, each worker, and the reviewer can each run a different model.
 - **Nothing is hidden.** Every message, tool call, file, and decision is an event in an append-only SQLite log that
   refuses `UPDATE` and `DELETE`. The UI, replay, audit view, and exports all read that same log.
+- **Talk to it from anywhere.** Telegram, WhatsApp, Signal, iMessage, Slack, Discord, Teams, email and more continue
+  the same chats as the browser. Call your crew and talk; run it on a server and pair your phone.
+- **Extend it without forking it.** Plugins use Claude Code's folder format (skills, commands, hooks, MCP servers)
+  plus Myrmidon code and UI. Ask the lead for a Myrmidon feature and it builds one as a plugin.
 - **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux). Secrets are redacted
   from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can be set to Allow, Ask
   first, or Off.
@@ -64,6 +69,9 @@ bun run myr serve
 
 The command prints a `http://127.0.0.1:…/#token=…` link. Open it, pick a model in the composer, and type what you
 want done.
+
+Prefer the terminal? `bun run myr setup` walks through sign-in or keys, the default model and a first device, and
+`bun run myr doctor` checks the server, models, sandbox, browser tools, previews, devices and channels.
 
 Already use [oh-my-pi](https://github.com/can1357/oh-my-pi)? Bring your keys, sign-ins, and `models.yml` across:
 
@@ -106,7 +114,8 @@ flowchart LR
 
 4. **Finishing follows your reviewer setting.** Off: the answer ends the round. Auto: the lead asks for a review
    when the work deserves one. Always: every final answer is checked and findings go back as fix tasks.
-5. **Follow-ups carry on.** Files, notes, and each agent's own conversation persist across rounds of a chat.
+5. **Follow-ups carry on.** Files, notes, and each agent's own conversation persist across rounds of a chat. Write
+   `@name` to talk to one crew member directly, or open one-to-one chats, groups and a team chat with the crew.
 
 The agent-facing docs in [`packages/runtime/docs`](packages/runtime/docs) describe the same rules the agents read at
 runtime.
@@ -115,7 +124,7 @@ runtime.
 
 A lead plans a snake game, a coder and a tester build it in parallel, and the reviewer scores the result.
 
-<img src="docs/assets/chat-dark.png" alt="A finished crew round in the chat: the lead's final answer, the reviewer's score, the files, and the task list with the plan" width="100%">
+<img src="docs/assets/chat-dark.png" alt="A finished crew round in the chat: the lead's final answer, the reviewer's score and the files, with the crew panel showing each agent's model, turns, tokens and tools" width="100%">
 
 <table>
   <tr>
@@ -129,6 +138,10 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
 </table>
 
 <sub>Screens from a demo run with scripted models, so the steps are reproducible.</sub>
+
+### Reach your crew from anywhere
+
+<img src="docs/assets/channels-dark.png" alt="Settings, Channels: a gallery of messaging services to connect, including Telegram, WhatsApp, Signal, iMessage, Matrix, Slack, Discord, Microsoft Teams and Google Chat" width="100%">
 
 ## Features
 
@@ -157,10 +170,29 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
 - A live task board, a crew map, and a run comparison view with diffs.
 - Review tailored to the kind of work: tests for code, citation checks for research, a rubric for writing.
 
+### Channels, voice and devices
+
+- **30 channels** built in: Telegram, WhatsApp (linked device or Cloud API), Signal, iMessage, Matrix,
+  Slack, Discord, Mattermost, Microsoft Teams, Google Chat, LINE, WeChat, WeCom, Feishu/Lark, DingTalk, QQ, email,
+  SMS, ntfy, IRC, Twitch, X, Nostr, SimpleX, Zalo, Synology Chat, Nextcloud Talk, Tlon and a generic webhook. A
+  channel continues the same chats as the browser.
+- **Approved people only.** A new sender gets a code and nothing else until you approve it; the first person
+  approved is the owner, later ones are members, and members' runs ask the owner before each outside step.
+- **Voice calls.** Press Call and talk: a fast call model answers out loud and hands real work to the crew while
+  the call goes on. Silero VAD and Smart Turn detect your turns; speech runs on local engines (Phonon-2, Kitten TTS)
+  or a cloud or OpenAI-compatible provider. Approvals count only on a plain spoken yes or no.
+- **Run it on a server.** Turn any VPS or home server into a gateway, reach it over Tailscale or an SSH tunnel,
+  pair each device once (full access or chats only), and revoke it any time. One window can switch between
+  several gateways. See [docs/remote.md](docs/remote.md).
+
 ### Agent harness
 
 - **MCP servers** with a circuit breaker for flaky ones.
-- **Skills** in the Agent Skills format, from Myrmidon's folder, `~/.claude/skills`, or the project.
+- **Plugins** in Claude Code's folder format, plus Myrmidon plugin code that adds tools, prompts, listeners, chat
+  cards, tabs and Settings pages.
+- **Skills** in the Agent Skills format, from Myrmidon's folder, `~/.claude/skills`, or the project. **Learn a skill**
+  from how a round was done; a curator retires learned skills nobody uses.
+- **Specialists** you keep and bring back to later chats.
 - **Hooks** in Claude Code's format, before and after tools and at round end.
 - **Self-made tools:** agents write sandboxed tools with an input schema; keep the good ones in a library.
 - **Memory** across chats: agents propose, you decide what is kept.
@@ -198,7 +230,12 @@ tests against their code. Edit its `model:` lines to models you have access to.
 
 | Command | What it does |
 |---|---|
-| `myr serve [--port N]` | Start the server and web UI |
+| `myr serve [--port N] [--host ADDR] [--public-url URL]` | Start the server and web UI; a host or public URL makes it a remote gateway |
+| `myr setup` | Sign-in or keys, the default model and a first device, in the terminal |
+| `myr login [ID]` · `myr key [PROVIDER]` · `myr model [REF]` | Sign in with a subscription, add an API key, or set the default model |
+| `myr pair [--scope full\|chat]` | Print a single-use link that pairs a device |
+| `myr channels …` | Set up a messaging channel and approve or revoke people |
+| `myr doctor` | Check the server, models, sandbox, browser tools, previews, devices and channels |
 | `myr run <spec.yaml> [--ui]` | Run a scripted crew |
 | `myr ask "<request>" [--chat ID] [--project ID] [--wait]` | Send a request to a running server; `--wait` prints the final answer |
 | `myr ls` | List crews |
@@ -217,14 +254,15 @@ follow the browser UI without the runtime changing.
 |---|---|
 | [`packages/protocol`](packages/protocol) | Event and payload types, crew state projection; shared by server and clients |
 | [`packages/core`](packages/core) | Append-only event log as a [Cordis](https://www.npmjs.com/package/@deepseek-ai/cordis) service, SQLite store, validation, redaction, guards, blobs |
-| [`packages/runtime`](packages/runtime) | Agents, tools, team patterns, observer, reviewer, sandbox, browser, MCP, skills, hooks, worktrees, recovery |
-| [`apps/web`](apps/web) | Local API server and the React UI |
+| [`packages/runtime`](packages/runtime) | Agents, tools, team patterns, observer, reviewer, sandbox, browser, MCP, skills, hooks, plugins, channels, voice, worktrees, recovery |
+| [`apps/web`](apps/web) | API server (local or remote gateway with paired devices) and the React UI |
 | [`apps/cli`](apps/cli) | The `myrmidon` command |
 | [`apps/eval`](apps/eval) | Eval harness with fixed coding, browsing, research, and crew cases |
 
 Models and the agent loop come from [`@oh-my-pi/pi-ai`](https://github.com/can1357/oh-my-pi) and
 `@oh-my-pi/pi-agent-core`, embedded in-process behind Myrmidon's own interfaces. Design notes live in
-[`docs/superpowers/specs`](docs/superpowers/specs).
+[`docs/superpowers/specs`](docs/superpowers/specs); guides for [channels](docs/channels.md),
+[voice calls](docs/voice.md) and [remote gateways](docs/remote.md) live in [`docs`](docs).
 
 ## Development
 
@@ -268,7 +306,10 @@ Good places to start: the open items in [ROADMAP.md](ROADMAP.md) (benchmarks in 
 ## Acknowledgements
 
 Built on [oh-my-pi](https://github.com/can1357/oh-my-pi) for models and the agent loop, and
-[Cordis](https://www.npmjs.com/package/@deepseek-ai/cordis) for the plugin and service system. Inspired by Claude
+[Cordis](https://www.npmjs.com/package/@deepseek-ai/cordis) for the plugin and service system. Channels are ported
+from [Hermes Agent](https://github.com/NousResearch/hermes-agent) and [OpenClaw](https://github.com/openclaw/openclaw)
+(both MIT); voice turn-taking uses [Silero VAD](https://github.com/snakers4/silero-vad) and Pipecat's
+[Smart Turn](https://github.com/pipecat-ai/smart-turn). Inspired by Claude
 Code, Codex, Cursor, and Manus.
 
 ## License

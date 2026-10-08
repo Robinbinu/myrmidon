@@ -8,36 +8,40 @@ files, notes, conversation and the reason. A team is offered only when the perso
 
 ## Orchestrated
 
-A **lead** plans the job and hands each part to a **specialist worker**. Each specialist has a role
+A **lead** plans the job and hands each part to a **crewmate**. Each crewmate has a role
 (researcher, coder, writer, reviewer, …) and may run on a different model chosen for that role.
 
-- Workers are asleep until the lead assigns them a task (`create_task` with `assignee`, or `assign_task`).
-  An assigned worker wakes with the task, the plan, and the current files.
+- Crewmates are asleep until the lead assigns them a task (`create_task` with `assignee`, or `assign_task`).
+  An assigned crewmate wakes with the task, the plan, and the current files.
 - The lead plans, assigns, reviews, integrates, and speaks to the person. It does not write code or run
-  commands itself in a team; that is what the specialists are for.
-- The lead may add more specialists with `spawn_worker(role, focus, model)` up to the team limit.
-- The team persists across a conversation: each follow-up round brings back the same workers (and swarm
-  peers), each with its own memory of earlier rounds (recent turns in full, older tool output elided). The
-  lead lets a worker go with `dismiss_worker(name, reason)`; dismissed workers do not come back.
-- Workers do one task at a time: claim it, do it, publish its outputs, submit it, stop. They never talk to
+  commands itself in a team; that is what the crewmates are for.
+- The lead may add more crewmates with `add_crewmate(role, focus, model)` up to the team limit, or bring in
+  one of the person's specialists (crewmates they saved in Settings) by name.
+- When a request is small enough for the lead to work alone (a solo round), the crew stays on call: the lead
+  asks one crewmate for a piece of work with `ask_crewmate(to, job)`. The crewmate joins, does the job, and
+  answers the lead by `message`; that answer comes back as the tool's result. Several asks in one step run in
+  parallel. `escalate` is for when the whole request needs the team.
+- The team persists across a conversation: each follow-up round brings back the same crewmates, each with its own memory of earlier rounds (recent turns in full, older tool output elided). The
+  lead lets a crewmate go with `dismiss_crewmate(name, reason)`; dismissed crewmates do not come back.
+- Crewmates do one task at a time: claim it, do it, publish its outputs, submit it, stop. They never talk to
   the person; blockers go to `@lead` on the board.
 
 ## Swarm
 
-Equal **peers** share one goal. There is no boss: the shared **notes** and **task board** are the only
+Equal **crewmates** share one goal. There is no boss: the shared **notes** and **task board** are the only
 coordination (a blackboard).
 
-- Every round opens with a **huddle**. All peers wake, see who else is on the team, and each posts one board
+- Every round opens with a **huddle**. All crewmates wake, see who else is on the team, and each posts one board
   message proposing how to split the request and which part it will take. Until the huddle ends only
   looking and talking tools work (read, list, `post`, mail); nobody starts the work alone.
-- The huddle ends when every peer has proposed (or after 90 seconds). The peer who proposed first merges
-  the proposals into the single **plan** note and creates the tasks, each assigned to the peer who
-  volunteered for it with the files it will produce; each peer is woken by its assignment.
-- Peers claim one task at a time. Nobody re-plans; peers refine the plan by splitting tasks or appending
+- The huddle ends when every crewmate has proposed (or after 90 seconds). The crewmate who proposed first merges
+  the proposals into the single **plan** note and creates the tasks, each assigned to the crewmate who
+  volunteered for it with the files it will produce; each crewmate is woken by its assignment.
+- Crewmates claim one task at a time. Nobody re-plans; crewmates refine the plan by splitting tasks or appending
   `decision` and `finding` notes.
-- Duplicate tasks are refused, a task's output files can only be published by the peer holding it, and a
+- Duplicate tasks are refused, a task's output files can only be published by the crewmate holding it, and a
   held task is released if its holder goes quiet.
-- When every task is verified, the colony picks a **speaker** (the peer that finished the most tasks) and
-  gives it the `task-final` task: write the final answer from the verified files and notes. Peers never
+- When every task is verified, the colony picks a **speaker** (the crewmate that finished the most tasks) and
+  gives it the `task-final` task: write the final answer from the verified files and notes. Crewmates never
   create their own "final answer" or "final review" task; it would only block `task-final`.
-- Only the speaker may answer the person; any peer may `ask_user` if the whole colony is blocked.
+- Only the speaker may answer the person; any crewmate may `ask_user` if the whole colony is blocked.

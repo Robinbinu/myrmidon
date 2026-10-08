@@ -5,13 +5,15 @@ export type Tone = 'neutral' | 'ok' | 'bad' | 'warn' | 'work' | 'accent'
 
 /**
  * One meaning per colour, everywhere: amber accent asks for the person, the work tone is moving, green is done, red is
- * a real failure. A stop is not a failure, so stopped, idle and resting stay neutral.
+ * a real failure. A stop is not a failure, so stopped, idle and resting stay neutral. A channel's connection states
+ * (on, connecting, linking, retrying, error, off) follow the same rules.
  */
 export function toneFor(status: string): Tone {
-  if (['completed', 'done', 'verified', 'ready'].includes(status)) return 'ok'
-  if (['failed', 'rejected'].includes(status)) return 'bad'
-  if (['submitted'].includes(status)) return 'warn'
-  if (['running', 'created', 'working', 'in_progress'].includes(status)) return 'work'
+  if (['completed', 'done', 'verified', 'ready', 'on'].includes(status)) return 'ok'
+  if (['failed', 'rejected', 'error'].includes(status)) return 'bad'
+  if (['submitted', 'retrying'].includes(status)) return 'warn'
+  if (['running', 'created', 'working', 'in_progress', 'connecting', 'linking'].includes(status))
+    return 'work'
   if (['waiting', 'awaiting'].includes(status)) return 'accent'
   return 'neutral'
 }

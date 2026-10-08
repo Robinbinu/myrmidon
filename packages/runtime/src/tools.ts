@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   type ColonyState,
@@ -109,6 +109,11 @@ const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
   'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8,
   'image/gif': (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46,
   'image/webp': (b) => b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+}
+
+/** The raster image type these bytes really are (PNG, JPEG, GIF, WebP), whatever the file is called. */
+export function sniffImage(bytes: Uint8Array): string | undefined {
+  return Object.entries(IMAGE_MAGIC).find(([, is]) => is(bytes))?.[0]
 }
 
 /** Media types whose bytes are readable text. */
@@ -302,19 +307,74 @@ function writableFor(host: ColonyHost, agent: string): string[] {
   return [...new Set([host.workspace.workdir(agent), scratch])]
 }
 
-/** Tools the person set to "ask" in Settings wait for their approval on every call, showing what it would do. */
 /**
- * Whether a call needs the person's approval first. A tool's own rule wins, then the rule for every MCP tool; with
- * neither, an MCP tool asks unless its server marks it read-only (it changes nothing), and other tools follow their
- * groups.
+ * Write tools whose effects stay inside the colony: its notes, tasks, messages, helpers and answers. A round that asks
+ * for everything (`askAll`) still lets them run, since it could not work at all otherwise.
+ */
+const COLONY_ONLY = new Set([
+  'append_note',
+  'message',
+  'create_group',
+  'update_group',
+  'create_task',
+  'claim_task',
+  'assign_task',
+  'release_task',
+  'reject_task',
+  'submit_task',
+  'publish_artifact',
+  'request_review',
+  'request_final_verification',
+  'escalate',
+  'reply_user',
+  'reply_person',
+  'check_in',
+  'ask_user',
+  'propose',
+  'add_crewmate',
+  'dismiss_crewmate',
+  'ask_crewmate',
+  'update_todo',
+])
+
+/** Write calls that may run side by side: each waits on someone else's work, so asks in one step go out together. */
+const IN_PARALLEL = new Set(['ask_crewmate'])
+
+/** File tools that read from the working directory, which is the person's project in a chat that has one. */
+const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
+
+/**
+ * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
+ * (`askAll`) asks before these, so a member cannot have secrets such as `.env` read and sent back to them.
+ */
+function readsProject(host: ColonyHost, agent: string, tool: string, params: unknown): boolean {
+  if (!host.spec.chat?.project || !PROJECT_READS.has(tool)) return false
+  const path = (params as { path?: unknown } | undefined)?.path
+  let target: string
+  try {
+    target = host.workspace.resolveInWorkdir(agent, typeof path === 'string' ? path : '.')
+  } catch {
+    // The tool refuses that path itself.
+    return false
+  }
+  const scratch = host.workspace.scratch(agent)
+  return target !== scratch && !target.startsWith(scratch + sep)
+}
+
+/**
+ * Whether a call needs the person's approval first. A round started by someone else (`askAll`) asks for every call
+ * that is not `readOnly`, whatever the person allowed. Otherwise a tool's own rule wins, then the rule for every MCP
+ * tool; with neither, an MCP tool asks unless its server marks it read-only, and other tools follow their groups.
+ * `readOnly`: the call changes nothing outside the colony.
  */
 export function needsApproval(
-  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools'>,
+  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools' | 'askAll'>,
   tool: string,
   readOnly: boolean,
 ): boolean {
   const ask = spec.askTools ?? []
   const allow = spec.allowTools ?? []
+  if (spec.askAll && !readOnly) return true
   if (ask.includes(tool)) return true
   if (allow.includes(tool) || !tool.startsWith('mcp__')) return false
   if (ask.includes('mcp')) return true
@@ -395,9 +455,10 @@ async function askFirst(
   agent: string,
   tool: string,
   params: unknown,
+  readOnly: boolean,
   key?: string,
 ): Promise<boolean> {
-  if (!needsApproval(host.spec, tool, tool.startsWith('mcp__') && host.mcpReadOnly(tool))) return false
+  if (!needsApproval(host.spec, tool, readOnly)) return false
   const args = JSON.stringify(params ?? {})
   const decision = await host.reviewChange(
     agent,
@@ -753,7 +814,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const chat = resolveConversation(state, agent, args.to)
       if (chat.kind === 'direct' && !crewOf(state).includes(args.to))
         throw new Error(
-          `no such teammate or group: ${args.to}. Teammates: ${crewOf(state).join(', ')}; groups: ${Object.keys(state.groups).join(', ') || 'none'}; or "team"`,
+          `no such crewmate or group: ${args.to}. Crewmates: ${crewOf(state).join(', ')}; groups: ${Object.keys(state.groups).join(', ') || 'none'}; or "team"`,
         )
       if (chat.kind === 'group' && !chat.members.includes(agent))
         throw new Error(`you are not in the group ${args.to}; ask a member to add you`)
@@ -803,7 +864,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const unknown = args.members.filter((m: string) => !crew.includes(m))
       if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
       const members = [...new Set([agent, ...args.members])]
-      if (members.length < 2) throw new Error('a group needs at least one teammate besides you')
+      if (members.length < 2) throw new Error('a group needs at least one crewmate besides you')
       await host.append({
         type: 'group/created',
         actor: agentActor(agent),
@@ -1758,25 +1819,37 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
-    name: 'spawn_worker',
+    name: 'ask_crewmate',
     tier: 'write',
-    description: prompts.tools.spawn_worker.description,
+    description: prompts.tools.ask_crewmate.description,
     parameters: type({
-      'role?': type('string').atMostLength(40).describe(prompts.tools.spawn_worker.params.role),
-      focus: type('string').atLeastLength(10).describe(prompts.tools.spawn_worker.params.focus),
-      'model?': type('string').describe(prompts.tools.spawn_worker.params.model),
-      'specialist?': type('string').describe(prompts.tools.spawn_worker.params.specialist),
+      to: type('string').atLeastLength(1).describe(prompts.tools.ask_crewmate.params.to),
+      job: type('string').atLeastLength(10).describe(prompts.tools.ask_crewmate.params.job),
+    }),
+    async run(args, agent, host) {
+      return host.askCrewmate(agent, args.to, args.job)
+    },
+  },
+  {
+    name: 'add_crewmate',
+    tier: 'write',
+    description: prompts.tools.add_crewmate.description,
+    parameters: type({
+      'role?': type('string').atMostLength(40).describe(prompts.tools.add_crewmate.params.role),
+      focus: type('string').atLeastLength(10).describe(prompts.tools.add_crewmate.params.focus),
+      'model?': type('string').describe(prompts.tools.add_crewmate.params.model),
+      'specialist?': type('string').describe(prompts.tools.add_crewmate.params.specialist),
     }),
     async run(args, agent, host) {
       if (!args.specialist && (args.role?.trim().length ?? 0) < 2)
-        throw new Error("give the new worker a role, or bring in one of the person's specialists by name")
+        throw new Error("give the new crewmate a role, or bring in one of the person's specialists by name")
       return host.spawnWorker(agent, args.role?.trim() ?? '', args.focus, args.model, args.specialist)
     },
   },
   {
-    name: 'dismiss_worker',
+    name: 'dismiss_crewmate',
     tier: 'write',
-    description: prompts.tools.dismiss_worker.description,
+    description: prompts.tools.dismiss_crewmate.description,
     parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
@@ -2499,10 +2572,7 @@ async function runBrowserFlow(
         extracted.push(JSON.stringify(data, null, 2))
       }
     } catch (err) {
-      return {
-        ok: false,
-        output: `step ${i + 1} (${JSON.stringify(step)}) failed: ${err instanceof Error ? err.message : String(err)}\n${await pageSnapshot(tab)}`,
-      }
+      return { ok: false, output: await flowStepFailure(i, step, err, () => pageSnapshot(tab)) }
     }
   }
   const output = extracted.length ? extracted.join('\n') : await pageSnapshot(tab)
@@ -2511,6 +2581,24 @@ async function runBrowserFlow(
     ok: true,
     output: spotlight(host.boundary, `${MADE_PREFIX}${tool.name} ${tab.page.url()}`, clip(output)),
   }
+}
+
+/**
+ * What a failed browser-flow step tells the agent: the step and its error, then the page as it is. The page is extra
+ * context; when it cannot be read (the tab closed, the browser's session ended) the step's own error still comes
+ * through instead of the snapshot's.
+ */
+export async function flowStepFailure(
+  index: number,
+  step: unknown,
+  err: unknown,
+  snapshot: () => Promise<string>,
+): Promise<string> {
+  const head = `step ${index + 1} (${JSON.stringify(step)}) failed: ${err instanceof Error ? err.message : String(err)}`
+  const page = await snapshot().catch(
+    (e) => `(the page could not be read: ${e instanceof Error ? e.message : String(e)})`,
+  )
+  return `${head}\n${page}`
 }
 
 function madeTool(agent: string, tool: EventPayloads['tool/created'], host: ColonyHost): AgentTool {
@@ -2630,7 +2718,8 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         } else {
           const refused = breaker?.refusal()
           if (refused) throw new Error(refused)
-          const edited = await askFirst(host, agent, tool.name, params, key)
+          const readOnly = tool.name.startsWith('mcp__') && host.mcpReadOnly(tool.name)
+          const edited = await askFirst(host, agent, tool.name, params, readOnly, key)
           await host.beforeTool(agent, tool.name, params)
           ran = true
           result = await untilAborted(tool.execute(callId, params as never, signal), signal)
@@ -2706,10 +2795,16 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
             if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            const edited = await askFirst(host, agent, def.name, params, key)
+            const readOnly =
+              (def.tier === 'read' && !readsProject(host, agent, def.name, params)) ||
+              COLONY_ONLY.has(def.name)
+            const edited = await askFirst(host, agent, def.name, params, readOnly, key)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
-            const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)
+            const result =
+              def.tier === 'read' || IN_PARALLEL.has(def.name)
+                ? await run()
+                : await inCallOrder(host, agent, run)
             output = typeof result === 'string' ? result : result.text
             // The person's hooks speak for the harness: their note stays outside any untrusted-content block.
             const hookNote = await host.afterTool(agent, def.name, params, output)

@@ -2,7 +2,7 @@ import { X } from 'lucide-react'
 import { motion, useIsPresent } from 'motion/react'
 import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
-import { spring } from '../ui-config.ts'
+import { fade, spring } from '../ui-config.ts'
 import { cn, IconButton } from './primitives.tsx'
 
 interface OpenDialog {
@@ -25,8 +25,9 @@ function onDialogKey(e: KeyboardEvent) {
     return
   }
   if (e.key !== 'Tab') return
+  // Items a group reaches by arrow keys (tabindex -1) are not Tab stops.
   const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (el) => el.getClientRects().length > 0,
+    (el) => el.getClientRects().length > 0 && el.tabIndex >= 0,
   )
   const active = document.activeElement
   const inside = !!active && box.contains(active)
@@ -91,7 +92,7 @@ export function Modal(props: {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
+      transition={fade}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) props.onClose()
       }}
@@ -111,7 +112,9 @@ export function Modal(props: {
         )}
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-line py-2.5 pl-5 pr-2.5">
-          <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">{props.title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-headline font-semibold tracking-tight">
+            {props.title}
+          </h2>
           {props.actions}
           <IconButton label={copy.common.close} onClick={props.onClose}>
             <X className="size-4" />

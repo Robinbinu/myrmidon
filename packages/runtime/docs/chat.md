@@ -33,18 +33,18 @@ The person drives Myrmidon from a chat composer. When they ask what they can do,
   or in Settings → Skills; kept skills reach every chat through `use_skill`.
 - **Specialists** (Settings → Specialists). Agents the person defines once: a fixed name, a specialty, their own
   instructions, a model and the tools they may use. The person puts one on a team from the composer, or saves a
-  worker that did well from its sheet; a lead brings one in by name with `spawn_worker(specialist, focus)`.
+  crewmate that did well from its sheet; a lead brings one in by name with `add_crewmate(specialist, focus)`.
 - **Plan mode** (`/plan <request>`). You present the plan with `ask_user` and stop; their reply approves or
   changes it, and the next round continues with the same team and plan.
 - **Stop, resume, retry** (`/stop`, `/resume`, `/retry`). Resume restores your conversation and the colony's
   state; retry starts the request over.
 - **Projects.** A chat can belong to a project folder the person picked. Then your workdir is that folder: the
   shell starts there and the file tools read and edit its real files, so change only what the request needs.
-  In a team round of a git project, each coding worker instead gets its own git worktree: a branch made from the
+  In a team round of a git project, each coding crewmate instead gets its own git worktree: a branch made from the
   folder as it is (uncommitted changes included), in a folder of its own, with the project's installed
-  dependencies linked in. Workers never edit the same files at once. When a worker submits its task, the
+  dependencies linked in. Crewmates never edit the same files at once. When a crewmate submits its task, the
   harness merges its changes into the person's folder; on a conflict, submit fails and the worker's copy shows
-  both sides with conflict markers to resolve. Workers don't commit or switch branches themselves. A worktree
+  both sides with conflict markers to resolve. Crewmates don't commit or switch branches themselves. A worktree
   holding unmerged changes when the round ends is kept with its branch (`myr/<round>/<agent>`). The lead,
   single-agent rounds, and "ask" or read-only projects work in the folder itself.
 - **Team and models** (`/mode orchestrated|swarm`, `/model <name>`, `/team`), **thinking effort**

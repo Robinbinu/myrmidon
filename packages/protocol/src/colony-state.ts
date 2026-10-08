@@ -128,6 +128,8 @@ export interface ChatEntry extends Entry {
   readonly mode?: 'steer' | 'queue'
   /** The person's message was addressed to these crew members (@name). */
   readonly to?: readonly string[]
+  /** The person said it aloud on a voice call. */
+  readonly voice?: boolean
   /** Agents that have read this message (mid-run user messages only). */
   readBy?: string[]
   /** Artifact names of files the person attached. */
@@ -200,7 +202,7 @@ export interface ColonyState {
   /** A chat colony's rounds, oldest first; `chat.round` is the current one. */
   rounds: RoundInfo[]
   /** A title the user gave the conversation in this round, with when. */
-  chatTitle?: { title: string; at: string }
+  chatTitle?: { title: string; at: string; by?: 'auto' }
   /** The model failure that paused the round, until it resumes. */
   modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
@@ -454,6 +456,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: false,
         ...(p.mode ? { mode: p.mode } : {}),
         ...(p.attachments?.length ? { attachments: p.attachments } : {}),
+        ...(p.voice ? { voice: true } : {}),
         ...(p.to?.length ? { to: p.to } : {}),
       })
       break
@@ -475,7 +478,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'chat/renamed': {
       const p = event.payload as EventPayloads['chat/renamed']
-      state.chatTitle = { title: p.title, at: event.time }
+      state.chatTitle = { title: p.title, at: event.time, ...(p.by ? { by: p.by } : {}) }
       break
     }
     case 'colony/started': {

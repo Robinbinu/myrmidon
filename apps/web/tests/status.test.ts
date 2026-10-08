@@ -14,6 +14,15 @@ test('each state has one colour: asking is accent, moving is work, done is green
   for (const calm of ['stopped', 'idle', 'resting']) expect(toneFor(calm)).toBe('neutral')
 })
 
+test("a channel's connection uses the same colours: connected is green, connecting moves, an error is red", () => {
+  expect(toneFor('on')).toBe('ok')
+  expect(toneFor('connecting')).toBe('work')
+  expect(toneFor('linking')).toBe('work')
+  expect(toneFor('retrying')).toBe('warn')
+  expect(toneFor('error')).toBe('bad')
+  expect(toneFor('off')).toBe('neutral')
+})
+
 test('a chat that stopped to ask the person waits for them rather than reading as stopped', () => {
   expect(runPhase({ status: 'stopped', awaiting: true })).toBe('awaiting')
   expect(runPhase({ status: 'stopped' })).toBe('stopped')

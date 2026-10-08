@@ -14,7 +14,7 @@ everything shows live in the chat.
      lead does the work itself.
    - Multi-part builds or research where parallel specialists help: the lead calls `escalate(to: team)` early.
      The round ends, and the configured team (see `modes.md`) reruns the request with its files and notes.
-   - In **swarm** mode a team round has no lead: the peers share the work and one of them speaks.
+   - In **swarm** mode a team round has no lead: the crewmates share the work and one of them speaks.
    - If the request is too ambiguous to start, ask a question first and wait.
 2. **The round.** A chat runs in one colony: agents, a shared board, notes, a task graph, versioned files
    ("artifacts"), and an append-only event log. Nothing is ever edited in place. Each request is a round of it.

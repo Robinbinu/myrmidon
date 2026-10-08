@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { ColonyHost } from '../src/host.ts'
-import { logLines, mcpBreaker, similar } from '../src/tools.ts'
+import { flowStepFailure, logLines, mcpBreaker, similar, sniffImage } from '../src/tools.ts'
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -92,4 +92,28 @@ test('MCP tools ask first unless their server marks them read-only; the person c
     false,
   )
   expect(needsApproval({ askTools: ['shell'] }, 'shell', false)).toBe(true)
+  // A round someone else started asks for everything that is not read-only, even what the person allowed.
+  expect(needsApproval({ askAll: true, allowTools: ['shell'] }, 'shell', false)).toBe(true)
+  expect(needsApproval({ askAll: true, allowTools: ['mcp'] }, 'mcp__notes_delete', false)).toBe(true)
+  expect(needsApproval({ askAll: true }, 'fs_read', true)).toBe(false)
+})
+
+test('a failed browser-flow step reports its own error even when the page can no longer be read', async () => {
+  const step = { click: 'text=No such button' }
+  const gone = await flowStepFailure(1, step, new Error('no element matches'), () =>
+    Promise.reject(new Error('Protocol error (Accessibility.getFullAXTree): Session closed')),
+  )
+  expect(gone).toStartWith('step 2 ({"click":"text=No such button"}) failed: no element matches\n')
+  expect(gone).toContain('the page could not be read: Protocol error')
+  const read = await flowStepFailure(0, step, 'timeout', async () => 'url: http://x/')
+  expect(read).toBe('step 1 ({"click":"text=No such button"}) failed: timeout\nurl: http://x/')
+})
+
+test('a picture is served as one only when its bytes are one, whatever it is called', () => {
+  expect(sniffImage(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]))).toBe('image/png')
+  expect(sniffImage(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg')
+  expect(sniffImage(new TextEncoder().encode('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp')
+  // SVG can carry script: never served as an image.
+  expect(sniffImage(new TextEncoder().encode('<svg onload="alert(1)"/>'))).toBeUndefined()
+  expect(sniffImage(new TextEncoder().encode('just text'))).toBeUndefined()
 })

@@ -135,6 +135,8 @@ export interface EventPayloads {
     /** Tools whose every call waits for the person's approval. */
     askTools?: string[]
     allowTools?: string[]
+    /** Every call that changes something outside the colony waits for approval (a round a channel member started). */
+    askAll?: boolean
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
   }
@@ -267,6 +269,8 @@ export interface EventPayloads {
     ask: string[]
     allow: string[]
     project?: string
+    /** From here on the round asks before every outside step: someone other than the person wrote into it. */
+    askAll?: boolean
     interrupted: string[]
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
@@ -294,7 +298,16 @@ export interface EventPayloads {
    * doing. Only meaningful for messages sent while a round is running.
    */
   /** `to`: crew members the person wrote to directly (@name); they hear it first and may answer the person. */
-  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[]; to?: string[] }
+  'chat/user': {
+    text: string
+    mode?: 'steer' | 'queue'
+    attachments?: string[]
+    to?: string[]
+    /** Said aloud on a voice call. */
+    voice?: boolean
+    /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+    context?: string
+  }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
    * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the
@@ -312,7 +325,8 @@ export interface EventPayloads {
     plan?: string
   }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
-  'chat/renamed': { title: string }
+  /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
+  'chat/renamed': { title: string; by?: 'auto' }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

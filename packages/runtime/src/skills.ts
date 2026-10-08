@@ -5,12 +5,19 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
-import { SKILL_MAX_FILE_CHARS, SKILL_MAX_FILES } from './config.ts'
+import {
+  SKILL_ARCHIVE_DAYS,
+  SKILL_CURATE_EVERY_MS,
+  SKILL_MAX_FILE_CHARS,
+  SKILL_MAX_FILES,
+  SKILL_STALE_DAYS,
+} from './config.ts'
 import { prompts } from './prompts.ts'
 
 /**
@@ -29,7 +36,30 @@ export interface Skill {
   readonly dir: string
   readonly source: SkillSource
   readonly enabled: boolean
+  /** For a skill Myrmidon learned: how much it is used, and whether it is on its way out. */
+  readonly curation?: SkillCuration
 }
+
+/** How a learned skill is used, after Hermes's curator: unused ones go stale, then to the archive. */
+export interface SkillCuration {
+  readonly uses: number
+  readonly lastUsed?: string
+  /** Unused for SKILL_STALE_DAYS: still offered, archived at SKILL_ARCHIVE_DAYS unless used or kept. */
+  readonly stale: boolean
+  /** The person keeps it whatever its use. */
+  readonly kept: boolean
+}
+
+/** What is remembered about each learned skill's use (`skills-usage.json`). */
+interface Usage {
+  uses: number
+  lastUsed?: string
+  /** When its clock last started without a use: written or restored. */
+  since?: string
+  kept?: boolean
+}
+
+const DAY_MS = 24 * 60 * 60_000
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
 /** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
@@ -73,11 +103,21 @@ export class SkillLibrary {
   ) {
     this.dir = join(home, 'skills')
     this._state = join(home, 'skills.json')
+    this._usageFile = join(home, 'skills-usage.json')
+    this._archivedFile = join(home, 'skills-archived.json')
+    this._archive = join(this.dir, '.archive')
   }
 
+  private readonly _usageFile: string
+  private readonly _archivedFile: string
+  private readonly _archive: string
+  /** The curation thresholds, for the person to see. */
+  readonly retire = { staleDays: SKILL_STALE_DAYS, archiveDays: SKILL_ARCHIVE_DAYS }
+
   /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', and the project's. */
-  list(project?: string): Skill[] {
+  list(project?: string, now = Date.now()): Skill[] {
     const disabled = new Set(this._disabled())
+    const usage = this._usage()
     const sources: [string, SkillSource][] = [
       [this.dir, 'myrmidon'],
       [this.claudeDir, 'claude'],
@@ -96,15 +136,18 @@ export class SkillLibrary {
         const dir = join(root, entry)
         const file = join(dir, 'SKILL.md')
         if (!existsSync(file)) continue
-        const parsed = parseSkillFile(readFileSync(file, 'utf8'))
+        const text = readFileSync(file, 'utf8')
+        const parsed = parseSkillFile(text)
         // The first source to name a skill wins: Myrmidon's own over the person's, theirs over a project's.
         if (!parsed || out.has(parsed.name)) continue
+        const learned = source === 'myrmidon' && isLearned(text)
         out.set(parsed.name, {
           name: parsed.name,
           description: parsed.description,
           dir: realpathSync(dir),
           source,
           enabled: !disabled.has(parsed.name),
+          ...(learned ? { curation: this._curation(parsed.name, usage, now) } : {}),
         })
       }
     }
@@ -148,18 +191,157 @@ export class SkillLibrary {
       if (!existsSync(file)) return []
       const text = readFileSync(file, 'utf8')
       const parsed = parseSkillFile(text)
-      return parsed && LEARNED.test(text.split(/\r?\n---/)[0] ?? '') ? [parsed] : []
+      return parsed && isLearned(text) ? [parsed] : []
     })
   }
 
   /** Saves a learned skill the person kept, in Myrmidon's own skills folder (every chat sees it). */
-  write(name: string, description: string, body: string) {
+  write(name: string, description: string, body: string, now = Date.now()) {
     if (!NAME.test(name)) throw new Error(`not a skill name: ${name}`)
     const dir = join(this.dir, name)
     mkdirSync(dir, { recursive: true })
     const front = `---\nname: ${name}\ndescription: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}\nsource: learned\n---\n\n`
     writeFileSync(join(dir, 'SKILL.md.tmp'), `${front}${body.trim()}\n`)
     renameSync(join(dir, 'SKILL.md.tmp'), join(dir, 'SKILL.md'))
+    this._updateUsage(name, (u) => {
+      u.since = new Date(now).toISOString()
+    })
+  }
+
+  /** An agent loaded a skill's instructions: counted, and its clock starts again. */
+  noteUse(name: string, now = Date.now()) {
+    this._updateUsage(name, (u) => {
+      u.uses += 1
+      u.lastUsed = new Date(now).toISOString()
+    })
+  }
+
+  /** Keeps a learned skill whatever its use, or lets it be retired again. */
+  setKept(name: string, kept: boolean) {
+    this._updateUsage(name, (u) => {
+      if (kept) u.kept = true
+      else delete u.kept
+    })
+  }
+
+  /**
+   * Moves learned skills unused for SKILL_ARCHIVE_DAYS (and not kept) to the archive; returns their names. A learned
+   * skill with no clock yet (written before usage was kept, or only ever kept and let go) starts it now: its file's
+   * age says nothing about whether anyone used it.
+   */
+  curate(now = Date.now()): string[] {
+    const out: string[] = []
+    for (const skill of this.list(undefined, now)) {
+      const c = skill.curation
+      if (!c || c.kept || skill.source !== 'myrmidon') continue
+      const u = this._usage()[skill.name]
+      if (!u?.since && !u?.lastUsed) {
+        this._updateUsage(skill.name, (u) => {
+          u.since = new Date(now).toISOString()
+        })
+        continue
+      }
+      if (now - this._idleSince(skill.name, this._usage(), now) < SKILL_ARCHIVE_DAYS * DAY_MS) continue
+      mkdirSync(this._archive, { recursive: true })
+      const target = join(this._archive, skill.name)
+      rmSync(target, { recursive: true, force: true })
+      renameSync(join(this.dir, skill.name), target)
+      out.push(skill.name)
+    }
+    if (out.length) {
+      const record = { at: new Date(now).toISOString(), names: out }
+      writeFileSync(`${this._archivedFile}.tmp`, `${JSON.stringify(record, null, 2)}\n`)
+      renameSync(`${this._archivedFile}.tmp`, this._archivedFile)
+    }
+    return out
+  }
+
+  /** The curator's last archiving (`skills-archived.json`), so the app can tell the person what went and when. */
+  lastArchived(): { at: string; names: string[] } | undefined {
+    try {
+      const raw = JSON.parse(readFileSync(this._archivedFile, 'utf8')) as { at?: unknown; names?: unknown }
+      if (typeof raw.at !== 'string' || !Array.isArray(raw.names)) return undefined
+      return { at: raw.at, names: raw.names.filter((n): n is string => typeof n === 'string') }
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Curates now and every SKILL_CURATE_EVERY_MS while the server runs; returns how to stop. */
+  curateEvery(report: (archived: string[], error?: unknown) => void): () => void {
+    const run = () => {
+      try {
+        const archived = this.curate()
+        if (archived.length) report(archived)
+      } catch (err) {
+        report([], err)
+      }
+    }
+    run()
+    const timer = setInterval(run, SKILL_CURATE_EVERY_MS)
+    timer.unref?.()
+    return () => clearInterval(timer)
+  }
+
+  /** Learned skills moved to the archive, to restore from Settings. */
+  archived(): { name: string; description: string }[] {
+    if (!existsSync(this._archive)) return []
+    return readdirSync(this._archive)
+      .flatMap((entry) => {
+        const file = join(this._archive, entry, 'SKILL.md')
+        const parsed = existsSync(file) ? parseSkillFile(readFileSync(file, 'utf8')) : undefined
+        return parsed ? [{ name: parsed.name, description: parsed.description }] : []
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** Brings an archived skill back, with a fresh clock so it is not archived again at once. */
+  restore(name: string, now = Date.now()) {
+    const from = join(this._archive, name)
+    if (!NAME.test(name) || !existsSync(join(from, 'SKILL.md')))
+      throw new Error(`no archived skill called ${name}`)
+    const to = join(this.dir, name)
+    if (existsSync(to)) throw new Error(`a skill called ${name} already exists`)
+    renameSync(from, to)
+    this._updateUsage(name, (u) => {
+      u.since = new Date(now).toISOString()
+    })
+  }
+
+  private _curation(name: string, usage: Record<string, Usage>, now: number): SkillCuration {
+    const u = usage[name]
+    const kept = u?.kept === true
+    return {
+      uses: u?.uses ?? 0,
+      ...(u?.lastUsed ? { lastUsed: u.lastUsed } : {}),
+      stale: !kept && now - this._idleSince(name, usage, now) >= SKILL_STALE_DAYS * DAY_MS,
+      kept,
+    }
+  }
+
+  /** When a learned skill was last used or given a fresh start; one with no record yet counts as fresh. */
+  private _idleSince(name: string, usage: Record<string, Usage>, now: number): number {
+    const u = usage[name]
+    const times = [u?.lastUsed, u?.since].filter((t): t is string => !!t).map((t) => Date.parse(t))
+    return times.length ? Math.max(...times) : now
+  }
+
+  private _usage(): Record<string, Usage> {
+    try {
+      const raw = JSON.parse(readFileSync(this._usageFile, 'utf8')) as unknown
+      return raw && typeof raw === 'object' ? (raw as Record<string, Usage>) : {}
+    } catch {
+      return {}
+    }
+  }
+
+  private _updateUsage(name: string, change: (u: Usage) => void) {
+    const all = this._usage()
+    const u = all[name] ?? { uses: 0 }
+    change(u)
+    all[name] = u
+    writeFileSync(`${this._usageFile}.tmp`, `${JSON.stringify(all, null, 2)}\n`)
+    renameSync(`${this._usageFile}.tmp`, this._usageFile)
   }
 
   setEnabled(name: string, enabled: boolean) {
@@ -178,6 +360,11 @@ export class SkillLibrary {
       return []
     }
   }
+}
+
+/** Whether a SKILL.md marks a skill Myrmidon learned (`source: learned` in its front matter). */
+function isLearned(text: string): boolean {
+  return LEARNED.test(text.split(/\r?\n---/)[0] ?? '')
 }
 
 /** The files a skill bundles besides SKILL.md, relative to its folder. */

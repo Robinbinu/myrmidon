@@ -34,6 +34,11 @@ export interface ColonyHost {
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
   /** Adds a worker: a new one for `label`, or (with `specialist`) one of the person's saved specialists by name. */
   spawnWorker(by: string, label: string, focus: string, model?: string, specialist?: string): Promise<string>
+  /**
+   * The lead asks one of its on-call crewmates for a piece of work: the crewmate joins (or, already here, gets the
+   * job by mail), does it, and its reply to the lead comes back here, not as a wake-up.
+   */
+  askCrewmate(by: string, name: string, job: string): Promise<string>
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number
@@ -57,9 +62,10 @@ export interface ColonyHost {
   pluginPrompts(role: 'lead' | 'worker'): string[]
   /**
    * The speaking agent's reply as it is being written (`done` when the model message ends). Live only: shown to
-   * whoever is watching, never logged; the finished reply arrives as chat/reply.
+   * whoever is watching, never logged; the finished reply arrives as chat/reply. `plain`: the model's own text, not
+   * a reply tool's, so it may turn out to be narration before a tool call ("Let me look…") rather than an answer.
    */
-  streamed(agent: string, text: string, done: boolean): void
+  streamed(agent: string, text: string, done: boolean, plain: boolean): void
   /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
   readonly plugins?: PluginHost
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */

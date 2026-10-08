@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseSkillFile, SkillLibrary } from '../src/skills.ts'
@@ -64,4 +64,93 @@ test('a SKILL.md needs a valid name and a description', () => {
     description: 'folded text',
     body: 'body',
   })
+})
+
+test('learned skills nobody uses go stale, then to the archive; using, keeping or restoring one saves it', () => {
+  const home = join(dir, 'home')
+  const claude = join(dir, 'claude')
+  skill(claude, 'pdf-forms', 'Fill PDF forms.')
+  const library = new SkillLibrary(home, claude)
+  const day = 24 * 60 * 60_000
+  const t0 = Date.parse('2026-01-01T00:00:00Z')
+  library.write('weekly-report', 'Write the weekly report.', 'Steps.', t0)
+  library.write('old-habit', 'Something done once.', 'Steps.', t0)
+  library.write('kept-one', 'Rare but wanted.', 'Steps.', t0)
+  library.setKept('kept-one', true)
+
+  // Using a skill counts it and resets its clock.
+  library.noteUse('weekly-report', t0 + 20 * day)
+  const at = (now: number) =>
+    Object.fromEntries(library.list(undefined, now).map((s) => [s.name, s.curation]))
+  expect(at(t0 + 35 * day)).toMatchObject({
+    'weekly-report': { uses: 1, stale: false, kept: false },
+    'old-habit': { uses: 0, stale: true },
+    'kept-one': { stale: false, kept: true },
+    // Skills the person wrote or installed are never curated.
+    'pdf-forms': undefined,
+  })
+  // Stale skills stay usable; past the archive age they are moved out, never deleted.
+  expect(library.read('old-habit')).toContain('Steps.')
+  expect(library.curate(t0 + 95 * day)).toEqual(['old-habit'])
+  expect(library.list(undefined, t0 + 95 * day).map((s) => s.name)).toEqual([
+    'kept-one',
+    'pdf-forms',
+    'weekly-report',
+  ])
+  expect(library.archived()).toEqual([{ name: 'old-habit', description: 'Something done once.' }])
+  expect(library.curate(t0 + 115 * day)).toEqual(['weekly-report'])
+
+  // Restored, a skill starts a fresh clock and is not archived again at once.
+  library.restore('old-habit', t0 + 120 * day)
+  expect(library.curate(t0 + 121 * day)).toEqual([])
+  expect(library.list(undefined, t0 + 121 * day).find((s) => s.name === 'old-habit')?.curation).toMatchObject(
+    {
+      stale: false,
+      uses: 0,
+    },
+  )
+  expect(() => library.restore('nothing-here')).toThrow('no archived skill called nothing-here')
+})
+
+test('on upgrade, learned skills with no record of use start their clock now rather than from their file age', () => {
+  const home = join(dir, 'home')
+  const day = 24 * 60 * 60_000
+  const t0 = Date.parse('2026-01-01T00:00:00Z')
+  // Written by an older Myrmidon that kept no usage record, long ago.
+  const learned = join(home, 'skills', 'old-learned')
+  mkdirSync(learned, { recursive: true })
+  writeFileSync(
+    join(learned, 'SKILL.md'),
+    '---\nname: old-learned\ndescription: Learned long ago.\nsource: learned\n---\n\nSteps.\n',
+  )
+  utimesSync(join(learned, 'SKILL.md'), new Date(t0 - 400 * day), new Date(t0 - 400 * day))
+  const library = new SkillLibrary(home, join(dir, 'claude'))
+  expect(library.list(undefined, t0).find((s) => s.name === 'old-learned')?.curation?.stale).toBe(false)
+  expect(library.curate(t0)).toEqual([])
+  expect(library.lastArchived()).toBeUndefined()
+  // Still unused a full archive age later, it goes, and the app is told which skills went and when.
+  expect(library.curate(t0 + 89 * day)).toEqual([])
+  expect(library.curate(t0 + 90 * day)).toEqual(['old-learned'])
+  expect(library.lastArchived()).toEqual({
+    at: new Date(t0 + 90 * day).toISOString(),
+    names: ['old-learned'],
+  })
+})
+
+test('an old skill kept and then let go starts its clock then, rather than never going stale', () => {
+  const home = join(dir, 'home')
+  const day = 24 * 60 * 60_000
+  const t0 = Date.parse('2026-01-01T00:00:00Z')
+  const learned = join(home, 'skills', 'old-learned')
+  mkdirSync(learned, { recursive: true })
+  writeFileSync(
+    join(learned, 'SKILL.md'),
+    '---\nname: old-learned\ndescription: Learned long ago.\nsource: learned\n---\n\nSteps.\n',
+  )
+  const library = new SkillLibrary(home, join(dir, 'claude'))
+  // Kept and let go before any curation: a record with no clock.
+  library.setKept('old-learned', true)
+  library.setKept('old-learned', false)
+  expect(library.curate(t0)).toEqual([])
+  expect(library.curate(t0 + 90 * day)).toEqual(['old-learned'])
 })

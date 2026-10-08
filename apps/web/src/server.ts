@@ -9,10 +9,14 @@ import {
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
+  CallRefused,
+  type CallSession,
+  type ChannelChats,
   ChannelHub,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  channelSendTool,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -36,15 +40,21 @@ import {
   type PluginStore,
   type ProjectStore,
   ruleGreeting,
+  type Schedule,
   type ScheduleStore,
   type SettingsStore,
+  type SileroVad,
   type SkillLibrary,
   type SkillProposalStore,
+  type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  sniffImage,
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
+  VoiceHub,
+  wav,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
@@ -127,6 +137,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
+  /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
+  readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
 }
 
 export interface WebServer {
@@ -140,6 +152,8 @@ export interface WebServer {
   readonly token: string
   /** Makes a single-use pairing link for a new device. */
   pairingLink(scope: DeviceScope): { code: string; link: string }
+  /** Loads and warms the speech engines voice calls use, so the first call does not wait on them. */
+  warmVoice(): Promise<void>
   stop(): Promise<void>
 }
 
@@ -161,6 +175,19 @@ type StreamData = Opened &
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+    /**
+     * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
+     * the socket's close code and reason once it opens; `closed`: the person's side went away.
+     */
+    | {
+        kind: 'call'
+        chat?: string
+        rate: number
+        talk?: string
+        session?: CallSession
+        refusal?: { code: number; reason: string }
+        closed?: boolean
+      }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -200,12 +227,35 @@ const MAX_TERMINALS = 8
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
+/** The longest text "Try it" in Settings → Voice speaks. */
+const VOICE_SAMPLE_CHARS = 300
+/** The largest audio frame (about a second at 48 kHz) and control message a call takes from the person's side. */
+const VOICE_FRAME_MAX = 96_000
+const VOICE_MESSAGE_MAX = 1024
+/** The largest webhook body a platform may post (media comes by reference, not inline). */
+const WEBHOOK_MAX = 5 * 1024 * 1024
 
 const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_MESSAGE_CHARS = 20_000
+
+/**
+ * What the person can fix in a message the schema would refuse, in words that say how. Anything else the schema
+ * refuses is the page's or a script's mistake and stays technical.
+ */
+function sendProblem(raw: unknown): string | undefined {
+  const { text, attachments } = (raw ?? {}) as { text?: unknown; attachments?: unknown }
+  const count = (n: number) => n.toLocaleString('en-US')
+  if (typeof text === 'string' && text.length > MAX_MESSAGE_CHARS)
+    return `That message is ${count(text.length)} characters; the most one message can hold is ${count(MAX_MESSAGE_CHARS)}. Shorten it, or attach it as a file.`
+  if (Array.isArray(attachments) && attachments.length > MAX_ATTACHMENTS)
+    return `Attach at most ${MAX_ATTACHMENTS} files to one message.`
+  return undefined
+}
 
 const sendSchema = Schema.object({
-  text: Schema.string().min(1).max(20_000).required(),
+  text: Schema.string().min(1).max(MAX_MESSAGE_CHARS).required(),
   chatId: Schema.string().pattern(/^chat-[a-z0-9-]{1,40}$/),
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
@@ -320,39 +370,110 @@ export function startServer(options: ServeOptions): WebServer {
   const chats = options.chats
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
-  const stopScheduler =
-    options.schedules && chats
-      ? startScheduler(options.schedules, async (s) => {
-          const sent = await chats.send(
-            s.request,
-            defaultTeam(),
-            undefined,
-            s.project ? { project: s.project } : {},
-          )
-          await chats.rename(sent.chatId, `Scheduled · ${s.name}`).catch(() => {})
-          return sent.chatId
+  const logins = options.omp ? new Logins(options.omp) : undefined
+  // Channels and voice calls reach the same chats, with the person's default team.
+  const chatsPort: ChannelChats | undefined = chats
+    ? {
+        send: (text, chatId, opts = {}) =>
+          chats.send(text, defaultTeam(), chatId, {
+            ...(opts.project ? { project: opts.project } : {}),
+            ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+            ...(opts.voice ? { voice: true } : {}),
+            ...(opts.askAll ? { askAll: true } : {}),
+          }),
+        rename: (chatId, title) => chats.rename(chatId, title),
+        stop: (chatId) => chats.stop(chatId),
+        onEvents: (listener) => chats.onEvents(listener),
+        onStream: (listener) => chats.onStream(listener),
+        read: (colonyId) => chats.events(colonyId),
+        decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
+        allowAlways: async (tool) => {
+          const settings = options.settings
+          if (!settings) throw new Error('settings need the chat runtime')
+          const current = settings.get()
+          settings.set({ ...current, permissions: { ...current.permissions, [tool]: 'allow' } })
+          await chats.permissionsChanged()
+        },
+        artifact: async (colonyId, name) => {
+          const found = await latestArtifact(colonyId, name)
+          return 'missing' in found
+            ? undefined
+            : { data: new Uint8Array(found.body), mediaType: found.mediaType }
+        },
+        ...(options.omp
+          ? {
+              // The voice engine chosen in Settings → Voice (Phonon-2 on this Mac) while voice is on; omp's otherwise.
+              transcribe: async (audio, mimeType, name) =>
+                (await voice?.transcribeFile(audio, mimeType, name)) ??
+                (options.omp as OmpRuntime).transcribe(audio, mimeType, name),
+            }
+          : {}),
+      }
+    : undefined
+  // Messaging channels (Telegram, and those plugins add).
+  const channels =
+    chats && chatsPort
+      ? new ChannelHub({
+          dir: join(options.home, 'channels'),
+          kinds: () => ({ ...options.pluginHost?.channelKinds(), ...BUILT_IN_CHANNELS }),
+          // Platforms that push (webhooks) need this gateway's public address.
+          webhookUrl: (id) => (publicUrl ? `${publicUrl.origin}/hooks/channels/${id}` : undefined),
+          log: (message) => console.error(`channels: ${message}`),
+          chats: chatsPort,
         })
       : undefined
-  const logins = options.omp ? new Logins(options.omp) : undefined
-  // Messaging channels (Telegram…) reach the same chats, with the person's default team.
-  const channels = chats
-    ? new ChannelHub({
-        dir: join(options.home, 'channels'),
-        kinds: BUILT_IN_CHANNELS,
-        log: (message) => console.error(`channels: ${message}`),
-        chats: {
-          send: (text, chatId, project) =>
-            chats.send(text, defaultTeam(), chatId, project ? { project } : {}),
-          rename: (chatId, title) => chats.rename(chatId, title),
-          stop: (chatId) => chats.stop(chatId),
-          onEvents: (listener) => chats.onEvents(listener),
-          read: (colonyId) => chats.events(colonyId),
-        },
-      })
-    : undefined
+  // Voice calls: speech to text, a fast call model that hands work to the crew, text to speech (Settings → Voice).
+  const settingsStore = options.settings
+  const voice =
+    chats && options.resolver && settingsStore
+      ? new VoiceHub({
+          home: options.home,
+          resolver: options.resolver,
+          settings: () => {
+            const s = settingsStore.get()
+            const fallbackModel = s.team.leadModel ?? options.omp?.defaultModel()
+            return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
+          },
+          ...(options.omp ? { omp: options.omp } : {}),
+          ...(options.voiceModels ?? {}),
+          log: (line) => console.error(`voice: ${line}`),
+        })
+      : undefined
+  // A new choice of engine is warmed at once, not when the next call starts.
+  let voiceChoice = JSON.stringify(settingsStore?.get().voice)
+  const offVoiceSettings = settingsStore?.onChange((next) => {
+    const choice = JSON.stringify(next.voice)
+    if (choice === voiceChoice) return
+    voiceChoice = choice
+    // Turned off: the engines stop and free their memory. On (or a new choice): what is missing downloads now.
+    if (!next.voice.enabled) voice?.stop()
+    else void voice?.warm()
+  })
   void channels
     ?.start()
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
+  // A plugin that adds or drops a platform is picked up without a restart.
+  const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
+  // Agents can message the owner on a channel (OpenClaw's core `message` tool), e.g. when long work is done.
+  if (channels) options.pluginHost?.addBuiltIn('channels', [channelSendTool(channels)])
+  /** Starts a schedule's round as a new chat; with `deliver`, the channel follows it and sends the answer. */
+  const runSchedule = async (s: Schedule) => {
+    if (!chats) throw new Error('schedules need the chat runtime')
+    const sent = await chats.send(
+      s.request,
+      defaultTeam(),
+      undefined,
+      s.project ? { project: s.project } : {},
+    )
+    await chats.rename(sent.chatId, `Scheduled · ${s.name}`).catch(() => {})
+    if (s.deliver)
+      await channels
+        ?.follow(s.deliver, sent.chatId, sent.colonyId)
+        .catch((err) => console.error(`channels: ${err}`))
+    return sent.chatId
+  }
+  const stopScheduler =
+    options.schedules && chats ? startScheduler(options.schedules, runSchedule) : undefined
   /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
   const pluginList = () =>
     (options.plugins?.list() ?? []).map((p) => {
@@ -367,6 +488,7 @@ export function startServer(options: ServeOptions): WebServer {
       }
     })
 
+  const startedAt = new Date().toISOString()
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -423,7 +545,7 @@ export function startServer(options: ServeOptions): WebServer {
     for (const ws of opened) if (ws.data.device === id) ws.close(4401, 'device revoked')
   }
   const forbidden = () =>
-    json({ error: 'this device can use chats only; pair it with full access for this' }, 403)
+    json({ error: 'This device can use chats only. To do this, pair it again with full access.' }, 403)
 
   const guard =
     (
@@ -545,7 +667,9 @@ export function startServer(options: ServeOptions): WebServer {
           if (!res.ok) return new Response(await res.text(), { status: res.status })
           return previewResponse(res.body ?? '', res.headers.get('x-myr-media-type') ?? 'text/plain')
         } catch {
-          return new Response(`${gw.name} is unreachable`, { status: 502 })
+          return new Response(`Can't reach ${gw.name}. Check that it is running and online, then reload.`, {
+            status: 502,
+          })
         }
       }
       const match = /^\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
@@ -609,7 +733,13 @@ export function startServer(options: ServeOptions): WebServer {
             audit.record('pair-failed', { host })
             // A wrong code costs a moment, so guessing is slow as well as capped.
             await Bun.sleep(500)
-            return json({ error: 'that pairing code is wrong, used or expired; make a new one' }, 401)
+            return json(
+              {
+                error:
+                  'That pairing code is wrong, used or expired. Make a new one on a paired device, or run myrmidon pair.',
+              },
+              401,
+            )
           }
           const hub = body.hub === true
           const { device, token: deviceToken } = devices.add(
@@ -685,16 +815,119 @@ export function startServer(options: ServeOptions): WebServer {
         },
       },
       '/api/channels': {
-        GET: guard(() => json({ channels: channels?.list() ?? [] })),
+        GET: guard(() => {
+          try {
+            return json({ channels: channels?.list() ?? [] })
+          } catch (err) {
+            // A damaged channels.json: Settings says why instead of showing no channels.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
       },
+      '/api/channels/chats': {
+        GET: guard(() => {
+          try {
+            return json({ chats: channels?.chatChannels() ?? {} })
+          } catch (err) {
+            // A damaged channels.json: say why rather than a bare internal error.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
+      },
+      '/api/channels/:id/activity': {
+        GET: guard((req) => json({ events: channels?.activity(req.params.id) ?? [] })),
+      },
+      // What the gateway indicator and the System page show: how this gateway is doing, and why when it is not.
+      '/api/status': guard(async (_req, _url, access) => {
+        const models = options.omp?.available().length ?? 0
+        const list = (options.chats ? await options.chats.list() : []).filter((c) => c.status === 'running')
+        // Problems as data; the page words them.
+        const problems: (
+          | { kind: 'no-models' }
+          | { kind: 'channel'; channel: string; label: string; error: string }
+        )[] = []
+        let listed: ReturnType<ChannelHub['list']> = []
+        try {
+          listed = channels?.list() ?? []
+        } catch (err) {
+          // A damaged channels.json leaves every channel off: a problem for the indicator, not a failed status.
+          const error = err instanceof Error ? err.message : String(err)
+          problems.push({ kind: 'channel', channel: 'channels', label: 'Channels', error })
+        }
+        const inUse = listed.filter((c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length)
+        if (options.omp && models === 0) problems.push({ kind: 'no-models' })
+        for (const c of inUse)
+          if (c.enabled && (c.status.state === 'retrying' || c.status.state === 'error'))
+            problems.push({ kind: 'channel', channel: c.id, label: c.label, error: c.status.error })
+        const overall = problems.length ? 'degraded' : 'ok'
+        // A chats-only device learns whether things work, not who is waiting or how channels are set up.
+        if (access.scope !== 'full') return json({ overall, problems })
+        const skillsArchived = options.skills?.lastArchived()
+        return json({
+          overall,
+          problems,
+          startedAt,
+          remote,
+          ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+          home: options.home,
+          models,
+          sandbox: options.sandboxKind ?? 'unknown',
+          running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
+          ...(skillsArchived ? { skillsArchived } : {}),
+          channels: inUse.map((c) => ({
+            id: c.id,
+            label: c.label,
+            // Every setting it needs is saved: a channel switched off can still be set up.
+            configured: c.configured,
+            enabled: c.enabled,
+            status: c.status,
+            health: c.health,
+            waiting: c.pending.length,
+          })),
+          waiting: inUse.flatMap((c) =>
+            c.pending.map((p) => ({
+              channel: c.id,
+              label: c.label,
+              id: p.id,
+              kind: p.kind,
+              name: p.kind === 'group' ? (p.chat.title ?? p.sender.name) : p.sender.name,
+              createdAt: p.createdAt,
+            })),
+          ),
+          activity: channels?.activity().slice(0, 50) ?? [],
+        })
+      }),
       '/api/channels/:id': {
         PUT: guard(async (req) => {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           try {
+            const values =
+              body.values && typeof body.values === 'object'
+                ? Object.fromEntries(
+                    Object.entries(body.values as Record<string, unknown>).filter(
+                      (e): e is [string, string] => typeof e[1] === 'string',
+                    ),
+                  )
+                : typeof body.token === 'string'
+                  ? { token: body.token }
+                  : undefined
+            const pick = <T extends string>(v: unknown, allowed: readonly T[]) =>
+              typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : undefined
+            const dm = pick(body.dm, ['pairing', 'allowlist', 'open', 'disabled'] as const)
+            const groups = pick(body.groups, ['approve', 'open', 'disabled'] as const)
+            const stream = pick(body.stream, ['progress', 'partial', 'final'] as const)
             const channel = await channels.configure(req.params.id ?? '', {
-              ...(typeof body.token === 'string' ? { token: body.token } : {}),
+              ...(values ? { values } : {}),
               ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+              ...(dm ? { dm } : {}),
+              ...(groups ? { groups } : {}),
+              ...(stream ? { stream } : {}),
+              ...(typeof body.mention === 'boolean' ? { mention: body.mention } : {}),
+              ...(typeof body.perPerson === 'boolean' ? { perPerson: body.perPerson } : {}),
+              ...(Array.isArray(body.allow)
+                ? { allow: body.allow.filter((a): a is string => typeof a === 'string') }
+                : {}),
               ...(typeof body.project === 'string' || body.project === null
                 ? { project: body.project as string | null }
                 : {}),
@@ -704,23 +937,47 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
+        DELETE: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          try {
+            await channels.remove(req.params.id ?? '')
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
       },
       '/api/channels/:id/approve': {
         POST: guard(async (req) => {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as { code?: unknown; request?: unknown }
-          const by =
-            typeof body.code === 'string'
-              ? { code: body.code }
-              : typeof body.request === 'string'
-                ? { request: body.request }
-                : undefined
-          if (!by) return json({ error: 'code or request is required' }, 400)
+          // Only the code proves the request is from someone the approver knows: a request id alone is not enough.
+          if (typeof body.code !== 'string' || !body.code.trim())
+            return json({ error: 'Type the code the bot sent them.' }, 400)
+          const by = {
+            code: body.code,
+            ...(typeof body.request === 'string' ? { request: body.request } : {}),
+          }
           try {
             const approved = await channels.approve(req.params.id ?? '', by)
             if (!approved)
-              return json({ error: 'no waiting request has that code; it may have expired' }, 404)
+              return json({ error: 'That is not the code this request was sent, or it has expired.' }, 404)
             return json({ person: approved.person, group: approved.group })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Ownership is given only here or by approving a code, never by an allowlist or a handle.
+      '/api/channels/:id/owner': {
+        POST: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { person?: unknown }
+          if (typeof body.person !== 'string') return json({ error: 'person is required' }, 400)
+          try {
+            return channels.setOwner(req.params.id ?? '', body.person)
+              ? json({ ok: true })
+              : json({ error: 'not found' }, 404)
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
@@ -740,6 +997,14 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
+      },
+      // Platforms that push messages (webhooks) post here; each adapter checks its platform's signature.
+      '/hooks/channels/:id': async (req: Request & { params: Record<string, string> }) => {
+        if (!channels || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
+          return new Response('too large', { status: 413 })
+        return channels.webhook(req.params.id ?? '', req)
       },
       '/api/gateways': {
         GET: guard(async () =>
@@ -826,8 +1091,11 @@ export function startServer(options: ServeOptions): WebServer {
           })
           return new Response(res.body, { status: res.status, headers: responseHeaders(res) })
         } catch (err) {
-          const why = err instanceof Error && err.name === 'TimeoutError' ? 'no answer' : 'unreachable'
-          return json({ error: `${gw.name} is ${why}` }, 502)
+          const error =
+            err instanceof Error && err.name === 'TimeoutError'
+              ? `${gw.name} didn't answer in time. Check that it is running, then try again.`
+              : `Can't reach ${gw.name}. Check that it is running and online, then try again.`
+          return json({ error }, 502)
         }
       },
       '/api/devices/:id': {
@@ -1106,6 +1374,7 @@ export function startServer(options: ServeOptions): WebServer {
               cron: String(body.cron ?? ''),
               ...(typeof body.name === 'string' ? { name: body.name } : {}),
               ...(typeof body.project === 'string' && body.project ? { project: body.project } : {}),
+              ...(typeof body.deliver === 'string' && body.deliver ? { deliver: body.deliver } : {}),
             })
             return json({ schedules: options.schedules.list() })
           } catch (err) {
@@ -1126,6 +1395,9 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.project === null || typeof body.project === 'string'
                 ? { project: (body.project as string | null) || null }
                 : {}),
+              ...(body.deliver === null || typeof body.deliver === 'string'
+                ? { deliver: (body.deliver as string | null) || null }
+                : {}),
             })
             return json({ schedules: options.schedules.list() })
           } catch (err) {
@@ -1143,15 +1415,9 @@ export function startServer(options: ServeOptions): WebServer {
           const schedule = options.schedules?.list().find((s) => s.id === req.params.id)
           if (!schedule || !chats || !options.schedules) return json({ error: 'no such schedule' }, 404)
           try {
-            const sent = await chats.send(
-              schedule.request,
-              defaultTeam(),
-              undefined,
-              schedule.project ? { project: schedule.project } : {},
-            )
-            await chats.rename(sent.chatId, `Scheduled · ${schedule.name}`).catch(() => {})
-            options.schedules.ran(schedule.id, { chatId: sent.chatId })
-            return json({ chatId: sent.chatId, schedules: options.schedules.list() })
+            const chatId = await runSchedule(schedule)
+            options.schedules.ran(schedule.id, { chatId })
+            return json({ chatId, schedules: options.schedules.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1230,15 +1496,36 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/skills': guard((_req, url) => {
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : undefined
-        return json({ skills: options.skills?.list(path) ?? [], dir: options.skills?.dir })
+        return json({
+          skills: options.skills?.list(path) ?? [],
+          archived: options.skills?.archived() ?? [],
+          dir: options.skills?.dir,
+          retire: options.skills?.retire,
+        })
       }),
       '/api/skills/:name': {
         PUT: guard(async (req) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
-          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
-          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
-          options.skills.setEnabled(req.params.name ?? '', enabled)
+          const { enabled, kept } = (await req.json().catch(() => ({}))) as {
+            enabled?: unknown
+            kept?: unknown
+          }
+          if (typeof enabled !== 'boolean' && typeof kept !== 'boolean')
+            return json({ error: 'enabled or kept must be true or false' }, 400)
+          if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
+          if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
           return json({ skills: options.skills.list() })
+        }),
+      },
+      '/api/skills/:name/restore': {
+        POST: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            options.skills.restore(req.params.name ?? '')
+            return json({ skills: options.skills.list(), archived: options.skills.archived() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
         }),
       },
       '/api/memory': {
@@ -1551,12 +1838,14 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           let body: ReturnType<typeof sendSchema>
           try {
-            body = sendSchema((await req.json()) as never)
+            const raw = await req.json()
+            const problem = sendProblem(raw)
+            if (problem) return json({ error: problem }, 400)
+            body = sendSchema(raw as never)
           } catch (err) {
-            return json(
-              { error: `invalid request: ${err instanceof Error ? err.message : String(err)}` },
-              400,
-            )
+            const detail = err instanceof Error ? err.message : String(err)
+            console.warn(`POST /api/chats refused: ${detail}`)
+            return json({ error: `invalid request: ${detail}` }, 400)
           }
           try {
             // A request without a team (the CLI, a script) runs with the person's default team from Settings.
@@ -1568,14 +1857,17 @@ export function startServer(options: ServeOptions): WebServer {
               if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${a.name} is larger than 10 MB`)
               return { name: a.name, bytes }
             })
-            return json(
-              await options.chats.send(body.text, config, body.chatId, {
-                ...(body.delivery ? { delivery: body.delivery } : {}),
-                attachments,
-                planFirst: body.plan === true,
-                ...(body.project ? { project: body.project } : {}),
-              }),
-            )
+            // Calls in this chat since the last message: the crew hears what was said, once.
+            const calls = body.chatId ? voice?.untold(body.chatId) : undefined
+            const sent = await options.chats.send(body.text, config, body.chatId, {
+              ...(body.delivery ? { delivery: body.delivery } : {}),
+              attachments,
+              planFirst: body.plan === true,
+              ...(body.project ? { project: body.project } : {}),
+              ...(calls ? { context: calls.context } : {}),
+            })
+            calls?.tell()
+            return json(sent)
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1603,6 +1895,7 @@ export function startServer(options: ServeOptions): WebServer {
           const deleted = await options.chats.delete(req.params.chatId ?? '')
           if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
           for (const id of deleted) store.forget(id as ColonyId)
+          voice?.forget(req.params.chatId ?? '')
           for (const ws of sockets)
             if (ws.data.kind === 'events' && deleted.includes(ws.data.colony))
               ws.close(1000, 'colony deleted')
@@ -1730,6 +2023,89 @@ export function startServer(options: ServeOptions): WebServer {
           },
         })
       }),
+      // Voice calls (Settings → Voice): what is installed and chosen, installs, keys, a sample, calls per chat.
+      '/api/voice': guard(() =>
+        voice ? json(voice.status()) : json({ error: 'voice needs the chat runtime' }, 503),
+      ),
+      '/api/voice/phonon/install': {
+        POST: guard(() => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
+          void voice.phonon
+            .install()
+            .then(() => voice.warm())
+            .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/kitten/download': {
+        POST: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
+          const { model } = (await req.json().catch(() => ({}))) as { model?: unknown }
+          if (model !== 'nano' && model !== 'micro' && model !== 'mini')
+            return json({ error: 'model must be nano, micro or mini' }, 400)
+          void voice.kitten
+            .download(model)
+            .then(() => voice.warm())
+            .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/keys': {
+        PUT: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { stt?: unknown; tts?: unknown }
+          if (typeof body.stt === 'string') voice.setKey('stt', body.stt)
+          if (typeof body.tts === 'string') voice.setKey('tts', body.tts)
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/sample': {
+        POST: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
+          const { text } = (await req.json().catch(() => ({}))) as { text?: unknown }
+          if (typeof text !== 'string' || !text.trim()) return json({ error: 'text is required' }, 400)
+          try {
+            const speech = await voice.sample(text.slice(0, VOICE_SAMPLE_CHARS))
+            return new Response(wav(speech.pcm, speech.sampleRate), {
+              headers: { 'content-type': 'audio/wav', 'cache-control': 'no-store' },
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/chats/:id/calls': guard((req) => json({ calls: voice?.calls(req.params.id ?? '') ?? [] })),
+      // A call's audio both ways; chats-only devices may call too.
+      '/api/voice/call': (req: Request) => {
+        const url = new URL(req.url)
+        // Microphone audio over a WebSocket: only from this app's own pages.
+        if (!req.headers.get('origin') || !sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        // A refused upgrade reaches the page as a bare 1006 with no reason; a refusal is an upgrade closed at once
+        // with a code and a reason the page can show.
+        // Any signed-in device may call, chats-only ones too.
+        const refusal = !access
+          ? { code: 4401, reason: 'not signed in' }
+          : !voice || !chatsPort
+            ? { code: 4503, reason: 'voice needs the chat runtime' }
+            : !voice.enabled
+              ? { code: 4409, reason: VOICE_OFF }
+              : undefined
+        const rate = Number(url.searchParams.get('rate'))
+        const data = {
+          kind: 'call' as const,
+          rate: rate >= 8000 && rate <= 48_000 ? rate : 16_000,
+          ...(url.searchParams.get('chat') ? { chat: url.searchParams.get('chat') ?? '' } : {}),
+          ...(url.searchParams.get('talk') ? { talk: url.searchParams.get('talk') ?? '' } : {}),
+          ...(access?.device ? { device: access.device.id } : {}),
+          ...(refusal ? { refusal } : {}),
+        }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
       '/api/health/socket': (req: Request) => {
         const access = authorized(req, new URL(req.url))
         if (!access) return json({ error: 'unauthorized' }, 401)
@@ -1741,11 +2117,15 @@ export function startServer(options: ServeOptions): WebServer {
         const id = colonyId(req.params.id ?? '')
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
-        // Browser keyframes are JPEGs; everything else is served as inert text.
-        const image = new URL(req.url).searchParams.get('as') === 'jpeg'
-        return new Response(Buffer.from(await blobs.get(req.params.hash ?? '')), {
+        // Browser keyframes are JPEGs; `as=image` (a picture in a chat) is served as an image only when its bytes
+        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script); everything else as inert text.
+        const as = new URL(req.url).searchParams.get('as')
+        const bytes = await blobs.get(req.params.hash ?? '')
+        const image = as === 'jpeg' ? 'image/jpeg' : as === 'image' ? sniffImage(bytes) : undefined
+        return new Response(Buffer.from(bytes), {
           headers: {
-            'content-type': image ? 'image/jpeg' : 'text/plain; charset=utf-8',
+            'content-type': image ?? 'text/plain; charset=utf-8',
+            'x-content-type-options': 'nosniff',
             'cache-control': 'private, max-age=31536000, immutable',
           },
         })
@@ -1851,6 +2231,62 @@ export function startServer(options: ServeOptions): WebServer {
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
           return
         }
+        if (ws.data.kind === 'call') {
+          const data = ws.data
+          if (data.refusal) {
+            ws.close(data.refusal.code, data.refusal.reason.slice(0, 120))
+            return
+          }
+          void (async () => {
+            if (!voice || !chats || !chatsPort) throw new CallRefused(4503, 'voice needs the chat runtime')
+            // Usually already warm; the first call after a start or a new choice waits here, and says so.
+            ws.send(JSON.stringify({ type: 'state', state: 'preparing' }))
+            await voice.warm()
+            // Each wait is a chance for the person to have gone: no call is made for a closed socket.
+            if (data.closed) return
+            const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
+            if (data.closed) return
+            const session = voice.call(
+              chatsPort,
+              {
+                ...(data.chat ? { chatId: data.chat } : {}),
+                ...(summary ? { chatTitle: summary.title } : {}),
+                ...(summary?.project ? { project: summary.project.id } : {}),
+                ...(summary?.crew?.length ? { crew: summary.crew } : {}),
+                // The lead, or one of this chat's crew; anything else is the call assistant.
+                ...(data.talk === 'lead' || summary?.crew?.some((c) => c.name === data.talk)
+                  ? { talkTo: data.talk }
+                  : {}),
+                name: options.settings?.get().profile.name ?? account,
+                sampleRate: data.rate,
+              },
+              (out) => {
+                if (out.type === 'audio') {
+                  // Speech as binary frames: the sample rate (4 bytes), then 16-bit mono samples.
+                  const frame = new Uint8Array(4 + out.pcm.byteLength)
+                  new DataView(frame.buffer).setUint32(0, out.sampleRate, true)
+                  frame.set(new Uint8Array(out.pcm.buffer, out.pcm.byteOffset, out.pcm.byteLength), 4)
+                  ws.send(frame)
+                  return
+                }
+                ws.send(JSON.stringify(out))
+                if (out.type === 'latency')
+                  console.error(
+                    `voice: answered in ${out.ms} ms (heard ${out.heard}, first words ${out.thought}, first sound ${out.voiced})`,
+                  )
+                if (out.type === 'ended') ws.close(1000, 'call ended')
+              },
+            )
+            data.session = session
+            await session.start()
+          })().catch((err) =>
+            ws.close(
+              err instanceof CallRefused ? err.code : 1011,
+              (err instanceof Error ? err.message : String(err)).slice(0, 120),
+            ),
+          )
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -1878,10 +2314,40 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.proc?.kill()
           return
         }
+        if (ws.data.kind === 'call') {
+          ws.data.closed = true
+          ws.data.session?.hangUp()
+          return
+        }
         if (ws.data.kind === 'browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'call') {
+          const session = ws.data.session
+          if (!session) return
+          if (typeof raw !== 'string') {
+            if (raw.byteLength > VOICE_FRAME_MAX) return ws.close(1009, 'audio frame too large')
+            // 16-bit samples: an odd trailing byte is not half a sample worth keeping.
+            const bytes = new Uint8Array(raw)
+            const even = bytes.byteLength - (bytes.byteLength % 2)
+            session.audio(new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + even)))
+            return
+          }
+          if (raw.length > VOICE_MESSAGE_MAX) return ws.close(1009, 'message too large')
+          let msg: unknown
+          try {
+            msg = JSON.parse(raw)
+          } catch {
+            ws.send(JSON.stringify({ type: 'error', message: 'a call message must be JSON' }))
+            return
+          }
+          const { type, muted } = (msg ?? {}) as { type?: unknown; muted?: unknown }
+          if (type === 'interrupt') session.interrupt()
+          else if (type === 'mute') session.mute(muted === true)
+          else if (type === 'hangup') session.hangUp()
+          return
+        }
         if (ws.data.kind === 'bridge') {
           const up = ws.data.upstream
           const frame = typeof raw === 'string' ? raw : new Uint8Array(raw)
@@ -1960,6 +2426,7 @@ export function startServer(options: ServeOptions): WebServer {
     remote,
     pairingLink,
     token,
+    warmVoice: () => voice?.warm() ?? Promise.resolve(),
     async stop() {
       stopScheduler?.()
       clearInterval(poll)
@@ -1969,7 +2436,10 @@ export function startServer(options: ServeOptions): WebServer {
       // above), though the port is already released; waiting on it would hang shutdown.
       await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
       await preview.stop(true)
+      offPlugins?.()
       await channels?.stop()
+      offVoiceSettings?.()
+      voice?.stop()
       store.close()
     },
   }

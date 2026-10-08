@@ -88,6 +88,7 @@ const colonySpec = Schema.object({
   disabledTools: Schema.array(str()),
   askTools: Schema.array(str()),
   allowTools: Schema.array(str()),
+  askAll: Schema.boolean(),
   review: Schema.union(['off', 'auto', 'always']),
 })
 
@@ -332,6 +333,7 @@ const defs: EventTypeDefinition[] = [
       ask: strs(),
       allow: strs(),
       project: Schema.string(),
+      askAll: Schema.boolean(),
       interrupted: strs(),
     }),
   },
@@ -388,6 +390,10 @@ const defs: EventTypeDefinition[] = [
       mode: Schema.union(['steer', 'queue']),
       attachments: Schema.array(str()).max(20),
       to: optional(Schema.array(str()).max(20)),
+      /** Said aloud on a voice call: whoever answers is told their reply will be read aloud. */
+      voice: optional(Schema.boolean()),
+      /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+      context: optional(Schema.string().max(40_000)),
     }),
   },
   {
@@ -411,7 +417,13 @@ const defs: EventTypeDefinition[] = [
       plan: Schema.string(),
     }),
   },
-  { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
+  {
+    type: 'chat/renamed',
+    version: 1,
+    actors: ['user', 'system'],
+    // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
+    schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
   {
     type: 'colony/escalated',
     version: 1,

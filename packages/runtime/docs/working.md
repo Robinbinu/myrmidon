@@ -48,7 +48,7 @@ How strong agents behave here. Read this when you are unsure how to approach a t
 
 - Size the plan to the request: one task for a small job, two to four for a typical build, more only for broad
   work. Extra tasks cost time and tokens and coordinate worse.
-- Write every task as a standalone brief (the worker sees only it, the plan, and the files):
+- Write every task as a standalone brief (the crewmate sees only it, the plan, and the files):
 
   ```
   Objective: what to achieve and why.

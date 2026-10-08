@@ -1,10 +1,11 @@
 import type { ColonyState, MadeToolInput } from '@myrmidon/protocol'
-import { BookmarkCheck, BookmarkPlus, ChevronRight, Wrench } from 'lucide-react'
+import { BookmarkCheck, BookmarkPlus, ChevronRight } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
-import { Button, cn, Pill } from '../ui/primitives.tsx'
+import { FEATURE_ICONS } from '../ui/icons.ts'
+import { Badge, Button, cn } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
 /** A tool as the library stores it; a colony's made tools add who made it and whether it came from the library. */
@@ -30,10 +31,10 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
   const [open, setOpen] = useState(false)
   const t = props.tool
   return (
-    <div className="rounded-xl border border-line bg-surface">
+    <div className="rounded-lg border border-line bg-surface">
       <div className="flex items-start gap-3 px-3 py-2.5">
-        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
-          <Wrench className="size-4" />
+        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+          <FEATURE_ICONS.tools className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-mono text-body font-medium">tool_{t.name}</div>
@@ -57,7 +58,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
         <span className="ml-auto">{open ? copy.madeTools.hideSource : copy.madeTools.source}</span>
       </button>
       {open && (
-        <pre className="max-h-72 overflow-auto border-t border-line bg-surface-2 px-3 py-2 font-mono text-footnote leading-relaxed">
+        <pre className="max-h-72 overflow-auto border-t border-line bg-fill px-3 py-2 font-mono text-footnote leading-relaxed">
           {t.source}
         </pre>
       )}
@@ -86,9 +87,7 @@ export function ColonyTools(props: { colonyId: string; tools: ColonyState['madeT
   }
   return (
     <div className="flex flex-col gap-2 p-2">
-      <div className="px-1.5 pt-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
-        {copy.madeTools.heading}
-      </div>
+      <div className="px-1.5 pt-2 section-label text-muted">{copy.madeTools.heading}</div>
       {tools.map((t) => {
         const kept = t.library || library?.some((l) => l.name === t.name && l.source === t.source)
         return (
@@ -98,9 +97,9 @@ export function ColonyTools(props: { colonyId: string; tools: ColonyState['madeT
             meta={`${t.library ? copy.madeTools.fromLibrary : copy.madeTools.madeBy(t.agent)} · ${t.language}`}
             action={
               kept ? (
-                <Pill tone="ok">
+                <Badge tone="ok">
                   <BookmarkCheck className="size-3" /> {copy.madeTools.kept}
-                </Pill>
+                </Badge>
               ) : (
                 <Button
                   size="sm"

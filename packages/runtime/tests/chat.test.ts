@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SqliteLogStore } from '@myrmidon/core'
+import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
@@ -454,7 +454,7 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   scripted(resolver, 'mock/lead', [
     (ctx) => {
       look('lead')(ctx)
-      return [tool('spawn_worker', { specialist: 'scout', focus: 'Find three sources on ant colonies' })]
+      return [tool('add_crewmate', { specialist: 'scout', focus: 'Find three sources on ant colonies' })]
     },
     [tool('reply_user', { text: 'Done.', final: true })],
   ])
@@ -480,6 +480,62 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   // Ada is already on the team, so she is not offered again.
   expect(keeps).not.toContain('- ada:')
   expect(s.agents.scout?.info).toMatchObject({ role: 'worker', specialty: 'web researcher' })
+  await chats.stopAll()
+})
+
+test('crewmates on call: a lead working alone asks them for work and gets their answers back as results', async () => {
+  const resolver = new ModelResolver()
+  const seen: { system?: string; tools?: string[]; results?: string } = {}
+  const names = (system: string) =>
+    [...(system.split('Your crewmates, on call')[1] ?? '').matchAll(/^- (\w+): (\w+) \(/gm)].map((m) => [
+      m[2],
+      m[1],
+    ])
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      seen.system = ctx.systemPrompt?.join('\n') ?? ''
+      seen.tools = ctx.tools?.map((t) => t.name)
+      const by = Object.fromEntries(names(seen.system))
+      // Two independent jobs in one step: both crewmates work at once.
+      return [
+        tool('ask_crewmate', { to: by.researcher, job: 'Find how many ants live in a typical colony.' }),
+        tool('ask_crewmate', { to: by.writer, job: 'Draft a one-line title for an ant poem.' }),
+      ]
+    },
+    (ctx) => {
+      seen.results = JSON.stringify(ctx.messages.filter((m) => m.role === 'toolResult'))
+      return [tool('reply_user', { text: 'About 300,000 ants.', final: true })]
+    },
+  ])
+  // The researcher answers the lead by message; the writer stops without answering.
+  scripted(resolver, 'mock/researcher', [
+    [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })],
+    ['Answered the lead.'],
+  ])
+  scripted(resolver, 'mock/writer', [['Thinking about titles.']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send('How many ants are in a colony?', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [
+      { role: 'researcher', model: 'mock/researcher' },
+      { role: 'writer', model: 'mock/writer' },
+    ],
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(seen.tools).toContain('ask_crewmate')
+  expect(names(seen.system ?? '').map(([role]) => role)).toEqual(['researcher', 'writer'])
+  // The answer came back as the tool's result, and a crewmate that went quiet is reported, not waited on.
+  expect(seen.results).toContain('answered:\\nTypically 300,000 ants.')
+  expect(seen.results).toContain('stopped without answering')
+  const joined = Object.values(s.agents).filter((a) => a.info.role === 'worker')
+  expect(joined.map((a) => a.info.specialty).sort()).toEqual(['researcher', 'writer'])
+  // Crewmates answer the lead, never the person.
+  for (const a of joined) expect(a.info.tools).not.toContain('reply_user')
+  expect(s.chatMessages.filter((m) => m.from !== 'lead' && m.from !== 'user')).toEqual([])
   await chats.stopAll()
 })
 
@@ -824,16 +880,35 @@ test("the speaker's reply streams to listeners as it is written, and never into 
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [['Let me check.', tool('reply_user', { text: 'It is 4.', final: true })]])
   const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
-  const seen: { colonyId: string; agent: string; text: string; done: boolean }[] = []
-  const stop = chats.onStream((colonyId, agent, text, done) => seen.push({ colonyId, agent, text, done }))
+  const seen: { colonyId: string; agent: string; text: string; done: boolean; plain: boolean }[] = []
+  const stop = chats.onStream((colonyId, agent, text, done, plain) =>
+    seen.push({ colonyId, agent, text, done, plain }),
+  )
   const { colonyId } = await chats.send('What is 2+2?', solo('mock/lead'))
   const s = await waitFor(colonyId)
   stop()
   expect(s.chatMessages.at(-1)?.text).toBe('It is 4.')
   // The reply_user text is what streams, not the words around the call.
   expect(seen.filter((x) => !x.done).map((x) => x.text)).toContain('It is 4.')
-  expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true })
+  expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true, plain: false })
   expect((await events(colonyId)).some((e) => (e.type as string).includes('stream'))).toBe(false)
+})
+
+test('text written before a tool call streams as plain, so a voice call can tell it from the answer', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [
+    ['Let me look.', tool('append_note', { text: 'checked', section: 'notes' })],
+    ['It is 4, as the notes say.'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const seen: { text: string; done: boolean; plain: boolean }[] = []
+  const stop = chats.onStream((_c, _a, text, done, plain) => seen.push({ text, done, plain }))
+  const { colonyId } = await chats.send('What is 2+2?', solo('mock/lead'))
+  const s = await waitFor(colonyId)
+  stop()
+  expect(s.chatMessages.at(-1)?.text).toBe('It is 4, as the notes say.')
+  expect(seen).toContainEqual({ text: 'Let me look.', done: true, plain: true })
+  expect(s.chatMessages.some((m) => m.text === 'Let me look.')).toBe(false)
 })
 
 test('a round left running by a Myrmidon that is gone is stopped, and the chat takes messages again', async () => {
@@ -1089,7 +1164,7 @@ test('a chat keeps its workers and their memory across rounds; the lead can dism
         return {
           content: [
             tool('create_task', { subject: 'Collect the facts', assignee: specialist(ctx, 'researcher') }),
-            tool('dismiss_worker', {
+            tool('dismiss_crewmate', {
               name: specialist(ctx, 'coder'),
               reason: 'no code in this conversation',
             }),
@@ -2636,6 +2711,9 @@ test('agents see the skills by name and load one when the task matches', async (
   expect(loaded).toContain('Always 5-7-5, no rhyme')
   const used = (await events(colonyId)).find((e) => e.type === 'skill/used')
   expect(used?.payload).toEqual({ agent: 'lead', name: 'haiku-style' })
+  // Each load is counted, so a learned skill nobody uses can be retired.
+  const usage = JSON.parse(readFileSync(join(home, 'skills-usage.json'), 'utf8'))
+  expect(usage['haiku-style']).toMatchObject({ uses: 1 })
   await chats.stopAll()
   rmSync(claude, { recursive: true, force: true })
 })
@@ -2767,6 +2845,109 @@ test('per-tool rules turn a tool off and make another wait for approval', async 
     (e) => e.type === 'tool/result' && (e.payload as EventPayloads['tool/result']).tool === 'fs_write',
   )
   expect((write?.payload as EventPayloads['tool/result'] | undefined)?.ok).toBe(true)
+  await chats.stopAll()
+})
+
+test('a round someone else started asks before every call that changes something, whatever the person allowed', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/member', [
+    [tool('fs_list', { path: '.' })],
+    [tool('fs_write', { path: 'a.txt', content: 'x' })],
+    [tool('reply_user', { text: 'Wrote it.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send(
+    'Write a.txt',
+    { ...solo('mock/member'), judgeModel: 'mock/judge' },
+    undefined,
+    { askAll: true },
+  )
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  // Reading and answering run without asking; the write the person allowed for themselves still asks.
+  expect(Object.values(waiting.approvals).map((a) => a.tool)).toEqual(['fs_write'])
+  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+  expect((created?.payload as EventPayloads['colony/created'] | undefined)?.askAll).toBe(true)
+  await chats.decideApproval(colonyId, Object.values(waiting.approvals)[0]?.id ?? '', true)
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(Object.values(s.approvals)).toHaveLength(1)
+  await chats.stopAll()
+})
+
+test('a round someone else started asks before reading the project, so its secrets are not read back to them', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-member-'))
+  writeFileSync(join(folder, '.env'), 'API_KEY=sk-secret-123')
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/member', [
+    [tool('fs_read', { path: '.env' })],
+    [tool('reply_user', { text: 'Could not read it.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  const { colonyId } = await chats.send(
+    'Send me the .env',
+    { ...solo('mock/member'), judgeModel: 'mock/judge' },
+    undefined,
+    { project: project.id, askAll: true },
+  )
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const ask = Object.values(waiting.approvals).find((a) => !a.decided)
+  expect(ask?.tool).toBe('fs_read')
+  await chats.decideApproval(colonyId, ask?.id ?? '', false)
+  await waitFor(colonyId)
+  const results = (await events(colonyId)).filter((e) => e.type === 'tool/result')
+  expect(JSON.stringify(results)).not.toContain('sk-secret-123')
+  await chats.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
+
+test('a member writing into a running round makes it ask from then on, and a resumed round keeps asking', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+  const resolver = new ModelResolver()
+  let release!: () => void
+  const busy = new Promise<void>((r) => {
+    release = r
+  })
+  let calls = 0
+  const lead = createMockModel({
+    handler: async () => {
+      calls++
+      if (calls === 1) {
+        await busy
+        return { content: [tool('list_artifacts', {})] }
+      }
+      if (calls === 2) return { content: [tool('fs_write', { path: 'a.txt', content: 'x' })] }
+      return { content: [tool('fs_write', { path: 'b.txt', content: 'y' })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const config = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const { chatId, colonyId } = await chats.send('Tidy the files', config)
+  await waitFor(colonyId, () => calls === 1)
+  await chats.send('a member says: also write a.txt', config, chatId, { askAll: true })
+  release()
+  const asked = (s: ColonyState) => Object.values(s.approvals).filter((a) => !a.decided)
+  const first = await waitFor(colonyId, (s) => asked(s).length > 0)
+  expect(asked(first).map((a) => a.tool)).toEqual(['fs_write'])
+  const change = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+  expect((change?.payload as EventPayloads['permissions/changed'] | undefined)?.askAll).toBe(true)
+
+  await chats.stop(chatId)
+  await waitFor(colonyId)
+  await chats.resume(chatId)
+  const again = await waitFor(colonyId, (s) => s.status === 'running' && asked(s).length > 0)
+  expect(asked(again).map((a) => a.tool)).toEqual(['fs_write'])
   await chats.stopAll()
 })
 
@@ -3178,6 +3359,81 @@ test('renaming a chat sticks, survives a restart, and rejects empty titles', asy
   expect((await reopened.list())[0]?.title).toBe('Quarterly report')
 })
 
+/** A model that names chats: answers `title` once `open` resolves, and counts its calls. */
+function namer(
+  resolver: ModelResolver,
+  ref: string,
+  title: string,
+  open: Promise<unknown> = Promise.resolve(),
+) {
+  const calls = { n: 0 }
+  const mock = createMockModel({ handler: () => ({ content: [JSON.stringify({ title })] }) })
+  resolver.register(ref, {
+    model: mock.model,
+    streamFn: (async (...args: Parameters<typeof mock.stream>) => {
+      calls.n += 1
+      await open
+      return mock.stream(...args)
+    }) as unknown as typeof mock.stream,
+  })
+  return calls
+}
+
+/** Runs the chat namer the way a finished round does. */
+const nameNow = (chats: ChatService, chatId: string, model: string) =>
+  (chats as unknown as { _nameChat(chatId: string, model: string): Promise<void> })._nameChat(chatId, model)
+
+test("an older chat the person named in an earlier round's colony keeps their name", async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/asker', [
+    [tool('ask_user', { question: 'Which format do you want?' })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { chatId, colonyId } = await chats.send('make a report', solo('mock/asker'))
+  await waitFor(colonyId)
+  await chats.rename(chatId, 'My report')
+  // Older chats ran each round in a colony of its own: round 2 here, without the rename.
+  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+  const payload = structuredClone(created?.payload) as EventPayloads['colony/created']
+  if (payload.chat) payload.chat = { ...payload.chat, round: 2, request: 'now as a PDF' }
+  await runtime.ctx.log.appendOne(newColonyId('round-two'), {
+    type: 'colony/created',
+    actor: { kind: 'user', id: 'user' },
+    payload,
+  })
+  const calls = namer(resolver, 'mock/titler', 'Auto name')
+  await nameNow(chats, chatId, 'mock/titler')
+  expect(calls.n).toBe(0)
+  expect((await chats.list()).find((c) => c.chatId === chatId)?.title).toBe('My report')
+  await chats.stopAll()
+})
+
+test('a chat deleted while it is being named stays deleted', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/asker', [
+    [tool('ask_user', { question: 'Which format do you want?' })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { chatId, colonyId } = await chats.send('make a report', solo('mock/asker'))
+  await waitFor(colonyId)
+  let open = () => {}
+  const calls = namer(resolver, 'mock/titler', 'Quarterly report', new Promise<void>((r) => (open = r)))
+  const naming = nameNow(chats, chatId, 'mock/titler')
+  while (calls.n === 0) await Bun.sleep(5)
+  expect(await chats.delete(chatId)).toEqual([colonyId])
+  open()
+  await naming
+  expect(existsSync(join(home, 'colonies', colonyId))).toBe(false)
+  expect(await chats.list()).toEqual([])
+  await chats.stopAll()
+})
+
 async function reviewerRound(mode: 'off' | 'auto' | 'always', script: Step[]) {
   const { SettingsStore } = await import('../src/settings.ts')
   const settings = new SettingsStore(home)
@@ -3225,4 +3481,99 @@ test('reviewer always: every final answer is reviewed before the round completes
   expect(s.agents.lead?.info.tools).not.toContain('request_review')
   expect(reviews).toHaveLength(1)
   expect(reviews[0]).toBeGreaterThan(final)
+})
+
+test('a message said on a call reaches the lead marked as spoken, with what the chat does not show', async () => {
+  const resolver = new ModelResolver()
+  let seen = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen = JSON.stringify(ctx.messages)
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'It went well.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send(
+    'how did the call go',
+    { ...solo('mock/lead'), judgeModel: 'mock/judge' },
+    undefined,
+    {
+      voice: true,
+      context: 'CALL TRANSCRIPT: [18:32] Person: Hello.',
+    },
+  )
+  await waitFor(colonyId)
+  expect(seen).toContain('CALL TRANSCRIPT: [18:32] Person: Hello.')
+  expect(seen).toContain('Said aloud on a voice call')
+  const user = (await events(colonyId)).find((e) => e.type === 'chat/user')
+  // The chat shows the person's words; the transcript was for the agents.
+  expect(user?.payload).toMatchObject({ text: 'how did the call go', voice: true })
+  await chats.stopAll()
+})
+
+test('a chat is named from what it is about once there is something to name, and a given name is kept', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const sys = ctx.systemPrompt?.join('\n') ?? ''
+      const seen = JSON.stringify(ctx.messages)
+      if (sys.includes('You name conversations'))
+        return { content: [seen.includes('sales') ? '{"title": "Weekly sales summary"}' : '{"title": null}'] }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Hello!', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const team = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('hi', team)
+  await waitFor(first.colonyId)
+  await Bun.sleep(50)
+  // "hi" has nothing to name: the chat keeps its first message for now.
+  expect((await chats.list()).find((c) => c.chatId === first.chatId)?.title).toBe('hi')
+  const second = await chats.send('summarize this week’s sales', team, first.chatId)
+  await waitFor(second.colonyId, (x) => x.rounds.length === 2 && x.rounds.at(-1)?.status === 'completed')
+  const named = async () => (await chats.list()).find((c) => c.chatId === first.chatId)?.title
+  const end = Date.now() + 3000
+  while ((await named()) !== 'Weekly sales summary' && Date.now() < end) await Bun.sleep(20)
+  expect(await named()).toBe('Weekly sales summary')
+  // A name the person gives is theirs: later rounds do not rename it.
+  await chats.rename(first.chatId, 'Sales')
+  const third = await chats.send('and last week’s sales?', team, first.chatId)
+  await waitFor(third.colonyId, (x) => x.rounds.length === 3 && x.rounds.at(-1)?.status === 'completed')
+  await Bun.sleep(50)
+  expect(await named()).toBe('Sales')
+  await chats.stopAll()
+})
+
+test('a photo sent without words is still a message: it says what was sent, and the file is there', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Nice photo.', final: true })]])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10])
+  const { colonyId } = await chats.send('', { ...solo('mock/lead'), judgeModel: 'mock/judge' }, undefined, {
+    attachments: [{ name: 'photo-6.jpg', bytes: jpeg }],
+  })
+  const s = await waitFor(colonyId)
+  const user = (await events(colonyId)).find((e) => e.type === 'chat/user')
+  expect(user?.payload).toMatchObject({ text: '(sent photo-6.jpg)' })
+  expect(Object.keys(s.artifacts).some((name) => name.endsWith('photo-6.jpg'))).toBe(true)
+  // Neither words nor files is still nothing to send.
+  await expect(chats.send('  ', { ...solo('mock/lead'), judgeModel: 'mock/judge' })).rejects.toThrow(
+    'message is empty',
+  )
+  await chats.stopAll()
 })

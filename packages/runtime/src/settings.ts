@@ -58,13 +58,35 @@ export interface MyrSettings {
    */
   permissions: Record<string, 'allow' | 'ask' | 'off'>
   /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
-  profile: { name?: string; greeting: 'model' | 'rules' }
+  /** `titles`: name chats from what they are about (`model`), or keep their first message as the name. */
+  profile: { name?: string; greeting: 'model' | 'rules'; titles: 'model' | 'first-message' }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
     look: 'neutral' | 'flower' | 'bow'
     color: 'amber' | 'ice' | 'mint' | 'pink' | 'violet' | 'white'
     screen: 'face' | 'clock' | 'name' | 'crew' | 'rotate'
+  }
+  /**
+   * Voice calls: the call model (the lead's when unset), speech to text and text to speech (on this machine by
+   * default, omp's cloud models, or any OpenAI-compatible endpoint, whose keys live in `voice/secrets.json`), and how
+   * loud speech must be to count.
+   */
+  voice: {
+    /** Voice calls are off until the person turns them on: nothing is downloaded or started before. */
+    enabled: boolean
+    callModel?: string
+    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    tts: {
+      provider: 'kitten' | 'omp' | 'endpoint'
+      kittenModel: 'nano' | 'micro' | 'mini'
+      voice: string
+      speed: number
+      baseUrl?: string
+      model?: string
+      endpointVoice?: string
+    }
+    sensitivity: 'low' | 'normal' | 'high'
   }
 }
 
@@ -113,12 +135,32 @@ export const settingsSchema = Schema.object({
   profile: Schema.object({
     name: Schema.string().max(40),
     greeting: Schema.union(['model', 'rules']).default('model'),
+    titles: Schema.union(['model', 'first-message']).default('model'),
   }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
     color: Schema.union(['amber', 'ice', 'mint', 'pink', 'violet', 'white']).default('amber'),
     screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
+  }).default({}),
+  voice: Schema.object({
+    enabled: Schema.boolean().default(false),
+    callModel: Schema.string(),
+    stt: Schema.object({
+      provider: Schema.union(['phonon', 'omp', 'endpoint']).default('phonon'),
+      baseUrl: Schema.string().max(500),
+      model: Schema.string().max(200),
+    }).default({}),
+    tts: Schema.object({
+      provider: Schema.union(['kitten', 'omp', 'endpoint']).default('kitten'),
+      kittenModel: Schema.union(['nano', 'micro', 'mini']).default('nano'),
+      voice: Schema.string().max(60).default('Leo'),
+      speed: Schema.number().min(0.5).max(2).default(1),
+      baseUrl: Schema.string().max(500),
+      model: Schema.string().max(200),
+      endpointVoice: Schema.string().max(60),
+    }).default({}),
+    sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
   }).default({}),
 })
 
@@ -142,8 +184,16 @@ function parse(input: unknown): MyrSettings {
     profile: {
       ...(s.profile.name?.trim() ? { name: s.profile.name.trim() } : {}),
       greeting: s.profile.greeting,
+      titles: s.profile.titles,
     },
     mascot: s.mascot,
+    voice: {
+      enabled: s.voice.enabled,
+      ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),
+      stt: s.voice.stt,
+      tts: s.voice.tts,
+      sensitivity: s.voice.sensitivity,
+    },
   }
 }
 

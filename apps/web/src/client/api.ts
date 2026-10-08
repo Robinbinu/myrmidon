@@ -78,10 +78,29 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
   return res
 }
 
-/** Why a response failed, for a person: the server's own words when it gave some, else what the status means. */
+/**
+ * Why a response failed, for a person: the server's own words when it gave some, else what the status means. The
+ * server's technical answers (a crash, a malformed body, a runtime it was started without) get plain words; the
+ * original goes to the console.
+ */
 function failure(status: number, error?: string): ApiError {
   if (status === 401) return new ApiError(remoteGateway ? copy.auth.pairAgain : copy.auth.notAuthorized)
-  return new ApiError(error ?? copy.api.status(status))
+  const plain = plainError(status, error)
+  if (error && plain !== error) console.warn(`request failed (${status}): ${error}`)
+  return new ApiError(plain)
+}
+
+function plainError(status: number, error?: string): string {
+  // The server's own words for these are technical; the copy says the same plainly.
+  if (!error || error === 'not found' || status === 500 || status === 413) return copy.api.status(status)
+  const missing = /^(.+?) needs? the chat runtime$/.exec(error)?.[1]
+  if (missing) return copy.api.noChats(missing)
+  if (/without the chat runtime$/.test(error)) return copy.api.noChats('chats')
+  if (/^(no such (colony|chat)|invalid colony id)\b/.test(error)) return copy.api.chatGone
+  // Only a missing thing: a 4xx "unknown model … add its provider" says how to fix it and must come through.
+  if (status === 404 && /^(no such|unknown) /.test(error)) return copy.api.status(404)
+  if (error.startsWith('invalid request')) return copy.api.badRequest
+  return error
 }
 
 const errorOf = async (res: Response) => ((await res.json().catch(() => ({}))) as { error?: string }).error
@@ -154,6 +173,18 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
   return URL.createObjectURL(await res.blob())
 }
 
+/**
+ * A picture stored with a chat (a photo someone sent) as an object URL for <img src>, fetched with the auth header.
+ * The server serves it as an image only if its bytes are one; anything else is refused here.
+ */
+export async function blobImage(colony: string, hash: string): Promise<string> {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=image`, { headers: auth })
+  if (!res.ok) throw failure(res.status)
+  const blob = await res.blob()
+  if (!blob.type.startsWith('image/')) throw new ApiError(copy.attachments.notPicture)
+  return URL.createObjectURL(blob)
+}
+
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
@@ -216,6 +247,20 @@ export function terminalSocket(project: string | undefined, cols: number, rows: 
   return ws
 }
 
+/** A voice call in a chat (or one a call will start): 16 kHz audio up, speech and call state down. */
+export function callSocket(chatId: string | undefined, rate: number, talk?: string): WebSocket {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const query = new URLSearchParams({
+    ...(token ? { token } : {}),
+    rate: String(rate),
+    ...(chatId ? { chat: chatId } : {}),
+    ...(talk ? { talk } : {}),
+  })
+  const ws = new WebSocket(`${proto}://${location.host}${base}/api/voice/call?${query}`)
+  ws.binaryType = 'arraybuffer'
+  return ws
+}
+
 /** A speaking agent's reply as it is being written; `done` when that model message has ended. */
 export interface ReplyStream {
   agent: string
@@ -273,6 +318,17 @@ export function streamEvents(
     window.removeEventListener(CONNECTION_CHANGED, back)
     ws?.close()
   }
+}
+
+/** Posts JSON and returns the answer as a file: a voice sample, say. */
+export async function postForBlob(path: string, body: unknown): Promise<Blob> {
+  const res = await call(`${base}${path}`, {
+    method: 'POST',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.blob()
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {
@@ -434,6 +490,8 @@ export interface ChatRound {
   status: string
   request: string
   swarm?: boolean
+  /** When the round began. */
+  startedAt?: string
 }
 
 export interface ChatSummary {
