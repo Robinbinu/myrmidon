@@ -71,7 +71,6 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
-import { StateDot } from './System.tsx'
 import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
@@ -2630,7 +2629,7 @@ function ChannelsSection() {
                     {c.pending.length > 0 && <Pill tone="warn">{t.waitingBadge(c.pending.length)}</Pill>}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
-                    <StateDot state={channelState(c)} />
+                    <Dot status={channelState(c)} />
                     <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
                       {c.enabled ? channelStatusText(c.status) : t.status.off}
                     </span>
@@ -2774,7 +2773,7 @@ function ChannelSheet(props: {
           <span className="min-w-0">
             <span className="block truncate">{c.label}</span>
             <span className="flex items-center gap-1.5 text-[12px] font-normal text-muted">
-              <StateDot state={channelState(c)} />
+              <Dot status={channelState(c)} />
               <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
                 {c.enabled ? channelStatusText(c.status) : t.status.off}
               </span>

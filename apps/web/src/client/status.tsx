@@ -17,6 +17,8 @@ export interface GatewayStatus {
     id: string
     label: string
     enabled: boolean
+    /** Set up (on or off); when absent the server listed only channels in use. */
+    configured?: boolean
     status: { state: string; account?: string; error?: string }
     health: {
       connectedAt?: string

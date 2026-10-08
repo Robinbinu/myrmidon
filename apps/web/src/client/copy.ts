@@ -121,9 +121,10 @@ export const copy = {
     ok: 'Everything is working',
     degraded: 'Something needs attention',
     offline: "This gateway isn't answering",
+    loading: 'Checking how this gateway is doing…',
     problems: {
       noModels: 'No model can answer: add a key or sign in under Settings → Models.',
-      channel: (label: string, error: string) => `${label}: ${error}`,
+      channel: (label: string) => `${label} can't connect right now. See Channels below.`,
     },
     gateway: 'This gateway',
     local: 'This machine only',
@@ -132,15 +133,32 @@ export const copy = {
     ping: (ms: number) => `Answers in ${ms} ms`,
     home: 'Data folder',
     models: (n: number) => (n === 1 ? '1 model can answer' : `${n} models can answer`),
-    sandbox: (kind: string) =>
-      kind === 'none' ? 'Shell commands run unconfined' : `Shell commands are confined (${kind})`,
+    sandbox: (kind?: string) =>
+      kind === 'sandbox-exec'
+        ? 'Shell commands are confined by macOS'
+        : kind === 'bubblewrap'
+          ? 'Shell commands are confined by bubblewrap'
+          : "Shell commands aren't confined",
+    copyPath: 'Copy',
+    copied: 'Copied',
     running: 'Running now',
     nothingRunning: 'Nothing is running.',
     channels: 'Channels',
     noChannels: 'No channels set up. Add one in Settings → Channels.',
     activity: 'Recent activity',
     noActivity: 'Nothing yet.',
+    /** A channel's connection in plain words; the server's own reason sits behind Show details. */
+    channelState: {
+      on: 'Connected',
+      retrying: 'Reconnecting…',
+      error: "Can't connect",
+    },
+    showDetails: 'Show details',
+    hideDetails: 'Hide details',
     restart: 'Restart',
+    restarting: 'Restarting…',
+    restarted: (label: string) => `${label} restarted.`,
+    restartFailed: (label: string, reason: string) => `${label} couldn't restart: ${reason}`,
     manage: 'Manage',
     refresh: 'Refresh',
   },

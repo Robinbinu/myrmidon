@@ -785,8 +785,9 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/status': guard(async (_req, _url, access) => {
         const models = options.omp?.available().length ?? 0
         const list = (options.chats ? await options.chats.list() : []).filter((c) => c.status === 'running')
+        // In use the way Settings → Channels counts it, so an off channel with people approved is still listed.
         const inUse = (channels?.list() ?? []).filter(
-          (c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length,
+          (c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length || c.people.length,
         )
         // Problems as data; the page words them.
         const problems: (
