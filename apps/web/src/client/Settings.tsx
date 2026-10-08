@@ -176,12 +176,6 @@ type SectionGroup = keyof typeof copy.settings.page.groups
 /** The sections in the order the list shows them, each under its group's heading. */
 const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
   {
-    id: 'channels',
-    label: copy.settings.sections.channels.label,
-    hint: copy.settings.sections.channels.hint,
-    icon: MessagesSquare,
-  },
-  {
     id: 'models',
     group: 'setup',
     label: copy.settings.sections.models.label,
@@ -285,6 +279,13 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     label: copy.settings.sections.gateways.label,
     hint: copy.settings.sections.gateways.hint,
     icon: Network,
+  },
+  {
+    id: 'channels',
+    group: 'you',
+    label: copy.settings.sections.channels.label,
+    hint: copy.settings.sections.channels.hint,
+    icon: MessagesSquare,
   },
 ]
 
