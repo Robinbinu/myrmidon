@@ -53,3 +53,17 @@ test('a link inside an unclosed bracket still links', () => {
   expect(out).toMatch(/href="https:\/\/example.com"[^>]*>docs<\/a> here/)
   expect(plainText('see [a [docs](https://example.com) here')).toBe('see [a docs here')
 })
+
+test('link addresses keep brackets and one level of parentheses', () => {
+  for (const url of [
+    'https://x.y/[1]',
+    'http://[::1]:5173/',
+    'https://x.y/?f[x]=1',
+    'https://en.wikipedia.org/wiki/Foo_(bar)',
+  ]) {
+    const out = html(`see [the page](${url}) now`)
+    expect(out).toContain(`href="${url}"`)
+    expect(out).toContain('>the page</a> now')
+  }
+  expect(html('[f(x)](https://x.y/f)')).toContain('href="https://x.y/f"')
+})
