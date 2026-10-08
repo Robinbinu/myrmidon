@@ -68,3 +68,33 @@ export function toInt16(samples: Float32Array): Int16Array {
 function clamp16(x: number): number {
   return Math.max(-32768, Math.min(32767, Math.round(x * 32767)))
 }
+
+/**
+ * Cuts the quiet a speech engine leaves around a sentence (Kitten leaves most of a second before it), keeping a little
+ * so sentences played back to back still breathe.
+ */
+export function trimSilence(
+  pcm: Int16Array,
+  sampleRate: number,
+  keepStartMs = 50,
+  keepEndMs = 150,
+): Int16Array {
+  const window = Math.max(1, Math.round(sampleRate / 100))
+  const loud = (from: number) => {
+    let sum = 0
+    const end = Math.min(pcm.length, from + window)
+    for (let i = from; i < end; i++) sum += (pcm[i] ?? 0) ** 2
+    return Math.sqrt(sum / Math.max(1, end - from)) >= SILENCE_RMS
+  }
+  let start = 0
+  while (start < pcm.length && !loud(start)) start += window
+  if (start >= pcm.length) return pcm
+  let end = pcm.length
+  while (end > start && !loud(Math.max(start, end - window))) end -= window
+  const from = Math.max(0, start - Math.round((keepStartMs / 1000) * sampleRate))
+  const to = Math.min(pcm.length, end + Math.round((keepEndMs / 1000) * sampleRate))
+  return pcm.subarray(from, to)
+}
+
+/** Below this level (RMS of 16-bit samples) a 10 ms stretch of synthesized speech counts as quiet. */
+const SILENCE_RMS = 300

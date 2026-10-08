@@ -139,3 +139,10 @@ export const CONFIRM_ARM_DELAY_MS = 400
 
 /** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
 export const STATUS_POLL_MS = 10_000
+/** Voice calls: the rate the mic is sent at (what Phonon-2 takes), and samples per frame sent (20 ms). */
+export const CALL_RATE = 16_000
+export const CALL_FRAME = 320
+/** Lines of the live transcript the call bar keeps. */
+export const CALL_LINES = 6
+/** Speech speeds offered in Settings → Voice. */
+export const VOICE_SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const

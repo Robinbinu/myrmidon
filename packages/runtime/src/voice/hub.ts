@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { VOICE_THRESHOLDS } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import type { MyrSettings } from '../settings.ts'
+import { trimSilence } from './audio.ts'
 import { type CallChats, type CallOutput, CallSession, type CallTurn } from './call.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
@@ -47,6 +48,8 @@ export interface SavedCall {
   readonly startedAt: string
   readonly endedAt: string
   readonly turns: readonly CallTurn[]
+  /** The rounds the call started, so the chat can show the call where its work begins. */
+  readonly rounds: readonly { colonyId: string; round?: number }[]
 }
 
 export interface VoiceStatus {
@@ -182,7 +185,8 @@ export class VoiceHub {
 
   /** A sentence in the chosen voice, for "Try it" in Settings. */
   async sample(text: string): Promise<Speech> {
-    return this.tts().speak(text)
+    const speech = await this.tts().speak(text)
+    return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
   }
 
   /** Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. */
@@ -242,6 +246,7 @@ export class VoiceHub {
       startedAt: session.startedAt,
       endedAt: new Date().toISOString(),
       turns,
+      rounds: session.rounds(),
     }
     writeFileSync(join(this._callsDir, `${session.id}.json`), `${JSON.stringify(saved, null, 2)}\n`, {
       mode: 0o600,

@@ -1,6 +1,7 @@
 import {
   ArchiveRestore,
   ArrowLeft,
+  AudioLines,
   BookMarked,
   Bot,
   Brain,
@@ -56,6 +57,7 @@ import {
   listGateways,
   type ModelOption,
   post,
+  postForBlob,
   send,
   switchGateway,
   type TeamConfig,
@@ -64,7 +66,7 @@ import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
-import { windowLabel } from './chat/ModelPicker.tsx'
+import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
@@ -95,7 +97,14 @@ import {
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
-import { AGENT_MIN_WINDOW, MASCOT_COLORS, SETTINGS_NAV_COLLAPSE_PX, softSpring, spring } from './ui-config.ts'
+import {
+  AGENT_MIN_WINDOW,
+  MASCOT_COLORS,
+  SETTINGS_NAV_COLLAPSE_PX,
+  softSpring,
+  spring,
+  VOICE_SPEEDS,
+} from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -144,6 +153,20 @@ export interface ServerSettings {
   permissions: Record<string, 'allow' | 'ask' | 'off'>
   profile?: { name?: string; greeting: 'model' | 'rules' }
   mascot?: MascotLook
+  voice: {
+    callModel?: string
+    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    tts: {
+      provider: 'kitten' | 'omp' | 'endpoint'
+      kittenModel: 'nano' | 'micro' | 'mini'
+      voice: string
+      speed: number
+      baseUrl?: string
+      model?: string
+      endpointVoice?: string
+    }
+    sensitivity: 'low' | 'normal' | 'high'
+  }
 }
 
 interface SettingsResponse {
@@ -167,6 +190,7 @@ export type Section =
   | 'devices'
   | 'gateways'
   | 'channels'
+  | 'voice'
   | 'models'
   | 'team'
   | 'tools'
@@ -293,6 +317,13 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     label: copy.settings.sections.channels.label,
     hint: copy.settings.sections.channels.hint,
     icon: MessagesSquare,
+  },
+  {
+    id: 'voice',
+    group: 'you',
+    label: copy.settings.sections.voice.label,
+    hint: copy.settings.sections.voice.hint,
+    icon: AudioLines,
   },
 ]
 
@@ -669,6 +700,9 @@ export function Settings(props: {
               {section === 'devices' && <DevicesSection />}
               {section === 'gateways' && <GatewaysSection />}
               {section === 'channels' && <ChannelsSection />}
+              {section === 'voice' && data && (
+                <VoiceSection settings={data.settings} update={update} models={props.models} />
+              )}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -3061,6 +3095,344 @@ function ChannelSheet(props: {
         )}
       </div>
     </Modal>
+  )
+}
+
+interface VoiceStatusView {
+  callModel?: string
+  stt: {
+    provider: ServerSettings['voice']['stt']['provider']
+    phonon: { state: string; line?: string; error?: string }
+    omp: string[]
+    keySet: boolean
+  }
+  tts: {
+    provider: ServerSettings['voice']['tts']['provider']
+    kitten: { state: string; done?: number; total?: number; error?: string }
+    voices: string[]
+    omp: string[]
+    keySet: boolean
+  }
+}
+
+/** How often Settings → Voice looks again, so an install or download shows its progress. */
+const VOICE_POLL_MS = 2000
+
+/**
+ * Voice calls: the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and Kitten TTS,
+ * installed from here — or the person's cloud providers, or any OpenAI-compatible endpoint), and how loud speech must
+ * be to count.
+ */
+function VoiceSection(props: {
+  settings: ServerSettings
+  update(p: (s: ServerSettings) => ServerSettings): void
+  models: ModelOption[]
+}) {
+  const t = copy.settings.voice
+  const toast = useToast()
+  const v = props.settings.voice
+  const [status, setStatus] = useState<VoiceStatusView>()
+  const [keys, setKeys] = useState({ stt: '', tts: '' })
+  const [trying, setTrying] = useState(false)
+  const load = () =>
+    api<VoiceStatusView>('/api/voice')
+      .then(setStatus)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
+  useEffect(() => {
+    void load()
+    const timer = setInterval(() => void load(), VOICE_POLL_MS)
+    return () => clearInterval(timer)
+  }, [])
+  const set = (patch: (voice: ServerSettings['voice']) => ServerSettings['voice']) =>
+    props.update((s) => ({ ...s, voice: patch(s.voice) }))
+  const act = (promise: Promise<unknown>) => promise.then(load, (err: Error) => toast(err.message, 'error'))
+  const engine = (s: { state: string; line?: string; error?: string; done?: number; total?: number }) =>
+    s.state === 'error'
+      ? t.engine.error(s.error ?? '')
+      : s.state === 'downloading'
+        ? t.engine.downloading(s.done ?? 0, s.total ?? 0)
+        : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
+  const tryIt = async () => {
+    setTrying(true)
+    try {
+      const url = URL.createObjectURL(await postForBlob('/api/voice/sample', { text: t.trySentence }))
+      const audio = new Audio(url)
+      audio.onended = () => URL.revokeObjectURL(url)
+      await audio.play()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setTrying(false)
+    }
+  }
+  const saveKey = (which: 'stt' | 'tts') =>
+    void act(send('PUT', '/api/voice/keys', { [which]: keys[which] })).then(() =>
+      setKeys((k) => ({ ...k, [which]: '' })),
+    )
+  const endpointFields = (which: 'stt' | 'tts') => {
+    const e = v[which]
+    return (
+      <>
+        <Row>
+          <Field label={t.baseUrl} hint={t.hints.endpoint}>
+            <TextInput
+              defaultValue={e.baseUrl ?? ''}
+              placeholder="https://api.groq.com/openai/v1"
+              onBlur={(ev) => {
+                const baseUrl = ev.target.value.trim()
+                set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
+              }}
+              aria-label={t.baseUrl}
+              className="font-mono"
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.model}>
+            <TextInput
+              defaultValue={e.model ?? ''}
+              placeholder={which === 'stt' ? 'whisper-large-v3' : 'tts-1'}
+              onBlur={(ev) => {
+                const model = ev.target.value.trim()
+                set((x) => ({ ...x, [which]: { ...x[which], model: model || undefined } }))
+              }}
+              aria-label={t.model}
+              className="font-mono"
+            />
+          </Field>
+        </Row>
+        {which === 'tts' && (
+          <Row>
+            <Field label={t.voice}>
+              <TextInput
+                defaultValue={v.tts.endpointVoice ?? ''}
+                placeholder="alloy"
+                onBlur={(ev) => {
+                  const endpointVoice = ev.target.value.trim()
+                  set((x) => ({ ...x, tts: { ...x.tts, endpointVoice: endpointVoice || undefined } }))
+                }}
+                aria-label={t.voice}
+              />
+            </Field>
+          </Row>
+        )}
+        <Row>
+          <Field label={t.key} hint={status?.[which].keySet ? t.keySet : undefined}>
+            <div className="flex gap-2">
+              <TextInput
+                type="password"
+                autoComplete="off"
+                value={keys[which]}
+                onChange={(ev) => setKeys((k) => ({ ...k, [which]: ev.target.value }))}
+                aria-label={t.key}
+                className="font-mono"
+              />
+              <Button size="sm" disabled={!keys[which].trim()} onClick={() => saveKey(which)}>
+                {t.saveKey}
+              </Button>
+            </div>
+          </Field>
+        </Row>
+      </>
+    )
+  }
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.callModel} hint={t.callModelHint}>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <ModelPicker
+                  label={t.callModel}
+                  value={v.callModel ?? status?.callModel ?? ''}
+                  models={props.models}
+                  placement="down"
+                  onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+                />
+              </div>
+              {v.callModel && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => set((x) => ({ ...x, callModel: undefined }))}
+                >
+                  {t.sameAsLead}
+                </Button>
+              )}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
+            <Select
+              value={v.sensitivity}
+              onChange={(e) => set((x) => ({ ...x, sensitivity: e.target.value as typeof v.sensitivity }))}
+              aria-label={t.sensitivity}
+            >
+              {(['low', 'normal', 'high'] as const).map((k) => (
+                <option key={k} value={k}>
+                  {t.sensitivities[k]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </Row>
+      </Card>
+
+      <h3 className="mb-2 text-[13px] font-semibold">{t.sttTitle}</h3>
+      <Card className="mb-6">
+        <Row>
+          <Field
+            label={t.sttTitle}
+            hint={
+              v.stt.provider === 'phonon'
+                ? t.hints.phonon
+                : v.stt.provider === 'omp'
+                  ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
+                  : t.hints.endpoint
+            }
+          >
+            <Select
+              value={v.stt.provider}
+              onChange={(e) =>
+                set((x) => ({ ...x, stt: { ...x.stt, provider: e.target.value as typeof v.stt.provider } }))
+              }
+              aria-label={t.sttTitle}
+            >
+              <option value="phonon">{t.providers.phonon}</option>
+              <option value="omp">{t.providers.omp}</option>
+              <option value="endpoint">{t.providers.endpoint}</option>
+            </Select>
+          </Field>
+        </Row>
+        {v.stt.provider === 'phonon' && status && (
+          <Row>
+            <div className="flex items-center gap-3 text-[13px]">
+              <span className="min-w-0 flex-1 truncate text-fg-2" title={status.stt.phonon.line}>
+                {engine(status.stt.phonon)}
+                {status.stt.phonon.line && <span className="text-muted"> · {status.stt.phonon.line}</span>}
+              </span>
+              <Button
+                size="sm"
+                disabled={status.stt.phonon.state === 'installing'}
+                onClick={() => void act(post('/api/voice/phonon/install', {}))}
+              >
+                {status.stt.phonon.state === 'missing' ? t.install : t.reinstall}
+              </Button>
+            </div>
+          </Row>
+        )}
+        {v.stt.provider === 'endpoint' && endpointFields('stt')}
+      </Card>
+
+      <h3 className="mb-2 text-[13px] font-semibold">{t.ttsTitle}</h3>
+      <Card className="mb-6">
+        <Row>
+          <Field
+            label={t.ttsTitle}
+            hint={
+              v.tts.provider === 'kitten'
+                ? t.hints.kitten
+                : v.tts.provider === 'omp'
+                  ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
+                  : t.hints.endpoint
+            }
+          >
+            <Select
+              value={v.tts.provider}
+              onChange={(e) =>
+                set((x) => ({ ...x, tts: { ...x.tts, provider: e.target.value as typeof v.tts.provider } }))
+              }
+              aria-label={t.ttsTitle}
+            >
+              <option value="kitten">{t.providers.kitten}</option>
+              <option value="omp">{t.providers.omp}</option>
+              <option value="endpoint">{t.providers.endpoint}</option>
+            </Select>
+          </Field>
+        </Row>
+        {v.tts.provider === 'kitten' && (
+          <>
+            <Row>
+              <Field label={t.kittenModel} inline>
+                <Select
+                  value={v.tts.kittenModel}
+                  onChange={(e) =>
+                    set((x) => ({
+                      ...x,
+                      tts: { ...x.tts, kittenModel: e.target.value as typeof v.tts.kittenModel },
+                    }))
+                  }
+                  aria-label={t.kittenModel}
+                >
+                  {(['nano', 'micro', 'mini'] as const).map((m) => (
+                    <option key={m} value={m}>
+                      {t.kittenModels[m]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </Row>
+            {status && (
+              <Row>
+                <div className="flex items-center gap-3 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate text-fg-2">{engine(status.tts.kitten)}</span>
+                  {(status.tts.kitten.state === 'missing' || status.tts.kitten.state === 'error') && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        void act(post('/api/voice/kitten/download', { model: v.tts.kittenModel }))
+                      }
+                    >
+                      {t.download}
+                    </Button>
+                  )}
+                </div>
+              </Row>
+            )}
+            <Row>
+              <Field label={t.voice} inline>
+                <Select
+                  value={v.tts.voice}
+                  onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, voice: e.target.value } }))}
+                  aria-label={t.voice}
+                >
+                  {(status?.tts.voices ?? [v.tts.voice]).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </Row>
+          </>
+        )}
+        {v.tts.provider === 'endpoint' && endpointFields('tts')}
+        <Row>
+          <Field label={t.speed} inline>
+            <Select
+              value={String(v.tts.speed)}
+              onChange={(e) => set((x) => ({ ...x, tts: { ...x.tts, speed: Number(e.target.value) } }))}
+              aria-label={t.speed}
+            >
+              {VOICE_SPEEDS.map((sp) => (
+                <option key={sp} value={String(sp)}>
+                  {`${sp}×`}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </Row>
+        <Row>
+          <Button size="sm" variant="primary" disabled={trying} onClick={() => void tryIt()}>
+            {t.tryIt}
+          </Button>
+        </Row>
+      </Card>
+    </>
   )
 }
 

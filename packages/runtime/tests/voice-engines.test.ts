@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseWav, wav } from '../src/voice/audio.ts'
+import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { KittenTts, OpenAiCompatibleTts } from '../src/voice/tts.ts'
 
@@ -142,3 +142,15 @@ test.skipIf(!process.env.MYR_VOICE_E2E)(
   },
   15 * 60_000,
 )
+
+test('quiet around a spoken sentence is cut to a breath, the speech kept whole', () => {
+  const rate = 24_000
+  const quiet = new Int16Array(rate) // a second
+  const speech = Int16Array.from({ length: rate / 2 }, (_, i) => Math.round(6000 * Math.sin(i / 4)))
+  const pcm = new Int16Array(quiet.length * 2 + speech.length)
+  pcm.set(speech, quiet.length)
+  const trimmed = trimSilence(pcm, rate)
+  // 50 ms before, the half second of speech, 150 ms after (to the nearest 10 ms window).
+  expect(trimmed.length / rate).toBeCloseTo(0.7, 1)
+  expect(trimSilence(new Int16Array(100), rate).length).toBe(100)
+})

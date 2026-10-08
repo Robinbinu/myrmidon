@@ -10,6 +10,7 @@ import {
 import { VOICE_ANSWER_CHARS, VOICE_STEPS } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
+import { trimSilence } from './audio.ts'
 import type { SpeechToText } from './stt.ts'
 import type { TextToSpeech } from './tts.ts'
 import { TurnDetector } from './turns.ts'
@@ -20,7 +21,7 @@ export interface CallChats {
     text: string,
     chatId: string | undefined,
     options?: { project?: string },
-  ): Promise<{ chatId: string; colonyId: string; started: boolean }>
+  ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
 }
@@ -61,6 +62,7 @@ export type CallOutput =
 
 interface Task {
   readonly request: string
+  readonly round?: number
   answer?: string
   done?: boolean
 }
@@ -148,6 +150,11 @@ export class CallSession {
 
   transcript(): readonly CallTurn[] {
     return this._turns
+  }
+
+  /** The rounds this call started, in order. */
+  rounds(): { colonyId: string; round?: number }[] {
+    return [...this._tasks].map(([colonyId, t]) => ({ colonyId, ...(t.round ? { round: t.round } : {}) }))
   }
 
   /** Greets the person; the call is then listening. */
@@ -321,7 +328,7 @@ export class CallSession {
         this._chatId = sent.chatId
         this.emit({ type: 'chat', chatId: sent.chatId })
       }
-      this._tasks.set(sent.colonyId, { request })
+      this._tasks.set(sent.colonyId, { request, ...(sent.round ? { round: sent.round } : {}) })
       this.emit({ type: 'task', colonyId: sent.colonyId, request })
       return r.started
     }
@@ -354,11 +361,12 @@ export class CallSession {
       try {
         const speech = await this.ports.tts.speak(text, signal)
         if (signal.aborted || this._ended) return
+        const pcm = trimSilence(speech.pcm, speech.sampleRate)
         this._state('speaking')
-        this.emit({ type: 'audio', pcm: speech.pcm, sampleRate: speech.sampleRate })
+        this.emit({ type: 'audio', pcm, sampleRate: speech.sampleRate })
         this.emit({ type: 'said', text })
         this._note('voice', text)
-        const ms = (speech.pcm.length / speech.sampleRate) * 1000
+        const ms = (pcm.length / speech.sampleRate) * 1000
         this._playingUntil = Math.max(Date.now(), this._playingUntil) + ms
       } catch (err) {
         if (!signal.aborted)

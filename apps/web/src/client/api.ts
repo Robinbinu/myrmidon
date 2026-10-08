@@ -216,6 +216,19 @@ export function terminalSocket(project: string | undefined, cols: number, rows: 
   return ws
 }
 
+/** A voice call in a chat (or one a call will start): 16 kHz audio up, speech and call state down. */
+export function callSocket(chatId: string | undefined, rate: number): WebSocket {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const query = new URLSearchParams({
+    ...(token ? { token } : {}),
+    rate: String(rate),
+    ...(chatId ? { chat: chatId } : {}),
+  })
+  const ws = new WebSocket(`${proto}://${location.host}${base}/api/voice/call?${query}`)
+  ws.binaryType = 'arraybuffer'
+  return ws
+}
+
 /** A speaking agent's reply as it is being written; `done` when that model message has ended. */
 export interface ReplyStream {
   agent: string
@@ -273,6 +286,17 @@ export function streamEvents(
     window.removeEventListener(CONNECTION_CHANGED, back)
     ws?.close()
   }
+}
+
+/** Posts JSON and returns the answer as a file: a voice sample, say. */
+export async function postForBlob(path: string, body: unknown): Promise<Blob> {
+  const res = await call(`${base}${path}`, {
+    method: 'POST',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw failure(res.status, await errorOf(res))
+  return res.blob()
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {

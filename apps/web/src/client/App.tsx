@@ -12,6 +12,7 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
+  Phone,
   Plug,
   RefreshCw,
   SquarePen,
@@ -66,8 +67,11 @@ import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
-import { AGENT_MIN_WINDOW, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
+import { AGENT_MIN_WINDOW, CALL_LINES, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
+import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
+import { CallCard, type SavedCall } from './voice/CallCard.tsx'
+import { CallClient, type CallState } from './voice/call-client.ts'
 
 const CONFIG_KEY = 'myr-team-config'
 
@@ -335,6 +339,51 @@ export function App() {
       notify(text, undefined, `channel-request-${w.channel}-${w.id}`)
     }
   }, [status?.waiting, toast])
+
+  // A voice call from this window: its socket and audio live in the client, what the bar shows lives here.
+  const callRef = useRef<CallClient>(undefined)
+  const [call, setCall] = useState<{ state: CallState; lines: CallLine[]; muted: boolean }>()
+  const [calls, setCalls] = useState<SavedCall[]>([])
+  const [callsSeen, setCallsSeen] = useState(0)
+  const callChat = activeChat
+  // biome-ignore lint/correctness/useExhaustiveDependencies: callsSeen reloads the list after a call ends
+  useEffect(() => {
+    if (!callChat) return setCalls([])
+    api<{ calls: SavedCall[] }>(`/api/chats/${callChat}/calls`)
+      .then((r) => setCalls(r.calls))
+      .catch(() => setCalls([]))
+  }, [callChat, callsSeen])
+  const startCall = async () => {
+    if (callRef.current) return
+    if (!window.isSecureContext || !navigator.mediaDevices) return toast(copy.call.insecure, 'error')
+    const client = new CallClient(activeChat, {
+      state: (state) => setCall((c) => c && { ...c, state }),
+      line: (who, text) =>
+        setCall((c) => c && { ...c, lines: [...c.lines, { who, text }].slice(-CALL_LINES) }),
+      level: setMicLevel,
+      chat: (id) => {
+        setActiveChat(id)
+        setView('chat')
+        refreshChats()
+      },
+      task: (request) => toast(copy.call.started(request), 'info'),
+      error: (message) => toast(message, 'error'),
+      ended: () => {
+        callRef.current = undefined
+        setCall(undefined)
+        setMicLevel(0)
+        setCallsSeen((n) => n + 1)
+      },
+    })
+    callRef.current = client
+    setCall({ state: 'connecting', lines: [], muted: false })
+    try {
+      await client.start()
+    } catch (err) {
+      toast((err as Error).name === 'NotAllowedError' ? copy.call.noMic : (err as Error).message, 'error')
+      client.hangUp()
+    }
+  }
 
   const updateConfig = (c: TeamConfig) => {
     setConfig(c)
@@ -716,6 +765,17 @@ export function App() {
                     <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
                   )}
                 </ToolbarTitle>
+                {view === 'chat' && !call && (
+                  <Button
+                    variant="toolbar"
+                    size="sm"
+                    icon={<Phone className="size-4" />}
+                    onClick={() => void startCall()}
+                    title={copy.call.startTitle}
+                  >
+                    {copy.call.start}
+                  </Button>
+                )}
                 {view === 'chat' && chat && (
                   <Button
                     variant="toolbar"
@@ -731,6 +791,21 @@ export function App() {
                   </Button>
                 )}
               </Toolbar>
+              <AnimatePresence>
+                {call && (
+                  <CallBar
+                    key="call"
+                    state={call.state}
+                    lines={call.lines}
+                    muted={call.muted}
+                    onMute={(muted) => {
+                      callRef.current?.mute(muted)
+                      setCall((c) => c && { ...c, muted })
+                    }}
+                    onHangUp={() => callRef.current?.hangUp()}
+                  />
+                )}
+              </AnimatePresence>
               {!online ? (
                 <div
                   role="status"
@@ -827,6 +902,7 @@ export function App() {
                     <>
                       <Transcript
                         {...(chat ? { chat } : {})}
+                        calls={calls}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
                         onLearn={() => void learn()}
@@ -1034,9 +1110,14 @@ function Transcript(props: {
   sending: boolean
   /** A request whose round has not started yet. */
   pending?: string
+  /** Voice calls in this chat: each shows before the first round it started, the rest at the end. */
+  calls: readonly SavedCall[]
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
+  const startsAt = (c: SavedCall, r: ChatRound) =>
+    c.rounds[0]?.colonyId === r.colonyId && (c.rounds[0]?.round ?? r.round) === r.round
+  const loose = props.calls.filter((c) => !rounds.some((r) => startsAt(c, r)))
   const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -1048,26 +1129,36 @@ function Transcript(props: {
             rounds={group.rounds}
             first={g === 0}
             render={(colony, r) => (
-              <RoundView
-                colonyId={r.colonyId}
-                colony={colony}
-                round={r.round}
-                onOpenColony={props.onOpenColony}
-                onRetry={props.onRetry}
-                onLearn={props.onLearn}
-                onAnswer={props.onAnswer}
-                onResume={props.onResume}
-                models={props.models}
-                retry={
-                  r === rounds.at(-1) && !running && !props.pending
-                    ? props.sending
-                      ? 'starting'
-                      : 'ready'
-                    : 'hidden'
-                }
-              />
+              <>
+                {props.calls
+                  .filter((c) => startsAt(c, r))
+                  .map((c) => (
+                    <CallCard key={c.id} call={c} />
+                  ))}
+                <RoundView
+                  colonyId={r.colonyId}
+                  colony={colony}
+                  round={r.round}
+                  onOpenColony={props.onOpenColony}
+                  onRetry={props.onRetry}
+                  onLearn={props.onLearn}
+                  onAnswer={props.onAnswer}
+                  onResume={props.onResume}
+                  models={props.models}
+                  retry={
+                    r === rounds.at(-1) && !running && !props.pending
+                      ? props.sending
+                        ? 'starting'
+                        : 'ready'
+                      : 'hidden'
+                  }
+                />
+              </>
             )}
           />
+        ))}
+        {loose.map((c) => (
+          <CallCard key={c.id} call={c} />
         ))}
         {props.pending && (
           <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
