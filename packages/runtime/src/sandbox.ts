@@ -5,7 +5,10 @@ import { SANDBOX_MAX_OUTPUT } from './config.ts'
 export interface SandboxRun {
   readonly command: string
   readonly cwd: string
-  /** The only directories the command may write to. */
+  /**
+   * The only directories the command may write to. The first one other than `cwd` (else `cwd`) holds the command's
+   * private HOME and TMPDIR, so tools that write under ~ (pip, npm, git, Python's caches) stay out of the project.
+   */
   readonly writable: readonly string[]
   readonly timeoutMs: number
   readonly env?: Record<string, string>
@@ -58,9 +61,12 @@ function macProfile(writable: readonly string[]) {
 }
 
 function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
-  const tmp = join(spec.writable[0] ?? spec.cwd, '.tmp')
+  const own = spec.writable.find((d) => d !== spec.cwd) ?? spec.cwd
+  const home = join(own, '.home')
+  const tmp = join(own, '.tmp')
+  mkdirSync(home, { recursive: true })
   mkdirSync(tmp, { recursive: true })
-  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: spec.cwd, TMPDIR: tmp, ...spec.env }
+  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: tmp, ...spec.env }
 }
 
 function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess {
