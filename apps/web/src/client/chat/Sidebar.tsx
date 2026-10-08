@@ -45,25 +45,21 @@ interface MessageHit {
   chatId: string
   from: string
   snippet: string
+  /** Where the match is in the snippet; the server folds case, which can change lengths (İ), so it says. */
+  match?: { start: number; end: number }
 }
 
-/** The snippet with each occurrence of the query in bold. */
-function marked(text: string, query: string) {
-  const lower = text.toLowerCase()
-  const q = query.toLowerCase()
-  const out: ReactNode[] = []
-  let from = 0
-  for (let at = lower.indexOf(q); q && at >= 0; at = lower.indexOf(q, at + q.length)) {
-    out.push(
-      text.slice(from, at),
-      <b key={at} className="font-semibold text-fg-2">
-        {text.slice(at, at + q.length)}
-      </b>,
-    )
-    from = at + q.length
-  }
-  out.push(text.slice(from))
-  return out
+/** The snippet with the match in bold. */
+function marked(hit: MessageHit): ReactNode {
+  const m = hit.match
+  if (!m) return hit.snippet
+  return (
+    <>
+      {hit.snippet.slice(0, m.start)}
+      <b className="font-semibold text-fg-2">{hit.snippet.slice(m.start, m.end)}</b>
+      {hit.snippet.slice(m.end)}
+    </>
+  )
 }
 
 /** The chat's title or one of its requests contains `q` (lower case). */
@@ -117,23 +113,28 @@ export function Sidebar(props: {
   useEffect(() => {
     const q = query.trim()
     if (!q) return setFound(undefined)
-    let stale = false
+    // A newer query cancels the request for an older one.
+    const abort = new AbortController()
     const timer = setTimeout(() => {
-      api<MessageHit[]>(`/api/chats/search?q=${encodeURIComponent(q)}`)
-        .then((list) => !stale && setFound({ query: q, hits: new Map(list.map((h) => [h.chatId, h])) }))
-        // Without the server's answer the list still matches titles and requests.
-        .catch(() => !stale && setFound({ query: q, hits: new Map() }))
+      api<MessageHit[]>(`/api/chats/search?q=${encodeURIComponent(q)}`, abort.signal)
+        .then((list) => setFound({ query: q, hits: new Map(list.map((h) => [h.chatId, h])) }))
+        .catch(() => {
+          // Without the server's answer the list still matches titles and requests.
+          if (!abort.signal.aborted) setFound({ query: q, hits: new Map() })
+        })
     }, MESSAGE_SEARCH_DELAY_MS)
     return () => {
-      stale = true
+      abort.abort()
       clearTimeout(timer)
     }
   }, [query])
-  const searching = !!query.trim() && found?.query !== query.trim()
+  // Matches for an earlier query are not shown while the current one is on its way.
+  const said = found?.query === query.trim() ? found.hits : undefined
+  const searching = !!query.trim() && !said
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return props.chats.filter((c) => !q || titled(c, q) || found?.hits.has(c.chatId))
-  }, [props.chats, query, found])
+    return props.chats.filter((c) => !q || titled(c, q) || said?.has(c.chatId))
+  }, [props.chats, query, said])
   // A chat whose project was removed from the list falls back to the date groups.
   const known = useMemo(() => new Set(props.projects.map((p) => p.id)), [props.projects])
   const byProject = useMemo(() => {
@@ -169,7 +170,7 @@ export function Sidebar(props: {
     const on = c.chatId === props.activeChat && props.view === 'chat'
     // A chat found only by its messages shows the line that matched.
     const q = query.trim()
-    const said = q && !titled(c, q.toLowerCase()) ? found?.hits.get(c.chatId) : undefined
+    const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
     return (
       <div key={c.chatId} className="group relative">
         {editing === c.chatId ? (
@@ -198,7 +199,7 @@ export function Sidebar(props: {
             aria-current={on ? 'page' : undefined}
             className={cn(
               'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-[13px] transition-colors',
-              said ? 'flex-wrap gap-y-0 py-1' : 'h-7',
+              line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
               on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
           >
@@ -222,10 +223,10 @@ export function Sidebar(props: {
                 </span>
               )}
             </span>
-            {said && (
+            {line && (
               <span className="relative basis-full truncate pl-4 text-[11.5px] text-muted">
-                {copy.sidebar.chat.matchFrom(said.from)}
-                {marked(said.snippet, q)}
+                {copy.sidebar.chat.matchFrom(line.from)}
+                {marked(line)}
               </span>
             )}
           </button>

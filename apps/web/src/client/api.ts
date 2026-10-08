@@ -73,13 +73,13 @@ export async function previewUrl(colony: string, artifact: string): Promise<stri
   return `${config.previewOrigin}/${colony}/${config.previewToken}/${artifact.split('/').map(encodeURIComponent).join('/')}`
 }
 
-export async function api<T>(path: string): Promise<T> {
-  return hubApi<T>(`${base}${path}`)
+export async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return hubApi<T>(`${base}${path}`, signal)
 }
 
 /** A request to this machine itself, whichever gateway the window shows (the list of gateways lives here). */
-export async function hubApi<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: auth })
+export async function hubApi<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { headers: auth, ...(signal ? { signal } : {}) })
   if (!res.ok) throw new ApiError(res.status === 401 ? copy.auth.notAuthorized : `${res.status} ${path}`)
   return res.json() as Promise<T>
 }
