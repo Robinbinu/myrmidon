@@ -36,13 +36,14 @@ import {
   Sun,
   Terminal,
   Trash2,
+  TriangleAlert,
   UserCog,
   Users,
   Webhook,
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   activeGateway,
   api,
@@ -1076,7 +1077,7 @@ const FEATURED_LOGINS = [
 ]
 
 /** Sign in with a subscription (Claude Pro/Max, ChatGPT, Gemini, Copilot…) through omp's OAuth flows. */
-function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
+function SignIns(props: { providers: ProviderInfo[]; onProviders(p: ProviderInfo[]): void }) {
   const toast = useToast()
   const [logins, setLogins] = useState<LoginOption[]>()
   const [session, setSession] = useState<LoginState>()
@@ -1112,6 +1113,21 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
     }, 1500)
     return () => clearInterval(t)
   }, [waiting, sessionId])
+
+  // Signing out removes what Myrmidon stored for the provider; credentials from outside (environment) stay.
+  const signOut = async (l: LoginOption) => {
+    try {
+      const r = await send<{ providers: ProviderInfo[] }>(
+        'DELETE',
+        `/api/credentials/${encodeURIComponent(l.provider)}`,
+      )
+      props.onProviders(r.providers)
+      toast(copy.settings.signIns.signedOut(l.name), 'success')
+      void load()
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
 
   const start = async (login: string) => {
     setAnswer('')
@@ -1162,14 +1178,26 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                     {copy.settings.shared.cancel}
                   </Button>
                 ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => start(l.id)}
-                    disabled={waiting}
-                    icon={<LogIn className="size-3.5" />}
-                  >
-                    {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {l.ready && props.providers.some((p) => p.id === l.provider && p.stored) && (
+                      <span title={copy.settings.signIns.signOutTitle(l.provider)}>
+                        <ConfirmButton
+                          label={copy.settings.signIns.signOut}
+                          confirm={copy.settings.signIns.confirmSignOut}
+                          disabled={waiting}
+                          onConfirm={() => void signOut(l)}
+                        />
+                      </span>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={() => start(l.id)}
+                      disabled={waiting}
+                      icon={<LogIn className="size-3.5" />}
+                    >
+                      {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
+                    </Button>
+                  </div>
                 )}
               </div>
               {active && (
@@ -1273,13 +1301,12 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title={copy.settings.providers.title}>
-        {copy.settings.providers.introBeforeFile}
-        <span className="font-mono">models.yml</span>
-        {copy.settings.providers.introBeforeDir}
-        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span>
-        {copy.settings.providers.introAfterDir}
-      </Heading>
+      <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
+      {props.data.agentDir && (
+        <p className="-mt-4 mb-6 truncate font-mono text-[11.5px] text-muted" title={props.data.agentDir}>
+          {copy.settings.providers.storedIn(props.data.agentDir)}
+        </p>
+      )}
 
       {props.data.ompSetup && (
         <Card className="mb-8">
@@ -1332,7 +1359,7 @@ function Providers(props: {
         </Card>
       )}
 
-      <SignIns onProviders={props.onProviders} />
+      <SignIns providers={providers} onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
         <h4 className="flex items-center gap-2 text-[13px] font-semibold">
@@ -2304,49 +2331,62 @@ function DevicesSection() {
   return (
     <>
       <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
-      <Card className="mb-6">
-        <Row>
-          <Field label={t.scope} hint={t.scopeHints[scope]} inline>
-            <Segmented
-              id="pair-scope"
-              value={scope}
-              options={[
-                { value: 'full', label: t.scopes.full },
-                { value: 'chat', label: t.scopes.chat },
-              ]}
-              onChange={(s) => {
-                setScope(s)
-                setLink(undefined)
-              }}
-            />
-          </Field>
-        </Row>
-        <Row>
-          {link ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-[13px] text-fg-2">{t.link}</p>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
-                  {link.link}
-                </code>
-                <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
-                  {copied ? t.copied : t.copy}
-                </Button>
+      {data?.remote === false ? (
+        <div
+          role="note"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[13px]"
+        >
+          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
+          <div>
+            <div className="font-semibold">{t.pairNeedsRemoteTitle}</div>
+            <div className="text-fg-2">{t.pairNeedsRemote}</div>
+          </div>
+        </div>
+      ) : (
+        <Card className="mb-6">
+          <Row>
+            <Field label={t.scope} hint={t.scopeHints[scope]} inline>
+              <Segmented
+                id="pair-scope"
+                value={scope}
+                options={[
+                  { value: 'full', label: t.scopes.full },
+                  { value: 'chat', label: t.scopes.chat },
+                ]}
+                onChange={(s) => {
+                  setScope(s)
+                  setLink(undefined)
+                }}
+              />
+            </Field>
+          </Row>
+          <Row>
+            {link ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-[13px] text-fg-2">{t.link}</p>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
+                    {link.link}
+                  </code>
+                  <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                    {copied ? t.copied : t.copy}
+                  </Button>
+                </div>
+                <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
               </div>
-              <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Plus className="size-3.5" />}
-              onClick={() => void makeLink()}
-            >
-              {t.pair}
-            </Button>
-          )}
-        </Row>
-      </Card>
+            ) : (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="size-3.5" />}
+                onClick={() => void makeLink()}
+              >
+                {t.pair}
+              </Button>
+            )}
+          </Row>
+        </Card>
+      )}
       {data && data.devices.length === 0 ? (
         <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
       ) : (
@@ -3160,6 +3200,16 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
         <code className="font-mono text-[12.5px]">Bash</code>
         {copy.settings.hooks.introAfterBash}
       </Heading>
+      <div
+        role="note"
+        className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-[13px]"
+      >
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn-ink" />
+        <div>
+          <div className="font-semibold">{copy.settings.hooks.warningTitle}</div>
+          <div className="text-fg-2">{copy.settings.hooks.warning}</div>
+        </div>
+      </div>
       {!rows ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
@@ -3512,6 +3562,43 @@ function PluginsSection() {
   )
 }
 
+/**
+ * A skill's description, two lines at most until expanded: some are paragraphs written for the model. Its folder
+ * shows only when expanded (and as the name's tooltip), since a path says little at a glance.
+ */
+function SkillDescription(props: { text: string; dir: string }) {
+  const [open, setOpen] = useState(false)
+  const [long, setLong] = useState(false)
+  const box = useRef<HTMLParagraphElement>(null)
+  // Whether the text overflows two lines can only be measured once it is laid out.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1)
+  }, [open])
+  return (
+    <>
+      <p ref={box} className={cn('mt-1 text-[13px] leading-relaxed text-fg-2', !open && 'line-clamp-2')}>
+        {props.text}
+      </p>
+      {open && (
+        <p className="mt-1 break-all font-mono text-[11.5px] text-muted" title={props.dir}>
+          {props.dir}
+        </p>
+      )}
+      {(long || open) && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="mt-0.5 text-[12px] font-medium text-muted hover:text-fg"
+        >
+          {open ? copy.settings.skills.showLess : copy.settings.skills.showMore}
+        </button>
+      )}
+    </>
+  )
+}
+
 /** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
 function SkillsSection() {
   const toast = useToast()
@@ -3567,15 +3654,14 @@ function SkillsSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[13.5px] font-medium">{s.name}</span>
+                    <span className="font-mono text-[13.5px] font-medium" title={s.dir}>
+                      {s.name}
+                    </span>
                     <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
                     </Pill>
                   </div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{s.description}</p>
-                  <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={s.dir}>
-                    {s.dir}
-                  </p>
+                  <SkillDescription text={s.description} dir={s.dir} />
                 </div>
                 <Switch
                   checked={s.enabled}

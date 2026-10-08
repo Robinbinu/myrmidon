@@ -1385,7 +1385,7 @@ export const copy = {
       windowSources: {
         set: 'set by you',
         provider: 'from the provider',
-        catalog: 'from models.dev',
+        catalog: 'from a public model catalog',
         name: "from the model's name",
       },
       windowPlaceholder: 'e.g. 32k',
@@ -1403,6 +1403,10 @@ export const copy = {
       signedIn: 'signed in',
       signInAgain: 'Sign in again',
       signIn: 'Sign in',
+      signOut: 'Sign out',
+      confirmSignOut: 'Sign out for good',
+      signOutTitle: (provider: string) => `Removes every saved credential for ${provider}`,
+      signedOut: (name: string) => `Signed out of ${name}`,
       finishInBrowser: 'Finish signing in in the browser tab; this updates by itself.',
       openPage: 'Open the sign-in page',
       submit: 'Submit',
@@ -1410,11 +1414,9 @@ export const copy = {
     },
     providers: {
       title: 'Providers & keys',
-      /** Intro text around the `models.yml` file name and the agent directory. */
-      introBeforeFile:
-        'Myrmidon runs omp’s provider stack in-process: every built-in provider, OAuth logins, and custom endpoints from ',
-      introBeforeDir: '. Keys stay in owner-only files under ',
-      introAfterDir: ' and never reach the browser.',
+      intro:
+        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never reach the browser.',
+      storedIn: (dir: string) => `Stored in ${dir}`,
       importTitle: 'Import your omp setup',
       importConfirm: 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.',
       importHint:
@@ -1593,6 +1595,9 @@ export const copy = {
       introLocal:
         'This Myrmidon only answers on this machine. To use it from a phone or another computer, run it as a remote gateway (see docs/remote.md), then pair devices here.',
       pair: 'Pair a device',
+      pairNeedsRemoteTitle: 'Pairing needs remote gateway mode',
+      pairNeedsRemote:
+        'A pairing link made now would open only on this machine, so there is nothing to pair yet.',
       scope: 'Access',
       /** Short, for the toggle. */
       scopes: { full: 'Full', chat: 'Chats' },
@@ -1748,7 +1753,9 @@ export const copy = {
       introBeforeShell: ', ',
       introBeforeEditWrite: ") or Claude Code's (",
       introBeforeBash: ', ',
-      introAfterBash: '). Hooks run as you, outside the sandbox.',
+      introAfterBash: ').',
+      warningTitle: 'Hooks run as you, outside the sandbox',
+      warning: 'A hook can read and change anything your account can. Add only commands you understand.',
       loading: 'Loading hooks…',
       empty: 'No hooks yet.',
       when: 'When',
@@ -1812,6 +1819,8 @@ export const copy = {
       /** Skills a reviewer proposed from finished work, waiting for the person. */
       proposed: (n: number) => `Proposed from your chats (${n})`,
       canUse: (name: string) => `Agents can use ${name}`,
+      showMore: 'Show more',
+      showLess: 'Show less',
     },
     memory: {
       kinds: {
