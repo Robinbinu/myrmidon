@@ -2,19 +2,29 @@ import { beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { copy } from '../src/client/copy.ts'
 import { CallBar, callee, speaker } from '../src/client/voice/CallBar.tsx'
+import type { CallMedia } from '../src/client/voice/call-client.ts'
 import { engineTrouble } from '../src/client/voice/engine-trouble.ts'
 
-// call-client.ts reaches the API module, which reads the page's address and storage when it loads.
-const g = globalThis as Record<string, unknown>
+// call-client.ts reaches the API module, which reads the page's address when it loads. Bun runs every test file in one
+// process, so the stand-ins are put back as soon as the module has loaded.
 let client: typeof import('../src/client/voice/call-client.ts')
 beforeAll(async () => {
+  const g = globalThis as Record<string, unknown>
+  const before = { location: g.location, window: g.window }
   g.location ??= { hash: '', pathname: '/', protocol: 'http:', host: 'localhost' }
   g.window ??= globalThis
-  client = await import('../src/client/voice/call-client.ts')
+  try {
+    client = await import('../src/client/voice/call-client.ts')
+  } finally {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete g[key]
+      else g[key] = value
+    }
+  }
 })
 
 /** A browser's mic and audio, as far as a call uses them, recording what was made and released. */
-function fakeAudio() {
+function fakeMedia(addModule: () => Promise<void> = async () => {}) {
   const made = { contexts: 0, closed: 0, sockets: 0, stopped: 0 }
   const track = {
     enabled: true,
@@ -23,39 +33,29 @@ function fakeAudio() {
     },
   }
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] }
-  let grant: (s: typeof stream) => void = () => {}
-  g.navigator = {
-    mediaDevices: { getUserMedia: () => new Promise<typeof stream>((resolve) => (grant = resolve)) },
-  }
-  g.AudioContext = class {
-    state = 'running'
-    audioWorklet = { addModule: async () => {} }
-    constructor() {
+  let grant: () => void = () => {}
+  const media = {
+    mic: () => new Promise((resolve) => (grant = () => resolve(stream))),
+    audio: () => {
       made.contexts++
-    }
-    createMediaStreamSource() {
-      return { connect() {} }
-    }
-    async close() {
-      this.state = 'closed'
-      made.closed++
-    }
-  }
-  g.AudioWorkletNode = class {
-    port = {}
-    disconnect() {}
-  }
-  g.WebSocket = class {
-    static OPEN = 1
-    readyState = 0
-    binaryType = ''
-    constructor() {
+      const ctx = {
+        state: 'running',
+        audioWorklet: { addModule },
+        createMediaStreamSource: () => ({ connect() {} }),
+        close: async () => {
+          ctx.state = 'closed'
+          made.closed++
+        },
+      }
+      return ctx
+    },
+    worklet: () => ({ port: {}, disconnect() {} }),
+    socket: () => {
       made.sockets++
-    }
-    send() {}
-    close() {}
-  }
-  return { made, track, grant: () => grant(stream) }
+      return { readyState: 0, send() {}, close() {} }
+    },
+  } as unknown as CallMedia
+  return { made, track, media, grant: () => grant() }
 }
 
 const handlers = (ended: string[] = []) => ({
@@ -73,9 +73,9 @@ const handlers = (ended: string[] = []) => ({
 })
 
 test('hanging up while the mic is being asked for leaves no mic, audio or socket behind', async () => {
-  const audio = fakeAudio()
+  const audio = fakeMedia()
   const ended: string[] = []
-  const call = new client.CallClient('chat-1', handlers(ended))
+  const call = new client.CallClient('chat-1', handlers(ended), undefined, audio.media)
   const starting = call.start()
   call.hangUp()
   audio.grant()
@@ -87,13 +87,9 @@ test('hanging up while the mic is being asked for leaves no mic, audio or socket
 })
 
 test('hanging up while the audio thread loads closes the context and opens no socket', async () => {
-  const audio = fakeAudio()
   let loaded: () => void = () => {}
-  const Context = g.AudioContext as new () => { audioWorklet: { addModule(): Promise<void> } }
-  g.AudioContext = class extends Context {
-    override audioWorklet = { addModule: () => new Promise<void>((resolve) => (loaded = resolve)) }
-  }
-  const call = new client.CallClient(undefined, handlers())
+  const audio = fakeMedia(() => new Promise<void>((resolve) => (loaded = resolve)))
+  const call = new client.CallClient(undefined, handlers(), undefined, audio.media)
   const starting = call.start()
   audio.grant()
   await Promise.resolve()
@@ -108,8 +104,8 @@ test('hanging up while the audio thread loads closes the context and opens no so
 })
 
 test('muting turns the mic track off, so the browser no longer shows it in use', async () => {
-  const audio = fakeAudio()
-  const call = new client.CallClient('chat-1', handlers())
+  const audio = fakeMedia()
+  const call = new client.CallClient('chat-1', handlers(), undefined, audio.media)
   const starting = call.start()
   audio.grant()
   await starting
@@ -127,7 +123,11 @@ test('a refused call shows the server’s reason; server errors and lost connect
   expect(client.closeMessage(4429, 'There are already 4 calls going on; hang one up first.', true)).toContain(
     'hang one up',
   )
-  expect(client.closeMessage(1011, 'stream error', true)).toBe(copy.call.failed)
+  expect(client.closeMessage(1011, '', true)).toBe(copy.call.failed)
+  // An older server's engine failure comes with 1011 and its reason.
+  expect(client.closeMessage(1011, 'Phonon-2 took too long to start', true)).toBe(
+    'Phonon-2 took too long to start',
+  )
   expect(client.closeMessage(1009, 'audio frame too large', true)).toBe(copy.call.failed)
   expect(client.closeMessage(1006, '', false)).toBe(copy.call.couldNotStart)
   expect(client.closeMessage(1006, '', true)).toBe(copy.call.dropped)

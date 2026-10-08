@@ -426,12 +426,12 @@ export function App() {
           ),
         approvalDone: (id) =>
           setCall((c) => c && { ...c, approvals: c.approvals.filter((a) => a.id !== id) }),
-        // A refusal that names Settings → Voice (an engine to install, no call model…) opens it from the toast.
-        error: (message) =>
+        // Voice off (4409) or not ready (4503: an engine to install, no call model…) is fixed in Settings → Voice.
+        error: (message, code) =>
           toast(
             message,
             'error',
-            fullAccess && message.includes('Settings → Voice')
+            fullAccess && (code === 4409 || code === 4503)
               ? { label: copy.call.openVoiceSettings, run: () => openSettings('voice') }
               : undefined,
           ),
