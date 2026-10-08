@@ -47,7 +47,7 @@ const OLD_VARIANTS: Record<string, ComponentProps<typeof Button>['variant']> = {
   ghost: 'borderless',
   toolbar: 'borderless',
   secondary: 'push',
-  soft: 'primary',
+  soft: 'push',
 }
 
 const PluginButton = forwardRef<
