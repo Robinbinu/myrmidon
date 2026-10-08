@@ -688,9 +688,10 @@ export class ChatService {
       asked: rounds.map((r) => r.round.request),
       ...(answer ? { answer } : {}),
     })
+    if (!title) return
     // Renamed meanwhile (by the person, say): theirs stands. Deleted meanwhile: it stays deleted.
     const again = await this.rounds(chatId)
-    if (!title || !again.length || named(again) || this._deleting.has(chatId)) return
+    if (!again.length || named(again) || this._deleting.has(chatId)) return
     const draft = {
       type: 'chat/renamed',
       actor: { kind: 'system', id: 'myrmidon' },
