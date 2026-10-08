@@ -784,7 +784,14 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/channels/chats': {
-        GET: guard(() => json({ chats: channels?.chatChannels() ?? {} })),
+        GET: guard(() => {
+          try {
+            return json({ chats: channels?.chatChannels() ?? {} })
+          } catch (err) {
+            // A damaged channels.json: say why rather than a bare internal error.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
       },
       '/api/channels/:id/activity': {
         GET: guard((req) => json({ events: channels?.activity(req.params.id) ?? [] })),

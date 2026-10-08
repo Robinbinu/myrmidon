@@ -82,9 +82,11 @@ test('only Settings makes an approved person the owner', async () => {
 
 test('a damaged channels.json is reported, in Settings and as a gateway problem', async () => {
   const { call } = serve('{"telegram": ')
-  const list = await call('/api/channels')
-  expect(list.status).toBe(500)
-  expect((await list.json()).error).toContain("Can't read channels.json")
+  for (const path of ['/api/channels', '/api/channels/chats']) {
+    const list = await call(path)
+    expect(list.status).toBe(500)
+    expect((await list.json()).error).toContain("Can't read channels.json")
+  }
   const status = await call('/api/status')
   expect(status.status).toBe(200)
   const body = await status.json()
