@@ -28,6 +28,7 @@ import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
+import { readDraft, saveDraft } from './drafts.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
@@ -237,6 +238,8 @@ const DELIVERIES = [
 ] as const
 
 interface ComposerProps {
+  /** Where the unsent text is kept, so a refresh doesn't lose it: the chat's id, or the new-chat screen's. */
+  draftKey?: string
   models: ModelOption[]
   config: TeamConfig
   onConfig(config: TeamConfig): void
@@ -290,7 +293,11 @@ function mentionMenu(
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => (props.draftKey ? readDraft(props.draftKey) : ''))
+  // The box is mounted per chat, so the key never changes under a typed text.
+  useEffect(() => {
+    if (props.draftKey) saveDraft(props.draftKey, text)
+  }, [text, props.draftKey])
   const chips = usePluginSlots('composer.chip')
   const [showTeam, setShowTeam] = useState(false)
   // The reviewer mode is a server setting; read it on load and whenever the team panel opens, so a change made in
@@ -419,6 +426,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!value || props.busy) return
     const sent = files
     setText('')
+    // Sending from the new-chat screen moves to the new chat in the same update, unmounting this box before its draft
+    // effect sees the empty text; a failed send puts the text back below, which keeps it again.
+    if (props.draftKey) saveDraft(props.draftKey, '')
     setFiles([])
     setShowTeam(false)
     try {

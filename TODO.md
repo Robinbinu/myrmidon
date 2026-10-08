@@ -96,6 +96,14 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
       (Kept on purpose: "Crews" for the list of chats' crews; channel `/new` and `/approve` keep the platforms' own
       words. The changes check can't show the server's reason yet: RoundChanges drops it.)
 
+### Asked during the fixes
+
+- [x] **A refresh keeps the message box's text** (asked 2026-10-08) — each chat and the new-chat screen keep their own
+      unsent text in the browser; it goes when the message is sent or the chat is deleted. Attached files can't
+      survive a reload.
+- [x] **A refresh stays where you were** (asked 2026-10-08) — the screen (Crews, Compare, System) and an open Settings
+      section join the chat in the address, so a reload comes back to them; chats-only devices fall back to the chat.
+
 ### [decide] New
 
 - [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead?
