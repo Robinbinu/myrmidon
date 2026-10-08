@@ -51,8 +51,9 @@ import { Button, cn, IconButton, Pill, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
-import { Approval, LoginCards, MemoryCards, type Pending, SkillCards } from './ApprovalCards.tsx'
+import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
+import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { QuestionCard } from './QuestionCard.tsx'
@@ -73,9 +74,6 @@ export function modeLabel(state: ColonyState): string {
 export function isRunning(status: string) {
   return status === 'running' || status === 'created'
 }
-
-/** The round is paused on a call only the person can let through. */
-const awaitingApproval = (state: ColonyState) => Object.values(state.approvals).some((a) => !a.decided)
 
 /** A round that stopped or failed on its own account: not paused for the person, a failed model, or a hand-over. */
 function halted(state: ColonyState) {
@@ -217,12 +215,8 @@ export function RoundView(props: {
       : []
   const timeline: Item[] = [
     ...thread.map((m) => ({ seq: m.seq, message: m })),
-    ...events.flatMap((e) => {
-      if (e.type !== 'approval/requested') return []
-      const a = state.approvals[(e.payload as EventPayloads['approval/requested']).id]
-      // Only the round running now can still be waiting on the person.
-      return a && (a.decided || latest) ? [{ seq: e.seq, approval: a }] : []
-    }),
+    // Only the round running now can still be waiting on the person.
+    ...roundApprovals(state, events).filter((r) => r.approval.decided || latest),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
   ].sort((a, b) => a.seq - b.seq)
@@ -759,7 +753,7 @@ function LeadActivity(props: {
   const now = running ? currentStep(events) : undefined
   const awaiting = state.statusReason === AWAITING
   // The last step is the call that asked; the lead does nothing more until the person answers it.
-  const approving = running && awaitingApproval(state)
+  const approving = running && awaitingApproval(state, events)
   const m = props.metrics
   const visible = steps.slice(-30).reverse()
   // The clock ticks on its own while the lead works; the log only moves when something happens.
@@ -950,7 +944,7 @@ function RunCard(props: {
 }) {
   const { state, events } = props
   const running = isRunning(state.status)
-  const approving = running && awaitingApproval(state)
+  const approving = running && awaitingApproval(state, events)
   const [open, setOpen] = useState<boolean>()
   const expanded = open ?? running
   const [showAll, setShowAll] = useState(false)

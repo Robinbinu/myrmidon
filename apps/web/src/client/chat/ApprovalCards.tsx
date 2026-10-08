@@ -27,7 +27,7 @@ const action = (tool: string) =>
       ? copy.approvals.actions.file
       : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
-export type Pending = ColonyState['approvals'][string]
+import type { Pending } from './approvals.ts'
 
 /**
  * A call that waited for the person (an "Ask first" project, tools set to Ask, MCP tools that change things, and
