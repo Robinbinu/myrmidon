@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { VOICE_PHONON_START_MS } from '../config.ts'
+import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
 import { parseWav, wav } from './audio.ts'
 
 /** "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. */
@@ -60,12 +60,15 @@ export type PhononState =
   | { state: 'running' }
   | { state: 'error'; error: string }
 
-/** The uv tool install that brings Phonon-2's command line, with the Apple-silicon runtime it prefers. */
+/**
+ * The uv tool install that brings Phonon-2's command line, with the Apple-silicon runtime it prefers: a pinned
+ * release, so an install (or a reinstall) is the version Myrmidon was tried with, not whatever was published since.
+ */
 export const PHONON_INSTALL = [
   'tool',
   'install',
   '--force',
-  'fermion-research',
+  `fermion-research==${VOICE_PHONON_VERSION}`,
   ...['mlx', 'mlx-audio', 'mlx-lm', 'soundfile', 'scipy', 'zstandard'].flatMap((p) => ['--with', p]),
 ]
 

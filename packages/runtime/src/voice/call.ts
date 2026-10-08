@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { MyrEvent } from '@myrmidon/protocol'
 import {
+  type AssistantMessage,
   type AssistantMessageEventStream,
   type Message,
   streamSimple,
@@ -12,6 +13,8 @@ import {
   VOICE_END_MS,
   VOICE_PAUSE_MS,
   VOICE_SMART_END_MS,
+  VOICE_SMART_START_MS,
+  VOICE_SMART_TURN_DIRECT_THRESHOLD,
   VOICE_SMART_TURN_THRESHOLD,
   VOICE_SPOKEN_SENTENCES,
   VOICE_STEPS,
@@ -34,8 +37,13 @@ export interface CallChats {
     options?: { project?: string; voice?: boolean },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void
-  /** Replies as they are written (`text` is the reply so far), so a direct call speaks them as they come. */
-  onStream?(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void
+  /**
+   * Replies as they are written (`text` is the reply so far), so a direct call speaks them as they come. `plain`: the
+   * model's own text rather than a reply tool's, which may be narration before a tool call (see AgentHost.streamed).
+   */
+  onStream?(
+    listener: (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void,
+  ): () => void
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
 }
 
@@ -70,16 +78,25 @@ export interface CallTurn {
   readonly text: string
 }
 
+type CallState = 'listening' | 'hearing' | 'thinking' | 'speaking'
+
 /** What a call tells the person's side (the app, later a phone line). */
 export type CallOutput =
-  | { type: 'state'; state: 'preparing' | 'listening' | 'hearing' | 'thinking' | 'speaking' }
+  /** First: who the call reached (`assistant`, `lead` or a crew member's name), and the chat it is in. */
+  | { type: 'hello'; talk: string; chatId?: string; chatTitle?: string }
+  /** `muted` while the person's microphone is off; unmuting shows the state the call is in. */
+  | { type: 'state'; state: 'preparing' | CallState | 'muted' }
   | { type: 'heard'; text: string }
-  | { type: 'said'; text: string }
+  /** A line spoken, and whose it is: `assistant`, `lead` or a crew member's name. */
+  | { type: 'said'; text: string; from: string }
   | { type: 'audio'; pcm: Int16Array; sampleRate: number }
   /** Stop playing what was sent: the person talked over it. */
   | { type: 'stop-audio' }
   | { type: 'chat'; chatId: string }
   | { type: 'task'; colonyId: string; request: string }
+  /** An approval put to the person (read out), and later how it was decided, on the call or elsewhere. */
+  | { type: 'approval'; id: string; summary: string }
+  | { type: 'approval-done'; id: string; approved: boolean }
   | { type: 'error'; message: string }
   /**
    * How long the person waited for the answer to start, from when they stopped talking, and where it went: finding
@@ -100,9 +117,64 @@ interface Sent {
   done?: boolean
 }
 
-/** Spoken yes and no, for approvals on a call without the call assistant. */
-const YES = /^(yes|yeah|yep|sure|ok(ay)?|go ahead|do it|allow( it)?|approve( it)?)\b/i
-const NO = /^(no|nope|don'?t|stop|deny|refuse|cancel)\b/i
+/** On a direct call, something to read aloud: a finished text, or a reply still being written (not yet `done`). */
+interface Utterance {
+  readonly from: string
+  readonly pieces: string[]
+  done: boolean
+  /** Called with when its last piece finishes playing, once that piece is on its way. */
+  readonly said?: (until: number) => void
+}
+
+/** Whole answers that decide an approval; anything more ("okay, what does it want?") is not one. */
+const YES = new Set([
+  'yes',
+  'yeah',
+  'yep',
+  'yup',
+  'sure',
+  'allow',
+  'allow it',
+  'approve',
+  'approve it',
+  'go ahead',
+  'do it',
+  'yes please',
+  'yes go ahead',
+  'yes do it',
+  'yeah go ahead',
+  'okay go ahead',
+  'sure go ahead',
+])
+const NO = new Set([
+  'no',
+  'nope',
+  'nah',
+  'no thanks',
+  'deny',
+  'deny it',
+  'refuse',
+  'refuse it',
+  'cancel',
+  'stop',
+  "don't",
+  'do not',
+  "don't do it",
+  'do not do it',
+  'no stop',
+  "no don't",
+])
+
+/** A turn that is a plain yes (true) or no (false) and nothing else, whatever its case and punctuation. */
+export function spokenAnswer(text: string): boolean | undefined {
+  const said = text
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return YES.has(said) ? true : NO.has(said) ? false : undefined
+}
 
 const TOOLS: Tool[] = [
   {
@@ -132,6 +204,11 @@ const TOOLS: Tool[] = [
     parameters: { type: 'object', properties: {} } as never,
   },
   {
+    name: 'crew_updates',
+    description: prompts.voice.tools.crewUpdates.description,
+    parameters: { type: 'object', properties: {} } as never,
+  },
+  {
     name: 'answer_approval',
     description: prompts.voice.tools.answerApproval.description,
     parameters: {
@@ -152,10 +229,10 @@ const TOOLS: Tool[] = [
 
 /**
  * A voice call. The person's turns (found in their audio, then transcribed) go either to the call assistant, a fast
- * model that answers small things itself, hands real work to the crew as ordinary rounds in the chat (start_task) and
+ * model that answers small things itself, hands real work to the crew as ordinary runs in the chat (start_task) and
  * can ask the lead or one agent a question (ask_crew); or straight to the lead or one crew member, as the person's own
  * messages in the chat, whose replies are read aloud. Speech is a sentence at a time as it is ready. While the crew
- * works the call goes on; when a round finishes, fails, asks a question or needs approval, the person hears at the
+ * works the call goes on; when a run finishes, fails, asks a question or needs approval, the person hears at the
  * next pause. Talking over the call stops it at once (barge-in).
  */
 export class CallSession {
@@ -166,9 +243,22 @@ export class CallSession {
   private readonly _turns: CallTurn[] = []
   private readonly _detector: TurnDetector
   private readonly _sent: Sent[] = []
-  /** Approvals the crew is waiting on in this call's rounds: approval id → colony. */
-  private readonly _approvals = new Map<string, string>()
-  private readonly _updates: string[] = []
+  /** Approvals the crew is waiting on in this call's runs, in the order they were asked for. */
+  private readonly _approvals = new Map<string, { colonyId: string; tool: string; summary: string }>()
+  /**
+   * The approval put to the person, the one their yes or no decides; the others wait their turn. `heard`: the turns
+   * begun before it was read out to the end (handed to the call assistant), none of which can answer it; `until`:
+   * when its reading finishes playing.
+   */
+  private _asking?: { id: string; heard?: number; until?: number }
+  /** The person's latest turn as a plain yes or no, and which turn it was. */
+  private _answer?: { approved: boolean; turn: number }
+  /** Turns the person has begun, so a yes can be placed before or after an approval was heard. */
+  private _begun = 0
+  /** The turn in progress (its number), carried to where it ends. */
+  private _turn = 0
+  /** Crew updates for the call assistant, how the transcript shows each to the person, and the approval it puts. */
+  private readonly _updates: { text: string; note: string; approval?: string }[] = []
   private _reply?: AbortController
   private _replying?: Promise<void>
   private _speech: Promise<void> = Promise.resolve()
@@ -176,15 +266,23 @@ export class CallSession {
   private _playingUntil = 0
   private _muted = false
   private _ended = false
+  /** The state the call is in, shown again when the person unmutes. */
+  private _current: CallState = 'listening'
   private _vad?: { chance(chunk: Float32Array): Promise<number> }
+  /** The end-of-turn model, until it fails; then turns end on quiet alone. */
+  private _judge?: TurnJudge
   /** Audio not yet scored, and the scoring in progress (chunks are scored in order). */
   private _unscored = new Int16Array(0)
   private _scoring: Promise<void> = Promise.resolve()
   private _hangUpAfterSpeech = false
   private readonly _off: () => void
   private _offStream?: () => void
-  /** A direct call's replies being spoken as they are written, by colony and agent. */
-  private readonly _streams = new Map<string, { split: SpeechSplitter; signal: AbortSignal; done: boolean }>()
+  /** Who says the call's own lines: the call assistant, or whoever a direct call reached. */
+  private readonly _voice: string
+  /** On a direct call, what is to be read aloud, in order: a reply still being written holds the rest back. */
+  private readonly _queue: Utterance[] = []
+  /** Replies being written, by colony and agent. */
+  private readonly _streams = new Map<string, Utterance & { split: SpeechSplitter }>()
   /** Agents whose last reply was spoken from its stream, so its finished copy is not spoken again. */
   private readonly _streamed = new Set<string>()
   /** The current turn's timings (ms since epoch): when the person stopped, was heard, first words, first sound. */
@@ -200,23 +298,32 @@ export class CallSession {
       readonly detector?: SpeechDetector
       /** Smart Turn: with it a short pause can end a finished turn; without it, a turn ends after a longer quiet. */
       readonly judge?: TurnJudge
+      readonly log?: (line: string) => void
     },
     private readonly options: CallOptions,
     private readonly emit: (out: CallOutput) => void,
   ) {
     this._chatId = options.chatId
+    this._voice = options.talkTo ?? 'assistant'
+    this._judge = ports.judge
     this._detector = new TurnDetector({
       sampleRate: options.sampleRate,
       start: options.start,
       hold: options.hold,
-      ...(ports.judge ? { pauseMs: VOICE_PAUSE_MS, endMs: VOICE_SMART_END_MS } : {}),
+      ...(ports.judge
+        ? {
+            startMs: VOICE_SMART_START_MS,
+            pauseMs: [VOICE_PAUSE_MS, VOICE_END_MS],
+            endMs: VOICE_SMART_END_MS,
+          }
+        : {}),
     })
     // Silero's model here is for 16 kHz; other rates (a phone line's 8 kHz) are scored by level.
     if (ports.detector && options.sampleRate === 16_000) this._vad = ports.detector.stream()
     this._off = ports.chats.onEvents((colonyId, events) => this._onEvents(colonyId, events))
     if (options.talkTo && ports.chats.onStream)
-      this._offStream = ports.chats.onStream((colonyId, agent, text, done) =>
-        this._onStream(colonyId, agent, text, done),
+      this._offStream = ports.chats.onStream((colonyId, agent, text, done, plain) =>
+        this._onStream(colonyId, agent, text, done, plain),
       )
   }
 
@@ -240,12 +347,18 @@ export class CallSession {
     return this.options.talkTo
   }
 
-  /** Greets the person; the call is then listening. */
+  /** Says who answered, greets the person; the call is then listening. */
   async start() {
+    this.emit({
+      type: 'hello',
+      talk: this._voice,
+      ...(this._chatId ? { chatId: this._chatId } : {}),
+      ...(this.options.chatTitle ? { chatTitle: this.options.chatTitle } : {}),
+    })
     const hello = this.direct
       ? prompts.voice.direct.hello(this.options.name, this.direct)
       : prompts.voice.hello(this.options.name)
-    await this._say(hello, new AbortController().signal)
+    await this._say(hello, new AbortController().signal, this._voice)
     await this._speech
     this._state('listening')
   }
@@ -283,44 +396,58 @@ export class CallSession {
     for (const event of this._detector.push(chunk, chance)) {
       if (event.type === 'start') {
         if (this._reply || this._playingUntil > Date.now()) this.interrupt()
+        this._begun += 1
+        this._turn = this._begun
         this._state('hearing')
-      } else if (event.type === 'pause') void this._pause(event.id, event.audio)
+      } else if (event.type === 'pause') void this._pause(event.id, event.quietMs, event.audio, this._turn)
       else
-        void this._heard(this._transcribe(event.audio), this.ports.judge ? VOICE_SMART_END_MS : VOICE_END_MS)
+        void this._heard(
+          this.ports.stt.transcribe(event.audio, this.options.sampleRate),
+          this.ports.judge ? VOICE_SMART_END_MS : VOICE_END_MS,
+          this._turn,
+        )
     }
-  }
-
-  private _transcribe(audio: Int16Array): Promise<string> {
-    const text = this.ports.stt.transcribe(audio, this.options.sampleRate)
-    // Not every pause's transcript is used; one that fails unused is not an error.
-    text.catch(() => {})
-    return text
   }
 
   /**
-   * A short pause: Smart Turn hears whether the person has finished. Their words are transcribed meanwhile, so if
-   * they have, the transcript is ready as the turn ends (Pipecat's way to answer sooner).
+   * A pause in the person's turn: Smart Turn hears whether they have finished, and if so the turn ends here and is
+   * transcribed (only then: a cloud speech-to-text is paid per request). Without the model, or while an approval is
+   * put to them ("Yes… wait, no" must not end at "yes"), only a pause of VOICE_END_MS ends the turn.
    */
-  private async _pause(id: number, audio: Int16Array) {
-    const judge = this.ports.judge
-    if (!judge) return
-    const text = this._transcribe(audio)
-    let finished = 0
-    try {
-      finished = await judge.finished(audio)
-    } catch (err) {
-      this.emit({ type: 'error', message: `turn model: ${err instanceof Error ? err.message : String(err)}` })
-      return
-    }
-    if (finished < VOICE_SMART_TURN_THRESHOLD || this._ended) return
-    if (this._detector.end(id)) void this._heard(text, VOICE_PAUSE_MS)
+  private async _pause(id: number, quietMs: number, audio: Int16Array, turn: number) {
+    const judge = this._asking === undefined ? this._judge : undefined
+    if (judge) {
+      try {
+        const finished = await judge.finished(audio)
+        const threshold = this.direct ? VOICE_SMART_TURN_DIRECT_THRESHOLD : VOICE_SMART_TURN_THRESHOLD
+        if (finished < threshold) return
+      } catch (err) {
+        // One failure is enough to know: the rest of the call ends turns on quiet, and the person is not told each time.
+        if (this._judge) {
+          this._judge = undefined
+          this.ports.log?.(
+            `turn model failed, ending turns on quiet instead: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+        if (quietMs < VOICE_END_MS) return
+      }
+    } else if (quietMs < VOICE_END_MS) return
+    if (this._ended) return
+    const ended = this._detector.end(id)
+    if (ended) void this._heard(this.ports.stt.transcribe(ended, this.options.sampleRate), quietMs, turn)
   }
 
   /** The person talked over the call agent (found here or by their side): stop speaking and listen. */
   interrupt() {
     this._reply?.abort()
     this._reply = undefined
+    // What was still to be read is dropped; a reply still being written is followed to its end, unspoken.
+    this._queue.length = 0
     this._playingUntil = 0
+    // An approval cut off before it was heard to the end is put again once the person's turn is over.
+    const asking = this._asking
+    if (this.direct && asking && (asking.until === undefined || asking.until > Date.now()))
+      this._asking = undefined
     this.emit({ type: 'stop-audio' })
   }
 
@@ -329,7 +456,9 @@ export class CallSession {
     if (muted) {
       this._detector.reset()
       this._unscored = new Int16Array(0)
+      if (this._current === 'hearing') this._current = 'listening'
     }
+    if (!this._ended) this.emit({ type: 'state', state: muted ? 'muted' : this._current })
   }
 
   hangUp(reason: 'hung-up' | 'agent' | 'error' = 'hung-up') {
@@ -341,16 +470,17 @@ export class CallSession {
     this.emit({ type: 'ended', reason })
   }
 
-  private _state(state: 'listening' | 'hearing' | 'thinking' | 'speaking') {
-    if (!this._ended) this.emit({ type: 'state', state })
+  private _state(state: CallState) {
+    this._current = state
+    if (!this._ended && !this._muted) this.emit({ type: 'state', state })
   }
 
   private _note(who: CallTurn['who'], text: string) {
     this._turns.push({ at: new Date().toISOString(), who, text })
   }
 
-  /** A finished turn: its transcript (on its way) and how long the person had already been quiet. */
-  private async _heard(transcript: Promise<string>, quietMs: number) {
+  /** A finished turn (the `turn`th): its transcript (on its way) and how long the person had already been quiet. */
+  private async _heard(transcript: Promise<string>, quietMs: number, turn: number) {
     const stopped = Date.now() - quietMs
     let text: string
     try {
@@ -358,39 +488,56 @@ export class CallSession {
     } catch (err) {
       this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       this._state('listening')
-      return
+      return this._askNext()
     }
     if (this._ended) return
     if (!text) {
       this._state('listening')
-      return
+      return this._askNext()
     }
     this._clock = { stopped, heard: Date.now() }
     this._note('person', text)
     this.emit({ type: 'heard', text })
+    const answer = spokenAnswer(text)
+    this._answer = answer === undefined ? undefined : { approved: answer, turn }
     if (this.direct) return this._toCrew(text)
     this._messages.push({ role: 'user', content: text, timestamp: Date.now() })
     void this._respond()
   }
 
   /**
+   * The person's latest turn, if it was a plain yes or no to the approval put to them: begun after they had heard it
+   * (not a yes meant for something else, nor one said over it).
+   */
+  private _answers(id: string): boolean | undefined {
+    const asking = this._asking
+    const answer = this._answer
+    if (asking?.id !== id || asking.heard === undefined || !answer || answer.turn <= asking.heard)
+      return undefined
+    return answer.approved
+  }
+
+  /**
    * A direct call: what the person said goes to the chat as their message (to the lead, or to one agent with
-   * @name), marked as said aloud so the answer comes short and plain. A plain yes or no answers an approval waiting.
+   * @name), marked as said aloud so the answer comes short and plain. A plain yes or no answers the approval put to
+   * them.
    */
   private async _toCrew(text: string) {
-    const waiting = [...this._approvals].at(-1)
-    if (waiting && (YES.test(text) || NO.test(text))) {
-      const [id, colonyId] = waiting
-      const approved = YES.test(text)
-      this._approvals.delete(id)
+    const id = this._asking?.id
+    const answer = id === undefined ? undefined : this._answers(id)
+    if (id !== undefined && answer !== undefined) {
+      this._answer = undefined
       try {
-        await this.ports.chats.decideApproval(colonyId, id, approved)
-        await this._speak(prompts.voice.results.decided(approved))
+        this._speak(await this._decide(id, answer), this._voice)
       } catch (err) {
         this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+        this._state('listening')
       }
+      this._askNext()
       return
     }
+    // Not an answer: the approval it was said over (if any) is put again after.
+    this._askNext()
     this._state('thinking')
     try {
       const message = this.direct === 'lead' ? text : `@${this.direct} ${text}`
@@ -403,6 +550,55 @@ export class CallSession {
       this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       this._state('listening')
     }
+  }
+
+  /** Decides an approval on the person's word; returns what was decided, to read back to them. */
+  private async _decide(id: string, approved: boolean): Promise<string> {
+    const waiting = this._approvals.get(id)
+    if (!waiting) return prompts.voice.results.noApproval(id)
+    // Off the list first, so the crew's own record of this decision, arriving meanwhile, is not taken for another.
+    this._approvals.delete(id)
+    try {
+      await this.ports.chats.decideApproval(waiting.colonyId, id, approved)
+    } catch (err) {
+      this._approvals.set(id, waiting)
+      throw err
+    }
+    this._settled(id, approved)
+    return prompts.voice.decided(approved, waiting.summary)
+  }
+
+  private _settled(id: string, approved: boolean) {
+    this.emit({ type: 'approval-done', id, approved })
+    if (this._asking?.id === id) this._asking = undefined
+  }
+
+  /** Puts the next waiting approval to the person, one at a time, so their yes or no decides the one they heard. */
+  private _askNext() {
+    if (this._asking || this._ended) return
+    const next = this._approvals.entries().next()
+    if (next.done) return
+    const [id, { tool, summary }] = next.value
+    const asking: { id: string; heard?: number; until?: number } = { id }
+    this._asking = asking
+    this.emit({ type: 'approval', id, summary })
+    if (this.direct)
+      this._queue.push({
+        from: this._voice,
+        pieces: speakable(prompts.voice.direct.approval(tool, summary)),
+        done: true,
+        said: (until) => {
+          asking.heard = this._begun
+          asking.until = until
+        },
+      })
+    else
+      this._updates.push({
+        text: prompts.voice.updates.approval(id, tool, summary),
+        note: prompts.voice.notes.approval(summary),
+        approval: id,
+      })
+    this._feed()
   }
 
   private _track(
@@ -423,15 +619,35 @@ export class CallSession {
     if (!extra.question) this.emit({ type: 'task', colonyId: sent.colonyId, request })
   }
 
-  /** Reads text aloud (an agent's reply, an approval), as a reply the person can talk over. */
-  private async _speak(text: string) {
-    const reply = new AbortController()
-    this._reply?.abort()
-    this._reply = reply
-    for (const sentence of speakable(text)) void this._say(sentence, reply.signal)
-    await this._speech
-    if (this._reply === reply) this._reply = undefined
-    if (!reply.signal.aborted) this._state('listening')
+  /** On a direct call, reads text aloud (an agent's reply, an approval) after whatever is already to be read. */
+  private _speak(text: string, from: string) {
+    this._queue.push({ from, pieces: speakable(text), done: true })
+    this._feed()
+  }
+
+  /**
+   * Hands what is queued to the speech engine, a reply still being written last, and then listens once it has been
+   * said. The whole of it is one reply the person can talk over.
+   */
+  private _feed() {
+    if (this._ended || !this._queue.length) return
+    this._reply ??= new AbortController()
+    const reply = this._reply
+    for (let head = this._queue[0]; head; head = this._queue[0]) {
+      const pieces = head.pieces.splice(0)
+      pieces.forEach((piece, i) => {
+        const last = head.done && i === pieces.length - 1
+        void this._say(piece, reply.signal, head.from, last ? head.said : undefined)
+      })
+      if (!head.done) return
+      this._queue.shift()
+    }
+    const speech = this._speech
+    void speech.then(() => {
+      if (this._speech !== speech || this._reply !== reply || this._queue.length) return
+      this._reply = undefined
+      if (!reply.signal.aborted) this._state('listening')
+    })
   }
 
   /** Runs the call agent on what it has been told so far, after any reply already under way stops. */
@@ -496,7 +712,7 @@ export class CallSession {
         this._thought()
         for (const s of split.push(written, false)) {
           spoken += `${s} `
-          void this._say(s, signal)
+          void this._say(s, signal, this._voice)
         }
       }
       const message = await stream.result().catch(() => undefined)
@@ -506,7 +722,7 @@ export class CallSession {
           this._messages.push({ ...message, content: [{ type: 'text', text: `${spoken.trim()} …` }] })
         return
       }
-      if (!signal.aborted) for (const s of split.push(written, true)) void this._say(s, signal)
+      if (!signal.aborted) for (const s of split.push(written, true)) void this._say(s, signal, this._voice)
       if (!message) return
       if (message.stopReason === 'error') throw new Error(message.errorMessage ?? 'the call model failed')
       this._messages.push(message)
@@ -557,14 +773,18 @@ export class CallSession {
         .map((t) => (t.done ? `Finished: ${t.request}` : `Working on: ${t.request}`))
       return lines.length ? lines.join('\n') : r.idle
     }
+    if (call.name === 'crew_updates') return this._takeUpdates() || r.noUpdates
     if (call.name === 'answer_approval') {
       const id = String(args.id ?? '')
-      const colonyId = this._approvals.get(id)
-      if (!colonyId) return r.noApproval(id)
+      if (id !== this._asking?.id) return r.noApproval(id)
       const approved = args.approve === true
-      await this.ports.chats.decideApproval(colonyId, id, approved)
-      this._approvals.delete(id)
-      return r.decided(approved)
+      // Only the person decides: their latest turn, begun after the assistant was told of it, must have been that
+      // plain yes or no, whatever else was said.
+      if (this._answers(id) !== approved) return r.notAnswered
+      this._answer = undefined
+      const line = await this._decide(id, approved)
+      this._askNext()
+      return r.decided(line)
     }
     if (call.name === 'end_call') {
       this._hangUpAfterSpeech = true
@@ -573,8 +793,13 @@ export class CallSession {
     return `no tool called ${call.name}`
   }
 
-  /** Queues a sentence to be spoken after the ones before it. */
-  private _say(text: string, signal: AbortSignal): Promise<void> {
+  /** Queues a sentence to be spoken after the ones before it; `said` hears when it will have finished playing. */
+  private _say(
+    text: string,
+    signal: AbortSignal,
+    from: string,
+    said?: (until: number) => void,
+  ): Promise<void> {
     this._speech = this._speech.then(async () => {
       if (signal.aborted || this._ended) return
       try {
@@ -584,10 +809,11 @@ export class CallSession {
         this._state('speaking')
         this.emit({ type: 'audio', pcm, sampleRate: speech.sampleRate })
         this._voiced()
-        this.emit({ type: 'said', text })
+        this.emit({ type: 'said', text, from })
         this._note('voice', text)
         const ms = (pcm.length / speech.sampleRate) * 1000
         this._playingUntil = Math.max(Date.now(), this._playingUntil) + ms
+        said?.(this._playingUntil)
       } catch (err) {
         if (!signal.aborted)
           this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -596,12 +822,63 @@ export class CallSession {
     return this._speech
   }
 
-  /** Crew updates go to the call agent as a turn of their own, spoken at the next pause. */
+  /** The crew updates waiting, as the call assistant reads them; the transcript notes each for the person. */
+  private _takeUpdates(): string {
+    const updates = this._updates.splice(0)
+    for (const u of updates) this._note('crew', u.note)
+    // The assistant now knows of the approval: a turn begun before this cannot answer it.
+    if (this._asking && updates.some((u) => u.approval === this._asking?.id)) this._asking.heard = this._begun
+    return updates.map((u) => u.text).join('\n\n')
+  }
+
+  /**
+   * Crew updates reach the call assistant as the result of a crew_updates call it did not make, never as a turn of
+   * the person's: the crew's text (an approval's summary, an agent's answer) may carry instructions, and the person's
+   * turns are what the assistant acts on. Spoken at the next pause.
+   */
   private _tellUpdates() {
-    const text = this._updates.splice(0).join('\n\n')
-    this._note('crew', text)
-    this._messages.push({ role: 'user', content: text, timestamp: Date.now() })
+    const call: ToolCall = {
+      type: 'toolCall',
+      id: `crew_${randomBytes(6).toString('hex')}`,
+      name: 'crew_updates',
+      arguments: {},
+    }
+    const last = this._messages.at(-1)
+    // Added to the assistant's last message when it has the last word, so two of its messages never follow each other.
+    if (last?.role === 'assistant')
+      this._messages[this._messages.length - 1] = { ...last, content: [...last.content, call] }
+    else this._messages.push(this._asked(call))
+    this._messages.push({
+      role: 'toolResult',
+      toolCallId: call.id,
+      toolName: call.name,
+      content: [{ type: 'text', text: this._takeUpdates() }],
+      isError: false,
+      timestamp: Date.now(),
+    })
     void this._respond()
+  }
+
+  /** A message of the call assistant's making the call `call` (it was cut off before it had the last word). */
+  private _asked(call: ToolCall): AssistantMessage {
+    const { model } = this.ports.resolver.resolve(this.options.model)
+    return {
+      role: 'assistant',
+      content: [call],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'toolUse',
+      timestamp: Date.now(),
+    }
   }
 
   private _onEvents(colonyId: string, events: readonly MyrEvent[]) {
@@ -609,6 +886,7 @@ export class CallSession {
     if (!mine.length || this._ended) return
     if (this.direct) return this._directEvents(colonyId, events)
     const u = prompts.voice.updates
+    const n = prompts.voice.notes
     for (const e of events) {
       const p = e.payload as Record<string, unknown>
       if (e.type === 'chat/reply' && typeof p.text === 'string') {
@@ -617,22 +895,31 @@ export class CallSession {
         const asked = mine.find((t) => t.question && !t.done && (!t.to || t.to === from))
         if (asked) {
           asked.done = true
-          this._updates.push(u.answer(from, p.text.slice(0, VOICE_ANSWER_CHARS)))
-        } else if (p.question === true) this._updates.push(u.question(p.text))
+          const answer = p.text.slice(0, VOICE_ANSWER_CHARS)
+          this._updates.push({ text: u.answer(from, answer), note: n.answer(from, answer) })
+        } else if (p.question === true)
+          this._updates.push({ text: u.question(p.text), note: n.question(p.text) })
         else for (const t of mine) if (!t.question && !t.done) t.answer = p.text
       } else if (e.type === 'approval/requested' && typeof p.id === 'string') {
-        this._approvals.set(p.id, colonyId)
-        this._updates.push(u.approval(p.id, String(p.tool ?? ''), String(p.summary ?? '')))
+        this._approvals.set(p.id, { colonyId, tool: String(p.tool ?? ''), summary: String(p.summary ?? '') })
+        this._askNext()
       } else if (e.type === 'approval/decided' && typeof p.id === 'string') {
-        this._approvals.delete(p.id)
+        if (this._approvals.delete(p.id)) {
+          this._settled(p.id, p.approved === true)
+          this._askNext()
+        }
       } else if (e.type === 'colony/completed' || e.type === 'colony/failed') {
         for (const t of mine) {
           if (t.done || t.question) continue
           t.done = true
+          const reason = String(p.reason ?? '')
           this._updates.push(
             e.type === 'colony/completed'
-              ? u.done(t.request, (t.answer ?? '').slice(0, VOICE_ANSWER_CHARS))
-              : u.failed(t.request, String(p.reason ?? '')),
+              ? {
+                  text: u.done(t.request, (t.answer ?? '').slice(0, VOICE_ANSWER_CHARS)),
+                  note: n.done(t.request),
+                }
+              : { text: u.failed(t.request, reason), note: n.failed(t.request, reason) },
           )
         }
       }
@@ -641,34 +928,44 @@ export class CallSession {
     if (this._updates.length && !this._reply && !this._detector.speaking) this._tellUpdates()
   }
 
-  /** On a direct call, a reply is spoken while the lead (or the agent) is still writing it. */
-  private _onStream(colonyId: string, agent: string, text: string, done: boolean) {
+  /**
+   * On a direct call, a reply is spoken while the lead (or the agent) is still writing it. Only a reply tool's text:
+   * the model's own text may be narration before a tool call ("Let me look…"), so a plain answer is spoken when it
+   * arrives finished, as chat/reply. A reply cut off is not marked spoken, so the next chat/reply is read.
+   */
+  private _onStream(colonyId: string, agent: string, text: string, done: boolean, plain: boolean) {
     if (this._ended || !this._sent.some((t) => t.colonyId === colonyId)) return
     if (this.direct !== 'lead' && agent !== this.direct) return
     const key = `${colonyId}:${agent}`
     let stream = this._streams.get(key)
-    if (!stream || stream.done) {
-      this._reply?.abort()
-      const reply = new AbortController()
-      this._reply = reply
+    if (plain) {
+      // A reply cut off (its reply tool call aborted) ends with none in it: what was said stands, and the stream
+      // must end, or it would hold back everything queued after it for the rest of the call.
+      if (!stream || !done) return
+      stream.done = true
+      this._streams.delete(key)
+      this._feed()
+      return
+    }
+    if (!stream) {
       stream = {
-        split: new SpeechSplitter({ firstClause: true, limit: VOICE_SPOKEN_SENTENCES }),
-        signal: reply.signal,
+        from: agent,
+        pieces: [],
         done: false,
+        split: new SpeechSplitter({ firstClause: true, limit: VOICE_SPOKEN_SENTENCES }),
       }
       this._streams.set(key, stream)
+      // After whatever is already being said: two replies at once are read one after the other.
+      this._queue.push(stream)
     }
     this._thought()
-    for (const piece of stream.split.push(text, done)) void this._say(piece, stream.signal)
-    if (!done) return
-    stream.done = true
-    this._streamed.add(agent)
-    const { signal } = stream
-    void this._speech.then(() => {
-      if (signal.aborted || this._ended) return
-      if (this._reply?.signal === signal) this._reply = undefined
-      this._state('listening')
-    })
+    stream.pieces.push(...stream.split.push(text, done))
+    if (done) {
+      stream.done = true
+      this._streams.delete(key)
+      this._streamed.add(agent)
+    }
+    this._feed()
   }
 
   /** The first words of the answer are written. */
@@ -694,7 +991,6 @@ export class CallSession {
 
   /** On a direct call, the replies of whoever the person talks to are read aloud, and approvals put to them. */
   private _directEvents(colonyId: string, events: readonly MyrEvent[]) {
-    const d = prompts.voice.direct
     for (const e of events) {
       const p = e.payload as Record<string, unknown>
       if (e.type === 'chat/reply' && typeof p.text === 'string') {
@@ -703,14 +999,17 @@ export class CallSession {
         // Already spoken as it was written.
         if (this._streamed.delete(agent)) continue
         this._thought()
-        void this._speak(p.text)
+        this._speak(p.text, agent)
       } else if (e.type === 'approval/requested' && typeof p.id === 'string') {
-        this._approvals.set(p.id, colonyId)
-        void this._speak(d.approval(String(p.tool ?? ''), String(p.summary ?? '')))
+        this._approvals.set(p.id, { colonyId, tool: String(p.tool ?? ''), summary: String(p.summary ?? '') })
+        this._askNext()
       } else if (e.type === 'approval/decided' && typeof p.id === 'string') {
-        this._approvals.delete(p.id)
+        if (this._approvals.delete(p.id)) {
+          this._settled(p.id, p.approved === true)
+          this._askNext()
+        }
       } else if (e.type === 'colony/failed') {
-        void this._speak(d.failed(String(p.reason ?? '')))
+        this._speak(prompts.voice.direct.failed(String(p.reason ?? '')), this._voice)
       }
     }
   }

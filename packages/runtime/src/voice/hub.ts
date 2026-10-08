@@ -5,10 +5,21 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { VOICE_THRESHOLDS, VOICE_VAD_HYSTERESIS, VOICE_VAD_START } from '../config.ts'
+import {
+  VOICE_MAX_CALLS,
+  VOICE_PHONON_MODEL_BYTES,
+  VOICE_SMART_TURN_BYTES,
+  VOICE_THRESHOLDS,
+  VOICE_TRANSCRIPT_DAYS,
+  VOICE_TRANSCRIPT_PRUNE_MS,
+  VOICE_VAD_BYTES,
+  VOICE_VAD_HYSTERESIS,
+  VOICE_VAD_START,
+} from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import type { MyrSettings } from '../settings.ts'
@@ -19,8 +30,10 @@ import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type Spe
 import {
   FunctionTts,
   KITTEN_VOICES,
+  type KittenModel,
   type KittenState,
   KittenTts,
+  kittenBytes,
   OpenAiCompatibleTts,
   type Speech,
   type TextToSpeech,
@@ -28,6 +41,19 @@ import {
 import { SileroVad } from './vad.ts'
 
 export type VoiceSettings = MyrSettings['voice']
+
+/**
+ * Why a call cannot start, with the WebSocket close code the person's side reads it by: 4409 voice calls are off,
+ * 4423 a call is already on in this chat, 4429 too many calls at once, 4503 the speech engines are not ready.
+ */
+export class CallRefused extends Error {
+  constructor(
+    readonly code: 4409 | 4423 | 4429 | 4503,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 /** The speech parts of omp a call can use (its cloud speech models). */
 export interface OmpSpeech {
@@ -47,7 +73,7 @@ interface VoiceSecrets {
 
 export interface SavedCall {
   readonly id: string
-  readonly chatId?: string
+  readonly chatId: string
   readonly startedAt: string
   readonly endedAt: string
   readonly turns: readonly CallTurn[]
@@ -75,11 +101,22 @@ export interface VoiceStatus {
     omp: string[]
     keySet: boolean
   }
+  /** Whether the speech detector and the turn model are here; both download with the first warm-up. */
+  readonly vad: { ready: boolean }
+  readonly turn: { ready: boolean }
+  /**
+   * Bytes each engine downloads the first time it is used, so Settings can say so before it happens: Phonon-2's
+   * model (its command line comes from the Install button), each Kitten model, the speech detector, the turn model.
+   */
+  readonly sizes: { phonon: number; kitten: Record<KittenModel, number>; vad: number; turn: number }
+  /** Days a call's transcript is kept. */
+  readonly transcriptDays: number
 }
 
 /**
  * Voice calls for this gateway: the engines on this machine (Phonon-2, Kitten TTS) and the providers chosen in
- * Settings → Voice, the calls in progress, and their transcripts (`<home>/calls/<id>.json`).
+ * Settings → Voice, the calls in progress, and their transcripts (`<home>/calls/<id>.json`, kept with their chat for
+ * VOICE_TRANSCRIPT_DAYS).
  */
 export class VoiceHub {
   readonly phonon: PhononStt
@@ -103,22 +140,31 @@ export class VoiceHub {
       readonly vad?: SileroVad
       /** The end-of-turn model; Smart Turn in `<home>/voice` unless given. */
       readonly turn?: SmartTurn
+      /** Kitten TTS from Hugging Face unless given (tests give one that downloads from a stand-in). */
+      readonly kitten?: KittenTts
+      /** How often old transcripts are dropped while the gateway runs (VOICE_TRANSCRIPT_PRUNE_MS unless given). */
+      readonly pruneMs?: number
     },
   ) {
     const log = options.log ?? (() => {})
     this.phonon = new PhononStt(options.home, log)
-    this.kitten = new KittenTts(
-      options.home,
-      () => {
-        const t = options.settings().voice.tts
-        return { model: t.kittenModel, voice: t.voice, speed: t.speed }
-      },
-      log,
-    )
+    this.kitten =
+      options.kitten ??
+      new KittenTts(
+        options.home,
+        () => {
+          const t = options.settings().voice.tts
+          return { model: t.kittenModel, voice: t.voice, speed: t.speed }
+        },
+        log,
+      )
     this.vad = options.vad ?? new SileroVad(options.home)
     this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
+    this._prune()
+    // A gateway left running for weeks drops old transcripts too, not only when it starts or a call ends.
+    setInterval(() => this._prune(), options.pruneMs ?? VOICE_TRANSCRIPT_PRUNE_MS).unref()
   }
 
   status(): VoiceStatus {
@@ -142,6 +188,19 @@ export class VoiceHub {
         omp: omp.tts,
         keySet: !!secrets.ttsKey,
       },
+      vad: { ready: this.vad.ready },
+      turn: { ready: this.turn.ready },
+      sizes: {
+        phonon: VOICE_PHONON_MODEL_BYTES,
+        kitten: {
+          nano: kittenBytes(this.kitten.pins.nano),
+          micro: kittenBytes(this.kitten.pins.micro),
+          mini: kittenBytes(this.kitten.pins.mini),
+        },
+        vad: VOICE_VAD_BYTES,
+        turn: VOICE_SMART_TURN_BYTES,
+      },
+      transcriptDays: VOICE_TRANSCRIPT_DAYS,
     }
   }
 
@@ -202,8 +261,9 @@ export class VoiceHub {
   }
 
   /**
-   * Loads the engines the settings choose and warms them (the speech detector, Phonon-2, Kitten), so the first call
-   * does not wait on downloads or start-up. Shared: a call starting meanwhile waits for the same work, and once warm it
+   * Downloads and warms the engines the settings choose (the speech detector, the turn model, Kitten's model, Phonon-2
+   * once installed), so turning voice on fetches them then, with progress in `status()`, rather than in the middle of
+   * a "Try it" or a call's first sentence. Shared: a call starting meanwhile waits for the same work, and once warm it
    * returns at once until the choice changes.
    */
   warm(): Promise<void> {
@@ -214,7 +274,7 @@ export class VoiceHub {
       return Promise.resolve()
     }
     const phonon = voice.stt.provider === 'phonon' && this.phonon.status().state !== 'missing'
-    const kitten = voice.tts.provider === 'kitten' && this.kitten.status().state !== 'missing'
+    const kitten = voice.tts.provider === 'kitten'
     const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
     if (this._warm?.key === key) return this._warm.done
     const log = this.options.log ?? (() => {})
@@ -223,6 +283,7 @@ export class VoiceHub {
       ['turn model', this.turn.load()],
     ]
     if (phonon) jobs.push(['Phonon-2', this.phonon.warm()])
+    // Speaking starts the worker, which downloads the model first if it is not here.
     if (kitten) jobs.push(['Kitten TTS', this.kitten.speak('Ready.')])
     const done = Promise.allSettled(jobs.map(([, job]) => job)).then((results) => {
       results.forEach((r, i) => {
@@ -242,12 +303,15 @@ export class VoiceHub {
     return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
   }
 
-  /** Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. */
   /** Whether voice calls are on in Settings → Voice. */
   get enabled(): boolean {
     return this.options.settings().voice.enabled
   }
 
+  /**
+   * Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. Throws
+   * CallRefused when it cannot: voice off, a call already in the chat, too many calls, or engines not ready.
+   */
   call(
     chats: CallChats,
     options: {
@@ -262,18 +326,33 @@ export class VoiceHub {
     emit: (out: CallOutput) => void,
   ): CallSession {
     const { voice, fallbackModel } = this.options.settings()
-    if (!voice.enabled) throw new Error('voice calls are off: turn them on in Settings → Voice')
+    const r = prompts.voice.refused
+    if (!voice.enabled) throw new CallRefused(4409, r.off)
+    const calls = [...this._calls.values()]
+    if (options.chatId && calls.some((c) => c.chatId === options.chatId)) throw new CallRefused(4423, r.busy)
+    if (calls.length >= VOICE_MAX_CALLS) throw new CallRefused(4429, r.full(VOICE_MAX_CALLS))
     const model = voice.callModel ?? fallbackModel
-    if (!model) throw new Error('pick a call model in Settings → Voice')
+    if (!model) throw new CallRefused(4503, r.noModel)
+    const unready = this._unready()
+    if (unready) throw new CallRefused(4503, unready)
+    let stt: SpeechToText
+    let tts: TextToSpeech
+    try {
+      stt = this.stt()
+      tts = this.tts()
+    } catch (err) {
+      throw new CallRefused(4503, err instanceof Error ? err.message : String(err))
+    }
     const session = new CallSession(
       {
         chats,
         resolver: this.options.resolver,
-        stt: this.stt(),
-        tts: this.tts(),
+        stt,
+        tts,
         // Downloaded by warm(); until then turns are found by level, and end after a longer quiet.
         ...(this.vad.ready ? { detector: this.vad } : {}),
         ...(this.turn.ready ? { judge: this.turn } : {}),
+        ...(this.options.log ? { log: this.options.log } : {}),
       },
       {
         ...options,
@@ -294,20 +373,35 @@ export class VoiceHub {
     return session
   }
 
+  /** Why the chosen engines on this machine cannot take a call now (after warm(), which fetches what it can). */
+  private _unready(): string | undefined {
+    const { voice } = this.options.settings()
+    const r = prompts.voice.refused
+    if (voice.stt.provider === 'phonon') {
+      const phonon = this.phonon.status()
+      if (phonon.state === 'missing') return r.phononMissing
+      if (phonon.state === 'installing') return r.phononInstalling
+      if (phonon.state === 'error') return r.failed('Phonon-2', phonon.error)
+    }
+    if (voice.tts.provider === 'kitten') {
+      const kitten = this.kitten.status()
+      if (kitten.state === 'missing' || kitten.state === 'downloading') return r.kittenMissing
+      if (kitten.state === 'error') return r.failed('Kitten TTS', kitten.error)
+    }
+    return undefined
+  }
+
   /** The calls made in a chat, oldest first. */
   calls(chatId: string): SavedCall[] {
-    if (!existsSync(this._callsDir)) return []
-    return readdirSync(this._callsDir)
-      .filter((f) => f.endsWith('.json'))
-      .flatMap((f) => {
-        try {
-          const call = JSON.parse(readFileSync(join(this._callsDir, f), 'utf8')) as SavedCall
-          return call.chatId === chatId ? [call] : []
-        } catch {
-          return []
-        }
-      })
+    return this._saved()
+      .flatMap(({ call }) => (call.chatId === chatId ? [call] : []))
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  }
+
+  /** A chat was deleted: its calls end, and their transcripts go with it. */
+  forget(chatId: string) {
+    for (const call of [...this._calls.values()]) if (call.chatId === chatId) call.hangUp()
+    for (const { file, call } of this._saved()) if (call.chatId === chatId) rmSync(file, { force: true })
   }
 
   /**
@@ -329,7 +423,8 @@ export class VoiceHub {
     return {
       context: prompts.voice.transcripts(lines),
       tell: () => {
-        for (const c of calls) this._write({ ...c, told: true })
+        // A transcript deleted meanwhile (its chat was) is not written back.
+        for (const c of calls) if (existsSync(this._file(c.id))) this._write({ ...c, told: true })
       },
     }
   }
@@ -344,10 +439,11 @@ export class VoiceHub {
 
   private _save(session: CallSession) {
     const turns = session.transcript()
-    if (!turns.some((t) => t.who === 'person')) return
+    // A call that made no chat (it started no work) has nowhere to be shown or deleted with: it is not kept.
+    if (!session.chatId || !turns.some((t) => t.who === 'person')) return
     const saved: SavedCall = {
       id: session.id,
-      ...(session.chatId ? { chatId: session.chatId } : {}),
+      chatId: session.chatId,
       startedAt: session.startedAt,
       endedAt: new Date().toISOString(),
       turns,
@@ -356,11 +452,37 @@ export class VoiceHub {
       ...(session.direct ? { talkTo: session.direct, told: true } : {}),
     }
     this._write(saved)
+    this._prune()
+  }
+
+  /** Every saved call, with its file; one that cannot be read is skipped. */
+  private _saved(): { file: string; call: SavedCall }[] {
+    if (!existsSync(this._callsDir)) return []
+    return readdirSync(this._callsDir)
+      .filter((f) => f.endsWith('.json'))
+      .flatMap((f) => {
+        const file = join(this._callsDir, f)
+        try {
+          return [{ file, call: JSON.parse(readFileSync(file, 'utf8')) as SavedCall }]
+        } catch {
+          return []
+        }
+      })
+  }
+
+  /** Drops transcripts older than VOICE_TRANSCRIPT_DAYS. */
+  private _prune() {
+    const before = new Date(Date.now() - VOICE_TRANSCRIPT_DAYS * 86_400_000).toISOString()
+    for (const { file, call } of this._saved()) if (call.endedAt < before) rmSync(file, { force: true })
+  }
+
+  private _file(id: string): string {
+    return join(this._callsDir, `${id}.json`)
   }
 
   private _write(call: SavedCall) {
     mkdirSync(this._callsDir, { recursive: true, mode: 0o700 })
-    writeFileSync(join(this._callsDir, `${call.id}.json`), `${JSON.stringify(call, null, 2)}\n`, {
+    writeFileSync(this._file(call.id), `${JSON.stringify(call, null, 2)}\n`, {
       mode: 0o600,
     })
   }
