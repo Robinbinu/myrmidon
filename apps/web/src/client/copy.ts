@@ -176,15 +176,17 @@ export const copy = {
     unmute: 'Unmute',
     states: {
       connecting: 'Connecting…',
-      preparing: 'Preparing voice…',
+      preparing: 'Getting ready…',
       listening: 'Listening',
       hearing: 'Hearing you…',
       thinking: 'Thinking…',
       speaking: 'Speaking',
+      muted: 'Muted',
       ended: 'Call ended',
     },
     you: 'You',
-    voice: 'Crew',
+    /** Who said a line of the call. */
+    speaker: { assistant: 'Assistant', lead: 'Lead' },
     menu: {
       assistant: 'Call assistant',
       assistantHint: 'A fast model: answers quick things, hands work to the crew, asks them for you',
@@ -193,8 +195,12 @@ export const copy = {
       agentHint: (role?: string) =>
         `${role ? `${role} · ` : ''}talk to them directly; they get the chat so far`,
     },
-    /** In the call bar: who the call is with. */
+    /** In the call bar: who the call is with, and the chat it is in. */
     with: (who: string) => `With ${who}`,
+    inChat: (title: string) => `In ${title}`,
+    openChat: (title: string) => `Go to the chat “${title}”`,
+    /** Before what waits for the person's answer, said aloud on the call. */
+    approval: 'Waiting for your yes or no:',
     /** How long the last answer took to start, after the person stopped talking. */
     latency: (ms: number) => `answered in ${(ms / 1000).toFixed(1)} s`,
     assistantName: 'the call assistant',
@@ -202,6 +208,12 @@ export const copy = {
     started: (request: string) => `Crew started: ${request}`,
     noMic: 'Myrmidon could not use the microphone. Allow it for this page and try again.',
     insecure: 'Calls need the microphone, which browsers allow only on https or on this machine.',
+    couldNotStart:
+      'Couldn’t start the call. Check that Myrmidon is running and voice calls are on in Settings → Voice.',
+    dropped: 'The call dropped: Myrmidon stopped answering. Check that it is still running, then call again.',
+    failed:
+      'The call stopped because of a problem in Myrmidon. Call again; if it keeps happening, check its log.',
+    openVoiceSettings: 'Open Settings → Voice',
     card: {
       title: (minutes: number) => `Call · ${minutes < 1 ? 'under a minute' : `${minutes} min`}`,
       show: 'Show transcript',
@@ -993,6 +1005,8 @@ export const copy = {
       queued: 'Sent when done',
       readBy: (names: string) => `Read by ${names}`,
       steerLive: 'joins the next step',
+      /** A message the person said aloud on a voice call. */
+      saidOnCall: 'Said on a call',
       queueLive: 'waits until the current work is done',
       notRead: 'not read before the run ended',
       copyMessage: 'Copy message',
@@ -1987,15 +2001,21 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a round in the chat, then tells you when it is done. Speech can stay on this machine, or use a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a run in the chat, then tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
       enabled: 'Voice calls',
-      enabledHint:
-        'Off by default. Turning them on downloads the speech engines you choose that are not here yet (the speech detector is 1.3 MB) and keeps them ready, so a call answers at once.',
+      /** Sizes are written like "1.3 MB", or empty when the server does not say. */
+      enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
+        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.`,
+      transcripts: (days: number) =>
+        `Call transcripts are kept with their chat for ${days} days, then deleted.`,
       callModel: 'Call model',
       callModelHint: 'A fast model reads best on a call; it only talks and hands work on.',
       sameAsLead: 'Same as the lead',
+      ownModel: 'Its own model',
+      leadModel: (model: string) => `Uses ${model}.`,
       sttTitle: 'Speech to text',
       ttsTitle: 'Text to speech',
+      engineLabel: 'Engine',
       providers: {
         phonon: 'Phonon-2 (on this Mac)',
         omp: 'Cloud (your signed-in providers)',
@@ -2003,13 +2023,22 @@ export const copy = {
         kitten: 'Kitten TTS (on this Mac)',
       },
       hints: {
-        phonon: 'Fermion Research’s 164 MB English model, run locally; nothing you say leaves this machine.',
+        phonon: (size: string) =>
+          `Fermion Research’s English model${size && ` (${size})`}, with a Python runtime installed by uv. Your voice is transcribed on this Mac; the text goes to your call model like any message.`,
         ompStt: (models: string) =>
-          models ? `Uses ${models}.` : 'Needs an OpenAI or Groq key in Settings → Models.',
+          models
+            ? `Uses ${models}: your audio is sent to that provider to be transcribed.`
+            : 'Needs an OpenAI or Groq key in Settings → Models; your audio would be sent to that provider.',
         ompTts: (models: string) =>
-          models ? `Uses ${models}.` : 'Needs an OpenAI or xAI key in Settings → Models.',
+          models
+            ? `Uses ${models}: what the call says is sent to that provider to be spoken.`
+            : 'Needs an OpenAI or xAI key in Settings → Models; what the call says would be sent to that provider.',
         endpoint: 'Any service with the OpenAI audio API: Groq, OpenAI, a local whisper or Kokoro server…',
-        kitten: 'KittenML’s small voices, run locally on the CPU.',
+        endpointStt: 'Your audio is sent to this address to be transcribed.',
+        endpointTts: 'What the call says is sent to this address to be spoken.',
+        plainHttp:
+          'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on this machine.',
+        kitten: 'KittenML’s small voices, run locally on the CPU; nothing is sent anywhere.',
       },
       engine: {
         missing: 'Not installed',
@@ -2018,7 +2047,23 @@ export const copy = {
         starting: 'Starting (the first start downloads the model)…',
         running: 'Running',
         downloading: (done: number, total: number) => `Downloading (${done}/${total})…`,
-        error: (error: string) => `Error: ${error}`,
+        downloadingBytes: (received: string, size: string) => `Downloading ${received} of ${size}…`,
+      },
+      /** An engine that failed, in plain words: what went wrong and what to do; the raw message is behind details. */
+      trouble: {
+        noUv: {
+          cause: 'Phonon-2 needs uv, the Python installer, and it is not on this Mac.',
+          fix: 'Install uv from docs.astral.sh/uv, then press Install again.',
+        },
+        phonon: {
+          cause: 'Phonon-2 could not install or start.',
+          fix: 'Check the internet connection and press Reinstall, or pick Cloud for speech to text.',
+        },
+        kitten: {
+          cause: 'The Kitten TTS model could not download.',
+          fix: 'Check the internet connection and press Download again, or pick Cloud for text to speech.',
+        },
+        details: 'Show details',
       },
       install: 'Install',
       reinstall: 'Reinstall',
@@ -2029,7 +2074,11 @@ export const copy = {
       keySet: 'Saved; type a new one to replace it',
       saveKey: 'Save key',
       kittenModel: 'Model size',
-      kittenModels: { nano: 'Nano (fastest)', micro: 'Micro', mini: 'Mini (best sounding)' },
+      kittenModels: {
+        nano: 'Nano (fastest)',
+        micro: 'Micro',
+        mini: 'Mini (best sounding)',
+      },
       voice: 'Voice',
       speed: 'Speed',
       tryIt: 'Try it',
@@ -2363,6 +2412,8 @@ export const copy = {
       send: 'Send message',
       newLine: 'New line',
       close: 'Close dialogs and panels',
+      muteCall: 'Mute or unmute a call',
+      hangUp: 'Hang up a call',
     },
     about: {
       title: 'About Myrmidon',

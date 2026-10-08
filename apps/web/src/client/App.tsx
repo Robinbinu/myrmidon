@@ -67,7 +67,14 @@ import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
-import { AGENT_MIN_WINDOW, CALL_LINES, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
+import {
+  AGENT_MIN_WINDOW,
+  CALL_HANG_UP_COMBO,
+  CALL_LINES,
+  CALL_MUTE_COMBO,
+  MAX_FILE_BYTES,
+  softSpring,
+} from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
 import { CallCard, type SavedCall } from './voice/CallCard.tsx'
@@ -375,8 +382,14 @@ export function App() {
     state: CallState
     lines: CallLine[]
     muted: boolean
-    with: string
+    /** Who the call reached: `assistant`, `lead` or a crew member's name. */
+    talk: string
+    chatId?: string
+    /** The chat's title as the server named it, until the chat list has it. */
+    chatTitle?: string
     latency?: number
+    /** What waits for the person's yes or no, newest last. */
+    approvals: { id: string; summary: string }[]
   }>()
   const [calls, setCalls] = useState<SavedCall[]>([])
   const [callsSeen, setCallsSeen] = useState(0)
@@ -406,17 +419,45 @@ export function App() {
       activeChat,
       {
         state: (state) => setCall((c) => c && { ...c, state }),
-        line: (who, text) =>
-          setCall((c) => c && { ...c, lines: [...c.lines, { who, text }].slice(-CALL_LINES) }),
+        hello: (hello) =>
+          setCall(
+            (c) =>
+              c && {
+                ...c,
+                talk: hello.talk,
+                ...(hello.chatId ? { chatId: hello.chatId } : {}),
+                ...(hello.chatTitle ? { chatTitle: hello.chatTitle } : {}),
+              },
+          ),
+        line: (who, text, from) =>
+          setCall(
+            (c) =>
+              c && { ...c, lines: [...c.lines, { who, text, ...(from ? { from } : {}) }].slice(-CALL_LINES) },
+          ),
         level: setMicLevel,
         chat: (id) => {
+          setCall((c) => c && { ...c, chatId: id })
           setActiveChat(id)
           setView('chat')
           refreshChats()
         },
         task: (request) => toast(copy.call.started(request), 'info'),
         latency: (ms) => setCall((c) => c && { ...c, latency: ms }),
-        error: (message) => toast(message, 'error'),
+        approval: (id, summary) =>
+          setCall(
+            (c) => c && { ...c, approvals: [...c.approvals.filter((a) => a.id !== id), { id, summary }] },
+          ),
+        approvalDone: (id) =>
+          setCall((c) => c && { ...c, approvals: c.approvals.filter((a) => a.id !== id) }),
+        // Voice off (4409) or not ready (4503: an engine to install, no call model…) is fixed in Settings → Voice.
+        error: (message, code) =>
+          toast(
+            message,
+            'error',
+            fullAccess && (code === 4409 || code === 4503)
+              ? { label: copy.call.openVoiceSettings, run: () => openSettings('voice') }
+              : undefined,
+          ),
         ended: () => {
           callRef.current = undefined
           setCall(undefined)
@@ -427,15 +468,30 @@ export function App() {
       to,
     )
     callRef.current = client
-    const who = to === undefined ? copy.call.assistantName : to === 'lead' ? copy.call.leadName : to
-    setCall({ state: 'connecting', lines: [], muted: false, with: who })
+    setCall({
+      state: 'connecting',
+      lines: [],
+      muted: false,
+      talk: to ?? 'assistant',
+      ...(activeChat ? { chatId: activeChat } : {}),
+      approvals: [],
+    })
     try {
       await client.start()
     } catch (err) {
+      // Hung up before the mic or audio was ready: what failed after that is of no interest any more.
+      if (callRef.current !== client) return
       toast((err as Error).name === 'NotAllowedError' ? copy.call.noMic : (err as Error).message, 'error')
       client.hangUp()
     }
   }
+  const muteCall = (muted: boolean) => {
+    callRef.current?.mute(muted)
+    setCall((c) => c && { ...c, muted })
+  }
+  const callChatTitle = call?.chatId
+    ? (chats.find((c) => c.chatId === call.chatId)?.title ?? call.chatTitle)
+    : undefined
 
   const updateConfig = (c: TeamConfig) => {
     setConfig(c)
@@ -499,6 +555,13 @@ export function App() {
     ...(!settingsOpen && view === 'chat' && chat
       ? []
       : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
+    ...(call
+      ? [
+          // Not while typing: on a Mac, Ctrl+D (which `mod` also matches) deletes forward in a text field.
+          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted) },
+          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp() },
+        ]
+      : []),
   ])
 
   const send = async (
@@ -840,15 +903,24 @@ export function App() {
                 {call && (
                   <CallBar
                     key="call"
-                    with={call.with}
+                    talk={call.talk}
+                    {...(call.chatId && callChatTitle
+                      ? {
+                          chat: {
+                            title: callChatTitle,
+                            onOpen: () => {
+                              setActiveChat(call.chatId)
+                              setView('chat')
+                            },
+                          },
+                        }
+                      : {})}
                     {...(call.latency !== undefined ? { latency: call.latency } : {})}
+                    {...(call.approvals.length ? { approval: call.approvals.at(-1)?.summary } : {})}
                     state={call.state}
                     lines={call.lines}
                     muted={call.muted}
-                    onMute={(muted) => {
-                      callRef.current?.mute(muted)
-                      setCall((c) => c && { ...c, muted })
-                    }}
+                    onMute={muteCall}
                     onHangUp={() => callRef.current?.hangUp()}
                   />
                 )}

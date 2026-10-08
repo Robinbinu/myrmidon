@@ -65,7 +65,7 @@ import {
 import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
-import { TeamSettings } from './chat/Composer.tsx'
+import { formatSize, TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
@@ -103,8 +103,10 @@ import {
   SETTINGS_NAV_COLLAPSE_PX,
   softSpring,
   spring,
+  VOICE_POLL_MS,
   VOICE_SPEEDS,
 } from './ui-config.ts'
+import { engineTrouble } from './voice/engine-trouble.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -3267,15 +3269,57 @@ interface VoiceStatusView {
   }
   tts: {
     provider: ServerSettings['voice']['tts']['provider']
-    kitten: { state: string; done?: number; total?: number; error?: string }
+    /** While downloading: files `done` of `total`, and bytes `received` of `size`. */
+    kitten: { state: string; done?: number; total?: number; received?: number; size?: number; error?: string }
     voices: string[]
     omp: string[]
     keySet: boolean
   }
+  /** Bytes each local engine downloads the first time; absent from older servers. */
+  sizes?: { phonon: number; kitten: Record<'nano' | 'micro' | 'mini', number>; vad: number; turn: number }
+  /** Days a call's transcript is kept. */
+  transcriptDays?: number
 }
 
-/** How often Settings → Voice looks again, so an install or download shows its progress. */
-const VOICE_POLL_MS = 2000
+/** An engine installing, starting or downloading: Settings → Voice looks again until it is done. */
+function voiceBusy(s: VoiceStatusView | undefined): boolean {
+  return (
+    !!s &&
+    (s.stt.phonon.state === 'installing' ||
+      s.stt.phonon.state === 'starting' ||
+      s.tts.kitten.state === 'downloading')
+  )
+}
+
+/** A plain http address to another machine, where a key and audio would travel unencrypted. */
+function plainHttp(url: string | undefined): boolean {
+  if (!url?.startsWith('http://')) return false
+  try {
+    return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
+function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
+  const t = copy.settings.voice.trouble
+  const trouble = engineTrouble(props.engine, props.raw)
+  return (
+    <div className="min-w-0 flex-1 text-body">
+      <p className="text-bad-ink">{trouble.cause}</p>
+      <p className="text-fg-2">{trouble.fix}</p>
+      {props.raw && (
+        <details className="mt-1 text-callout text-muted">
+          <summary>{t.details}</summary>
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+            {props.raw}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
 
 /**
  * Voice calls: the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and Kitten TTS,
@@ -3293,25 +3337,47 @@ function VoiceSection(props: {
   const [status, setStatus] = useState<VoiceStatusView>()
   const [keys, setKeys] = useState({ stt: '', tts: '' })
   const [trying, setTrying] = useState(false)
+  const [urls, setUrls] = useState({ stt: v.stt.baseUrl ?? '', tts: v.tts.baseUrl ?? '' })
+  const [urlErrors, setUrlErrors] = useState<{ stt?: string; tts?: string }>({})
+  // A failing look is said once, not again on every later look that fails the same way.
+  const failed = useRef<string>(undefined)
+  // Counts finished looks, so each one, answered or failed, can schedule the next.
+  const [looks, setLooks] = useState(0)
   const load = () =>
     api<VoiceStatusView>('/api/voice')
-      .then(setStatus)
-      .catch((err: Error) => toast(err.message, 'error'))
-  // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
+      .then((s) => {
+        failed.current = undefined
+        setStatus(s)
+      })
+      .catch((err: Error) => {
+        if (failed.current === err.message) return
+        failed.current = err.message
+        toast(err.message, 'error')
+      })
+      .finally(() => setLooks((n) => n + 1))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once, and again after each save
   useEffect(() => {
     void load()
-    const timer = setInterval(() => void load(), VOICE_POLL_MS)
-    return () => clearInterval(timer)
+    window.addEventListener(SETTINGS_SAVED, load)
+    return () => window.removeEventListener(SETTINGS_SAVED, load)
   }, [])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each finished look schedules the next while one is due
+  useEffect(() => {
+    if (!voiceBusy(status) && !failed.current) return
+    const timer = setTimeout(() => void load(), VOICE_POLL_MS)
+    return () => clearTimeout(timer)
+  }, [looks])
   const set = (patch: (voice: ServerSettings['voice']) => ServerSettings['voice']) =>
     props.update((s) => ({ ...s, voice: patch(s.voice) }))
   const act = (promise: Promise<unknown>) => promise.then(load, (err: Error) => toast(err.message, 'error'))
-  const engine = (s: { state: string; line?: string; error?: string; done?: number; total?: number }) =>
-    s.state === 'error'
-      ? t.engine.error(s.error ?? '')
-      : s.state === 'downloading'
-        ? t.engine.downloading(s.done ?? 0, s.total ?? 0)
-        : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
+  const engine = (s: { state: string; done?: number; total?: number; received?: number; size?: number }) =>
+    s.state === 'downloading'
+      ? s.size
+        ? t.engine.downloadingBytes(formatSize(s.received ?? 0), formatSize(s.size))
+        : t.engine.downloading(s.done ?? 0, s.total ?? 0)
+      : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
+  const sizes = status?.sizes
+  const size = (bytes: number | undefined) => (bytes ? formatSize(bytes) : '')
   const tryIt = async () => {
     setTrying(true)
     try {
@@ -3334,13 +3400,22 @@ function VoiceSection(props: {
     return (
       <>
         <Row>
-          <Field label={t.baseUrl} hint={t.hints.endpoint}>
+          <Field
+            label={t.baseUrl}
+            hint={plainHttp(urls[which].trim()) ? t.hints.plainHttp : t.hints.endpoint}
+            error={urlErrors[which]}
+          >
             <TextInput
-              defaultValue={e.baseUrl ?? ''}
+              value={urls[which]}
               placeholder="https://api.groq.com/openai/v1"
-              onBlur={(ev) => {
-                const baseUrl = ev.target.value.trim()
-                set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
+              onChange={(ev) => setUrls((u) => ({ ...u, [which]: ev.target.value }))}
+              onBlur={() => {
+                const baseUrl = urls[which].trim()
+                const error = baseUrlError(baseUrl)
+                setUrlErrors((u) => ({ ...u, [which]: error }))
+                // An address that is not one is not saved; clearing the field is.
+                if (!error || !baseUrl)
+                  set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
               }}
               aria-label={t.baseUrl}
               className="font-mono"
@@ -3399,7 +3474,20 @@ function VoiceSection(props: {
   const onOff = (
     <Card className="mb-6">
       <Row>
-        <Field label={t.enabled} hint={t.enabledHint} inline>
+        <Field
+          label={t.enabled}
+          hint={
+            <>
+              {t.enabledHint({
+                detector: size(sizes?.vad),
+                turn: size(sizes?.turn),
+                kitten: size(sizes?.kitten[v.tts.kittenModel]),
+              })}
+              {status?.transcriptDays !== undefined && ` ${t.transcripts(status.transcriptDays)}`}
+            </>
+          }
+          inline
+        >
           <Switch
             checked={v.enabled}
             onChange={(enabled) => set((x) => ({ ...x, enabled }))}
@@ -3423,24 +3511,38 @@ function VoiceSection(props: {
       <Card className="mb-6">
         <Row>
           <Field label={t.callModel} hint={t.callModelHint}>
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                id="call-model"
+                value={v.callModel ? 'own' : 'lead'}
+                options={[
+                  { value: 'lead', label: t.sameAsLead },
+                  { value: 'own', label: t.ownModel },
+                ]}
+                onChange={(choice) =>
+                  set((x) => ({
+                    ...x,
+                    callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
+                  }))
+                }
+              />
+              {v.callModel ? (
                 <ModelPicker
+                  variant="compact"
                   label={t.callModel}
-                  value={v.callModel ?? status?.callModel ?? ''}
+                  value={v.callModel}
                   models={props.models}
                   placement="down"
                   onChange={(callModel) => set((x) => ({ ...x, callModel }))}
                 />
-              </div>
-              {v.callModel && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => set((x) => ({ ...x, callModel: undefined }))}
-                >
-                  {t.sameAsLead}
-                </Button>
+              ) : (
+                status?.callModel && (
+                  <span className="text-callout text-muted">
+                    {t.leadModel(
+                      props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
+                    )}
+                  </span>
+                )
               )}
             </div>
           </Field>
@@ -3462,17 +3564,17 @@ function VoiceSection(props: {
         </Row>
       </Card>
 
-      <h3 className="mb-2 text-[13px] font-semibold">{t.sttTitle}</h3>
+      <h3 className="mb-2 text-body font-semibold">{t.sttTitle}</h3>
       <Card className="mb-6">
         <Row>
           <Field
-            label={t.sttTitle}
+            label={t.engineLabel}
             hint={
               v.stt.provider === 'phonon'
-                ? t.hints.phonon
+                ? t.hints.phonon(size(sizes?.phonon))
                 : v.stt.provider === 'omp'
                   ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
-                  : t.hints.endpoint
+                  : t.hints.endpointStt
             }
           >
             <Select
@@ -3490,11 +3592,15 @@ function VoiceSection(props: {
         </Row>
         {v.stt.provider === 'phonon' && status && (
           <Row>
-            <div className="flex items-center gap-3 text-[13px]">
-              <span className="min-w-0 flex-1 truncate text-fg-2" title={status.stt.phonon.line}>
-                {engine(status.stt.phonon)}
-                {status.stt.phonon.line && <span className="text-muted"> · {status.stt.phonon.line}</span>}
-              </span>
+            <div className="flex items-center gap-3 text-body">
+              {status.stt.phonon.state === 'error' ? (
+                <EngineTrouble engine="phonon" raw={status.stt.phonon.error ?? ''} />
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-fg-2" title={status.stt.phonon.line}>
+                  {engine(status.stt.phonon)}
+                  {status.stt.phonon.line && <span className="text-muted"> · {status.stt.phonon.line}</span>}
+                </span>
+              )}
               <Button
                 size="sm"
                 disabled={status.stt.phonon.state === 'installing'}
@@ -3508,17 +3614,17 @@ function VoiceSection(props: {
         {v.stt.provider === 'endpoint' && endpointFields('stt')}
       </Card>
 
-      <h3 className="mb-2 text-[13px] font-semibold">{t.ttsTitle}</h3>
+      <h3 className="mb-2 text-body font-semibold">{t.ttsTitle}</h3>
       <Card className="mb-6">
         <Row>
           <Field
-            label={t.ttsTitle}
+            label={t.engineLabel}
             hint={
               v.tts.provider === 'kitten'
                 ? t.hints.kitten
                 : v.tts.provider === 'omp'
                   ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
-                  : t.hints.endpoint
+                  : t.hints.endpointTts
             }
           >
             <Select
@@ -3550,7 +3656,7 @@ function VoiceSection(props: {
                 >
                   {(['nano', 'micro', 'mini'] as const).map((m) => (
                     <option key={m} value={m}>
-                      {t.kittenModels[m]}
+                      {sizes ? `${t.kittenModels[m]} · ${formatSize(sizes.kitten[m])}` : t.kittenModels[m]}
                     </option>
                   ))}
                 </Select>
@@ -3558,8 +3664,12 @@ function VoiceSection(props: {
             </Row>
             {status && (
               <Row>
-                <div className="flex items-center gap-3 text-[13px]">
-                  <span className="min-w-0 flex-1 truncate text-fg-2">{engine(status.tts.kitten)}</span>
+                <div className="flex items-center gap-3 text-body">
+                  {status.tts.kitten.state === 'error' ? (
+                    <EngineTrouble engine="kitten" raw={status.tts.kitten.error ?? ''} />
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate text-fg-2">{engine(status.tts.kitten)}</span>
+                  )}
                   {(status.tts.kitten.state === 'missing' || status.tts.kitten.state === 'error') && (
                     <Button
                       size="sm"
@@ -5252,6 +5362,8 @@ const SHORTCUTS: [string, string[]][] = [
   [copy.settings.shortcuts.send, ['Enter']],
   [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
   [copy.settings.shortcuts.close, ['Esc']],
+  [copy.settings.shortcuts.muteCall, ['⌘', 'D']],
+  [copy.settings.shortcuts.hangUp, ['⌘', '⇧', 'H']],
 ]
 
 function Shortcuts() {
