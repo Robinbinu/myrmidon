@@ -147,6 +147,9 @@ export function Dot(props: ({ status: string } | { tone: Tone }) & { pulse?: boo
   )
 }
 
+/** A count as a badge shows it: past 99 it stops growing. */
+export const countText = (n: number) => (n > 99 ? '99+' : String(n))
+
 /**
  * A number on a capsule: items in a tab, requests waiting. Accent asks for the person; `corner` pins it to the
  * corner of the icon it counts for. With `label` it is read as that sentence instead of a bare number.
@@ -168,7 +171,7 @@ export function CountBadge(props: {
         props.className,
       )}
     >
-      {props.count > 99 ? '99+' : props.count}
+      {countText(props.count)}
     </span>
   )
 }

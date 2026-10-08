@@ -34,7 +34,17 @@ import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from 
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
-import { Badge, CountBadge, cn, Dot, Empty, IconButton, Select, toneFor } from '../ui/primitives.tsx'
+import {
+  Badge,
+  CountBadge,
+  cn,
+  countText,
+  Dot,
+  Empty,
+  IconButton,
+  Select,
+  toneFor,
+} from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { agentPhase } from '../ui/status.ts'
@@ -803,7 +813,7 @@ function WorkspaceBody({
                     onFocus={(e) => point(e.currentTarget)}
                     onMouseLeave={() => setHint(undefined)}
                     onBlur={() => setHint(undefined)}
-                    aria-label={v.label}
+                    aria-label={count ? copy.workspace.viewWithCount(v.label, countText(count)) : v.label}
                     aria-pressed={on}
                     aria-keyshortcuts={v.key ? `${isMac ? 'Meta' : 'Control'}+Alt+${v.key}` : undefined}
                     className={cn(

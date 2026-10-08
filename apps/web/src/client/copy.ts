@@ -1208,6 +1208,8 @@ export const copy = {
       read: 'Read',
       unread: 'Not read yet',
     },
+    /** A panel view's button with its count beside the icon, so the name holds the number shown. */
+    viewWithCount: (view: string, count: string) => `${view}, ${count}`,
   },
 
   computer: {

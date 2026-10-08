@@ -164,7 +164,7 @@ export function Hero(props: {
   const mascot = useMascotLook()
   const { greeting, name } = useGreeting(props.news)
   const headline = greeting?.headline ?? copy.hero.headline
-  const [scope, animate] = useAnimate<HTMLButtonElement>()
+  const [scope, animate] = useAnimate<HTMLDivElement>()
   const [reaction, setReaction] = useState<Emotion>()
   const [petted, setPetted] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -378,10 +378,10 @@ export function Hero(props: {
               transition={softSpring}
               className="relative"
             >
-              <button
+              {/* The face is the button; the ticker under it is text on the screen, outside the button, so the
+                  button's name is what it does and is all it shows. */}
+              <div
                 ref={scope}
-                type="button"
-                onClick={() => react(pick(POKED))}
                 onPointerEnter={() => {
                   clearTimeout(patTimer.current)
                   patTimer.current = setTimeout(() => setPetted(true), MASCOT_PAT_MS)
@@ -390,21 +390,27 @@ export function Hero(props: {
                   clearTimeout(patTimer.current)
                   setPetted(false)
                 }}
-                aria-label={copy.hero.poke}
-                className="block rounded-5xl bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+                className="block rounded-5xl bg-screen p-6 pb-4 shadow-[var(--screen-frame)]"
               >
-                <PixelFace
-                  mood={emotion.mood}
-                  color={eyes}
-                  cols={15}
-                  rows={8}
-                  cell={20}
-                  gap={6}
-                  glow
-                  eyes={mascot.eyes}
-                  {...(look ? { look } : {})}
-                  className="h-auto w-[min(400px,calc(100vw-96px))]"
-                />
+                <button
+                  type="button"
+                  onClick={() => react(pick(POKED))}
+                  aria-label={copy.hero.poke}
+                  className="block rounded-xl outline-offset-4"
+                >
+                  <PixelFace
+                    mood={emotion.mood}
+                    color={eyes}
+                    cols={15}
+                    rows={8}
+                    cell={20}
+                    gap={6}
+                    glow
+                    eyes={mascot.eyes}
+                    {...(look ? { look } : {})}
+                    className="h-auto w-[min(400px,calc(100vw-96px))]"
+                  />
+                </button>
                 <div className="mt-5 flex items-center justify-between px-1">
                   <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
                     <span
@@ -424,7 +430,7 @@ export function Hero(props: {
                   </span>
                   <Readout mode={mascot.screen} {...(name ? { name } : {})} working={props.working} />
                 </div>
-              </button>
+              </div>
               {mascot.look === 'flower' && (
                 <PixelSprite
                   sprite={FLOWER}
