@@ -2,7 +2,8 @@
    Myrmidon in a macOS manner. Apple's neutral whites and greys with signal amber as the accent: amber fills primary buttons, focus and
    the active indicator, and is never used as text except through --accent-text, which keeps AA contrast. Glass
    materials are for the navigation layer only (sidebar, toolbars, menus, popovers, sheets); content stays opaque.
-   Text colours meet WCAG AA, 4.5:1, on every surface in both themes. */
+   Text colours meet WCAG AA, 4.5:1, on every surface in both themes, down to the pressed control and the strong
+   fill (tests/contrast.test.ts holds them to it). */
 :root {
   /* Surfaces */
   --window: #f5f5f7;
@@ -21,7 +22,7 @@
   /* Labels */
   --label: #1d1d1f;
   --label-2: #424245;
-  --label-3: #6e6e73;
+  --label-3: #616166;
   --label-4: #aeaeb2;
   /* Accent */
   --accent: #ffb31a;
@@ -63,7 +64,7 @@
      white bezel, like Apple hardware on a light page, instead of a bare black slab. */
   --screen: #0b0b0d;
   --screen-cell: rgb(255 255 255 / 0.055);
-  --screen-ink: rgb(255 255 255 / 0.4);
+  --screen-ink: rgb(255 255 255 / 0.5);
   --screen-edge: rgb(255 255 255 / 0.06);
   --screen-frame:
     0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
@@ -148,7 +149,7 @@
     --material-menu: rgb(30 30 35 / 0.82);
     --label: #f4f4f6;
     --label-2: #c8c8d0;
-    --label-3: #8f8f9a;
+    --label-3: #9a9aa5;
     --label-4: #5c5c66;
     --accent-hover: #ffc247;
     --accent-soft: rgb(255 179 26 / 0.14);
@@ -178,7 +179,7 @@
     --del: #351719;
     --screen: #050506;
     --screen-cell: rgb(255 255 255 / 0.05);
-    --screen-ink: rgb(255 255 255 / 0.4);
+    --screen-ink: rgb(255 255 255 / 0.5);
     --screen-edge: rgb(255 255 255 / 0.06);
     --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);

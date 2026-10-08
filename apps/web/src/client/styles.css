@@ -156,10 +156,6 @@
   *:hover {
     scrollbar-color: var(--fill-strong) transparent;
   }
-  /* Title-bar contents fade when the window goes inactive; controls with their own transitions keep them. */
-  [data-toolbar] > * {
-    transition: opacity var(--fast) var(--ease);
-  }
   [data-window-active="false"] ::selection {
     background: color-mix(in srgb, var(--label-3) 25%, transparent);
   }
@@ -270,10 +266,15 @@
   -webkit-app-region: no-drag;
 }
 
-/* An inactive window greys its selection and dims its title bars, as macOS does. */
+/* An inactive window greys its selection and dims its title bars, as macOS does. Title-bar text dims to the tertiary
+   label rather than fading, so it keeps AA contrast while the window waits in the background. */
 :root[data-window-active="false"] {
   --row-selected: var(--row-selected-inactive);
 }
-:root[data-window-active="false"] [data-toolbar] > * {
-  opacity: 0.55;
+:root[data-window-active="false"] [data-toolbar] {
+  --label: var(--label-3);
+  --label-2: var(--label-3);
+  --text: var(--label-3);
+  --text-2: var(--label-3);
+  color: var(--label-3);
 }
