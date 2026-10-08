@@ -1046,8 +1046,16 @@ export function App() {
             onAdded={(p, all) => {
               setProjects(all)
               setPicking(false)
-              // The open chat stays open; a new task about to start works in the folder just added.
+              // The open chat stays open, so the toast offers a chat in the new folder; a new task about to start
+              // works in it already.
               if (!activeChat) setNewProject(p.id)
+              toast(
+                copy.folderPicker.added(p.name),
+                'success',
+                activeChat
+                  ? { label: copy.folderPicker.startChat(p.name), run: () => newTask(p.id) }
+                  : undefined,
+              )
             }}
           />
         )}

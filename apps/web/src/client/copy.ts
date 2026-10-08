@@ -816,6 +816,8 @@ export const copy = {
     go: 'Go',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
+    /** On the "Added" toast while a chat is open: that chat stays where it was. */
+    startChat: (name: string) => `Start a chat in ${name}`,
     /** The composer's project control. */
     pill: {
       worksIn: (name: string, mode: string) => `Works in ${name}${mode ? ` (${mode})` : ''}`,
