@@ -10,6 +10,7 @@ import {
 } from '@oh-my-pi/pi-agent-core'
 import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
+import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
 import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
@@ -494,7 +495,14 @@ export class ColonyAgent {
     const toolCalls = m.content.flatMap((c) =>
       c.type === 'toolCall' ? [{ id: c.id, name: c.name, arguments: c.arguments ?? {} }] : [],
     )
-    const cost = (m.usage as { cost?: { total?: number } } | undefined)?.cost?.total
+    // pi prices a reply from the model's rate card, so a model without one reports $0: that cost is unknown, not
+    // free, and is left out so totals say n/a instead of undercounting.
+    const model = this._agent.state.model
+    const priced =
+      model.provider === m.provider &&
+      model.id === m.model &&
+      ['fixed', 'free', 'included'].includes(getModelPricingStatus(model))
+    const cost = priced ? (m.usage as { cost?: { total?: number } } | undefined)?.cost?.total : undefined
     void this.host
       .append({
         type: 'llm/response',
