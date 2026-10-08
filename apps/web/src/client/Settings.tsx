@@ -930,7 +930,7 @@ function ModelsSection(props: {
           const off = hiddenProviders.has(provider)
           const expanded = open[provider] ?? (!!q || models.length <= 20)
           return (
-            <Card key={provider} className={cn(off && 'opacity-60')}>
+            <Card key={provider}>
               <div className="flex items-center gap-3 px-4 py-2.5">
                 <button
                   type="button"
@@ -941,7 +941,10 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
-                  <span className="font-mono text-body font-medium">{provider}</span>
+                  {/* Off reads in the muted ink rather than a faded card, which would drop below AA contrast. */}
+                  <span className={cn('font-mono text-body font-medium', off && 'text-muted')}>
+                    {provider}
+                  </span>
                   <span className="text-small tabular-nums text-muted">{models.length}</span>
                 </button>
                 <span className="text-small text-muted">
@@ -4790,10 +4793,12 @@ function PluginsSection() {
           <Card>
             {data.plugins.map((p) => (
               <CardRow key={p.name}>
-                <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
+                <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-reading font-medium">{p.name}</span>
+                      <span className={cn('font-mono text-reading font-medium', !p.enabled && 'text-muted')}>
+                        {p.name}
+                      </span>
                       {p.version && <span className="text-small text-muted">v{p.version}</span>}
                       {p.author && (
                         <span className="text-small text-muted">{copy.settings.plugins.by(p.author)}</span>
