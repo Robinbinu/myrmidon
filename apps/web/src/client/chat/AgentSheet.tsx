@@ -1,11 +1,12 @@
 import type { ColonyState, EventPayloads, MyrEvent } from '@myrmidon/protocol'
 import { BookmarkPlus, FileText, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useSpecialists } from '../specialists.ts'
 import { compact } from '../ui/hooks.ts'
+import { useDialog } from '../ui/Modal.tsx'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
 import { Button, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { agentPhase } from '../ui/status.ts'
@@ -38,11 +39,8 @@ export function AgentSheet(props: {
   const agent = props.state.agents[props.name]
   const [keeping, setKeeping] = useState(false)
   const kept = useSpecialists().find((s) => s.name === props.name)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [props.onClose])
+  const sheet = useRef<HTMLElement>(null)
+  useDialog(sheet, props.onClose)
 
   const { focus, thought, steps } = useMemo(() => {
     let focus: string | undefined
@@ -83,9 +81,12 @@ export function AgentSheet(props: {
         onClick={props.onClose}
       />
       <motion.aside
+        ref={sheet}
         role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
         aria-label={copy.agentSheet.label(props.name)}
-        className="fixed inset-y-2 right-2 z-50 flex w-[min(460px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-pop"
+        className="fixed inset-y-2 right-2 z-50 flex w-[min(460px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-pop outline-none"
         initial={{ x: 40, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: 40, opacity: 0 }}

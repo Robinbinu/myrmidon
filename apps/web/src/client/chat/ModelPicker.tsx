@@ -221,8 +221,11 @@ export function ModelPicker(props: {
                   setActive(0)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setOpen(false)
-                  else if (e.key === 'ArrowDown') {
+                  // Escape closes the list only, not a dialog or popover the picker sits in.
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    setOpen(false)
+                  } else if (e.key === 'ArrowDown') {
                     e.preventDefault()
                     setActive((a) => Math.min(hits.length - 1, a + 1))
                   } else if (e.key === 'ArrowUp') {
