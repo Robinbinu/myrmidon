@@ -756,7 +756,7 @@ export const copy = {
     login: {
       needsSignIn: 'needs you to sign in to',
       instructions: (agent: string) =>
-        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees what you type, and the sign-in is kept for later runs.`,
+        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees your password, and the sign-in is kept for later runs.`,
       openBrowser: (agent: string) => `Open ${agent}’s browser`,
     },
     memory: {
@@ -1144,7 +1144,8 @@ export const copy = {
     },
     shell: {
       emptyTitle: 'No shell commands yet',
-      emptyBody: 'Agents run commands in a sandbox that can only write to their own scratch folder.',
+      emptyBody:
+        'Agents run commands in a sandbox that can write only to their working folder and, unless the project is Read-only, the project.',
       running: 'running…',
       noOutput: '(no output)',
     },
@@ -1665,7 +1666,7 @@ export const copy = {
     providers: {
       title: 'Providers & keys',
       intro:
-        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never reach the browser.',
+        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never sent back to the browser.',
       storedIn: (dir: string) => `Stored in ${dir}`,
       importTitle: 'Import your omp setup',
       importConfirm: 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.',
@@ -1748,7 +1749,7 @@ export const copy = {
       groups: {
         shell: {
           label: 'Shell',
-          hint: 'Run commands in a sandbox that can only write to the agent’s scratch folder.',
+          hint: 'Run commands in a sandbox that can write only to the agent’s working folder and, unless the project is Read-only, the project.',
         },
         web: {
           label: 'Web search & fetch',
@@ -1766,7 +1767,8 @@ export const copy = {
       },
       sandboxActive: (sandbox: string) => `Sandbox active: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
-      sandboxedHint: 'Shell commands and command checks cannot write outside the agent’s scratch folder.',
+      sandboxedHint:
+        'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
       unsandboxedHint: 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
@@ -2303,7 +2305,7 @@ export const copy = {
       providersReadyHint: 'Through the embedded omp provider stack.',
       sandbox: 'Sandbox',
       eventLog:
-        "Every run's work is an append-only event log; agents never edit your files directly. Licensed under Apache-2.0.",
+        'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',
       builtOn: 'Built on oh-my-pi (providers, search, readers), pi-agent-core, and Cordis.',
     },
   },
