@@ -40,6 +40,7 @@ import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
+import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
 import { MAX_FILE_BYTES, softSpring } from './ui-config.ts'
@@ -632,11 +633,7 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill
-                      tone={chat.awaiting && !running ? 'accent' : toneFor(running ? 'running' : chat.status)}
-                    >
-                      {running ? copy.app.working : chat.awaiting ? copy.app.waitingForYou : chat.status}
-                    </Pill>
+                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && chat && (

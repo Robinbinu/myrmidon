@@ -35,6 +35,7 @@ import { compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
+import { agentPhase } from '../ui/status.ts'
 import { softSpring } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
@@ -529,6 +530,7 @@ function WorkspaceBody({
                             (t) => t.owner === a.info.name && t.status === 'in_progress',
                           )
                           const lead = a.info.role === 'lead'
+                          const { phase, detail } = agentPhase(a)
                           return (
                             <li key={a.info.name}>
                               <button
@@ -546,16 +548,16 @@ function WorkspaceBody({
                                         {a.info.specialty}
                                       </span>
                                     )}
-                                    <Pill tone={toneFor(a.status)}>
-                                      <Dot status={a.status} /> {copy.workspace.agentStatus[a.status]}
+                                    <Pill tone={toneFor(phase)}>
+                                      <Dot status={phase} /> {copy.status.agent[phase]}
                                     </Pill>
                                   </div>
                                   <div className="truncate font-mono text-[11.5px] text-muted">
                                     {a.info.model}
                                   </div>
-                                  {(task || a.detail) && (
+                                  {(task || detail) && (
                                     <div className="text-[12.5px]">
-                                      {task ? copy.workspace.team.workingOn(task.subject) : a.detail}
+                                      {task ? copy.workspace.team.workingOn(task.subject) : detail}
                                     </div>
                                   )}
                                   <div className="mt-1 flex flex-wrap gap-4">

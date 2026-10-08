@@ -21,6 +21,28 @@ export const copy = {
     daysAgo: (n: number) => `${n}d ago`,
   },
 
+  /** One name per state, shared by every badge, dot label and sheet; ui/status.ts decides which applies. */
+  status: {
+    agent: {
+      provisioning: 'Starting up',
+      ready: 'Ready',
+      working: 'Working',
+      idle: 'Waiting for work',
+      done: 'Done',
+      resting: 'Resting',
+      stopped: 'Stopped',
+      failed: 'Failed',
+    },
+    /** A chat or crew run, beside its title. */
+    run: {
+      working: 'working',
+      awaiting: 'waiting for you',
+      completed: 'completed',
+      stopped: 'stopped',
+      failed: 'failed',
+    },
+  },
+
   auth: {
     notAuthorized: 'Not authorized: open the link printed by the CLI.',
   },
@@ -502,15 +524,6 @@ export const copy = {
   agentSheet: {
     label: (name: string) => `${name} details`,
     close: 'Close',
-    status: {
-      provisioning: 'Starting up',
-      ready: 'Ready',
-      working: 'Working',
-      idle: 'Waiting for work',
-      completed: 'Done',
-      stopped: 'Resting',
-      failed: 'Failed',
-    },
     leadBadge: 'lead',
     sections: {
       role: 'Role',
@@ -903,15 +916,6 @@ export const copy = {
       rejected: 'rejected',
       deleted: 'deleted',
     },
-    agentStatus: {
-      provisioning: 'provisioning',
-      ready: 'ready',
-      working: 'working',
-      idle: 'idle',
-      completed: 'completed',
-      stopped: 'stopped',
-      failed: 'failed',
-    },
     team: {
       workingOn: (subject: string) => `Working on ${subject}`,
       turns: 'turns',
@@ -1039,9 +1043,6 @@ export const copy = {
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
     newTask: 'New task',
     newTaskTitle: (combo: string) => `New task (${combo})`,
-    /** Status pill beside the chat title while a round runs. */
-    working: 'working',
-    waitingForYou: 'waiting for you',
     workspace: 'Workspace',
     workspaceTitle: 'Workspace (⌘J)',
     crewButton: 'Crew',

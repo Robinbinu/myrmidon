@@ -31,6 +31,7 @@ import { describeEvent } from './describe.ts'
 import { compact, duration } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
+import { agentPhase, runPhase } from './ui/status.ts'
 import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
 
@@ -254,6 +255,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const [agent, setAgent] = useState<string>()
   const [file, setFile] = useState<string>()
   const m = colonyMetrics(state)
+  const run = runPhase(state)
   const items = useMemo(() => buildItems(events, cursor, agent), [events, cursor, agent])
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
@@ -269,8 +271,8 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-[15px] font-semibold tracking-tight">{state.name}</h2>
-            <Pill tone={toneFor(state.status)}>
-              <Dot status={state.status} /> {state.status}
+            <Pill tone={toneFor(run)}>
+              <Dot status={run} /> {copy.status.run[run]}
             </Pill>
           </div>
           {state.statusReason && <p className="truncate text-[12.5px] text-muted">{state.statusReason}</p>}
@@ -310,7 +312,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
               icon={<AgentAvatar name={a.info.name} status={a.status} size={32} />}
               name={a.info.name}
               detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
-              status={a.status}
+              status={agentPhase(a).phase}
               meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
             />
           ))}

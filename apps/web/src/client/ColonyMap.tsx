@@ -13,27 +13,31 @@ import '@xyflow/react/dist/style.css'
 import { useMemo } from 'react'
 import { copy } from './copy.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
+import { agentPhase } from './ui/status.ts'
 
 type AgentNodeData = { view: AgentView; task?: string; selected: boolean }
 
 function AgentNode({ data }: NodeProps<Node<AgentNodeData>>) {
   const { view, task, selected } = data
+  const { phase, detail } = agentPhase(view)
+  // The lead is named for its role, so the role would only repeat the name.
+  const role = view.info.specialty ?? view.info.role
   return (
-    <div className={`agent-node status-${view.status}${selected ? ' selected' : ''}`}>
+    <div className={`agent-node status-${phase}${selected ? ' selected' : ''}`}>
       <Handle type="target" position={Position.Top} className="handle" />
       <div className="agent-node-head">
         <AgentAvatar name={view.info.name} status={view.status} size={28} />
         <strong>{view.info.name}</strong>
-        <span className="muted">{view.info.specialty ?? view.info.role}</span>
+        {role !== view.info.name && <span className="muted">{role}</span>}
       </div>
       <div className="agent-node-model">{view.info.model}</div>
       <div className="agent-node-meta">
-        <span>{view.status}</span>
+        <span>{copy.status.agent[phase]}</span>
         <span>{copy.colonyMap.turn(view.turns)}</span>
         <span>{copy.colonyMap.tokens(view.tokens.toLocaleString())}</span>
       </div>
       {task ? <div className="agent-node-task">{task}</div> : null}
-      {view.detail ? <div className="agent-node-detail">{view.detail}</div> : null}
+      {detail ? <div className="agent-node-detail">{detail}</div> : null}
       <Handle type="source" position={Position.Bottom} className="handle" />
     </div>
   )
