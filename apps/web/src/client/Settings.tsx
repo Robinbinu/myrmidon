@@ -65,6 +65,7 @@ import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
+import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
@@ -1283,32 +1284,30 @@ function Providers(props: {
                 </span>
               )}
               {p.stored && !p.custom && (
-                <IconButton
-                  size="sm"
+                <ConfirmButton
+                  icon
                   label={copy.settings.providers.removeCredentials(p.id)}
-                  onClick={() =>
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
                       copy.settings.providers.removedCredentials(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
               {p.custom && (
-                <IconButton
-                  size="sm"
+                <ConfirmButton
+                  icon
                   label={copy.settings.providers.remove(p.id)}
-                  onClick={() =>
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
                       copy.settings.providers.removed(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
             </div>
             {editing === p.id && p.custom && (
@@ -2042,18 +2041,17 @@ function McpServers() {
                     )
                   }
                 />
-                <IconButton
+                <ConfirmButton
+                  icon
                   label={copy.settings.mcp.remove(m.name)}
-                  size="sm"
-                  onClick={() =>
-                    act(
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
+                    void act(
                       () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
                       copy.settings.mcp.removed(m.name),
                     )
                   }
-                >
-                  <Trash2 className="size-3.5" />
-                </IconButton>
+                />
               </div>
             </Row>
           ))
@@ -2171,9 +2169,12 @@ function DevicesSection() {
                   {d.lastSeenAt ? t.lastSeen(new Date(d.lastSeenAt).toLocaleString()) : t.never}
                 </div>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => void revoke(d)}>
-                {t.revoke}
-              </Button>
+              <ConfirmButton
+                label={t.revoke}
+                confirm={d.current ? t.confirmRevokeSelf : t.confirmRevoke}
+                warning={d.current ? t.revokeSelfWarning : undefined}
+                onConfirm={() => void revoke(d)}
+              />
             </div>
           ))}
         </Card>
@@ -2295,9 +2296,11 @@ function GatewaysSection() {
                   {t.show}
                 </Button>
               )}
-              <Button size="sm" variant="ghost" onClick={() => void remove(g)}>
-                {t.remove}
-              </Button>
+              <ConfirmButton
+                label={t.remove}
+                confirm={copy.settings.shared.confirmRemove}
+                onConfirm={() => void remove(g)}
+              />
             </div>
           ))}
         </Card>
@@ -2368,18 +2371,16 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                 <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
                   {t.edit}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
+                <ConfirmButton
+                  label={t.remove}
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() =>
                     void removeSpecialist(s.id).then(
                       () => toast(t.removed(s.name), 'info'),
                       (err: Error) => toast(err.message, 'error'),
                     )
                   }
-                >
-                  {t.remove}
-                </Button>
+                />
               </div>
             ),
           )}
@@ -2846,12 +2847,12 @@ function SchedulesSection() {
                   label={copy.settings.schedules.runOnSchedule(s.name)}
                   onChange={(enabled) => act(() => send('PATCH', `/api/schedules/${s.id}`, { enabled }))}
                 />
-                <IconButton
+                <ConfirmButton
+                  icon
                   label={copy.settings.schedules.delete}
-                  onClick={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
+                />
               </div>
             </Row>
           ))}
@@ -3125,7 +3126,6 @@ function PluginsSection() {
   const [data, setData] = useState<{ plugins: PluginEntry[]; dir?: string }>()
   const [source, setSource] = useState('')
   const [adding, setAdding] = useState(false)
-  const [removing, setRemoving] = useState<string>()
   const load = () =>
     api<{ plugins: PluginEntry[]; dir?: string }>('/api/plugins')
       .then(setData)
@@ -3271,24 +3271,16 @@ function PluginsSection() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (removing !== p.name) return setRemoving(p.name)
-                        setRemoving(undefined)
+                    <ConfirmButton
+                      label={copy.settings.plugins.remove}
+                      confirm={copy.settings.plugins.confirmRemove}
+                      onConfirm={() =>
                         void send('DELETE', `/api/plugins/${p.name}`)
                           .then(() => toast(copy.settings.plugins.removed(p.name), 'success'))
                           .then(load)
                           .catch((err: Error) => toast(err.message, 'error'))
-                      }}
-                      onBlur={() => setRemoving(undefined)}
-                      className={cn(removing === p.name && 'text-bad-ink')}
-                    >
-                      {removing === p.name
-                        ? copy.settings.plugins.confirmRemove
-                        : copy.settings.plugins.remove}
-                    </Button>
+                      }
+                    />
                     <Switch
                       checked={p.enabled}
                       label={copy.settings.plugins.canUse(p.name)}
@@ -3599,18 +3591,24 @@ function MemorySection() {
                             {copy.settings.memory.keep}
                           </Button>
                         ) : null}
-                        <IconButton
-                          label={copy.settings.memory.forget}
-                          onClick={() =>
-                            void act(() =>
-                              m.status === 'proposed'
-                                ? send('POST', `/api/memory/${m.id}/decide`, { keep: false })
-                                : send('DELETE', `/api/memory/${m.id}`),
-                            )
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </IconButton>
+                        {m.status === 'proposed' ? (
+                          <IconButton
+                            size="sm"
+                            label={copy.settings.memory.forget}
+                            onClick={() =>
+                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </IconButton>
+                        ) : (
+                          <ConfirmButton
+                            icon
+                            label={copy.settings.memory.forget}
+                            confirm={copy.settings.memory.confirmForget}
+                            onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
+                          />
+                        )}
                       </div>
                     </div>
                   </Row>

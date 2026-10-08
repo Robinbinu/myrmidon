@@ -666,6 +666,7 @@ export const copy = {
     remove: 'Remove',
     removeLabel: (name: string) => `Remove tool_${name}`,
     removedToast: (name: string) => `Removed tool_${name} from your library`,
+    confirmRemove: 'Remove for good',
     /** Settings list when nothing has been kept yet. */
     empty:
       "When agents make a tool with create_tool, it shows in the chat's Files view. Choose Keep there and every new round starts with it.",
@@ -1285,6 +1286,8 @@ export const copy = {
       off: 'Off',
       on: 'On',
       loading: 'Loading…',
+      confirmRemove: 'Remove for good',
+      confirmDelete: 'Delete for good',
     },
     sections: {
       general: { label: 'General', hint: 'Theme, motion, shortcuts' },
@@ -1580,6 +1583,9 @@ export const copy = {
       lastSeen: (when: string) => `last seen ${when}`,
       never: 'not seen yet',
       revoke: 'Revoke',
+      confirmRevoke: 'Revoke access',
+      confirmRevokeSelf: 'Revoke and lose access',
+      revokeSelfWarning: 'This is the device you are using now: it loses access as soon as you revoke it.',
       revoked: (name: string) => `${name} can no longer use this gateway`,
     },
     specialists: {
@@ -1807,6 +1813,7 @@ export const copy = {
       why: (why: string) => `Why: ${why}`,
       keep: 'Keep',
       forget: 'Forget this',
+      confirmForget: 'Forget for good',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',

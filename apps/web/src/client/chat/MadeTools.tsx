@@ -1,8 +1,9 @@
 import type { ColonyState, MadeToolInput } from '@myrmidon/protocol'
-import { BookmarkCheck, BookmarkPlus, ChevronRight, Trash2, Wrench } from 'lucide-react'
+import { BookmarkCheck, BookmarkPlus, ChevronRight, Wrench } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { Button, cn, Pill } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
@@ -146,15 +147,12 @@ export function ToolLibraryList() {
           tool={t}
           meta={t.language}
           action={
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => remove(t.name)}
-              aria-label={copy.madeTools.removeLabel(t.name)}
-              icon={<Trash2 className="size-3.5" />}
-            >
-              {copy.madeTools.remove}
-            </Button>
+            <ConfirmButton
+              label={copy.madeTools.remove}
+              name={copy.madeTools.removeLabel(t.name)}
+              confirm={copy.madeTools.confirmRemove}
+              onConfirm={() => void remove(t.name)}
+            />
           }
         />
       ))}
