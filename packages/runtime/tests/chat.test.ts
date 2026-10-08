@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SqliteLogStore } from '@myrmidon/core'
+import { newColonyId, SqliteLogStore } from '@myrmidon/core'
 import { type ColonyState, type EventPayloads, foldColony, type MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
@@ -3179,6 +3179,81 @@ test('renaming a chat sticks, survives a restart, and rejects empty titles', asy
   await chats.stopAll()
   const reopened = new ChatService(runtime, { resolver })
   expect((await reopened.list())[0]?.title).toBe('Quarterly report')
+})
+
+/** A model that names chats: answers `title` once `open` resolves, and counts its calls. */
+function namer(
+  resolver: ModelResolver,
+  ref: string,
+  title: string,
+  open: Promise<unknown> = Promise.resolve(),
+) {
+  const calls = { n: 0 }
+  const mock = createMockModel({ handler: () => ({ content: [JSON.stringify({ title })] }) })
+  resolver.register(ref, {
+    model: mock.model,
+    streamFn: (async (...args: Parameters<typeof mock.stream>) => {
+      calls.n += 1
+      await open
+      return mock.stream(...args)
+    }) as unknown as typeof mock.stream,
+  })
+  return calls
+}
+
+/** Runs the chat namer the way a finished round does. */
+const nameNow = (chats: ChatService, chatId: string, model: string) =>
+  (chats as unknown as { _nameChat(chatId: string, model: string): Promise<void> })._nameChat(chatId, model)
+
+test("an older chat the person named in an earlier round's colony keeps their name", async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/asker', [
+    [tool('ask_user', { question: 'Which format do you want?' })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { chatId, colonyId } = await chats.send('make a report', solo('mock/asker'))
+  await waitFor(colonyId)
+  await chats.rename(chatId, 'My report')
+  // Older chats ran each round in a colony of its own: round 2 here, without the rename.
+  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+  const payload = structuredClone(created?.payload) as EventPayloads['colony/created']
+  if (payload.chat) payload.chat = { ...payload.chat, round: 2, request: 'now as a PDF' }
+  await runtime.ctx.log.appendOne(newColonyId('round-two'), {
+    type: 'colony/created',
+    actor: { kind: 'user', id: 'user' },
+    payload,
+  })
+  const calls = namer(resolver, 'mock/titler', 'Auto name')
+  await nameNow(chats, chatId, 'mock/titler')
+  expect(calls.n).toBe(0)
+  expect((await chats.list()).find((c) => c.chatId === chatId)?.title).toBe('My report')
+  await chats.stopAll()
+})
+
+test('a chat deleted while it is being named stays deleted', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/asker', [
+    [tool('ask_user', { question: 'Which format do you want?' })],
+    ['waiting'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { chatId, colonyId } = await chats.send('make a report', solo('mock/asker'))
+  await waitFor(colonyId)
+  let open = () => {}
+  const calls = namer(resolver, 'mock/titler', 'Quarterly report', new Promise<void>((r) => (open = r)))
+  const naming = nameNow(chats, chatId, 'mock/titler')
+  while (calls.n === 0) await Bun.sleep(5)
+  expect(await chats.delete(chatId)).toEqual([colonyId])
+  open()
+  await naming
+  expect(existsSync(join(home, 'colonies', colonyId))).toBe(false)
+  expect(await chats.list()).toEqual([])
+  await chats.stopAll()
 })
 
 async function reviewerRound(mode: 'off' | 'auto' | 'always', script: Step[]) {
