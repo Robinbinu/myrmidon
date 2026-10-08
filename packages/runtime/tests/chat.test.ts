@@ -349,6 +349,83 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
   await chats.stopAll()
 })
 
+test('a crew member written to directly that answers in plain text still reaches the person, and the round ends', async () => {
+  const resolver = new ModelResolver()
+  let writer = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      writer ||= /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/writer', [['The rhyme for "ant" was the hardest to land.']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  }
+  const first = await chats.send('Write a poem about ants', config)
+  await waitFor(first.colonyId)
+  expect(writer).not.toBe('')
+
+  const next = await chats.send(`@${writer} in one sentence, which line was hardest?`, config, first.chatId)
+  const done = await waitFor(next.colonyId)
+  expect(done.status).toBe('completed')
+  expect(done.chatMessages.at(-1)).toMatchObject({
+    from: writer,
+    text: 'The rhyme for "ant" was the hardest to land.',
+    final: true,
+  })
+  expect(done.signals.filter((x) => x.kind === 'stall')).toHaveLength(0)
+  await chats.stopAll()
+})
+
+test('a crew member written to directly that asks the lead first answers once the lead replies', async () => {
+  const resolver = new ModelResolver()
+  let writer = ''
+  const lead = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      writer ||= /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      const said = JSON.stringify(ctx.messages)
+      if (!said.includes('confirm scope'))
+        return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+      if (ctx.messages.at(-1)?.role === 'toolResult') return { content: ['ok'] }
+      // The lead answers after the writer's turn has ended on its holding line.
+      await Bun.sleep(300)
+      return { content: [tool('message', { to: writer, text: 'Scope: the chorus only.' })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/writer', [
+    [tool('message', { to: 'lead', text: 'Please confirm scope for the rewrite.' })],
+    ["I've asked the lead to confirm scope and will reply then."],
+    ['The chorus is now four lines, as the lead asked.'],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  }
+  const first = await chats.send('Write a poem about ants', config)
+  await waitFor(first.colonyId)
+
+  const next = await chats.send(`@${writer} rewrite it shorter`, config, first.chatId)
+  const done = await waitFor(next.colonyId)
+  expect(done.status).toBe('completed')
+  const replies = done.chatMessages.filter((m) => m.from === writer)
+  expect(replies).toEqual([
+    expect.objectContaining({ text: 'The chorus is now four lines, as the lead asked.', final: true }),
+  ])
+  await chats.stopAll()
+})
+
 test('saved specialists: kept by name, joined from the team picker or by the lead, as the person set them up', async () => {
   const { SpecialistStore } = await import('../src/specialists.ts')
   const specialists = new SpecialistStore(home)
@@ -1177,11 +1254,12 @@ test('fs_edit changes part of a scratch file instead of rewriting it', async () 
 test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
   const resolver = new ModelResolver()
   const prompts: string[] = []
+  const plan = '1. Hero with the headline\n2. Three feature sections\n3. Sign-up form'
   const lead = createMockModel({
     handler: (ctx: LlmContext) => {
       prompts.push(JSON.stringify(ctx.messages))
       return prompts.length === 1
-        ? { content: [tool('ask_user', { question: 'Plan: one page, three sections. Approve?' })] }
+        ? { content: [tool('ask_user', { question: "Here's the plan. OK to proceed?", plan })] }
         : { content: ['Waiting for approval.'] }
     },
   })
@@ -1191,7 +1269,10 @@ test('plan mode presents the plan for approval before any work, and thinking can
   const { colonyId } = await chats.send('Make a landing page', config, undefined, { planFirst: true })
   const s = await waitFor(colonyId)
   expect(prompts[0]).toContain('Plan first')
+  expect(prompts[0]).toContain('`plan`')
   expect(s.statusReason).toBe('awaiting your reply')
+  // The plan itself reaches the person, not just the question about it.
+  expect(s.chatMessages.at(-1)).toMatchObject({ question: true, plan })
   expect(s.artifacts).toEqual({})
   const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
   expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')
@@ -1814,6 +1895,27 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   expect(await Bun.file(join(folder, 'NOTES.md')).text()).toBe('written after the round\n')
   rmSync(folder, { recursive: true, force: true })
 })
+
+test.skipIf(detectSandbox().kind === 'none')(
+  "what commands cache under HOME stays out of the agent's file listing",
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/lead', [
+      [tool('shell', { command: 'mkdir -p "$HOME/.npm/_cacache" && touch "$HOME/.npm/_cacache/x" out.txt' })],
+      [tool('fs_list', {})],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+    const { colonyId } = await chats.send('Make out.txt', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+    await waitFor(colonyId)
+    const listed = (await events(colonyId))
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .find((p) => p.tool === 'fs_list' && p.ok !== undefined)
+    expect(listed?.output).toContain('out.txt')
+    expect(listed?.output).not.toContain('.npm')
+  },
+)
 
 test.skipIf(detectSandbox().kind === 'none')(
   "run_checks runs the project's own checks and reports what failed",

@@ -308,6 +308,8 @@ export interface EventPayloads {
     assumption?: string
     /** Questions with options the person can click (ask_user); they may also type an answer or skip one. */
     choices?: QuestionChoice[]
+    /** The plan the question asks the person to approve, in markdown (ask_user in plan mode). */
+    plan?: string
   }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   'chat/renamed': { title: string }

@@ -41,6 +41,8 @@ export interface InboxItem {
 }
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
+/** Tools that put something in front of the person; a turn that used one has already spoken. */
+const REPLY_TOOLS = new Set(['reply_user', 'reply_person', 'ask_user'])
 
 /**
  * One colony member: a pi-agent-core Agent plus an inbox. Idle agents sleep until something is
@@ -341,31 +343,44 @@ export class ColonyAgent {
   }
 
   /**
-   * A one-agent chat round whose turn ends in plain text, without reply_user or ask_user, has written its
-   * answer where the person cannot see it. Deliver that text as the final answer.
+   * A one-agent chat round, or one the person opened by writing to this agent (@name), whose turn ends in plain
+   * text without a reply tool has written its answer where the person cannot see it, and nothing else would end
+   * the round. Deliver that text as the final answer.
    */
   private async _deliverUnsentAnswer(from: number) {
     const spec = this.host.spec
-    if (!spec.chat || spec.agents.length !== 1 || this._stopped) return
-    const turn = this._agent.state.messages
-      .slice(from)
-      .filter((m) => m.role === 'assistant') as AssistantMessage[]
-    const spoke = turn.some((m) =>
-      m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
-    )
+    const addressed = spec.chat?.addressed?.includes(this.name) ?? false
+    if (!spec.chat || (spec.agents.length !== 1 && !addressed) || this._stopped) return
+    const all = this._agent.state.messages.slice(from)
+    const turn = all.filter((m) => m.role === 'assistant') as AssistantMessage[]
+    const callsIn = (ms: readonly AgentMessage[]) =>
+      (ms.filter((m) => m.role === 'assistant') as AssistantMessage[]).flatMap((m) =>
+        m.content.flatMap((c) => (c.type === 'toolCall' ? [c.name] : [])),
+      )
+    const calls = callsIn(all)
+    const spoke = calls.some((name) => REPLY_TOOLS.has(name))
+    // Text written while it waits on a teammate ("I've asked the lead, will reply then") is not its answer: it
+    // messaged someone after the last thing it heard, or mail has come in since, and that reply starts the turn
+    // that answers.
+    const heard = all.findLastIndex((m) => m.role === 'user')
+    const waiting =
+      callsIn(all.slice(heard + 1)).includes('message') ||
+      this.inbox.length > 0 ||
+      this._agent.hasQueuedMessages()
     // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
     // answer (a review sent it back, say), a short remark is filler, not another answer.
     const state = this.host.state()
     const since = state.rounds.at(-1)?.startSeq ?? 0
     const answered = state.chatMessages.some((m) => m.from === this.name && m.final && m.seq >= since)
-    const worked = answered || turn.some((m) => m.content.some((c) => c.type === 'toolCall'))
+    const worked = answered || calls.length > 0
     const last = turn.at(-1)
     const text =
       last?.content
         .flatMap((c) => (c.type === 'text' ? [c.text] : []))
         .join('\n')
         .trim() ?? ''
-    if (spoke || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20)) return
+    if (spoke || waiting || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20))
+      return
     await this.host.append({
       type: 'chat/reply',
       actor: agentActor(this.name),

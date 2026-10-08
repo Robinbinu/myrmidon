@@ -1,4 +1,11 @@
-import { type ColonyState, colonyMetrics, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  colonyMetrics,
+  DELIVERED_VERIFIER,
+  type EventPayloads,
+  type MyrEvent,
+  reviewVerdicts,
+} from '@myrmidon/protocol'
 import {
   Activity,
   BadgeCheck,
@@ -192,6 +199,17 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
       }
       case 'verifier/verdict': {
         const p = e.payload as EventPayloads['verifier/verdict']
+        if (p.verifierId === DELIVERED_VERIFIER) {
+          items.push({
+            ...base,
+            agent: copy.colonyScreen.agents.colony,
+            kind: 'event',
+            icon: CircleDot,
+            tone: 'text-muted',
+            text: copy.events.notReviewed,
+          })
+          break
+        }
         items.push({
           ...base,
           agent: p.verifierId,
@@ -254,6 +272,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const [agent, setAgent] = useState<string>()
   const [file, setFile] = useState<string>()
   const m = colonyMetrics(state)
+  const reviewed = reviewVerdicts(state)
   const items = useMemo(() => buildItems(events, cursor, agent), [events, cursor, agent])
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
@@ -286,7 +305,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
           <Stat label={copy.colonyScreen.stats.files} value={String(Object.keys(state.artifacts).length)} />
           <Stat
             label={copy.colonyScreen.stats.verdicts}
-            value={`${state.verdicts.filter((v) => v.pass).length}/${state.verdicts.length}`}
+            value={`${reviewed.filter((v) => v.pass).length}/${reviewed.length}`}
           />
         </div>
       </div>
@@ -371,7 +390,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                     <BadgeCheck className="size-3.5" /> {copy.colonyScreen.tabs.verdicts}
                   </>
                 ),
-                count: state.verdicts.length,
+                count: reviewed.length,
               },
             ]}
           />
@@ -739,12 +758,13 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
 }
 
 function Verdicts({ state }: { state: ColonyState }) {
-  if (state.verdicts.length === 0)
+  const verdicts = reviewVerdicts(state)
+  if (verdicts.length === 0)
     return <Empty icon={<Gavel className="size-5" />} title={copy.colonyScreen.noVerdicts} />
   return (
     <div className="h-full overflow-auto p-4">
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
-        {[...state.verdicts].reverse().map((v) => (
+        {[...verdicts].reverse().map((v) => (
           <li
             key={v.id}
             className={cn(

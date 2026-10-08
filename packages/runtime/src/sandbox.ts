@@ -5,7 +5,10 @@ import { SANDBOX_MAX_OUTPUT } from './config.ts'
 export interface SandboxRun {
   readonly command: string
   readonly cwd: string
-  /** The only directories the command may write to. */
+  /**
+   * The only directories the command may write to. The first one other than `cwd` (else `cwd`) holds the command's
+   * private HOME and TMPDIR, so tools that write under ~ (pip, npm, git, Python's caches) stay out of the project.
+   */
   readonly writable: readonly string[]
   readonly timeoutMs: number
   readonly env?: Record<string, string>
@@ -57,10 +60,18 @@ function macProfile(writable: readonly string[]) {
   ].join('\n')
 }
 
+const HOME_DIR = '.home'
+const TMP_DIR = '.tmp'
+/** A command's private HOME and TMPDIR, folders of the agent's scratch that file listings leave out. */
+export const SANDBOX_DIRS: ReadonlySet<string> = new Set([HOME_DIR, TMP_DIR])
+
 function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
-  const tmp = join(spec.writable[0] ?? spec.cwd, '.tmp')
+  const own = spec.writable.find((d) => d !== spec.cwd) ?? spec.cwd
+  const home = join(own, HOME_DIR)
+  const tmp = join(own, TMP_DIR)
+  mkdirSync(home, { recursive: true })
   mkdirSync(tmp, { recursive: true })
-  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: spec.cwd, TMPDIR: tmp, ...spec.env }
+  return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: tmp, ...spec.env }
 }
 
 function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess {

@@ -408,6 +408,7 @@ const defs: EventTypeDefinition[] = [
           multiSelect: Schema.boolean(),
         }),
       ),
+      plan: Schema.string(),
     }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },

@@ -227,7 +227,9 @@ export const copy = {
     colonyCreated: (name: string) => `colony created: ${name}`,
     crewStarted: 'crew started',
     colonyStopped: (reason: string) => `colony stopped: ${reason}`,
-    crewCompleted: 'crew COMPLETED (verified)',
+    /** Whether it was reviewed is the verdict line's to say: a round can finish unreviewed. */
+    crewCompleted: 'crew COMPLETED',
+    notReviewed: 'final answer delivered, not reviewed',
     turn: (agent: string, turn: number, phase: string, trigger: string) =>
       `${agent} turn ${turn} ${phase} [${trigger}]`,
     ok: 'ok',
@@ -607,13 +609,24 @@ export const copy = {
   },
 
   questions: {
-    skip: 'Skip',
+    /** Per question, shown only when there are several; the footer button skips them all. */
+    skip: 'Skip this one',
     unskip: 'Answer',
-    skipAll: 'Skip all, you decide',
-    send: 'Send answers',
+    skipAll: (n: number) => (n === 1 ? 'Skip, you decide' : 'Skip all, you decide'),
+    send: (n: number) => (n === 1 ? 'Send answer' : 'Send answers'),
+    sending: 'Sending…',
     pickAny: 'Pick any that apply',
     other: 'Other: type your own answer',
+    /** Placeholder once the person picked an option that means they will type the rest. */
+    typeHere: 'Type it here',
     otherFor: (question: string) => `Your own answer to: ${question}`,
+    /**
+     * An option label that means the person will type the answer ("Other", "Adjust: I'll type what to change");
+     * picking it moves to the text box. Labels only, and narrowly: an option that merely says what the agent will
+     * write ("I'll write a summary") is an answer.
+     */
+    typesOwn: /^(other|something else)\W*$|\b(I['’]?ll|I will|let me) type\b|\btype (my|your|our) own\b/i,
+    plan: 'Plan',
     /** What the agent reads for a skipped question. */
     skippedAnswer: '(skipped: use your judgment)',
   },

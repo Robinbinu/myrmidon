@@ -1,4 +1,4 @@
-import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import { DELIVERED_VERIFIER, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
 import { copy } from '../copy.ts'
 
 export type StepKind =
@@ -354,7 +354,8 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'verifier/verdict': {
         const p = e.payload as EventPayloads['verifier/verdict']
-        if (p.target !== 'colony') break
+        // A round nobody reviews records its delivery as a verdict; no judge looked at it.
+        if (p.target !== 'colony' || p.verifierId === DELIVERED_VERIFIER) break
         out.push({
           ...base,
           kind: p.pass ? 'verdict' : 'error',

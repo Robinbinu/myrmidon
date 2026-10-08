@@ -17,6 +17,7 @@ import {
   type Review,
   type ReviewField,
   resolveConversation,
+  reviewVerdicts,
   SYSTEM,
   type TaskSnapshot,
   TEAM_CHAT,
@@ -70,6 +71,7 @@ import { toolsFor } from './patterns.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
 import { prompts } from './prompts.ts'
+import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -1326,7 +1328,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const out: string[] = []
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
-          if (entry.name === '.tmp' || SKIP_DIRS.has(entry.name) || out.length > 500) continue
+          if (SANDBOX_DIRS.has(entry.name) || SKIP_DIRS.has(entry.name) || out.length > 500) continue
           const full = `${d}/${entry.name}`
           if (entry.isDirectory()) walk(full)
           else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
@@ -1570,6 +1572,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         .array()
         .atMostLength(4)
         .describe(prompts.tools.ask_user.params.questions),
+      'plan?': type('string').atLeastLength(3).describe(prompts.tools.ask_user.params.plan),
     }),
     async run(args, agent, host) {
       const last = host.state().chatMessages.at(-1)
@@ -1583,6 +1586,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           final: false,
           question: true,
           ...(args.questions?.length ? { choices: args.questions } : {}),
+          ...(args.plan ? { plan: args.plan } : {}),
         },
       })
       return prompts.toolResults.asked
@@ -2286,13 +2290,14 @@ export function observeFacts(host: ColonyHost): string {
     .filter((a) => a.status === 'idle')
     .map((a) => a.info.name)
   const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
+  const finals = reviewVerdicts(s).filter((v) => v.target === 'colony')
   return [
     `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`,
     s.budget.costUsd !== undefined ? `cost: $${spent.toFixed(3)} of $${s.budget.costUsd}` : null,
     `tasks: ${tasks.length} total, unclaimed ${pending.join(', ') || 'none'}, blocked ${blocked.join(', ') || 'none'}, rejected ${rejected.join(', ') || 'none'}`,
     `idle agents: ${idle.join(', ') || 'none'}`,
     `artifacts: ${Object.keys(s.artifacts).join(', ') || 'none'}`,
-    `final verifications: ${s.verdicts.filter((v) => v.target === 'colony').length} run, last ${s.verdicts.filter((v) => v.target === 'colony').at(-1)?.pass ? 'passed' : 'not passed'}`,
+    `final verifications: ${finals.length} run, last ${finals.at(-1)?.pass ? 'passed' : 'not passed'}`,
   ]
     .filter(Boolean)
     .join('\n')

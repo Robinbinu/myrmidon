@@ -1,4 +1,4 @@
-import { type ColonyMetrics, colonyMetrics, foldColony } from './colony-state.ts'
+import { type ColonyMetrics, colonyMetrics, foldColony, reviewVerdicts } from './colony-state.ts'
 import type { MyrEvent } from './event.ts'
 import type { EventPayloads } from './payloads.ts'
 
@@ -36,7 +36,9 @@ function side(id: string, events: readonly MyrEvent[]) {
   const state = foldColony(id, events)
   const replies = state.chatMessages.filter((m) => m.from !== 'user')
   const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-  const verdict = state.verdicts.filter((v) => v.target === 'colony').at(-1)
+  const verdict = reviewVerdicts(state)
+    .filter((v) => v.target === 'colony')
+    .at(-1)
   const run: RunSide = {
     id,
     name: state.name,

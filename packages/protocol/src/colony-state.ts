@@ -92,6 +92,17 @@ export interface ArtifactVersion extends Entry {
   readonly parentVersion?: number
 }
 
+/**
+ * The verifier of a round nobody reviews: completion must cite a passing verdict, so its final answer records that it
+ * was delivered. It checks nothing, so it is never shown as a review, an approval, or a judge's pass.
+ */
+export const DELIVERED_VERIFIER = 'delivered'
+
+/** The verdicts of checks that actually ran, leaving out an unreviewed round's record of delivery. */
+export function reviewVerdicts(state: Pick<ColonyState, 'verdicts'>): VerdictEntry[] {
+  return state.verdicts.filter((v) => v.verifierId !== DELIVERED_VERIFIER)
+}
+
 export interface VerdictEntry extends Entry {
   readonly target: string
   readonly verifierId: string
@@ -111,6 +122,8 @@ export interface ChatEntry extends Entry {
   readonly assumption?: string
   /** Options the user can click to answer (ask_user). */
   readonly choices?: readonly QuestionChoice[]
+  /** The plan the question asks the user to approve, in markdown. */
+  readonly plan?: string
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
   /** The person's message was addressed to these crew members (@name). */
@@ -455,6 +468,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         ...(p.question ? { question: true } : {}),
         ...(p.assumption ? { assumption: p.assumption } : {}),
         ...(p.choices?.length ? { choices: p.choices } : {}),
+        ...(p.plan ? { plan: p.plan } : {}),
       })
       touch(state, p.agent, event.seq)
       break
