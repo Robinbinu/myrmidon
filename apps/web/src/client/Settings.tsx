@@ -2591,15 +2591,19 @@ function channelStatusText(s: ChannelView['status']) {
  */
 function ChannelsSection(props: { initial?: string | undefined }) {
   const t = copy.settings.channels
-  const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [open, setOpen] = useState<string | undefined>(props.initial)
   const [query, setQuery] = useState('')
+  // Shown on the page while it lasts (a damaged channels.json, the server away), not toasted again on every poll.
+  const [loadError, setLoadError] = useState<string>()
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
-      .then((r) => setList(r.channels))
-      .catch((err: Error) => toast(err.message, 'error'))
+      .then((r) => {
+        setList(r.channels)
+        setLoadError(undefined)
+      })
+      .catch((err: Error) => setLoadError(err.message))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
   useEffect(() => {
     void load()
@@ -2617,6 +2621,11 @@ function ChannelsSection(props: { initial?: string | undefined }) {
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
+      {loadError && (
+        <div role="alert" className="mb-6 rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+          {t.loadError(loadError)}
+        </div>
+      )}
       {connected.length > 0 && (
         <section className="mb-8">
           <h3 className="mb-2 text-[13px] font-semibold">{t.connected}</h3>

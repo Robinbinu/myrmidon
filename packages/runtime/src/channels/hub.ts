@@ -235,6 +235,12 @@ export class ChannelHub {
 
   /** Starts every channel that is switched on and set up. */
   async start() {
+    // A damaged settings file is said once, not once for every platform.
+    try {
+      this.store.check()
+    } catch (err) {
+      return this.options.log?.(err instanceof Error ? err.message : String(err))
+    }
     for (const id of Object.keys(this.options.kinds()))
       await this._restart(id).catch((err) => this._log(id, err))
   }

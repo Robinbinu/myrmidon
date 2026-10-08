@@ -1,7 +1,16 @@
 import { Database } from 'bun:sqlite'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
+import { channelCopy } from './copy.ts'
 import type { ChannelChat, ChannelSender } from './types.ts'
 
 /** Someone allowed to talk to the agents through a channel. */
@@ -102,13 +111,26 @@ export class ChannelStore {
     this._file = join(dir, 'channels.json')
   }
 
+  /**
+   * Every channel's settings. A file that cannot be read throws rather than reading as empty: the next save would
+   * otherwise overwrite every token and approved person with nothing.
+   */
   private _all(): Record<string, Partial<ChannelConfig> & { token?: string; groups?: unknown }> {
     if (!existsSync(this._file)) return {}
+    let all: unknown
     try {
-      return JSON.parse(readFileSync(this._file, 'utf8'))
-    } catch {
-      return {}
+      all = JSON.parse(readFileSync(this._file, 'utf8'))
+    } catch (err) {
+      throw new Error(channelCopy.unreadable(err instanceof Error ? err.message : String(err)))
     }
+    if (!all || typeof all !== 'object' || Array.isArray(all))
+      throw new Error(channelCopy.unreadable(channelCopy.notObject))
+    return all as Record<string, Partial<ChannelConfig>>
+  }
+
+  /** Throws when the settings file cannot be read, as every read and write would. */
+  check() {
+    this._all()
   }
 
   /** Whether a channel has been configured at all (so a platform's own defaults apply only the first time). */
@@ -151,6 +173,11 @@ export class ChannelStore {
   }
 
   private _save(all: Record<string, unknown>) {
+    // The version before each save stays beside it, so a bad save or hand edit can be undone.
+    if (existsSync(this._file)) {
+      copyFileSync(this._file, `${this._file}.bak`)
+      chmodSync(`${this._file}.bak`, 0o600)
+    }
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 })
     chmodSync(tmp, 0o600)

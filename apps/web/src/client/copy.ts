@@ -1827,6 +1827,7 @@ export const copy = {
       connected: 'Connected',
       search: 'Search apps…',
       noMatch: 'No app matches that.',
+      loadError: (error: string) => `Channels could not be loaded: ${error}`,
       groupsTitle: { messengers: 'Messengers', work: 'Work chat', other: 'Other' },
       waitingBadge: (n: number) => `${n} waiting`,
       tabs: { setup: 'Setup', people: 'People', rules: 'Rules', activity: 'Activity' },

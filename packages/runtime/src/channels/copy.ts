@@ -278,6 +278,10 @@ export const channelCopy = {
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
   failed: "I couldn't do that. The owner can see why in Myrmidon.",
+  /** Why channels are off when their settings file is damaged; nothing is saved over it until it is repaired. */
+  unreadable: (why: string) =>
+    `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak from the same folder.`,
+  notObject: 'it does not hold a list of channels',
   /** What an agent is doing, by tool. */
   doing: {
     shell: (command: string) => `running \`${command}\``,

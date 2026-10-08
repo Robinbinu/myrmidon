@@ -15,31 +15,35 @@ afterEach(async () => {
 
 const CODE = 'K7QX3MNP'
 
-/** A gateway whose Telegram channel (switched off) has one request waiting, sent the code above. */
-function serve() {
+/**
+ * A gateway whose Telegram channel (switched off) has one request waiting, sent the code above; or whose
+ * channels.json holds `file` instead.
+ */
+function serve(file?: string) {
   const home = mkdtempSync(join(tmpdir(), 'myr-channels-server-'))
   homes.push(home)
   mkdirSync(join(home, 'channels'), { recursive: true })
   const now = Date.now()
   writeFileSync(
     join(home, 'channels', 'channels.json'),
-    JSON.stringify({
-      telegram: {
-        values: { token: 'tok' },
-        enabled: false,
-        pending: [
-          {
-            id: 'req1',
-            codeHash: createHash('sha256').update(CODE).digest('hex'),
-            kind: 'person',
-            sender: { id: '100', name: 'Alice' },
-            chat: { id: '100', kind: 'dm' },
-            createdAt: new Date(now).toISOString(),
-            expires: new Date(now + 60 * 60_000).toISOString(),
-          },
-        ],
-      },
-    }),
+    file ??
+      JSON.stringify({
+        telegram: {
+          values: { token: 'tok' },
+          enabled: false,
+          pending: [
+            {
+              id: 'req1',
+              codeHash: createHash('sha256').update(CODE).digest('hex'),
+              kind: 'person',
+              sender: { id: '100', name: 'Alice' },
+              chat: { id: '100', kind: 'dm' },
+              createdAt: new Date(now).toISOString(),
+              expires: new Date(now + 60 * 60_000).toISOString(),
+            },
+          ],
+        },
+      }),
   )
   const chats = {
     list: async () => [],
@@ -49,11 +53,11 @@ function serve() {
   const server = startServer({ home, port: 0, chats })
   servers.push(server)
   const origin = new URL(server.url.replace(/#.*$/, ''))
-  const call = (path: string, body: unknown) =>
+  const call = (path: string, body?: unknown) =>
     fetch(new URL(path, origin), {
-      method: 'POST',
+      method: body === undefined ? 'GET' : 'POST',
       headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
   return { call }
 }
@@ -74,4 +78,16 @@ test('only Settings makes an approved person the owner', async () => {
   expect((await call('/api/channels/telegram/owner', { person: '100' })).status).toBe(404)
   await call('/api/channels/telegram/approve', { code: CODE })
   expect((await call('/api/channels/telegram/owner', { person: '100' })).status).toBe(200)
+})
+
+test('a damaged channels.json is reported, in Settings and as a gateway problem', async () => {
+  const { call } = serve('{"telegram": ')
+  const list = await call('/api/channels')
+  expect(list.status).toBe(500)
+  expect((await list.json()).error).toContain("Can't read channels.json")
+  const status = await call('/api/status')
+  expect(status.status).toBe(200)
+  const body = await status.json()
+  expect(body.overall).toBe('degraded')
+  expect(body.problems[0]).toMatchObject({ kind: 'channel', label: 'Channels' })
 })

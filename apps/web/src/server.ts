@@ -774,7 +774,14 @@ export function startServer(options: ServeOptions): WebServer {
         },
       },
       '/api/channels': {
-        GET: guard(() => json({ channels: channels?.list() ?? [] })),
+        GET: guard(() => {
+          try {
+            return json({ channels: channels?.list() ?? [] })
+          } catch (err) {
+            // A damaged channels.json: Settings says why instead of showing no channels.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
       },
       '/api/channels/chats': {
         GET: guard(() => json({ chats: channels?.chatChannels() ?? {} })),
@@ -786,14 +793,20 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/status': guard(async (_req, _url, access) => {
         const models = options.omp?.available().length ?? 0
         const list = (options.chats ? await options.chats.list() : []).filter((c) => c.status === 'running')
-        const inUse = (channels?.list() ?? []).filter(
-          (c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length,
-        )
         // Problems as data; the page words them.
         const problems: (
           | { kind: 'no-models' }
           | { kind: 'channel'; channel: string; label: string; error: string }
         )[] = []
+        let listed: ReturnType<ChannelHub['list']> = []
+        try {
+          listed = channels?.list() ?? []
+        } catch (err) {
+          // A damaged channels.json leaves every channel off: a problem for the indicator, not a failed status.
+          const error = err instanceof Error ? err.message : String(err)
+          problems.push({ kind: 'channel', channel: 'channels', label: 'Channels', error })
+        }
+        const inUse = listed.filter((c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length)
         if (options.omp && models === 0) problems.push({ kind: 'no-models' })
         for (const c of inUse)
           if (c.enabled && (c.status.state === 'retrying' || c.status.state === 'error'))

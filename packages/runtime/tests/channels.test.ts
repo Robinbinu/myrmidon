@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
@@ -290,6 +290,21 @@ test('approving takes the code the requester was sent: a request id alone, or an
   expect(hub.store.get('telegram').people).toEqual([])
   const approved = await hub.approve('telegram', { code: myCode, request: mine?.id ?? '' })
   expect(approved?.person).toMatchObject({ id: '100', role: 'owner' })
+})
+
+test('a damaged channels.json is refused loudly and never overwritten; each save keeps the version before it', async () => {
+  const { hub, dir } = await setup()
+  const file = join(dir, 'channels.json')
+  const saved = readFileSync(file, 'utf8')
+  await hub.configure('telegram', { mention: false })
+  expect(readFileSync(`${file}.bak`, 'utf8')).toBe(saved)
+  expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600)
+
+  writeFileSync(file, '{"telegram": {"values": {"token": "tok"}, "peop')
+  expect(() => hub.list()).toThrow("Can't read channels.json")
+  await expect(hub.configure('telegram', { mention: true })).rejects.toThrow("Can't read channels.json")
+  expect(() => hub.revoke('telegram', 'person', '100')).toThrow("Can't read channels.json")
+  expect(readFileSync(file, 'utf8')).toBe('{"telegram": {"values": {"token": "tok"}, "peop')
 })
 
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {
