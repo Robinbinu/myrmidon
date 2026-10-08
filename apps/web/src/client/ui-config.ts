@@ -40,6 +40,8 @@ export const REPLAY_SPEEDS = [1, 4, 16, 64]
 
 /** Above this many line pairs a before/after diff shows as a full replace instead of a line-by-line match. */
 export const DIFF_MAX_CELLS = 4_000_000
+/** A folder with more changed files than this starts folded in change lists (often caches or build output). */
+export const FOLDER_FOLD_AT = 10
 
 /* ------------------------------------------------------------------ agents and the mascot */
 

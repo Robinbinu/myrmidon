@@ -1286,6 +1286,8 @@ export const copy = {
     unified: 'Unified',
     split: 'Side by side',
     binary: 'Binary file, or nothing to show line by line.',
+    /** The tag on a changed file git counts no lines for. */
+    binaryTag: 'binary',
     noChanges: 'No file changes.',
     fileCount: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     collapseAll: 'Collapse all',
