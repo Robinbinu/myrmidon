@@ -127,7 +127,8 @@ export function ProjectPill(props: {
   fixed?: { id: string; name: string }
   value?: string
   onChange(id: string | undefined): void
-  onAdd(): void
+  /** Opens the folder picker; without it (a chats-only device) the list offers no new folder. */
+  onAdd?(): void
 }) {
   const pill =
     'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted'
@@ -157,7 +158,7 @@ export function ProjectPill(props: {
         aria-label={copy.folderPicker.pill.label}
         value={current?.id ?? ''}
         onChange={(e) => {
-          if (e.target.value === ADD) props.onAdd()
+          if (e.target.value === ADD) props.onAdd?.()
           else props.onChange(e.target.value || undefined)
         }}
         className="absolute inset-0 opacity-0"
@@ -168,7 +169,7 @@ export function ProjectPill(props: {
             {p.name}
           </option>
         ))}
-        <option value={ADD}>{copy.folderPicker.pill.open}</option>
+        {props.onAdd && <option value={ADD}>{copy.folderPicker.pill.open}</option>}
       </select>
     </label>
   )

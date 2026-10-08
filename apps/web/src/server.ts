@@ -178,6 +178,11 @@ const DEVICE_COOKIE = 'myr_device'
 const SECURE_DEVICE_COOKIE = `__Host-${DEVICE_COOKIE}`
 /** The pairing call comes before sign-in, so its body is capped. */
 const PAIR_BODY_MAX = 4096
+/**
+ * Seconds a request may wait for its answer before Bun closes the connection. Bun's default of 10 cut off slow GETs
+ * (seen on Bun 1.3.14), such as one forwarded to another gateway, which may take up to FORWARD_MS; 255 is Bun's most.
+ */
+const REQUEST_IDLE_S = 255
 
 function cookie(req: Request, name: string): string | undefined {
   for (const part of (req.headers.get('cookie') ?? '').split(';')) {
@@ -535,6 +540,7 @@ export function startServer(options: ServeOptions): WebServer {
   const server = Bun.serve<StreamData>({
     hostname: bindHost,
     port: options.port ?? 0,
+    idleTimeout: REQUEST_IDLE_S,
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,

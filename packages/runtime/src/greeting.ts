@@ -24,9 +24,6 @@ export interface GreetingFacts {
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-/** A chat's title short enough to share one line with the rest of the greeting. */
-const quote = (title: string) => `“${title.length > 20 ? `${title.slice(0, 18).trimEnd()}…` : title}”`
-
 /** Picks one of several phrasings, the same one all day, so the page does not change on every visit. */
 function variant<T>(facts: GreetingFacts, kind: string, options: readonly T[]): T {
   const seed = `${facts.now.toDateString()}:${kind}`
@@ -63,11 +60,10 @@ export function ruleGreeting(facts: GreetingFacts): Greeting {
 
   if (news.awaiting.length > 1) return line(say.waitingMany(news.awaiting.length, name))
   if (news.awaiting.length) return line(say.waitingOne(name))
-  const failed = news.failed[0]
-  if (failed) return line(say.failed(name, quote(failed.title)))
+  // A chat's title is the person's own first message, often long or a bare "hi", so the line never quotes it.
+  if (news.failed.length) return line(say.failed(name))
   if (news.finished.length > 1) return line(say.finishedMany(name, news.finished.length))
-  const finished = news.finished[0]
-  if (finished) return line(say.finishedOne(name, quote(finished.title)))
+  if (news.finished.length) return line(say.finishedOne(name))
   if (news.running.length > 1) return line(say.runningMany(name, news.running.length))
   if (news.running.length) return line(say.runningOne(name))
   if (news.first) return line(say.first(name))

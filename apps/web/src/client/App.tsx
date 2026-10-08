@@ -6,18 +6,30 @@ import {
   type PluginCommand,
   roundSlice,
 } from '@myrmidon/protocol'
-import { Network, PanelLeft, PanelRight, SquarePen, Trash2 } from 'lucide-react'
+import {
+  CircleAlert,
+  LoaderCircle,
+  MessageCircleQuestion,
+  Network,
+  PanelLeft,
+  Plug,
+  RefreshCw,
+  SquarePen,
+  Trash2,
+} from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   type ChatRound,
   type ChatSummary,
+  CONNECTION_CHANGED,
   type ColonySummary,
   type ModelOption,
   normalizeConfig,
   type Project,
   post,
+  reachable,
   send as request,
   type TeamConfig,
 } from './api.ts'
@@ -32,6 +44,7 @@ import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
+import { useScope } from './DeviceGate.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
 import { day, NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
@@ -43,7 +56,7 @@ import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
-import { MAX_FILE_BYTES, softSpring } from './ui-config.ts'
+import { AGENT_MIN_WINDOW, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
@@ -57,14 +70,17 @@ interface PluginSummary {
   uiStamp?: string
 }
 
-function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined] {
+/** `loaded` turns true with the first answer, so an empty list is not shown as "none yet" before anything came. */
+function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined, boolean] {
   const [data, setData] = useState<T>(initial)
   const [error, setError] = useState<string>()
+  const [loaded, setLoaded] = useState(false)
   const load = useCallback(() => {
     api<T>(path)
       .then((d) => {
         setData(d)
         setError(undefined)
+        setLoaded(true)
       })
       .catch((err) => setError(String(err.message ?? err)))
   }, [path])
@@ -73,8 +89,22 @@ function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, strin
     const t = setInterval(load, ms)
     return () => clearInterval(t)
   }, [load, ms])
-  return [data, load, error]
+  return [data, load, error, loaded]
 }
+
+/** Whether the server is answering, kept current as requests succeed or fail. */
+function useReachable(): boolean {
+  const [on, setOn] = useState(reachable)
+  useEffect(() => {
+    const update = () => setOn(reachable())
+    window.addEventListener(CONNECTION_CHANGED, update)
+    return () => window.removeEventListener(CONNECTION_CHANGED, update)
+  }, [])
+  return on
+}
+
+/** A model that can lead a crew: any the person has not hidden whose window, when known, holds an agent. */
+const canLead = (m: ModelOption) => !m.hidden && (m.contextWindow ?? AGENT_MIN_WINDOW) >= AGENT_MIN_WINDOW
 
 function readLocalConfig(): Record<string, unknown> {
   try {
@@ -149,8 +179,11 @@ export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
   const [reduceMotion, setReduceMotion] = usePersistentFlag('myr-reduce-motion', false)
-  const [chats, refreshChats, chatsError] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
+  const [chats, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
+  const online = useReachable()
+  const fullAccess = useScope() === 'full'
   const [models, setModels] = useState<ModelOption[]>([])
+  const [modelsError, setModelsError] = useState<string>()
   const [config, setConfig] = useState<TeamConfig>()
   const [view, setView] = useState<View>('chat')
   const [activeChat, setActiveChatState] = useState<string | undefined>(
@@ -164,7 +197,6 @@ export function App() {
   useEffect(() => {
     if (window.innerWidth < 1280) setWorkspaceOpen(false)
   }, [])
-  const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
@@ -207,6 +239,7 @@ export function App() {
     )
       .then((r) => {
         setModels(r.models)
+        setModelsError(undefined)
         setConfig((current) => {
           if (current) return current
           const fallback = r.default ?? r.models[0]?.ref ?? ''
@@ -216,16 +249,31 @@ export function App() {
           return normalizeConfig({ ...server, ...readLocalConfig() }, fallback)
         })
       })
-      .catch((err) => toast(String(err.message ?? err), 'error'))
-  }, [toast])
+      // The message box's stand-in says so and offers to try again.
+      .catch((err) => setModelsError(String(err.message ?? err)))
+  }, [])
 
   useEffect(loadModels, [loadModels])
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
     api<{ projects: Project[] }>('/api/projects')
       .then((r) => setProjects(r.projects))
-      .catch((err) => toast(String(err.message ?? err), 'error'))
+      // With the server away the banner says so, and the list loads again once it is back.
+      .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
   }, [toast])
+
+  useEffect(loadProjects, [loadProjects])
+
+  // What failed to load while the server was away loads once it answers again; the polls catch up by themselves.
+  useEffect(() => {
+    const back = () => {
+      if (!reachable()) return
+      loadProjects()
+      if (!config) loadModels()
+    }
+    window.addEventListener(CONNECTION_CHANGED, back)
+    return () => window.removeEventListener(CONNECTION_CHANGED, back)
+  }, [config, loadModels, loadProjects])
 
   // Announce rounds that finish while the user is elsewhere.
   useEffect(() => {
@@ -254,6 +302,15 @@ export function App() {
 
   const chat = chats.find((c) => c.chatId === activeChat)
   const running = !!chat && isRunning(chat.status)
+  const waiting = !!pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
+  /** A chat link (`?chat=`) whose chat is not in the list once it has loaded. */
+  const missing = !!activeChat && chatsLoaded && !chat && !waiting
+
+  const openSettings = (section: Section) => {
+    if (!fullAccess) return toast(copy.app.chatsOnly, 'info')
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
 
   // The pending card gives way once the chat list shows the round it started.
   useEffect(() => {
@@ -276,7 +333,6 @@ export function App() {
       setActiveChat(undefined)
       setView('chat')
       setSettingsOpen(false)
-      setMobileNav(false)
       requestAnimationFrame(() => composer.current?.focus())
     },
     [setActiveChat],
@@ -288,7 +344,11 @@ export function App() {
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     { combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true },
-    { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
+    {
+      combo: 'mod+,',
+      run: () => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info')),
+      inInputs: true,
+    },
   ])
 
   const send = async (
@@ -438,8 +498,7 @@ export function App() {
         return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
       case 'mcp':
       case 'settings':
-        setSettingsSection(name === 'mcp' ? 'tools' : 'general')
-        return setSettingsOpen(true)
+        return openSettings(name === 'mcp' ? 'tools' : 'general')
       default: {
         const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
         if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
@@ -485,6 +544,7 @@ export function App() {
         }
       }}
       chats={chats}
+      loaded={chatsLoaded}
       activeChat={activeChat}
       view={view}
       theme={theme}
@@ -493,44 +553,40 @@ export function App() {
         setActiveChat(id)
         setView('chat')
         setSettingsOpen(false)
-        setMobileNav(false)
       }}
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
-      onAddProject={() => setPicking(true)}
-      onProjectPermissions={setPermissionsFor}
-      onRemoveProject={async (p) => {
-        try {
-          const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
-          setProjects(r.projects)
-          if (newProject === p.id) setNewProject(undefined)
-          toast(copy.app.toasts.projectRemoved(p.name), 'info')
-        } catch (err) {
-          toast(String((err as Error).message ?? err), 'error')
-        }
-      }}
+      // A chats-only device works in the projects there are; adding, changing or removing them is not for it.
+      {...(fullAccess
+        ? {
+            onAddProject: () => setPicking(true),
+            onProjectPermissions: setPermissionsFor,
+            onRemoveProject: async (p: Project) => {
+              try {
+                const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
+                setProjects(r.projects)
+                if (newProject === p.id) setNewProject(undefined)
+                toast(copy.app.toasts.projectRemoved(p.name), 'info')
+              } catch (err) {
+                toast(String((err as Error).message ?? err), 'error')
+              }
+            },
+          }
+        : {})}
       onView={(v) => {
         setView(v)
         setSettingsOpen(false)
-        setMobileNav(false)
       }}
-      onSettings={() => {
-        setSettingsOpen(true)
-        setMobileNav(false)
-      }}
-      onGateways={() => {
-        setSettingsSection('gateways')
-        setSettingsOpen(true)
-        setMobileNav(false)
-      }}
-      onCollapse={() => (window.innerWidth < 768 ? setMobileNav(false) : setCollapsed(true))}
+      onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
+      onGateways={() => openSettings('gateways')}
+      onCollapse={() => setCollapsed(true)}
     />
   )
 
   const title =
     view === 'chat'
-      ? (chat?.title ?? copy.app.titles.newTask)
+      ? (chat?.title ?? (missing ? copy.app.chatNotFound.title : copy.app.titles.newTask))
       : view === 'colonies'
         ? copy.app.titles.crews
         : copy.app.titles.compare
@@ -547,46 +603,13 @@ export function App() {
               animate={{ width: sidebarSplit.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={sidebarSplit.dragging ? { duration: 0 } : softSpring}
-              className="hidden shrink-0 overflow-hidden md:block"
+              className="shrink-0 overflow-hidden"
             >
               {sidebar}
             </motion.div>
           )}
         </AnimatePresence>
-        {!collapsed && (
-          <SplitDivider
-            split={sidebarSplit}
-            side="left"
-            label={copy.app.resizeSidebar}
-            className="hidden md:block"
-          />
-        )}
-        <AnimatePresence>
-          {mobileNav && (
-            <motion.div
-              className="fixed inset-0 z-50 md:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <button
-                type="button"
-                aria-label={copy.app.closeMenu}
-                className="absolute inset-0 bg-black/40"
-                onClick={() => setMobileNav(false)}
-              />
-              <motion.div
-                className="absolute inset-y-0 left-0 bg-bg shadow-pop"
-                initial={{ x: -280 }}
-                animate={{ x: 0 }}
-                exit={{ x: -280 }}
-                transition={softSpring}
-              >
-                {sidebar}
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
 
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
           {settingsOpen ? (
@@ -606,14 +629,15 @@ export function App() {
           ) : (
             <>
               <Toolbar inset={collapsed}>
-                <IconButton
-                  label={copy.app.showSidebar}
-                  title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
-                  onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setCollapsed(!collapsed))}
-                  className={cn(!collapsed && 'md:hidden')}
-                >
-                  <PanelLeft className="size-4" />
-                </IconButton>
+                {collapsed && (
+                  <IconButton
+                    label={copy.app.showSidebar}
+                    title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
+                    onClick={() => setCollapsed(false)}
+                  >
+                    <PanelLeft className="size-4" />
+                  </IconButton>
+                )}
                 {collapsed && (
                   <IconButton
                     label={copy.app.newTask}
@@ -637,17 +661,6 @@ export function App() {
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && chat && (
-                  <IconButton
-                    label={copy.app.workspace}
-                    title={copy.app.workspaceTitle}
-                    active={workspaceOpen}
-                    onClick={() => setWorkspaceOpen(!workspaceOpen)}
-                    className="md:hidden"
-                  >
-                    <PanelRight className="size-4" />
-                  </IconButton>
-                )}
-                {view === 'chat' && chat && (
                   <Button
                     variant="toolbar"
                     size="sm"
@@ -658,17 +671,56 @@ export function App() {
                     }}
                     title={copy.app.crewButtonTitle}
                   >
-                    <span className="hidden sm:inline">{copy.app.crewButton}</span>
+                    {copy.app.crewButton}
                   </Button>
                 )}
               </Toolbar>
-              {chatsError && (
-                <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{chatsError}</div>
+              {!online ? (
+                <div
+                  role="status"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-[13px] text-fg-2"
+                >
+                  <LoaderCircle className="size-3.5 animate-spin text-muted" />
+                  {copy.app.reconnecting}
+                </div>
+              ) : (
+                chatsError && (
+                  <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{chatsError}</div>
+                )
               )}
 
               {view === 'chat' &&
                 (() => {
-                  const box = config && (
+                  if (missing)
+                    return (
+                      <PaneNotice
+                        icon={<MessageCircleQuestion className="size-6 text-muted" />}
+                        title={copy.app.chatNotFound.title}
+                        body={copy.app.chatNotFound.body}
+                        action={{
+                          label: copy.app.chatNotFound.action,
+                          icon: <SquarePen className="size-3.5" />,
+                          run: () => newTask(),
+                        }}
+                      />
+                    )
+                  // A chat link waits for the chat list rather than showing the entry page meanwhile.
+                  if (activeChat && !chat && !waiting)
+                    return chatsError ? (
+                      <PaneNotice
+                        icon={<CircleAlert className="size-6 text-bad-ink" />}
+                        title={copy.app.chatFailed}
+                        body={chatsError}
+                        action={{
+                          label: copy.app.composer.retry,
+                          icon: <RefreshCw className="size-3.5" />,
+                          run: refreshChats,
+                        }}
+                      />
+                    ) : (
+                      <div className="flex-1" />
+                    )
+                  const box = config ? (
                     <Composer
                       ref={composer}
                       models={models}
@@ -703,14 +755,18 @@ export function App() {
                             {...(chat?.project ? { fixed: chat.project } : {})}
                             {...(newProject ? { value: newProject } : {})}
                             onChange={setNewProject}
-                            onAdd={() => setPicking(true)}
+                            {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
                           />
                         )
                       }
                     />
+                  ) : (
+                    <ComposerPending
+                      centered={!chat}
+                      {...(modelsError ? { error: modelsError } : {})}
+                      onRetry={loadModels}
+                    />
                   )
-                  const waiting =
-                    pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
                   return chat || waiting ? (
                     <>
                       <Transcript
@@ -736,6 +792,9 @@ export function App() {
                       news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
                       onPick={(t) => composer.current?.fill(t)}
                     >
+                      {config && !models.some(canLead) && (
+                        <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
+                      )}
                       {box}
                     </Hero>
                   )
@@ -804,7 +863,8 @@ export function App() {
             onAdded={(p, all) => {
               setProjects(all)
               setPicking(false)
-              newTask(p.id)
+              // The open chat stays open; a new task about to start works in the folder just added.
+              if (!activeChat) setNewProject(p.id)
             }}
           />
         )}
@@ -821,6 +881,78 @@ export function App() {
         )}
       </AnimatePresence>
     </MotionConfig>
+  )
+}
+
+/**
+ * On the entry page while no model can lead: where to connect one, instead of a picker with nothing in it. Without
+ * `onConnect` (a chats-only device, which cannot open Settings) it says who can.
+ */
+function SetupCard(props: { onConnect?(): void }) {
+  const t = copy.app.setup
+  return (
+    <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+        <Plug className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] font-semibold">{t.title}</p>
+        <p className="text-[12.5px] leading-snug text-muted">{props.onConnect ? t.body : t.askOwner}</p>
+      </div>
+      {props.onConnect && (
+        <Button variant="primary" onClick={props.onConnect}>
+          {t.action}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** The message box's place while the models it offers load, or why they did not, with a way to try again. */
+function ComposerPending(props: { centered: boolean; error?: string; onRetry(): void }) {
+  const t = copy.app.composer
+  return (
+    <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
+      <div
+        aria-busy={!props.error}
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-[14px] text-muted shadow-pop"
+      >
+        {props.error ? (
+          <CircleAlert className="size-4 shrink-0 text-bad-ink" />
+        ) : (
+          <LoaderCircle className="size-4 shrink-0 animate-spin" />
+        )}
+        <span className="flex-1">{props.error ? t.failed : t.loading}</span>
+        {props.error && (
+          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+            {t.retry}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** In place of a pane that cannot show: a chat link to a chat this gateway lacks, or a list that would not load. */
+function PaneNotice(props: {
+  icon: ReactNode
+  title: string
+  body: string
+  action?: { label: string; icon: ReactNode; run(): void }
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+      {props.icon}
+      <div>
+        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-[13px] text-muted">{props.body}</p>
+      </div>
+      {props.action && (
+        <Button variant="primary" icon={props.action.icon} onClick={props.action.run}>
+          {props.action.label}
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -843,7 +975,7 @@ function Transcript(props: {
   const pane = useStickToBottom<HTMLDivElement>(props.chat?.chatId)
   return (
     <div ref={pane} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
+      <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
         {colonies(rounds).map((group, g) => (
           <ColonyRounds
             key={group.colonyId}
@@ -912,9 +1044,19 @@ function ColonyRounds(props: {
 }
 
 function ColoniesPane() {
-  const [colonies] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
+  const [colonies, , error, loaded] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
   const [selected, setSelected] = useState<string>()
   const active = selected ?? colonies[0]?.id
+  if (!loaded)
+    return error ? (
+      <PaneNotice
+        icon={<CircleAlert className="size-6 text-bad-ink" />}
+        title={copy.app.crewsFailed}
+        body={error}
+      />
+    ) : (
+      <div className="flex-1" />
+    )
   if (!active) return <div className="flex-1 p-10 text-center text-muted">{copy.app.noCrews}</div>
   return (
     <div className="flex min-h-0 flex-1 flex-col">

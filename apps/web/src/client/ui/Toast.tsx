@@ -24,7 +24,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const push = useCallback(
     (text: string, kind: Kind = 'info') => {
       const id = Date.now() + Math.random()
-      setToasts((t) => [...t.slice(-3), { id, kind, text }])
+      // A message already on screen (a retried request, a poll) is not stacked again.
+      setToasts((t) =>
+        t.some((x) => x.text === text && x.kind === kind) ? t : [...t.slice(-3), { id, kind, text }],
+      )
       setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 3500)
     },
     [dismiss],
@@ -63,7 +66,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <span className="flex-1">{t.text}</span>
                 <button
                   type="button"
-                  className="text-muted transition-colors hover:text-fg"
+                  className="-my-1 -mr-1.5 grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-fill hover:text-fg"
                   onClick={() => dismiss(t.id)}
                   aria-label={copy.common.dismiss}
                 >

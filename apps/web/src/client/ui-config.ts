@@ -67,6 +67,11 @@ export const MASCOT_PAT_MS = 700
 export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
+/**
+ * Windows shorter than this leave the mascot off the entry page: its screen (about 300px) would push the message box
+ * and the starters below the fold, and they matter more.
+ */
+export const HERO_MASCOT_MIN_HEIGHT = 760
 
 /* ------------------------------------------------------------------ crew cursors */
 
@@ -90,6 +95,15 @@ export const CURSOR = {
   labelTiltMax: 8,
   labelTiltPerPx: 0.11,
 }
+
+/* ------------------------------------------------------------------ connection */
+
+/** A crew's event stream reconnects after this long, doubling while the server stays down, up to the most. */
+export const STREAM_RETRY_MS = 1500
+export const STREAM_RETRY_MAX_MS = 15_000
+
+/** After a 401, how long before another one asks the server again whether this device is still paired. */
+export const SIGNED_OUT_RECHECK_MS = 10_000
 
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000
