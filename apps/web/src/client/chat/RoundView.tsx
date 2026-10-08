@@ -210,8 +210,9 @@ export function RoundView(props: {
   const streaming =
     latest && isRunning(state.status)
       ? Object.entries(colony.streams).filter(
+          // The whole colony's messages: a reply that began in the last round landed there, not in this one.
           ([agent, live]) =>
-            live.text && !state.chatMessages.some((m) => m.from === agent && m.seq > live.since),
+            live.text && !colony.state.chatMessages.some((m) => m.from === agent && m.seq > live.since),
         )
       : []
   const timeline: Item[] = [
@@ -406,7 +407,8 @@ export function RoundView(props: {
           colonyId={props.colonyId}
           {...(info ? { round: info.round } : {})}
           checkpoints={info?.checkpoints ?? state.checkpoints}
-          state={state}
+          // The folder's latest rewind, which for an earlier round came after the round ended.
+          state={colony.state}
           running={isRunning(state.status)}
         />
       </motion.div>
