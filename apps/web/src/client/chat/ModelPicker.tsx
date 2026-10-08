@@ -20,6 +20,16 @@ import { withoutDatedAliases } from './model-list.ts'
 /** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
 export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
 
+/** Where a list opened from `el` can show: inside the nearest ancestor that clips (the chat's scroll area), not the window. */
+function visibleBounds(el: HTMLElement): { top: number; bottom: number } {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (getComputedStyle(p).overflowY === 'visible') continue
+    const r = p.getBoundingClientRect()
+    return { top: Math.max(0, r.top), bottom: Math.min(window.innerHeight, r.bottom) }
+  }
+  return { top: 0, bottom: window.innerHeight }
+}
+
 /** A context window the way people say it: 8K, 200K, 1M. */
 export function windowLabel(tokens: number): string {
   return tokens >= 1_000_000 ? `${+(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}K`
@@ -117,12 +127,17 @@ export function ModelPicker(props: {
         type="button"
         onClick={() => {
           const rect = box.current?.getBoundingClientRect()
+          const bounds = box.current ? visibleBounds(box.current) : { top: 0, bottom: window.innerHeight }
           const outer = host?.current?.getBoundingClientRect()
-          if (rect && outer && outer.top - 12 >= MODEL_LIST_MIN_PX) {
-            setFit({ up: true, max: Math.min(400, outer.top - 12), lift: rect.top - outer.top + 8 })
+          if (rect && outer && outer.top - bounds.top - 12 >= MODEL_LIST_MIN_PX) {
+            setFit({
+              up: true,
+              max: Math.min(400, outer.top - bounds.top - 12),
+              lift: rect.top - outer.top + 8,
+            })
           } else if (rect) {
-            const above = rect.top - 12
-            const below = window.innerHeight - rect.bottom - 12
+            const above = rect.top - bounds.top - 12
+            const below = bounds.bottom - rect.bottom - 12
             const preferUp = (props.placement ?? 'up') === 'up'
             const goUp = preferUp ? above >= Math.min(400, below) : below < Math.min(400, above)
             setFit({ up: goUp, max: Math.max(MODEL_LIST_MIN_PX, Math.min(400, goUp ? above : below)) })
@@ -256,7 +271,7 @@ export function ModelPicker(props: {
                         onClick={() => choose(m.ref)}
                         className={cn(
                           // The margin keeps a row scrolled into view clear of the sticky provider heading.
-                          'flex w-full scroll-mt-8 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          'flex w-full scroll-mt-9 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
                           i === active && !blocked && 'bg-surface-2',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',
