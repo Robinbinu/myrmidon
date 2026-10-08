@@ -1877,6 +1877,12 @@ export const copy = {
       codeHint: '8 letters and digits',
       approve: 'Approve',
       makeOwner: 'Make owner',
+      makeOwnerName: (name: string) => `Make ${name} the owner`,
+      makeOwnerConfirm: 'Yes, make owner',
+      makeOwnerWarning:
+        'They approve risky steps and can allow tools for good; the current owner becomes a member.',
+      makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
+      madeOwner: (name: string) => `${name} is now the owner`,
       dismiss: 'Dismiss',
       people: 'Approved people',
       groups: 'Approved groups',
@@ -1915,7 +1921,7 @@ export const copy = {
         'Each person in a group gets their own chat with the crew, instead of one for the group.',
       allow: 'Let in without a code',
       allowHint:
-        'IDs or @usernames, separated by commas. The first to write becomes the owner if there is none.',
+        'IDs or @usernames, separated by commas. They come in as members; make someone the owner under People.',
       stream: 'While the crew works',
       streamHint: {
         progress: 'One message that updates with what each agent is doing, then the answer as a new message.',

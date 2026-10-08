@@ -9,7 +9,7 @@ export interface ChannelPerson {
   readonly id: string
   readonly name: string
   readonly handle?: string
-  /** The first person approved; only the owner approves risky steps. */
+  /** The first person approved by code, or whoever Settings makes it; only the owner approves risky steps. */
   readonly role: 'owner' | 'member'
   readonly approvedAt: string
   /** Their direct chat with the bot, where approvals for rounds they cannot see are sent. */
@@ -217,6 +217,18 @@ export class ChannelStore {
       }
       c.people = [...c.people.filter((p) => p.id !== person.id), person]
       return { request: found, person }
+    })
+  }
+
+  /** Makes an approved person the owner (the one before becomes a member); false when no such person is approved. */
+  setOwner(channel: string, personId: string): boolean {
+    return this.update(channel, (c) => {
+      if (!c.people.some((p) => p.id === personId)) return false
+      c.people = c.people.map((p) => ({
+        ...p,
+        role: p.id === personId ? ('owner' as const) : ('member' as const),
+      }))
+      return true
     })
   }
 

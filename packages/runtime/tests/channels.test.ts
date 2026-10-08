@@ -319,14 +319,22 @@ test('removing a channel stops it and forgets its settings, people, chats and pr
   expect(hub.store.get('telegram').people).toEqual([])
 })
 
-test('access policies: an allowlist lets listed people in (the first as owner) and ignores the rest silently', async () => {
+test('access policies: an allowlist lets listed people in as members and ignores the rest silently', async () => {
   const { adapter, chats, say, hub } = await setup({ dm: 'allowlist', allow: ['@bobby'] })
   await say(ALICE, 'let me in')
+  // A sender the platform gives no vouched handle is not matched by one (an IRC nick anyone can take).
+  await say({ id: 'bobby!~x@elsewhere', name: 'bobby' }, 'me too')
   await Bun.sleep(30)
   expect(adapter.to('100')).toEqual([])
+  expect(chats.sends).toEqual([])
   await say(BOB, 'hello from the list')
   await until(() => chats.sends.length === 1)
-  expect(hub.store.get('telegram').people).toMatchObject([{ id: '200', role: 'owner', dm: '200' }])
+  // Being listed never makes the owner: only Settings does.
+  expect(hub.store.get('telegram').people).toMatchObject([{ id: '200', role: 'member', dm: '200' }])
+  expect(chats.sends[0]?.askAll).toBe(true)
+  expect(hub.setOwner('telegram', '200')).toBe(true)
+  expect(hub.store.get('telegram').people).toMatchObject([{ id: '200', role: 'owner' }])
+  expect(hub.setOwner('telegram', 'nobody')).toBe(false)
 
   // `open` lets anyone in as a member, without keeping them.
   await hub.configure('telegram', { dm: 'open' })
@@ -711,6 +719,8 @@ test('platforms set their own command prefix and starting rules; an owner withou
   // The adapter turns `!help` into `/help` on the way in; the hub's answer writes commands the platform's way.
   await say('/help')
   await until(() => adapter.to('#stream').some((t) => t.includes('!new: start a fresh conversation')))
+  // Listed, Olive came in as a member; Settings makes her the owner.
+  hub.setOwner('twitch', 'o1')
 
   await say('play a song list')
   await until(() => chats.sends.length === 1)

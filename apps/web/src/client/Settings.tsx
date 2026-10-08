@@ -2986,6 +2986,17 @@ function ChannelSheet(props: {
                   <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
                     {p.role === 'owner' ? t.owner : t.member}
                   </Pill>
+                  {p.role === 'member' && (
+                    <ConfirmButton
+                      label={t.makeOwner}
+                      name={t.makeOwnerName(p.name)}
+                      confirm={t.makeOwnerConfirm}
+                      warning={hasOwner ? t.makeOwnerWarning : t.makeOwnerFirstWarning}
+                      onConfirm={() =>
+                        void act(post(`/api/channels/${c.id}/owner`, { person: p.id }), t.madeOwner(p.name))
+                      }
+                    />
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"

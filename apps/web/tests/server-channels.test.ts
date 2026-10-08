@@ -68,3 +68,10 @@ test('approving a channel request takes the code it was sent, never its id alone
   expect(right.status).toBe(200)
   expect((await right.json()).person).toMatchObject({ id: '100', role: 'owner' })
 })
+
+test('only Settings makes an approved person the owner', async () => {
+  const { call } = serve()
+  expect((await call('/api/channels/telegram/owner', { person: '100' })).status).toBe(404)
+  await call('/api/channels/telegram/approve', { code: CODE })
+  expect((await call('/api/channels/telegram/owner', { person: '100' })).status).toBe(200)
+})

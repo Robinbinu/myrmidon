@@ -641,7 +641,8 @@ password (`PASS`, before registering). Ported from OpenClaw's and Hermes's IRC a
    join (the bot's own when empty). The token is validated with Twitch (it must belong to that username and carry
    both scopes), again on every connection and every hour, as Twitch requires.
 3. Twitch chat is public and bots cannot whisper, so there is no direct chat to send a code to: put **your Twitch
-   username** under "Let in without a code" (you become the owner) and set **Groups** to *any group*. It then
+   username** under "Let in without a code" and set **Groups** to *any group*; after your first message, make
+   yourself the owner in Settings → Channels → People. It then
    answers only listed and approved people, and only when they `@mention` it or reply to it; everyone else is
    ignored.
 
@@ -739,7 +740,9 @@ commands are typed with `!` instead: `!approve KEY`, `!new`, `!stop`, `!status`,
   minutes, at most 3 waiting, and nothing they write is acted on), *listed people only* (strangers are ignored
   without a reply), *anyone* (only for a bot no one else knows: an approved person's messages run with this
   machine's tools), or *off*.
-- **Let in without a code**: IDs or @usernames; the first of them to write becomes the owner if there is none.
+- **Let in without a code**: IDs or @usernames. Listed people come in as members: an owner is made only by
+  approving a code or with **Make owner** under People. A handle matches only where the platform vouches for it;
+  on IRC, where anyone can take a free nick, list the full `nick!user@host`.
 - **Members**' messages reach the agents marked as theirs (not the owner's), and their runs ask the owner before
   every step that changes something.
 - **Groups**: add the bot to a group and mention it; the bot sends a code for the group, which you approve. It then

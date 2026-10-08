@@ -903,6 +903,21 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Ownership is given only here or by approving a code, never by an allowlist or a handle.
+      '/api/channels/:id/owner': {
+        POST: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { person?: unknown }
+          if (typeof body.person !== 'string') return json({ error: 'person is required' }, 400)
+          try {
+            return channels.setOwner(req.params.id ?? '', body.person)
+              ? json({ ok: true })
+              : json({ error: 'not found' }, 404)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
       '/api/channels/:id/:kind/:target': {
         DELETE: guard((req) => {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)

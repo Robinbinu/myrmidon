@@ -371,6 +371,12 @@ export class ChannelHub {
     rmSync(join(this.options.dir, id), { recursive: true, force: true })
   }
 
+  /** Makes an approved person the channel's owner, from Settings. */
+  setOwner(id: string, person: string): boolean {
+    this._kind(id)
+    return this.store.setOwner(id, person)
+  }
+
   revoke(id: string, kind: 'person' | 'group' | 'request', target: string): boolean {
     this._kind(id)
     return this.store.revoke(id, kind, target)
@@ -516,7 +522,7 @@ export class ChannelHub {
       .join(':')
   }
 
-  /** Whether a sender is on the typed allowlist, by id or @handle. */
+  /** Whether a sender is on the typed allowlist, by id or @handle (adapters give a handle only where it is vouched for). */
   private _listed(c: ChannelConfig, m: Inbound) {
     const handle = m.sender.handle?.toLowerCase()
     return c.allow.some((a) => a === m.sender.id || (handle && a.replace(/^@/, '').toLowerCase() === handle))
@@ -524,7 +530,8 @@ export class ChannelHub {
 
   /**
    * Who this sender is to the channel, or undefined to stay silent. Strangers in a direct chat under `pairing` get a
-   * code; listed people are added (the first as owner); `open` lets anyone in as a member without keeping them.
+   * code; listed people are added as members (only a code approved in Settings, or Settings itself, makes an owner);
+   * `open` lets anyone in as a member without keeping them.
    */
   private async _admit(
     channel: string,
@@ -553,7 +560,7 @@ export class ChannelHub {
         id: m.sender.id,
         name: m.sender.name,
         ...(m.sender.handle ? { handle: m.sender.handle } : {}),
-        role: c.people.some((p) => p.role === 'owner') ? 'member' : 'owner',
+        role: 'member',
         approvedAt: new Date().toISOString(),
         ...(m.chat.kind === 'dm' ? { dm: m.chat.id } : {}),
       }
