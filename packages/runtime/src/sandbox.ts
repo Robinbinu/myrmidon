@@ -60,10 +60,15 @@ function macProfile(writable: readonly string[]) {
   ].join('\n')
 }
 
+const HOME_DIR = '.home'
+const TMP_DIR = '.tmp'
+/** A command's private HOME and TMPDIR, folders of the agent's scratch that file listings leave out. */
+export const SANDBOX_DIRS: ReadonlySet<string> = new Set([HOME_DIR, TMP_DIR])
+
 function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
   const own = spec.writable.find((d) => d !== spec.cwd) ?? spec.cwd
-  const home = join(own, '.home')
-  const tmp = join(own, '.tmp')
+  const home = join(own, HOME_DIR)
+  const tmp = join(own, TMP_DIR)
   mkdirSync(home, { recursive: true })
   mkdirSync(tmp, { recursive: true })
   return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: tmp, ...spec.env }

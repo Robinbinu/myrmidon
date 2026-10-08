@@ -1855,6 +1855,27 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
 })
 
 test.skipIf(detectSandbox().kind === 'none')(
+  "what commands cache under HOME stays out of the agent's file listing",
+  async () => {
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/lead', [
+      [tool('shell', { command: 'mkdir -p "$HOME/.npm/_cacache" && touch "$HOME/.npm/_cacache/x" out.txt' })],
+      [tool('fs_list', {})],
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+    const { colonyId } = await chats.send('Make out.txt', { ...solo('mock/lead'), judgeModel: 'mock/judge' })
+    await waitFor(colonyId)
+    const listed = (await events(colonyId))
+      .map((e) => e.payload as EventPayloads['tool/result'])
+      .find((p) => p.tool === 'fs_list' && p.ok !== undefined)
+    expect(listed?.output).toContain('out.txt')
+    expect(listed?.output).not.toContain('.npm')
+  },
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
   "run_checks runs the project's own checks and reports what failed",
   async () => {
     const { ProjectStore } = await import('../src/projects.ts')

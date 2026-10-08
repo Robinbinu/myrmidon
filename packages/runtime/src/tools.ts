@@ -70,6 +70,7 @@ import { toolsFor } from './patterns.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
 import { prompts } from './prompts.ts'
+import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
 /** A short, stable file name for a fetched URL. */
@@ -1326,7 +1327,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const out: string[] = []
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
-          if (entry.name === '.tmp' || SKIP_DIRS.has(entry.name) || out.length > 500) continue
+          if (SANDBOX_DIRS.has(entry.name) || SKIP_DIRS.has(entry.name) || out.length > 500) continue
           const full = `${d}/${entry.name}`
           if (entry.isDirectory()) walk(full)
           else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
