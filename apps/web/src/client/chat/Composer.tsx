@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  AtSign,
   ChevronRight,
   FileText,
   ListEnd,
@@ -266,7 +265,7 @@ function mentionMenu(
       ...(i === 0 ? { section: copy.composer.mention.section } : {}),
       title: `@${c.name}`,
       description: c.specialty ?? c.role,
-      icon: AtSign,
+      agent: c.name,
       run: () => insert(c.name),
       complete: () => insert(c.name),
     }))

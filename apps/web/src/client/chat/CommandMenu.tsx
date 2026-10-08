@@ -23,6 +23,7 @@ import {
 import { motion } from 'motion/react'
 import { Fragment, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
+import { AgentAvatar } from '../ui/pixel.tsx'
 import { cn, Kbd } from '../ui/primitives.tsx'
 import { spring } from '../ui-config.ts'
 import {
@@ -92,6 +93,8 @@ export interface MenuItem {
   readonly hint?: string
   readonly description?: string
   readonly icon?: LucideIcon
+  /** A crew member's name: the row shows their face instead of an icon. */
+  readonly agent?: string
   /** The setting's current value, shown on the right. */
   readonly value?: string
   readonly current?: boolean
@@ -307,7 +310,9 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   it.disabled && 'opacity-45',
                 )}
               >
-                {ItemIcon ? (
+                {it.agent ? (
+                  <AgentAvatar name={it.agent} status="idle" size={32} awake />
+                ) : ItemIcon ? (
                   <span
                     className={cn(
                       'grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
