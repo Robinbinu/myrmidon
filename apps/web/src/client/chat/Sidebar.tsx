@@ -74,6 +74,11 @@ function marked(hit: MessageHit): ReactNode {
 const titled = (c: ChatSummary, q: string) =>
   c.title.toLowerCase().includes(q) || c.rounds.some((r) => r.request.toLowerCase().includes(q))
 
+/** The one chat row the Tab key lands on: the first preferred one that is on screen, else the first row shown. */
+export function tabStopRow(shown: readonly string[], preferred: readonly (string | undefined)[]) {
+  return preferred.find((id) => id !== undefined && shown.includes(id)) ?? shown[0]
+}
+
 function ageDays(iso: string) {
   const start = new Date()
   start.setHours(0, 0, 0, 0)
@@ -193,8 +198,27 @@ export function Sidebar(props: {
   // The chat list is one Tab stop: the row last focused (or the open chat, or the first) takes it, and the arrow keys
   // walk the rest. Its rename and delete buttons are for the pointer; F2 and Delete do the same from the keyboard.
   const [lastRow, setLastRow] = useState<string>()
-  const tabRow =
-    [lastRow, props.activeChat].find((id) => hits.some((c) => c.chatId === id)) ?? hits[0]?.chatId
+  // Only rows on screen can hold it: a chat inside a folded project has no row to Tab to.
+  const shownRows = [
+    ...props.projects.filter((p) => !closed.has(p.id)).flatMap((p) => byProject.get(p.id) ?? []),
+    ...grouped.flatMap((g) => g.chats),
+  ].map((c) => c.chatId)
+  const tabRow = tabStopRow(shownRows, [lastRow, props.activeChat])
+  // A deleted chat takes its row, and the focus on it, away; the row after it (or before, at the end) takes focus.
+  const afterDelete = useRef<{ chatId: string; next?: string }>(undefined)
+  const requestDelete = (c: ChatSummary) => {
+    const at = shownRows.indexOf(c.chatId)
+    afterDelete.current = { chatId: c.chatId, next: shownRows[at + 1] ?? shownRows[at - 1] }
+    props.onDelete(c)
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the list of chats changes
+  useEffect(() => {
+    const pending = afterDelete.current
+    if (!pending || props.chats.some((c) => c.chatId === pending.chatId)) return
+    afterDelete.current = undefined
+    const lost = !document.activeElement || document.activeElement === document.body
+    if (lost && pending.next) focusRow(pending.next)
+  }, [props.chats])
   const walkRows = (e: KeyboardEvent<HTMLElement>) => {
     const rows = [...(nav.current?.querySelectorAll<HTMLElement>('[data-chat]') ?? [])]
     const at = rows.indexOf(e.target as HTMLElement)
@@ -262,7 +286,7 @@ export function Sidebar(props: {
                 startRename(c)
               } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
                 e.preventDefault()
-                props.onDelete(c)
+                requestDelete(c)
               }
             }}
             aria-keyshortcuts="F2 Delete Meta+Backspace"
@@ -322,7 +346,7 @@ export function Sidebar(props: {
           type="button"
           hidden={editing === c.chatId}
           tabIndex={-1}
-          onClick={() => props.onDelete(c)}
+          onClick={() => requestDelete(c)}
           aria-label={copy.sidebar.chat.deleteLabel(c.title)}
           title={copy.sidebar.chat.delete}
           className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100"
