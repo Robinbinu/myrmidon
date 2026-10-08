@@ -801,6 +801,7 @@ export function startServer(options: ServeOptions): WebServer {
         const overall = problems.length ? 'degraded' : 'ok'
         // A chats-only device learns whether things work, not who is waiting or how channels are set up.
         if (access.scope !== 'full') return json({ overall, problems })
+        const skillsArchived = options.skills?.lastArchived()
         return json({
           overall,
           problems,
@@ -811,6 +812,7 @@ export function startServer(options: ServeOptions): WebServer {
           models,
           sandbox: options.sandboxKind ?? 'unknown',
           running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
+          ...(skillsArchived ? { skillsArchived } : {}),
           channels: inUse.map((c) => ({
             id: c.id,
             label: c.label,

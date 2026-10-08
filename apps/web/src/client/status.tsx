@@ -13,6 +13,8 @@ export interface GatewayStatus {
   models?: number
   sandbox?: string
   running?: { chatId: string; title: string }[]
+  /** The skill curator's last archiving. */
+  skillsArchived?: { at: string; names: string[] }
   channels?: {
     id: string
     label: string

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseSkillFile, SkillLibrary } from '../src/skills.ts'
@@ -110,4 +110,29 @@ test('learned skills nobody uses go stale, then to the archive; using, keeping o
     },
   )
   expect(() => library.restore('nothing-here')).toThrow('no archived skill called nothing-here')
+})
+
+test('on upgrade, learned skills with no record of use start their clock now rather than from their file age', () => {
+  const home = join(dir, 'home')
+  const day = 24 * 60 * 60_000
+  const t0 = Date.parse('2026-01-01T00:00:00Z')
+  // Written by an older Myrmidon that kept no usage record, long ago.
+  const learned = join(home, 'skills', 'old-learned')
+  mkdirSync(learned, { recursive: true })
+  writeFileSync(
+    join(learned, 'SKILL.md'),
+    '---\nname: old-learned\ndescription: Learned long ago.\nsource: learned\n---\n\nSteps.\n',
+  )
+  utimesSync(join(learned, 'SKILL.md'), new Date(t0 - 400 * day), new Date(t0 - 400 * day))
+  const library = new SkillLibrary(home, join(dir, 'claude'))
+  expect(library.list(undefined, t0).find((s) => s.name === 'old-learned')?.curation?.stale).toBe(false)
+  expect(library.curate(t0)).toEqual([])
+  expect(library.lastArchived()).toBeUndefined()
+  // Still unused a full archive age later, it goes, and the app is told which skills went and when.
+  expect(library.curate(t0 + 89 * day)).toEqual([])
+  expect(library.curate(t0 + 90 * day)).toEqual(['old-learned'])
+  expect(library.lastArchived()).toEqual({
+    at: new Date(t0 + 90 * day).toISOString(),
+    names: ['old-learned'],
+  })
 })

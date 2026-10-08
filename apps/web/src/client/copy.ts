@@ -1248,6 +1248,11 @@ export const copy = {
       learning: 'Reading this chat for a skill worth keeping…',
       learned: (name: string) => `Proposed a skill: ${name}. Keep or discard it below.`,
       nothingToLearn: 'Nothing in this chat worth keeping as a skill.',
+      skillsArchived: (names: string[]) =>
+        names.length === 1
+          ? `Archived the learned skill ${names[0]}: nobody used it for a while.`
+          : `Archived ${names.length} learned skills nobody used for a while.`,
+      reviewSkills: 'Review',
       openChatToLearn: 'Open a chat to learn a skill from it',
       roundDone: (title: string) => `“${title}” is done`,
       roundEnded: (title: string, status: string) => `“${title}” ${status}`,
