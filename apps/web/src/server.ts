@@ -378,6 +378,7 @@ export function startServer(options: ServeOptions): WebServer {
             ...(opts.project ? { project: opts.project } : {}),
             ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
             ...(opts.voice ? { voice: true } : {}),
+            ...(opts.askAll ? { askAll: true } : {}),
           }),
         rename: (chatId, title) => chats.rename(chatId, title),
         stop: (chatId) => chats.stop(chatId),
@@ -803,7 +804,14 @@ export function startServer(options: ServeOptions): WebServer {
         },
       },
       '/api/channels': {
-        GET: guard(() => json({ channels: channels?.list() ?? [] })),
+        GET: guard(() => {
+          try {
+            return json({ channels: channels?.list() ?? [] })
+          } catch (err) {
+            // A damaged channels.json: Settings says why instead of showing no channels.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
       },
       '/api/channels/chats': {
         GET: guard(() => json({ chats: channels?.chatChannels() ?? {} })),
@@ -815,14 +823,20 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/status': guard(async (_req, _url, access) => {
         const models = options.omp?.available().length ?? 0
         const list = (options.chats ? await options.chats.list() : []).filter((c) => c.status === 'running')
-        const inUse = (channels?.list() ?? []).filter(
-          (c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length,
-        )
         // Problems as data; the page words them.
         const problems: (
           | { kind: 'no-models' }
           | { kind: 'channel'; channel: string; label: string; error: string }
         )[] = []
+        let listed: ReturnType<ChannelHub['list']> = []
+        try {
+          listed = channels?.list() ?? []
+        } catch (err) {
+          // A damaged channels.json leaves every channel off: a problem for the indicator, not a failed status.
+          const error = err instanceof Error ? err.message : String(err)
+          problems.push({ kind: 'channel', channel: 'channels', label: 'Channels', error })
+        }
+        const inUse = listed.filter((c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length)
         if (options.omp && models === 0) problems.push({ kind: 'no-models' })
         for (const c of inUse)
           if (c.enabled && (c.status.state === 'retrying' || c.status.state === 'error'))
@@ -845,6 +859,8 @@ export function startServer(options: ServeOptions): WebServer {
           channels: inUse.map((c) => ({
             id: c.id,
             label: c.label,
+            // Every setting it needs is saved: a channel switched off can still be set up.
+            configured: c.configured,
             enabled: c.enabled,
             status: c.status,
             health: c.health,
@@ -917,18 +933,33 @@ export function startServer(options: ServeOptions): WebServer {
         POST: guard(async (req) => {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as { code?: unknown; request?: unknown }
-          const by =
-            typeof body.code === 'string'
-              ? { code: body.code }
-              : typeof body.request === 'string'
-                ? { request: body.request }
-                : undefined
-          if (!by) return json({ error: 'code or request is required' }, 400)
+          // Only the code proves the request is from someone the approver knows: a request id alone is not enough.
+          if (typeof body.code !== 'string' || !body.code.trim())
+            return json({ error: 'Type the code the bot sent them.' }, 400)
+          const by = {
+            code: body.code,
+            ...(typeof body.request === 'string' ? { request: body.request } : {}),
+          }
           try {
             const approved = await channels.approve(req.params.id ?? '', by)
             if (!approved)
-              return json({ error: 'no waiting request has that code; it may have expired' }, 404)
+              return json({ error: 'That is not the code this request was sent, or it has expired.' }, 404)
             return json({ person: approved.person, group: approved.group })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      // Ownership is given only here or by approving a code, never by an allowlist or a handle.
+      '/api/channels/:id/owner': {
+        POST: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { person?: unknown }
+          if (typeof body.person !== 'string') return json({ error: 'person is required' }, 400)
+          try {
+            return channels.setOwner(req.params.id ?? '', body.person)
+              ? json({ ok: true })
+              : json({ error: 'not found' }, 404)
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }

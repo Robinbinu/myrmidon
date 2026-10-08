@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { nextRun, RESERVED_SPECIALIST_NAMES as SERVER_RESERVED } from '@myrmidon/runtime'
 import {
   baseUrlError,
+  channelSetup,
   clampNumber,
   cronError,
   providerNameError,
@@ -82,4 +83,21 @@ test('a number box keeps a typed value within its limits and falls back when emp
   expect(clampNumber('45', 1, 240, 30)).toBe(45)
   expect(clampNumber('', 1, 240, 30)).toBe(30)
   expect(clampNumber('abc', 1, 240, 30)).toBe(30)
+})
+
+test('a channel’s setup names the required settings still missing, and never sends an emptied secret', () => {
+  const fields = [
+    { key: 'url', label: 'Server' },
+    { key: 'token', label: 'Token', secret: true },
+    { key: 'name', label: 'Name', optional: true },
+  ]
+  expect(channelSetup(fields, new Set(), {})).toEqual({ values: {}, missing: ['url', 'token'] })
+  expect(channelSetup(fields, new Set(), { url: 'https://chat.example.com' }).missing).toEqual(['token'])
+  // A saved token stays saved when its box is typed in and emptied again.
+  expect(channelSetup(fields, new Set(['url', 'token']), { token: '', name: '' })).toEqual({
+    values: { name: '' },
+    missing: [],
+  })
+  // Emptying a saved required setting that is not secret leaves it missing.
+  expect(channelSetup(fields, new Set(['url', 'token']), { url: ' ' }).missing).toEqual(['url'])
 })

@@ -1,7 +1,16 @@
 import { Database } from 'bun:sqlite'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
+import { channelCopy } from './copy.ts'
 import type { ChannelChat, ChannelSender } from './types.ts'
 
 /** Someone allowed to talk to the agents through a channel. */
@@ -9,7 +18,7 @@ export interface ChannelPerson {
   readonly id: string
   readonly name: string
   readonly handle?: string
-  /** The first person approved; only the owner approves risky steps. */
+  /** The first person approved by code, or whoever Settings makes it; only the owner approves risky steps. */
   readonly role: 'owner' | 'member'
   readonly approvedAt: string
   /** Their direct chat with the bot, where approvals for rounds they cannot see are sent. */
@@ -24,7 +33,7 @@ export interface ChannelGroup {
 
 /** A stranger (or a group) waiting for the owner to approve the code they were sent. */
 export interface PairingRequest {
-  /** For approving from Settings without the code. */
+  /** Names the request in Settings, to decline it or to approve it with the code its sender was sent. */
   readonly id: string
   readonly codeHash: string
   readonly kind: 'person' | 'group'
@@ -102,13 +111,26 @@ export class ChannelStore {
     this._file = join(dir, 'channels.json')
   }
 
+  /**
+   * Every channel's settings. A file that cannot be read throws rather than reading as empty: the next save would
+   * otherwise overwrite every token and approved person with nothing.
+   */
   private _all(): Record<string, Partial<ChannelConfig> & { token?: string; groups?: unknown }> {
     if (!existsSync(this._file)) return {}
+    let all: unknown
     try {
-      return JSON.parse(readFileSync(this._file, 'utf8'))
-    } catch {
-      return {}
+      all = JSON.parse(readFileSync(this._file, 'utf8'))
+    } catch (err) {
+      throw new Error(channelCopy.unreadable(err instanceof Error ? err.message : String(err)))
     }
+    if (!all || typeof all !== 'object' || Array.isArray(all))
+      throw new Error(channelCopy.unreadable(channelCopy.notObject))
+    return all as Record<string, Partial<ChannelConfig>>
+  }
+
+  /** Throws when the settings file cannot be read, as every read and write would. */
+  check() {
+    this._all()
   }
 
   /** Whether a channel has been configured at all (so a platform's own defaults apply only the first time). */
@@ -151,6 +173,11 @@ export class ChannelStore {
   }
 
   private _save(all: Record<string, unknown>) {
+    // The version before each save stays beside it, so a bad save or hand edit can be undone.
+    if (existsSync(this._file)) {
+      copyFileSync(this._file, `${this._file}.bak`)
+      chmodSync(`${this._file}.bak`, 0o600)
+    }
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 })
     chmodSync(tmp, 0o600)
@@ -186,10 +213,15 @@ export class ChannelStore {
     })
   }
 
-  /** Approves a waiting request by its code or its id; the first person approved becomes the owner. */
-  approve(channel: string, by: { code: string } | { request: string }) {
+  /**
+   * Approves a waiting request by the code its sender was sent (with `request`, only that one), so approving proves
+   * the code reached whoever approves; the first person approved becomes the owner.
+   */
+  approve(channel: string, by: { code: string; request?: string }) {
     return this.update(channel, (c) => {
-      const found = c.pending.find((p) => ('code' in by ? p.codeHash === hash(by.code) : p.id === by.request))
+      const found = c.pending.find(
+        (p) => p.codeHash === hash(by.code) && (by.request === undefined || p.id === by.request),
+      )
       if (!found) return undefined
       c.pending = c.pending.filter((p) => p !== found)
       const at = new Date().toISOString()
@@ -212,6 +244,18 @@ export class ChannelStore {
       }
       c.people = [...c.people.filter((p) => p.id !== person.id), person]
       return { request: found, person }
+    })
+  }
+
+  /** Makes an approved person the owner (the one before becomes a member); false when no such person is approved. */
+  setOwner(channel: string, personId: string): boolean {
+    return this.update(channel, (c) => {
+      if (!c.people.some((p) => p.id === personId)) return false
+      c.people = c.people.map((p) => ({
+        ...p,
+        role: p.id === personId ? ('owner' as const) : ('member' as const),
+      }))
+      return true
     })
   }
 

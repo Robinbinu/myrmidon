@@ -88,6 +88,7 @@ const colonySpec = Schema.object({
   disabledTools: Schema.array(str()),
   askTools: Schema.array(str()),
   allowTools: Schema.array(str()),
+  askAll: Schema.boolean(),
   review: Schema.union(['off', 'auto', 'always']),
 })
 
@@ -332,6 +333,7 @@ const defs: EventTypeDefinition[] = [
       ask: strs(),
       allow: strs(),
       project: Schema.string(),
+      askAll: Schema.boolean(),
       interrupted: strs(),
     }),
   },

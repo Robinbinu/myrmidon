@@ -1,4 +1,4 @@
-import { beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { copy } from '../src/client/copy.ts'
 import { CallBar, callee, speaker } from '../src/client/voice/CallBar.tsx'
@@ -6,6 +6,17 @@ import { engineTrouble } from '../src/client/voice/engine-trouble.ts'
 
 // call-client.ts reaches the API module, which reads the page's address and storage when it loads.
 const g = globalThis as Record<string, unknown>
+// Every test file runs in one process: the browser stand-ins below must not outlive this file (a fake WebSocket broke
+// every channel test that ran after it).
+const FAKED = ['location', 'window', 'navigator', 'AudioContext', 'AudioWorkletNode', 'WebSocket'] as const
+const real = Object.fromEntries(FAKED.map((k) => [k, Object.getOwnPropertyDescriptor(g, k)]))
+afterAll(() => {
+  for (const k of FAKED) {
+    const was = real[k]
+    if (was) Object.defineProperty(g, k, was)
+    else delete g[k]
+  }
+})
 let client: typeof import('../src/client/voice/call-client.ts')
 beforeAll(async () => {
   g.location ??= { hash: '', pathname: '/', protocol: 'http:', host: 'localhost' }

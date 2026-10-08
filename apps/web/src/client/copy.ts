@@ -225,8 +225,7 @@ export const copy = {
   channelRequest: {
     person: (name: string, label: string) => `${name} wants to talk to your crew on ${label}`,
     group: (name: string, label: string) => `The ${label} group “${name}” wants your crew`,
-    approve: 'Approve',
-    approved: (name: string) => `Approved ${name}`,
+    review: 'Review',
   },
 
   pairing: {
@@ -1875,13 +1874,13 @@ export const copy = {
         "Talk to your agents from a messaging app. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
       secretSet: 'Saved; type a new one to replace it',
       turnOn: 'Turn on',
-      connected: 'Connected',
+      yours: 'Your channels',
       search: 'Search apps…',
       noMatch: 'No app matches that.',
+      loadError: (error: string) => `Channels could not be loaded: ${error}`,
       groupsTitle: { messengers: 'Messengers', work: 'Work chat', other: 'Other' },
       waitingBadge: (n: number) => `${n} waiting`,
       tabs: { setup: 'Setup', people: 'People', rules: 'Rules', activity: 'Activity' },
-      close: 'Close',
       health: {
         lastIn: (when: string) => `Last message ${when}`,
         lastOut: (when: string) => `Last answer ${when}`,
@@ -1902,6 +1901,8 @@ export const copy = {
         'Pick an app to set it up. Each one runs through the same access rules, approvals and delivery.',
       save: 'Save',
       saving: 'Checking…',
+      optional: (label: string) => `${label} (optional)`,
+      stillNeeded: (labels: string[]) => `Still needed: ${labels.join(', ')}`,
       saved: (account: string) => `Connected as ${account}`,
       on: 'On',
       project: 'Project for new chats',
@@ -1909,6 +1910,8 @@ export const copy = {
       noProject: 'None',
       status: {
         off: 'Off',
+        setUpOff: 'Set up · off',
+        notSetUp: 'Setup not finished',
         connecting: 'Connecting…',
         on: (account: string) => `Connected as ${account}`,
         retrying: (error: string) => `Reconnecting: ${error}`,
@@ -1916,24 +1919,46 @@ export const copy = {
         linking: 'Scan this code with your phone to link it',
       },
       waiting: 'Waiting for approval',
-      waitingHint: 'People and groups who messaged your bot. Approve only those you know.',
+      waitingHint:
+        'People and groups who messaged your bot. To approve one, type the code the bot sent them: only they, or someone they told, can know it.',
+      ownerFirst:
+        'No owner yet: the first person you approve becomes the owner, who approves risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
       group: (title: string) => `group “${title}”`,
+      sender: (platform: string, id: string, handle?: string) =>
+        `${handle ? `@${handle} · ` : ''}${platform} ID ${id}`,
       expires: (when: string) => `expires ${when}`,
+      code: 'Code they were sent',
       approve: 'Approve',
-      dismiss: 'Dismiss',
+      makeOwner: 'Make owner',
+      makeOwnerName: (name: string) => `Make ${name} the owner`,
+      makeOwnerConfirm: 'Yes, make owner',
+      makeOwnerWarning:
+        'They approve risky steps and can allow tools for good; the current owner becomes a member.',
+      makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
+      madeOwner: (name: string) => `${name} is now the owner`,
+      decline: 'Decline',
+      declineName: (name: string) => `Decline ${name}`,
+      declineConfirm: 'Yes, decline',
       people: 'Approved people',
       groups: 'Approved groups',
       owner: 'Owner',
       member: 'Member',
       revoke: 'Revoke',
+      revokeName: (name: string) => `Revoke ${name}`,
+      revokeConfirm: 'Revoke access',
+      revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
+      revokeOwnerWarning:
+        'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
+      revokeGroupWarning: 'The bot ignores the group until it is approved again with a new code.',
       none: 'No one yet: message your bot to get a code.',
       approved: (name: string) => `Approved ${name}`,
-      access: 'Who can write',
       dm: 'Direct messages',
       dmHint: {
-        pairing: 'Strangers get a code; nothing they write is acted on until you approve it.',
-        allowlist: 'Only approved people and the list below; everyone else is ignored without a reply.',
-        open: 'Anyone who finds the bot can use your crew and this machine’s tools. Only for a bot no one else knows.',
+        pairing:
+          'Strangers get a code; nothing they write is acted on until you approve it. Runs anyone but the owner starts ask the owner before every step that changes something.',
+        allowlist:
+          'Only approved people and the list below; everyone else is ignored without a reply. Runs anyone but the owner starts ask the owner before every step that changes something.',
+        open: 'Anyone who finds the bot can use your crew, at your cost. Their runs ask the owner before every step that changes something, even tools you always allow. Only for a bot no one else knows.',
         disabled: 'The bot answers no direct messages.',
       },
       dmOptions: {
@@ -1956,7 +1981,9 @@ export const copy = {
         'Each person in a group gets their own chat with the crew, instead of one for the group.',
       allow: 'Let in without a code',
       allowHint:
-        'IDs or @usernames, separated by commas. The first to write becomes the owner if there is none.',
+        'IDs or @usernames, separated by commas. They come in as members; make someone the owner under People.',
+      allowPlaceholder: '@alice, 123456789',
+      allowSaved: 'Saved.',
       stream: 'While the crew works',
       streamHint: {
         progress: 'One message that updates with what each agent is doing, then the answer as a new message.',

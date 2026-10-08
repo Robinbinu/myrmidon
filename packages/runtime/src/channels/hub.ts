@@ -42,6 +42,11 @@ export interface ChannelChats {
       attachments?: readonly { name: string; bytes: Uint8Array }[]
       /** Said aloud on a voice call. */
       voice?: boolean
+      /**
+       * Written by someone other than the owner: the round asks before every call that changes something, whatever
+       * the owner allowed.
+       */
+      askAll?: boolean
     },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   rename(chatId: string, title: string): Promise<unknown>
@@ -74,6 +79,11 @@ export interface ChannelKind {
    * listed people (a pairing code by email or paid text helps no one), group-only platforms answer in any group.
    */
   readonly defaults?: Partial<Pick<ChannelConfig, 'dm' | 'groups' | 'mention'>>
+  /**
+   * What an entry under "Let in without a code" looks like here (an ID, or a handle the platform vouches for), so a
+   * typo is refused instead of never matching; `example` is the field's placeholder.
+   */
+  readonly allow?: { readonly pattern: RegExp; readonly example: string }
 }
 
 /** One channel as Settings shows it; secret values never leave the hub. */
@@ -94,6 +104,8 @@ export interface ChannelInfo {
   readonly stream: ChannelConfig['stream']
   readonly perPerson: boolean
   readonly allow: readonly string[]
+  /** What an entry in `allow` looks like here. */
+  readonly allowExample?: string
   readonly status: AdapterStatus | { readonly state: 'off' }
   readonly health: ChannelHealth
   readonly people: readonly ChannelPerson[]
@@ -150,6 +162,10 @@ interface Tracker {
   readonly colonyId: string
   readonly started: number
   readonly stream: ChannelConfig['stream']
+  /** The member (not the owner) whose message started or steered the round: it asks for every step. */
+  member?: string
+  /** Who started it (their sender id), whom its questions are for; none for a round started elsewhere. */
+  readonly starter?: string
   ref?: SentRef
   shown?: string
   readonly agents: Map<string, string>
@@ -173,6 +189,8 @@ interface OpenApproval {
   readonly tool: string
   readonly text: string
   readonly messages: { adapter: ChannelAdapter; ref: SentRef; to: ChannelChat }[]
+  /** Asked for in a member's round: "always" is not offered (it would widen the owner's own rules). */
+  readonly member: boolean
 }
 
 /** Questions with options sent to a chat, answered one press at a time, then sent together. */
@@ -184,6 +202,12 @@ interface OpenQuestions {
   readonly messages: (SentRef | undefined)[]
   readonly adapter: ChannelAdapter
   readonly to: ChannelChat
+  /** The member whose round asked: the answers start a round that asks for every step too. */
+  readonly member?: string
+  /** Who may answer besides the owner (the round's starter); anyone approved when unset. */
+  readonly for?: string
+  /** A member who answered: their answers reach the crew marked as theirs, and the round asks for every step. */
+  answeredBy?: string
 }
 
 const key = () => randomBytes(4).toString('base64url').slice(0, 6)
@@ -203,6 +227,8 @@ export class ChannelHub {
   private readonly _lanes = new Map<string, Promise<void>>()
   private readonly _trackers = new Map<string, Tracker>()
   private readonly _recent = new Map<string, number[]>()
+  /** Chats told to slow down in their current burst, so a flood hears it once. */
+  private readonly _slowed = new Set<string>()
   private readonly _approvals = new Map<string, OpenApproval>()
   private readonly _questions = new Map<string, OpenQuestions>()
   private readonly _retries = new Set<ReturnType<typeof setTimeout>>()
@@ -228,6 +254,12 @@ export class ChannelHub {
 
   /** Starts every channel that is switched on and set up. */
   async start() {
+    // A damaged settings file is said once, not once for every platform.
+    try {
+      this.store.check()
+    } catch (err) {
+      return this.options.log?.(err instanceof Error ? err.message : String(err))
+    }
     for (const id of Object.keys(this.options.kinds()))
       await this._restart(id).catch((err) => this._log(id, err))
   }
@@ -272,6 +304,7 @@ export class ChannelHub {
         stream: c.stream,
         perPerson: c.perPerson,
         allow: c.allow,
+        ...(kind.allow ? { allowExample: kind.allow.example } : {}),
         status: this._running.has(id) ? (this._status.get(id) ?? { state: 'connecting' }) : { state: 'off' },
         health: { reconnects: 0, ...this._health.get(id), owed: this._ledger.owed(id).length },
         people: c.people,
@@ -286,11 +319,15 @@ export class ChannelHub {
   }
 
   /**
-   * Saves a channel's settings (new values are checked with the platform first), access rules and project; then
-   * restarts it.
+   * Saves a channel's settings (all its required ones, checked with the platform first; never some of them), access
+   * rules and project; then restarts it.
    */
   async configure(id: string, patch: ChannelPatch) {
     const kind = this._kind(id)
+    const allow = patch.allow?.map((a) => a.trim()).filter(Boolean)
+    // An entry with a space is two run together; one in the wrong form would never match anyone.
+    const wrong = allow?.filter((a) => /\s/.test(a) || (kind.allow && !kind.allow.pattern.test(a))) ?? []
+    if (wrong.length) throw new Error(t.allowInvalid(kind.label, wrong, kind.allow?.example))
     // The first time a channel is configured it starts from its platform's own rules.
     if (kind.defaults && !this.store.exists(id))
       this.store.update(id, (c) => {
@@ -303,12 +340,13 @@ export class ChannelHub {
         if (v.trim()) values[k] = v.trim()
         else delete values[k]
       }
-      const filled = kind.fields.every((f) => f.optional || Boolean(values[f.key]))
+      const missing = kind.fields.filter((f) => !f.optional && !values[f.key])
+      if (missing.length) throw new Error(t.missing(missing.map((f) => f.label)))
       // Settings are only kept once the platform accepts them.
-      if (filled) await kind.make(values).check()
+      await kind.make(values).check()
       this.store.update(id, (c) => {
         c.values = values
-        if (filled && patch.enabled === undefined) c.enabled = true
+        if (patch.enabled === undefined) c.enabled = true
       })
     }
     this.store.update(id, (c) => {
@@ -318,7 +356,7 @@ export class ChannelHub {
       if (patch.mention !== undefined) c.mention = patch.mention
       if (patch.stream !== undefined) c.stream = patch.stream
       if (patch.perPerson !== undefined) c.perPerson = patch.perPerson
-      if (patch.allow) c.allow = patch.allow.map((a) => a.trim()).filter(Boolean)
+      if (allow) c.allow = allow
       if (patch.project === null) delete c.project
       else if (patch.project !== undefined) c.project = patch.project
     })
@@ -326,8 +364,8 @@ export class ChannelHub {
     return this.list().find((c) => c.id === id)
   }
 
-  /** Approves a waiting code (typed, or picked in Settings) and tells whoever asked. */
-  async approve(id: string, by: { code: string } | { request: string }) {
+  /** Approves a waiting request by its code (typed in Settings or the CLI) and tells whoever asked. */
+  async approve(id: string, by: { code: string; request?: string }) {
     this._kind(id)
     const approved = this.store.approve(id, by)
     if (!approved) return undefined
@@ -362,6 +400,12 @@ export class ChannelHub {
     this.store.remove(id)
     this._ledger.forget(id)
     rmSync(join(this.options.dir, id), { recursive: true, force: true })
+  }
+
+  /** Makes an approved person the channel's owner, from Settings. */
+  setOwner(id: string, person: string): boolean {
+    this._kind(id)
+    return this.store.setOwner(id, person)
   }
 
   revoke(id: string, kind: 'person' | 'group' | 'request', target: string): boolean {
@@ -493,6 +537,15 @@ export class ChannelHub {
     this.options.log?.(`${channel}: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  /**
+   * Something failed on a sender's behalf: why goes to the log and the channel's Activity tab, for the owner; the
+   * sender is told only that it failed, since the reason can name this machine's paths, keys or setup.
+   */
+  private _failed(channel: string, err: unknown) {
+    this._log(channel, err)
+    this._note(channel, 'trouble', t.activity.refused(err instanceof Error ? err.message : String(err)))
+  }
+
   private _flooded(channel: string, chat: string): boolean {
     const k = `${channel}:${chat}`
     const now = Date.now()
@@ -509,7 +562,7 @@ export class ChannelHub {
       .join(':')
   }
 
-  /** Whether a sender is on the typed allowlist, by id or @handle. */
+  /** Whether a sender is on the typed allowlist, by id or @handle (adapters give a handle only where it is vouched for). */
   private _listed(c: ChannelConfig, m: Inbound) {
     const handle = m.sender.handle?.toLowerCase()
     return c.allow.some((a) => a === m.sender.id || (handle && a.replace(/^@/, '').toLowerCase() === handle))
@@ -517,7 +570,8 @@ export class ChannelHub {
 
   /**
    * Who this sender is to the channel, or undefined to stay silent. Strangers in a direct chat under `pairing` get a
-   * code; listed people are added (the first as owner); `open` lets anyone in as a member without keeping them.
+   * code; listed people are added as members (only a code approved in Settings, or Settings itself, makes an owner);
+   * `open` lets anyone in as a member without keeping them.
    */
   private async _admit(
     channel: string,
@@ -546,7 +600,7 @@ export class ChannelHub {
         id: m.sender.id,
         name: m.sender.name,
         ...(m.sender.handle ? { handle: m.sender.handle } : {}),
-        role: c.people.some((p) => p.role === 'owner') ? 'member' : 'owner',
+        role: 'member',
         approvedAt: new Date().toISOString(),
         ...(m.chat.kind === 'dm' ? { dm: m.chat.id } : {}),
       }
@@ -579,8 +633,14 @@ export class ChannelHub {
         t.activity.in(person.name, m.chat.kind === 'group' ? m.chat.title : undefined),
       )
     if (m.press) return this._press(channel, adapter, person, m)
-    if (this._flooded(channel, m.chat.id)) return
     const reply = (text: string) => adapter.send(m.chat, { text })
+    const lane = `${channel}:${m.chat.id}`
+    if (this._flooded(channel, m.chat.id)) {
+      if (this._slowed.has(lane)) return
+      this._slowed.add(lane)
+      return void (await reply(t.slowDown))
+    }
+    this._slowed.delete(lane)
     let text = m.text.trim()
     const attachments: { name: string; bytes: Uint8Array }[] = []
     for (const file of m.files ?? []) {
@@ -589,7 +649,7 @@ export class ChannelHub {
         continue
       }
       if (file.kind === 'voice' || file.kind === 'audio') {
-        const heard = await this._transcribe(file.mimeType, file.name, () => file.read(), reply)
+        const heard = await this._transcribe(channel, file.mimeType, file.name, () => file.read(), reply)
         if (heard) text = text ? `${text}\n\n${heard}` : heard
         continue
       }
@@ -618,13 +678,17 @@ export class ChannelHub {
       const [qKey, q] = open
       const qi = q.answers.findIndex((a) => a === undefined)
       const option = q.choices[qi]?.options[Number(text) - 1]
-      if (option) return this._answerQuestion(qKey, qi, option.label)
+      if (option) {
+        if (!this._mayAnswer(q, person)) return void (await reply(t.question.notYours))
+        return this._answerQuestion(qKey, qi, option.label, person)
+      }
     }
     await this._forward(channel, adapter, m, person, c, text, attachments)
   }
 
   /** A voice note as text, echoed back so the person sees what was heard (Hermes's `stt_echo_transcripts`). */
   private async _transcribe(
+    channel: string,
     mimeType: string,
     name: string,
     read: () => Promise<Uint8Array>,
@@ -639,7 +703,8 @@ export class ChannelHub {
       if (heard) await reply(t.voice.heard(heard))
       return heard || undefined
     } catch (err) {
-      await reply(t.voice.failed(err instanceof Error ? err.message : String(err)))
+      this._failed(channel, err)
+      await reply(t.voice.failed)
       return undefined
     }
   }
@@ -693,10 +758,11 @@ export class ChannelHub {
       const q = this._questions.get(a)
       const choice = q?.choices[Number(b)]
       if (!q || !choice) return ack(t.approval.closed)
+      if (!this._mayAnswer(q, person)) return ack(t.question.notYours)
       const label = c === 's' ? t.question.skipped : choice.options[Number(c)]?.label
       if (!label) return ack()
       await ack(t.question.pressNoted)
-      return this._answerQuestion(a, Number(b), label)
+      return this._answerQuestion(a, Number(b), label, person)
     }
     await ack()
   }
@@ -714,27 +780,33 @@ export class ChannelHub {
     if (person.role !== 'owner') return void (await note(t.approval.onlyOwner))
     this._approvals.delete(k)
     const approved = decision !== 'd'
+    const always = decision === 'a' && !open.member
     try {
-      if (decision === 'a') await this.options.chats.allowAlways(open.tool)
+      if (always) await this.options.chats.allowAlways(open.tool)
       await this.options.chats.decideApproval(open.colonyId, open.id, approved)
     } catch {
       return void (await note(t.approval.gone))
     }
-    const outcome =
-      decision === 'a'
-        ? t.approval.allowedAlways(person.name, open.tool)
-        : approved
-          ? t.approval.allowed(person.name)
-          : t.approval.denied(person.name)
+    const outcome = always
+      ? t.approval.allowedAlways(person.name, open.tool)
+      : approved
+        ? t.approval.allowed(person.name)
+        : t.approval.denied(person.name)
     for (const msg of open.messages)
       await this._settle(msg.adapter, msg.ref, msg.to, `${open.text}\n\n${outcome}`, outcome)
     await note(approved ? t.approval.pressAllowed : t.approval.pressDenied)
   }
 
-  private async _answerQuestion(k: string, index: number, label: string) {
+  /** In a group, a question is the asker's (or the owner's) to answer, not anyone's who is approved. */
+  private _mayAnswer(q: OpenQuestions, person: ChannelPerson) {
+    return person.role === 'owner' || !q.for || q.for === person.id
+  }
+
+  private async _answerQuestion(k: string, index: number, label: string, person: ChannelPerson) {
     const q = this._questions.get(k)
     if (!q || q.answers[index] !== undefined) return
     q.answers[index] = label
+    if (person.role !== 'owner') q.answeredBy ??= person.name
     const ref = q.messages[index]
     const choice = q.choices[index]
     if (ref && choice && q.adapter.can.edit)
@@ -744,7 +816,13 @@ export class ChannelHub {
     const text = q.choices
       .map((c, i) => t.question.answer(c.question, q.answers[i] ?? t.question.skipped))
       .join('\n')
-    await this.options.chats.send(text, q.chatId).catch((err) => this._log(q.channel, err))
+    // A question pauses its round, so the answers start the next one: it must not get the owner's permissions
+    // when a member asked for the work or answered.
+    const platform = this._kind(q.channel).label
+    const body = q.answeredBy ? prompts.channels.member(q.answeredBy, platform, text) : text
+    await this.options.chats
+      .send(body, q.chatId, q.member || q.answeredBy ? { askAll: true } : {})
+      .catch((err) => this._log(q.channel, err))
   }
 
   private async _forward(
@@ -759,15 +837,18 @@ export class ChannelHub {
     const label = this._kind(channel).label
     const conversation = this._conversation(c, m)
     const existing = c.chats[conversation]
-    const body = person.role !== 'owner' ? prompts.channels.member(m.sender.name, label, text) : text
+    const member = person.role !== 'owner'
+    const body = member ? prompts.channels.member(m.sender.name, label, text) : text
     let sent: Awaited<ReturnType<ChannelChats['send']>>
     try {
       sent = await this.options.chats.send(body, existing, {
         ...(c.project ? { project: c.project } : {}),
         ...(attachments.length ? { attachments } : {}),
+        ...(member ? { askAll: true } : {}),
       })
     } catch (err) {
-      await adapter.send(m.chat, { text: t.failed(err instanceof Error ? err.message : String(err)) })
+      this._failed(channel, err)
+      await adapter.send(m.chat, { text: t.failed })
       return
     }
     if (sent.chatId !== existing) {
@@ -777,8 +858,21 @@ export class ChannelHub {
       const who = m.chat.kind === 'group' ? (m.chat.title ?? m.sender.name) : m.sender.name
       await this.options.chats.rename(sent.chatId, t.title(label, who)).catch(() => {})
     }
-    if (sent.started) await this._track(channel, adapter, m.chat, sent.chatId, sent.colonyId)
-    else await adapter.typing(m.chat).catch(() => {})
+    if (sent.started)
+      await this._track(
+        channel,
+        adapter,
+        m.chat,
+        sent.chatId,
+        sent.colonyId,
+        member ? m.sender.name : undefined,
+        m.sender.id,
+      )
+    else {
+      const tracker = this._trackers.get(sent.colonyId)
+      if (tracker && member) tracker.member ??= m.sender.name
+      await adapter.typing(m.chat).catch(() => {})
+    }
   }
 
   private async _track(
@@ -787,6 +881,8 @@ export class ChannelHub {
     to: ChannelChat,
     chatId: string,
     colonyId: string,
+    member?: string,
+    starter?: string,
   ) {
     if (this._trackers.has(colonyId)) return
     const tracker: Tracker = {
@@ -797,6 +893,8 @@ export class ChannelHub {
       colonyId,
       started: Date.now(),
       stream: adapter.can.edit ? this.store.get(channel).stream : 'final',
+      ...(member ? { member } : {}),
+      ...(starter ? { starter } : {}),
       agents: new Map(),
       approvals: new Set(),
       question: false,
@@ -906,6 +1004,8 @@ export class ChannelHub {
       messages: [],
       adapter: tracker.adapter,
       to: tracker.to,
+      ...(tracker.member ? { member: tracker.member } : {}),
+      ...(tracker.starter ? { for: tracker.starter } : {}),
     }
     this._questions.set(k, q)
     for (const [qi, choice] of choices.entries()) {
@@ -935,23 +1035,26 @@ export class ChannelHub {
     const owner = c.people.find((p) => p.role === 'owner')
     const preview = request.review?.fields.find((f) => f.value)?.value
     const k = key()
+    const member = tracker.member
     const text = [
       t.approval.ask(request.agent, request.summary),
+      ...(member ? [t.approval.member(member)] : []),
       ...(preview
         ? [`\`\`\`\n${preview.slice(0, PREVIEW_CHARS)}${preview.length > PREVIEW_CHARS ? '\n…' : ''}\n\`\`\``]
         : []),
       t.approval.expires(Math.round(APPROVAL_MS / 60_000)),
     ].join('\n\n')
+    const p = tracker.adapter.commandPrefix ?? '/'
     const message: OutMessage = tracker.adapter.can.buttons
       ? {
           text,
           buttons: [
             [{ label: t.approval.once, data: `a:o:${k}` }],
-            [{ label: t.approval.always(request.tool), data: `a:a:${k}` }],
+            ...(member ? [] : [[{ label: t.approval.always(request.tool), data: `a:a:${k}` }]]),
             [{ label: t.approval.deny, data: `a:d:${k}` }],
           ],
         }
-      : { text: `${text}\n\n${t.approval.typed(k, tracker.adapter.commandPrefix ?? '/')}` }
+      : { text: `${text}\n\n${member ? t.approval.typedOnce(k, p) : t.approval.typed(k, p)}` }
     const here = tracker.to.kind === 'dm' && owner?.dm === tracker.to.id
     // An owner with no private chat (group-only platforms like Twitch) is asked where the run is; only their press
     // counts there too.
@@ -975,6 +1078,7 @@ export class ChannelHub {
       tool: request.tool,
       text,
       messages: [{ adapter: tracker.adapter, ref, to: target }],
+      member: Boolean(member),
     })
     if (target !== tracker.to)
       await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})

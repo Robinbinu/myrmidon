@@ -124,6 +124,11 @@ export interface SendOptions {
   readonly voice?: boolean
   /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
   readonly context?: string
+  /**
+   * Someone other than the person wrote it (a channel member): the round asks before every call that changes
+   * something outside it, whatever the person allowed (`ColonySpec.askAll`).
+   */
+  readonly askAll?: boolean
 }
 
 /** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
@@ -563,6 +568,8 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
+      // Their message steers a round someone else started: from now on it asks too, as if they had started it.
+      if (options.askAll) await live.askForAll()
       await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
       return { chatId: id, colonyId: live.id, started: false }
     }
@@ -578,6 +585,7 @@ export class ChatService {
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     if (spec.chat) Object.assign(spec.chat, extra)
+    if (options.askAll) spec.askAll = true
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
@@ -658,7 +666,13 @@ export class ChatService {
     })
     void run.done.then((final) => {
       if (final.escalated)
-        this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
+        this._rerun(id, message, config, {
+          ...options,
+          // The rerun repeats every message of this round, a member's among them.
+          ...(run.spec.askAll ? { askAll: true } : {}),
+          attachments: [],
+          tier: final.escalated.to,
+        })
       if (final.status === 'completed')
         this._nameChat(id, config.leadModel).catch((err) =>
           console.error(`naming ${id} failed: ${err instanceof Error ? err.message : err}`),
@@ -1009,6 +1023,15 @@ export class ChatService {
     const start = events.findLast((e) => e.type === 'colony/created' || e.type === 'round/started')
     if (!start) throw new Error('the colony has no colony/created event')
     const created = start.payload as EventPayloads['colony/created']
+    // A member who wrote into the round made it ask for everything from then on.
+    const askAll =
+      created.askAll ||
+      events.some(
+        (e) =>
+          e.seq > start.seq &&
+          e.type === 'permissions/changed' &&
+          (e.payload as EventPayloads['permissions/changed']).askAll,
+      )
     const joined = events
       .filter((e) => e.type === 'agent/joined' && e.seq > start.seq)
       .map((e) => (e.payload as EventPayloads['agent/joined']).agent)
@@ -1049,6 +1072,7 @@ export class ChatService {
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
       ...(created.askTools?.length ? { askTools: created.askTools } : {}),
       ...(created.allowTools?.length ? { allowTools: created.allowTools } : {}),
+      ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
     }
