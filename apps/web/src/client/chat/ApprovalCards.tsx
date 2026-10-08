@@ -27,21 +27,57 @@ const action = (tool: string) =>
       ? copy.approvals.actions.file
       : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
-type Pending = ColonyState['approvals'][string]
+import type { Pending } from './approvals.ts'
 
 /**
- * Calls waiting for the person (an "Ask first" project, tools set to Ask, MCP tools that change things, and changes an
- * agent proposes): each shows what it would do in full, where there is a change to show, with Approve or Deny right
- * in the chat. Text fields can be rewritten first; what runs is the person's version.
+ * A call that waited for the person (an "Ask first" project, tools set to Ask, MCP tools that change things, and
+ * changes an agent proposes), where it came up in the chat. While it waits it shows what it would do in full, where
+ * there is a change to show, with Approve or Deny; text fields can be rewritten first and what runs is the person's
+ * version. Once decided it stays as one line saying what was decided.
  */
-export function ApprovalCards({ colonyId, state }: { colonyId: string; state: ColonyState }) {
-  const pending = Object.values(state.approvals).filter((a) => !a.decided)
+export function Approval({ colonyId, request }: { colonyId: string; request: Pending }) {
+  return request.decided ? (
+    <ApprovalRecord request={request} decided={request.decided} />
+  ) : (
+    <ApprovalCard colonyId={colonyId} request={request} />
+  )
+}
+
+function ApprovalRecord({
+  request: a,
+  decided,
+}: {
+  request: Pending
+  decided: NonNullable<Pending['decided']>
+}) {
+  const t = copy.approvals.decided
+  const what = a.review?.title ?? a.summary
+  const line = decided.approved
+    ? decided.edits && Object.keys(decided.edits).length
+      ? t.approvedEdited(what)
+      : t.approved(what)
+    : decided.by === 'timeout'
+      ? t.timedOut(what)
+      : decided.by === 'stopped'
+        ? t.stopped(what)
+        : t.denied(what)
   return (
-    <AnimatePresence initial={false}>
-      {pending.map((a) => (
-        <ApprovalCard key={a.id} colonyId={colonyId} request={a} />
-      ))}
-    </AnimatePresence>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={spring}
+      className="flex min-w-0 items-center gap-1.5 pl-11 text-[12.5px] text-muted"
+    >
+      {decided.approved ? (
+        <Check className="size-3.5 shrink-0 text-ok-ink" />
+      ) : (
+        <X className="size-3.5 shrink-0 text-bad-ink" />
+      )}
+      <span className="min-w-0 truncate" title={decided.note ? t.withNote(line, decided.note) : line}>
+        {line}
+        {decided.note && <span className="text-fg-2"> · {decided.note}</span>}
+      </span>
+    </motion.div>
   )
 }
 
@@ -110,8 +146,8 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
             className="h-8 min-w-0 flex-1 text-[12.5px]"
           />
         )}
+        {/* The card's decision is the point of it, so its buttons get a full-size target, not the compact one. */}
         <Button
-          size="sm"
           variant="ghost"
           disabled={busy}
           onClick={() => void decide(false)}
@@ -120,7 +156,6 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
           {copy.approvals.approval.deny}
         </Button>
         <Button
-          size="sm"
           variant="primary"
           disabled={busy}
           onClick={() => void decide(true)}

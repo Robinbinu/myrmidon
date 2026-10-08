@@ -40,14 +40,14 @@ import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
-import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
+import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
-import { day, NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
+import { day, NOTIFY_KEY, useFollowLatest, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
@@ -972,9 +972,9 @@ function Transcript(props: {
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
-  const pane = useStickToBottom<HTMLDivElement>(props.chat?.chatId)
+  const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
-    <div ref={pane} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
         {colonies(rounds).map((group, g) => (
           <ColonyRounds
@@ -1010,6 +1010,7 @@ function Transcript(props: {
           </div>
         )}
       </div>
+      <JumpToLatest follow={pane} />
     </div>
   )
 }

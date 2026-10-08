@@ -1,5 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import { FolderGit2, History, LoaderCircle, Undo2 } from 'lucide-react'
+import { FolderGit2, History, RotateCcw, Undo2 } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
@@ -32,6 +32,9 @@ export function RoundChanges(props: {
   const { state, checkpoints } = props
   const project = state.chat?.project
   const [changes, setChanges] = useState<Changes>()
+  const [failed, setFailed] = useState(false)
+  /** Bumped by Retry to fetch again. */
+  const [attempt, setAttempt] = useState(0)
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -42,17 +45,34 @@ export function RoundChanges(props: {
   const key = `${checkpoints.end ?? ''}:${restored?.time ?? ''}`
   const query = props.round === undefined ? '' : `?round=${props.round}`
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`), or on Retry
   useEffect(() => {
     if (!project || !checkpoints.start || props.running) return
+    setFailed(false)
     api<Changes>(`/api/colonies/${props.colonyId}/changes${query}`)
       .then(setChanges)
-      .catch(() => setChanges(undefined))
-  }, [props.colonyId, key, props.running, query])
+      .catch(() => {
+        setChanges(undefined)
+        setFailed(true)
+      })
+  }, [props.colonyId, key, props.running, query, attempt])
 
   if (!project || !checkpoints.start || props.running) return null
-  const added = changes?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
-  const removed = changes?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
+  if (failed)
+    return (
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]" role="alert">
+        <FolderGit2 className="size-4 shrink-0 text-muted" />
+        <span className="text-bad-ink">{copy.roundChanges.failed(project.name)}</span>
+        <span className="flex-1" />
+        <Button size="sm" onClick={() => setAttempt((n) => n + 1)} icon={<RotateCcw className="size-3.5" />}>
+          {copy.roundChanges.retry}
+        </Button>
+      </div>
+    )
+  // A round that changed nothing in the folder has nothing to say about it (and nothing until that is known).
+  if (!changes || (changes.files.length === 0 && !rewound)) return null
+  const added = changes.files.reduce((n, f) => n + (f.added ?? 0), 0)
+  const removed = changes.files.reduce((n, f) => n + (f.removed ?? 0), 0)
 
   const rewind = async (undo: boolean, force = false) => {
     setBusy(true)
@@ -75,6 +95,8 @@ export function RoundChanges(props: {
       // Kept files stay listed in the sheet so the person can still choose to rewind them.
       setSkipped(r.skipped ?? [])
       if (!r.skipped?.length) setConfirm(false)
+      // The Git panel shows the same folder; without this it would show the old state until its next poll.
+      window.dispatchEvent(new CustomEvent('myr:folder-changed', { detail: { project: project.id } }))
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -86,33 +108,22 @@ export function RoundChanges(props: {
     <div className="flex flex-col">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
         <FolderGit2 className="size-4 shrink-0 text-muted" />
-        {!changes ? (
-          <span className="flex items-center gap-1.5 text-muted">
-            <LoaderCircle className="size-3.5 animate-spin" /> {copy.roundChanges.checking(project.name)}
-          </span>
-        ) : rewound ? (
+        {rewound ? (
           <span className="text-fg-2">
             {copy.roundChanges.rewound.before} <span className="font-medium text-fg">{project.name}</span>{' '}
             {copy.roundChanges.rewound.after}
           </span>
         ) : (
           <span className="text-fg-2">
-            {changes.files.length === 0 ? (
-              copy.roundChanges.noChanges(project.name)
-            ) : (
-              <>
-                <span className="font-medium text-fg">{copy.roundChanges.files(changes.files.length)}</span>{' '}
-                {copy.roundChanges.changedIn(project.name)}{' '}
-                <span className="font-mono text-[12px] tabular-nums">
-                  <span className="text-ok-ink">+{added}</span>{' '}
-                  <span className="text-bad-ink">−{removed}</span>
-                </span>
-              </>
-            )}
+            <span className="font-medium text-fg">{copy.roundChanges.files(changes.files.length)}</span>{' '}
+            {copy.roundChanges.changedIn(project.name)}{' '}
+            <span className="font-mono text-[12px] tabular-nums">
+              <span className="text-ok-ink">+{added}</span> <span className="text-bad-ink">−{removed}</span>
+            </span>
           </span>
         )}
         <span className="flex-1" />
-        {changes && changes.files.length > 0 && !rewound && (
+        {!rewound && (
           <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? copy.roundChanges.hideDiff : copy.roundChanges.viewDiff}
           </Button>
@@ -127,20 +138,17 @@ export function RoundChanges(props: {
             {copy.roundChanges.undoRewind}
           </Button>
         ) : (
-          changes &&
-          changes.files.length > 0 && (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => setConfirm(true)}
-              icon={<History className="size-3.5" />}
-            >
-              {copy.roundChanges.rewind}
-            </Button>
-          )
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => setConfirm(true)}
+            icon={<History className="size-3.5" />}
+          >
+            {copy.roundChanges.rewind}
+          </Button>
         )}
       </div>
-      {open && changes && !rewound && (
+      {open && !rewound && (
         <div className="px-3 pb-3">
           <DiffView files={changes.files} patch={changes.patch} truncated={changes.truncated} />
         </div>

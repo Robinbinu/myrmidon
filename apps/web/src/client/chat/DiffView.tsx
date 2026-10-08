@@ -1,8 +1,10 @@
-import { ChevronRight, Columns2, Rows2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ChevronRight, Columns2, Folder, Rows2 } from 'lucide-react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { cn } from '../ui/primitives.tsx'
+import { FOLDER_FOLD_AT } from '../ui-config.ts'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
+import { FoldChevron, type Folds, useFolds } from './Folds.tsx'
 
 export interface DiffFile {
   path: string
@@ -218,16 +220,105 @@ function HunkRows({ header, lines, mode }: { header: string; lines: DiffLine[]; 
   )
 }
 
-/** A file's name with its folder dimmed, like GitLab's file headers. */
-export function FilePath({ path }: { path: string }) {
+/**
+ * A file's name with its folder dimmed, like GitLab's file headers. A long path gives up its folder first, so the
+ * name stays readable; `full` is the whole path, for the tooltip, when `path` is shown relative to a folder.
+ */
+export function FilePath({ path, full }: { path: string; full?: string }) {
   const cut = path.lastIndexOf('/')
   return (
-    <span className="min-w-0 truncate font-mono text-[12.5px]">
-      {cut >= 0 && <span className="text-muted">{path.slice(0, cut + 1)}</span>}
-      <span className="font-medium">{path.slice(cut + 1)}</span>
+    <span className="flex min-w-0 font-mono text-[12.5px]" title={full ?? path}>
+      {cut >= 0 && <span className="truncate text-muted">{path.slice(0, cut + 1)}</span>}
+      <span className="max-w-full shrink-0 truncate font-medium">{path.slice(cut + 1)}</span>
     </span>
   )
 }
+
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+
+/** Changed files by their top folder: files at the project's top level first, then folders A to Z, each sorted. */
+export function groupByFolder<T extends { path: string }>(
+  items: readonly T[],
+): { folder: string; items: T[] }[] {
+  const groups = new Map<string, T[]>()
+  for (const item of items) {
+    const cut = item.path.indexOf('/')
+    const folder = cut < 0 ? '' : item.path.slice(0, cut)
+    const list = groups.get(folder)
+    if (list) list.push(item)
+    else groups.set(folder, [item])
+  }
+  return [...groups]
+    .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : byName(a, b)))
+    .map(([folder, list]) => ({ folder, items: list.sort((a, b) => byName(a.path, b.path)) }))
+}
+
+/**
+ * Whether a folder's group starts open: a folder of many files starts folded, so a pile of caches or build output
+ * cannot bury the few files that matter, unless it holds the file the list was opened on (`open`).
+ */
+export function folderStartsOpen(items: readonly { path: string }[], folder: string, open?: string): boolean {
+  if (open?.startsWith(`${folder}/`)) return true
+  return items.filter((i) => i.path.startsWith(`${folder}/`)).length <= FOLDER_FOLD_AT
+}
+
+/** The folders a list groups its files under, for folding them all at once. */
+export const folderIds = (items: readonly { path: string }[]) =>
+  groupByFolder(items).flatMap((g) => (g.folder ? [g.folder] : []))
+
+/** Open/closed state for a list's folder groups, for a list that folds them itself (Expand all). */
+export function useFolderFolds(items: readonly { path: string }[], open?: string): Folds {
+  return useFolds((folder) => folderStartsOpen(items, folder, open))
+}
+
+/**
+ * Changed files under their top folder, each folder folding (see folderStartsOpen). `name` is the path within its
+ * folder. Pass `folds` (useFolderFolds) when the list also folds its folders from outside.
+ */
+export function FolderGroups<T extends { path: string }>(props: {
+  items: readonly T[]
+  /** Spacing between a folder's own rows. */
+  className?: string
+  folds?: Folds
+  children(item: T, name: string): ReactNode
+}) {
+  const groups = groupByFolder(props.items)
+  const own = useFolderFolds(props.items)
+  const folds = props.folds ?? own
+  return (
+    <>
+      {groups.map((g) =>
+        g.folder === '' ? (
+          g.items.map((item) => props.children(item, item.path))
+        ) : (
+          <div key={`folder:${g.folder}`} className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => folds.toggle(g.folder)}
+              aria-expanded={folds.isOpen(g.folder)}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] text-fg-2 hover:bg-surface-2"
+            >
+              <FoldChevron open={folds.isOpen(g.folder)} className="text-muted" />
+              <Folder className="size-3.5 shrink-0 text-muted" />
+              <span className="min-w-0 truncate font-mono">{g.folder}/</span>
+              <span className="rounded-full bg-surface-2 px-1.5 text-[11px] tabular-nums text-muted">
+                {g.items.length}
+              </span>
+            </button>
+            {folds.isOpen(g.folder) && (
+              <div className={cn('flex flex-col pl-3', props.className)}>
+                {g.items.map((item) => props.children(item, item.path.slice(g.folder.length + 1)))}
+              </div>
+            )}
+          </div>
+        ),
+      )}
+    </>
+  )
+}
+
+/** git's line for a file it will not diff line by line (no line counts alone is not enough: see gitWorkingChanges). */
+const BINARY = /^Binary files .* differ$/m
 
 /** A file card: header with status, path and stats; opens to its patch. */
 export function FileDiff(props: {
@@ -237,6 +328,8 @@ export function FileDiff(props: {
   open: boolean
   onToggle(): void
   id?: string
+  /** The path as shown, when the list groups files under their folder. */
+  name?: string
 }) {
   const s = STATUS[props.file.status] ?? { label: props.file.status, className: 'text-fg-2', title: '' }
   return (
@@ -253,8 +346,13 @@ export function FileDiff(props: {
         <span title={s.title} className={cn('w-3 shrink-0 font-mono text-[11px] font-bold', s.className)}>
           {s.label}
         </span>
-        <FilePath path={props.file.path} />
+        <FilePath path={props.name ?? props.file.path} full={props.file.path} />
         <span className="flex-1" />
+        {BINARY.test(props.text) && (
+          <span className="shrink-0 rounded bg-surface-3 px-1.5 font-mono text-[11px] text-muted">
+            {copy.diffView.binaryTag}
+          </span>
+        )}
         {props.file.added !== undefined && (
           <span className="flex shrink-0 items-center gap-2 font-mono text-[11.5px] tabular-nums">
             <span className="text-ok-ink">+{props.file.added}</span>
@@ -280,11 +378,18 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
   const sections = useMemo(() => splitPatch(props.patch), [props.patch])
   const [mode, setMode] = useDiffMode()
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(props.open ? [props.open] : []))
+  const folds = useFolderFolds(props.files, props.open)
   if (props.files.length === 0)
     return <p className="px-1 py-2 text-[12.5px] text-muted">{copy.diffView.noChanges}</p>
   const added = props.files.reduce((n, f) => n + (f.added ?? 0), 0)
   const removed = props.files.reduce((n, f) => n + (f.removed ?? 0), 0)
-  const allOpen = open.size === props.files.length
+  // A file in a folded folder is out of sight however it is set, so "all open" takes its folder too.
+  const folders = folderIds(props.files)
+  const allOpen = open.size === props.files.length && folders.every((f) => folds.isOpen(f))
+  const setAllOpen = (to: boolean) => {
+    setOpen(to ? new Set(props.files.map((f) => f.path)) : new Set())
+    folds.setAll(folders, to)
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
@@ -297,29 +402,32 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
         <button
           type="button"
           className="rounded-md px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg"
-          onClick={() => setOpen(allOpen ? new Set() : new Set(props.files.map((f) => f.path)))}
+          onClick={() => setAllOpen(!allOpen)}
         >
           {allOpen ? copy.diffView.collapseAll : copy.diffView.expandAll}
         </button>
         <DiffModeToggle mode={mode} onMode={setMode} />
       </div>
-      {props.files.map((f) => (
-        <FileDiff
-          key={f.path}
-          file={f}
-          text={sections.get(f.path) ?? ''}
-          mode={mode}
-          open={open.has(f.path)}
-          onToggle={() =>
-            setOpen((s) => {
-              const next = new Set(s)
-              if (next.has(f.path)) next.delete(f.path)
-              else next.add(f.path)
-              return next
-            })
-          }
-        />
-      ))}
+      <FolderGroups items={props.files} folds={folds} className="gap-2 pt-1">
+        {(f, name) => (
+          <FileDiff
+            key={f.path}
+            file={f}
+            name={name}
+            text={sections.get(f.path) ?? ''}
+            mode={mode}
+            open={open.has(f.path)}
+            onToggle={() =>
+              setOpen((s) => {
+                const next = new Set(s)
+                if (next.has(f.path)) next.delete(f.path)
+                else next.add(f.path)
+                return next
+              })
+            }
+          />
+        )}
+      </FolderGroups>
       {props.truncated && <p className="px-1 text-[12px] text-muted">{copy.diffView.truncated}</p>}
     </div>
   )

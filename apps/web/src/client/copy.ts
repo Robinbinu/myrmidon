@@ -580,6 +580,15 @@ export const copy = {
       deny: 'Deny',
       approve: 'Approve',
     },
+    /** What became of a call once decided, as the one line it leaves in the chat. */
+    decided: {
+      approved: (what: string) => `Approved: ${what}`,
+      approvedEdited: (what: string) => `Approved your version: ${what}`,
+      denied: (what: string) => `Denied: ${what}`,
+      timedOut: (what: string) => `Not answered in time: ${what}`,
+      stopped: (what: string) => `Not run, the round stopped: ${what}`,
+      withNote: (line: string, note: string) => `${line} · ${note}`,
+    },
     /** A change shown in full before it happens. */
     review: {
       edit: 'Edit',
@@ -671,10 +680,10 @@ export const copy = {
   },
 
   roundChanges: {
-    checking: (project: string) => `Checking changes in ${project}…`,
+    failed: (project: string) => `Couldn’t check what changed in ${project}`,
+    retry: 'Retry',
     /** "Rewound <project> to before this round", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this round' },
-    noChanges: (project: string) => `No changes in ${project}`,
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     changedIn: (project: string) => `changed in ${project}`,
     hideDiff: 'Hide diff',
@@ -780,6 +789,11 @@ export const copy = {
       thinking: 'Thinking',
       seconds: (s: string) => `${s}s`,
     },
+    /** The pill back to the bottom of the chat once the reader scrolled up. */
+    jump: {
+      fresh: 'New activity',
+      latest: 'Jump to latest',
+    },
     files: 'Files',
     fileTitle: (version: number | undefined, size: string, author: string | undefined) =>
       `v${version} · ${size}B · ${author}`,
@@ -803,6 +817,10 @@ export const copy = {
       meanwhileHint: 'Reply below to change it; the work keeps going.',
       copied: 'Copied',
       copy: 'Copy',
+      /** Read out once while a reply streams in, instead of every chunk of it. */
+      replying: (name: string) => `${name} is replying`,
+      /** A finished reply, read out once it lands. */
+      said: (name: string, text: string) => `${name}: ${text}`,
     },
     thoughts: {
       thinkingFor: (time: string) => `Thinking for ${time}`,
@@ -812,6 +830,8 @@ export const copy = {
     lead: {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
+      /** The round is paused on a call the person has to approve. */
+      approval: 'Waiting for your approval',
       toTeam: 'Bringing in helpers',
       toAgent: 'Handing this to one agent with every tool',
       doneIn: (time: string) => `Done in ${time}`,
@@ -1330,6 +1350,8 @@ export const copy = {
     unified: 'Unified',
     split: 'Side by side',
     binary: 'Binary file, or nothing to show line by line.',
+    /** The tag on a changed file git counts no lines for. */
+    binaryTag: 'binary',
     noChanges: 'No file changes.',
     fileCount: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     collapseAll: 'Collapse all',

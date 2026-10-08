@@ -26,6 +26,8 @@ import {
   FileDiff,
   FilePatch,
   FilePath,
+  FolderGroups,
+  groupByFolder,
   STATUS,
   StatBar,
   useDiffMode,
@@ -170,6 +172,8 @@ function ChangeRow(props: {
   kind: Kind
   actions: ReactNode
   version: number
+  /** The path as shown, within its folder's group. */
+  name: string
 }) {
   const [open, setOpen] = useState(false)
   const [patch, setPatch] = useState<string>()
@@ -195,7 +199,7 @@ function ChangeRow(props: {
           <ChevronRight
             className={cn('size-3 shrink-0 text-muted transition-transform', open && 'rotate-90')}
           />
-          <FilePath path={props.path} />
+          <FilePath path={props.name} full={props.path} />
         </button>
         <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           {props.actions}
@@ -245,12 +249,19 @@ export function GitView({ project }: { project: string }) {
       .catch((err) => setError(String((err as Error).message)))
   }, [project])
 
-  // Agents edit the folder while you watch, so status refreshes on its own.
+  // Agents edit the folder while you watch, so status refreshes on its own, and at once when a round is rewound.
   useEffect(() => {
     load()
     const timer = setInterval(load, 5000)
-    return () => clearInterval(timer)
-  }, [load])
+    const changed = (e: Event) => {
+      if ((e as CustomEvent<{ project: string }>).detail?.project === project) load()
+    }
+    window.addEventListener('myr:folder-changed', changed)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('myr:folder-changed', changed)
+    }
+  }, [load, project])
 
   const act = async (action: string, body: object, done?: string) => {
     setBusy(true)
@@ -361,21 +372,27 @@ export function GitView({ project }: { project: string }) {
             </RowAction>
           }
         >
-          {staged.map((f) => (
-            <ChangeRow
-              key={`s:${f.path}`}
-              project={project}
-              path={f.path}
-              status={f.index}
-              kind="staged"
-              version={version}
-              actions={
-                <RowAction label={copy.git.unstage} onClick={() => void act('unstage', { paths: [f.path] })}>
-                  <Minus className="size-3.5" />
-                </RowAction>
-              }
-            />
-          ))}
+          <FolderGroups items={staged}>
+            {(f, name) => (
+              <ChangeRow
+                key={`s:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status={f.index}
+                kind="staged"
+                version={version}
+                actions={
+                  <RowAction
+                    label={copy.git.unstage}
+                    onClick={() => void act('unstage', { paths: [f.path] })}
+                  >
+                    <Minus className="size-3.5" />
+                  </RowAction>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
       {unstaged.length > 0 && (
@@ -403,30 +420,33 @@ export function GitView({ project }: { project: string }) {
             </>
           }
         >
-          {unstaged.map((f) => (
-            <ChangeRow
-              key={`u:${f.path}`}
-              project={project}
-              path={f.path}
-              status={f.worktree}
-              kind="unstaged"
-              version={version}
-              actions={
-                <>
-                  <RowAction
-                    label={copy.git.discardChanges}
-                    danger
-                    onClick={() => setDiscard({ paths: [f.path], untracked: 0 })}
-                  >
-                    <Undo2 className="size-3.5" />
-                  </RowAction>
-                  <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
-                    <Plus className="size-3.5" />
-                  </RowAction>
-                </>
-              }
-            />
-          ))}
+          <FolderGroups items={unstaged}>
+            {(f, name) => (
+              <ChangeRow
+                key={`u:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status={f.worktree}
+                kind="unstaged"
+                version={version}
+                actions={
+                  <>
+                    <RowAction
+                      label={copy.git.discardChanges}
+                      danger
+                      onClick={() => setDiscard({ paths: [f.path], untracked: 0 })}
+                    >
+                      <Undo2 className="size-3.5" />
+                    </RowAction>
+                    <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
+                      <Plus className="size-3.5" />
+                    </RowAction>
+                  </>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
       {untracked.length > 0 && (
@@ -445,30 +465,33 @@ export function GitView({ project }: { project: string }) {
             </RowAction>
           }
         >
-          {untracked.map((f) => (
-            <ChangeRow
-              key={`n:${f.path}`}
-              project={project}
-              path={f.path}
-              status="?"
-              kind="untracked"
-              version={version}
-              actions={
-                <>
-                  <RowAction
-                    label={copy.git.deleteFile}
-                    danger
-                    onClick={() => setDiscard({ paths: [f.path], untracked: 1 })}
-                  >
-                    <Undo2 className="size-3.5" />
-                  </RowAction>
-                  <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
-                    <Plus className="size-3.5" />
-                  </RowAction>
-                </>
-              }
-            />
-          ))}
+          <FolderGroups items={untracked}>
+            {(f, name) => (
+              <ChangeRow
+                key={`n:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status="?"
+                kind="untracked"
+                version={version}
+                actions={
+                  <>
+                    <RowAction
+                      label={copy.git.deleteFile}
+                      danger
+                      onClick={() => setDiscard({ paths: [f.path], untracked: 1 })}
+                    >
+                      <Undo2 className="size-3.5" />
+                    </RowAction>
+                    <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
+                      <Plus className="size-3.5" />
+                    </RowAction>
+                  </>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
 
@@ -648,6 +671,8 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
   const sections = useMemo(() => splitPatch(data?.patch ?? ''), [data])
   const files = useMemo(() => new Map((data?.files ?? []).map((f) => [f.path, f])), [data])
   const tree = useMemo(() => fileTree((data?.files ?? []).map((f) => f.path)), [data])
+  // Top-level files first, as in the other change lists, so a folder of generated files does not come before them.
+  const ordered = useMemo(() => groupByFolder(data?.files ?? []).flatMap((g) => g.items), [data])
   const added = data?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
   const removed = data?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
   const anchor = (path: string) => `diff-${path.replace(/[^a-zA-Z0-9]/g, '-')}`
@@ -733,7 +758,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
               />
             </nav>
             <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-              {data.files.map((f) => (
+              {ordered.map((f) => (
                 <FileDiff
                   key={f.path}
                   id={anchor(f.path)}
