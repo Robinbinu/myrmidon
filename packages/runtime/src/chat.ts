@@ -499,8 +499,12 @@ export class ChatService {
   }
 
   /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
-  search(text: string): Promise<MessageHit[]> {
-    return this.index.search(text, this._liveState)
+  async search(text: string): Promise<MessageHit[]> {
+    await this._settle()
+    return this.index.search(
+      text,
+      [...this._live.values()].map((r) => r.state()),
+    )
   }
 
   /**
@@ -624,6 +628,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(id) === run) this._live.delete(id)
       void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
     })
@@ -917,6 +922,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(chatId) === run) this._live.delete(chatId)
       void this._checkpoint(
         run.id,

@@ -31,6 +31,8 @@ export interface MessageHit {
   /** `user` for the person; otherwise the agent who wrote it. */
   readonly from: string
   readonly snippet: string
+  /** Where the match is in `snippet` (UTF-16 offsets, end exclusive), for highlighting it. */
+  readonly match?: { readonly start: number; readonly end: number }
 }
 
 export interface CrewMember {
@@ -56,14 +58,16 @@ export class ChatIndex {
     this._db.run(
       'create table if not exists rounds (colony_id text primary key, stamp text not null, chat_id text, data text)',
     )
-    // Every chat message, so chats can be found by what was said in them, not only by their titles.
+    // Every chat message, so chats can be found by what was said in them, not only by their titles. `folded` is the
+    // text lower-cased the way JavaScript does it (SQLite's lower() and like fold ASCII only), so stored and running
+    // rounds match alike.
     this._db.run(
-      'create table if not exists messages (colony_id text not null, chat_id text not null, sender text not null, text text not null)',
+      'create table if not exists chat_messages (colony_id text not null, chat_id text not null, sender text not null, at text not null, text text not null, folded text not null)',
     )
-    this._db.run('create index if not exists messages_by_colony on messages (colony_id)')
+    this._db.run('create index if not exists chat_messages_by_colony on chat_messages (colony_id)')
     // The log stamp each colony's messages were indexed at.
     this._db.run(
-      'create table if not exists message_stamps (colony_id text primary key, stamp text not null)',
+      'create table if not exists chat_message_stamps (colony_id text primary key, stamp text not null)',
     )
   }
 
@@ -74,7 +78,7 @@ export class ChatIndex {
     const put = this._db.query(
       'insert or replace into rounds (colony_id, stamp, chat_id, data) values (?, ?, ?, ?)',
     )
-    const texts = this._db.query('select stamp from message_stamps where colony_id = ?')
+    const texts = this._db.query('select stamp from chat_message_stamps where colony_id = ?')
     const out: IndexedRound[] = []
     for (const id of ids) {
       const running = live(id)
@@ -100,7 +104,10 @@ export class ChatIndex {
       const rounds = summarize(id, state)
       this._db.transaction(() => {
         put.run(id, stamp, rounds[0]?.chatId ?? null, rounds.length ? JSON.stringify(rounds) : null)
-        this._putMessages(id, stamp, state)
+        this._putMessages(id, state)
+        this._db
+          .query('insert or replace into chat_message_stamps (colony_id, stamp) values (?, ?)')
+          .run(id, stamp)
       })()
       out.push(...rounds)
     }
@@ -109,51 +116,54 @@ export class ChatIndex {
   }
 
   /**
-   * Chats with a message containing `text`, ignoring case (of ASCII letters, as SQLite's `like` does), with the
-   * first such message of each; the most recently active chats first. Running rounds are searched as they are now.
+   * Chats with a message containing `text`, ignoring case, with the latest such message of each; running rounds
+   * (`live`) as they are now, then the rest most recent first. Reads the index as the last listing left it: a round
+   * leaves it current when it ends (see `noteMessages`), so nothing is re-read here.
    */
-  async search(text: string, live: (id: string) => ColonyState | undefined): Promise<MessageHit[]> {
-    const needle = text.trim()
+  search(text: string, live: readonly ColonyState[]): MessageHit[] {
+    const needle = text.trim().toLowerCase()
     if (!needle) return []
-    const rounds = await this.rounds(live)
-    const active = new Map<string, string>()
-    for (const r of rounds)
-      if ((r.createdAt ?? '') > (active.get(r.chatId) ?? '')) active.set(r.chatId, r.createdAt ?? '')
-    const hits = new Map<string, MessageHit>()
-    const lower = needle.toLowerCase()
-    const running = new Set(rounds.map((r) => r.colonyId).filter((id) => live(id)))
-    for (const id of running) {
-      const s = live(id)
-      const chatId = s?.chat?.chatId
-      const m = s?.chatMessages.find((x) => x.text.toLowerCase().includes(lower))
-      if (chatId && m && !hits.has(chatId))
-        hits.set(chatId, { chatId, from: m.from, snippet: snippet(m.text, needle) })
+    const hits: MessageHit[] = []
+    for (const s of live) {
+      const m = s.chatMessages.findLast((x) => x.text.toLowerCase().includes(needle))
+      if (s.chat && m) hits.push({ chatId: s.chat.chatId, from: m.from, ...snippet(m.text, needle) })
     }
+    // A running round's rows are as old as its last indexing; its live state was searched above.
     const rows = this._db
       .query(
-        "select colony_id, chat_id, sender, text from messages where text like ? escape '\\' order by rowid",
+        `select chat_id, sender, text from chat_messages where rowid in (
+          select max(rowid) from chat_messages
+          where instr(folded, ?) > 0
+            and colony_id not in (select value from json_each(?)) and chat_id not in (select value from json_each(?))
+          group by chat_id
+        ) order by at desc limit ?`,
       )
-      .all(`%${needle.replace(/[\\%_]/g, '\\$&')}%`) as {
-      colony_id: string
+      .all(
+        needle,
+        JSON.stringify(live.map((s) => s.id)),
+        JSON.stringify(hits.map((h) => h.chatId)),
+        CHAT_SEARCH_LIMIT,
+      ) as {
       chat_id: string
       sender: string
       text: string
     }[]
-    for (const r of rows) {
-      // A running round's rows are as old as its last listing before it started; its live state was searched above.
-      if (running.has(r.colony_id) || hits.has(r.chat_id) || !active.has(r.chat_id)) continue
-      hits.set(r.chat_id, { chatId: r.chat_id, from: r.sender, snippet: snippet(r.text, needle) })
-    }
-    return [...hits.values()]
-      .sort((a, b) => (active.get(b.chatId) ?? '').localeCompare(active.get(a.chatId) ?? ''))
-      .slice(0, CHAT_SEARCH_LIMIT)
+    for (const r of rows) hits.push({ chatId: r.chat_id, from: r.sender, ...snippet(r.text, needle) })
+    return hits.slice(0, CHAT_SEARCH_LIMIT)
+  }
+
+  /** Indexes a round's messages as it ended, so search finds them before the next listing reads its log. */
+  noteMessages(id: string, state: ColonyState) {
+    this._db.transaction(() => this._putMessages(id, state))()
   }
 
   /** Drops a colony's rows, e.g. after the colony is deleted. */
   forget(id: string) {
-    this._db.query('delete from rounds where colony_id = ?').run(id)
-    this._db.query('delete from messages where colony_id = ?').run(id)
-    this._db.query('delete from message_stamps where colony_id = ?').run(id)
+    this._db.transaction(() => {
+      this._db.query('delete from rounds where colony_id = ?').run(id)
+      this._db.query('delete from chat_messages where colony_id = ?').run(id)
+      this._db.query('delete from chat_message_stamps where colony_id = ?').run(id)
+    })()
   }
 
   close() {
@@ -175,33 +185,51 @@ export class ChatIndex {
       .join('|')
   }
 
-  private _putMessages(id: string, stamp: string, s: ColonyState) {
-    this._db.query('delete from messages where colony_id = ?').run(id)
+  private _putMessages(id: string, s: ColonyState) {
+    this._db.query('delete from chat_messages where colony_id = ?').run(id)
     const chatId = s.chat?.chatId
-    if (chatId) {
-      const add = this._db.query(
-        'insert into messages (colony_id, chat_id, sender, text) values (?, ?, ?, ?)',
-      )
-      for (const m of s.chatMessages) add.run(id, chatId, m.from, m.text)
-    }
-    this._db.query('insert or replace into message_stamps (colony_id, stamp) values (?, ?)').run(id, stamp)
+    if (!chatId) return
+    const add = this._db.query(
+      'insert into chat_messages (colony_id, chat_id, sender, at, text, folded) values (?, ?, ?, ?, ?, ?)',
+    )
+    for (const m of s.chatMessages) add.run(id, chatId, m.from, m.time, m.text, m.text.toLowerCase())
   }
 
   private _prune(present: Set<string>) {
-    const rows = this._db.query('select colony_id from rounds').all() as { colony_id: string }[]
+    const rows = this._db
+      .query('select colony_id from rounds union select colony_id from chat_messages')
+      .all() as { colony_id: string }[]
     for (const r of rows) if (!present.has(r.colony_id)) this.forget(r.colony_id)
   }
 }
 
-/** The match and the words around it, on one line. */
-function snippet(text: string, needle: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
-  const at = flat.toLowerCase().indexOf(needle.toLowerCase())
+/**
+ * The match and the words around it, on one line, and where the match is in it. Works on code points, lower-casing
+ * each on its own, so a character whose lower case is longer (İ) or a surrogate pair is never cut.
+ */
+function snippet(text: string, needle: string): Pick<MessageHit, 'snippet' | 'match'> {
+  const chars = Array.from(text.replace(/\s+/g, ' ').trim())
+  // Where each character's lower case starts in the lower-cased text.
+  const starts: number[] = []
+  let folded = ''
+  for (const c of chars) {
+    starts.push(folded.length)
+    folded += c.toLowerCase()
+  }
+  const at = folded.indexOf(needle)
   // The needle can span a line break the flattening turned into a space.
-  if (at < 0) return flat.slice(0, SNIPPET_BEFORE + SNIPPET_AFTER)
-  const start = Math.max(0, at - SNIPPET_BEFORE)
-  const end = Math.min(flat.length, at + needle.length + SNIPPET_AFTER)
-  return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
+  if (at < 0) return { snippet: chars.slice(0, SNIPPET_BEFORE + SNIPPET_AFTER).join('') }
+  const first = starts.findLastIndex((n) => n <= at)
+  const after = starts.findIndex((n) => n >= at + needle.length)
+  const last = after < 0 ? chars.length : after
+  const from = Math.max(0, first - SNIPPET_BEFORE)
+  const to = Math.min(chars.length, last + SNIPPET_AFTER)
+  const lead = `${from > 0 ? '…' : ''}${chars.slice(from, first).join('')}`
+  const hit = chars.slice(first, last).join('')
+  return {
+    snippet: `${lead}${hit}${chars.slice(last, to).join('')}${to < chars.length ? '…' : ''}`,
+    match: { start: lead.length, end: lead.length + hit.length },
+  }
 }
 
 function summarize(colonyId: string, s: ColonyState): IndexedRound[] {

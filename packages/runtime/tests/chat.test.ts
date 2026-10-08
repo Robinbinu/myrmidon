@@ -2980,29 +2980,42 @@ test('chats are found by what was said in them, with the words around the match'
   scripted(resolver, 'mock/searched', [
     [
       tool('reply_user', {
-        text: `Checked the ledger.\nThe total is 391 units, all paid.${' More.'.repeat(40)}`,
+        text: `Checked the ledger at the ÉCOLE.\nİİİ The total is 391 units, all paid.${' More.'.repeat(40)}`,
         final: true,
       }),
     ],
   ])
   const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
-  const { chatId, colonyId } = await chats.send('add up the invoices', solo('mock/searched'))
-  await waitFor(colonyId)
-  expect((await chats.search('391'))[0]?.chatId).toBe(chatId)
-  await chats.stopAll()
+  expect(await chats.search('391')).toEqual([])
+  const reads = spyOn(SqliteLogStore.prototype, 'read')
+  try {
+    const { chatId, colonyId } = await chats.send('add up the invoices', solo('mock/searched'))
+    await waitFor(colonyId)
+    await chats.stopAll()
+    await Bun.sleep(50)
+    reads.mockClear()
+    // The round left the index current as it ended: searching reads no log.
+    const [hit] = await chats.search('  391 ')
+    expect(reads).toHaveBeenCalledTimes(0)
+    expect(hit).toMatchObject({ chatId, from: 'lead' })
+    expect(hit?.snippet).toContain('The total is 391 units')
+    expect(hit?.snippet.endsWith('…')).toBe(true)
+    // İ lower-cases to two characters; the match is still found where it is.
+    expect(hit?.snippet.slice(hit.match?.start, hit.match?.end)).toBe('391')
 
-  const later = new ChatService(runtime, { resolver })
-  const [hit] = await later.search('  391 ')
-  expect(hit).toMatchObject({ chatId, from: 'lead' })
-  expect(hit?.snippet.startsWith('Checked the ledger. The total is 391 units')).toBe(true)
-  expect(hit?.snippet.endsWith('…')).toBe(true)
-  // The person's own words count too, in any case; LIKE's wildcards are plain characters.
-  expect((await later.search('INVOICES'))[0]).toMatchObject({ chatId, from: 'user' })
-  expect(await later.search('39_')).toEqual([])
-  expect(await later.search('   ')).toEqual([])
+    // After a restart, from the index: case folds beyond ASCII, the person's words count, wildcards are literal.
+    const later = new ChatService(runtime, { resolver })
+    expect((await later.search('école'))[0]?.chatId).toBe(chatId)
+    expect((await later.search('INVOICES'))[0]).toMatchObject({ chatId, from: 'user' })
+    expect(await later.search('39_')).toEqual([])
+    expect(await later.search('39%')).toEqual([])
+    expect(await later.search('   ')).toEqual([])
 
-  await later.delete(chatId)
-  expect(await later.search('391')).toEqual([])
+    await later.delete(chatId)
+    expect(await later.search('391')).toEqual([])
+  } finally {
+    reads.mockRestore()
+  }
 })
 
 test('deleting a chat removes every round and its data', async () => {
