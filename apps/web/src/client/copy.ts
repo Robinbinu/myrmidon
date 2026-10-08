@@ -1306,6 +1306,7 @@ export const copy = {
       cronBadField: (field: string, text: string) => `The ${field} field "${text}" is not valid cron.`,
       cronRange: (field: string, min: number, max: number) =>
         `The ${field} must be between ${min} and ${max}.`,
+      cronNever: 'This schedule would never run: none of its months has that day.',
       cronFields: { minute: 'minute', hour: 'hour', day: 'day', month: 'month', weekday: 'weekday' },
       range: (min: string, max: string) => `Between ${min} and ${max}.`,
     },

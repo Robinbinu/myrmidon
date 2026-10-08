@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test'
-import { parseCron } from '@myrmidon/runtime'
+import { nextRun, RESERVED_SPECIALIST_NAMES as SERVER_RESERVED } from '@myrmidon/runtime'
 import {
   baseUrlError,
   clampNumber,
   cronError,
   providerNameError,
+  RESERVED_SPECIALIST_NAMES,
   specialistNameError,
 } from '../src/client/settings-forms.ts'
 
@@ -24,6 +25,8 @@ test('a base URL must be a whole http(s) address, not just text', () => {
   expect(baseUrlError('not a url')).toBeDefined()
   expect(baseUrlError('http://')).toBeDefined()
   expect(baseUrlError('ftp://example.com')).toBeDefined()
+  // The server's check is case-sensitive.
+  expect(baseUrlError('HTTP://example.com')).toBeDefined()
   expect(baseUrlError('')).toBeDefined()
 })
 
@@ -33,6 +36,7 @@ test('a specialist name follows the store: format, reserved names, one of each',
   expect(specialistNameError('lead', [])).toContain('Myrmidon uses')
   expect(specialistNameError('scout', ['scout'])).toContain('already')
   expect(specialistNameError('a'.repeat(25), [])).toContain('2 to 24')
+  expect([...RESERVED_SPECIALIST_NAMES].sort()).toEqual([...SERVER_RESERVED].sort())
 })
 
 test('the custom cron check accepts and refuses exactly what the scheduler does', () => {
@@ -53,11 +57,15 @@ test('the custom cron check accepts and refuses exactly what the scheduler does'
     '5-1 * * * *',
     '*/0 * * * *',
     '',
+    '0 0 30 2 *',
+    '0 0 31 4,6,9,11 *',
+    '0 0 31 2-4 *',
+    '0 0 30 2 1',
   ]
   for (const expr of cases) {
     let scheduler = true
     try {
-      parseCron(expr)
+      nextRun(expr, new Date())
     } catch {
       scheduler = false
     }
@@ -65,6 +73,7 @@ test('the custom cron check accepts and refuses exactly what the scheduler does'
   }
   expect(cronError('0 9 * *')).toContain('five fields')
   expect(cronError('0 24 * * *')).toContain('between 0 and 23')
+  expect(cronError('0 0 30 2 *')).toContain('never run')
 })
 
 test('a number box keeps a typed value within its limits and falls back when empty', () => {
