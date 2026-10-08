@@ -299,8 +299,7 @@ export const copy = {
     published: (author: string, name: string, version: number) => `${author} published ${name} v${version}`,
     observer: (kind: string, severity: string, facts: string) => `check-in, ${kind} (${severity}): ${facts}`,
     verificationRequested: (by: string) => `${by} asked for a review`,
-    verdict: (verifier: string, target: string, pass: boolean) =>
-      `review of ${target} by ${verifier}: ${pass ? 'passed' : 'failed'}`,
+    verdict: (target: string, pass: boolean) => `review of ${target}: ${pass ? 'passed' : 'failed'}`,
   },
 
   /** What a check-in noticed, keyed by the runtime's signal kind and severity. */

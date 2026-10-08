@@ -70,7 +70,7 @@ export function describeEvent(e: MyrEvent): string {
     case 'verifier/verdict': {
       const s = p as EventPayloads['verifier/verdict']
       if (s.verifierId === DELIVERED_VERIFIER) return copy.events.notReviewed
-      return copy.events.verdict(s.verifierId, copy.reviewTarget(s.target), s.pass)
+      return copy.events.verdict(copy.reviewTarget(s.target), s.pass)
     }
     default:
       return e.type

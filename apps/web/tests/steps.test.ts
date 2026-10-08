@@ -54,7 +54,8 @@ test('event lines name the final answer and check-ins in plain words, never the 
     targets: [],
   })
   const stopped = ev('colony/stopped', { reason: 'time limit' })
-  for (const e of [verdict, signal, stopped]) expect(describeEvent(e)).not.toMatch(/colony|observer|verdict/i)
+  for (const e of [verdict, signal, stopped])
+    expect(describeEvent(e)).not.toMatch(/colony|observer|verdict|judge/i)
   expect(describeEvent(verdict)).toContain('the final answer')
   expect(describeEvent(signal)).toContain('stalled')
 })
