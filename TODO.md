@@ -91,8 +91,10 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### Phase 2 — copy
 
-- [ ] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
+- [x] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
       use, error messages with a cause and a fix, shorter long hints, calmer mascot moods.
+      (Kept on purpose: "Crews" for the list of chats' crews; channel `/new` and `/approve` keep the platforms' own
+      words. The changes check can't show the server's reason yet: RoundChanges drops it.)
 
 ### [decide] New
 
