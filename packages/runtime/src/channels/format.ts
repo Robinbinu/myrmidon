@@ -143,3 +143,94 @@ export function telegramHtml(markdown: string): string {
   if (code) out.push(`<pre>${escapeHtml(code.lines.join('\n'))}</pre>`)
   return out.join('\n')
 }
+
+/**
+ * Markdown as plain text, for platforms that show no formatting (IRC, Twitch, X, Nostr, Zalo): markers dropped,
+ * links as `label (url)`, bullets as `•`, code blocks kept line for line.
+ */
+export function plainText(markdown: string): string {
+  const out: string[] = []
+  let code = false
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      code = !code
+      continue
+    }
+    if (code) {
+      out.push(line)
+      continue
+    }
+    const codes: string[] = []
+    // Inline code is set aside first, so nothing inside it loses its asterisks.
+    let text = line
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^(\s*)[-*+]\s+/, '$1• ')
+      .replace(/^>\s?/, '')
+      .replace(/`([^`\n]+)`/g, (_m, inner: string) => {
+        codes.push(inner)
+        return `${codes.length - 1}`
+      })
+    text = text
+      .replace(/!?\[([^\]\n]+)\]\((\S+?)\)/g, (_m, label: string, url: string) =>
+        label === url ? url : `${label} (${url})`,
+      )
+      .replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '$1')
+      .replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '$1')
+      .replace(/~~(?!\s)([^~\n]+?)(?<!\s)~~/g, '$1')
+      .replace(/(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])/g, '$1')
+      .replace(/(?<![\w_])_(?![\s_])([^_\n]+?)(?<![\s_])_(?![\w_])/g, '$1')
+    out.push(text.replace(/(\d+)/g, (_m, i: string) => codes[Number(i)] ?? ''))
+  }
+  return out.join('\n')
+}
+
+/**
+ * One line cut into pieces of at most `maxBytes` UTF-8 bytes (IRC counts bytes, not characters), at a space when
+ * one is near the end, never inside a character (Hermes's `_chunk_paragraph`).
+ */
+export function splitBytes(line: string, maxBytes: number): string[] {
+  const out: string[] = []
+  let rest = line.trim()
+  while (rest) {
+    if (Buffer.byteLength(rest) <= maxBytes) {
+      out.push(rest)
+      break
+    }
+    let end = 0
+    let bytes = 0
+    for (const char of rest) {
+      const size = Buffer.byteLength(char)
+      if (bytes + size > maxBytes) break
+      bytes += size
+      end += char.length
+    }
+    if (end === 0) end = String.fromCodePoint(rest.codePointAt(0) ?? 32).length
+    const space = rest.lastIndexOf(' ', end)
+    if (space > end / 3) end = space
+    out.push(rest.slice(0, end).trimEnd())
+    rest = rest.slice(end).trimStart()
+  }
+  return out
+}
+
+/** Text in pieces of at most `max` characters (code points), at a line break or space when one is near. */
+export function splitChars(text: string, max: number): string[] {
+  const out: string[] = []
+  let rest = text.trim()
+  while (rest) {
+    const chars = [...rest]
+    if (chars.length <= max) {
+      out.push(rest)
+      break
+    }
+    let end = chars.slice(0, max).join('').length
+    const window = rest.slice(0, end + 1)
+    const newline = window.lastIndexOf('\n')
+    const space = Math.max(window.lastIndexOf(' '), newline)
+    if (newline > end / 2) end = newline
+    else if (space > end / 3) end = space
+    out.push(rest.slice(0, end).trimEnd())
+    rest = rest.slice(end).trimStart()
+  }
+  return out
+}

@@ -4,6 +4,13 @@ export const channelCopy = {
   setup: {
     telegram:
       'In Telegram, message @BotFather, send /newbot and follow its steps, then paste the token it gives you. Then message your bot: it replies with a code to approve here. The first person approved is the owner.',
+    irc: 'Pick a server, a nick for the bot and the channels to join. With a password it signs in by SASL (the nick must be the account name), else sends it as the server password. Message the bot directly: it replies with a code to approve here. In channels it answers lines that start with its nick ("mybot: …"). People are known by nick!user@host, so register nicks with NickServ.',
+    twitch:
+      'Make a Twitch account for the bot, then a token with the chat:read and chat:edit scopes for it (Twitch Developer Console, or a token generator) and paste it with the bot\'s username. Chat is public and bots cannot whisper, so put your own Twitch username under "Let in without a code" and set Groups to "any group": it answers only listed people who @mention it.',
+    x: 'Needs a paid X API plan: the free one cannot read mentions. In the X developer portal, give the app "Read and write" permission (add "Direct Messages" to answer DMs too), then generate the API key and secret and the access token and secret for the bot account. Replies are public: it answers only mentions from the accounts under "Answers publicly". Put those under "Let in without a code" too and set Groups to "any group", since each X thread is a group.',
+    nostr:
+      "Paste the bot's private key (nsec1… or hex; make a fresh one for the bot, not your own) and, if you like, its relays. Message its npub from any Nostr client with NIP-04 DMs (Damus, Amethyst…): it replies with a code to approve here.",
+    zalo: 'At bot.zaloplatforms.com sign in, create a bot and paste its token (12345689:abc…). Message the bot in Zalo: it replies with a code to approve here. In groups it answers when @mentioned. This is the official bot API, not the personal-account route (which can get an account banned).',
   },
   pairing: {
     code: (code: string, channel: string) =>
