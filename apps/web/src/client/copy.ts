@@ -974,6 +974,8 @@ export const copy = {
       queued: 'Sent when done',
       readBy: (names: string) => `Read by ${names}`,
       steerLive: 'joins the next step',
+      /** A message the person said aloud on a voice call. */
+      saidOnCall: 'Said on a call',
       queueLive: 'waits until the current work is done',
       notRead: 'not read before the run ended',
       copyMessage: 'Copy message',
