@@ -1824,7 +1824,7 @@ export const copy = {
         "Talk to your agents from a messaging app. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
       secretSet: 'Saved; type a new one to replace it',
       turnOn: 'Turn on',
-      connected: 'Connected',
+      yours: 'Your channels',
       search: 'Search apps…',
       noMatch: 'No app matches that.',
       loadError: (error: string) => `Channels could not be loaded: ${error}`,
@@ -1859,6 +1859,8 @@ export const copy = {
       noProject: 'None',
       status: {
         off: 'Off',
+        setUpOff: 'Set up · off',
+        notSetUp: 'Setup not finished',
         connecting: 'Connecting…',
         on: (account: string) => `Connected as ${account}`,
         retrying: (error: string) => `Reconnecting: ${error}`,

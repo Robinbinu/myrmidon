@@ -827,6 +827,8 @@ export function startServer(options: ServeOptions): WebServer {
           channels: inUse.map((c) => ({
             id: c.id,
             label: c.label,
+            // Every setting it needs is saved: a channel switched off can still be set up.
+            configured: c.configured,
             enabled: c.enabled,
             status: c.status,
             health: c.health,

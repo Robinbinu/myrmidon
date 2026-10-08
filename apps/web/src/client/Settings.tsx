@@ -63,6 +63,7 @@ import {
   type TeamConfig,
 } from './api.ts'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
+import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
@@ -2531,11 +2532,7 @@ interface ChannelView {
   stream: 'progress' | 'partial' | 'final'
   perPerson: boolean
   allow: string[]
-  status:
-    | { state: 'off' | 'connecting' }
-    | { state: 'on'; account: string }
-    | { state: 'retrying' | 'error'; error: string }
-    | { state: 'linking'; qr: string; image: string; hint?: string }
+  status: ChannelConnection
   health: {
     connectedAt?: string
     reconnects: number
@@ -2571,19 +2568,6 @@ const CHANNELS_POLL_MS = 3000
 type ChannelTab = 'setup' | 'people' | 'rules' | 'activity'
 
 const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
-
-function channelStatusText(s: ChannelView['status']) {
-  const t = copy.settings.channels.status
-  return s.state === 'on'
-    ? t.on(s.account)
-    : s.state === 'retrying'
-      ? t.retrying(s.error)
-      : s.state === 'error'
-        ? t.error(s.error)
-        : s.state === 'linking'
-          ? (s.hint ?? t.linking)
-          : t[s.state]
-}
 
 /**
  * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
@@ -2628,7 +2612,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
       )}
       {connected.length > 0 && (
         <section className="mb-8">
-          <h3 className="mb-2 text-[13px] font-semibold">{t.connected}</h3>
+          <h3 className="mb-2 text-[13px] font-semibold">{t.yours}</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {connected.map((c) => (
               <button
@@ -2646,7 +2630,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                   <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
                     <StateDot state={channelState(c)} />
                     <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
-                      {c.enabled ? channelStatusText(c.status) : t.status.off}
+                      {channelStatusText(c)}
                     </span>
                   </div>
                 </div>
@@ -2807,7 +2791,7 @@ function ChannelSheet(props: {
             <span className="flex items-center gap-1.5 text-[12px] font-normal text-muted">
               <StateDot state={channelState(c)} />
               <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
-                {c.enabled ? channelStatusText(c.status) : t.status.off}
+                {channelStatusText(c)}
               </span>
             </span>
           </span>

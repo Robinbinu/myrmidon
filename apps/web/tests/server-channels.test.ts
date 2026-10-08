@@ -91,3 +91,11 @@ test('a damaged channels.json is reported, in Settings and as a gateway problem'
   expect(body.overall).toBe('degraded')
   expect(body.problems[0]).toMatchObject({ kind: 'channel', label: 'Channels' })
 })
+
+test('the status lists a channel that is set up but switched off as configured', async () => {
+  const { call } = serve()
+  const body = await (await call('/api/status')).json()
+  expect(body.channels).toEqual([
+    expect.objectContaining({ id: 'telegram', configured: true, enabled: false, waiting: 1 }),
+  ])
+})
