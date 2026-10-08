@@ -78,11 +78,14 @@ function Option(props: {
   title: string
   hint: string
   selected: boolean
+  /** No choice is made yet and this is the first, so Tab lands here. */
+  tabStop?: boolean
   onSelect(): void
 }) {
   return (
     <MenuItem
       checked={props.selected}
+      tabStop={props.tabStop}
       onSelect={props.onSelect}
       title={props.title}
       detail={props.hint}
@@ -253,9 +256,10 @@ export function ReviewChip(props: {
         <>
           <MenuHead title={copy.teamControls.reviewer.label} />
           <MenuList label={copy.teamControls.reviewer.label}>
-            {REVIEW.map((r) => (
+            {REVIEW.map((r, i) => (
               <Option
                 key={r.key}
+                tabStop={i === 0 && !current}
                 icon={<r.icon className="size-4" />}
                 title={r.title}
                 hint={r.hint}

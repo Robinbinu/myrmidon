@@ -93,3 +93,9 @@ test('a card with a title is a section named by its heading; a banner speaks onl
     ),
   ).toContain('role="alert"')
 })
+
+test('with nothing chosen, the item marked as the Tab stop takes it', () => {
+  const html = renderToStaticMarkup(<MenuItem title="Off" checked={false} tabStop onSelect={() => {}} />)
+  expect(html).toContain('tabindex="0"')
+  expect(html).toContain('aria-checked="false"')
+})
