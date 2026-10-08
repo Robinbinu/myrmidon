@@ -580,3 +580,22 @@ test('chunking keeps code blocks whole in each piece, and Telegram HTML is escap
   // Arithmetic is not mistaken for italics.
   expect(telegramHtml('2*3*4 = 24')).toBe('2*3*4 = 24')
 })
+
+test('a platform that cannot edit is told how an approval ended in a new message', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  adapter.can = { buttons: false, files: false, edit: false }
+  await pair(ALICE)
+  await say(ALICE, 'go')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-3',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'run ls',
+  })
+  await until(() => adapter.to('100').some((t) => t.includes('/deny ')))
+  // Decided in the app: the chat cannot edit the request, so it gets the outcome on its own.
+  chats.emit('col-chat-1', 'approval/decided', { id: 'ap-3', approved: true, by: 'person' })
+  await until(() => adapter.to('100').includes('✅ Allowed in the app'))
+  expect(adapter.edits.some((e) => e.text.includes('Allowed'))).toBe(false)
+})

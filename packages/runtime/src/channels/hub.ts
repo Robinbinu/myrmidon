@@ -137,7 +137,7 @@ interface OpenApproval {
   readonly id: string
   readonly tool: string
   readonly text: string
-  readonly messages: { adapter: ChannelAdapter; ref: SentRef }[]
+  readonly messages: { adapter: ChannelAdapter; ref: SentRef; to: ChannelChat }[]
 }
 
 /** Questions with options sent to a chat, answered one press at a time, then sent together. */
@@ -148,6 +148,7 @@ interface OpenQuestions {
   readonly answers: (string | undefined)[]
   readonly messages: (SentRef | undefined)[]
   readonly adapter: ChannelAdapter
+  readonly to: ChannelChat
 }
 
 const key = () => randomBytes(4).toString('base64url').slice(0, 6)
@@ -613,7 +614,7 @@ export class ChannelHub {
           ? t.approval.allowed(person.name)
           : t.approval.denied(person.name)
     for (const msg of open.messages)
-      await msg.adapter.edit(msg.ref, { text: `${open.text}\n\n${outcome}` }).catch(() => {})
+      await this._settle(msg.adapter, msg.ref, msg.to, `${open.text}\n\n${outcome}`, outcome)
     await note(approved ? t.approval.pressAllowed : t.approval.pressDenied)
   }
 
@@ -623,7 +624,7 @@ export class ChannelHub {
     q.answers[index] = label
     const ref = q.messages[index]
     const choice = q.choices[index]
-    if (ref && choice)
+    if (ref && choice && q.adapter.can.edit)
       await q.adapter.edit(ref, { text: `${choice.question}\n${t.question.answered(label)}` }).catch(() => {})
     if (q.answers.some((a) => a === undefined)) return
     this._questions.delete(k)
@@ -791,6 +792,7 @@ export class ChannelHub {
       answers: choices.map(() => undefined),
       messages: [],
       adapter: tracker.adapter,
+      to: tracker.to,
     }
     this._questions.set(k, q)
     for (const [qi, choice] of choices.entries()) {
@@ -854,7 +856,7 @@ export class ChannelHub {
       id: request.id,
       tool: request.tool,
       text,
-      messages: [{ adapter: tracker.adapter, ref }],
+      messages: [{ adapter: tracker.adapter, ref, to: target }],
     })
     if (!here) await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})
   }
@@ -865,8 +867,23 @@ export class ChannelHub {
       this._approvals.delete(k)
       const outcome = t.approval.decidedElsewhere(decided.approved, decided.by)
       for (const msg of open.messages)
-        void msg.adapter.edit(msg.ref, { text: `${open.text}\n\n${outcome}` }).catch(() => {})
+        void this._settle(msg.adapter, msg.ref, msg.to, `${open.text}\n\n${outcome}`, outcome)
     }
+  }
+
+  /**
+   * Shows how something ended (an approval decided): by editing its message where the platform can, otherwise as a
+   * short new message, so a chat that cannot edit still learns the outcome.
+   */
+  private async _settle(
+    adapter: ChannelAdapter,
+    ref: SentRef,
+    to: ChannelChat,
+    edited: string,
+    alone: string,
+  ) {
+    if (adapter.can.edit) await adapter.edit(ref, { text: edited }).catch(() => {})
+    else await adapter.send(to, { text: alone }).catch(() => {})
   }
 
   private _statusText(tracker: Tracker): string {
