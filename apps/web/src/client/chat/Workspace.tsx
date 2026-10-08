@@ -1007,7 +1007,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                 <div
                   className={cn(
                     'max-w-[80%] rounded-2xl px-3 py-1.5 text-callout leading-relaxed',
-                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-fill text-fg-2',
+                    mine ? 'rounded-tr-md bg-accent-soft text-fg' : 'rounded-tl-md bg-fill text-fg-2',
                   )}
                 >
                   {first && (

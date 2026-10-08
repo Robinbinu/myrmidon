@@ -96,7 +96,7 @@ export function AgentSheet(props: {
           <AgentAvatar name={props.name} status={phase} size={64} />
           <div className="min-w-0 flex-1 pt-1">
             <div className="flex items-center gap-2">
-              <h2 className="text-heading font-semibold tracking-tight">{props.name}</h2>
+              <h2 className="text-page-title font-semibold tracking-tight">{props.name}</h2>
               <span className="rounded-full border border-line px-2 py-px text-caption text-muted">
                 {lead ? copy.agentSheet.leadBadge : (agent.info.specialty ?? agent.info.role)}
               </span>

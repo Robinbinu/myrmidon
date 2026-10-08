@@ -424,7 +424,7 @@ export function tabPanel(id: string, value: string) {
 export function PageHeader(props: { title: string; children?: ReactNode }) {
   return (
     <div className="mb-6">
-      <h3 className="text-heading font-semibold tracking-tight">{props.title}</h3>
+      <h3 className="text-page-title font-semibold tracking-tight">{props.title}</h3>
       {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
     </div>
   )

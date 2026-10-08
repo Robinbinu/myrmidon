@@ -36,7 +36,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
     return (
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex max-w-3xl flex-col items-start gap-3 px-6 py-8" role="alert">
-          <h1 className="text-heading font-semibold tracking-tight">{t.title}</h1>
+          <h1 className="text-page-title font-semibold tracking-tight">{t.title}</h1>
           <p className="text-body text-muted">{error}</p>
           <Button size="sm" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
             {t.tryAgain}
@@ -68,7 +68,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             )}
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-heading font-semibold tracking-tight">{t.title}</h1>
+            <h1 className="text-page-title font-semibold tracking-tight">{t.title}</h1>
             <p className="text-body text-muted">{headline}</p>
           </div>
           <Button size="sm" variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
