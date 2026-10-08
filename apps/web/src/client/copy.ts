@@ -1632,6 +1632,8 @@ export const copy = {
       edit: 'Edit',
       remove: 'Delete',
       removed: (name: string) => `Deleted ${name}`,
+      modelHint: "Leave it unset to use the team's worker model.",
+      useTeamModel: "Use the team's model",
       saved: (name: string) => `Saved ${name}`,
       name: 'Name',
       nameHint: 'Lowercase, like ada or scout. You can write to it as @name.',

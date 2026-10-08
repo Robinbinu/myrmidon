@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ModelOption, Specialist } from '../api.ts'
 import { copy } from '../copy.ts'
 import { specialistNameError } from '../settings-forms.ts'
 import { type SpecialistDraft, saveSpecialist, useSpecialists } from '../specialists.ts'
-import { Button, Field, Select, Switch, TextArea, TextInput } from '../ui/primitives.tsx'
+import { Button, Field, Switch, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
+import { ModelPicker } from './ModelPicker.tsx'
 
 const GROUPS = ['web', 'shell', 'files', 'browser', 'mcp'] as const
 
@@ -50,9 +51,7 @@ export function SpecialistEditor(props: {
       setBusy(false)
     }
   }
-  const visible = props.models.filter((m) => !m.hidden || m.ref === draft.model)
-  // A worker kept from a chat brings its model even where the full list is not at hand.
-  const extra = draft.model && !visible.some((m) => m.ref === draft.model) ? draft.model : undefined
+  const models = useMemo(() => [...props.models], [props.models])
   return (
     <form
       className="flex flex-col gap-4"
@@ -89,21 +88,23 @@ export function SpecialistEditor(props: {
           maxLength={8000}
         />
       </Field>
-      <Field label={t.model}>
-        <Select
-          value={draft.model ?? ''}
-          onChange={(e) => set({ model: e.target.value || undefined })}
-          aria-label={t.model}
-          className="w-full max-w-sm"
-        >
-          <option value="">{t.teamModel}</option>
-          {extra && <option value={extra}>{extra}</option>}
-          {visible.map((m) => (
-            <option key={m.ref} value={m.ref}>
-              {m.name} ({m.provider})
-            </option>
-          ))}
-        </Select>
+      <Field label={t.model} hint={t.modelHint} inline>
+        <div className="flex min-w-0 items-center gap-2">
+          {draft.model && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => set({ model: undefined })}>
+              {t.useTeamModel}
+            </Button>
+          )}
+          {/* A worker kept from a chat may bring a model missing from the list; the picker then shows its ref. */}
+          <ModelPicker
+            variant="compact"
+            placement="down"
+            label={t.model}
+            value={draft.model ?? ''}
+            models={models}
+            onChange={(model) => set({ model })}
+          />
+        </div>
       </Field>
       <Field label={t.tools}>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
