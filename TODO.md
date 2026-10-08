@@ -291,7 +291,9 @@ Open work, in the order it will be done:
 11f. - [x] **Gateway indicator and inspector** (asked 2026-10-08) — done after OpenClaw: a sidebar chip only when
       something is wrong ("Offline · Retry", or the problem, opening System); a System page with the gateway, models,
       sandbox, what is running, each channel's health (last in/out, reconnects, last error, Restart) and recent activity.
-12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
+12. - [ ] **Voice calls** — a fast call model that hands work to the crew (OpenDots idea). Research
+      docs/research/2026-10-08-voice-calls.md, spec docs/superpowers/specs/2026-10-08-voice-calls-design.md (waiting
+      for review): Phonon-2 STT, Kitten TTS, any provider selectable; in the app first, phone (Twilio) next.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
