@@ -163,12 +163,12 @@ function Code({ line, wrap }: { line?: DiffLine; wrap?: boolean }) {
 /** One file's hunks with old/new line numbers, unified or side by side. */
 export function FilePatch({ text, mode }: { text: string; mode: DiffMode }) {
   const hunks = useMemo(() => parseFilePatch(text), [text])
-  if (hunks.length === 0) return <p className="px-3 py-2 text-[12px] text-muted">{copy.diffView.binary}</p>
+  if (hunks.length === 0) return <p className="px-3 py-2 text-small text-muted">{copy.diffView.binary}</p>
   return (
     <div className="overflow-x-auto">
       <table
         className={cn(
-          'w-full border-collapse font-mono text-[11.5px] leading-[1.6]',
+          'w-full border-collapse font-mono text-footnote leading-[1.6]',
           mode === 'split' && 'table-fixed',
         )}
       >
@@ -227,7 +227,7 @@ function HunkRows({ header, lines, mode }: { header: string; lines: DiffLine[]; 
 export function FilePath({ path, full }: { path: string; full?: string }) {
   const cut = path.lastIndexOf('/')
   return (
-    <span className="flex min-w-0 font-mono text-[12.5px]" title={full ?? path}>
+    <span className="flex min-w-0 font-mono text-callout" title={full ?? path}>
       {cut >= 0 && <span className="truncate text-muted">{path.slice(0, cut + 1)}</span>}
       <span className="max-w-full shrink-0 truncate font-medium">{path.slice(cut + 1)}</span>
     </span>
@@ -296,12 +296,12 @@ export function FolderGroups<T extends { path: string }>(props: {
               type="button"
               onClick={() => folds.toggle(g.folder)}
               aria-expanded={folds.isOpen(g.folder)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-callout text-fg-2 hover:bg-surface-2"
             >
               <FoldChevron open={folds.isOpen(g.folder)} className="text-muted" />
               <Folder className="size-3.5 shrink-0 text-muted" />
               <span className="min-w-0 truncate font-mono">{g.folder}/</span>
-              <span className="rounded-full bg-surface-2 px-1.5 text-[11px] tabular-nums text-muted">
+              <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums text-muted">
                 {g.items.length}
               </span>
             </button>
@@ -343,18 +343,18 @@ export function FileDiff(props: {
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted transition-transform', props.open && 'rotate-90')}
         />
-        <span title={s.title} className={cn('w-3 shrink-0 font-mono text-[11px] font-bold', s.className)}>
+        <span title={s.title} className={cn('w-3 shrink-0 font-mono text-caption font-bold', s.className)}>
           {s.label}
         </span>
         <FilePath path={props.name ?? props.file.path} full={props.file.path} />
         <span className="flex-1" />
         {BINARY.test(props.text) && (
-          <span className="shrink-0 rounded bg-surface-3 px-1.5 font-mono text-[11px] text-muted">
+          <span className="shrink-0 rounded bg-surface-3 px-1.5 font-mono text-caption text-muted">
             {copy.diffView.binaryTag}
           </span>
         )}
         {props.file.added !== undefined && (
-          <span className="flex shrink-0 items-center gap-2 font-mono text-[11.5px] tabular-nums">
+          <span className="flex shrink-0 items-center gap-2 font-mono text-footnote tabular-nums">
             <span className="text-ok-ink">+{props.file.added}</span>
             <span className="text-bad-ink">−{props.file.removed}</span>
             <StatBar
@@ -380,7 +380,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(props.open ? [props.open] : []))
   const folds = useFolderFolds(props.files, props.open)
   if (props.files.length === 0)
-    return <p className="px-1 py-2 text-[12.5px] text-muted">{copy.diffView.noChanges}</p>
+    return <p className="px-1 py-2 text-callout text-muted">{copy.diffView.noChanges}</p>
   const added = props.files.reduce((n, f) => n + (f.added ?? 0), 0)
   const removed = props.files.reduce((n, f) => n + (f.removed ?? 0), 0)
   // A file in a folded folder is out of sight however it is set, so "all open" takes its folder too.
@@ -392,7 +392,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
   }
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
+      <div className="flex items-center gap-2 px-1 text-small text-muted">
         <span>
           {copy.diffView.fileCount(props.files.length)} ·{' '}
           <span className="font-mono text-ok-ink">+{added}</span>{' '}
@@ -428,7 +428,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
           />
         )}
       </FolderGroups>
-      {props.truncated && <p className="px-1 text-[12px] text-muted">{copy.diffView.truncated}</p>}
+      {props.truncated && <p className="px-1 text-small text-muted">{copy.diffView.truncated}</p>}
     </div>
   )
 }

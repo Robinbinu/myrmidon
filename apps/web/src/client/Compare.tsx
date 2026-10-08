@@ -35,11 +35,11 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
   return (
     <div className="compare">
       {picked.length < 2 ? (
-        <p className="mb-3 text-[12.5px] text-muted">{copy.compare.tickTwo}</p>
+        <p className="mb-3 text-callout text-muted">{copy.compare.tickTwo}</p>
       ) : diff ? (
         <RunDiffView diff={diff} onOpen={props.onOpen} onClose={() => setPicked([])} />
       ) : (
-        <p className="mb-3 text-[12.5px] text-muted">{error ?? copy.compare.comparing}</p>
+        <p className="mb-3 text-callout text-muted">{error ?? copy.compare.comparing}</p>
       )}
       <div className="overflow-x-auto">
         <table>
@@ -86,7 +86,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
                   <Pill tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Pill>
                   {c.statusReason && <div className="muted small">{c.statusReason}</div>}
                 </td>
-                <td>{c.pattern}</td>
+                <td>{copy.compare.patterns[c.pattern] ?? c.pattern}</td>
                 <td className="small">{[...new Set(c.agents.map((a) => a.model))].join(', ')}</td>
                 <td className="num">{duration(c.metrics.wallMs)}</td>
                 <td className="num">{c.metrics.tokens.toLocaleString()}</td>
@@ -193,18 +193,18 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
   return (
     <div className="min-w-0 rounded-xl border border-line bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span className="grid size-5 place-items-center rounded-md bg-surface-2 font-mono text-[11px] font-bold">
+        <span className="grid size-5 place-items-center rounded-md bg-surface-2 font-mono text-caption font-bold">
           {label}
         </span>
         <button
           type="button"
           onClick={() => onOpen(run.id)}
-          className="min-w-0 truncate text-left text-[13.5px] font-semibold hover:underline"
+          className="min-w-0 truncate text-left text-reading font-semibold hover:underline"
         >
           {run.name}
         </button>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-small text-muted">
         <Pill tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Pill>
         {run.tier && <span>{run.tier}</span>}
         {run.mode && <span>· {run.mode}</span>}
@@ -215,7 +215,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
           </span>
         )}
       </div>
-      <div className="mt-1 truncate font-mono text-[11.5px] text-muted">{run.models.join(', ')}</div>
+      <div className="mt-1 truncate font-mono text-footnote text-muted">{run.models.join(', ')}</div>
     </div>
   )
 }
@@ -225,7 +225,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
   const most = Math.max(1, ...tools.flatMap((t) => [t.a, t.b]))
   const [allTools, setAllTools] = useState(false)
   const shownTools = allTools ? tools : tools.slice(0, 10)
-  const head = 'px-2 py-1.5 text-left font-mono text-[11px] uppercase tracking-[0.12em] text-muted'
+  const head = 'px-2 py-1.5 text-left font-mono text-caption uppercase tracking-[0.12em] text-muted'
   const cell = 'px-2 py-1.5 tabular-nums'
   return (
     <section
@@ -242,13 +242,13 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
         </IconButton>
       </div>
       {a.task.trim() !== b.task.trim() && (
-        <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn-ink">
+        <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-callout text-warn-ink">
           {copy.compare.differentTasks}
         </p>
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
+        <table className="w-full text-callout">
           <thead>
             <tr>
               <th className={head}>{copy.compare.measure}</th>
@@ -281,15 +281,12 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
           <h3 className={cn(head, 'px-0')}>{copy.compare.toolCalls}</h3>
           <ul className="mt-1 flex flex-col gap-1">
             {shownTools.map((t) => (
-              <li
-                key={t.tool}
-                className="grid grid-cols-[minmax(0,10rem)_1fr] items-center gap-3 text-[12px]"
-              >
+              <li key={t.tool} className="grid grid-cols-[minmax(0,10rem)_1fr] items-center gap-3 text-small">
                 <span className="truncate font-mono">{t.tool}</span>
                 <span className="flex flex-col gap-0.5">
                   {(['a', 'b'] as const).map((k) => (
                     <span key={k} className="flex items-center gap-2">
-                      <span className="w-3 font-mono text-[11px] text-muted">{k.toUpperCase()}</span>
+                      <span className="w-3 font-mono text-caption text-muted">{k.toUpperCase()}</span>
                       <span
                         className={cn('h-1.5 rounded-full', k === 'a' ? 'bg-fg-2/50' : 'bg-accent')}
                         style={{ width: `${(t[k] / most) * 100}%`, minWidth: t[k] ? 4 : 0 }}
@@ -305,7 +302,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             <button
               type="button"
               onClick={() => setAllTools(!allTools)}
-              className="mt-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-fg"
+              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-surface-2 hover:text-fg"
             >
               {allTools ? copy.compare.showFewer : copy.compare.showAllTools(tools.length)}
             </button>
@@ -320,7 +317,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {files.map((f) => (
               <li
                 key={f.name}
-                className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-[12px]"
+                className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small"
               >
                 <span className="font-mono">{f.name}</span>
                 <Pill tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
@@ -338,7 +335,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
 
       {agents.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
+          <table className="w-full text-callout">
             <thead>
               <tr>
                 <th className={head}>{copy.compare.agent}</th>
@@ -355,7 +352,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
                     <td key={i} className="px-2 py-1.5 text-muted">
                       {x ? (
                         <>
-                          <span className="font-mono text-[11.5px]">{x.model}</span>
+                          <span className="font-mono text-footnote">{x.model}</span>
                           {copy.compare.agentStats(x.turns, x.tokens.toLocaleString(), x.toolCalls)}
                         </>
                       ) : (
@@ -377,9 +374,9 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {[a, b].map((r, i) => (
               <p
                 key={r.id}
-                className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-3 text-[12.5px] text-fg-2"
+                className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-3 text-callout text-fg-2"
               >
-                <span className="mr-1 font-mono text-[11px] font-bold">{i === 0 ? 'A' : 'B'}</span>
+                <span className="mr-1 font-mono text-caption font-bold">{i === 0 ? 'A' : 'B'}</span>
                 {r.finalReply ?? copy.compare.noAnswer}
               </p>
             ))}

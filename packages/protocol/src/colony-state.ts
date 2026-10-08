@@ -723,6 +723,9 @@ export interface ColonyMetrics {
 /** Stop reason for a chat round that ended with a question or update for the human. */
 export const AWAITING_USER = 'awaiting your reply'
 
+/** Stop reason for a chat round the person stopped themselves. */
+export const STOPPED_BY_USER = 'stopped by user'
+
 /**
  * What a stopped run is waiting on, beyond its status: the person's answer, or a model that failed. A model failure
  * stops the run rather than failing it so it can be resumed, so the status alone reads like any other stop.

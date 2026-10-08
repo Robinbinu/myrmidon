@@ -118,7 +118,7 @@ class SlotBoundary extends Component<{ plugin: string; children: ReactNode }, { 
     if (this.state.error)
       return (
         <div
-          className={cn('rounded-lg border border-bad/25 bg-bad-soft px-3 py-2 text-[12.5px] text-bad-ink')}
+          className={cn('rounded-lg border border-bad/25 bg-bad-soft px-3 py-2 text-callout text-bad-ink')}
         >
           {copy.pluginSlot.failed(this.props.plugin, this.state.error)}
         </div>

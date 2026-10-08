@@ -27,7 +27,7 @@ import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './hel
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
-  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
+  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
 
 /** A glass pill in the composer toolbar that opens its own menu above it. */
 function ChipMenu(props: {
@@ -87,7 +87,7 @@ function ChipMenu(props: {
             transition={spring}
             style={{ width: props.width ?? 300 }}
             className={cn(
-              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-[14px] border border-line p-1.5',
+              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-lg border border-line p-1.5',
               alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
             )}
           >
@@ -124,8 +124,8 @@ function Option(props: {
         {props.icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-fg">{props.title}</span>
-        <span className="block text-[11.5px] leading-snug text-muted">{props.hint}</span>
+        <span className="block text-body font-medium text-fg">{props.title}</span>
+        <span className="block text-footnote leading-snug text-muted">{props.hint}</span>
       </span>
       {props.selected && <Check className="size-4 shrink-0 text-accent-fg" />}
     </button>
@@ -136,8 +136,8 @@ function Option(props: {
 function MenuHead(props: { title: string; note?: string }) {
   return (
     <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted">{props.title}</span>
-      {props.note && <span className="text-[11px] text-muted">{props.note}</span>}
+      <span className="text-caption font-medium uppercase tracking-[0.12em] text-muted">{props.title}</span>
+      {props.note && <span className="text-caption text-muted">{props.note}</span>}
     </div>
   )
 }
@@ -291,7 +291,7 @@ export function ReviewChip(props: {
           ))}
           {props.review !== 'off' && (
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-2 pb-1 pt-2.5">
-              <span className="whitespace-nowrap text-[12.5px] text-fg-2">
+              <span className="whitespace-nowrap text-callout text-fg-2">
                 {copy.teamControls.reviewer.model}
               </span>
               <ModelPicker
@@ -371,7 +371,7 @@ export function HelpersChip(props: {
             />
           ))}
           {on && (
-            <div className="mt-1.5 rounded-[10px] border border-line bg-surface/60">
+            <div className="mt-1.5 rounded-base border border-line bg-surface/60">
               <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
             </div>
           )}
@@ -422,7 +422,7 @@ function Stepper(props: {
       >
         <Minus className="size-3" />
       </button>
-      <output className="w-6 text-center text-[13px] tabular-nums" aria-live="polite">
+      <output className="w-6 text-center text-body tabular-nums" aria-live="polite">
         {props.value}
       </output>
       <button
@@ -443,8 +443,8 @@ export function Row(props: { label: string; hint?: string; children: ReactNode }
   return (
     <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5">
       <div className="min-w-0">
-        <div className="text-[13px]">{props.label}</div>
-        {props.hint && <div className="text-[11.5px] leading-snug text-muted">{props.hint}</div>}
+        <div className="text-body">{props.label}</div>
+        {props.hint && <div className="text-footnote leading-snug text-muted">{props.hint}</div>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">{props.children}</div>
     </div>
@@ -522,7 +522,7 @@ export function HelpersEditor(props: {
             className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
           >
             {r.specialist ? (
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-[13px]">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-body">
                 <span
                   className="size-1.5 shrink-0 rounded-full"
                   style={{ background: agentColor(r.specialist) }}
@@ -532,14 +532,14 @@ export function HelpersEditor(props: {
                 </span>
               </span>
             ) : swarm ? (
-              <span className="flex-1 text-[13px] text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
+              <span className="flex-1 text-body text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
             ) : (
               <input
                 value={r.role}
                 maxLength={40}
                 aria-label={copy.teamControls.editor.roleOf(i + 1)}
                 onChange={(e) => setRow(i, { role: e.target.value.toLowerCase() })}
-                className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[13px] capitalize outline-none hover:bg-fill focus:bg-fill"
+                className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-body capitalize outline-none hover:bg-fill focus:bg-fill"
               />
             )}
             <ModelPicker
@@ -582,7 +582,7 @@ export function HelpersEditor(props: {
               value=""
               aria-label={copy.teamControls.editor.addHelperLabel}
               onChange={(e) => e.target.value && addRow(e.target.value)}
-              className="h-[26px] text-[12.5px]"
+              className="h-[26px]"
             >
               <option value="">{copy.teamControls.editor.addHelper}</option>
               {unused.map((role) => (

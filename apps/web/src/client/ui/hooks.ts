@@ -47,6 +47,18 @@ export function usePersistentFlag(key: string, initial: boolean): [boolean, (v: 
   ]
 }
 
+/**
+ * The in-app Reduce motion setting. Motion's components read it through MotionConfig; CSS animations cannot, so it is
+ * also applied as `data-reduce-motion` on <html>.
+ */
+export function useReduceMotion(): [boolean, (v: boolean) => void] {
+  const [reduce, setReduce] = usePersistentFlag('myr-reduce-motion', false)
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-reduce-motion', reduce)
+  }, [reduce])
+  return [reduce, setReduce]
+}
+
 /** Copies text and reports `copied` for a moment so buttons can confirm it. */
 export function useCopy(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false)

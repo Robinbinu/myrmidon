@@ -72,10 +72,10 @@ export function QuestionCard(props: {
         return option && !typesOwn(option)
       }),
   )
-  const send = (all: readonly Answer[]) => {
+  const send = (text: string) => {
     if (sending !== 'no') return
     setSending('yes')
-    props.onAnswer(answerText(props.choices, all)).then(
+    props.onAnswer(text).then(
       () => setSending('sent'),
       () => setSending('no'),
     )
@@ -93,10 +93,10 @@ export function QuestionCard(props: {
     >
       {props.plan && (
         <section aria-label={copy.questions.plan} className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <span className="text-caption font-semibold uppercase tracking-wide text-muted">
             {copy.questions.plan}
           </span>
-          <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5 text-[13.5px]">
+          <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5 text-reading">
             <Markdown text={props.plan} />
           </div>
         </section>
@@ -114,22 +114,22 @@ export function QuestionCard(props: {
           >
             <legend className="mb-1.5 flex w-full items-center gap-2">
               {q.header && (
-                <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
+                <span className="rounded-md bg-accent-soft px-1.5 py-0.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
                   {q.header}
                 </span>
               )}
-              <span className="min-w-0 flex-1 text-[13.5px] font-medium text-fg">{q.question}</span>
+              <span className="min-w-0 flex-1 text-reading font-medium text-fg">{q.question}</span>
               {live && several && (
                 <button
                   type="button"
                   onClick={() => set(i, { skipped: !a.skipped, picked: [], other: '' })}
-                  className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:bg-fill hover:text-fg-2"
+                  className="shrink-0 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-fill hover:text-fg-2"
                 >
                   {a.skipped ? copy.questions.unskip : copy.questions.skip}
                 </button>
               )}
             </legend>
-            {multi && <span className="-mt-1 text-[11.5px] text-muted">{copy.questions.pickAny}</span>}
+            {multi && <span className="-mt-1 text-footnote text-muted">{copy.questions.pickAny}</span>}
             {q.options.map((o) => {
               const on = a.picked.includes(o.label)
               return (
@@ -153,9 +153,9 @@ export function QuestionCard(props: {
                     {on && <Check className="size-3" strokeWidth={3} />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[13px] font-medium text-fg">{o.label}</span>
+                    <span className="block text-body font-medium text-fg">{o.label}</span>
                     {o.description && (
-                      <span className="block text-[12px] leading-snug text-muted">{o.description}</span>
+                      <span className="block text-small leading-snug text-muted">{o.description}</span>
                     )}
                   </span>
                 </button>
@@ -175,11 +175,11 @@ export function QuestionCard(props: {
                   })
                 }
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && done) send(answers)
+                  if (e.key === 'Enter' && done) send(answerText(props.choices, answers))
                 }}
                 placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
-                className="h-9 rounded-xl border border-line bg-surface-2/50 px-3 text-[13px] outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
+                className="h-9 rounded-xl border border-line bg-surface-2/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
               />
             )}
           </fieldset>
@@ -191,7 +191,14 @@ export function QuestionCard(props: {
             size="sm"
             variant="ghost"
             disabled={sending === 'yes'}
-            onClick={() => send(props.choices.map(() => ({ ...blank, skipped: true })))}
+            onClick={() =>
+              send(
+                answerText(
+                  props.choices,
+                  props.choices.map(() => ({ ...blank, skipped: true })),
+                ),
+              )
+            }
             icon={<SkipForward className="size-3.5" />}
           >
             {copy.questions.skipAll(props.choices.length)}
@@ -200,9 +207,22 @@ export function QuestionCard(props: {
             size="sm"
             variant="primary"
             disabled={!done || sending === 'yes'}
-            onClick={() => send(answers)}
+            onClick={() => send(answerText(props.choices, answers))}
           >
             {sending === 'yes' ? copy.questions.sending : copy.questions.send(props.choices.length)}
+          </Button>
+        </div>
+      )}
+      {live && props.plan && props.choices.length === 0 && (
+        <div className="flex items-center justify-end gap-3 border-t border-line pt-3">
+          <span className="min-w-0 flex-1 text-small text-muted">{copy.questions.approvePlan.hint}</span>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={sending === 'yes'}
+            onClick={() => send(copy.questions.approvePlan.text)}
+          >
+            {sending === 'yes' ? copy.questions.sending : copy.questions.approvePlan.button}
           </Button>
         </div>
       )}

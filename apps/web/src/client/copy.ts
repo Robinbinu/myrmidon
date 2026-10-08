@@ -1,6 +1,19 @@
 /**
  * Every word the web client shows, grouped by screen and component. Text with values in it is a function of
  * those values; the components keep the layout and logic.
+ *
+ * Glossary: one word per concept wherever the person reads it. The code keeps older names (colony, round, team,
+ * judge, verifier, verdict, observer, steer, queue); those stay identifiers and never reach the screen.
+ *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team".
+ *   lead        the agent you talk to; it plans and brings in helpers.
+ *   helper      an agent working with the lead. Not "worker". In Swarm mode there is no lead and the agents are
+ *               "peers", equals sharing one plan.
+ *   specialist  a helper you defined once in Settings and bring back by name.
+ *   run         one message that starts work, and the work it causes. Not "round".
+ *   turn        one step of one agent: a model call and the tools it used.
+ *   review      the independent check of the work, by the reviewer. Not judge, verdict, verifier, verification.
+ *   check-in    Myrmidon's regular look for stuck or idle agents and limits running out. Not "observer".
+ *   Send now / Send when done   how a message typed during a run reaches the crew (the /steer and /queue commands).
  */
 export const copy = {
   brand: {
@@ -35,7 +48,7 @@ export const copy = {
     },
     /** Read after a chat's title by screen readers, which cannot see its status dot. */
     spoken: (label: string) => `, ${label}`,
-    /** A chat or crew run, beside its title. */
+    /** A chat or run, beside its title. */
     run: {
       working: 'working',
       awaiting: 'waiting for you',
@@ -143,7 +156,7 @@ export const copy = {
     modes: {
       orchestrated: {
         name: 'Orchestrated',
-        hint: 'A lead assigns tasks to specialists, each on the model that fits',
+        hint: 'A lead assigns tasks to helpers, each on the model that fits',
       },
       swarm: {
         name: 'Swarm',
@@ -151,9 +164,7 @@ export const copy = {
       },
     },
     teamLabel: (swarm: boolean, n: number) =>
-      swarm
-        ? `Swarm · ${n} peer${n === 1 ? '' : 's'}`
-        : `Orchestrated · ${n} specialist${n === 1 ? '' : 's'}`,
+      swarm ? `Swarm · ${n} peer${n === 1 ? '' : 's'}` : `Orchestrated · ${n} helper${n === 1 ? '' : 's'}`,
     thinking: { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' },
     review: { off: 'Off', auto: 'Auto', always: 'Always' },
     lead: 'Lead',
@@ -168,13 +179,13 @@ export const copy = {
     thinkingLabel: 'Thinking',
     thinkingHint: 'Auto: quick for questions, deeper for work',
     sameProvider:
-      'The reviewer shares a provider with the team; one from another provider catches more of its blind spots.',
+      'The reviewer shares a provider with the crew; one from another provider catches more of its blind spots.',
     helpers: 'Helpers',
     /** The fold under the helpers setting that lists each helper and its model. */
     helperList: 'Who helps',
     deliveries: {
-      steer: { label: 'Steer', hint: 'Read at the next step' },
-      queue: { label: 'Queue', hint: 'Read once the current work is done' },
+      steer: { label: 'Send now', hint: 'Read at the crew’s next step' },
+      queue: { label: 'Send when done', hint: 'Read once the current work is done' },
     },
     attachedOnly: 'See the attached files.',
     reasoning: ' · reasoning',
@@ -183,7 +194,7 @@ export const copy = {
       section: 'Write directly to',
       label: 'Crew members to write to',
     },
-    teamDialog: 'Team and models',
+    teamDialog: 'Crew and models',
     teamHeading: 'Lead & helpers',
     teamApplies: 'Applies to your next messages',
     removeFile: (name: string) => `Remove ${name}`,
@@ -223,7 +234,7 @@ export const copy = {
     injectionSource: (reason: string, source: string) => `${reason} (from ${source})`,
     startedServer: (name: string) => `Started ${name} at`,
     stoppedServer: (name: string) => `Stopped ${name}`,
-    handedTo: (team: boolean) => `Handed the request to ${team ? 'a team' : 'one agent with every tool'}:`,
+    handedTo: (team: boolean) => `Handed the request to ${team ? 'a crew' : 'one agent with every tool'}:`,
     hookBlocked: (tool?: string) => `A hook blocked ${tool ?? 'a call'}:`,
     hookAsked: (tool?: string) => `A hook asked you about ${tool ?? 'a call'}:`,
     hookFlagged: (tool?: string) => `A hook flagged ${tool ?? 'the result'}:`,
@@ -246,14 +257,14 @@ export const copy = {
       `summarized ${messages} earlier messages at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
-    askedJudge: 'Asked the judge to verify the result',
-    judgeApproved: 'Judge approved',
-    judgeRejected: 'Judge rejected',
+    askedJudge: 'Asked the reviewer to check the result',
+    judgeApproved: 'Reviewer approved',
+    judgeRejected: 'Reviewer asked for changes',
     score: (score: string) => `score ${score}`,
     messaged: (to: string) => `Messaged ${to}:`,
     posted: 'Posted:',
-    observer: (kind: string) => `Observer (${kind}):`,
-    /** The "now doing" line while a round runs. */
+    observer: (kind: string) => `Check-in (${kind}):`,
+    /** The "now doing" line during a run. */
     now: {
       doing: (agent: string, what: string) => `${agent} is ${what}`,
       thinking: (agent: string) => `${agent} is thinking`,
@@ -262,8 +273,8 @@ export const copy = {
       writing: (name: unknown) => `writing ${String(name ?? 'a file')}`,
       drafting: (path: unknown) => `drafting ${String(path ?? 'a file')}`,
       runningCommand: 'running a command',
-      waitingForJudge: 'waiting for the judge',
-      bringingIn: (name: unknown) => `bringing in ${String(name ?? 'a worker')}`,
+      waitingForJudge: 'waiting for the reviewer',
+      bringingIn: (name: unknown) => `bringing in ${String(name ?? 'a helper')}`,
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
       using: (tool: string) => `using ${tool}`,
@@ -272,25 +283,45 @@ export const copy = {
 
   /** One-line summaries of raw events, for the timeline and the event feed. */
   events: {
-    colonyCreated: (name: string) => `colony created: ${name}`,
+    colonyCreated: (name: string) => `crew created: ${name}`,
     crewStarted: 'crew started',
-    colonyStopped: (reason: string) => `colony stopped: ${reason}`,
-    /** Whether it was reviewed is the verdict line's to say: a round can finish unreviewed. */
-    crewCompleted: 'crew COMPLETED',
+    colonyStopped: (reason: string) => `crew stopped: ${reason}`,
+    /** Whether it was reviewed is the review line's to say: a run can finish unreviewed. */
+    crewCompleted: 'crew completed',
     notReviewed: 'final answer delivered, not reviewed',
     turn: (agent: string, turn: number, phase: string, trigger: string) =>
       `${agent} turn ${turn} ${phase} [${trigger}]`,
     ok: 'ok',
-    error: 'ERROR',
+    error: 'error',
     onBoard: (agent: string, text: string) => `${agent} on board: ${text}`,
     noted: (agent: string, text: string) => `${agent} noted: ${text}`,
     mailDelivered: (to: string) => `mail delivered to ${to}`,
     published: (author: string, name: string, version: number) => `${author} published ${name} v${version}`,
-    observer: (kind: string, severity: string, facts: string) => `observer ${kind}/${severity}: ${facts}`,
-    verificationRequested: (by: string) => `${by} requested verification`,
-    verdict: (verifier: string, target: string, pass: boolean) =>
-      `verdict ${verifier} on ${target}: ${pass ? 'PASS' : 'FAIL'}`,
+    observer: (kind: string, severity: string, facts: string) => `check-in, ${kind} (${severity}): ${facts}`,
+    verificationRequested: (by: string) => `${by} asked for a review`,
+    verdict: (target: string, pass: boolean) => `review of ${target}: ${pass ? 'passed' : 'failed'}`,
   },
+
+  /** What a check-in noticed, keyed by the runtime's signal kind and severity. */
+  checkIn: {
+    kinds: {
+      deadline: 'time limit',
+      budget: 'spend limit',
+      stall: 'stalled',
+      unclaimed: 'unclaimed task',
+      blocked: 'blocked',
+      conflict: 'conflict',
+    } as Record<string, string>,
+    severities: { info: 'note', warn: 'warning', critical: 'critical' } as Record<string, string>,
+  },
+
+  /** What a review looked at: the runtime names the final answer `colony` and a task `task:<id>`. */
+  reviewTarget: (target: string) =>
+    target === 'colony'
+      ? 'the final answer'
+      : target.startsWith('task:')
+        ? `task ${target.slice(5)}`
+        : target,
 
   /** The empty state: the mascot, the headline and the starter prompts. */
   hero: {
@@ -343,9 +374,9 @@ export const copy = {
     },
     /** The one chip thinking, reviewer and helpers fold into when the toolbar is narrow. */
     team: {
-      label: 'Team',
+      label: 'Crew',
       summary: (thinking: string, reviewer: string, helpers: string) =>
-        `Team: thinking ${thinking.toLowerCase()} · ${reviewer.toLowerCase()} · ${helpers.toLowerCase()}`,
+        `Crew: thinking ${thinking.toLowerCase()} · ${reviewer.toLowerCase()} · ${helpers.toLowerCase()}`,
     },
     /** One set of words for the helpers setting, used on the chip and in every summary of it. */
     helpers: {
@@ -357,7 +388,7 @@ export const copy = {
     helperModes: {
       never: { title: 'Never', hint: 'The lead works alone, like a chat' },
       auto: { title: 'Auto', hint: 'The lead brings helpers in when a job needs them' },
-      always: { title: 'Always', hint: 'Every message starts with the whole team' },
+      always: { title: 'Always', hint: 'Every message starts with the whole crew' },
     },
     stepper: {
       fewer: (label: string) => `Fewer ${label}`,
@@ -390,31 +421,31 @@ export const copy = {
 
   commands: {
     /** Section headings in the slash menu, keyed by command group id. */
-    groups: { Round: 'Round', 'Team & model': 'Team & model', Chat: 'Chat', App: 'App', Plugins: 'Plugins' },
+    groups: { Round: 'Run', 'Team & model': 'Crew & model', Chat: 'Chat', App: 'App', Plugins: 'Plugins' },
     fromPlugin: (plugin: string) => `From the ${plugin} plugin`,
     list: {
       plan: { args: '<request>', description: 'Plan first: see the plan and approve it before any work' },
-      steer: { args: '<message>', description: 'Send to the running round, read at its next step' },
+      steer: { args: '<message>', description: 'Send now: the crew reads it at its next step' },
       queue: {
         args: '<message>',
-        description: 'Send to the running round, read when it finishes its current work',
+        description: 'Send when done: the crew reads it once its current work is finished',
       },
-      stop: { description: 'Stop the running round' },
-      resume: { description: 'Pick a stopped round back up where it left off' },
-      retry: { description: 'Run the last request again as a new round' },
-      model: { args: '<name>', description: 'Switch the lead model, right away if a round is running' },
+      stop: { description: 'Stop the run' },
+      resume: { description: 'Pick a stopped run back up where it left off' },
+      retry: { description: 'Run the last request again' },
+      model: { args: '<name>', description: 'Switch the lead model, right away if a run is going' },
       mode: {
-        description: 'Lead with specialists, or equal peers',
+        description: 'A lead with helpers, or equal peers',
         options: {
           orchestrated: {
             label: 'Orchestrated',
-            description: 'A lead plans and assigns work to specialists',
+            description: 'A lead plans and assigns work to helpers',
           },
           swarm: { label: 'Swarm', description: 'Equal peers agree a plan and claim the work' },
         },
       },
       thinking: {
-        description: 'How hard reasoning models think in work rounds',
+        description: 'How hard reasoning models think while they work',
         options: {
           auto: {
             label: 'Auto',
@@ -425,7 +456,7 @@ export const copy = {
           high: { label: 'High', description: 'Most careful; slower' },
         },
       },
-      team: { description: 'Open the team and model picker' },
+      team: { description: 'Open the crew and model picker' },
       new: { description: 'Start a new chat' },
       rename: { args: '<title>', description: 'Rename this chat' },
       attach: { description: 'Attach files to your next message' },
@@ -439,8 +470,8 @@ export const copy = {
     unavailable: {
       notRunning: 'Nothing is running',
       noChat: 'Open a chat first',
-      waitForRound: 'Wait for the round to finish',
-      nothingToResume: 'No stopped round to resume',
+      waitForRound: 'Wait for the run to finish',
+      nothingToResume: 'No stopped run to resume',
     },
   },
 
@@ -455,7 +486,7 @@ export const copy = {
       keys: [
         { keys: ['Enter'], does: 'Send, or run the highlighted command' },
         { keys: ['Shift', 'Enter'], does: 'New line' },
-        { keys: ['Alt', 'Enter'], does: 'While a round runs, send the other way (steer or queue)' },
+        { keys: ['Alt', 'Enter'], does: 'During a run, send the other way (now or when done)' },
         { keys: ['/'], does: 'Commands, typed at the start of a message' },
         { keys: ['@'], does: 'Write directly to a crew member by name' },
         { keys: ['Tab'], does: 'Complete the highlighted command' },
@@ -489,8 +520,8 @@ export const copy = {
       renameLabel: (title: string) => `Rename “${title}”`,
       delete: 'Delete chat',
       deleteLabel: (title: string) => `Delete “${title}”`,
-      /** The number beside a chat: each message that started work in it is a round. */
-      rounds: (n: number) => `${n} rounds: messages that started work in this chat`,
+      /** The number beside a chat: each message that started work in it is a run. */
+      rounds: (n: number) => `${n} runs: messages that started work in this chat`,
       /** Before a line of a message that matched the search; `from` is the agent's name or `user`. */
       matchFrom: (from: string) => (from === 'user' ? 'You: ' : `${from}: `),
     },
@@ -589,7 +620,7 @@ export const copy = {
     },
     /** Shown under Role/Focus when the agent joined without a focus of its own. */
     defaultFocus: {
-      lead: 'Plans the work, brings in workers, and answers you.',
+      lead: 'Plans the work, brings in helpers, and answers you.',
       worker: 'Picks up tasks from the board.',
     },
     reasoning: 'Reasoning',
@@ -615,7 +646,7 @@ export const copy = {
       approvedEdited: (what: string) => `Approved your version: ${what}`,
       denied: (what: string) => `Denied: ${what}`,
       timedOut: (what: string) => `Not answered in time: ${what}`,
-      stopped: (what: string) => `Not run, the round stopped: ${what}`,
+      stopped: (what: string) => `Not run, the run stopped: ${what}`,
       withNote: (line: string, note: string) => `${line} · ${note}`,
     },
     /** A change shown in full before it happens. */
@@ -633,7 +664,7 @@ export const copy = {
     login: {
       needsSignIn: 'needs you to sign in to',
       instructions: (agent: string) =>
-        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees what you type, and the sign-in is kept for later rounds.`,
+        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees what you type, and the sign-in is kept for later runs.`,
       openBrowser: (agent: string) => `Open ${agent}’s browser`,
     },
     memory: {
@@ -700,6 +731,13 @@ export const copy = {
      */
     typesOwn: /^(other|something else)\W*$|\b(I['’]?ll|I will|let me) type\b|\btype (my|your|our) own\b/i,
     plan: 'Plan',
+    /** A plan shown for approval with no questions to answer alongside it. */
+    approvePlan: {
+      button: 'Approve plan',
+      /** What the agent reads when the person approves. */
+      text: 'The plan is approved: go ahead.',
+      hint: 'To change it, write what to change in the message box.',
+    },
     /** What the agent reads for a skipped question. */
     skippedAnswer: '(skipped: use your judgment)',
   },
@@ -711,8 +749,8 @@ export const copy = {
   roundChanges: {
     failed: (project: string) => `Couldn’t check what changed in ${project}`,
     retry: 'Retry',
-    /** "Rewound <project> to before this round", split around the project name. */
-    rewound: { before: 'Rewound', after: 'to before this round' },
+    /** "Rewound <project> to before this run", split around the project name. */
+    rewound: { before: 'Rewound', after: 'to before this run' },
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     changedIn: (project: string) => `changed in ${project}`,
     hideDiff: 'Hide diff',
@@ -720,11 +758,11 @@ export const copy = {
     undoRewind: 'Undo rewind',
     rewind: 'Rewind',
     confirm: {
-      title: 'Rewind this round’s changes?',
+      title: 'Rewind this run’s changes?',
       body: (project: string, n: number) =>
-        `The ${n} file${n === 1 ? '' : 's'} this round changed in ${project} go${n === 1 ? 'es' : ''} back to how ${n === 1 ? 'it was' : 'they were'} before it: changed files are restored and files it added are removed. Nothing else in the folder is touched, and files edited again since the round are kept unless you choose otherwise. The current state is saved first, so you can undo this.`,
+        `The ${n} file${n === 1 ? '' : 's'} this run changed in ${project} go${n === 1 ? 'es' : ''} back to how ${n === 1 ? 'it was' : 'they were'} before it: changed files are restored and files it added are removed. Nothing else in the folder is touched, and files edited again since the run are kept unless you choose otherwise. The current state is saved first, so you can undo this.`,
       skippedTitle: (n: number) =>
-        `${n} file${n === 1 ? ' was' : 's were'} edited again after this round, so ${n === 1 ? 'it was' : 'they were'} kept:`,
+        `${n} file${n === 1 ? ' was' : 's were'} edited again after this run, so ${n === 1 ? 'it was' : 'they were'} kept:`,
       rewindThemToo: 'Rewind them too',
       keep: 'Keep them',
       cancel: 'Cancel',
@@ -747,15 +785,15 @@ export const copy = {
     madeBy: (agent: string) => `made by ${agent}`,
     kept: 'Kept',
     keep: 'Keep',
-    keepTitle: 'Keep in your library: every new round starts with this tool',
-    keptToast: (name: string) => `Kept tool_${name}: new rounds start with it`,
+    keepTitle: 'Keep in your library: every new run starts with this tool',
+    keptToast: (name: string) => `Kept tool_${name}: new runs start with it`,
     remove: 'Remove',
     removeLabel: (name: string) => `Remove tool_${name}`,
     removedToast: (name: string) => `Removed tool_${name} from your library`,
     confirmRemove: 'Remove for good',
     /** Settings list when nothing has been kept yet. */
     empty:
-      "When agents make a tool with create_tool, it shows in the chat's Files view. Choose Keep there and every new round starts with it.",
+      "When agents make a tool with create_tool, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
   },
 
   permissions: {
@@ -764,7 +802,7 @@ export const copy = {
     modes: {
       auto: {
         label: 'Autonomous',
-        hint: 'Agents edit files and run commands in the sandbox without asking. Every round is checkpointed, so you can rewind it.',
+        hint: 'Agents edit files and run commands in the sandbox without asking. Every run is checkpointed, so you can rewind it.',
       },
       ask: {
         label: 'Ask first',
@@ -831,12 +869,12 @@ export const copy = {
     message: {
       /** Before the names of the crew members the person wrote to directly. */
       to: 'To',
-      steer: 'Steer',
-      queued: 'Queued',
+      steer: 'Sent now',
+      queued: 'Sent when done',
       readBy: (names: string) => `Read by ${names}`,
       steerLive: 'joins the next step',
       queueLive: 'waits until the current work is done',
-      notRead: 'not read before the round ended',
+      notRead: 'not read before the run ended',
       copyMessage: 'Copy message',
     },
     agent: {
@@ -860,7 +898,7 @@ export const copy = {
     lead: {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
-      /** The round is paused on a call the person has to approve. */
+      /** The run is paused on a call the person has to approve. */
       approval: 'Waiting for your approval',
       toTeam: 'Bringing in helpers',
       toAgent: 'Handing this to one agent with every tool',
@@ -869,8 +907,8 @@ export const copy = {
       stopped: 'Stopped',
       tokens: (n: string) => `${n} tokens`,
       steps: (n: number) => `${n} step${n === 1 ? '' : 's'}`,
-      detailsTitle: 'Map, replay and transcripts of this round',
-      detailsLabel: "Open the round's details",
+      detailsTitle: 'Map, replay and transcripts of this run',
+      detailsLabel: "Open the run's details",
       learnTitle: 'Learn a skill from how this was done',
     },
     helpers: {
@@ -890,7 +928,7 @@ export const copy = {
       working: 'Working on it',
       doneIn: (time: string) => `Done in ${time}`,
       paused: 'Paused for your reply',
-      toTeam: 'Handed to a team',
+      toTeam: 'Handed to a crew',
       toAgent: 'Handed to one agent with every tool',
       failed: 'Run failed',
       stopped: 'Run stopped',
@@ -933,9 +971,9 @@ export const copy = {
     score: (score: string) => `score ${score}`,
     whyPassed: 'Why it passed',
     movedTo: (target: string) => `Moved to ${target}`,
-    aTeam: 'a team',
+    aTeam: 'a crew',
     oneAgent: 'one agent with every tool',
-    escalatedNext: 'The next round picks it up with these files and notes.',
+    escalatedNext: 'The next run picks it up with these files and notes.',
     effects: (n: number) => `Already done before it stopped (${n})`,
     effectsHint:
       'These reached outside Myrmidon and a rewind cannot undo them. Resuming tells the agents, so they check before repeating any.',
@@ -943,7 +981,9 @@ export const copy = {
     waitingHint: 'Answer below and the crew continues where it left off, with its files.',
     failed: 'Failed',
     stopped: 'Stopped',
-    lastVerification: 'Last verification',
+    /** In place of the runtime's reason when the person stopped the run. */
+    stoppedByYou: 'You stopped this run',
+    lastVerification: 'Last review',
     resuming: 'Resuming…',
     resume: 'Resume',
     starting: 'Starting…',
@@ -960,14 +1000,14 @@ export const copy = {
       shell: 'Terminal',
       computer: 'Computer',
       tasks: 'Tasks',
-      team: 'Team',
+      team: 'Crew',
       mail: 'Mail',
       terminal: 'Agent commands',
       activity: 'Activity',
       audit: 'Audit',
     },
-    roundLabel: 'Round',
-    roundOption: (n: number) => `Round ${n}`,
+    roundLabel: 'Run',
+    roundOption: (n: number) => `Run ${n}`,
     label: 'Workspace',
     resize: 'Resize workspace',
     viewLabel: 'Workspace view',
@@ -983,7 +1023,7 @@ export const copy = {
     },
     tasks: {
       emptyTitle: 'No tasks',
-      emptyBody: 'Tasks appear when a team splits the work into parts.',
+      emptyBody: 'Tasks appear when a crew splits the work into parts.',
       plan: (agent: string) => `Plan · ${agent}`,
       done: (done: number, total: number) => `${done} of ${total} done`,
       progress: (active: number, review: number, waiting: number) =>
@@ -993,12 +1033,13 @@ export const copy = {
       board: 'Board',
       after: (ids: string) => `after ${ids}`,
     },
+    /** The same words as the task board's lanes. */
     taskStatus: {
-      pending: 'pending',
-      in_progress: 'in progress',
-      submitted: 'submitted',
-      verified: 'verified',
-      rejected: 'rejected',
+      pending: 'waiting',
+      in_progress: 'working',
+      submitted: 'in review',
+      verified: 'done',
+      rejected: 'needs rework',
       deleted: 'deleted',
     },
     team: {
@@ -1018,13 +1059,13 @@ export const copy = {
     activityEmpty: 'Nothing yet',
     mail: {
       emptyTitle: 'No messages yet',
-      emptyBody: 'The team chat, group chats and messages between agents show up here.',
+      emptyBody: 'The crew chat, group chats and messages between agents show up here.',
       count: (n: number) => `${n} message${n === 1 ? '' : 's'}`,
       filterLabel: 'Show messages for',
       everyone: 'Everyone',
       open: (name: string) => `Open ${name}`,
       /** The chat everyone on the crew is in. */
-      team: 'Team',
+      team: 'Crew',
       members: (n: number) => `${n} people`,
       back: 'All conversations',
       read: 'Read',
@@ -1078,11 +1119,11 @@ export const copy = {
   },
 
   app: {
-    /** Title of the desktop notification when a round finishes in the background. */
+    /** Title of the desktop notification when a run finishes in the background. */
     fileTooLarge: (name: string) => `${name} is larger than 10 MB`,
     /** The Markdown file written by /export. */
     export: {
-      round: (n: number) => `Round ${n}`,
+      round: (n: number) => `Run ${n}`,
       you: 'You',
       files: (list: string) => `Files: ${list}`,
       fallbackName: 'chat',
@@ -1096,8 +1137,8 @@ export const copy = {
       roundEnded: (title: string, status: string) => `“${title}” ${status}`,
       paused: 'paused',
       chooseLeadModel: 'Choose a lead model first',
-      queued: 'Queued until the current work is done',
-      steering: 'Steering the crew',
+      queued: 'Sent: the crew reads it once the current work is done',
+      steering: 'Sent: the crew reads it at its next step',
       continuingOnNewModel: 'Continuing on the new model',
       resuming: 'Resuming where it left off',
       notRunningSendNormally: 'Nothing is running; send it as a normal message',
@@ -1108,13 +1149,13 @@ export const copy = {
       renamed: 'Renamed',
       modeUsage: 'Use /mode orchestrated or /mode swarm',
       modeSwarm: 'Swarm: equal peers',
-      modeOrchestrated: 'Orchestrated: a lead with specialists',
+      modeOrchestrated: 'Orchestrated: a lead with helpers',
       noModelMatches: (query: string) => `No model matches “${query}”`,
       modelSwitched: (agents: string, model: string) => `${agents} now on ${model}, from the next step`,
       leadModel: (model: string) => `Lead model: ${model}`,
       thinkingUsage: 'Use /thinking low, medium, high, or auto',
       thinkingAuto: 'Thinking: each role decides',
-      thinkingLevel: (level: string) => `Thinking: ${level} for work rounds`,
+      thinkingLevel: (level: string) => `Thinking: ${level} while the crew works`,
       openChatToExport: 'Open a chat to export it',
       stopping: 'Stopping the crew…',
       deleted: (title: string) => `Deleted “${title}”`,
@@ -1171,7 +1212,7 @@ export const copy = {
       quotedTitle: (title: string) => `“${title}”`,
       /** Follows the quoted chat title. */
       body: (rounds: number) =>
-        ` and its ${rounds === 1 ? 'round' : `${rounds} rounds`} will be permanently removed from this machine: messages, files, logs, and agent transcripts. This can’t be undone.`,
+        ` and its ${rounds === 1 ? 'run' : `${rounds} runs`} will be permanently removed from this machine: messages, files, logs, and agent transcripts. This can’t be undone.`,
       stillRunning: 'This chat is still running. It will be stopped first.',
       cancel: 'Cancel',
       deleting: 'Deleting…',
@@ -1187,8 +1228,8 @@ export const copy = {
     agents: {
       system: 'system',
       you: 'you',
-      observer: 'observer',
-      colony: 'colony',
+      observer: 'check-in',
+      colony: 'crew',
     },
     activity: {
       postedToBoard: 'posted to the board',
@@ -1196,11 +1237,11 @@ export const copy = {
       finalAnswer: 'final answer to you',
       replied: 'replied to you',
       published: (name: string, version: number, size: string) => `published ${name} v${version} (${size}B)`,
-      verdict: (result: string, target: string) => `${result} on ${target}`,
+      verdict: (result: string, target: string) => `${result}: ${target}`,
       broughtIn: (name: string, model: string) => `brought in ${name} (${model})`,
     },
-    pass: 'PASS',
-    fail: 'FAIL',
+    pass: 'Passed',
+    fail: 'Failed',
     score: (score: string) => `score ${score}`,
     stats: {
       time: 'Time',
@@ -1208,7 +1249,7 @@ export const copy = {
       cost: 'Cost',
       toolCalls: 'Tool calls',
       files: 'Files',
-      verdicts: 'Verdicts',
+      verdicts: 'Reviews',
     },
     agentsHeading: 'Agents',
     everyone: 'Everyone',
@@ -1221,7 +1262,7 @@ export const copy = {
       tasks: 'Tasks',
       files: 'Files',
       map: 'Map',
-      verdicts: 'Verdicts',
+      verdicts: 'Reviews',
     },
     noAgentActivity: 'Nothing from this agent yet',
     noActivity: 'No activity yet',
@@ -1243,8 +1284,8 @@ export const copy = {
     emptyColumn: 'Empty',
     noFiles: 'No files yet',
     versions: (n: number) => `${n} version${n === 1 ? '' : 's'}`,
-    noVerdicts: 'No verdicts yet',
-    verdictTarget: (target: string) => `on ${target}`,
+    noVerdicts: 'No reviews yet',
+    verdictTarget: (target: string) => `of ${target}`,
     replay: {
       stepBack: 'Step back',
       pause: 'Pause replay',
@@ -1264,7 +1305,7 @@ export const copy = {
       compare: 'Compare',
       crew: 'Crew',
       status: 'Status',
-      pattern: 'Pattern',
+      pattern: 'Mode',
       models: 'Models',
       wall: 'Wall',
       tokens: 'Tokens',
@@ -1277,6 +1318,8 @@ export const copy = {
       bestScore: 'Best score',
     },
     pick: (name: string) => `Compare ${name}`,
+    /** The runtime's pattern ids, named like the composer's modes. */
+    patterns: { blackboard: 'Swarm', 'lead-workers': 'Orchestrated' } as Record<string, string>,
     metrics: {
       wallTime: 'Wall time',
       tokens: 'Tokens',
@@ -1284,9 +1327,9 @@ export const copy = {
       turns: 'Turns',
       toolCalls: 'Tool calls',
       rejections: 'Rejections',
-      judgeScore: 'Judge score',
+      judgeScore: 'Review score',
     },
-    judge: (passed: boolean) => `· judge ${passed ? 'passed' : 'failed'}`,
+    judge: (passed: boolean) => `· review ${passed ? 'passed' : 'failed'}`,
     runDiff: 'Run diff',
     /** Warns that two compared runs were asked to do different things. */
     differentTasks: 'These runs had different tasks, so their numbers are not like for like.',
@@ -1317,7 +1360,7 @@ export const copy = {
   git: {
     notRepo: 'Not a git repository',
     notRepoHint:
-      'This project folder has no git repository. Each round’s changes are still checkpointed and can be rewound from the chat.',
+      'This project folder has no git repository. Each run’s changes are still checkpointed and can be rewound from the chat.',
     detachedHead: 'detached HEAD',
     refresh: 'Refresh',
     openAll: 'Open all changes in the full view',
@@ -1430,7 +1473,7 @@ export const copy = {
       devices: { label: 'Devices', hint: 'Who can use this gateway' },
       gateways: { label: 'Gateways', hint: 'Other Myrmidons, one window' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
-      team: { label: 'Team & budget', hint: 'Defaults and limits' },
+      team: { label: 'Crew & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
       skills: { label: 'Skills', hint: 'Playbooks agents load' },
       plugins: { label: 'Plugins', hint: 'Skills, commands, hooks, servers' },
@@ -1462,8 +1505,8 @@ export const copy = {
       loading: 'Loading settings…',
     },
     notify: {
-      label: 'Notify me when a round finishes',
-      hint: 'A desktop notification when a round is done (or stops) while Myrmidon is in the background, including scheduled ones.',
+      label: 'Notify me when a run finishes',
+      hint: 'A desktop notification when a run is done (or stops) while Myrmidon is in the background, including scheduled ones.',
       unsupported: 'This browser does not support notifications.',
       blocked: 'Notifications are blocked for this site in your browser settings',
     },
@@ -1591,23 +1634,23 @@ export const copy = {
       modelCount: (n: number) => ` · ${n} model${n === 1 ? '' : 's'}`,
     },
     team: {
-      title: 'Team & budget',
-      intro: 'Defaults for every new task. You can still change the team per message.',
-      timeLimit: 'Time limit per round',
-      timeLimitHint: 'The crew stops when this runs out, verified or not.',
-      spendLimit: 'Spend limit per round',
-      spendLimitHint: 'The round stops at this cost; at 80% agents are told to wrap up. 0 means no limit.',
-      tokenLimit: 'Token limit per round',
+      title: 'Crew & budget',
+      intro: 'Defaults for every new task. You can still change the crew per message.',
+      timeLimit: 'Time limit per run',
+      timeLimitHint: 'The crew stops when this runs out, reviewed or not.',
+      spendLimit: 'Spend limit per run',
+      spendLimitHint: 'The run stops at this cost; at 80% agents are told to wrap up. 0 means no limit.',
+      tokenLimit: 'Token limit per run',
       tokenLimitHint: 'Counts every token the models process, cached input included. 0 means no limit.',
       turns: 'Turns per agent',
       turnsHint: 'Each agent stops after this many turns.',
-      observer: 'Observer interval',
-      observerHint: 'How often the observer checks time, idle agents, and stalls.',
+      observer: 'Check-in interval',
+      observerHint: 'How often Myrmidon checks for stuck or idle agents and for time running out.',
       units: { minutes: 'min', dollars: '$', tokens: 'tok', seconds: 's' },
     },
     tools: {
       title: 'Tools',
-      intro: 'Capabilities agents get in new tasks. Publishing, tasks, and verification are always on.',
+      intro: 'Capabilities agents get in new tasks. Publishing, tasks, and review are always on.',
       groups: {
         shell: {
           label: 'Shell',
@@ -1632,7 +1675,7 @@ export const copy = {
       sandboxedHint: 'Shell commands and command checks cannot write outside the agent’s scratch folder.',
       unsandboxedHint: 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.',
       rulesTitle: 'Per-tool rules',
-      rulesSubtitle: 'ask before each call, or turn one tool off; applies to new rounds',
+      rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
       findToolPlaceholder: 'Find a tool, e.g. browser, shell, mcp',
       ruleFor: (tool: string) => `Rule for ${tool}`,
@@ -1642,7 +1685,7 @@ export const copy = {
       readOnlyDefault: 'Default: runs (read-only)',
       changesDefault: 'Default: asks (can change things)',
       libraryTitle: 'Your tool library',
-      librarySubtitle: 'tools agents made that you kept; every new round starts with them',
+      librarySubtitle: 'tools agents made that you kept; every new run starts with them',
       webSearch: 'Web search',
       searchProvider: 'Search provider',
       searchProviderHint:
@@ -1738,15 +1781,15 @@ export const copy = {
     specialists: {
       title: 'Specialists',
       intro:
-        'Agents you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a team from the composer, or the lead brings it in when a task fits.',
+        'Helpers you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a crew from the composer, or the lead brings it in when a task fits.',
       empty: 'No specialists yet.',
-      emptyHint: 'Create one here, or save a worker that did well from its sheet in a chat.',
+      emptyHint: 'Create one here, or save a helper that did well from its sheet in a chat.',
       add: 'New specialist',
       edit: 'Edit',
       remove: 'Delete',
       removed: (name: string) => `Deleted ${name}`,
-      modelHint: "Leave it unset to use the team's worker model.",
-      useTeamModel: "Use the team's model",
+      modelHint: "Leave it unset to use the crew's helper model.",
+      useTeamModel: "Use the crew's model",
       saved: (name: string) => `Saved ${name}`,
       name: 'Name',
       nameHint: 'Lowercase, like ada or scout. You can write to it as @name.',
@@ -1755,7 +1798,7 @@ export const copy = {
       instructions: 'How it works',
       instructionsHint: 'Its own instructions: approach, standards, what to always or never do.',
       model: 'Model',
-      teamModel: "The team's worker model",
+      teamModel: "The crew's helper model",
       tools: 'May use',
       groups: { web: 'Web', shell: 'Shell', files: 'Files', browser: 'Browser', mcp: 'MCP servers' },
       save: 'Save',
@@ -1801,7 +1844,7 @@ export const copy = {
       },
       title: 'Reviewer',
       intro:
-        'An independent model checks the work against your request. Choose its model under Team & budget; one from another provider than the team catches more.',
+        'An independent model checks the work against your request. Choose its model under Crew & budget; one from another provider than the crew catches more.',
       when: 'When to review',
       auto: 'Auto',
       always: 'Always',
@@ -1818,8 +1861,8 @@ export const copy = {
       lead: 'Lead',
       leadHint: 'Planning, delegation, and how to talk to you.',
       leadPlaceholder: 'e.g. Prefer TypeScript. Keep plans to three bullets. Always cite sources.',
-      workers: 'Workers',
-      workersHint: 'How workers should do and report their part.',
+      workers: 'Helpers',
+      workersHint: 'How helpers should do and report their part.',
       workersPlaceholder: 'e.g. Write tests first. Report blockers immediately.',
     },
     schedules: {
@@ -1831,7 +1874,7 @@ export const copy = {
       },
       title: 'Schedules',
       intro:
-        'Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new chat with your default team, verified like any other; turn on notifications in General to hear when one finishes. The server has to be running for a schedule to fire.',
+        'Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new chat with your default crew, reviewed like any other; turn on notifications in General to hear when one finishes. The server has to be running for a schedule to fire.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
       when: 'When',
@@ -1858,13 +1901,13 @@ export const copy = {
       events: {
         PreToolUse: 'Before a tool',
         PostToolUse: 'After a tool',
-        Stop: 'When a round ends',
+        Stop: 'When a run ends',
       },
       saved: 'Hooks saved: they apply to every tool call from now on',
       title: 'Hooks',
       /** Intro text around the tool-name examples `fs_edit`, `shell`, `Edit|Write` and `Bash`. */
       introBeforeFsEdit:
-        "Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent: format after every edit, refuse commands that touch secrets, notify you when a round ends. Same format as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool tells the agent. Tool names match Myrmidon's (",
+        "Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent: format after every edit, refuse commands that touch secrets, notify you when a run ends. Same format as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool tells the agent. Tool names match Myrmidon's (",
       introBeforeShell: ', ',
       introBeforeEditWrite: ") or Claude Code's (",
       introBeforeBash: ', ',
@@ -1981,13 +2024,13 @@ export const copy = {
     },
     about: {
       title: 'About Myrmidon',
-      intro: 'Crews of agents that plan, research, build, and verify on your machine.',
+      intro: 'Crews of agents that plan, research, build, and review on your machine.',
       dataDirectory: 'Data directory',
       providersReady: 'Providers ready',
       providersReadyHint: 'Through the embedded omp provider stack.',
       sandbox: 'Sandbox',
       eventLog:
-        "Every crew's work is an append-only event log; agents never edit your files directly. Licensed under Apache-2.0.",
+        "Every run's work is an append-only event log; agents never edit your files directly. Licensed under Apache-2.0.",
       builtOn: 'Built on oh-my-pi (providers, search, readers), pi-agent-core, and Cordis.',
     },
   },

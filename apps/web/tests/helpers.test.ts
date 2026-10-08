@@ -37,7 +37,7 @@ test('the helpers setting reads the same wherever it is summed up', () => {
   expect(helpersLabel({ ...base, roster: base.roster.slice(0, 1) })).toBe('1 helper · auto')
   expect(helpersLabel({ ...base, mode: 'swarm', helpers: 'always' })).toBe('2 peers · always')
   // The line under a summary is the chosen option's own hint, so it never contradicts the label.
-  expect(helpersHint({ ...base, helpers: 'always' })).toBe('Every message starts with the whole team')
+  expect(helpersHint({ ...base, helpers: 'always' })).toBe('Every message starts with the whole crew')
 })
 
 const store = new Map<string, string>()

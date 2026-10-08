@@ -47,7 +47,15 @@ import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
-import { day, NOTIFY_KEY, useFollowLatest, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
+import {
+  day,
+  NOTIFY_KEY,
+  useFollowLatest,
+  useHotkeys,
+  usePersistentFlag,
+  useReduceMotion,
+  useTheme,
+} from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
@@ -178,7 +186,7 @@ function notify(text: string, chatId: string) {
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
-  const [reduceMotion, setReduceMotion] = usePersistentFlag('myr-reduce-motion', false)
+  const [reduceMotion, setReduceMotion] = useReduceMotion()
   const [chats, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
   const online = useReachable()
   const fullAccess = useScope() === 'full'
@@ -693,14 +701,14 @@ export function App() {
               {!online ? (
                 <div
                   role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-[13px] text-fg-2"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
                 >
                   <LoaderCircle className="size-3.5 animate-spin text-muted" />
                   {copy.app.reconnecting}
                 </div>
               ) : (
                 chatsError && (
-                  <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{chatsError}</div>
+                  <div className="shrink-0 bg-bad-soft px-4 py-2 text-body text-bad-ink">{chatsError}</div>
                 )
               )}
 
@@ -836,14 +844,14 @@ export function App() {
             size="sm"
           >
             <div className="flex flex-col gap-4">
-              <p className="text-[14px] leading-relaxed text-fg-2">
+              <p className="text-title leading-relaxed text-fg-2">
                 <span className="font-semibold text-fg">
                   {copy.app.deleteChat.quotedTitle(deleting.title)}
                 </span>
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
               {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-[13px] text-warn-ink">
+                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
                   {copy.app.deleteChat.stillRunning}
                 </p>
               )}
@@ -911,8 +919,8 @@ function SetupCard(props: { onConnect?(): void }) {
         <Plug className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] font-semibold">{t.title}</p>
-        <p className="text-[12.5px] leading-snug text-muted">{props.onConnect ? t.body : t.askOwner}</p>
+        <p className="text-reading font-semibold">{t.title}</p>
+        <p className="text-callout leading-snug text-muted">{props.onConnect ? t.body : t.askOwner}</p>
       </div>
       {props.onConnect && (
         <Button variant="primary" onClick={props.onConnect}>
@@ -930,7 +938,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-[14px] text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />
@@ -960,7 +968,7 @@ function PaneNotice(props: {
       {props.icon}
       <div>
         <p className="text-[15px] font-semibold">{props.title}</p>
-        <p className="text-[13px] text-muted">{props.body}</p>
+        <p className="text-body text-muted">{props.body}</p>
       </div>
       {props.action && (
         <Button variant="primary" icon={props.action.icon} onClick={props.action.run}>

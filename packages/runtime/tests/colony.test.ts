@@ -219,6 +219,80 @@ test('a token budget stops the colony once the models have used it', async () =>
   expect(calls).toBeLessThan(6)
 })
 
+test('a reply from a model with no price card records its cost as unknown, not as $0', async () => {
+  const resolver = new ModelResolver()
+  const reply = () => ({
+    content: [tool('message', { to: 'team', text: 'working' })],
+    usage: { input: 400, output: 100, cost: { total: 0.01 } },
+  })
+  const priced = createMockModel({
+    handler: reply,
+    cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+  })
+  const unpriced = createMockModel({ handler: reply })
+  resolver.register('mock/priced', { model: priced.model, streamFn: priced.stream })
+  resolver.register('mock/unpriced', { model: unpriced.model, streamFn: unpriced.stream })
+  const spec = parseColonySpec({
+    name: 'Prices',
+    mission: 'Keep going.',
+    agents: [
+      { name: 'paid', model: 'mock/priced' },
+      { name: 'unknown', model: 'mock/unpriced' },
+    ],
+    budget: { wall: '20s', tokens: 1000 },
+  })
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  await run.done
+  const costs = (await runtime.ctx.log.read(run.id))
+    .filter((e) => e.type === 'llm/response')
+    .map((e) => e.payload as { agent: string; usage?: { cost?: number } })
+  expect(costs.some((p) => p.agent === 'paid')).toBe(true)
+  expect(costs.some((p) => p.agent === 'unknown')).toBe(true)
+  for (const p of costs) expect(p.usage?.cost).toBe(p.agent === 'paid' ? 0.01 : undefined)
+})
+
+test('a reply priced on the model it ran on still counts toward the spend limit after a mid-reply switch', async () => {
+  const resolver = new ModelResolver()
+  const card = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }
+  let run: ColonyRun | undefined
+  const first = createMockModel({
+    id: 'first',
+    cost: card,
+    handler: () => {
+      // The person switches model while this reply is still streaming.
+      void run?.switchModels({ paid: 'mock/second' })
+      return {
+        content: [tool('message', { to: 'team', text: 'working' })],
+        usage: { input: 400, output: 100, cost: { total: 0.6 } },
+      }
+    },
+  })
+  const second = createMockModel({
+    id: 'second',
+    cost: card,
+    handler: () => ({
+      content: [tool('message', { to: 'team', text: 'still working' })],
+      usage: { input: 400, output: 100, cost: { total: 0.6 } },
+    }),
+  })
+  resolver.register('mock/first', { model: first.model, streamFn: first.stream })
+  resolver.register('mock/second', { model: second.model, streamFn: second.stream })
+  const spec = parseColonySpec({
+    name: 'Switch',
+    mission: 'Keep going.',
+    agents: [{ name: 'paid', model: 'mock/first' }],
+    budget: { wall: '20s', costUsd: 0.5 },
+  })
+  run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  const final = await run.done
+  expect(final.statusReason).toContain('reached limit $0.5')
+  const replies = (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'llm/response')
+  const reply = replies[0]?.payload as { usage?: { cost?: number } } | undefined
+  expect(reply?.usage?.cost).toBe(0.6)
+})
+
 test.skipIf(detectSandbox().kind === 'none')(
   'an agent makes a tool, it must pass its test run, and the team can call it; kept tools load into new colonies',
   async () => {

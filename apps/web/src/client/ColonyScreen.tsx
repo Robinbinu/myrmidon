@@ -218,7 +218,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: Gavel,
           tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
-          text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, p.target)}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
+          text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, copy.reviewTarget(p.target))}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
           body: p.evidence,
         })
         break
@@ -243,7 +243,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           kind: 'event',
           icon: TriangleAlert,
           tone: 'text-warn-ink',
-          text: `${p.kind} · ${p.severity}`,
+          text: `${copy.checkIn.kinds[p.kind] ?? p.kind} · ${copy.checkIn.severities[p.severity] ?? p.severity}`,
           body: p.facts,
         })
         break
@@ -282,7 +282,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 
   if (colony.error)
     return (
-      <div className="m-4 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{colony.error}</div>
+      <div className="m-4 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
     )
 
   return (
@@ -295,9 +295,9 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
               <Dot status={run} /> {copy.status.run[run]}
             </Pill>
           </div>
-          {state.statusReason && <p className="truncate text-[12.5px] text-muted">{state.statusReason}</p>}
+          {state.statusReason && <p className="truncate text-callout text-muted">{state.statusReason}</p>}
         </div>
-        <div className="flex flex-wrap gap-4 text-[12.5px] tabular-nums text-muted">
+        <div className="flex flex-wrap gap-4 text-callout tabular-nums text-muted">
           <Stat label={copy.colonyScreen.stats.time} value={duration(m.wallMs)} />
           <Stat label={copy.colonyScreen.stats.tokens} value={compact(m.tokens)} />
           <Stat label={copy.colonyScreen.stats.cost} value={money(m.cost, m.tokens)} />
@@ -311,7 +311,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 flex-col overflow-auto border-r border-line p-2 md:flex">
-          <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-2 pb-1.5 pt-1 text-caption font-semibold uppercase tracking-wider text-muted">
             {copy.colonyScreen.agentsHeading}
           </div>
           <AgentButton
@@ -435,8 +435,8 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span className="flex flex-col">
-      <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
-      <span className="text-[13px] font-semibold text-fg">{value}</span>
+      <span className="text-caption font-semibold uppercase tracking-wider">{label}</span>
+      <span className="text-body font-semibold text-fg">{value}</span>
     </span>
   )
 }
@@ -470,13 +470,13 @@ function AgentButton(props: {
         {props.icon}
       </span>
       <span className="relative min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[13px] font-medium">
+        <span className="flex items-center gap-1.5 text-body font-medium">
           {props.status && <Dot status={props.status} />}
           <span className="truncate">{props.name}</span>
         </span>
-        <span className="block truncate font-mono text-[11px] text-muted">{props.detail}</span>
+        <span className="block truncate font-mono text-caption text-muted">{props.detail}</span>
       </span>
-      {props.meta && <span className="relative text-[11px] tabular-nums text-muted">{props.meta}</span>}
+      {props.meta && <span className="relative text-caption tabular-nums text-muted">{props.meta}</span>}
     </button>
   )
 }
@@ -510,7 +510,7 @@ function ActivityStream({ items, filtered }: { items: Item[]; filtered: boolean 
 
 function RowMeta({ agent, time }: { agent: string; time: string }) {
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted">
+    <span className="ml-auto flex shrink-0 items-center gap-2 text-caption tabular-nums text-muted">
       <span className="font-medium">{agent}</span>
       <time>{clock(time, true)}</time>
     </span>
@@ -537,8 +537,8 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
           <ChevronRight className="size-3.5" />
         </motion.span>
         <Wrench className={cn('size-3.5 shrink-0', item.ok === false ? 'text-bad-ink' : 'text-muted')} />
-        <span className="font-mono text-[12.5px] font-semibold">{item.tool}</span>
-        <span className="min-w-0 truncate font-mono text-[12px] text-muted">{summary}</span>
+        <span className="font-mono text-callout font-semibold">{item.tool}</span>
+        <span className="min-w-0 truncate font-mono text-small text-muted">{summary}</span>
         {item.ok === undefined && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-work" />}
         <RowMeta agent={item.agent} time={item.time} />
       </button>
@@ -550,9 +550,9 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
             exit={{ height: 0 }}
             className="overflow-hidden"
           >
-            <div className="grid gap-2 border-t border-line bg-code px-3 py-2.5 font-mono text-[12px]">
+            <div className="grid gap-2 border-t border-line bg-code px-3 py-2.5 font-mono text-small">
               <div>
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                <div className="mb-1 text-caption font-semibold uppercase tracking-wider text-muted">
                   {copy.colonyScreen.toolInput}
                 </div>
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">
@@ -563,7 +563,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
                 <div>
                   <div
                     className={cn(
-                      'mb-1 text-[11px] font-semibold uppercase tracking-wider',
+                      'mb-1 text-caption font-semibold uppercase tracking-wider',
                       item.ok ? 'text-muted' : 'text-bad-ink',
                     )}
                   >
@@ -592,20 +592,20 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
         item.error ? 'border-bad/30 bg-bad-soft' : 'border-transparent bg-surface-2/60',
       )}
     >
-      <div className="mb-1 flex items-center gap-2 text-[12px]">
+      <div className="mb-1 flex items-center gap-2 text-small">
         <AgentAvatar name={item.agent} status="idle" size={18} awake />
         <span className="font-semibold">{item.agent}</span>
         <RowMeta agent="" time={item.time} />
       </div>
-      {item.error && <p className="text-[12.5px] text-bad-ink">{item.error}</p>}
+      {item.error && <p className="text-callout text-bad-ink">{item.error}</p>}
       {item.text && (
-        <div className="text-[13.5px]">
+        <div className="text-reading">
           <Markdown text={long && !more ? `${item.text.slice(0, 600)}…` : item.text} />
           {long && (
             <button
               type="button"
               onClick={() => setMore(!more)}
-              className="mt-1 text-[12px] font-medium text-accent-fg hover:underline"
+              className="mt-1 text-small font-medium text-accent-fg hover:underline"
             >
               {more ? copy.colonyScreen.showLess : copy.colonyScreen.showMore}
             </button>
@@ -614,8 +614,8 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
       )}
       {item.thinking && (
         <details className="mt-1.5">
-          <summary className="text-[12px] text-muted">{copy.colonyScreen.thinking}</summary>
-          <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-[12px] text-muted">
+          <summary className="text-small text-muted">{copy.colonyScreen.thinking}</summary>
+          <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-small text-muted">
             {item.thinking}
           </pre>
         </details>
@@ -629,12 +629,12 @@ function EventRow({ item }: { item: Item & { kind: 'event' } }) {
     <div className="flex gap-2.5 rounded-xl px-3 py-1.5 transition-colors hover:bg-surface-2/60">
       <item.icon className={cn('mt-0.5 size-4 shrink-0', item.tone)} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[13px]">
+        <div className="flex items-center gap-2 text-body">
           <span className="truncate text-fg-2">{item.text}</span>
           <RowMeta agent={item.agent} time={item.time} />
         </div>
         {item.body && (
-          <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-[12.5px] text-muted">{item.body}</p>
+          <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-callout text-muted">{item.body}</p>
         )}
       </div>
     </div>
@@ -649,14 +649,14 @@ function Board({ state }: { state: ColonyState }) {
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
         {[...state.board].reverse().map((b) => (
           <li key={b.id} className="rounded-xl border border-line bg-surface px-3.5 py-2.5">
-            <div className="mb-1 flex items-center gap-2 text-[12px]">
+            <div className="mb-1 flex items-center gap-2 text-small">
               <span className="font-semibold">{b.agent}</span>
               {b.mentions.length > 0 && (
                 <span className="text-muted">→ {b.mentions.map((x) => `@${x}`).join(' ')}</span>
               )}
               <RowMeta agent="" time={b.time} />
             </div>
-            <p className="whitespace-pre-wrap text-[13.5px]">{b.text}</p>
+            <p className="whitespace-pre-wrap text-reading">{b.text}</p>
           </li>
         ))}
       </ol>
@@ -685,7 +685,7 @@ function Kanban({ state }: { state: ColonyState }) {
         const list = tasks.filter((t) => col.statuses.includes(t.status))
         return (
           <div key={col.title} className="flex min-h-0 flex-col rounded-2xl bg-surface-2/60 p-2">
-            <div className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-[12.5px] font-semibold">
+            <div className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-callout font-semibold">
               <span className={cn('size-2 rounded-full', col.tone)} />
               {col.title}
               <span className="text-muted">{list.length}</span>
@@ -699,23 +699,23 @@ function Kanban({ state }: { state: ColonyState }) {
                   className="rounded-xl border border-line bg-surface p-3 shadow-soft"
                 >
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-muted">{t.id}</span>
+                    <span className="font-mono text-caption text-muted">{t.id}</span>
                     {t.status === 'rejected' && <Pill tone="bad">{copy.colonyScreen.rework}</Pill>}
-                    {t.owner && <span className="ml-auto text-[11.5px] text-muted">{t.owner}</span>}
+                    {t.owner && <span className="ml-auto text-footnote text-muted">{t.owner}</span>}
                   </div>
-                  <p className="text-[13px] font-medium">{t.subject}</p>
+                  <p className="text-body font-medium">{t.subject}</p>
                   {t.description && (
-                    <p className="mt-1 line-clamp-3 text-[12px] text-muted">{t.description}</p>
+                    <p className="mt-1 line-clamp-3 text-small text-muted">{t.description}</p>
                   )}
                   {t.artifacts.length > 0 && (
-                    <p className="mt-1.5 truncate font-mono text-[11px] text-accent-fg">
+                    <p className="mt-1.5 truncate font-mono text-caption text-accent-fg">
                       {t.artifacts.join(', ')}
                     </p>
                   )}
                 </motion.div>
               ))}
               {list.length === 0 && (
-                <p className="px-2 py-3 text-[12px] text-muted">{copy.colonyScreen.emptyColumn}</p>
+                <p className="px-2 py-3 text-small text-muted">{copy.colonyScreen.emptyColumn}</p>
               )}
             </div>
           </div>
@@ -745,8 +745,8 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
                 <FileCode className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] font-medium">{name}</span>
-                <span className="text-[11.5px] text-muted">
+                <span className="block truncate text-reading font-medium">{name}</span>
+                <span className="text-footnote text-muted">
                   {copy.colonyScreen.versions(versions.length)} · {compact(latest?.size ?? 0)}B ·{' '}
                   {latest?.author}
                 </span>
@@ -775,12 +775,14 @@ function Verdicts({ state }: { state: ColonyState }) {
               v.pass ? 'border-ok/25 bg-ok-soft/50' : 'border-bad/25 bg-bad-soft/50',
             )}
           >
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-[12.5px]">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-callout">
               <Pill tone={v.pass ? 'ok' : 'bad'}>
                 {v.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail}
               </Pill>
               <span className="font-mono">{v.verifierId}</span>
-              <span className="text-muted">{copy.colonyScreen.verdictTarget(v.target)}</span>
+              <span className="text-muted">
+                {copy.colonyScreen.verdictTarget(copy.reviewTarget(v.target))}
+              </span>
               {v.score !== undefined && (
                 <span className="font-semibold tabular-nums">
                   {copy.colonyScreen.score(v.score.toFixed(2))}
@@ -788,7 +790,7 @@ function Verdicts({ state }: { state: ColonyState }) {
               )}
               <RowMeta agent="" time={v.time} />
             </div>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[12px] text-fg-2">
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-small text-fg-2">
               {v.evidence}
             </pre>
           </li>
@@ -844,7 +846,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         value={speed}
         onChange={(e) => setSpeed(Number(e.target.value))}
         aria-label={copy.colonyScreen.replay.speed}
-        className="h-8 rounded-lg border border-line bg-surface px-1.5 text-[12px]"
+        className="h-8 rounded-lg border border-line bg-surface px-1.5 text-small"
       >
         {REPLAY_SPEEDS.map((s) => (
           <option key={s} value={s}>
@@ -861,14 +863,14 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         aria-label={copy.colonyScreen.replay.position}
         className="mx-1 min-w-32 flex-1 accent-[var(--accent)]"
       />
-      <span className="hidden max-w-[40%] truncate font-mono text-[11.5px] text-muted lg:inline">
+      <span className="hidden max-w-[40%] truncate font-mono text-footnote text-muted lg:inline">
         #{cursor}/{head} {current ? `· ${describeEvent(current)}` : ''}
       </span>
       <button
         type="button"
         onClick={() => setLive(!live)}
         className={cn(
-          'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold transition-colors',
+          'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-small font-semibold transition-colors',
           live ? 'border-bad/40 bg-bad-soft text-bad-ink' : 'border-line text-muted hover:text-fg',
         )}
       >

@@ -69,7 +69,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-[12.5px] text-muted">{copy.folderPicker.intro}</p>
+        <p className="text-callout text-muted">{copy.folderPicker.intro}</p>
         <form
           className="flex gap-2"
           onSubmit={(e) => {
@@ -82,7 +82,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             onChange={(e) => setTyped(e.target.value)}
             placeholder={copy.folderPicker.path.placeholder}
             aria-label={copy.folderPicker.path.label}
-            className="font-mono text-[12.5px]"
+            className="font-mono"
           />
           <Button size="sm" type="submit">
             {copy.folderPicker.go}
@@ -93,7 +93,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             <button
               type="button"
               onClick={() => open(listing.parent ?? '/')}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[13px] text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-surface-2"
             >
               <ArrowUp className="size-4 text-muted" /> ..
             </button>
@@ -103,14 +103,14 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
               key={f}
               type="button"
               onClick={() => open(`${listing.path}/${f}`)}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[13px] last:border-0 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-surface-2"
             >
               <Folder className="size-4 shrink-0 text-muted" />
               <span className="truncate">{f}</span>
             </button>
           ))}
           {listing && listing.folders.length === 0 && (
-            <p className="px-3 py-4 text-[12.5px] text-muted">{copy.folderPicker.empty}</p>
+            <p className="px-3 py-4 text-callout text-muted">{copy.folderPicker.empty}</p>
           )}
         </div>
       </div>
@@ -131,7 +131,7 @@ export function ProjectPill(props: {
   onAdd?(): void
 }) {
   const pill =
-    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted'
+    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted'
   if (props.fixed) {
     const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (

@@ -60,7 +60,7 @@ export function RoundChanges(props: {
   if (!project || !checkpoints.start || props.running) return null
   if (failed)
     return (
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]" role="alert">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-body" role="alert">
         <FolderGit2 className="size-4 shrink-0 text-muted" />
         <span className="text-bad-ink">{copy.roundChanges.failed(project.name)}</span>
         <span className="flex-1" />
@@ -106,7 +106,7 @@ export function RoundChanges(props: {
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-body">
         <FolderGit2 className="size-4 shrink-0 text-muted" />
         {rewound ? (
           <span className="text-fg-2">
@@ -117,7 +117,7 @@ export function RoundChanges(props: {
           <span className="text-fg-2">
             <span className="font-medium text-fg">{copy.roundChanges.files(changes.files.length)}</span>{' '}
             {copy.roundChanges.changedIn(project.name)}{' '}
-            <span className="font-mono text-[12px] tabular-nums">
+            <span className="font-mono text-small tabular-nums">
               <span className="text-ok-ink">+{added}</span> <span className="text-bad-ink">−{removed}</span>
             </span>
           </span>
@@ -158,13 +158,13 @@ export function RoundChanges(props: {
           <Modal title={copy.roundChanges.confirm.title} onClose={() => !busy && setConfirm(false)} size="sm">
             <div className="flex flex-col gap-4">
               {skipped.length === 0 ? (
-                <p className="text-[13.5px] leading-relaxed text-fg-2">
+                <p className="text-reading leading-relaxed text-fg-2">
                   {copy.roundChanges.confirm.body(project.name, changes.files.length)}
                 </p>
               ) : (
-                <div className="flex flex-col gap-2 text-[13.5px] text-fg-2">
+                <div className="flex flex-col gap-2 text-reading text-fg-2">
                   <p>{copy.roundChanges.confirm.skippedTitle(skipped.length)}</p>
-                  <ul className="max-h-40 overflow-auto rounded-lg bg-fill/60 px-3 py-2 font-mono text-[12px]">
+                  <ul className="max-h-40 overflow-auto rounded-lg bg-fill/60 px-3 py-2 font-mono text-small">
                     {skipped.map((f) => (
                       <li key={f} className="truncate">
                         {f}

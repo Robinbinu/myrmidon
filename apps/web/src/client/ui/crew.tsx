@@ -1,5 +1,5 @@
 import { type Form, identityOf } from '@myrmidon/protocol'
-import { motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { type Mood, Snore, useAgentMood } from './pixel.tsx'
 
@@ -175,7 +175,7 @@ export function AgentCharacter(props: {
   awake?: boolean
 }) {
   const size = props.size ?? 32
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const { color, form } = identityOf(props.name)
   const body = BODIES[form]
   const mood = useAgentMood(props.status, props.awake)

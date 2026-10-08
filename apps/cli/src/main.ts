@@ -8,9 +8,11 @@ import { colonyId, SqliteLogStore } from '@myrmidon/core'
 import {
   type ColonyState,
   colonyMetrics,
+  DELIVERED_VERIFIER,
   type EventPayloads,
   foldColony,
   type MyrEvent,
+  reviewVerdicts,
   roundSlice,
 } from '@myrmidon/protocol'
 import {
@@ -104,7 +106,11 @@ const [command, arg] = positionals
 
 const c = style
 
-function line(e: MyrEvent): string | undefined {
+/**
+ * One event as a terminal line, or nothing for events not worth a line. `delivered` collects the ids of the delivery
+ * records an unreviewed round's completion cites, so that completion is not announced as checked.
+ */
+function line(e: MyrEvent, delivered: Set<string>): string | undefined {
   const p = e.payload as never
   const t = c.dim(e.time.slice(11, 19))
   const cut = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n)}…` : s).replace(/\s+/g, ' ')
@@ -149,12 +155,20 @@ function line(e: MyrEvent): string | undefined {
     }
     case 'verifier/verdict': {
       const x = p as EventPayloads['verifier/verdict']
+      if (x.verifierId === DELIVERED_VERIFIER) {
+        delivered.add(e.id)
+        return `${t} ${c.dim('final answer delivered, not reviewed')}`
+      }
       return `${t} ${x.pass ? c.green('PASS') : c.red('FAIL')} ${x.verifierId} on ${x.target}: ${cut(x.evidence, 100)}`
     }
     case 'colony/started':
       return `${t} ${c.bold('colony started')}`
-    case 'colony/completed':
-      return `${t} ${c.green(c.bold('colony COMPLETED — all acceptance checks passed'))}`
+    case 'colony/completed': {
+      const x = p as EventPayloads['colony/completed']
+      return x.verdicts.every((id) => delivered.has(id))
+        ? `${t} ${c.green(c.bold('colony completed (not reviewed)'))}`
+        : `${t} ${c.green(c.bold('colony COMPLETED — all acceptance checks passed'))}`
+    }
     case 'colony/stopped': {
       const x = p as EventPayloads['colony/stopped']
       return `${t} ${c.yellow(c.bold(`colony stopped: ${x.reason}`))}`
@@ -166,7 +180,7 @@ function line(e: MyrEvent): string | undefined {
 
 function summary(state: ColonyState) {
   const m = colonyMetrics(state)
-  const verdicts = state.verdicts.filter((v) => v.target === 'colony')
+  const verdicts = reviewVerdicts(state).filter((v) => v.target === 'colony')
   console.log(
     `\n${c.bold(state.name)} — ${state.status}${state.statusReason ? ` (${state.statusReason})` : ''}`,
   )
@@ -221,10 +235,11 @@ async function run(path: string) {
     resolver: new ModelResolver(omp, contextWindows(settings)),
     web: ompWebTools(omp, () => settings.get().search.provider),
   })
+  const delivered = new Set<string>()
   runtime.ctx.on('log/appended', (id, events) => {
     if (id !== colony.id) return
     for (const e of events) {
-      const out = line(e)
+      const out = line(e, delivered)
       if (out) console.log(out)
     }
   })
@@ -467,8 +482,11 @@ async function main() {
         } else process.stdout.write(text)
         return
       }
+      const delivered = new Set<string>()
       for (const e of events)
-        console.log(`#${String(e.seq).padStart(4)} ${line(e) ?? `${c.dim(e.time.slice(11, 19))} ${e.type}`}`)
+        console.log(
+          `#${String(e.seq).padStart(4)} ${line(e, delivered) ?? `${c.dim(e.time.slice(11, 19))} ${e.type}`}`,
+        )
       return
     }
     default:

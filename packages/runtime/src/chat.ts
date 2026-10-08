@@ -12,6 +12,7 @@ import {
   mentionsIn,
   type ProjectPermissions,
   type RoundInfo,
+  STOPPED_BY_USER,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
@@ -737,7 +738,7 @@ export class ChatService {
   }
 
   async stop(chatId: string): Promise<void> {
-    await this._live.get(chatId)?.stop('stopped by user')
+    await this._live.get(chatId)?.stop(STOPPED_BY_USER)
   }
 
   /** Snapshots a project round's folder; a failure is reported but never stops the round. */

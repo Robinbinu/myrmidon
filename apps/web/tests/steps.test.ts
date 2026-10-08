@@ -23,7 +23,7 @@ test('a round nobody reviewed is never shown as approved or verified', () => {
   })
   const completed = ev('colony/completed', { verdicts: [delivered.id] })
   expect(deriveSteps([delivered, completed]).filter((s) => s.agent === 'judge')).toEqual([])
-  expect(describeEvent(delivered)).not.toContain('PASS')
+  expect(describeEvent(delivered)).not.toMatch(/pass/i)
   expect(describeEvent(completed)).not.toContain('verified')
 })
 
@@ -36,6 +36,26 @@ test('a judged round still shows the judge approving it', () => {
     evidence: 'score 0.90 (threshold 0.70): good',
   })
   expect(deriveSteps([judged])).toEqual([
-    expect.objectContaining({ agent: 'judge', lead: 'Judge approved', strong: 'score 0.90' }),
+    expect.objectContaining({ agent: 'judge', lead: 'Reviewer approved', strong: 'score 0.90' }),
   ])
+})
+
+test('event lines name the final answer and check-ins in plain words, never the runtime ids', () => {
+  const verdict = ev('verifier/verdict', {
+    target: 'colony',
+    verifierId: 'judge#0',
+    pass: false,
+    evidence: '',
+  })
+  const signal = ev('observer/signal', {
+    kind: 'stall',
+    severity: 'warn',
+    facts: 'nova idle 5m',
+    targets: [],
+  })
+  const stopped = ev('colony/stopped', { reason: 'time limit' })
+  for (const e of [verdict, signal, stopped])
+    expect(describeEvent(e)).not.toMatch(/colony|observer|verdict|judge/i)
+  expect(describeEvent(verdict)).toContain('the final answer')
+  expect(describeEvent(signal)).toContain('stalled')
 })

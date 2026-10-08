@@ -130,3 +130,7 @@
     transition: none;
   }
 }
+/* Reduce motion in Settings → General, which the media query above cannot see. */
+[data-reduce-motion] .spring-check__press {
+  transition: none;
+}

@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
-import { answerText, typesOwn } from '../src/client/chat/QuestionCard.tsx'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { answerText, QuestionCard, typesOwn } from '../src/client/chat/QuestionCard.tsx'
+import { copy } from '../src/client/copy.ts'
 
 test('options that mean "I will type it" hand over to the text box', () => {
   expect(typesOwn({ label: "Adjust the plan — I'll type what to change" })).toBe(true)
@@ -28,4 +30,24 @@ test('a typed answer is sent with the option that asked for it', () => {
   expect(
     answerText(choices, [{ picked: ["Adjust — I'll type it"], other: 'build auth first', skipped: false }]),
   ).toBe("OK to proceed? → Adjust — I'll type it, build auth first")
+})
+
+test('a plan with no questions can still be approved from its card', () => {
+  const card = (open: boolean, choices: Parameters<typeof QuestionCard>[0]['choices'] = []) =>
+    renderToStaticMarkup(
+      <QuestionCard
+        plan="1. Fix add\n2. Run the tests"
+        choices={choices}
+        open={open}
+        onAnswer={async () => {}}
+      />,
+    )
+  expect(card(true)).toContain(copy.questions.approvePlan.button)
+  expect(card(true)).toContain(copy.questions.approvePlan.hint)
+  // Answered or set aside, the plan stays as a record without the button.
+  expect(card(false)).not.toContain(copy.questions.approvePlan.button)
+  // With questions, their own footer sends the answer instead.
+  expect(card(true, [{ question: 'Go?', options: [{ label: 'Yes' }] }])).not.toContain(
+    copy.questions.approvePlan.button,
+  )
 })

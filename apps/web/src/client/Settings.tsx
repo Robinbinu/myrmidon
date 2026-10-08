@@ -429,9 +429,9 @@ export function Settings(props: {
         >
           {copy.settings.page.back}
         </Button>
-        <span className="text-[13px] font-semibold">{copy.settings.page.title}</span>
+        <span className="text-body font-semibold">{copy.settings.page.title}</span>
         <span className="text-muted">/</span>
-        <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
+        <span className="truncate text-body text-fg-2">{current?.label}</span>
         <span className="flex-1" />
         <AnimatePresence>
           {saving === 'failed' ? (
@@ -442,7 +442,7 @@ export function Settings(props: {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               title={saveError}
-              className="inline-flex items-center gap-1.5 text-[12px] text-bad-ink"
+              className="inline-flex items-center gap-1.5 text-small text-bad-ink"
             >
               <CircleX className="size-3.5" />
               {copy.settings.page.saveFailed}
@@ -464,7 +464,7 @@ export function Settings(props: {
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+                className="inline-flex items-center gap-1.5 text-small text-muted"
               >
                 {saving === 'saving' ? (
                   <LoaderCircle className="size-3.5 animate-spin" />
@@ -476,7 +476,7 @@ export function Settings(props: {
             )
           )}
         </AnimatePresence>
-        <span className="hidden text-[11.5px] text-muted md:inline">
+        <span className="hidden text-footnote text-muted md:inline">
           <Kbd>Esc</Kbd>
           {copy.settings.page.escToClose}
         </span>
@@ -494,7 +494,7 @@ export function Settings(props: {
               {wideNav ? (
                 <div
                   className={cn(
-                    'px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted',
+                    'px-3 pb-1 font-mono text-caption uppercase tracking-[0.14em] text-muted',
                     i > 0 && 'pt-4',
                   )}
                 >
@@ -534,8 +534,8 @@ export function Settings(props: {
                   </span>
                   {wideNav && (
                     <span className="relative min-w-0">
-                      <span className="block text-[13.5px] font-medium">{s.label}</span>
-                      <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
+                      <span className="block text-reading font-medium">{s.label}</span>
+                      <span className="block truncate text-footnote text-muted">{s.hint}</span>
                     </span>
                   )}
                 </button>
@@ -566,7 +566,7 @@ export function Settings(props: {
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{error}</div>
+            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -655,7 +655,7 @@ export function Settings(props: {
               {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
-                <div className="flex items-center gap-2 text-[13px] text-muted">
+                <div className="flex items-center gap-2 text-body text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
                 </div>
               )}
@@ -666,7 +666,7 @@ export function Settings(props: {
       <AnimatePresence>
         {leaving && (
           <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
-            <p className="text-[13.5px] leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
+            <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setLeaving(undefined)}>
                 {copy.settings.page.unsaved.keep}
@@ -693,7 +693,7 @@ function Heading(props: { title: string; children?: ReactNode }) {
   return (
     <div className="mb-6">
       <h3 className="text-[17px] font-semibold tracking-tight">{props.title}</h3>
-      {props.children && <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{props.children}</p>}
+      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
     </div>
   )
 }
@@ -909,10 +909,10 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
-                  <span className="font-mono text-[13px] font-medium">{provider}</span>
-                  <span className="text-[12px] tabular-nums text-muted">{models.length}</span>
+                  <span className="font-mono text-body font-medium">{provider}</span>
+                  <span className="text-small tabular-nums text-muted">{models.length}</span>
                 </button>
-                <span className="text-[12px] text-muted">
+                <span className="text-small text-muted">
                   {off ? copy.settings.shared.off : copy.settings.models.inPickers}
                 </span>
                 <Switch
@@ -933,14 +933,14 @@ function ModelsSection(props: {
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-[13px] font-medium">{m.name}</span>
+                            <span className="truncate text-body font-medium">{m.name}</span>
                             {m.reasoning && <Brain className="size-3.5 text-muted" />}
                           </div>
-                          <div className="truncate font-mono text-[11px] text-muted">{m.id}</div>
+                          <div className="truncate font-mono text-caption text-muted">{m.id}</div>
                           {t && t !== 'running' && (
                             <div
                               className={cn(
-                                'mt-0.5 flex items-center gap-1 text-[12px]',
+                                'mt-0.5 flex items-center gap-1 text-small',
                                 t.ok ? 'text-ok-ink' : 'text-bad-ink',
                               )}
                             >
@@ -1043,7 +1043,7 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') setEditing(false)
         }}
-        className="h-7 w-20 rounded-md border border-line-strong bg-control px-2 text-right font-mono text-[12px] outline-none focus:ring-2 focus:ring-accent-soft"
+        className="h-7 w-20 rounded-md border border-line-strong bg-control px-2 text-right font-mono text-small outline-none focus:ring-2 focus:ring-accent-soft"
       />
     )
   return (
@@ -1062,7 +1062,7 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
           : copy.settings.models.windowUnknown
       }
       className={cn(
-        'h-7 min-w-14 rounded-md px-2 text-right font-mono text-[12px] tabular-nums transition-colors hover:bg-fill',
+        'h-7 min-w-14 rounded-md px-2 text-right font-mono text-small tabular-nums transition-colors hover:bg-fill',
         tokens && tokens < AGENT_MIN_WINDOW ? 'text-warn-ink' : 'text-fg-2',
         source === 'set' && 'font-semibold',
       )}
@@ -1177,7 +1177,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
 
   return (
     <div className="mb-8">
-      <h4 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
+      <h4 className="mb-2 flex items-center gap-2 text-body font-semibold">
         <LogIn className="size-4 text-muted" /> {copy.settings.signIns.title}
         <span className="font-normal text-muted">{copy.settings.signIns.subtitle}</span>
       </h4>
@@ -1188,11 +1188,11 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
             <div key={l.id} className="border-b border-line px-4 py-3 last:border-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                  <div className="flex items-center gap-2 text-reading font-medium">
                     {l.name}
                     {l.ready ? <Pill tone="ok">{copy.settings.signIns.signedIn}</Pill> : null}
                   </div>
-                  <div className="font-mono text-[11.5px] text-muted">{l.provider}</div>
+                  <div className="font-mono text-footnote text-muted">{l.provider}</div>
                 </div>
                 {active ? (
                   <Button
@@ -1226,7 +1226,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 )}
               </div>
               {active && (
-                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-[12.5px]">
+                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-callout">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
                     {active.progress ?? copy.settings.signIns.finishInBrowser}
@@ -1257,7 +1257,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                         placeholder={active.prompt.placeholder ?? active.prompt.message}
                         value={answer}
                         onChange={(e) => setAnswer(e.target.value)}
-                        className="font-mono text-[12px]"
+                        className="font-mono"
                       />
                       <Button size="sm" type="submit" disabled={!answer.trim()}>
                         {copy.settings.signIns.submit}
@@ -1275,7 +1275,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
         <button
           type="button"
           onClick={() => setMore(true)}
-          className="mt-2 text-[12.5px] font-medium text-muted hover:text-fg"
+          className="mt-2 text-callout font-medium text-muted hover:text-fg"
         >
           {copy.settings.signIns.showMore(sorted.length - shown.length)}
         </button>
@@ -1328,7 +1328,7 @@ function Providers(props: {
     <>
       <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
       {props.data.agentDir && (
-        <p className="-mt-4 mb-6 truncate font-mono text-[11.5px] text-muted" title={props.data.agentDir}>
+        <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
           {copy.settings.providers.storedIn(props.data.agentDir)}
         </p>
       )}
@@ -1340,8 +1340,8 @@ function Providers(props: {
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-[13.5px] font-medium">{copy.settings.providers.importTitle}</div>
-              <div className="text-[12.5px] text-muted">
+              <div className="text-reading font-medium">{copy.settings.providers.importTitle}</div>
+              <div className="text-callout text-muted">
                 {importing === 'confirm'
                   ? copy.settings.providers.importConfirm
                   : copy.settings.providers.importHint}
@@ -1387,7 +1387,7 @@ function Providers(props: {
       <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-[13px] font-semibold">
+        <h4 className="flex items-center gap-2 text-body font-semibold">
           <KeyRound className="size-4 text-muted" /> {copy.settings.providers.heading}
           <span className="font-normal text-muted">
             {copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
@@ -1437,13 +1437,13 @@ function Providers(props: {
               <Dot status={p.ready ? 'ready' : 'idle'} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px]">{p.id}</span>
+                  <span className="font-mono text-body">{p.id}</span>
                   {p.custom && <Pill tone="accent">{copy.settings.providers.custom}</Pill>}
-                  <span className="text-[12px] text-muted">
+                  <span className="text-small text-muted">
                     {copy.settings.providers.modelCount(p.models)}
                   </span>
                 </div>
-                {p.baseUrl && <div className="truncate font-mono text-[11.5px] text-muted">{p.baseUrl}</div>}
+                {p.baseUrl && <div className="truncate font-mono text-footnote text-muted">{p.baseUrl}</div>}
               </div>
               <Button
                 size="sm"
@@ -1458,7 +1458,7 @@ function Providers(props: {
               </Button>
               {p.ready && !p.custom && !p.stored && (
                 <span className="flex items-center gap-2" title={copy.settings.providers.externalCredentials}>
-                  <span className="text-[11.5px] text-muted">
+                  <span className="text-footnote text-muted">
                     {off.has(p.id) ? copy.settings.shared.off : copy.settings.shared.on}
                   </span>
                   <Switch
@@ -1535,13 +1535,13 @@ function Providers(props: {
           <button
             type="button"
             onClick={() => setShowAll(true)}
-            className="w-full px-4 py-2.5 text-left text-[12.5px] text-muted hover:text-fg"
+            className="w-full px-4 py-2.5 text-left text-callout text-muted hover:text-fg"
           >
             {copy.settings.providers.showMore(hiddenCount)}
           </button>
         )}
       </Card>
-      <p className="mt-2 text-[12px] text-muted">
+      <p className="mt-2 text-small text-muted">
         {copy.settings.providers.envBefore}
         <span className="font-mono">ANTHROPIC_API_KEY</span>
         {copy.settings.providers.envAfter}
@@ -1679,7 +1679,7 @@ function ProviderForm(props: {
           )}
         </div>
         {tried && errors.key && (
-          <p id={`${formId}key-error`} className="-mt-2 text-[12px] leading-snug text-bad-ink">
+          <p id={`${formId}key-error`} className="-mt-2 text-small leading-snug text-bad-ink">
             {errors.key}
           </p>
         )}
@@ -1694,7 +1694,7 @@ function ProviderForm(props: {
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
-            className="min-h-16 font-mono text-[12.5px]"
+            className="min-h-16 font-mono"
           />
         </Field>
         <div className="flex justify-end gap-2">
@@ -1883,10 +1883,10 @@ function NumberField(props: {
           }}
           className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
         />
-        {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+        {props.suffix && <span className="w-7 text-callout text-muted">{props.suffix}</span>}
       </div>
       {!ok && (
-        <p id={id} className="text-[12px] text-warn-ink">
+        <p id={id} className="text-small text-warn-ink">
           {range}
         </p>
       )}
@@ -1955,7 +1955,7 @@ function ToolRules(props: {
     }, true)
   return (
     <>
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
         <ShieldCheck className="size-4 text-muted" /> {copy.settings.tools.rulesTitle}
         <span className="font-normal text-muted">{copy.settings.tools.rulesSubtitle}</span>
       </h4>
@@ -1973,8 +1973,8 @@ function ToolRules(props: {
             <Row key={t.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono text-[12.5px] font-medium">{t.name}</div>
-                  <div className="truncate text-[12px] text-muted" title={t.description}>
+                  <div className="font-mono text-callout font-medium">{t.name}</div>
+                  <div className="truncate text-small text-muted" title={t.description}>
                     {t.description}
                   </div>
                 </div>
@@ -2015,7 +2015,7 @@ function ToolsSection(props: {
       <Heading title={copy.settings.tools.title}>{copy.settings.tools.intro}</Heading>
       <div
         className={cn(
-          'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13px]',
+          'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-body',
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
@@ -2039,8 +2039,8 @@ function ToolsSection(props: {
                 <t.icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">{t.label}</div>
-                <div className="text-[12.5px] text-muted">{t.hint}</div>
+                <div className="text-reading font-medium">{t.label}</div>
+                <div className="text-callout text-muted">{t.hint}</div>
               </div>
               <Switch
                 checked={props.data.settings.tools[t.key]}
@@ -2053,12 +2053,12 @@ function ToolsSection(props: {
       </Card>
       <ToolRules data={props.data} update={props.update} />
       <McpServers />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
         <Wrench className="size-4 text-muted" /> {copy.settings.tools.libraryTitle}
         <span className="font-normal text-muted">{copy.settings.tools.librarySubtitle}</span>
       </h4>
       <ToolLibraryList />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
         <Search className="size-4 text-muted" /> {copy.settings.tools.webSearch}
       </h4>
       <Card>
@@ -2160,7 +2160,7 @@ function McpServers() {
   return (
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-[13px] font-semibold">
+        <h4 className="flex items-center gap-2 text-body font-semibold">
           <Plug className="size-4 text-muted" /> {copy.settings.mcp.title}
           <span className="font-normal text-muted">{copy.settings.mcp.subtitle}</span>
         </h4>
@@ -2208,7 +2208,7 @@ function McpServers() {
                     value={form.command}
                     placeholder="npx -y @modelcontextprotocol/server-filesystem /path"
                     onChange={(e) => setForm({ ...form, command: e.target.value })}
-                    className="font-mono text-[12px]"
+                    className="font-mono"
                   />
                 </Field>
                 <Field label={copy.settings.mcp.environment} hint={copy.settings.mcp.environmentHint}>
@@ -2216,7 +2216,7 @@ function McpServers() {
                     rows={2}
                     value={form.env}
                     onChange={(e) => setForm({ ...form, env: e.target.value })}
-                    className="font-mono text-[12px]"
+                    className="font-mono"
                   />
                 </Field>
               </>
@@ -2226,7 +2226,7 @@ function McpServers() {
                   value={form.url}
                   placeholder="https://example.com/mcp"
                   onChange={(e) => setForm({ ...form, url: e.target.value })}
-                  className="font-mono text-[12px]"
+                  className="font-mono"
                 />
               </Field>
             )}
@@ -2254,30 +2254,30 @@ function McpServers() {
       <Card>
         {servers === undefined ? (
           <Row>
-            <span className="text-[13px] text-muted">{copy.settings.shared.loading}</span>
+            <span className="text-body text-muted">{copy.settings.shared.loading}</span>
           </Row>
         ) : servers.length === 0 ? (
           <Row>
-            <span className="text-[13px] text-muted">{copy.settings.mcp.empty}</span>
+            <span className="text-body text-muted">{copy.settings.mcp.empty}</span>
           </Row>
         ) : (
           servers.map((m) => (
             <Row key={m.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                  <div className="flex items-center gap-2 text-reading font-medium">
                     {m.name}
                     <Pill tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Pill>
                     {m.tools.length > 0 && (
-                      <span className="text-[12px] text-muted">
+                      <span className="text-small text-muted">
                         {copy.settings.mcp.toolCount(m.tools.length)}
                       </span>
                     )}
                   </div>
-                  <div className="truncate font-mono text-[11.5px] text-muted" title={m.target}>
+                  <div className="truncate font-mono text-footnote text-muted" title={m.target}>
                     {m.transport} · {m.target}
                   </div>
-                  {m.error && <div className="mt-0.5 text-[12px] text-bad-ink">{m.error}</div>}
+                  {m.error && <div className="mt-0.5 text-small text-bad-ink">{m.error}</div>}
                 </div>
                 <Switch
                   checked={m.enabled}
@@ -2359,7 +2359,7 @@ function DevicesSection() {
       {data?.remote === false ? (
         <div
           role="note"
-          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-[13px]"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body"
         >
           <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
           <div>
@@ -2388,16 +2388,16 @@ function DevicesSection() {
           <Row>
             {link ? (
               <div className="flex flex-col gap-2">
-                <p className="text-[13px] text-fg-2">{t.link}</p>
+                <p className="text-body text-fg-2">{t.link}</p>
                 <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-callout">
                     {link.link}
                   </code>
                   <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
                     {copied ? t.copied : t.copy}
                   </Button>
                 </div>
-                <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
+                <p className="text-callout text-muted">{t.code(link.code)}</p>
               </div>
             ) : (
               <Button
@@ -2421,10 +2421,10 @@ function DevicesSection() {
               <MonitorSmartphone className="size-4 shrink-0 text-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="truncate text-[13.5px] font-semibold">{d.name}</span>
+                  <span className="truncate text-reading font-semibold">{d.name}</span>
                   {d.current && <Pill tone="accent">{t.thisDevice}</Pill>}
                 </div>
-                <div className="truncate text-[12px] text-muted">
+                <div className="truncate text-small text-muted">
                   {t.scopeNames[d.scope]}
                   {d.hub ? ` · ${t.viaHub}` : ''} ·{' '}
                   {d.lastSeenAt ? t.lastSeen(new Date(d.lastSeenAt).toLocaleString()) : t.never}
@@ -2543,10 +2543,10 @@ function GatewaysSection() {
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="truncate text-[13.5px] font-semibold">{g.name}</span>
+                  <span className="truncate text-reading font-semibold">{g.name}</span>
                   {g.id === active && <Pill tone="accent">{t.shown}</Pill>}
                 </div>
-                <div className="truncate text-[12px] text-muted">
+                <div className="truncate text-small text-muted">
                   {new URL(g.url).host} · {copy.settings.devices.scopeNames[g.scope]} ·{' '}
                   {g.health.ok ? t.reachable : g.health.error} ·{' '}
                   {t.checked(new Date(g.health.checkedAt).toLocaleTimeString())}
@@ -2621,10 +2621,10 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                 <AgentAvatar name={s.name} status="idle" size={32} awake />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[13.5px] font-semibold">{s.name}</span>
-                    <span className="truncate text-[12.5px] text-fg-2">{s.specialty}</span>
+                    <span className="text-reading font-semibold">{s.name}</span>
+                    <span className="truncate text-callout text-fg-2">{s.specialty}</span>
                   </div>
-                  <div className="truncate text-[12px] text-muted">
+                  <div className="truncate text-small text-muted">
                     {modelName(s.model)}
                     {s.off.length > 0 && ` · ${t.toolsOff(s.off.map((g) => t.groups[g]).join(', '))}`}
                   </div>
@@ -2658,7 +2658,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
       type="button"
       onClick={props.onClick}
       aria-pressed={props.selected}
-      className="flex flex-col items-center gap-1.5 text-[12px] text-fg-2"
+      className="flex flex-col items-center gap-1.5 text-small text-fg-2"
     >
       <span
         className={cn(
@@ -2677,7 +2677,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
 function MiniMascot(props: { look: MascotLook; cell?: number }) {
   const cell = props.cell ?? 4
   return (
-    <span className="relative inline-block rounded-[14px] bg-screen p-2.5">
+    <span className="relative inline-block rounded-lg bg-screen p-2.5">
       <PixelFace
         mood="idle"
         color={MASCOT_COLORS[props.look.color]}
@@ -2793,7 +2793,7 @@ function MascotSection(props: {
                   label={t.colors[color]}
                   onClick={() => set({ color })}
                 >
-                  <span className="grid size-10 place-items-center rounded-[10px] bg-screen">
+                  <span className="grid size-10 place-items-center rounded-base bg-screen">
                     <span className="size-4 rounded-[5px]" style={{ background: MASCOT_COLORS[color] }} />
                   </span>
                 </Tile>
@@ -2864,7 +2864,7 @@ function VerificationSection(props: {
                 aria-label={copy.settings.reviewer.threshold}
                 disabled={off}
               />
-              <span className="w-10 text-right font-mono text-[13px] tabular-nums">
+              <span className="w-10 text-right font-mono text-body tabular-nums">
                 {v.threshold.toFixed(2)}
               </span>
             </div>
@@ -3023,7 +3023,7 @@ function SchedulesSection() {
                   value={draft.cron}
                   onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
                   placeholder={copy.settings.schedules.cronPlaceholder}
-                  className="font-mono text-[12.5px]"
+                  className="font-mono"
                 />
               </div>
             )}
@@ -3060,14 +3060,14 @@ function SchedulesSection() {
             </Button>
           </div>
           {badCron && (
-            <p id={cronId} className="mt-1.5 text-[12px] leading-snug text-bad-ink">
+            <p id={cronId} className="mt-1.5 text-small leading-snug text-bad-ink">
               {badCron}
             </p>
           )}
         </Row>
       </Card>
       {!list ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
+        <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.schedules.loading}
         </div>
       ) : list.length === 0 ? (
@@ -3080,8 +3080,8 @@ function SchedulesSection() {
             <Row key={s.id}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] leading-relaxed">{s.request}</p>
-                  <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-muted">
+                  <p className="text-reading leading-relaxed">{s.request}</p>
+                  <p className="mt-1 flex flex-wrap gap-x-3 text-small text-muted">
                     <span>{label(s.cron)}</span>
                     {s.project && (
                       <span>
@@ -3216,18 +3216,18 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
     <>
       <Heading title={copy.settings.hooks.title}>
         {copy.settings.hooks.introBeforeFsEdit}
-        <code className="font-mono text-[12.5px]">fs_edit</code>
+        <code className="font-mono text-callout">fs_edit</code>
         {copy.settings.hooks.introBeforeShell}
-        <code className="font-mono text-[12.5px]">shell</code>
+        <code className="font-mono text-callout">shell</code>
         {copy.settings.hooks.introBeforeEditWrite}
-        <code className="font-mono text-[12.5px]">Edit|Write</code>
+        <code className="font-mono text-callout">Edit|Write</code>
         {copy.settings.hooks.introBeforeBash}
-        <code className="font-mono text-[12.5px]">Bash</code>
+        <code className="font-mono text-callout">Bash</code>
         {copy.settings.hooks.introAfterBash}
       </Heading>
       <div
         role="note"
-        className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-[13px]"
+        className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-body"
       >
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn-ink" />
         <div>
@@ -3236,14 +3236,14 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
         </div>
       </div>
       {!rows ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
+        <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
         </div>
       ) : (
         <Card>
           {rows.length === 0 && (
             <Row>
-              <p className="text-[13px] text-muted">{copy.settings.hooks.empty}</p>
+              <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
             </Row>
           )}
           {rows.map((r, i) => (
@@ -3296,7 +3296,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
                   value={r.command}
                   onChange={(e) => change(i, { command: e.target.value })}
                   placeholder={copy.settings.hooks.commandPlaceholder}
-                  className="font-mono text-[12.5px]"
+                  className="font-mono"
                 />
               </div>
             </Row>
@@ -3377,12 +3377,12 @@ function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
         return (
           <div key={key} className="flex flex-col gap-1">
             <span className="flex items-center justify-between gap-2">
-              <span className="font-mono text-[12.5px] font-medium">{key}</span>
+              <span className="font-mono text-callout font-medium">{key}</span>
               {spec.type === 'boolean' && (
                 <Switch checked={value === true} label={key} onChange={(on) => save(key, on)} />
               )}
             </span>
-            {spec.description && <span className="text-[12px] text-muted">{spec.description}</span>}
+            {spec.description && <span className="text-small text-muted">{spec.description}</span>}
             {spec.type !== 'boolean' && (
               <TextInput
                 type={spec.secret ? 'password' : spec.type === 'number' ? 'number' : 'text'}
@@ -3395,7 +3395,7 @@ function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
                   save(key, spec.type === 'number' ? Number(text) : text)
                 }}
                 aria-label={key}
-                className="font-mono text-[12.5px]"
+                className="font-mono"
               />
             )}
           </div>
@@ -3457,7 +3457,7 @@ function PluginsSection() {
           onChange={(e) => setSource(e.target.value)}
           placeholder={copy.settings.plugins.sourcePlaceholder}
           aria-label={copy.settings.plugins.sourceLabel}
-          className="flex-1 font-mono text-[12.5px]"
+          className="flex-1 font-mono"
         />
         <Button
           type="submit"
@@ -3469,7 +3469,7 @@ function PluginsSection() {
         </Button>
       </form>
       {!data ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
+        <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.plugins.loading}
         </div>
       ) : data.plugins.length === 0 ? (
@@ -3484,14 +3484,14 @@ function PluginsSection() {
                 <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[13.5px] font-medium">{p.name}</span>
-                      {p.version && <span className="text-[12px] text-muted">v{p.version}</span>}
+                      <span className="font-mono text-reading font-medium">{p.name}</span>
+                      {p.version && <span className="text-small text-muted">v{p.version}</span>}
                       {p.author && (
-                        <span className="text-[12px] text-muted">{copy.settings.plugins.by(p.author)}</span>
+                        <span className="text-small text-muted">{copy.settings.plugins.by(p.author)}</span>
                       )}
                     </div>
                     {p.description && (
-                      <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{p.description}</p>
+                      <p className="mt-1 text-body leading-relaxed text-fg-2">{p.description}</p>
                     )}
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {parts(p).map((part) => (
@@ -3500,11 +3500,11 @@ function PluginsSection() {
                         </Pill>
                       ))}
                     </div>
-                    {p.error && <p className="mt-1.5 text-[12.5px] text-bad-ink">{p.error}</p>}
+                    {p.error && <p className="mt-1.5 text-callout text-bad-ink">{p.error}</p>}
                     {p.server && p.enabled && (
                       <p
                         className={cn(
-                          'mt-1.5 text-[12.5px]',
+                          'mt-1.5 text-callout',
                           p.status?.error ? 'text-bad-ink' : p.status?.loaded ? 'text-ok-ink' : 'text-muted',
                         )}
                       >
@@ -3540,18 +3540,18 @@ function PluginsSection() {
                         <button
                           type="button"
                           onClick={() => setLogOpen(logOpen === p.name ? undefined : p.name)}
-                          className="text-[12px] text-muted hover:text-fg-2"
+                          className="text-small text-muted hover:text-fg-2"
                         >
                           {logOpen === p.name ? copy.settings.plugins.hideLog : copy.settings.plugins.showLog}
                         </button>
                         {logOpen === p.name && (
-                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-[11.5px] text-fg-2">
+                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
                             {p.status.log.join('\n')}
                           </pre>
                         )}
                       </div>
                     ) : null}
-                    <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={p.dir}>
+                    <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
                       {p.dir}
                     </p>
                   </div>
@@ -3580,7 +3580,7 @@ function PluginsSection() {
               </Row>
             ))}
           </Card>
-          <p className="mt-2 text-[12px] text-muted">{copy.settings.plugins.applies}</p>
+          <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
         </>
       )}
     </>
@@ -3602,11 +3602,11 @@ function SkillDescription(props: { text: string; dir: string }) {
   }, [open])
   return (
     <>
-      <p ref={box} className={cn('mt-1 text-[13px] leading-relaxed text-fg-2', !open && 'line-clamp-2')}>
+      <p ref={box} className={cn('mt-1 text-body leading-relaxed text-fg-2', !open && 'line-clamp-2')}>
         {props.text}
       </p>
       {open && (
-        <p className="mt-1 break-all font-mono text-[11.5px] text-muted" title={props.dir}>
+        <p className="mt-1 break-all font-mono text-footnote text-muted" title={props.dir}>
           {props.dir}
         </p>
       )}
@@ -3615,7 +3615,7 @@ function SkillDescription(props: { text: string; dir: string }) {
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          className="mt-0.5 text-[12px] font-medium text-muted hover:text-fg"
+          className="mt-0.5 text-small font-medium text-muted hover:text-fg"
         >
           {open ? copy.settings.skills.showLess : copy.settings.skills.showMore}
         </button>
@@ -3645,16 +3645,16 @@ function SkillsSection() {
     <>
       <Heading title={copy.settings.skills.title}>
         {copy.settings.skills.introBeforeDir}
-        <code className="font-mono text-[12.5px]">{data?.dir ?? 'skills/'}</code>
+        <code className="font-mono text-callout">{data?.dir ?? 'skills/'}</code>
         {copy.settings.skills.introBeforeUserDir}
-        <code className="font-mono text-[12.5px]">~/.claude/skills</code>
+        <code className="font-mono text-callout">~/.claude/skills</code>
         {copy.settings.skills.introBeforeProjectDir}
-        <code className="font-mono text-[12.5px]">.claude/skills</code>
+        <code className="font-mono text-callout">.claude/skills</code>
         {copy.settings.skills.introAfterProjectDir}
       </Heading>
       {proposed.length > 0 && (
         <div className="mb-6 flex flex-col gap-3">
-          <h4 className="text-[13px] font-semibold text-fg-2">
+          <h4 className="text-body font-semibold text-fg-2">
             {copy.settings.skills.proposed(proposed.length)}
           </h4>
           <AnimatePresence initial={false}>
@@ -3665,7 +3665,7 @@ function SkillsSection() {
         </div>
       )}
       {!data ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
+        <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}
         </div>
       ) : data.skills.length === 0 ? (
@@ -3679,7 +3679,7 @@ function SkillsSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[13.5px] font-medium" title={s.dir}>
+                    <span className="font-mono text-reading font-medium" title={s.dir}>
                       {s.name}
                     </span>
                     <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
@@ -3805,7 +3805,7 @@ function MemorySection() {
         </Row>
       </Card>
       {!memories ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
+        <div className="flex items-center gap-2 text-body text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
         </div>
       ) : memories.length === 0 ? (
@@ -3815,7 +3815,7 @@ function MemorySection() {
       ) : (
         groups.map((g) => (
           <section key={g || 'all'} className="mb-6">
-            <h4 className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+            <h4 className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
               {scopeName(g || undefined)}
             </h4>
             <Card>
@@ -3837,12 +3837,12 @@ function MemorySection() {
                             type="button"
                             title={copy.settings.memory.edit}
                             onClick={() => setEditing({ id: m.id, text: m.text })}
-                            className="w-full text-left text-[13.5px] leading-relaxed hover:text-fg-2"
+                            className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
                           >
                             {m.text}
                           </button>
                         )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
                           <Select
                             aria-label={copy.settings.memory.kind}
                             value={m.kind}
@@ -3881,7 +3881,7 @@ function MemorySection() {
                           {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
                         </div>
                         {m.source.why && (
-                          <p className="mt-1 text-[12px] text-muted">
+                          <p className="mt-1 text-small text-muted">
                             {copy.settings.memory.why(m.source.why)}
                           </p>
                         )}
@@ -3959,7 +3959,7 @@ function Shortcuts() {
       <Heading title={copy.settings.shortcuts.title} />
       <Card>
         {SHORTCUTS.map(([label, keys]) => (
-          <div key={label} className="flex items-center justify-between px-4 py-3 text-[13.5px]">
+          <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
             <span>{label}</span>
             <span className="flex gap-1">
               {keys.map((k) => (
@@ -3980,7 +3980,7 @@ function About({ data }: { data?: SettingsResponse }) {
       <Card>
         <Row>
           <Field label={copy.settings.about.dataDirectory} inline>
-            <span className="font-mono text-[12.5px] text-muted">{data?.home ?? '…'}</span>
+            <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
           </Field>
         </Row>
         <Row>
@@ -3989,21 +3989,21 @@ function About({ data }: { data?: SettingsResponse }) {
             hint={copy.settings.about.providersReadyHint}
             inline
           >
-            <span className="font-mono text-[12.5px] text-muted">
+            <span className="font-mono text-callout text-muted">
               {data ? data.providers.filter((p) => p.ready).length : '…'}
             </span>
           </Field>
         </Row>
         <Row>
           <Field label={copy.settings.about.sandbox} inline>
-            <span className="font-mono text-[12.5px] text-muted">{data?.sandbox ?? '…'}</span>
+            <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
           </Field>
         </Row>
         <Row>
-          <p className="text-[12.5px] text-muted">{copy.settings.about.eventLog}</p>
+          <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
         </Row>
       </Card>
-      <div className="mt-4 flex items-center gap-2 text-[12px] text-muted">
+      <div className="mt-4 flex items-center gap-2 text-small text-muted">
         <Bot className="size-3.5" /> {copy.settings.about.builtOn}
       </div>
     </>
