@@ -12,7 +12,6 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
-  Phone,
   Plug,
   RefreshCw,
   SquarePen,
@@ -72,6 +71,7 @@ import { AGENT_MIN_WINDOW, CALL_LINES, MAX_FILE_BYTES, softSpring } from './ui-c
 import { type ColonyView, useColony } from './use-colony.ts'
 import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
 import { CallCard, type SavedCall } from './voice/CallCard.tsx'
+import { CallMenu, type CallTarget } from './voice/CallMenu.tsx'
 import { CallClient, type CallState } from './voice/call-client.ts'
 
 const CONFIG_KEY = 'myr-team-config'
@@ -343,7 +343,7 @@ export function App() {
 
   // A voice call from this window: its socket and audio live in the client, what the bar shows lives here.
   const callRef = useRef<CallClient>(undefined)
-  const [call, setCall] = useState<{ state: CallState; lines: CallLine[]; muted: boolean }>()
+  const [call, setCall] = useState<{ state: CallState; lines: CallLine[]; muted: boolean; with: string }>()
   const [calls, setCalls] = useState<SavedCall[]>([])
   const [callsSeen, setCallsSeen] = useState(0)
   // The Call button shows only once voice calls are on in Settings → Voice.
@@ -365,30 +365,35 @@ export function App() {
       .then((r) => setCalls(r.calls))
       .catch(() => setCalls([]))
   }, [callChat, callsSeen])
-  const startCall = async () => {
+  const startCall = async (to: CallTarget) => {
     if (callRef.current) return
     if (!window.isSecureContext || !navigator.mediaDevices) return toast(copy.call.insecure, 'error')
-    const client = new CallClient(activeChat, {
-      state: (state) => setCall((c) => c && { ...c, state }),
-      line: (who, text) =>
-        setCall((c) => c && { ...c, lines: [...c.lines, { who, text }].slice(-CALL_LINES) }),
-      level: setMicLevel,
-      chat: (id) => {
-        setActiveChat(id)
-        setView('chat')
-        refreshChats()
+    const client = new CallClient(
+      activeChat,
+      {
+        state: (state) => setCall((c) => c && { ...c, state }),
+        line: (who, text) =>
+          setCall((c) => c && { ...c, lines: [...c.lines, { who, text }].slice(-CALL_LINES) }),
+        level: setMicLevel,
+        chat: (id) => {
+          setActiveChat(id)
+          setView('chat')
+          refreshChats()
+        },
+        task: (request) => toast(copy.call.started(request), 'info'),
+        error: (message) => toast(message, 'error'),
+        ended: () => {
+          callRef.current = undefined
+          setCall(undefined)
+          setMicLevel(0)
+          setCallsSeen((n) => n + 1)
+        },
       },
-      task: (request) => toast(copy.call.started(request), 'info'),
-      error: (message) => toast(message, 'error'),
-      ended: () => {
-        callRef.current = undefined
-        setCall(undefined)
-        setMicLevel(0)
-        setCallsSeen((n) => n + 1)
-      },
-    })
+      to,
+    )
     callRef.current = client
-    setCall({ state: 'connecting', lines: [], muted: false })
+    const who = to === undefined ? copy.call.assistantName : to === 'lead' ? copy.call.leadName : to
+    setCall({ state: 'connecting', lines: [], muted: false, with: who })
     try {
       await client.start()
     } catch (err) {
@@ -778,15 +783,7 @@ export function App() {
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && voiceOn && !call && (
-                  <Button
-                    variant="toolbar"
-                    size="sm"
-                    icon={<Phone className="size-4" />}
-                    onClick={() => void startCall()}
-                    title={copy.call.startTitle}
-                  >
-                    {copy.call.start}
-                  </Button>
+                  <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
                 )}
                 {view === 'chat' && chat && (
                   <Button
@@ -807,6 +804,7 @@ export function App() {
                 {call && (
                   <CallBar
                     key="call"
+                    with={call.with}
                     state={call.state}
                     lines={call.lines}
                     muted={call.muted}
@@ -1122,14 +1120,25 @@ function Transcript(props: {
   sending: boolean
   /** A request whose round has not started yet. */
   pending?: string
-  /** Voice calls in this chat: each shows before the first round it started, the rest at the end. */
+  /** Voice calls in this chat, placed among the rounds by when they started. */
   calls: readonly SavedCall[]
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
-  const startsAt = (c: SavedCall, r: ChatRound) =>
-    c.rounds[0]?.colonyId === r.colonyId && (c.rounds[0]?.round ?? r.round) === r.round
-  const loose = props.calls.filter((c) => !rounds.some((r) => startsAt(c, r)))
+  // Each call shows before the first round that began after it; calls since the last round began come after it.
+  const callsBefore = (r: ChatRound) => {
+    const at = rounds.indexOf(r)
+    const from = rounds
+      .slice(0, at)
+      .map((x) => x.startedAt)
+      .filter(Boolean)
+      .at(-1)
+    return r.startedAt
+      ? props.calls.filter((c) => c.startedAt <= (r.startedAt ?? '') && (!from || c.startedAt > from))
+      : []
+  }
+  const placed = new Set(rounds.flatMap(callsBefore).map((c) => c.id))
+  const loose = props.calls.filter((c) => !placed.has(c.id))
   const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -1142,11 +1151,9 @@ function Transcript(props: {
             first={g === 0}
             render={(colony, r) => (
               <>
-                {props.calls
-                  .filter((c) => startsAt(c, r))
-                  .map((c) => (
-                    <CallCard key={c.id} call={c} />
-                  ))}
+                {callsBefore(r).map((c) => (
+                  <CallCard key={c.id} call={c} />
+                ))}
                 <RoundView
                   colonyId={r.colonyId}
                   colony={colony}

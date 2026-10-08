@@ -479,7 +479,9 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   const from = state.rounds.at(-1)?.startSeq ?? 0
   const attached = state.chatMessages.find((m) => m.from === 'user' && m.seq >= from)?.attachments
   const plan = spec.planFirst ? prompts.kickoff.planFirst : ''
-  const request = `${history}[user] ${spec.chat.request}${attachedNote(attached)}${plan}`
+  const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
+  const spoken = spec.chat.voice ? prompts.chat.spoken : ''
+  const request = `${history}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

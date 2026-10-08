@@ -3,7 +3,7 @@ import type { MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
-import { type CallChats, type CallOutput, CallSession, splitSentences } from '../src/voice/call.ts'
+import { type CallChats, type CallOutput, CallSession, speakable, splitSentences } from '../src/voice/call.ts'
 import type { SpeechDetector } from '../src/voice/vad.ts'
 
 const RATE = 16_000
@@ -29,17 +29,24 @@ const lastText = (ctx: LlmContext) => {
 /** A call with a scripted ear, an instant voice, fake chats and a mock call model answering by `reply`. */
 function setup(
   reply: (said: string, ctx: LlmContext) => MockContent[],
-  options: { slowVoiceMs?: number; detector?: SpeechDetector } = {},
+  options: {
+    slowVoiceMs?: number
+    detector?: SpeechDetector
+    talkTo?: string
+    crew?: { name: string; role?: string }[]
+    /** Every message lands in this one running colony (a round already going). */
+    colony?: string
+  } = {},
 ) {
   const heard: string[] = []
   const out: CallOutput[] = []
-  const sent: { text: string; chatId?: string }[] = []
+  const sent: { text: string; chatId?: string; voice?: boolean }[] = []
   const decided: [string, string, boolean][] = []
   let listener: ((colonyId: string, events: readonly MyrEvent[]) => void) | undefined
   const chats: CallChats = {
-    send: async (text, chatId) => {
-      sent.push({ text, ...(chatId ? { chatId } : {}) })
-      return { chatId: chatId ?? 'chat-1', colonyId: `col-${sent.length}`, started: true }
+    send: async (text, chatId, opts) => {
+      sent.push({ text, ...(chatId ? { chatId } : {}), ...(opts?.voice ? { voice: true } : {}) })
+      return { chatId: chatId ?? 'chat-1', colonyId: options.colony ?? `col-${sent.length}`, started: true }
     },
     onEvents: (l) => {
       listener = l
@@ -67,7 +74,16 @@ function setup(
         },
       },
     },
-    { model: 'mock/voice', name: 'Robin', start: 0.5, hold: 0.35, threshold: 400, sampleRate: RATE },
+    {
+      model: 'mock/voice',
+      name: 'Robin',
+      start: 0.5,
+      hold: 0.35,
+      threshold: 400,
+      sampleRate: RATE,
+      ...(options.talkTo ? { talkTo: options.talkTo } : {}),
+      ...(options.crew ? { crew: options.crew } : {}),
+    },
     (o) => out.push(o),
   )
   const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
@@ -219,4 +235,81 @@ test('with a speech detector, loud noise is not a turn and quiet speech is', asy
   for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
   await until(() => said().includes('Hi.'))
   call.hangUp()
+})
+
+test('talking straight to the lead: words go to the chat as spoken messages, its replies are read aloud', async () => {
+  const { call, sent, say, said, events, decided, model } = setup(() => ['(the call model is not used)'], {
+    talkTo: 'lead',
+    colony: 'col-run',
+  })
+  await call.start()
+  expect(said()[0]).toBe("Hi Robin, you're talking to the lead. Go ahead.")
+  say('how is the build going')
+  await until(() => sent.length === 1)
+  expect(sent[0]).toEqual({ text: 'how is the build going', voice: true })
+  events('col-run', [
+    { type: 'chat/reply', payload: { agent: 'lead', text: 'Two tests left. **Almost** done.' } },
+  ])
+  await until(() => said().includes('Almost done.'))
+  expect(said()).toContain('Two tests left.')
+  // An approval is put to the person, and a plain yes decides it without going to the chat.
+  events('col-run', [
+    { type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm -rf dist' } },
+  ])
+  await until(() => said().some((t) => t.includes('Say yes or no')))
+  say('yes go ahead')
+  await until(() => decided.length === 1)
+  expect(decided).toEqual([['col-run', 'a1', true]])
+  expect(sent).toHaveLength(1)
+  expect(model.calls).toHaveLength(0)
+  call.hangUp()
+})
+
+test('talking straight to one agent: written to them directly, and only their replies are read', async () => {
+  const { call, sent, say, said, events } = setup(() => [], {
+    talkTo: 'ana',
+    crew: [{ name: 'ana' }],
+    colony: 'c',
+  })
+  await call.start()
+  say('what did you find')
+  await until(() => sent.length === 1)
+  expect(sent[0]).toEqual({ text: '@ana what did you find', voice: true })
+  events('c', [{ type: 'chat/reply', payload: { agent: 'lead', text: 'Not mine to say.' } }])
+  events('c', [{ type: 'chat/reply', payload: { agent: 'ana', text: 'Three papers on it.' } }])
+  await until(() => said().includes('Three papers on it.'))
+  expect(said()).not.toContain('Not mine to say.')
+  call.hangUp()
+})
+
+test('the call assistant can ask the lead or an agent, and tells the person their answer', async () => {
+  const { call, sent, say, said, events } = setup(
+    (text) => {
+      if (text === 'ask ana how far she is')
+        return [tool('ask_crew', { question: 'How far are you?', to: 'ana' })]
+      if (text === 'tool:ask_crew') return ['Asking her now.']
+      if (text.includes('ana answered your question')) return ['Ana says she is nearly done.']
+      return []
+    },
+    { crew: [{ name: 'ana', role: 'researcher' }], colony: 'c' },
+  )
+  await call.start()
+  say('ask ana how far she is')
+  await until(() => said().includes('Asking her now.'))
+  expect(sent).toEqual([{ text: '@ana How far are you?' }])
+  events('c', [{ type: 'chat/reply', payload: { agent: 'ana', text: 'Nearly done, one source left.' } }])
+  await until(() => said().includes('Ana says she is nearly done.'))
+  call.hangUp()
+})
+
+test('replies are made speakable: no markdown, code or links, and long ones stop with a pointer', () => {
+  expect(speakable('## Done\n- **Fixed** the `parser`.\n- See [the PR](https://x.y/1).')).toEqual([
+    'Done',
+    'Fixed the parser.',
+    'See the PR.',
+  ])
+  expect(speakable('Run this:\n```\nrm -rf /\n```')).toEqual(['Run this:', '(there is code in the chat)'])
+  const long = speakable('One. Two. Three. Four. Five. Six. Seven. Eight.')
+  expect(long).toHaveLength(7)
+  expect(long.at(-1)).toBe('The rest is in the chat.')
 })

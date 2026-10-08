@@ -98,6 +98,12 @@ test("a call's transcript is saved with its chat when it ends", async () => {
   expect(saved).toHaveLength(1)
   expect(saved[0]?.turns[0]).toMatchObject({ who: 'person', text: 'from omp' })
   expect(hub.calls('other')).toEqual([])
+  // The next message in the chat carries the transcript to the crew, once.
+  const untold = hub.untold('c1')
+  expect(untold?.context).toContain('Person: from omp')
+  untold?.tell()
+  expect(hub.untold('c1')).toBeUndefined()
+  expect(hub.calls('c1')[0]?.told).toBe(true)
 })
 
 test('voice calls start off: nothing is downloaded or started, and no call can begin', async () => {

@@ -158,6 +158,18 @@ export const copy = {
     },
     you: 'You',
     voice: 'Crew',
+    menu: {
+      assistant: 'Call assistant',
+      assistantHint: 'A fast model: answers quick things, hands work to the crew, asks them for you',
+      lead: 'The lead',
+      leadHint: 'Talk to the lead directly; its replies are read aloud',
+      agentHint: (role?: string) =>
+        `${role ? `${role} · ` : ''}talk to them directly; they get the chat so far`,
+    },
+    /** In the call bar: who the call is with. */
+    with: (who: string) => `With ${who}`,
+    assistantName: 'the call assistant',
+    leadName: 'the lead',
     started: (request: string) => `Crew started: ${request}`,
     noMic: 'Myrmidon could not use the microphone. Allow it for this page and try again.',
     insecure: 'Calls need the microphone, which browsers allow only on https or on this machine.',

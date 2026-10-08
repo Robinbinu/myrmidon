@@ -10,6 +10,7 @@ import {
 import { join } from 'node:path'
 import { VOICE_THRESHOLDS, VOICE_VAD_HYSTERESIS, VOICE_VAD_START } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
+import { prompts } from '../prompts.ts'
 import type { MyrSettings } from '../settings.ts'
 import { trimSilence } from './audio.ts'
 import { type CallChats, type CallOutput, CallSession, type CallTurn } from './call.ts'
@@ -51,6 +52,10 @@ export interface SavedCall {
   readonly turns: readonly CallTurn[]
   /** The rounds the call started, so the chat can show the call where its work begins. */
   readonly rounds: readonly { colonyId: string; round?: number }[]
+  /** The crew has been given this transcript (with the next message in the chat). */
+  readonly told?: boolean
+  /** Who the person talked to, when not the call assistant (`lead` or an agent's name). */
+  readonly talkTo?: string
 }
 
 export interface VoiceStatus {
@@ -237,7 +242,15 @@ export class VoiceHub {
 
   call(
     chats: CallChats,
-    options: { chatId?: string; chatTitle?: string; project?: string; name: string; sampleRate: number },
+    options: {
+      chatId?: string
+      chatTitle?: string
+      project?: string
+      name: string
+      sampleRate: number
+      talkTo?: string
+      crew?: readonly { name: string; role?: string }[]
+    },
     emit: (out: CallOutput) => void,
   ): CallSession {
     const { voice, fallbackModel } = this.options.settings()
@@ -288,6 +301,30 @@ export class VoiceHub {
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
   }
 
+  /**
+   * The transcripts of calls in a chat the crew has not been told about, for the next message to carry (the lead
+   * cannot answer "how did the call go" otherwise). `tell` marks them told once that message is sent.
+   */
+  untold(chatId: string): { context: string; tell(): void } | undefined {
+    const calls = this.calls(chatId).filter((c) => !c.told)
+    if (!calls.length) return undefined
+    const time = (iso: string) => iso.slice(11, 16)
+    const lines = calls.map((c) =>
+      c.turns
+        .map(
+          (t) =>
+            `[${time(t.at)}] ${t.who === 'person' ? 'Person' : t.who === 'voice' ? 'Call assistant' : 'Crew update'}: ${t.text}`,
+        )
+        .join('\n'),
+    )
+    return {
+      context: prompts.voice.transcripts(lines),
+      tell: () => {
+        for (const c of calls) this._write({ ...c, told: true })
+      },
+    }
+  }
+
   /** Hangs up every call and stops the engines on this machine (they start again when warmed). */
   stop() {
     for (const call of [...this._calls.values()]) call.hangUp()
@@ -299,7 +336,6 @@ export class VoiceHub {
   private _save(session: CallSession) {
     const turns = session.transcript()
     if (!turns.some((t) => t.who === 'person')) return
-    mkdirSync(this._callsDir, { recursive: true, mode: 0o700 })
     const saved: SavedCall = {
       id: session.id,
       ...(session.chatId ? { chatId: session.chatId } : {}),
@@ -307,8 +343,15 @@ export class VoiceHub {
       endedAt: new Date().toISOString(),
       turns,
       rounds: session.rounds(),
+      // A direct call's words are the chat's own messages: the crew already has them.
+      ...(session.direct ? { talkTo: session.direct, told: true } : {}),
     }
-    writeFileSync(join(this._callsDir, `${session.id}.json`), `${JSON.stringify(saved, null, 2)}\n`, {
+    this._write(saved)
+  }
+
+  private _write(call: SavedCall) {
+    mkdirSync(this._callsDir, { recursive: true, mode: 0o700 })
+    writeFileSync(join(this._callsDir, `${call.id}.json`), `${JSON.stringify(call, null, 2)}\n`, {
       mode: 0o600,
     })
   }

@@ -37,7 +37,12 @@ export interface ChannelChats {
   send(
     text: string,
     chatId: string | undefined,
-    options?: { project?: string; attachments?: readonly { name: string; bytes: Uint8Array }[] },
+    options?: {
+      project?: string
+      attachments?: readonly { name: string; bytes: Uint8Array }[]
+      /** Said aloud on a voice call. */
+      voice?: boolean
+    },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   rename(chatId: string, title: string): Promise<unknown>
   stop(chatId: string): Promise<void>

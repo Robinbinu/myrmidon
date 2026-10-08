@@ -128,6 +128,8 @@ export interface ChatEntry extends Entry {
   readonly mode?: 'steer' | 'queue'
   /** The person's message was addressed to these crew members (@name). */
   readonly to?: readonly string[]
+  /** The person said it aloud on a voice call. */
+  readonly voice?: boolean
   /** Agents that have read this message (mid-run user messages only). */
   readBy?: string[]
   /** Artifact names of files the person attached. */
@@ -454,6 +456,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: false,
         ...(p.mode ? { mode: p.mode } : {}),
         ...(p.attachments?.length ? { attachments: p.attachments } : {}),
+        ...(p.voice ? { voice: true } : {}),
         ...(p.to?.length ? { to: p.to } : {}),
       })
       break

@@ -69,6 +69,8 @@ export class CallClient {
   constructor(
     private readonly chatId: string | undefined,
     private readonly on: CallHandlers,
+    /** `lead` or a crew member's name to talk to them directly; the call assistant otherwise. */
+    private readonly talk?: string,
   ) {}
 
   async start() {
@@ -84,7 +86,7 @@ export class CallClient {
     const node = new AudioWorkletNode(ctx, 'myr-mic')
     this._node = node
     ctx.createMediaStreamSource(this._stream).connect(node)
-    const ws = callSocket(this.chatId, CALL_RATE)
+    const ws = callSocket(this.chatId, CALL_RATE, this.talk)
     this._ws = ws
     node.port.onmessage = (e: MessageEvent<{ frame: Int16Array<ArrayBuffer>; level: number }>) => {
       this.on.level(this._muted ? 0 : e.data.level)

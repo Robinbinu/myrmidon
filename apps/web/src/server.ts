@@ -173,7 +173,7 @@ type StreamData = Opened &
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
     /** A voice call: the person's audio in, the call's speech and state out. */
-    | { kind: 'call'; chat?: string; rate: number; session?: CallSession }
+    | { kind: 'call'; chat?: string; rate: number; talk?: string; session?: CallSession }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -346,6 +346,7 @@ export function startServer(options: ServeOptions): WebServer {
           chats.send(text, defaultTeam(), chatId, {
             ...(opts.project ? { project: opts.project } : {}),
             ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+            ...(opts.voice ? { voice: true } : {}),
           }),
         rename: (chatId, title) => chats.rename(chatId, title),
         stop: (chatId) => chats.stop(chatId),
@@ -1769,14 +1770,17 @@ export function startServer(options: ServeOptions): WebServer {
               if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${a.name} is larger than 10 MB`)
               return { name: a.name, bytes }
             })
-            return json(
-              await options.chats.send(body.text, config, body.chatId, {
-                ...(body.delivery ? { delivery: body.delivery } : {}),
-                attachments,
-                planFirst: body.plan === true,
-                ...(body.project ? { project: body.project } : {}),
-              }),
-            )
+            // Calls in this chat since the last message: the crew hears what was said, once.
+            const calls = body.chatId ? voice?.untold(body.chatId) : undefined
+            const sent = await options.chats.send(body.text, config, body.chatId, {
+              ...(body.delivery ? { delivery: body.delivery } : {}),
+              attachments,
+              planFirst: body.plan === true,
+              ...(body.project ? { project: body.project } : {}),
+              ...(calls ? { context: calls.context } : {}),
+            })
+            calls?.tell()
+            return json(sent)
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1999,6 +2003,7 @@ export function startServer(options: ServeOptions): WebServer {
           kind: 'call' as const,
           rate: rate >= 8000 && rate <= 48_000 ? rate : 16_000,
           ...(url.searchParams.get('chat') ? { chat: url.searchParams.get('chat') ?? '' } : {}),
+          ...(url.searchParams.get('talk') ? { talk: url.searchParams.get('talk') ?? '' } : {}),
           ...(access.device ? { device: access.device.id } : {}),
         }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
@@ -2139,6 +2144,11 @@ export function startServer(options: ServeOptions): WebServer {
                 ...(data.chat ? { chatId: data.chat } : {}),
                 ...(summary ? { chatTitle: summary.title } : {}),
                 ...(summary?.project ? { project: summary.project.id } : {}),
+                ...(summary?.crew?.length ? { crew: summary.crew } : {}),
+                // The lead, or one of this chat's crew; anything else is the call assistant.
+                ...(data.talk === 'lead' || summary?.crew?.some((c) => c.name === data.talk)
+                  ? { talkTo: data.talk }
+                  : {}),
                 name: options.settings?.get().profile.name ?? account,
                 sampleRate: data.rate,
               },

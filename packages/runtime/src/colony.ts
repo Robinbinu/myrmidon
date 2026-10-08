@@ -1044,6 +1044,7 @@ export class ColonyRun implements ColonyHost {
     mode: 'steer' | 'queue' = 'steer',
     attachments: readonly Attachment[] = [],
     to: readonly string[] = [],
+    extra: { voice?: boolean; context?: string } = {},
   ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
     const names = await this.attach(attachments)
@@ -1055,6 +1056,8 @@ export class ColonyRun implements ColonyHost {
         mode,
         ...(names.length ? { attachments: names } : {}),
         ...(to.length ? { to: [...to] } : {}),
+        ...(extra.voice ? { voice: true } : {}),
+        ...(extra.context ? { context: extra.context } : {}),
       },
     })
   }
@@ -1389,7 +1392,7 @@ export class ColonyRun implements ColonyHost {
         const held = this._held.splice(0)
         // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
         const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
-        const text = `${p.text}${attachedNote(p.attachments)}`
+        const text = `${p.context ? prompts.chat.context(p.context) : ''}${p.text}${attachedNote(p.attachments)}${p.voice ? prompts.chat.spoken : ''}`
         // Written to someone directly (@name): they hear it and answer; whoever speaks for the round only hears of it.
         const to = (p.to ?? []).filter((name) => this._agents.has(name))
         if (to.length) {

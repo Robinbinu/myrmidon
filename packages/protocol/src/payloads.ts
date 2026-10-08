@@ -294,7 +294,16 @@ export interface EventPayloads {
    * doing. Only meaningful for messages sent while a round is running.
    */
   /** `to`: crew members the person wrote to directly (@name); they hear it first and may answer the person. */
-  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[]; to?: string[] }
+  'chat/user': {
+    text: string
+    mode?: 'steer' | 'queue'
+    attachments?: string[]
+    to?: string[]
+    /** Said aloud on a voice call. */
+    voice?: boolean
+    /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+    context?: string
+  }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
    * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the

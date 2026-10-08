@@ -299,6 +299,9 @@ Open work, in the order it will be done:
       - [ ] Try a real call with the mic (only the engines, the socket and Settings were checked live).
       - [x] Voice calls off by default; on, the chosen engines download (if missing) and warm, so calls answer at
         once; Silero VAD (16 kHz, 1.3 MB) finds turns instead of loudness alone (asked 2026-10-08).
+      - [x] Call the lead or a crew member directly, or the call assistant (which can now ask them); the next message
+        after a call carries its transcript to the crew; call cards placed among rounds by time (asked 2026-10-08).
+      - [ ] Mark spoken messages in the chat (they carry `voice: true`).
       - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
       - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
       - [ ] Phonon `--hotwords` from agent and project names.

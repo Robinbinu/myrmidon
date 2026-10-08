@@ -119,6 +119,10 @@ export interface SendOptions {
   readonly project?: string
   /** Fixes the size: an escalated round reruns its request at the tier its agent asked for. */
   readonly tier?: Tier
+  /** Said aloud on a voice call: the answer will be read aloud, so it should be short and plain. */
+  readonly voice?: boolean
+  /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+  readonly context?: string
 }
 
 /** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
@@ -196,6 +200,8 @@ export interface ChatRound {
   readonly request: string
   /** Swarm rounds have no lead to address. */
   readonly swarm: boolean
+  /** When the round began, so the chat can place other things (voice calls) among rounds by time. */
+  readonly startedAt?: string
 }
 
 export interface ChatSummary {
@@ -497,6 +503,7 @@ export class ChatService {
           status: r.status,
           request: r.request,
           swarm: r.swarm,
+          ...(r.createdAt ? { startedAt: r.createdAt } : {}),
         })),
       })
     }
@@ -543,11 +550,12 @@ export class ChatService {
     config: TeamConfig,
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const { delivery = 'steer', attachments = [], planFirst = false } = options
+    const { delivery = 'steer', attachments = [], planFirst = false, voice = false, context } = options
+    const extra = { ...(voice ? { voice: true } : {}), ...(context ? { context } : {}) }
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()))
+      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = await this.rounds(id)
@@ -561,6 +569,7 @@ export class ChatService {
       : (options.tier ??
         (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
     const spec = this.buildSpec(id, message, config, previous, history, tier, to)
+    if (spec.chat) Object.assign(spec.chat, extra)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
@@ -610,6 +619,7 @@ export class ChatService {
           text: message,
           ...(names.length ? { attachments: names } : {}),
           ...(to.length ? { to } : {}),
+          ...extra,
         },
       })
       for (const later of said.slice(1))

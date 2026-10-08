@@ -3229,3 +3229,37 @@ test('reviewer always: every final answer is reviewed before the round completes
   expect(reviews).toHaveLength(1)
   expect(reviews[0]).toBeGreaterThan(final)
 })
+
+test('a message said on a call reaches the lead marked as spoken, with what the chat does not show', async () => {
+  const resolver = new ModelResolver()
+  let seen = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      seen = JSON.stringify(ctx.messages)
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'It went well.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { colonyId } = await chats.send(
+    'how did the call go',
+    { ...solo('mock/lead'), judgeModel: 'mock/judge' },
+    undefined,
+    {
+      voice: true,
+      context: 'CALL TRANSCRIPT: [18:32] Person: Hello.',
+    },
+  )
+  await waitFor(colonyId)
+  expect(seen).toContain('CALL TRANSCRIPT: [18:32] Person: Hello.')
+  expect(seen).toContain('Said aloud on a voice call')
+  const user = (await events(colonyId)).find((e) => e.type === 'chat/user')
+  // The chat shows the person's words; the transcript was for the agents.
+  expect(user?.payload).toMatchObject({ text: 'how did the call go', voice: true })
+  await chats.stopAll()
+})

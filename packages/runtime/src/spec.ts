@@ -57,6 +57,10 @@ export interface ColonySpec {
     memory?: string[]
     /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
     addressed?: string[]
+    /** The opening message was said aloud on a voice call (its answer is read aloud). */
+    voice?: boolean
+    /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+    context?: string
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy

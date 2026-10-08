@@ -39,6 +39,23 @@ The **call model** is the lead's model unless you choose another; a fast one mak
 only talks and hands work on. **Speech sensitivity** sets how loud speech must be to count: lower it if background
 noise interrupts the call, raise it if quiet speech is missed.
 
+## Who you talk to
+
+**Call** opens a menu:
+
+- **Call assistant**: the fast call model. It answers quick things itself, hands real work to the crew as a round in
+  the chat, and can **ask** the lead or one agent a question for you (their answer is read out when it comes).
+- **The lead**: no model in between. What you say goes into the chat as your message (marked as spoken, so the lead
+  answers in a few plain sentences and puts detail in the chat or files), and the lead's replies are read aloud.
+- **A crew member** (each one in the chat): the same, written to them directly (@name). When a new round starts with
+  them they get the chat so far; in a running round they are already in it.
+
+On a direct call an approval the crew asks for is read out; a plain "yes" or "no" decides it.
+
+After a call with the call assistant, your next message in the chat carries the call's transcript to the crew (once),
+so you can ask the lead "how did the call go". A direct call needs no such hand-over: its words are already the chat's
+messages.
+
 ## On a call
 
 - The bar under the toolbar shows whether the call is listening, hearing you, thinking or speaking, your mic level,

@@ -388,6 +388,10 @@ const defs: EventTypeDefinition[] = [
       mode: Schema.union(['steer', 'queue']),
       attachments: Schema.array(str()).max(20),
       to: optional(Schema.array(str()).max(20)),
+      /** Said aloud on a voice call: whoever answers is told their reply will be read aloud. */
+      voice: optional(Schema.boolean()),
+      /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
+      context: optional(Schema.string().max(40_000)),
     }),
   },
   {

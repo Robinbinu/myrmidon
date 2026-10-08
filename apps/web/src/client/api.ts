@@ -217,12 +217,13 @@ export function terminalSocket(project: string | undefined, cols: number, rows: 
 }
 
 /** A voice call in a chat (or one a call will start): 16 kHz audio up, speech and call state down. */
-export function callSocket(chatId: string | undefined, rate: number): WebSocket {
+export function callSocket(chatId: string | undefined, rate: number, talk?: string): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const query = new URLSearchParams({
     ...(token ? { token } : {}),
     rate: String(rate),
     ...(chatId ? { chat: chatId } : {}),
+    ...(talk ? { talk } : {}),
   })
   const ws = new WebSocket(`${proto}://${location.host}${base}/api/voice/call?${query}`)
   ws.binaryType = 'arraybuffer'
@@ -458,6 +459,8 @@ export interface ChatRound {
   status: string
   request: string
   swarm?: boolean
+  /** When the round began. */
+  startedAt?: string
 }
 
 export interface ChatSummary {

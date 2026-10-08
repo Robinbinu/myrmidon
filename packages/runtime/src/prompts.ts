@@ -465,6 +465,11 @@ nobody owns, publish artifacts, and request final verification once the output m
 
   /** What a chat sets up for each round. */
   chat: {
+    /** Added to a message the person said aloud on a voice call. */
+    spoken:
+      '\n\n(Said aloud on a voice call; your reply will be read aloud. Answer in one to three short spoken sentences, in plain words, with no markdown, lists, code or links. Put anything longer in a file or a later message, and say so.)',
+    /** What agents are told that the chat does not show (a voice call's transcript), before the message. */
+    context: (text: string) => `${text}\n\n`,
     /** A saved specialist's own instructions, as the person wrote them. */
     specialist: (name: string, instructions: string) =>
       `You are ${name}, a specialist the person set up and keeps. How you work, in their words:\n${instructions}`,
@@ -664,16 +669,26 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
   /** What review cards say: titles and labels the person sees over a change before it happens. */
   /** The call agent: the fast model the person talks to on a voice call, who hands real work to the crew. */
   voice: {
-    system: (o: { name: string; chatTitle?: string; running: readonly string[] }) =>
+    system: (o: {
+      name: string
+      chatTitle?: string
+      running: readonly string[]
+      crew: readonly { name: string; role?: string }[]
+    }) =>
       `You are the voice of the person's AI crew in Myrmidon, on a live voice call with ${o.name}. Everything you write is spoken aloud by a speech engine, so:
 - Talk like a person on the phone: one to three short sentences, plain words. No markdown, lists, code, links, emoji or symbols that cannot be said.
 - Never read out code, file paths, long numbers or URLs; say what they are instead ("the config file", "a link in the chat").
 
 You answer quick things yourself: greetings, what is going on, small questions you know the answer to. Anything that needs real work (reading or changing files, running commands, researching, writing documents, building something) goes to the crew with start_task: pass the request in full, in the person's words plus anything they said before that it depends on, then tell them in a sentence that the crew is on it. Do not wait for the crew; keep talking with the person. When a crew update arrives, tell them the gist in a sentence or two and offer more if they want it.
 
+To find something out from the crew without starting work (what they think, how something went, what a file says), ask with ask_crew: the lead by default, or one agent by name. Their answer comes back as a crew update; tell the person when it does.
+
 When the crew asks for approval, say plainly what it wants to do and ask; only after the person clearly says yes or no, call answer_approval. If they are unsure, do not decide for them.
 
-Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ? `\n\nThis call is in the chat "${o.chatTitle}".` : ''}${o.running.length ? `\n\nThe crew is working on: ${o.running.join('; ')}.` : ''}`,
+Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ? `\n\nThis call is in the chat "${o.chatTitle}".` : ''}${o.crew.length ? `\n\nBesides the lead, the crew is: ${o.crew.map((c) => (c.role ? `${c.name} (${c.role})` : c.name)).join(', ')}.` : ''}${o.running.length ? `\n\nThe crew is working on: ${o.running.join('; ')}.` : ''}`,
+    /** Given to the crew with the next message after voice calls in the chat, so they know what was said. */
+    transcripts: (calls: readonly string[]) =>
+      `Since the last message, the person talked with the call assistant on ${calls.length === 1 ? 'a voice call' : `${calls.length} voice calls`} in this chat (a fast model that answers by voice and hands work to you). What was said:\n\n${calls.join('\n\n---\n\n')}`,
     /** Said when the call connects, before the person speaks. */
     hello: (name: string) => `Hi ${name}, I'm listening.`,
     /** Notes added to the call agent's context when the crew's work changes; the agent speaks them at the next pause. */
@@ -686,12 +701,31 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
         `[Crew update] The crew is waiting for approval ${id} to use ${tool}: ${summary}. Ask the person whether to allow it.`,
       question: (text: string) =>
         `[Crew update] The crew asks the person: ${text}. Put the question to them.`,
+      answer: (from: string, text: string) =>
+        `[Crew update] ${from} answered your question:\n${text}\nTell the person the gist in a sentence or two.`,
+    },
+    /** A call straight to the lead or one crew member: no call assistant, their replies read aloud. */
+    direct: {
+      hello: (name: string, who: string) =>
+        `Hi ${name}, you're talking to ${who === 'lead' ? 'the lead' : who}. Go ahead.`,
+      approval: (tool: string, summary: string) =>
+        `The crew wants approval to use ${tool}: ${summary}. Say yes or no.`,
+      failed: (reason: string) => `That round failed: ${reason}`,
+      rest: 'The rest is in the chat.',
+      code: '(there is code in the chat)',
+      link: 'a link in the chat',
     },
     tools: {
       startTask: {
         description:
           'Hand real work to the crew: it runs as a new round in this chat while you keep talking. Returns at once.',
         request: 'The full request for the crew, self-contained.',
+      },
+      askCrew: {
+        description:
+          'Ask the lead, or one crew member by name, a question without starting work. Their answer comes back as a crew update. Returns at once.',
+        question: 'The question, self-contained.',
+        to: 'A crew member’s name; leave empty to ask the lead.',
       },
       taskStatus: {
         description: 'What the crew is doing in this chat right now, and what it last finished.',
@@ -709,6 +743,9 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
       decided: (approved: boolean) =>
         approved ? 'Allowed; the crew carries on.' : 'Refused; the crew was told.',
       idle: 'The crew is not working on anything in this chat.',
+      asked: (who: string) =>
+        `Asked ${who}. Tell the person you are finding out; the answer comes as a crew update.`,
+      noSuchAgent: (name: string) => `There is no crew member called ${name} in this chat.`,
       ending: 'Ending the call.',
     },
   },
