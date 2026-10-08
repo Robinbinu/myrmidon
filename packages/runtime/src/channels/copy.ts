@@ -254,7 +254,7 @@ export const channelCopy = {
     heard: (text: string) => `🎙️ “${text}”`,
     cannot:
       "I can't listen to voice notes yet: add an OpenAI or Groq key in Settings → Models (they transcribe audio), or type it.",
-    failed: (why: string) => `I couldn't transcribe that: ${why}`,
+    failed: "I couldn't transcribe that; type it instead. The owner can see why in Myrmidon.",
   },
   fileTooBig: (name: string) => `${name} is too large to bring in; send a smaller file.`,
   recovered: '♻️ Recovered reply: the gateway restarted while sending it, so it may be a duplicate:\n\n',
@@ -271,12 +271,13 @@ export const channelCopy = {
     pairing: (name: string) => `Sent ${name} a code to approve`,
     approved: (name: string) => `Approved ${name}`,
     approval: (agent: string) => `Asked the owner to approve a step by ${agent}`,
+    refused: (why: string) => `Couldn't act on a message: ${why}`,
   },
   /** A channel chat's name in the app's sidebar. */
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
-  failed: (why: string) => `I couldn't start that: ${why}`,
+  failed: "I couldn't do that. The owner can see why in Myrmidon.",
   /** What an agent is doing, by tool. */
   doing: {
     shell: (command: string) => `running \`${command}\``,

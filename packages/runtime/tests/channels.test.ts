@@ -92,6 +92,8 @@ class FakeChats implements ChannelChats {
   decided: { colonyId: string; id: string; approved: boolean }[] = []
   alwaysAllowed: string[] = []
   heard = 'please check the logs'
+  /** Sends and transcriptions fail with this while it is set. */
+  refuse?: string
   events = new Map<string, MyrEvent[]>()
   running = new Set<string>()
   private _listeners = new Set<(colonyId: string, events: readonly MyrEvent[]) => void>()
@@ -103,6 +105,7 @@ class FakeChats implements ChannelChats {
     chatId: string | undefined,
     options?: { attachments?: readonly { name: string }[]; askAll?: boolean },
   ) {
+    if (this.refuse) throw new Error(this.refuse)
     this.sends.push({
       text,
       chatId,
@@ -156,6 +159,7 @@ class FakeChats implements ChannelChats {
     return { data: new TextEncoder().encode(`contents of ${name}`), mediaType: 'text/markdown' }
   }
   async transcribe() {
+    if (this.refuse) throw new Error(this.refuse)
     return this.heard
   }
   stream(colonyId: string, text: string) {
@@ -562,6 +566,20 @@ test('voice notes are transcribed and echoed; photos and files become attachment
   await say(ALICE, 'what is wrong here?', { files: [photo] })
   await until(() => chats.sends.length === 2)
   expect(chats.sends[1]).toMatchObject({ text: 'what is wrong here?', files: ['screen.png'] })
+})
+
+test('a failure on a sender’s behalf tells them only that it failed; why goes to the owner’s Activity tab', async () => {
+  const { hub, adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  chats.refuse = 'no default model: see /Users/robin/.myrmidon/agent/models.yml'
+  await say(ALICE, 'do it')
+  await until(() => adapter.to('100').includes("I couldn't do that. The owner can see why in Myrmidon."))
+  await say(ALICE, '', {
+    files: [{ kind: 'voice', name: 'v.ogg', mimeType: 'audio/ogg', read: async () => new Uint8Array([1]) }],
+  })
+  await until(() => adapter.to('100').some((text) => text.startsWith("I couldn't transcribe that")))
+  expect(adapter.to('100').join('\n')).not.toContain('/Users/robin')
+  expect(hub.activity('telegram').filter((e) => e.text.includes('/Users/robin'))).toHaveLength(2)
 })
 
 test('answers that fail to send are kept and resent when the channel comes back, marked as possibly repeated', async () => {

@@ -506,6 +506,15 @@ export class ChannelHub {
     this.options.log?.(`${channel}: ${err instanceof Error ? err.message : String(err)}`)
   }
 
+  /**
+   * Something failed on a sender's behalf: why goes to the log and the channel's Activity tab, for the owner; the
+   * sender is told only that it failed, since the reason can name this machine's paths, keys or setup.
+   */
+  private _failed(channel: string, err: unknown) {
+    this._log(channel, err)
+    this._note(channel, 'trouble', t.activity.refused(err instanceof Error ? err.message : String(err)))
+  }
+
   private _flooded(channel: string, chat: string): boolean {
     const k = `${channel}:${chat}`
     const now = Date.now()
@@ -603,7 +612,7 @@ export class ChannelHub {
         continue
       }
       if (file.kind === 'voice' || file.kind === 'audio') {
-        const heard = await this._transcribe(file.mimeType, file.name, () => file.read(), reply)
+        const heard = await this._transcribe(channel, file.mimeType, file.name, () => file.read(), reply)
         if (heard) text = text ? `${text}\n\n${heard}` : heard
         continue
       }
@@ -639,6 +648,7 @@ export class ChannelHub {
 
   /** A voice note as text, echoed back so the person sees what was heard (Hermes's `stt_echo_transcripts`). */
   private async _transcribe(
+    channel: string,
     mimeType: string,
     name: string,
     read: () => Promise<Uint8Array>,
@@ -653,7 +663,8 @@ export class ChannelHub {
       if (heard) await reply(t.voice.heard(heard))
       return heard || undefined
     } catch (err) {
-      await reply(t.voice.failed(err instanceof Error ? err.message : String(err)))
+      this._failed(channel, err)
+      await reply(t.voice.failed)
       return undefined
     }
   }
@@ -783,7 +794,8 @@ export class ChannelHub {
         ...(member ? { askAll: true } : {}),
       })
     } catch (err) {
-      await adapter.send(m.chat, { text: t.failed(err instanceof Error ? err.message : String(err)) })
+      this._failed(channel, err)
+      await adapter.send(m.chat, { text: t.failed })
       return
     }
     if (sent.chatId !== existing) {
