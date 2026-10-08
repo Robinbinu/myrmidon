@@ -23,6 +23,12 @@ export const MODEL_LIST_MIN_PX = 160
 export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
+/**
+ * The room the composer toolbar's chips need in full (attach, model, thinking, reviewer, helpers, project), measured
+ * at about 740px with a typical model and project name. With less, thinking, reviewer and helpers fold into one Team
+ * chip so the model and project keep their names.
+ */
+export const TOOLBAR_ALL_CHIPS_PX = 740
 
 /* ------------------------------------------------------------------ scrolling */
 

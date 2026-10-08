@@ -126,6 +126,8 @@ export const copy = {
     sameProvider:
       'The reviewer shares a provider with the team; one from another provider catches more of its blind spots.',
     helpers: 'Helpers',
+    /** The fold under the helpers setting that lists each helper and its model. */
+    helperList: 'Who helps',
     deliveries: {
       steer: { label: 'Steer', hint: 'Read at the next step' },
       queue: { label: 'Queue', hint: 'Read once the current work is done' },
@@ -289,6 +291,12 @@ export const copy = {
       valueAlways: 'Always review',
       valueAuto: 'Review',
       model: 'Reviewer model',
+    },
+    /** The one chip thinking, reviewer and helpers fold into when the toolbar is narrow. */
+    team: {
+      label: 'Team',
+      summary: (thinking: string, reviewer: string, helpers: string) =>
+        `Team: thinking ${thinking.toLowerCase()} · ${reviewer.toLowerCase()} · ${helpers.toLowerCase()}`,
     },
     /** One set of words for the helpers setting, used on the chip and in every summary of it. */
     helpers: {

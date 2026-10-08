@@ -23,7 +23,7 @@ import { useSpecialists } from '../specialists.ts'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
-import { type HelperMode, helperMode, helpersLabel, readSavedHelpers, saveHelpers } from './helpers.ts'
+import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
@@ -310,6 +310,36 @@ export function ReviewChip(props: {
   )
 }
 
+/**
+ * Thinking, reviewer and helpers folded into one chip, for a toolbar too narrow for all three: it opens the team panel,
+ * and its tooltip reads out the three settings.
+ */
+export function TeamChip(props: { config: TeamConfig; review?: ReviewMode; open: boolean; onClick(): void }) {
+  const thinking = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
+  const reviewer =
+    props.review === 'off'
+      ? copy.teamControls.reviewer.valueOff
+      : props.review === 'always'
+        ? copy.teamControls.reviewer.valueAlways
+        : copy.teamControls.reviewer.valueAuto
+  const summary = copy.teamControls.team.summary(thinking.title, reviewer, helpersLabel(props.config))
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={props.open}
+      aria-label={summary}
+      title={summary}
+      onClick={props.onClick}
+      className={cn(PILL, 'shrink-0', props.open && 'bg-fill text-fg')}
+    >
+      <Users className="size-3.5 shrink-0" />
+      {copy.teamControls.team.label}
+      <ChevronDown className="size-3 shrink-0 text-muted" />
+    </button>
+  )
+}
+
 /** Whether the lead may bring in helpers for big jobs, and who they are. */
 export function HelpersChip(props: {
   models: ModelOption[]
@@ -319,27 +349,7 @@ export function HelpersChip(props: {
   const { config } = props
   const mode = helperMode(config)
   const on = mode !== 'never'
-  const choose = (next: HelperMode) => {
-    const { helpers: _, ...rest } = config
-    if (next === 'never') {
-      if (on) saveHelpers({ roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode })
-      return props.onConfig({ ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 })
-    }
-    props.onConfig({
-      ...rest,
-      ...(on
-        ? {}
-        : (readSavedHelpers() ?? {
-            mode: 'orchestrated',
-            roster: [
-              { role: 'researcher', model: config.leadModel },
-              { role: 'coder', model: config.leadModel },
-            ],
-            extraWorkers: 2,
-          })),
-      ...(next === 'always' ? { helpers: 'always' as const } : {}),
-    })
-  }
+  const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next))
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}

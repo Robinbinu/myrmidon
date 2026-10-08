@@ -6,6 +6,7 @@ import {
   helpersLabel,
   readSavedHelpers,
   saveHelpers,
+  withHelperMode,
 } from '../src/client/chat/helpers.ts'
 
 const base: TeamConfig = {
@@ -53,4 +54,19 @@ test('helpers turned off are kept across a reload, and a damaged record is ignor
   expect(readSavedHelpers()).toBeUndefined()
   store.set('myr-helpers-saved', '{not json')
   expect(readSavedHelpers()).toBeUndefined()
+})
+
+test('turning helpers off and on again brings back the same team, swarm included', () => {
+  const swarm: TeamConfig = { ...base, mode: 'swarm', extraWorkers: 0, helpers: 'always' }
+  const off = withHelperMode(swarm, 'never')
+  expect(off).toMatchObject({ mode: 'orchestrated', roster: [], extraWorkers: 0 })
+  expect(off.helpers).toBeUndefined()
+  expect(helperMode(off)).toBe('never')
+  // Read back from storage, as after a reload: nothing about the team lives only in memory.
+  const { helpers: _always, ...auto } = swarm
+  expect(withHelperMode(off, 'auto')).toEqual(auto)
+  expect(withHelperMode(off, 'always')).toEqual(swarm)
+  // With nothing set aside, helpers start as two on the lead's model.
+  store.clear()
+  expect(withHelperMode(off, 'auto').roster.map((r) => r.role)).toEqual(['researcher', 'coder'])
 })

@@ -55,3 +55,30 @@ export function saveHelpers(saved: SavedHelpers) {
     // Private browsing forgets the set-aside helpers; turning them on again starts from the defaults.
   }
 }
+
+/**
+ * The config with helpers set to `next`. Never sets the helpers aside and leaves the lead alone (a swarm without
+ * peers is no swarm, so it becomes a lead); turning them on brings back the ones set aside, or two to start with.
+ */
+export function withHelperMode(config: TeamConfig, next: HelperMode): TeamConfig {
+  const { helpers: _, ...rest } = config
+  const on = helperMode(config) !== 'never'
+  if (next === 'never') {
+    if (on) saveHelpers({ roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode })
+    return { ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 }
+  }
+  return {
+    ...rest,
+    ...(on
+      ? {}
+      : (readSavedHelpers() ?? {
+          mode: 'orchestrated',
+          roster: [
+            { role: 'researcher', model: config.leadModel },
+            { role: 'coder', model: config.leadModel },
+          ],
+          extraWorkers: 2,
+        })),
+    ...(next === 'always' ? { helpers: 'always' as const } : {}),
+  }
+}

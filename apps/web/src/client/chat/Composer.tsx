@@ -26,13 +26,13 @@ import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
+import { MAX_FILE_BYTES, MAX_FILES, spring, TOOLBAR_ALL_CHIPS_PX } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
-import { helpersHint, helpersLabel } from './helpers.ts'
+import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
-import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './TeamControls.tsx'
+import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
 
 export const MODES = [
   {
@@ -59,6 +59,12 @@ const THINKING = [
   { value: 'low', label: copy.composer.thinking.low },
   { value: 'medium', label: copy.composer.thinking.medium },
   { value: 'high', label: copy.composer.thinking.high },
+] as const
+
+const HELPER_MODES = [
+  { value: 'never', label: copy.teamControls.helperModes.never.title },
+  { value: 'auto', label: copy.teamControls.helperModes.auto.title },
+  { value: 'always', label: copy.teamControls.helperModes.always.title },
 ] as const
 
 const REVIEW = [
@@ -155,24 +161,35 @@ export function TeamSettings(props: {
       )}
 
       <div className={GROUP}>
-        <button
-          type="button"
-          onClick={() => setHelpersOpen(!helpersOpen)}
-          aria-expanded={helpersOpen}
-          className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
-        >
-          <ChevronRight
-            className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
+        <Row label={copy.composer.helpers} hint={helpersHint(config)}>
+          <Segmented
+            id="composer-helpers"
+            value={helperMode(config)}
+            options={[...HELPER_MODES]}
+            onChange={(mode) => props.onConfig(withHelperMode(config, mode))}
           />
-          <span className="flex-1 text-[13px]">{copy.composer.helpers}</span>
-          <span className="text-[12px] text-muted">{helpersLabel(config)}</span>
-        </button>
+        </Row>
+        {helperMode(config) !== 'never' && (
+          <button
+            type="button"
+            onClick={() => setHelpersOpen(!helpersOpen)}
+            aria-expanded={helpersOpen}
+            className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
+          >
+            <ChevronRight
+              className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
+            />
+            <span className="flex-1 text-[13px]">{copy.composer.helperList}</span>
+            <span className="text-[12px] text-muted">{helpersLabel(config)}</span>
+          </button>
+        )}
         <AnimatePresence initial={false}>
-          {helpersOpen && (
+          {helpersOpen && helperMode(config) !== 'never' && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
+              // Clipped only while it folds, so the helpers' model lists can open past its edge.
+              animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
+              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
               transition={{ duration: 0.18 }}
               className="overflow-hidden"
             >
@@ -188,7 +205,6 @@ export function TeamSettings(props: {
           )}
         </AnimatePresence>
       </div>
-      <p className="px-1 text-[11.5px] leading-snug text-muted">{helpersHint(config)}</p>
     </div>
   )
 }
@@ -307,6 +323,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const wrap = useRef<HTMLDivElement>(null)
   const teamPanel = useRef<HTMLDivElement>(null)
   const { config } = props
+
+  // Where the toolbar can't fit every chip, Thinking, Reviewer and Helpers fold into one Team chip, so the model and
+  // project chips keep their names. The chip group takes the room the send buttons leave (they grow while running),
+  // whatever it holds, so measuring it never flips back and forth as chips fold.
+  const chipRow = useRef<HTMLDivElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const el = chipRow.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setNarrow(el.clientWidth < TOOLBAR_ALL_CHIPS_PX))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   useImperativeHandle(ref, () => ({
     focus: () => area.current?.focus(),
@@ -571,7 +600,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 e.target.value = ''
               }}
             />
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div ref={chipRow} className="flex min-w-0 flex-1 items-center gap-1">
               <button
                 type="button"
                 onClick={() => picker.current?.click()}
@@ -590,15 +619,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 models={props.models}
                 onChange={(leadModel) => props.onConfig({ ...config, leadModel })}
               />
-              <ThinkingChip config={config} onConfig={props.onConfig} />
-              <ReviewChip
-                models={props.models}
-                config={config}
-                onConfig={props.onConfig}
-                {...(review ? { review } : {})}
-                onReview={changeReview}
-              />
-              <HelpersChip models={props.models} config={config} onConfig={props.onConfig} />
+              {narrow ? (
+                <TeamChip
+                  config={config}
+                  {...(review ? { review } : {})}
+                  open={showTeam}
+                  onClick={() => setShowTeam(!showTeam)}
+                />
+              ) : (
+                <>
+                  <ThinkingChip config={config} onConfig={props.onConfig} />
+                  <ReviewChip
+                    models={props.models}
+                    config={config}
+                    onConfig={props.onConfig}
+                    {...(review ? { review } : {})}
+                    onReview={changeReview}
+                  />
+                  <HelpersChip models={props.models} config={config} onConfig={props.onConfig} />
+                </>
+              )}
               {chips.map(({ plugin, def }) => (
                 <PluginSlot
                   key={plugin}
