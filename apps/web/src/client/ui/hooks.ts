@@ -72,6 +72,52 @@ export function useSeenMail(
   return [seen, mark]
 }
 
+const CHATS_SEEN = 'myr-chat-seen'
+
+/**
+ * Which chats finished since the person last looked at them, as Codex and Claude Code mark them with a blue dot. Each
+ * chat's `updatedAt` when last open is kept in this browser; the chat open now is always seen. The first time, every
+ * chat already listed counts as seen, so an existing list does not light up all at once.
+ */
+export function useUnreadChats(
+  chats: readonly { chatId: string; updatedAt: string }[],
+  loaded: boolean,
+  open: string | undefined,
+): (chat: { chatId: string; updatedAt: string }) => boolean {
+  const [seen, setSeen] = useState<Record<string, string>>(() => readSeenChats() ?? {})
+  const openAt = chats.find((c) => c.chatId === open)?.updatedAt
+  // biome-ignore lint/correctness/useExhaustiveDependencies: seeded once, from the first list that loads
+  useEffect(() => {
+    if (!loaded || readSeenChats() !== undefined) return
+    const first = Object.fromEntries(chats.map((c) => [c.chatId, c.updatedAt]))
+    store(CHATS_SEEN, JSON.stringify(first))
+    setSeen(first)
+  }, [loaded])
+  useEffect(() => {
+    if (!open || !openAt) return
+    setSeen((prev) => {
+      if ((prev[open] ?? '') >= openAt) return prev
+      const next = { ...prev, [open]: openAt }
+      store(CHATS_SEEN, JSON.stringify(next))
+      return next
+    })
+  }, [open, openAt])
+  return (chat) => chat.chatId !== open && chat.updatedAt > (seen[chat.chatId] ?? '')
+}
+
+function readSeenChats(): Record<string, string> | undefined {
+  try {
+    const raw: unknown = JSON.parse(readStored(CHATS_SEEN, 'null'))
+    if (!raw || typeof raw !== 'object') return undefined
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'string')) as Record<
+      string,
+      string
+    >
+  } catch {
+    return undefined
+  }
+}
+
 function readSeen(key: string): Record<string, number> {
   try {
     const raw: unknown = JSON.parse(readStored(key, '{}'))

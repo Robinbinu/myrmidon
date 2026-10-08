@@ -19,6 +19,45 @@ export function toneFor(status: string): Tone {
 }
 
 /**
+ * How a status dot is drawn, after Codex and Claude Code: only work in progress moves (a spinner); a filled dot is
+ * live or asks for something, a hollow ring is finished or resting. Each state differs in shape as well as colour,
+ * and its words always sit beside it.
+ *   spinner  working: running, connecting
+ *   alert    needs the person: an answer, an approval (amber, the one colour that asks)
+ *   unread   finished while the person was elsewhere, not opened yet (blue)
+ *   live     on and healthy: a connection, a ready provider (filled, its tone's colour)
+ *   done     finished: completed, verified (hollow ring)
+ *   idle     resting, nothing to do (hollow muted ring)
+ *   queued   waiting its turn: pending, provisioning (dashed ring)
+ *   stopped  stopped by someone (small square)
+ *   failed   failed or refused (×)
+ */
+export type DotShape =
+  | 'spinner'
+  | 'alert'
+  | 'unread'
+  | 'live'
+  | 'done'
+  | 'idle'
+  | 'queued'
+  | 'stopped'
+  | 'failed'
+
+export function dotShape(status: string): DotShape {
+  if (status === 'unread') return 'unread'
+  if (['waiting', 'awaiting'].includes(status)) return 'alert'
+  if (['pending', 'queued', 'provisioning'].includes(status)) return 'queued'
+  if (status === 'stopped') return 'stopped'
+  if (['completed', 'done', 'verified'].includes(status)) return 'done'
+  if (['idle', 'resting', 'off'].includes(status)) return 'idle'
+  const tone = toneFor(status)
+  if (tone === 'work') return 'spinner'
+  if (tone === 'bad') return 'failed'
+  if (tone === 'accent') return 'alert'
+  return tone === 'neutral' ? 'idle' : 'live'
+}
+
+/**
  * A chat's or crew run's state for its dot and pill. A round that stopped to ask the person waits for them, and one a
  * model failure stopped has failed (`stopCause` in the protocol tells these from an ordinary stop).
  */

@@ -70,6 +70,8 @@ export const copy = {
       completed: 'completed',
       stopped: 'stopped',
       failed: 'failed',
+      /** Finished while the person was in another chat, and not opened since. */
+      unread: 'finished, not seen yet',
     },
   },
 

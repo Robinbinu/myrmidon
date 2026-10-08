@@ -11,6 +11,7 @@ import {
   Tabs,
   tabPanel,
 } from '../src/client/ui/primitives.tsx'
+import { dotShape } from '../src/client/ui/status.ts'
 
 test('a loading button waits: it is busy, cannot be pressed again, and shows a spinner instead of its icon', () => {
   const html = renderToStaticMarkup(
@@ -36,12 +37,25 @@ test('a disabled icon button does not answer the pointer', () => {
   expect(renderToStaticMarkup(<IconButton label="Go" disabled />)).toContain('disabled:pointer-events-none')
 })
 
-test('a dot takes its colour from a status or a tone, and only moving work pings by default', () => {
-  expect(renderToStaticMarkup(<Dot status="failed" />)).toContain('bg-bad')
-  expect(renderToStaticMarkup(<Dot tone="ok" />)).toContain('bg-ok')
-  expect(renderToStaticMarkup(<Dot status="running" />)).toContain('animate-ping')
-  expect(renderToStaticMarkup(<Dot status="running" pulse={false} />)).not.toContain('animate-ping')
-  expect(renderToStaticMarkup(<Dot tone="ok" pulse />)).toContain('animate-ping')
+test('a dot follows the Codex and Claude Code standard: only work spins, and each state has its own shape', () => {
+  const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el)
+  expect(html(<Dot status="running" />)).toContain('animate-spin')
+  // With less motion, or where it would never stop, work holds still.
+  expect(html(<Dot status="running" />)).toContain('less-motion:hidden')
+  expect(html(<Dot status="running" pulse={false} />)).not.toContain('animate-spin')
+  expect(html(<Dot status="awaiting" />)).toContain('bg-accent')
+  expect(html(<Dot status="unread" />)).toContain('bg-unread')
+  expect(html(<Dot status="failed" />)).toContain('<svg')
+  expect(html(<Dot tone="bad" />)).toContain('<svg')
+  expect(html(<Dot tone="ok" />)).toContain('bg-ok')
+  expect(html(<Dot status="completed" />)).toContain('border-ok')
+  for (const status of ['awaiting', 'unread', 'completed', 'stopped', 'failed', 'idle', 'pending', 'on'])
+    expect(html(<Dot status={status} />)).not.toContain('animate-')
+  expect(
+    ['running', 'awaiting', 'unread', 'on', 'completed', 'idle', 'pending', 'stopped', 'failed'].map(
+      dotShape,
+    ),
+  ).toEqual(['spinner', 'alert', 'unread', 'live', 'done', 'idle', 'queued', 'stopped', 'failed'])
 })
 
 test('a count badge reads as its sentence when it has one, and caps long counts', () => {

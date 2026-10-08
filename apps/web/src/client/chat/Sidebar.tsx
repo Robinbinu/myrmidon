@@ -27,7 +27,7 @@ import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
-import type { ThemeChoice } from '../ui/hooks.ts'
+import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
@@ -124,6 +124,11 @@ export function Sidebar(props: {
       // A chats-only device may not see channels; its chats simply show no logo.
       .catch(() => setChannelOf({}))
   }, [chatIds])
+  const unread = useUnreadChats(
+    props.chats,
+    props.loaded,
+    props.view === 'chat' ? props.activeChat : undefined,
+  )
   const [editing, setEditing] = useState<string>()
   const [draft, setDraft] = useState('')
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
@@ -247,6 +252,10 @@ export function Sidebar(props: {
 
   const row = (c: ChatSummary) => {
     const on = c.chatId === props.activeChat && props.view === 'chat'
+    const phase = runPhase(c)
+    // A chat that finished while the person was elsewhere is marked until they open it; one that needs them or failed
+    // keeps its own mark.
+    const dot = (phase === 'completed' || phase === 'stopped') && unread(c) ? 'unread' : phase
     // A chat found only by its messages shows the line that matched.
     const q = query.trim()
     const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
@@ -306,12 +315,12 @@ export function Sidebar(props: {
               />
             )}
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
-              <Dot status={runPhase(c)} />
+              <Dot status={dot} />
               {channelOf[c.chatId] && (
                 <ChannelLogo id={channelOf[c.chatId] ?? ''} size={15} className="relative" />
               )}
               <span className="truncate">{c.title}</span>
-              <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
+              <span className="sr-only">{copy.status.spoken(copy.status.run[dot])}</span>
               {c.rounds.length > 1 && (
                 <span
                   className="ml-auto text-caption tabular-nums text-muted"

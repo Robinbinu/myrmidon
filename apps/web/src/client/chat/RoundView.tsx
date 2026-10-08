@@ -923,7 +923,7 @@ function LiveServers({ state }: { state: ColonyState }) {
   if (live.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-body">
-      <Dot tone="ok" pulse />
+      <Dot tone="ok" />
       {live.map((s) => (
         <a
           key={s.name}

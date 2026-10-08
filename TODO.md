@@ -410,9 +410,11 @@ Open work, in the order it will be done:
 12f. - [x] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
       drops as they read a conversation and rises when new messages arrive. Done: last seq seen per conversation, kept
       in the browser; checked live (99+ → 21 after opening two conversations).
-12g. - [ ] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
+12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
-      status dot in the app.
+      status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
+      elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
+      Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
