@@ -168,6 +168,8 @@ export const copy = {
     },
     /** In the call bar: who the call is with. */
     with: (who: string) => `With ${who}`,
+    /** How long the last answer took to start, after the person stopped talking. */
+    latency: (ms: number) => `answered in ${(ms / 1000).toFixed(1)} s`,
     assistantName: 'the call assistant',
     leadName: 'the lead',
     started: (request: string) => `Crew started: ${request}`,

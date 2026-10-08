@@ -3,9 +3,12 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
+import { SmartTurn } from '../src/voice/smart-turn.ts'
+import { SpeechSplitter } from '../src/voice/speech.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { KittenTts, OpenAiCompatibleTts } from '../src/voice/tts.ts'
 import { SileroVad, VAD_CHUNK } from '../src/voice/vad.ts'
+import { whisperFeatures } from '../src/voice/whisper-features.ts'
 
 const dirs: string[] = []
 const servers: { stop(force?: boolean): void }[] = []
@@ -196,6 +199,59 @@ test.skipIf(!process.env.MYR_VOICE_E2E)(
     } finally {
       kitten.stop()
       phonon.stop()
+    }
+  },
+  15 * 60_000,
+)
+
+test('replies are split for speech as they are written: first clause early, code held until it closes', () => {
+  const s = new SpeechSplitter({ firstClause: true })
+  expect(s.push('I looked', false)).toEqual([])
+  // A clause of a few words goes at once; a short one ("Sure thing,") waits for the sentence.
+  expect(s.push('I looked at the build, and', false)).toEqual(['I looked at the build,'])
+  expect(s.push('I looked at the build, and it is green. Then', false)).toEqual(['and it is green.'])
+  const code = 'I looked at the build, and it is green. Then run:\n```\nnpm test'
+  expect(s.push(code, false)).toEqual(['Then run:'])
+  expect(s.push(`${code}\n\`\`\`\nDone.`, true)).toEqual(['(there is code in the chat)', 'Done.'])
+  expect(new SpeechSplitter({ firstClause: true }).push('Sure thing, I will check', false)).toEqual([])
+})
+
+test('the turn model is saved only if it matches its pinned hash', async () => {
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('not a model') })
+  servers.push(server)
+  const turn = new SmartTurn(home(), `http://127.0.0.1:${server.port}/st.onnx`)
+  await expect(turn.load()).rejects.toThrow('did not match its hash')
+  expect(turn.ready).toBe(false)
+})
+
+test('Whisper features match the reference shape and range', () => {
+  const tone = Float32Array.from({ length: 16_000 }, (_, i) => 0.3 * Math.sin(i / 5))
+  const f = whisperFeatures(tone)
+  expect(f.length).toBe(80 * 800)
+  // (log10 + 4) / 4, floored 8 below the peak: everything lies within 2 of the top.
+  const max = f.reduce((m, x) => Math.max(m, x), -Infinity)
+  const min = f.reduce((m, x) => Math.min(m, x), Infinity)
+  expect(max - min).toBeLessThanOrEqual(2.0001)
+})
+
+test.skipIf(!process.env.MYR_VOICE_E2E)(
+  'Smart Turn hears a finished sentence as finished and a trailing "um" as not',
+  async () => {
+    const h = home()
+    const kitten = new KittenTts(h, () => ({ model: 'nano', voice: 'Jasper', speed: 1 }))
+    const turn = new SmartTurn(h)
+    try {
+      const at16k = async (text: string) => {
+        const pcm = trimSilence((await kitten.speak(text)).pcm, 24_000, 0, 0)
+        return Int16Array.from(
+          { length: Math.floor(pcm.length / 1.5) },
+          (_, i) => pcm[Math.floor(i * 1.5)] ?? 0,
+        )
+      }
+      expect(await turn.finished(await at16k('What is the weather in Paris today?'))).toBeGreaterThan(0.8)
+      expect(await turn.finished(await at16k('So the thing is, um'))).toBeLessThan(0.3)
+    } finally {
+      kitten.stop()
     }
   },
   15 * 60_000,

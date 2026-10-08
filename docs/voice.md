@@ -18,6 +18,17 @@ Your turns are found by **Silero VAD** (snakers4/silero-vad, MIT): its 16 kHz mo
 `<home>/voice` and checked against the hash of release v6.2.3. It tells speech from noise, music and tones, so a
 door or a fan does not start a turn; without it (or if it fails) Myrmidon falls back to how loud the sound is.
 
+When you pause, **Smart Turn v3.2** (Pipecat, pipecat-ai/smart-turn-v3, BSD-2-Clause; 8.7 MB, downloaded into
+`<home>/voice` and checked against its hash) hears whether you have finished your thought: after 0.2 s of quiet a
+finished sentence ends your turn, while "I think we should…" keeps listening (up to 2 s). Your words are transcribed
+during that pause, so the answer can start at once. Without the model a turn ends after 0.8 s of quiet.
+
+Answers are spoken as they are written, as Pipecat does: the call assistant's (and on a direct call the lead's or the
+agent's) reply is read a sentence at a time while the rest is still being written, its first clause even sooner. The
+call bar shows how long each answer took to start; the server log breaks it down (turn end and transcript, first
+words, first sound). On this Mac our own part of a turn is about 0.6 s; the rest is the call model, so a fast one
+matters most.
+
 By default speech stays on your Mac:
 
 - **Speech to text: Phonon-2** (Fermion Research, 164 MB, English). Press **Install**: Myrmidon runs

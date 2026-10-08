@@ -343,7 +343,13 @@ export function App() {
 
   // A voice call from this window: its socket and audio live in the client, what the bar shows lives here.
   const callRef = useRef<CallClient>(undefined)
-  const [call, setCall] = useState<{ state: CallState; lines: CallLine[]; muted: boolean; with: string }>()
+  const [call, setCall] = useState<{
+    state: CallState
+    lines: CallLine[]
+    muted: boolean
+    with: string
+    latency?: number
+  }>()
   const [calls, setCalls] = useState<SavedCall[]>([])
   const [callsSeen, setCallsSeen] = useState(0)
   // The Call button shows only once voice calls are on in Settings → Voice.
@@ -381,6 +387,7 @@ export function App() {
           refreshChats()
         },
         task: (request) => toast(copy.call.started(request), 'info'),
+        latency: (ms) => setCall((c) => c && { ...c, latency: ms }),
         error: (message) => toast(message, 'error'),
         ended: () => {
           callRef.current = undefined
@@ -805,6 +812,7 @@ export function App() {
                   <CallBar
                     key="call"
                     with={call.with}
+                    {...(call.latency !== undefined ? { latency: call.latency } : {})}
                     state={call.state}
                     lines={call.lines}
                     muted={call.muted}

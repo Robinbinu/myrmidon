@@ -3,7 +3,9 @@ import type { MyrEvent } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
-import { type CallChats, type CallOutput, CallSession, speakable, splitSentences } from '../src/voice/call.ts'
+import { type CallChats, type CallOutput, CallSession, splitSentences } from '../src/voice/call.ts'
+import type { TurnJudge } from '../src/voice/smart-turn.ts'
+import { speakable } from '../src/voice/speech.ts'
 import type { SpeechDetector } from '../src/voice/vad.ts'
 
 const RATE = 16_000
@@ -36,6 +38,7 @@ function setup(
     crew?: { name: string; role?: string }[]
     /** Every message lands in this one running colony (a round already going). */
     colony?: string
+    judge?: TurnJudge
   } = {},
 ) {
   const heard: string[] = []
@@ -43,6 +46,7 @@ function setup(
   const sent: { text: string; chatId?: string; voice?: boolean }[] = []
   const decided: [string, string, boolean][] = []
   let listener: ((colonyId: string, events: readonly MyrEvent[]) => void) | undefined
+  let streamer: ((colonyId: string, agent: string, text: string, done: boolean) => void) | undefined
   const chats: CallChats = {
     send: async (text, chatId, opts) => {
       sent.push({ text, ...(chatId ? { chatId } : {}), ...(opts?.voice ? { voice: true } : {}) })
@@ -52,6 +56,12 @@ function setup(
       listener = l
       return () => {
         listener = undefined
+      }
+    },
+    onStream: (l) => {
+      streamer = l
+      return () => {
+        streamer = undefined
       }
     },
     decideApproval: async (colonyId, id, approved) => {
@@ -67,6 +77,7 @@ function setup(
       resolver,
       stt: { transcribe: async () => heard.shift() ?? '' },
       ...(options.detector ? { detector: options.detector } : {}),
+      ...(options.judge ? { judge: options.judge } : {}),
       tts: {
         speak: async (text) => {
           if (options.slowVoiceMs) await Bun.sleep(options.slowVoiceMs)
@@ -97,7 +108,10 @@ function setup(
   const events = (colonyId: string, list: { type: string; payload: Record<string, unknown> }[]) =>
     listener?.(colonyId, list as unknown as MyrEvent[])
   const said = () => out.flatMap((o) => (o.type === 'said' ? [o.text] : []))
-  return { call, out, sent, decided, say, events, said, model, heard }
+  /** The chat's reply stream: `text` is the reply so far. */
+  const stream = (colonyId: string, agent: string, text: string, done: boolean) =>
+    streamer?.(colonyId, agent, text, done)
+  return { call, out, sent, decided, say, events, said, model, heard, stream, loud }
 }
 
 test('sentences are split as they are written', () => {
@@ -149,7 +163,8 @@ test('real work goes to the crew as a round; the call hears back when it is done
     { type: 'chat/reply', payload: { agent: 'lead', text: 'Report written: 3 pages.', final: true } },
     { type: 'colony/completed', payload: {} },
   ])
-  await until(() => said().includes('The report is ready, three pages.'))
+  // Its first clause is spoken on its own, as soon as it is written.
+  await until(() => said().join(' ').includes('The report is ready, three pages.'))
   const crew = call.transcript().find((t) => t.who === 'crew')
   expect(crew?.text).toContain('Report written: 3 pages.')
   // Rounds the call did not start are not its business.
@@ -312,4 +327,55 @@ test('replies are made speakable: no markdown, code or links, and long ones stop
   const long = speakable('One. Two. Three. Four. Five. Six. Seven. Eight.')
   expect(long).toHaveLength(7)
   expect(long.at(-1)).toBe('The rest is in the chat.')
+})
+
+test('with a turn model, a short pause ends a finished turn, using the words heard meanwhile', async () => {
+  const verdict = { finished: 0.9 }
+  const judged: number[] = []
+  const judge: TurnJudge = {
+    finished: async (audio) => {
+      judged.push(audio.length)
+      return verdict.finished
+    },
+  }
+  const { call, said, out, heard, loud } = setup((text) => (text === 'hello' ? ['Hi there.'] : []), { judge })
+  await call.start()
+  const t0 = Date.now()
+  heard.push('hello')
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  // Only 300 ms of quiet: without the model a turn needs 2 s.
+  for (let i = 0; i < 15; i++) call.audio(new Int16Array(320))
+  await until(() => said().includes('Hi there.'))
+  expect(judged).toHaveLength(1)
+  expect(Date.now() - t0).toBeLessThan(1500)
+  expect(out.some((o) => o.type === 'latency')).toBe(true)
+  // Unfinished: the same short pause does not end the turn.
+  verdict.finished = 0.1
+  heard.push('and then')
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  for (let i = 0; i < 15; i++) call.audio(new Int16Array(320))
+  await Bun.sleep(150)
+  expect(out.filter((o) => o.type === 'heard')).toHaveLength(1)
+  call.hangUp()
+})
+
+test("a direct call speaks the lead's reply while it is still being written, and not twice", async () => {
+  const { call, say, said, events, sent, stream } = setup(() => [], { talkTo: 'lead', colony: 'c' })
+  await call.start()
+  say('status please')
+  await until(() => sent.length === 1)
+  stream('c', 'lead', 'The build looks fine to me, all', false)
+  // The first clause is out before the reply is finished.
+  await until(() => said().includes('The build looks fine to me,'))
+  stream('c', 'lead', 'The build looks fine to me, all tests pass. Deploying next.', true)
+  await until(() => said().includes('Deploying next.'))
+  events('c', [
+    {
+      type: 'chat/reply',
+      payload: { agent: 'lead', text: 'The build looks fine to me, all tests pass. Deploying next.' },
+    },
+  ])
+  await Bun.sleep(50)
+  expect(said().filter((t) => t === 'Deploying next.')).toHaveLength(1)
+  call.hangUp()
 })

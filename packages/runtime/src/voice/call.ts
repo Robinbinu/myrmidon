@@ -7,10 +7,20 @@ import {
   type Tool,
   type ToolCall,
 } from '@oh-my-pi/pi-ai'
-import { VOICE_ANSWER_CHARS, VOICE_STEPS } from '../config.ts'
+import {
+  VOICE_ANSWER_CHARS,
+  VOICE_END_MS,
+  VOICE_PAUSE_MS,
+  VOICE_SMART_END_MS,
+  VOICE_SMART_TURN_THRESHOLD,
+  VOICE_SPOKEN_SENTENCES,
+  VOICE_STEPS,
+} from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import { trimSilence } from './audio.ts'
+import type { TurnJudge } from './smart-turn.ts'
+import { SpeechSplitter, speakable } from './speech.ts'
 import type { SpeechToText } from './stt.ts'
 import type { TextToSpeech } from './tts.ts'
 import { rms, TurnDetector } from './turns.ts'
@@ -24,6 +34,8 @@ export interface CallChats {
     options?: { project?: string; voice?: boolean },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void
+  /** Replies as they are written (`text` is the reply so far), so a direct call speaks them as they come. */
+  onStream?(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
 }
 
@@ -69,6 +81,11 @@ export type CallOutput =
   | { type: 'chat'; chatId: string }
   | { type: 'task'; colonyId: string; request: string }
   | { type: 'error'; message: string }
+  /**
+   * How long the person waited for the answer to start, from when they stopped talking, and where it went: finding
+   * the turn had ended and hearing it (`heard`), the first words written (`thought`), the first sound (`voiced`).
+   */
+  | { type: 'latency'; ms: number; heard: number; thought: number; voiced: number }
   | { type: 'ended'; reason: 'hung-up' | 'agent' | 'error' }
 
 /** Something the call sent the crew: a task, or a question to the lead or one agent; and what came of it. */
@@ -86,8 +103,6 @@ interface Sent {
 /** Spoken yes and no, for approvals on a call without the call assistant. */
 const YES = /^(yes|yeah|yep|sure|ok(ay)?|go ahead|do it|allow( it)?|approve( it)?)\b/i
 const NO = /^(no|nope|don'?t|stop|deny|refuse|cancel)\b/i
-/** Sentences of a reply read aloud on a direct call; the rest stays in the chat. */
-const SPOKEN_SENTENCES = 6
 
 const TOOLS: Tool[] = [
   {
@@ -167,6 +182,13 @@ export class CallSession {
   private _scoring: Promise<void> = Promise.resolve()
   private _hangUpAfterSpeech = false
   private readonly _off: () => void
+  private _offStream?: () => void
+  /** A direct call's replies being spoken as they are written, by colony and agent. */
+  private readonly _streams = new Map<string, { split: SpeechSplitter; signal: AbortSignal; done: boolean }>()
+  /** Agents whose last reply was spoken from its stream, so its finished copy is not spoken again. */
+  private readonly _streamed = new Set<string>()
+  /** The current turn's timings (ms since epoch): when the person stopped, was heard, first words, first sound. */
+  private _clock?: { stopped: number; heard: number; thought?: number }
 
   constructor(
     private readonly ports: {
@@ -176,6 +198,8 @@ export class CallSession {
       readonly tts: TextToSpeech
       /** Silero VAD; without it (or if it fails) turns are found by level. */
       readonly detector?: SpeechDetector
+      /** Smart Turn: with it a short pause can end a finished turn; without it, a turn ends after a longer quiet. */
+      readonly judge?: TurnJudge
     },
     private readonly options: CallOptions,
     private readonly emit: (out: CallOutput) => void,
@@ -185,10 +209,15 @@ export class CallSession {
       sampleRate: options.sampleRate,
       start: options.start,
       hold: options.hold,
+      ...(ports.judge ? { pauseMs: VOICE_PAUSE_MS, endMs: VOICE_SMART_END_MS } : {}),
     })
     // Silero's model here is for 16 kHz; other rates (a phone line's 8 kHz) are scored by level.
     if (ports.detector && options.sampleRate === 16_000) this._vad = ports.detector.stream()
     this._off = ports.chats.onEvents((colonyId, events) => this._onEvents(colonyId, events))
+    if (options.talkTo && ports.chats.onStream)
+      this._offStream = ports.chats.onStream((colonyId, agent, text, done) =>
+        this._onStream(colonyId, agent, text, done),
+      )
   }
 
   get chatId(): string | undefined {
@@ -255,8 +284,36 @@ export class CallSession {
       if (event.type === 'start') {
         if (this._reply || this._playingUntil > Date.now()) this.interrupt()
         this._state('hearing')
-      } else void this._heard(event.audio)
+      } else if (event.type === 'pause') void this._pause(event.id, event.audio)
+      else
+        void this._heard(this._transcribe(event.audio), this.ports.judge ? VOICE_SMART_END_MS : VOICE_END_MS)
     }
+  }
+
+  private _transcribe(audio: Int16Array): Promise<string> {
+    const text = this.ports.stt.transcribe(audio, this.options.sampleRate)
+    // Not every pause's transcript is used; one that fails unused is not an error.
+    text.catch(() => {})
+    return text
+  }
+
+  /**
+   * A short pause: Smart Turn hears whether the person has finished. Their words are transcribed meanwhile, so if
+   * they have, the transcript is ready as the turn ends (Pipecat's way to answer sooner).
+   */
+  private async _pause(id: number, audio: Int16Array) {
+    const judge = this.ports.judge
+    if (!judge) return
+    const text = this._transcribe(audio)
+    let finished = 0
+    try {
+      finished = await judge.finished(audio)
+    } catch (err) {
+      this.emit({ type: 'error', message: `turn model: ${err instanceof Error ? err.message : String(err)}` })
+      return
+    }
+    if (finished < VOICE_SMART_TURN_THRESHOLD || this._ended) return
+    if (this._detector.end(id)) void this._heard(text, VOICE_PAUSE_MS)
   }
 
   /** The person talked over the call agent (found here or by their side): stop speaking and listen. */
@@ -280,6 +337,7 @@ export class CallSession {
     this._ended = true
     this._reply?.abort()
     this._off()
+    this._offStream?.()
     this.emit({ type: 'ended', reason })
   }
 
@@ -291,10 +349,12 @@ export class CallSession {
     this._turns.push({ at: new Date().toISOString(), who, text })
   }
 
-  private async _heard(audio: Int16Array) {
+  /** A finished turn: its transcript (on its way) and how long the person had already been quiet. */
+  private async _heard(transcript: Promise<string>, quietMs: number) {
+    const stopped = Date.now() - quietMs
     let text: string
     try {
-      text = await this.ports.stt.transcribe(audio, this.options.sampleRate)
+      text = await transcript
     } catch (err) {
       this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       this._state('listening')
@@ -305,6 +365,7 @@ export class CallSession {
       this._state('listening')
       return
     }
+    this._clock = { stopped, heard: Date.now() }
     this._note('person', text)
     this.emit({ type: 'heard', text })
     if (this.direct) return this._toCrew(text)
@@ -424,15 +485,16 @@ export class CallSession {
       const stream: AssistantMessageEventStream = resolved.streamFn
         ? await resolved.streamFn(resolved.model, context, { apiKey, signal })
         : streamSimple(resolved.model, context, { apiKey, signal })
-      let pending = ''
+      // Spoken as it is written: each sentence once it ends, the first clause sooner.
+      const split = new SpeechSplitter({ firstClause: true })
+      let written = ''
       let spoken = ''
       for await (const event of stream) {
         if (signal.aborted) break
         if (event.type !== 'text_delta') continue
-        pending += event.delta
-        const { sentences, rest } = splitSentences(pending)
-        pending = rest
-        for (const s of sentences) {
+        written += event.delta
+        this._thought()
+        for (const s of split.push(written, false)) {
           spoken += `${s} `
           void this._say(s, signal)
         }
@@ -444,7 +506,7 @@ export class CallSession {
           this._messages.push({ ...message, content: [{ type: 'text', text: `${spoken.trim()} …` }] })
         return
       }
-      if (pending.trim()) void this._say(pending.trim(), signal)
+      if (!signal.aborted) for (const s of split.push(written, true)) void this._say(s, signal)
       if (!message) return
       if (message.stopReason === 'error') throw new Error(message.errorMessage ?? 'the call model failed')
       this._messages.push(message)
@@ -521,6 +583,7 @@ export class CallSession {
         const pcm = trimSilence(speech.pcm, speech.sampleRate)
         this._state('speaking')
         this.emit({ type: 'audio', pcm, sampleRate: speech.sampleRate })
+        this._voiced()
         this.emit({ type: 'said', text })
         this._note('voice', text)
         const ms = (pcm.length / speech.sampleRate) * 1000
@@ -578,14 +641,68 @@ export class CallSession {
     if (this._updates.length && !this._reply && !this._detector.speaking) this._tellUpdates()
   }
 
+  /** On a direct call, a reply is spoken while the lead (or the agent) is still writing it. */
+  private _onStream(colonyId: string, agent: string, text: string, done: boolean) {
+    if (this._ended || !this._sent.some((t) => t.colonyId === colonyId)) return
+    if (this.direct !== 'lead' && agent !== this.direct) return
+    const key = `${colonyId}:${agent}`
+    let stream = this._streams.get(key)
+    if (!stream || stream.done) {
+      this._reply?.abort()
+      const reply = new AbortController()
+      this._reply = reply
+      stream = {
+        split: new SpeechSplitter({ firstClause: true, limit: VOICE_SPOKEN_SENTENCES }),
+        signal: reply.signal,
+        done: false,
+      }
+      this._streams.set(key, stream)
+    }
+    this._thought()
+    for (const piece of stream.split.push(text, done)) void this._say(piece, stream.signal)
+    if (!done) return
+    stream.done = true
+    this._streamed.add(agent)
+    const { signal } = stream
+    void this._speech.then(() => {
+      if (signal.aborted || this._ended) return
+      if (this._reply?.signal === signal) this._reply = undefined
+      this._state('listening')
+    })
+  }
+
+  /** The first words of the answer are written. */
+  private _thought() {
+    if (this._clock && !this._clock.thought) this._clock.thought = Date.now()
+  }
+
+  /** The answer's first sound went out: how long the person waited, and where it went. */
+  private _voiced() {
+    const c = this._clock
+    if (!c) return
+    this._clock = undefined
+    const now = Date.now()
+    const thought = c.thought ?? now
+    this.emit({
+      type: 'latency',
+      ms: now - c.stopped,
+      heard: c.heard - c.stopped,
+      thought: thought - c.heard,
+      voiced: now - thought,
+    })
+  }
+
   /** On a direct call, the replies of whoever the person talks to are read aloud, and approvals put to them. */
   private _directEvents(colonyId: string, events: readonly MyrEvent[]) {
     const d = prompts.voice.direct
     for (const e of events) {
       const p = e.payload as Record<string, unknown>
       if (e.type === 'chat/reply' && typeof p.text === 'string') {
-        if (this.direct !== 'lead' && p.agent !== this.direct) continue
-        this._note('crew', p.text)
+        const agent = String(p.agent ?? '')
+        if (this.direct !== 'lead' && agent !== this.direct) continue
+        // Already spoken as it was written.
+        if (this._streamed.delete(agent)) continue
+        this._thought()
         void this._speak(p.text)
       } else if (e.type === 'approval/requested' && typeof p.id === 'string') {
         this._approvals.set(p.id, colonyId)
@@ -604,22 +721,4 @@ export function splitSentences(text: string): { sentences: string[]; rest: strin
   const parts = text.split(/(?<=[.!?…])\s+|\n+/)
   const rest = parts.pop() ?? ''
   return { sentences: parts.map((s) => s.trim()).filter(Boolean), rest }
-}
-
-/**
- * A reply as speech: markdown, code and links taken out, a sentence at a time, the first few only (the rest is in
- * the chat, and the listener is told so).
- */
-export function speakable(text: string): string[] {
-  const d = prompts.voice.direct
-  const plain = text
-    .replace(/```[\s\S]*?```/g, ` ${d.code} `)
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/https?:\/\/\S+/g, d.link)
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
-    .replace(/[*_~|]+/g, '')
-  const { sentences, rest } = splitSentences(plain)
-  const all = [...sentences, rest.trim()].filter(Boolean)
-  return all.length > SPOKEN_SENTENCES ? [...all.slice(0, SPOKEN_SENTENCES), d.rest] : all
 }

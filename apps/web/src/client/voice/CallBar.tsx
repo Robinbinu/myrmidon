@@ -47,6 +47,8 @@ function Meter(props: { active: boolean }) {
 export function CallBar(props: {
   /** Who the call is with, as said in the bar. */
   with: string
+  /** How long the last answer took to start. */
+  latency?: number
   state: CallState
   lines: readonly CallLine[]
   muted: boolean
@@ -68,7 +70,10 @@ export function CallBar(props: {
         <Meter active={!props.muted} />
         <span className="w-32 shrink-0 text-callout">
           <span className="block font-medium text-fg-2">{t.states[props.state]}</span>
-          <span className="block truncate text-footnote text-muted">{t.with(props.with)}</span>
+          <span className="block truncate text-footnote text-muted">
+            {t.with(props.with)}
+            {props.latency !== undefined && ` · ${t.latency(props.latency)}`}
+          </span>
         </span>
         <div className="min-w-0 flex-1 text-callout">
           {last.map((l) => (

@@ -14,6 +14,7 @@ import { prompts } from '../prompts.ts'
 import type { MyrSettings } from '../settings.ts'
 import { trimSilence } from './audio.ts'
 import { type CallChats, type CallOutput, CallSession, type CallTurn } from './call.ts'
+import { SmartTurn } from './smart-turn.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
   FunctionTts,
@@ -84,6 +85,7 @@ export class VoiceHub {
   readonly phonon: PhononStt
   readonly kitten: KittenTts
   readonly vad: SileroVad
+  readonly turn: SmartTurn
   private readonly _calls = new Map<string, CallSession>()
   private readonly _secretsFile: string
   private readonly _callsDir: string
@@ -99,6 +101,8 @@ export class VoiceHub {
       readonly log?: (line: string) => void
       /** The speech detector; Silero VAD in `<home>/voice` unless given (tests give one that stays offline). */
       readonly vad?: SileroVad
+      /** The end-of-turn model; Smart Turn in `<home>/voice` unless given. */
+      readonly turn?: SmartTurn
     },
   ) {
     const log = options.log ?? (() => {})
@@ -112,6 +116,7 @@ export class VoiceHub {
       log,
     )
     this.vad = options.vad ?? new SileroVad(options.home)
+    this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
   }
@@ -213,7 +218,10 @@ export class VoiceHub {
     const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
     if (this._warm?.key === key) return this._warm.done
     const log = this.options.log ?? (() => {})
-    const jobs: [string, Promise<unknown>][] = [['speech detector', this.vad.load()]]
+    const jobs: [string, Promise<unknown>][] = [
+      ['speech detector', this.vad.load()],
+      ['turn model', this.turn.load()],
+    ]
     if (phonon) jobs.push(['Phonon-2', this.phonon.warm()])
     if (kitten) jobs.push(['Kitten TTS', this.kitten.speak('Ready.')])
     const done = Promise.allSettled(jobs.map(([, job]) => job)).then((results) => {
@@ -263,8 +271,9 @@ export class VoiceHub {
         resolver: this.options.resolver,
         stt: this.stt(),
         tts: this.tts(),
-        // Downloaded by warm(); until then turns are found by level.
+        // Downloaded by warm(); until then turns are found by level, and end after a longer quiet.
         ...(this.vad.ready ? { detector: this.vad } : {}),
+        ...(this.turn.ready ? { judge: this.turn } : {}),
       },
       {
         ...options,

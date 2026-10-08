@@ -20,6 +20,8 @@ export interface CallHandlers {
   chat(chatId: string): void
   task(request: string): void
   error(message: string): void
+  /** How long the last answer took to start after the person stopped talking. */
+  latency(ms: number): void
   ended(reason: string): void
 }
 
@@ -95,6 +97,7 @@ export class CallClient {
     ws.onmessage = (e) => {
       if (typeof e.data !== 'string') return this._play(e.data as ArrayBuffer)
       const msg = JSON.parse(e.data) as {
+        ms?: number
         type: string
         state?: CallState
         text?: string
@@ -110,6 +113,7 @@ export class CallClient {
       else if (msg.type === 'chat' && msg.chatId) this.on.chat(msg.chatId)
       else if (msg.type === 'task' && msg.request) this.on.task(msg.request)
       else if (msg.type === 'error' && msg.message) this.on.error(msg.message)
+      else if (msg.type === 'latency' && typeof msg.ms === 'number') this.on.latency(msg.ms)
       else if (msg.type === 'ended') this._end(msg.reason ?? 'hung-up')
     }
     ws.onclose = (e) => {

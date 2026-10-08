@@ -1,8 +1,11 @@
-import { chmodSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { VOICE_PHONON_START_MS } from '../config.ts'
-import { wav } from './audio.ts'
+import { parseWav, wav } from './audio.ts'
+
+/** "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. */
+const WARM_CLIP = join(import.meta.dir, 'warm-speech.wav')
 
 /** Speech to text for a call: one finished turn of 16-bit mono audio in, its words out. */
 export interface SpeechToText {
@@ -124,14 +127,16 @@ export class PhononStt implements SpeechToText {
   }
 
   /**
-   * Starts the server and runs one short transcription, so the model is downloaded and its runtime compiled (about
-   * 20 s the first time) before anyone is waiting on a call.
+   * Starts the server and transcribes a short spoken clip, so the model is downloaded and its runtime compiled before
+   * anyone is waiting on a call. Speech, not silence: silence decodes no words, which leaves the decoder to compile on
+   * the first real turn (measured: 3.3 s then, against 0.2 s once warmed with speech).
    */
   async warm(): Promise<void> {
     const client = await this.start()
     this._state = { state: 'starting', line: 'warming up' }
     try {
-      await client.transcribe(new Int16Array(8000), 16_000)
+      const { pcm, sampleRate } = parseWav(new Uint8Array(readFileSync(WARM_CLIP)))
+      await client.transcribe(pcm, sampleRate)
     } finally {
       if (this._proc) this._state = { state: 'running' }
     }

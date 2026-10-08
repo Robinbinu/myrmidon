@@ -50,3 +50,22 @@ test("a turn holds through a dip in the detector's certainty that would not have
   expect(run(1200, 0.4)).toEqual([])
   expect(run(1000, 0.1).map((e) => e.type)).toEqual(['end'])
 })
+
+test('a short pause is reported with the turn so far, and the turn can end there while still quiet', () => {
+  const d = new TurnDetector({ sampleRate: RATE, start: 0.5, pauseMs: 200, endMs: 2000 })
+  const frame = new Int16Array(320)
+  const run = (ms: number, chance: number) =>
+    Array.from({ length: ms / 20 }).flatMap(() => d.push(frame, chance))
+  expect(run(400, 0.9)).toEqual([{ type: 'start' }])
+  const paused = run(200, 0.1)
+  expect(paused.map((e) => e.type)).toEqual(['pause'])
+  const first = paused[0] as Extract<TurnEvent, { type: 'pause' }>
+  // The person talks again: that pause is over, and ending it does nothing.
+  run(300, 0.9)
+  expect(d.end(first.id)).toBeUndefined()
+  const again = run(200, 0.1)[0] as Extract<TurnEvent, { type: 'pause' }>
+  expect(again.id).toBe(first.id + 1)
+  const audio = d.end(again.id)
+  expect((audio?.length ?? 0) / RATE).toBeGreaterThan(1)
+  expect(d.speaking).toBe(false)
+})

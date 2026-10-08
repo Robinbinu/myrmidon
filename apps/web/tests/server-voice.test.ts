@@ -2,7 +2,15 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type ChatService, ModelResolver, parseWav, SettingsStore, SileroVad, wav } from '@myrmidon/runtime'
+import {
+  type ChatService,
+  ModelResolver,
+  parseWav,
+  SettingsStore,
+  SileroVad,
+  SmartTurn,
+  wav,
+} from '@myrmidon/runtime'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { needsFull } from '../src/devices.ts'
 import { startServer, type WebServer } from '../src/server.ts'
@@ -59,9 +67,12 @@ test('a call over the WebSocket: the person speaks, the call model answers aloud
     onEvents: () => () => {},
     onStream: () => () => {},
   } as unknown as ChatService
-  // A detector whose download fails at once: turns are then found by level, and the test stays offline.
-  const voiceVad = new SileroVad(home, `${base}/no-model.onnx`)
-  const server = startServer({ home, port: 0, chats, resolver, settings, voiceVad })
+  // Models whose download fails at once: turns are then found by level, and the test stays offline.
+  const voiceModels = {
+    vad: new SileroVad(home, `${base}/no-model.onnx`),
+    turn: new SmartTurn(home, `${base}/no-model.onnx`),
+  }
+  const server = startServer({ home, port: 0, chats, resolver, settings, voiceModels })
   servers.push(server)
   const origin = new URL(server.url.replace(/#.*$/, ''))
   const auth = { authorization: `Bearer ${server.token}` }

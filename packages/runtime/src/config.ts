@@ -176,8 +176,21 @@ export const SNIPPET_AFTER = 100
  * quiet ends it (shorter than Hermes's 3 s: replies on a call are short), and VOICE_MAX_TURN_MS cuts a turn that runs
  * on. VOICE_PRE_ROLL_MS of audio from before the start is kept so the first syllable is not lost.
  */
-export const VOICE_START_MS = 300
+export const VOICE_START_MS = 200
 export const VOICE_END_MS = 800
+/**
+ * With Smart Turn (Pipecat's end-of-turn model): a pause this long asks it whether the person has finished, and a turn
+ * it says is unfinished still ends after VOICE_SMART_END_MS of quiet. Pipecat's defaults: 0.2 s, and about 3 s.
+ */
+export const VOICE_PAUSE_MS = 200
+export const VOICE_SMART_END_MS = 2_000
+export const VOICE_SMART_TURN_THRESHOLD = 0.5
+/** Smart Turn v3.2 for CPU (pipecat-ai/smart-turn-v3, BSD-2-Clause, 8.7 MB), pinned by revision and hash. */
+export const VOICE_SMART_TURN_URL =
+  'https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx'
+export const VOICE_SMART_TURN_SHA256 = '2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f'
+/** Sentences of a reply read aloud before "the rest is in the chat". */
+export const VOICE_SPOKEN_SENTENCES = 6
 export const VOICE_MAX_TURN_MS = 30_000
 export const VOICE_PRE_ROLL_MS = 300
 /** Speech level (RMS of 16-bit samples) for each sensitivity in Settings → Voice; Hermes uses 200. */

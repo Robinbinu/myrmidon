@@ -45,6 +45,7 @@ import {
   type SileroVad,
   type SkillLibrary,
   type SkillProposalStore,
+  type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
   startScheduler,
@@ -134,8 +135,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
-  /** The speech detector for calls; Silero VAD in the home unless given (tests give one that stays offline). */
-  readonly voiceVad?: SileroVad
+  /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
+  readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
 }
 
 export interface WebServer {
@@ -400,7 +401,7 @@ export function startServer(options: ServeOptions): WebServer {
             return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
           },
           ...(options.omp ? { omp: options.omp } : {}),
-          ...(options.voiceVad ? { vad: options.voiceVad } : {}),
+          ...(options.voiceModels ?? {}),
           log: (line) => console.error(`voice: ${line}`),
         })
       : undefined
@@ -2162,6 +2163,10 @@ export function startServer(options: ServeOptions): WebServer {
                   return
                 }
                 ws.send(JSON.stringify(out))
+                if (out.type === 'latency')
+                  console.error(
+                    `voice: answered in ${out.ms} ms (heard ${out.heard}, first words ${out.thought}, first sound ${out.voiced})`,
+                  )
                 if (out.type === 'ended') ws.close(1000, 'call ended')
               },
             )
