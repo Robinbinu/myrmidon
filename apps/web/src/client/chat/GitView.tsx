@@ -245,12 +245,19 @@ export function GitView({ project }: { project: string }) {
       .catch((err) => setError(String((err as Error).message)))
   }, [project])
 
-  // Agents edit the folder while you watch, so status refreshes on its own.
+  // Agents edit the folder while you watch, so status refreshes on its own, and at once when a round is rewound.
   useEffect(() => {
     load()
     const timer = setInterval(load, 5000)
-    return () => clearInterval(timer)
-  }, [load])
+    const changed = (e: Event) => {
+      if ((e as CustomEvent<{ project: string }>).detail?.project === project) load()
+    }
+    window.addEventListener('myr:folder-changed', changed)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('myr:folder-changed', changed)
+    }
+  }, [load, project])
 
   const act = async (action: string, body: object, done?: string) => {
     setBusy(true)

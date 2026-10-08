@@ -632,10 +632,10 @@ export const copy = {
   },
 
   roundChanges: {
-    checking: (project: string) => `Checking changes in ${project}…`,
+    failed: (project: string) => `Couldn’t check what changed in ${project}`,
+    retry: 'Retry',
     /** "Rewound <project> to before this round", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this round' },
-    noChanges: (project: string) => `No changes in ${project}`,
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     changedIn: (project: string) => `changed in ${project}`,
     hideDiff: 'Hide diff',
