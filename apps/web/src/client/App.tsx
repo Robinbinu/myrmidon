@@ -47,7 +47,15 @@ import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
-import { day, NOTIFY_KEY, useFollowLatest, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
+import {
+  day,
+  NOTIFY_KEY,
+  useFollowLatest,
+  useHotkeys,
+  usePersistentFlag,
+  useReduceMotion,
+  useTheme,
+} from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
@@ -178,7 +186,7 @@ function notify(text: string, chatId: string) {
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
-  const [reduceMotion, setReduceMotion] = usePersistentFlag('myr-reduce-motion', false)
+  const [reduceMotion, setReduceMotion] = useReduceMotion()
   const [chats, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
   const online = useReachable()
   const fullAccess = useScope() === 'full'

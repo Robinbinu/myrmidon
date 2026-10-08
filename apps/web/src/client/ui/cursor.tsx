@@ -4,7 +4,7 @@ import {
   motion,
   useAnimationFrame,
   useMotionValue,
-  useReducedMotion,
+  useReducedMotionConfig,
   useSpring,
   useTransform,
 } from 'motion/react'
@@ -48,7 +48,7 @@ export function tripMs(dist: number): number {
  * path; the arrow and its tag follow on springs.
  */
 export function CrewCursor(props: { name: string; color: string; x: number; y: number; clicking: boolean }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const px = useMotionValue(props.x)
   const py = useMotionValue(props.y)
   const ax = useSpring(px, CURSOR.arrowSpring)

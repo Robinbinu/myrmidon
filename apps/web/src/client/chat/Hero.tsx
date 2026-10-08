@@ -1,5 +1,5 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
-import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
+import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
@@ -159,7 +159,7 @@ export function Hero(props: {
   onPick(text: string): void
   children: ReactNode
 }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const roomy = useTallerThan(HERO_MASCOT_MIN_HEIGHT)
   const mascot = useMascotLook()
   const { greeting, name } = useGreeting(props.news)

@@ -7,6 +7,15 @@
 /* In a plain browser there are no window buttons in the title bar, so the app shows its own mark there. */
 @custom-variant browser (&:where([data-shell="browser"], [data-shell="browser"] *));
 /* Where the dark tokens apply: the person chose Dark, or chose System (no data-theme) on a dark system. */
+/* Less motion: asked for in the operating system, or with Reduce motion in Settings → General. */
+@custom-variant less-motion {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-reduce-motion] *) {
+    @slot;
+  }
+}
 @custom-variant dark-tokens {
   @media (prefers-color-scheme: dark) {
     &:not([data-theme="light"]) {
@@ -136,17 +145,6 @@
     outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
-  /* Motion that loops or pulses stops for people who asked for less motion; spinners still turn slowly. */
-  @media (prefers-reduced-motion: reduce) {
-    .animate-ping,
-    .animate-pulse,
-    .animate-bounce {
-      animation: none;
-    }
-    .animate-spin {
-      animation-duration: 2.4s;
-    }
-  }
   ::selection {
     background: color-mix(in srgb, var(--signal) 32%, transparent);
   }
@@ -236,6 +234,24 @@
 
 @utility caret {
   animation: blink-caret 1.1s steps(1) infinite;
+}
+
+/* Motion that loops or pulses stops for people who asked for less; spinners still turn, slowly. These sit in the
+   utilities layer after Tailwind's own, so they win over the animate-* utilities they quiet. */
+@layer utilities {
+  .animate-ping,
+  .animate-pulse,
+  .animate-bounce,
+  .caret {
+    @variant less-motion {
+      animation: none;
+    }
+  }
+  .animate-spin {
+    @variant less-motion {
+      animation-duration: 2.4s;
+    }
+  }
 }
 
 /* A SpringCheck whose label stays on one line, so the strike-through crosses the words. */

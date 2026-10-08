@@ -1,5 +1,5 @@
 import { identityOf } from '@myrmidon/protocol'
-import { motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { AGENT_DOZE_MS } from '../ui-config.ts'
@@ -88,7 +88,7 @@ export function useAgentMood(status: string, awake = false): Mood {
  * (and any name computed from text) of the row or button the avatar sits in.
  */
 export function Snore(props: { size: number }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const font = Math.max(8, Math.round(props.size * 0.26))
   return (
     <motion.span
@@ -251,7 +251,7 @@ export function PixelFace(props: {
   const rows = props.rows ?? 7
   const cell = props.cell ?? 4
   const gap = props.gap ?? Math.max(1, Math.round(cell * 0.28))
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const [frame, setFrame] = useState(0)
   const [blinking, setBlinking] = useState(false)
   const [glance, setGlance] = useState<readonly [number, number]>([0, 0])
