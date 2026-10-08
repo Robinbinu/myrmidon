@@ -926,7 +926,11 @@ export function App() {
                     lines={call.lines}
                     muted={call.muted}
                     onMute={muteCall}
-                    onHangUp={() => callRef.current?.hangUp()}
+                    onHangUp={() => {
+                      callRef.current?.hangUp()
+                      // The bar and its button go; the message box is where the conversation carries on.
+                      composer.current?.focus()
+                    }}
                   />
                 )}
               </AnimatePresence>

@@ -73,6 +73,17 @@ export function useMinWidth(px: number): boolean {
   return match
 }
 
+/**
+ * When a control replaces the one that had focus (a call bar for the Call button that started it), focus lands on
+ * `ref` instead of falling to the page, where the keyboard would have to start again from the top.
+ */
+export function useFocusWhenLost(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const at = document.activeElement
+    if (!at || at === document.body) ref.current?.focus()
+  }, [ref])
+}
+
 /** Copies text and reports `copied` for a moment so buttons can confirm it. */
 export function useCopy(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false)

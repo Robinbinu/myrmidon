@@ -1,7 +1,8 @@
 import { Mic, MicOff, PhoneOff } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useSyncExternalStore } from 'react'
+import { useRef, useSyncExternalStore } from 'react'
 import { copy } from '../copy.ts'
+import { useFocusWhenLost } from '../ui/hooks.ts'
 import { isMac } from '../ui/platform.ts'
 import { Button, cn, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
@@ -83,6 +84,9 @@ export function CallBar(props: {
 }) {
   const t = copy.call
   const last = props.lines.slice(props.approval ? -1 : -2)
+  // Starting a call takes away the Call button that had focus.
+  const hangUp = useRef<HTMLButtonElement>(null)
+  useFocusWhenLost(hangUp)
   return (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
@@ -141,6 +145,7 @@ export function CallBar(props: {
           {props.muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
         </IconButton>
         <Button
+          ref={hangUp}
           variant="danger"
           icon={<PhoneOff className="size-3.5" />}
           title={copy.sidebar.withShortcut(t.hangUp, comboLabel(CALL_HANG_UP_COMBO, isMac))}
