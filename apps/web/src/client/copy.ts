@@ -143,6 +143,9 @@ export const copy = {
     teamHeading: 'Lead & helpers',
     teamApplies: 'Applies to your next messages',
     removeFile: (name: string) => `Remove ${name}`,
+    /** Several attachments refused at once; one file uses copy.app.fileTooLarge, which names the same size. */
+    filesTooLarge: (names: readonly string[]) =>
+      `${names.length} files are larger than 10 MB: ${names.join(', ')}`,
     tooManyFiles: (max: number, left: number) =>
       `A message can carry ${max} files; ${left} ${left === 1 ? 'was' : 'were'} not attached`,
     exported: 'Chat downloaded as Markdown; look in your downloads folder',

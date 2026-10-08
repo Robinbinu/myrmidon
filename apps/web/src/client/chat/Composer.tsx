@@ -312,7 +312,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const addFiles = (list: Iterable<File>) => {
     const nonEmpty = [...list].filter((f) => f.size > 0)
     const tooLarge = nonEmpty.filter((f) => f.size > MAX_FILE_BYTES)
-    for (const f of tooLarge) toast(copy.app.fileTooLarge(f.name), 'error')
+    const [first] = tooLarge
+    if (first)
+      toast(
+        tooLarge.length === 1
+          ? copy.app.fileTooLarge(first.name)
+          : copy.composer.filesTooLarge(tooLarge.map((f) => f.name)),
+        'error',
+      )
     const fitting = nonEmpty.filter((f) => f.size <= MAX_FILE_BYTES)
     const room = Math.max(0, MAX_FILES - files.length)
     if (fitting.length > room) toast(copy.composer.tooManyFiles(MAX_FILES, fitting.length - room), 'error')
@@ -396,8 +403,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (command.name === 'help') return setShowHelp(true)
     try {
       await props.onCommand(command.name, arg)
-      // The download starts without any sign in the page; say it happened and where to look.
-      if (command.name === 'export') toast(copy.composer.exported, 'success')
+      // The download starts without any sign in the page; say it happened and where to look. Without a chat there is
+      // nothing to download, and the app already says so.
+      if (command.name === 'export' && props.chatState?.chat) toast(copy.composer.exported, 'success')
     } catch {
       setText(`/${command.name}${arg ? ` ${arg}` : ''}`)
     }
@@ -420,8 +428,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  // Escape closes the menu for the text as it is, and keeps the text; typing on opens it again.
+  // Escape closes the menu for the text as it is, and keeps the text; any change to the text (typing, sending,
+  // picking) opens it again.
   const [closedFor, setClosedFor] = useState<string>()
+  useEffect(() => {
+    if (text !== closedFor) setClosedFor(undefined)
+  }, [text, closedFor])
   const mention = mentionMenu(text, props.crew, (name) =>
     fillCommand(text.replace(MENTION_AT_END, (_m, space: string) => `${space}@${name} `)),
   )
@@ -685,24 +697,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   </motion.button>
                 )}
               </AnimatePresence>
-              {/* While a round runs, Stop stays put; Send joins it once there is something to send. */}
+              {/* While a round runs, Stop holds the rightmost place; Send appears to its left once there is something to
+                  send, so reaching for Stop never sends a message. */}
               <AnimatePresence mode="popLayout" initial={false}>
-                {props.running && (
-                  <motion.button
-                    key="stop"
-                    type="button"
-                    initial={{ scale: 0.6, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.6, opacity: 0 }}
-                    transition={spring}
-                    onClick={props.onStop}
-                    aria-label={copy.composer.stopLabel}
-                    title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
-                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
-                  >
-                    <Square className="size-3.5" fill="currentColor" />
-                  </motion.button>
-                )}
                 {(!props.running || canSend) && (
                   <motion.button
                     key="send"
@@ -721,6 +718,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     )}
                   >
                     <ArrowUp className="size-4" strokeWidth={2.5} />
+                  </motion.button>
+                )}
+                {props.running && (
+                  <motion.button
+                    key="stop"
+                    type="button"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.6, opacity: 0 }}
+                    transition={spring}
+                    onClick={props.onStop}
+                    aria-label={copy.composer.stopLabel}
+                    title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
+                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
+                  >
+                    <Square className="size-3.5" fill="currentColor" />
                   </motion.button>
                 )}
               </AnimatePresence>
