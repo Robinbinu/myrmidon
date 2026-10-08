@@ -349,6 +349,41 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
   await chats.stopAll()
 })
 
+test('a crew member written to directly that answers in plain text still reaches the person, and the round ends', async () => {
+  const resolver = new ModelResolver()
+  let writer = ''
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      writer ||= /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/writer', [['The rhyme for "ant" was the hardest to land.']])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  }
+  const first = await chats.send('Write a poem about ants', config)
+  await waitFor(first.colonyId)
+  expect(writer).not.toBe('')
+
+  const next = await chats.send(`@${writer} in one sentence, which line was hardest?`, config, first.chatId)
+  const done = await waitFor(next.colonyId)
+  expect(done.status).toBe('completed')
+  expect(done.chatMessages.at(-1)).toMatchObject({
+    from: writer,
+    text: 'The rhyme for "ant" was the hardest to land.',
+    final: true,
+  })
+  expect(done.signals.filter((x) => x.kind === 'stall')).toHaveLength(0)
+  await chats.stopAll()
+})
+
 test('saved specialists: kept by name, joined from the team picker or by the lead, as the person set them up', async () => {
   const { SpecialistStore } = await import('../src/specialists.ts')
   const specialists = new SpecialistStore(home)

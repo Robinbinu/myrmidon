@@ -41,6 +41,8 @@ export interface InboxItem {
 }
 
 const SYS = { kind: 'system', id: 'scheduler' } as const
+/** Tools that put something in front of the person; a turn that used one has already spoken. */
+const REPLY_TOOLS = new Set(['reply_user', 'reply_person', 'ask_user'])
 
 /**
  * One colony member: a pi-agent-core Agent plus an inbox. Idle agents sleep until something is
@@ -341,18 +343,18 @@ export class ColonyAgent {
   }
 
   /**
-   * A one-agent chat round whose turn ends in plain text, without reply_user or ask_user, has written its
-   * answer where the person cannot see it. Deliver that text as the final answer.
+   * A one-agent chat round, or one the person opened by writing to this agent (@name), whose turn ends in plain
+   * text without a reply tool has written its answer where the person cannot see it, and nothing else would end
+   * the round. Deliver that text as the final answer.
    */
   private async _deliverUnsentAnswer(from: number) {
     const spec = this.host.spec
-    if (!spec.chat || spec.agents.length !== 1 || this._stopped) return
+    const addressed = spec.chat?.addressed?.includes(this.name) ?? false
+    if (!spec.chat || (spec.agents.length !== 1 && !addressed) || this._stopped) return
     const turn = this._agent.state.messages
       .slice(from)
       .filter((m) => m.role === 'assistant') as AssistantMessage[]
-    const spoke = turn.some((m) =>
-      m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
-    )
+    const spoke = turn.some((m) => m.content.some((c) => c.type === 'toolCall' && REPLY_TOOLS.has(c.name)))
     // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
     // answer (a review sent it back, say), a short remark is filler, not another answer.
     const state = this.host.state()
