@@ -81,21 +81,22 @@ export function useAgentMood(status: string, awake = false): Mood {
   return resting && dozing ? 'sleep' : mood
 }
 
-/** A small "z" drifting up from a sleeping face. */
+/**
+ * A small "z" drifting up from a sleeping face. The glyph is drawn by CSS, not text, so it stays out of the text
+ * (and any name computed from text) of the row or button the avatar sits in.
+ */
 export function Snore(props: { size: number }) {
   const reduce = useReducedMotion()
   const font = Math.max(8, Math.round(props.size * 0.26))
   return (
     <motion.span
-      className="pointer-events-none absolute select-none font-semibold leading-none text-muted"
+      className="pointer-events-none absolute select-none font-semibold leading-none text-muted after:content-['z']"
       style={{ right: -font * 0.35, top: -font * 0.55, fontSize: font }}
       initial={reduce ? { opacity: 0.6 } : { opacity: 0, x: 0, y: 2 }}
       animate={reduce ? { opacity: 0.6 } : { opacity: [0, 0.7, 0], x: [0, 2, 4], y: [2, -3, -8] }}
       transition={reduce ? undefined : { duration: 2.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeOut' }}
       aria-hidden
-    >
-      z
-    </motion.span>
+    />
   )
 }
 
