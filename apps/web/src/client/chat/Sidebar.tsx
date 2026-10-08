@@ -24,6 +24,7 @@ import { motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ChatSummary, type Project } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import type { ThemeChoice } from '../ui/hooks.ts'
@@ -104,6 +105,8 @@ export function Sidebar(props: {
 }) {
   const [query, setQuery] = useState('')
   const { status } = useStatus()
+  // System reports on this machine and points to Settings, both of which a chats-only device cannot use.
+  const fullAccess = useScope() === 'full'
   const waiting = status?.waiting?.length ?? 0
   // Which chats came from a channel, for their logo; looked up again when the list of chats changes.
   const [channelOf, setChannelOf] = useState<Record<string, string>>({})
@@ -436,7 +439,7 @@ export function Sidebar(props: {
           </div>
         ))}
       </nav>
-      <GatewayChip onOpen={() => props.onView('system')} />
+      <GatewayChip {...(fullAccess ? { onOpen: () => props.onView('system') } : {})} />
       <div className="grid gap-px border-t border-line p-2.5">
         <button
           type="button"
@@ -452,13 +455,15 @@ export function Sidebar(props: {
         >
           <BarChart3 className="size-4" /> {copy.sidebar.nav.compare}
         </button>
-        <button
-          type="button"
-          className={navItem(props.view === 'system')}
-          onClick={() => props.onView('system')}
-        >
-          <HeartPulse className="size-4" /> {copy.system.nav}
-        </button>
+        {fullAccess && (
+          <button
+            type="button"
+            className={navItem(props.view === 'system')}
+            onClick={() => props.onView('system')}
+          >
+            <HeartPulse className="size-4" /> {copy.system.nav}
+          </button>
+        )}
         <div className="flex items-center gap-1">
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
             <Settings className="size-4" /> {copy.sidebar.nav.settings}
@@ -494,7 +499,7 @@ export function Sidebar(props: {
  * The gateway indicator, OpenClaw-style: nothing while all is well. Unreachable, a chip that retries at once; a
  * problem (a channel down, no model can answer), a chip naming it that opens System.
  */
-function GatewayChip(props: { onOpen(): void }) {
+function GatewayChip(props: { onOpen?(): void }) {
   const t = copy.gatewayStatus
   const { status, offline, refresh } = useStatus()
   const problems = status?.problems ?? []
@@ -506,7 +511,7 @@ function GatewayChip(props: { onOpen(): void }) {
       <button
         type="button"
         onClick={offline ? refresh : props.onOpen}
-        title={offline ? t.offlineHint : t.open}
+        title={offline ? t.offlineHint : props.onOpen ? t.open : undefined}
         className={cn(
           'flex h-8 w-full items-center gap-2 rounded-[9px] px-2.5 text-[12.5px] font-medium transition-colors',
           offline
