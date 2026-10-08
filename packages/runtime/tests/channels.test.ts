@@ -239,6 +239,17 @@ async function setup(patch: ChannelPatch = {}, existingDir?: string) {
   return { dir, hub, adapter, chats, say, pair }
 }
 
+/** Approves a group by the code the bot sends it when an approved person mentions it there. */
+async function hubApproveGroup(
+  say: Awaited<ReturnType<typeof setup>>['say'],
+  adapter: FakeAdapter,
+  group: { id: string; kind: 'group'; title: string },
+) {
+  await say(ALICE, 'hello', group)
+  await until(() => adapter.to(group.id).length === 1)
+  await hubs.at(-1)?.approve('telegram', { code: codeIn(adapter.to(group.id)[0] ?? '') })
+}
+
 const ALICE = { id: '100', name: 'Alice' }
 const BOB = { id: '200', name: 'Bob', handle: 'bobby' }
 
@@ -594,6 +605,47 @@ test('questions with options become buttons; the answers go back together in the
   await until(() => chats.sends.length === 2)
   expect(chats.sends[1]?.text).toBe('Where? → Oslo\nHow long? → (skipped: your call)')
   expect(adapter.edits.some((e) => e.text === 'Where?\n→ Oslo')).toBe(true)
+})
+
+test('answering a question keeps a member’s round asking, and in a group only its asker or the owner may answer', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await pair(BOB)
+  const ask = (colonyId: string) =>
+    chats.emit(colonyId, 'chat/reply', {
+      agent: 'lead',
+      text: 'One thing first:',
+      final: false,
+      question: true,
+      choices: [{ question: 'Which?', options: [{ label: 'This' }, { label: 'That' }] }],
+    })
+  const buttons = () => adapter.sent.filter((s) => s.buttons && s.text === 'Which?')
+
+  // Bob's round asks; the answer starts the next round, which asks for every step too, even when the owner answers.
+  await say(BOB, 'clean up the server')
+  await until(() => chats.sends.length === 1)
+  ask('col-chat-1')
+  await until(() => buttons().length === 1)
+  await say(ALICE, '', { press: buttons()[0]?.buttons?.[0]?.[0]?.data ?? '' })
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]).toMatchObject({ text: 'Which? → This', chatId: 'chat-1', askAll: true })
+
+  // Alice's round in a group: Bob cannot answer her question; his own answer would come in marked as his.
+  const group = { id: '-7', kind: 'group' as const, title: 'Ops' }
+  await hubApproveGroup(say, adapter, group)
+  await say(ALICE, 'deploy', group)
+  await until(() => chats.sends.length === 3)
+  ask('col-chat-2')
+  await until(() => buttons().length === 2)
+  const theirs = buttons()[1]?.buttons?.[1]?.[0]?.data ?? ''
+  await say(BOB, '', { ...group, press: theirs })
+  await until(() => adapter.presses.some((p) => p.note?.startsWith('This question is for')))
+  await say(BOB, '2', group)
+  await until(() => adapter.to('-7').some((t) => t.startsWith('This question is for')))
+  expect(chats.sends).toHaveLength(3)
+  await say(ALICE, '', { ...group, press: theirs })
+  await until(() => chats.sends.length === 4)
+  expect(chats.sends[3]).toEqual({ text: 'Which? → That', chatId: 'chat-2' })
 })
 
 test('voice notes are transcribed and echoed; photos and files become attachments', async () => {

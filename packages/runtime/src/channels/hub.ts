@@ -162,6 +162,8 @@ interface Tracker {
   readonly stream: ChannelConfig['stream']
   /** The member (not the owner) whose message started or steered the round: it asks for every step. */
   member?: string
+  /** Who started it (their sender id), whom its questions are for; none for a round started elsewhere. */
+  readonly starter?: string
   ref?: SentRef
   shown?: string
   readonly agents: Map<string, string>
@@ -198,6 +200,12 @@ interface OpenQuestions {
   readonly messages: (SentRef | undefined)[]
   readonly adapter: ChannelAdapter
   readonly to: ChannelChat
+  /** The member whose round asked: the answers start a round that asks for every step too. */
+  readonly member?: string
+  /** Who may answer besides the owner (the round's starter); anyone approved when unset. */
+  readonly for?: string
+  /** A member who answered: their answers reach the crew marked as theirs, and the round asks for every step. */
+  answeredBy?: string
 }
 
 const key = () => randomBytes(4).toString('base64url').slice(0, 6)
@@ -668,7 +676,10 @@ export class ChannelHub {
       const [qKey, q] = open
       const qi = q.answers.findIndex((a) => a === undefined)
       const option = q.choices[qi]?.options[Number(text) - 1]
-      if (option) return this._answerQuestion(qKey, qi, option.label)
+      if (option) {
+        if (!this._mayAnswer(q, person)) return void (await reply(t.question.notYours))
+        return this._answerQuestion(qKey, qi, option.label, person)
+      }
     }
     await this._forward(channel, adapter, m, person, c, text, attachments)
   }
@@ -745,10 +756,11 @@ export class ChannelHub {
       const q = this._questions.get(a)
       const choice = q?.choices[Number(b)]
       if (!q || !choice) return ack(t.approval.closed)
+      if (!this._mayAnswer(q, person)) return ack(t.question.notYours)
       const label = c === 's' ? t.question.skipped : choice.options[Number(c)]?.label
       if (!label) return ack()
       await ack(t.question.pressNoted)
-      return this._answerQuestion(a, Number(b), label)
+      return this._answerQuestion(a, Number(b), label, person)
     }
     await ack()
   }
@@ -783,10 +795,16 @@ export class ChannelHub {
     await note(approved ? t.approval.pressAllowed : t.approval.pressDenied)
   }
 
-  private async _answerQuestion(k: string, index: number, label: string) {
+  /** In a group, a question is the asker's (or the owner's) to answer, not anyone's who is approved. */
+  private _mayAnswer(q: OpenQuestions, person: ChannelPerson) {
+    return person.role === 'owner' || !q.for || q.for === person.id
+  }
+
+  private async _answerQuestion(k: string, index: number, label: string, person: ChannelPerson) {
     const q = this._questions.get(k)
     if (!q || q.answers[index] !== undefined) return
     q.answers[index] = label
+    if (person.role !== 'owner') q.answeredBy ??= person.name
     const ref = q.messages[index]
     const choice = q.choices[index]
     if (ref && choice && q.adapter.can.edit)
@@ -796,7 +814,13 @@ export class ChannelHub {
     const text = q.choices
       .map((c, i) => t.question.answer(c.question, q.answers[i] ?? t.question.skipped))
       .join('\n')
-    await this.options.chats.send(text, q.chatId).catch((err) => this._log(q.channel, err))
+    // A question pauses its round, so the answers start the next one: it must not get the owner's permissions
+    // when a member asked for the work or answered.
+    const platform = this._kind(q.channel).label
+    const body = q.answeredBy ? prompts.channels.member(q.answeredBy, platform, text) : text
+    await this.options.chats
+      .send(body, q.chatId, q.member || q.answeredBy ? { askAll: true } : {})
+      .catch((err) => this._log(q.channel, err))
   }
 
   private async _forward(
@@ -840,6 +864,7 @@ export class ChannelHub {
         sent.chatId,
         sent.colonyId,
         member ? m.sender.name : undefined,
+        m.sender.id,
       )
     else {
       const tracker = this._trackers.get(sent.colonyId)
@@ -855,6 +880,7 @@ export class ChannelHub {
     chatId: string,
     colonyId: string,
     member?: string,
+    starter?: string,
   ) {
     if (this._trackers.has(colonyId)) return
     const tracker: Tracker = {
@@ -866,6 +892,7 @@ export class ChannelHub {
       started: Date.now(),
       stream: adapter.can.edit ? this.store.get(channel).stream : 'final',
       ...(member ? { member } : {}),
+      ...(starter ? { starter } : {}),
       agents: new Map(),
       approvals: new Set(),
       question: false,
@@ -975,6 +1002,8 @@ export class ChannelHub {
       messages: [],
       adapter: tracker.adapter,
       to: tracker.to,
+      ...(tracker.member ? { member: tracker.member } : {}),
+      ...(tracker.starter ? { for: tracker.starter } : {}),
     }
     this._questions.set(k, q)
     for (const [qi, choice] of choices.entries()) {

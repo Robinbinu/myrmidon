@@ -249,6 +249,7 @@ export const channelCopy = {
     answer: (question: string, said: string) => `${question} → ${said}`,
     skipped: '(skipped: your call)',
     pressNoted: 'Noted',
+    notYours: 'This question is for whoever asked for the work (or the owner) to answer.',
   },
   voice: {
     heard: (text: string) => `🎙️ “${text}”`,
