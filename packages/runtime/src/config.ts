@@ -175,17 +175,26 @@ export const SNIPPET_AFTER = 100
  * Voice call turn taking (after Hermes): speech above the level for VOICE_START_MS starts a turn, VOICE_END_MS of
  * quiet ends it (shorter than Hermes's 3 s: replies on a call are short), and VOICE_MAX_TURN_MS cuts a turn that runs
  * on. VOICE_PRE_ROLL_MS of audio from before the start is kept so the first syllable is not lost.
+ * VOICE_SMART_START_MS (Pipecat's 0.2 s) applies only with the turn model loaded: without it a cough that long
+ * would talk over the call.
  */
-export const VOICE_START_MS = 200
+export const VOICE_START_MS = 300
+export const VOICE_SMART_START_MS = 200
 export const VOICE_END_MS = 800
 /**
- * With Smart Turn (Pipecat's end-of-turn model): a pause this long asks it whether the person has finished, and a turn
- * it says is unfinished still ends after VOICE_SMART_END_MS of quiet. Pipecat's defaults: 0.2 s, and about 3 s.
+ * With Smart Turn (Pipecat's end-of-turn model): a pause this long asks it whether the person has finished, and so
+ * does a pause of VOICE_END_MS (a wrong "unfinished" then costs what a turn cost without the model); a turn it still
+ * says is unfinished ends after VOICE_SMART_END_MS of quiet. Pipecat's defaults: 0.2 s, and about 3 s.
  */
 export const VOICE_PAUSE_MS = 200
 export const VOICE_SMART_END_MS = 2_000
 export const VOICE_SMART_TURN_THRESHOLD = 0.5
-/** Smart Turn v3.2 for CPU (pipecat-ai/smart-turn-v3, BSD-2-Clause, 8.7 MB), pinned by revision and hash. */
+/**
+ * On a direct call each turn is a message to the crew, and one thought cut in two is two messages (two answers), so
+ * the turn model must be surer before a short pause ends it.
+ */
+export const VOICE_SMART_TURN_DIRECT_THRESHOLD = 0.8
+/** Smart Turn v3.2 for CPU (pipecat-ai/smart-turn-v3, BSD-2-Clause), pinned by revision and hash. */
 export const VOICE_SMART_TURN_URL =
   'https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx'
 export const VOICE_SMART_TURN_SHA256 = '2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f'

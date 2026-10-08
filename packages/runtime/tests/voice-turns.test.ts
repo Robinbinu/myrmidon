@@ -52,7 +52,7 @@ test("a turn holds through a dip in the detector's certainty that would not have
 })
 
 test('a short pause is reported with the turn so far, and the turn can end there while still quiet', () => {
-  const d = new TurnDetector({ sampleRate: RATE, start: 0.5, pauseMs: 200, endMs: 2000 })
+  const d = new TurnDetector({ sampleRate: RATE, start: 0.5, pauseMs: [200], endMs: 2000 })
   const frame = new Int16Array(320)
   const run = (ms: number, chance: number) =>
     Array.from({ length: ms / 20 }).flatMap(() => d.push(frame, chance))
@@ -68,4 +68,16 @@ test('a short pause is reported with the turn so far, and the turn can end there
   const audio = d.end(again.id)
   expect((audio?.length ?? 0) / RATE).toBeGreaterThan(1)
   expect(d.speaking).toBe(false)
+})
+
+test('a longer quiet is asked about again, and a pause the person has passed can no longer end the turn', () => {
+  const d = new TurnDetector({ sampleRate: RATE, start: 0.5, pauseMs: [200, 800], endMs: 2000 })
+  const frame = new Int16Array(320)
+  const run = (ms: number, chance: number) =>
+    Array.from({ length: ms / 20 }).flatMap(() => d.push(frame, chance))
+  run(400, 0.9)
+  const pauses = run(1000, 0.1) as Extract<TurnEvent, { type: 'pause' }>[]
+  expect(pauses.map((p) => p.quietMs)).toEqual([200, 800])
+  expect(d.end(pauses[0]?.id ?? 0)).toBeUndefined()
+  expect(d.end(pauses[1]?.id ?? 0)).toBeDefined()
 })

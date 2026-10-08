@@ -274,6 +274,7 @@ export class VoiceHub {
         // Downloaded by warm(); until then turns are found by level, and end after a longer quiet.
         ...(this.vad.ready ? { detector: this.vad } : {}),
         ...(this.turn.ready ? { judge: this.turn } : {}),
+        ...(this.options.log ? { log: this.options.log } : {}),
       },
       {
         ...options,

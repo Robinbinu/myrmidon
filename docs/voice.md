@@ -20,8 +20,12 @@ door or a fan does not start a turn; without it (or if it fails) Myrmidon falls 
 
 When you pause, **Smart Turn v3.2** (Pipecat, pipecat-ai/smart-turn-v3, BSD-2-Clause; 8.7 MB, downloaded into
 `<home>/voice` and checked against its hash) hears whether you have finished your thought: after 0.2 s of quiet a
-finished sentence ends your turn, while "I think we should…" keeps listening (up to 2 s). Your words are transcribed
-during that pause, so the answer can start at once. Without the model a turn ends after 0.8 s of quiet.
+finished sentence ends your turn, while "I think we should…" keeps listening; it is asked again at 0.8 s, and a turn it
+still hears as unfinished ends after 2 s. Your words are transcribed once the turn has ended (a cloud speech-to-text is
+not sent the same audio at every pause). On a direct call it must be surer before a short pause ends your turn, since
+each turn is a message to the crew. While an approval is put to you, and without the model (or if it fails to load),
+a turn ends after 0.8 s of quiet; with the model, speech starts a turn after 0.2 s, without it after 0.3 s, so a
+cough does not talk over the call.
 
 Answers are spoken as they are written, as Pipecat does: the call assistant's (and on a direct call the lead's or the
 agent's) reply is read a sentence at a time while the rest is still being written, its first clause even sooner. The
@@ -61,7 +65,9 @@ noise interrupts the call, raise it if quiet speech is missed.
 - **A crew member** (each one in the chat): the same, written to them directly (@name). When a new round starts with
   them they get the chat so far; in a running round they are already in it.
 
-On a direct call an approval the crew asks for is read out; a plain "yes" or "no" decides it.
+On a direct call an approval the crew asks for is read out, one at a time. Only a plain "yes" or "no" (the whole of
+what you say: "okay, what does it want?" goes to the lead as a message) decides the one you heard, and the call reads
+back what was decided ("Allowed: …").
 
 After a call with the call assistant, your next message in the chat carries the call's transcript to the crew (once),
 so you can ask the lead "how did the call go". A direct call needs no such hand-over: its words are already the chat's
@@ -72,8 +78,9 @@ messages.
 - The bar under the toolbar shows whether the call is listening, hearing you, thinking or speaking, your mic level,
   the last lines said, **Mute** and **Hang up**.
 - "Do X" for real work: the call model starts the crew on it and says so. Ask "how's it going?" any time.
-- When the crew wants approval for something (a command, a file change), the call model says what and asks; it
-  decides only after you clearly say yes or no.
+- When the crew wants approval for something (a command, a file change), the call model says what and asks, one at a
+  time. It can decide only when the last thing you said was a plain yes or no, and reads back what was decided. What
+  the crew reports reaches the call model as a crew update, never as your words.
 - Say goodbye (or press Hang up) to end the call. Its transcript is kept with the chat
   (`<home>/calls/<id>.json`) and shown as a card before the first round it started.
 - A call from a new chat makes the chat when it starts its first task.

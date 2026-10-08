@@ -1,12 +1,12 @@
 import { VOICE_END_MS, VOICE_MAX_TURN_MS, VOICE_PRE_ROLL_MS, VOICE_START_MS } from '../config.ts'
 
 /**
- * `pause`: the person went quiet for the pause time, mid-turn; `audio` is the turn so far, and `id` names this pause
- * (see `end`), so whoever decides it is over can check it still is.
+ * `pause`: the person went quiet for one of the pause times (`quietMs`), mid-turn; `audio` is the turn so far, and
+ * `id` names this pause (see `end`), so whoever decides it is over can check it still is.
  */
 export type TurnEvent =
   | { type: 'start' }
-  | { type: 'pause'; id: number; audio: Int16Array }
+  | { type: 'pause'; id: number; quietMs: number; audio: Int16Array }
   | { type: 'end'; audio: Int16Array }
 
 export interface TurnOptions {
@@ -19,8 +19,8 @@ export interface TurnOptions {
   readonly endMs?: number
   readonly maxTurnMs?: number
   readonly preRollMs?: number
-  /** Quiet that counts as a pause worth asking about (an end-of-turn model's moment); none by default. */
-  readonly pauseMs?: number
+  /** Lengths of quiet, shortest first, that count as a pause worth asking about (an end-of-turn model's moments). */
+  readonly pauseMs?: readonly number[]
 }
 
 /**
@@ -33,9 +33,10 @@ export class TurnDetector {
   private readonly _end: number
   private readonly _max: number
   private readonly _preRoll: number
-  private readonly _pause?: number
+  private readonly _pause: number[]
   private _pauses = 0
-  private _paused = false
+  /** Pause times passed in the current quiet. */
+  private _paused = 0
   /** Samples of loud audio seen while deciding whether a turn starts, and quiet seen since. */
   private _loud = 0
   private _quietInStart = 0
@@ -51,7 +52,7 @@ export class TurnDetector {
     this._end = samples(options.endMs ?? VOICE_END_MS)
     this._max = samples(options.maxTurnMs ?? VOICE_MAX_TURN_MS)
     this._preRoll = samples(options.preRollMs ?? VOICE_PRE_ROLL_MS)
-    if (options.pauseMs) this._pause = samples(options.pauseMs)
+    this._pause = (options.pauseMs ?? []).map(samples)
   }
 
   /**
@@ -93,11 +94,13 @@ export class TurnDetector {
     this._chunks.push(frame)
     this._length += frame.length
     this._quiet = loud ? 0 : this._quiet + frame.length
-    if (loud) this._paused = false
-    if (this._pause && !this._paused && this._quiet >= this._pause && this._quiet < this._end) {
-      this._paused = true
+    if (loud) this._paused = 0
+    const pause = this._pause[this._paused]
+    if (pause !== undefined && this._quiet >= pause && this._quiet < this._end) {
+      this._paused += 1
       this._pauses += 1
-      return [{ type: 'pause', id: this._pauses, audio: concat(this._chunks, this._length) }]
+      const quietMs = this.options.pauseMs?.[this._paused - 1] ?? 0
+      return [{ type: 'pause', id: this._pauses, quietMs, audio: concat(this._chunks, this._length) }]
     }
     if (this._quiet < this._end && this._length < this._max) return []
     const audio = concat(this._chunks, this._length)
@@ -114,7 +117,7 @@ export class TurnDetector {
     this._length = 0
     this._chunks = []
     this._recent = []
-    this._paused = false
+    this._paused = 0
   }
 
   /** Keeps the last pre-roll's worth of audio, plus whatever has been loud since the start window opened. */
