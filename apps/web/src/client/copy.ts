@@ -154,10 +154,12 @@ export const copy = {
       hearing: 'Hearing you…',
       thinking: 'Thinking…',
       speaking: 'Speaking',
+      muted: 'Muted',
       ended: 'Call ended',
     },
     you: 'You',
-    voice: 'Crew',
+    /** Who said a line of the call. */
+    speaker: { assistant: 'Assistant', lead: 'Lead' },
     menu: {
       assistant: 'Call assistant',
       assistantHint: 'A fast model: answers quick things, hands work to the crew, asks them for you',
@@ -166,8 +168,12 @@ export const copy = {
       agentHint: (role?: string) =>
         `${role ? `${role} · ` : ''}talk to them directly; they get the chat so far`,
     },
-    /** In the call bar: who the call is with. */
+    /** In the call bar: who the call is with, and the chat it is in. */
     with: (who: string) => `With ${who}`,
+    inChat: (title: string) => `In ${title}`,
+    openChat: (title: string) => `Go to the chat “${title}”`,
+    /** Before what waits for the person's answer, said aloud on the call. */
+    approval: 'Waiting for your yes or no:',
     /** How long the last answer took to start, after the person stopped talking. */
     latency: (ms: number) => `answered in ${(ms / 1000).toFixed(1)} s`,
     assistantName: 'the call assistant',
@@ -175,6 +181,9 @@ export const copy = {
     started: (request: string) => `Crew started: ${request}`,
     noMic: 'Myrmidon could not use the microphone. Allow it for this page and try again.',
     insecure: 'Calls need the microphone, which browsers allow only on https or on this machine.',
+    couldNotStart:
+      'Couldn’t start the call. Check that Myrmidon is running and voice calls are on in Settings → Voice.',
+    dropped: 'The call dropped: Myrmidon stopped answering. Check that it is still running, then call again.',
     card: {
       title: (minutes: number) => `Call · ${minutes < 1 ? 'under a minute' : `${minutes} min`}`,
       show: 'Show transcript',

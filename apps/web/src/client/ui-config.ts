@@ -144,5 +144,10 @@ export const CALL_RATE = 16_000
 export const CALL_FRAME = 320
 /** Lines of the live transcript the call bar keeps. */
 export const CALL_LINES = 6
+/** Call shortcuts: ⌘D mutes as in Google Meet, ⇧⌘H hangs up as in Microsoft Teams. */
+export const CALL_MUTE_COMBO = 'mod+d'
+export const CALL_HANG_UP_COMBO = 'mod+shift+h'
+/** How often Settings → Voice looks again while an engine installs or downloads, to show its progress. */
+export const VOICE_POLL_MS = 2000
 /** Speech speeds offered in Settings → Voice. */
 export const VOICE_SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const

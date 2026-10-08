@@ -1,7 +1,9 @@
 import { ChevronRight, Phone } from 'lucide-react'
 import { useState } from 'react'
 import { copy } from '../copy.ts'
+import { clock } from '../ui/hooks.ts'
 import { cn } from '../ui/primitives.tsx'
+import { speaker } from './CallBar.tsx'
 
 /** A finished call as the server keeps it. */
 export interface SavedCall {
@@ -11,6 +13,8 @@ export interface SavedCall {
   endedAt: string
   turns: { at: string; who: 'person' | 'voice' | 'crew'; text: string }[]
   rounds: { colonyId: string; round?: number }[]
+  /** Who the person talked to, when not the call assistant (`lead` or an agent's name). */
+  talkTo?: string
 }
 
 /** A call in the chat: when and how long, opening to its transcript. */
@@ -28,9 +32,7 @@ export function CallCard(props: { call: SavedCall }) {
       >
         <Phone className="size-3.5 text-muted" />
         <span className="font-medium">{t.card.title(minutes)}</span>
-        <span className="text-muted">
-          {new Date(props.call.startedAt).toLocaleTimeString([], { timeStyle: 'short' })}
-        </span>
+        <span className="text-muted">{clock(props.call.startedAt)}</span>
         <span className="flex-1" />
         <span className="text-footnote text-muted">{open ? t.card.hide : t.card.show}</span>
         <ChevronRight className={cn('size-3.5 text-muted transition-transform', open && 'rotate-90')} />
@@ -40,7 +42,12 @@ export function CallCard(props: { call: SavedCall }) {
           {props.call.turns.map((turn) => (
             <div key={`${turn.at}-${turn.who}`} className={cn(turn.who === 'crew' && 'text-muted')}>
               <span className="font-medium text-fg-2">
-                {turn.who === 'person' ? t.you : turn.who === 'voice' ? t.voice : t.card.crew}:{' '}
+                {turn.who === 'person'
+                  ? t.you
+                  : turn.who === 'voice'
+                    ? speaker(props.call.talkTo ?? 'assistant')
+                    : t.card.crew}
+                :{' '}
               </span>
               <span className="whitespace-pre-wrap">{turn.text}</span>
             </div>
