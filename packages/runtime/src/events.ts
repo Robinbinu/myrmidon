@@ -88,6 +88,7 @@ const colonySpec = Schema.object({
   disabledTools: Schema.array(str()),
   askTools: Schema.array(str()),
   allowTools: Schema.array(str()),
+  askAll: Schema.boolean(),
   review: Schema.union(['off', 'auto', 'always']),
 })
 

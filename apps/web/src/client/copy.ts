@@ -1888,9 +1888,11 @@ export const copy = {
       access: 'Who can write',
       dm: 'Direct messages',
       dmHint: {
-        pairing: 'Strangers get a code; nothing they write is acted on until you approve it.',
-        allowlist: 'Only approved people and the list below; everyone else is ignored without a reply.',
-        open: 'Anyone who finds the bot can use your crew and this machine’s tools. Only for a bot no one else knows.',
+        pairing:
+          'Strangers get a code; nothing they write is acted on until you approve it. Runs anyone but the owner starts ask the owner before every step that changes something.',
+        allowlist:
+          'Only approved people and the list below; everyone else is ignored without a reply. Runs anyone but the owner starts ask the owner before every step that changes something.',
+        open: 'Anyone who finds the bot can use your crew, at your cost. Their runs ask the owner before every step that changes something, even tools you always allow. Only for a bot no one else knows.',
         disabled: 'The bot answers no direct messages.',
       },
       dmOptions: {

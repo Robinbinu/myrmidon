@@ -2773,6 +2773,36 @@ test('per-tool rules turn a tool off and make another wait for approval', async 
   await chats.stopAll()
 })
 
+test('a round someone else started asks before every call that changes something, whatever the person allowed', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  settings.set({ ...settings.get(), permissions: { fs_write: 'allow' } })
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/member', [
+    [tool('fs_list', { path: '.' })],
+    [tool('fs_write', { path: 'a.txt', content: 'x' })],
+    [tool('reply_user', { text: 'Wrote it.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const { colonyId } = await chats.send(
+    'Write a.txt',
+    { ...solo('mock/member'), judgeModel: 'mock/judge' },
+    undefined,
+    { askAll: true },
+  )
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  // Reading and answering run without asking; the write the person allowed for themselves still asks.
+  expect(Object.values(waiting.approvals).map((a) => a.tool)).toEqual(['fs_write'])
+  const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
+  expect((created?.payload as EventPayloads['colony/created'] | undefined)?.askAll).toBe(true)
+  await chats.decideApproval(colonyId, Object.values(waiting.approvals)[0]?.id ?? '', true)
+  const s = await waitFor(colonyId)
+  expect(s.status).toBe('completed')
+  expect(Object.values(s.approvals)).toHaveLength(1)
+  await chats.stopAll()
+})
+
 test('ask_user pauses the round until the person answers', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/greeter', [

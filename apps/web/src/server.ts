@@ -348,6 +348,7 @@ export function startServer(options: ServeOptions): WebServer {
             ...(opts.project ? { project: opts.project } : {}),
             ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
             ...(opts.voice ? { voice: true } : {}),
+            ...(opts.askAll ? { askAll: true } : {}),
           }),
         rename: (chatId, title) => chats.rename(chatId, title),
         stop: (chatId) => chats.stop(chatId),

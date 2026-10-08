@@ -42,6 +42,11 @@ export interface ChannelChats {
       attachments?: readonly { name: string; bytes: Uint8Array }[]
       /** Said aloud on a voice call. */
       voice?: boolean
+      /**
+       * Written by someone other than the owner: the round asks before every call that changes something, whatever
+       * the owner allowed.
+       */
+      askAll?: boolean
     },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   rename(chatId: string, title: string): Promise<unknown>
@@ -148,6 +153,8 @@ interface Tracker {
   readonly colonyId: string
   readonly started: number
   readonly stream: ChannelConfig['stream']
+  /** The member (not the owner) whose message started or steered the round: it asks for every step. */
+  member?: string
   ref?: SentRef
   shown?: string
   readonly agents: Map<string, string>
@@ -171,6 +178,8 @@ interface OpenApproval {
   readonly tool: string
   readonly text: string
   readonly messages: { adapter: ChannelAdapter; ref: SentRef; to: ChannelChat }[]
+  /** Asked for in a member's round: "always" is not offered (it would widen the owner's own rules). */
+  readonly member: boolean
 }
 
 /** Questions with options sent to a chat, answered one press at a time, then sent together. */
@@ -712,18 +721,18 @@ export class ChannelHub {
     if (person.role !== 'owner') return void (await note(t.approval.onlyOwner))
     this._approvals.delete(k)
     const approved = decision !== 'd'
+    const always = decision === 'a' && !open.member
     try {
-      if (decision === 'a') await this.options.chats.allowAlways(open.tool)
+      if (always) await this.options.chats.allowAlways(open.tool)
       await this.options.chats.decideApproval(open.colonyId, open.id, approved)
     } catch {
       return void (await note(t.approval.gone))
     }
-    const outcome =
-      decision === 'a'
-        ? t.approval.allowedAlways(person.name, open.tool)
-        : approved
-          ? t.approval.allowed(person.name)
-          : t.approval.denied(person.name)
+    const outcome = always
+      ? t.approval.allowedAlways(person.name, open.tool)
+      : approved
+        ? t.approval.allowed(person.name)
+        : t.approval.denied(person.name)
     for (const msg of open.messages)
       await this._settle(msg.adapter, msg.ref, msg.to, `${open.text}\n\n${outcome}`, outcome)
     await note(approved ? t.approval.pressAllowed : t.approval.pressDenied)
@@ -757,12 +766,14 @@ export class ChannelHub {
     const label = this._kind(channel).label
     const conversation = this._conversation(c, m)
     const existing = c.chats[conversation]
-    const body = person.role !== 'owner' ? prompts.channels.member(m.sender.name, label, text) : text
+    const member = person.role !== 'owner'
+    const body = member ? prompts.channels.member(m.sender.name, label, text) : text
     let sent: Awaited<ReturnType<ChannelChats['send']>>
     try {
       sent = await this.options.chats.send(body, existing, {
         ...(c.project ? { project: c.project } : {}),
         ...(attachments.length ? { attachments } : {}),
+        ...(member ? { askAll: true } : {}),
       })
     } catch (err) {
       await adapter.send(m.chat, { text: t.failed(err instanceof Error ? err.message : String(err)) })
@@ -775,8 +786,20 @@ export class ChannelHub {
       const who = m.chat.kind === 'group' ? (m.chat.title ?? m.sender.name) : m.sender.name
       await this.options.chats.rename(sent.chatId, t.title(label, who)).catch(() => {})
     }
-    if (sent.started) await this._track(channel, adapter, m.chat, sent.chatId, sent.colonyId)
-    else await adapter.typing(m.chat).catch(() => {})
+    if (sent.started)
+      await this._track(
+        channel,
+        adapter,
+        m.chat,
+        sent.chatId,
+        sent.colonyId,
+        member ? m.sender.name : undefined,
+      )
+    else {
+      const tracker = this._trackers.get(sent.colonyId)
+      if (tracker && member) tracker.member ??= m.sender.name
+      await adapter.typing(m.chat).catch(() => {})
+    }
   }
 
   private async _track(
@@ -785,6 +808,7 @@ export class ChannelHub {
     to: ChannelChat,
     chatId: string,
     colonyId: string,
+    member?: string,
   ) {
     if (this._trackers.has(colonyId)) return
     const tracker: Tracker = {
@@ -795,6 +819,7 @@ export class ChannelHub {
       colonyId,
       started: Date.now(),
       stream: adapter.can.edit ? this.store.get(channel).stream : 'final',
+      ...(member ? { member } : {}),
       agents: new Map(),
       approvals: new Set(),
       question: false,
@@ -933,23 +958,26 @@ export class ChannelHub {
     const owner = c.people.find((p) => p.role === 'owner')
     const preview = request.review?.fields.find((f) => f.value)?.value
     const k = key()
+    const member = tracker.member
     const text = [
       t.approval.ask(request.agent, request.summary),
+      ...(member ? [t.approval.member(member)] : []),
       ...(preview
         ? [`\`\`\`\n${preview.slice(0, PREVIEW_CHARS)}${preview.length > PREVIEW_CHARS ? '\n…' : ''}\n\`\`\``]
         : []),
       t.approval.expires(Math.round(APPROVAL_MS / 60_000)),
     ].join('\n\n')
+    const p = tracker.adapter.commandPrefix ?? '/'
     const message: OutMessage = tracker.adapter.can.buttons
       ? {
           text,
           buttons: [
             [{ label: t.approval.once, data: `a:o:${k}` }],
-            [{ label: t.approval.always(request.tool), data: `a:a:${k}` }],
+            ...(member ? [] : [[{ label: t.approval.always(request.tool), data: `a:a:${k}` }]]),
             [{ label: t.approval.deny, data: `a:d:${k}` }],
           ],
         }
-      : { text: `${text}\n\n${t.approval.typed(k, tracker.adapter.commandPrefix ?? '/')}` }
+      : { text: `${text}\n\n${member ? t.approval.typedOnce(k, p) : t.approval.typed(k, p)}` }
     const here = tracker.to.kind === 'dm' && owner?.dm === tracker.to.id
     // An owner with no private chat (group-only platforms like Twitch) is asked where the run is; only their press
     // counts there too.
@@ -973,6 +1001,7 @@ export class ChannelHub {
       tool: request.tool,
       text,
       messages: [{ adapter: tracker.adapter, ref, to: target }],
+      member: Boolean(member),
     })
     if (target !== tracker.to)
       await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})

@@ -86,7 +86,7 @@ class FakeAdapter implements ChannelAdapter {
 
 /** Myrmidon's chats, faked: sends are recorded, and a test appends a round's events. */
 class FakeChats implements ChannelChats {
-  sends: { text: string; chatId: string | undefined; files?: string[] }[] = []
+  sends: { text: string; chatId: string | undefined; files?: string[]; askAll?: boolean }[] = []
   renamed: Record<string, string> = {}
   stopped: string[] = []
   decided: { colonyId: string; id: string; approved: boolean }[] = []
@@ -101,12 +101,13 @@ class FakeChats implements ChannelChats {
   async send(
     text: string,
     chatId: string | undefined,
-    options?: { attachments?: readonly { name: string }[] },
+    options?: { attachments?: readonly { name: string }[]; askAll?: boolean },
   ) {
     this.sends.push({
       text,
       chatId,
       ...(options?.attachments ? { files: options.attachments.map((a) => a.name) } : {}),
+      ...(options?.askAll ? { askAll: true } : {}),
     })
     const id = chatId ?? `chat-${++this._n}`
     const colonyId = `col-${id}`
@@ -426,29 +427,53 @@ test('approvals go to the owner with buttons; only the owner decides, and "alway
       fields: [{ key: 'command', label: 'Command', value: 'rm -rf build', format: 'code', editable: false }],
     },
   })
-  // A member's round asks the owner, in the owner's own chat, and says so where it started.
+  // A member's round asks for every step (whatever the owner allowed), and asks the owner, in the owner's own chat,
+  // saying whose run it is; it says so where it started.
+  expect(chats.sends[0]?.askAll).toBe(true)
   await until(() => adapter.sent.some((s) => s.chat === '100' && s.buttons))
   const ask = adapter.sent.find((s) => s.chat === '100' && s.buttons)
   expect(ask?.text).toContain('**lead** wants to run `rm -rf build`')
+  expect(ask?.text).toContain('Bob (a member, not the owner)')
   await until(() => adapter.to('200').includes("Waiting for the owner's OK."))
-  const [once, always, deny] = (ask?.buttons ?? []).map((row) => row[0]?.data ?? '')
-  expect(always).toContain('a:a:')
+  // No "always" from a member's run: it would widen the owner's own rules.
+  const [once, deny] = (ask?.buttons ?? []).map((row) => row[0]?.data ?? '')
+  expect(ask?.buttons).toHaveLength(2)
+  expect(deny).toContain('a:d:')
 
   // Bob pressing Deny is refused.
   await say(BOB, '', { press: deny ?? '' })
   await until(() => adapter.presses.some((p) => p.note === 'Only the owner can approve this.'))
   expect(chats.decided).toEqual([])
 
-  await say(ALICE, '', { press: always ?? '' })
+  // An "always" pressed anyway counts once.
+  await say(ALICE, '', { press: (once ?? '').replace('a:o:', 'a:a:') })
   await until(() => chats.decided.length === 1)
   expect(chats.decided[0]).toEqual({ colonyId: 'col-chat-1', id: 'ap-1', approved: true })
+  expect(chats.alwaysAllowed).toEqual([])
+  // The same button again: the request is closed.
+  await say(ALICE, '', { press: once ?? '' })
+  await until(() => adapter.presses.some((p) => p.note === 'This request is no longer open.'))
+
+  // The owner's own round offers "always", which changes the rule.
+  await say(ALICE, 'tidy up')
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]?.askAll).toBeUndefined()
+  chats.emit('col-chat-2', 'approval/requested', {
+    id: 'ap-2',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'run ls',
+  })
+  await until(() => adapter.sent.filter((s) => s.chat === '100' && s.buttons).length === 2)
+  const mine = adapter.sent.filter((s) => s.chat === '100' && s.buttons).at(-1)
+  const always = mine?.buttons?.[1]?.[0]?.data ?? ''
+  expect(always).toContain('a:a:')
+  await say(ALICE, '', { press: always })
+  await until(() => chats.decided.length === 2)
   expect(chats.alwaysAllowed).toEqual(['shell'])
   await until(() =>
     adapter.edits.some((e) => e.text.includes('✅ Allowed by Alice; shell is now always allowed')),
   )
-  // The same button again: the request is closed.
-  await say(ALICE, '', { press: once ?? '' })
-  await until(() => adapter.presses.some((p) => p.note === 'This request is no longer open.'))
 })
 
 test('without buttons, approvals and questions are answered by typing', async () => {

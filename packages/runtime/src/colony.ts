@@ -804,6 +804,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
       ...(this.spec.askTools?.length ? { askTools: this.spec.askTools } : {}),
       ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
+      ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
     }
   }

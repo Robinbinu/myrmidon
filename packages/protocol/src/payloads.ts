@@ -135,6 +135,8 @@ export interface EventPayloads {
     /** Tools whose every call waits for the person's approval. */
     askTools?: string[]
     allowTools?: string[]
+    /** Every call that changes something outside the colony waits for approval (a round a channel member started). */
+    askAll?: boolean
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
   }
