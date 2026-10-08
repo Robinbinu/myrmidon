@@ -38,6 +38,15 @@ export const channelCopy = {
     googlechat:
       "In Google Cloud, make a service account and a JSON key, enable the Google Chat API and configure the app with this gateway's /hooks/channels/googlechat address as its HTTP endpoint. Paste the key and the project number. Then message the app: it replies with a code to approve here. Needs a public HTTPS address (myrmidon serve --public-url).",
     line: 'In the LINE Developers console, make a Messaging API channel, issue a channel access token, and paste it with the channel secret; Myrmidon sets the webhook address itself (turn on Use webhook). Then add the bot as a friend and message it: it replies with a code to approve here. Needs a public HTTPS address (myrmidon serve --public-url).',
+    feishu:
+      'On open.feishu.cn (open.larksuite.com for Lark), create a custom app, add the Bot capability, grant im:message, im:message:send_as_bot and im:resource, and under Events & Callbacks choose the long connection and add "Receive messages" (im.message.receive_v1) and the card action callback. Publish the app, then paste its App ID and App Secret here and message the bot: it replies with a code to approve here.',
+    dingtalk:
+      'In the DingTalk developer console, create an internal app, add a Robot with Stream mode as its message receiving mode, and publish it. Paste its Client ID (AppKey) and Client Secret here, then message the robot: it replies with a code to approve here.',
+    wecom:
+      "Needs a gateway with a public HTTPS address. In the WeCom admin console, create a self-built app; under Receive Messages set the URL to <public-url>/hooks/channels/wecom with a Token and an EncodingAESKey, and add this server's IP to the app's trusted IPs. Paste the corp ID, the app's AgentId and Secret, the Token and the EncodingAESKey here.",
+    weixin:
+      "Turn WeChat on, then scan the code that appears with WeChat on your phone and confirm. It links a bot identity to your account through Tencent's iLink bot API (as Hermes Agent does) and answers direct messages to it.",
+    qq: "On q.qq.com, create a bot, turn on direct messages and group @-messages, add this server's IP to its IP allowlist, and paste its App ID and AppSecret here. Buttons need QQ's Markdown permission: without it, set Markdown to off.",
   },
   /** Settings the WhatsApp Cloud API needs. */
   fields: {
@@ -260,7 +269,7 @@ export const channelCopy = {
   },
   /** A platform that pushes messages to this gateway cannot run without a public address. */
   needsPublicUrl: (label: string) =>
-    `${label} sends messages to this gateway, so it needs a public HTTPS address: start it with --public-url (see remote.md)`,
+    `${label} sends messages to this gateway, so it needs a public HTTPS address: start it with --public-url (see docs/remote.md)`,
   /** Hints under some platforms' settings. */
   hints: {
     msteamsTenant:
@@ -269,5 +278,16 @@ export const channelCopy = {
       "The service account's JSON key, pasted whole, or the path to the .json file on the gateway.",
     googlechatAudience:
       "Your Google Cloud project number, when the app's Authentication Audience is Project Number. Leave empty when it is the HTTP endpoint URL.",
+  },
+  /** WeChat's linking, and what it adds to messages (quotes, its own voice transcripts). */
+  weixin: {
+    scan: 'Scan this code with WeChat on your phone',
+    scanned: 'Scanned: confirm on your phone',
+    expired: 'The code expired unscanned; turn WeChat off and on for a new one',
+    sessionExpired:
+      'WeChat says the session expired; trying again in 10 minutes (if it persists, link again)',
+    quoted: (what: string) => `[Quoting: ${what}]`,
+    quotedMedia: (title: string) => (title ? `[Quoting media: ${title}]` : '[Quoting media]'),
+    voice: '[Voice note, transcribed by WeChat]',
   },
 }

@@ -273,8 +273,9 @@ Open work, in the order it will be done:
       - [ ] Step 5: Signal (signal-cli), iMessage (imsg / BlueBubbles), Matrix, Mattermost, email (IMAP/SMTP).
       - [ ] Step 6: Microsoft Teams, Google Chat, LINE, SMS (Twilio), Feishu/Lark, DingTalk, WeCom.
       - [ ] Step 7: IRC, Twitch, X, Nostr, Zalo, Synology Chat, Nextcloud Talk, ntfy, SimpleX, Tlon, WeChat, QQ, webhook.
-11e. - [ ] **Channel logos** (asked 2026-10-08, "the ui looks boring"): each messaging app's logo in Settings →
-      Channels (the picker and each channel's card) and on chats that came from a channel.
+11e. - [ ] **Channels UI and usage redesign** (asked 2026-10-08: "the ui looks boring", "the channels ui and usage
+      feels very bad"): each messaging app's logo (picker, cards, chats that came from a channel), and a proper
+      design pass on setting a channel up and using it; show options before building.
 11f. - [ ] **Gateway indicator and inspector** (asked 2026-10-08, "like hermes"): research how Hermes shows its gateway
       (status indicator, inspector of connected platforms, sessions, deliveries), then build ours.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
