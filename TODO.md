@@ -73,6 +73,8 @@ Open work, in the order it will be done:
       Skills; kept skills go to every chat.
 11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
       archived after 90; needs use counts from use_skill.
+11c. - [ ] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw") — host Myrmidon's gateway on a
+      remote server and use the local app/client against it; gateways on N servers; research first (in progress).
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).

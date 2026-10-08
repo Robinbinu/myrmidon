@@ -121,9 +121,18 @@ export class ContextCompactor {
       ? async (m: Model, context: Parameters<StreamFn>[1], options: Parameters<StreamFn>[2]) =>
           (await stream(m, context, options)).result()
       : undefined
-    return generateSummary(messages, model, reserve, apiKey as never, signal, undefined, previous, {
-      ...(completeImpl ? { completeImpl: completeImpl as never } : {}),
-    })
+    return generateSummary(
+      messages,
+      model,
+      reserve,
+      apiKey as never,
+      signal,
+      prompts.compaction.focus,
+      previous,
+      {
+        ...(completeImpl ? { completeImpl: completeImpl as never } : {}),
+      },
+    )
   }
 
   /** The estimated size of the context the next call would send, in tokens. */
