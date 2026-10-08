@@ -1,4 +1,5 @@
 import { findChrome, type Sandbox } from '@myrmidon/runtime'
+import { listChannels, statusText } from './channels.ts'
 import { setupCopy as t } from './copy.ts'
 
 /**
@@ -321,6 +322,21 @@ export async function doctor(
           ? { ok: true, text: t.doctor.devices.ok(devices.length) }
           : { ok: false, text: t.doctor.devices.none, fix: t.doctor.devices.fix },
       )
+    }
+    for (const c of (await listChannels(call)).filter((x) => x.configured && x.enabled)) {
+      if (c.status.state !== 'on')
+        checks.push({
+          ok: false,
+          text: t.doctor.channel.down(c.label, statusText(c.status)),
+          fix: t.doctor.channel.fix(c.id),
+        })
+      else if (!c.people.length)
+        checks.push({
+          ok: false,
+          text: t.doctor.channel.nobody(c.label),
+          fix: t.doctor.channel.approveFix(c.id),
+        })
+      else checks.push({ ok: true, text: t.doctor.channel.ok(c.label, c.status.account, c.people.length) })
     }
   } else checks.push({ ok: false, text: t.doctor.server.none, fix: t.doctor.server.fix })
 

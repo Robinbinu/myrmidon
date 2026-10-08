@@ -141,14 +141,14 @@ export class PairingCodes {
 
 /**
  * Requests a `chat` device may not make: the terminal, keys and providers, Settings and permission changes, plugins,
- * MCP servers, hooks, browsing the server's folders, git actions on projects, managing devices, and other gateways.
+ * MCP servers, hooks, browsing the server's folders, git actions on projects, managing devices, other gateways, and channels.
  */
 export function needsFull(method: string, path: string): boolean {
   const write = method !== 'GET' && method !== 'HEAD'
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|import-omp|folders|mcp-reload)(\/|$)/.test(
+    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload)(\/|$)/.test(
       path,
     )
   )

@@ -7,7 +7,9 @@ import { type ColonyId, colonyMetrics, foldColony, runDiff, stopCause } from '@m
 import {
   accountName,
   type BrowserHub,
+  BUILT_IN_CHANNELS,
   buildCatalog,
+  ChannelHub,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
@@ -332,6 +334,25 @@ export function startServer(options: ServeOptions): WebServer {
         })
       : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
+  // Messaging channels (Telegram…) reach the same chats, with the person's default team.
+  const channels = chats
+    ? new ChannelHub({
+        dir: join(options.home, 'channels'),
+        kinds: BUILT_IN_CHANNELS,
+        log: (message) => console.error(`channels: ${message}`),
+        chats: {
+          send: (text, chatId, project) =>
+            chats.send(text, defaultTeam(), chatId, project ? { project } : {}),
+          rename: (chatId, title) => chats.rename(chatId, title),
+          stop: (chatId) => chats.stop(chatId),
+          onEvents: (listener) => chats.onEvents(listener),
+          read: (colonyId) => chats.events(colonyId),
+        },
+      })
+    : undefined
+  void channels
+    ?.start()
+    .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
   const pluginList = () =>
     (options.plugins?.list() ?? []).map((p) => {
@@ -662,6 +683,63 @@ export function startServer(options: ServeOptions): WebServer {
           closeDevice(access.device.id)
           return json({ ok: true })
         },
+      },
+      '/api/channels': {
+        GET: guard(() => json({ channels: channels?.list() ?? [] })),
+      },
+      '/api/channels/:id': {
+        PUT: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          try {
+            const channel = await channels.configure(req.params.id ?? '', {
+              ...(typeof body.token === 'string' ? { token: body.token } : {}),
+              ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+              ...(typeof body.project === 'string' || body.project === null
+                ? { project: body.project as string | null }
+                : {}),
+            })
+            return json({ channel })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/channels/:id/approve': {
+        POST: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { code?: unknown; request?: unknown }
+          const by =
+            typeof body.code === 'string'
+              ? { code: body.code }
+              : typeof body.request === 'string'
+                ? { request: body.request }
+                : undefined
+          if (!by) return json({ error: 'code or request is required' }, 400)
+          try {
+            const approved = await channels.approve(req.params.id ?? '', by)
+            if (!approved)
+              return json({ error: 'no waiting request has that code; it may have expired' }, 404)
+            return json({ person: approved.person, group: approved.group })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/channels/:id/:kind/:target': {
+        DELETE: guard((req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const kind = req.params.kind
+          if (kind !== 'person' && kind !== 'group' && kind !== 'request')
+            return json({ error: 'not found' }, 404)
+          try {
+            return channels.revoke(req.params.id ?? '', kind, req.params.target ?? '')
+              ? json({ ok: true })
+              : json({ error: 'not found' }, 404)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
       },
       '/api/gateways': {
         GET: guard(async () =>
@@ -1891,6 +1969,7 @@ export function startServer(options: ServeOptions): WebServer {
       // above), though the port is already released; waiting on it would hang shutdown.
       await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
       await preview.stop(true)
+      await channels?.stop()
       store.close()
     },
   }

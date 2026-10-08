@@ -74,6 +74,31 @@ export const setupCopy = {
     unknown: (ref: string) => `${ref} is not a ready model; \`myrmidon model\` lists them`,
   },
 
+  channels: {
+    usage:
+      'usage: myrmidon channels [telegram [on|off] | approve <channel> <code> | revoke <channel> <name, @handle or id>]',
+    status: {
+      off: 'off',
+      connecting: 'connecting…',
+      on: (account: string) => `connected as ${account}`,
+      retrying: (error: string) => `reconnecting: ${error}`,
+      error: (error: string) => error,
+    },
+    notSet: 'no token yet: run `myrmidon channels telegram`',
+    people: (names: string[]) => `approved: ${names.join(', ')}`,
+    nobody: 'no one approved yet: message the bot, then approve the code it sends',
+    waiting: (who: string, expires: string) => `waiting: ${who} (expires ${expires})`,
+    token: (label: string) => `${label} bot token from @BotFather (hidden)`,
+    connected: (label: string, account: string) =>
+      `${label} is connected as ${account}. Message it, then approve the code it replies with:`,
+    approveHint: (id: string) => `  myrmidon channels approve ${id} <code>`,
+    turned: (label: string, on: boolean) => `${label} is ${on ? 'on' : 'off'}.`,
+    approved: (name: string, owner: boolean) => `Approved ${name}${owner ? ' as the owner' : ''}.`,
+    revoked: (name: string) => `Revoked ${name}.`,
+    noMatch: (who: string) => `no approved person or group matches ${who}`,
+    unknown: (id: string, ids: string[]) => `no channel called ${id}; one of: ${ids.join(', ')}`,
+  },
+
   doctor: {
     title: 'Myrmidon doctor',
     server: {
@@ -109,6 +134,14 @@ export const setupCopy = {
       ok: (origin: string) => `previews open at ${origin}`,
       none: 'devices cannot open previews of agent-built pages',
       fix: 'restart with --preview-port and --preview-url (docs/remote.md)',
+    },
+    channel: {
+      ok: (label: string, account: string, people: number) =>
+        `${label} connected as ${account}, ${people} approved ${people === 1 ? 'person' : 'people'}`,
+      down: (label: string, why: string) => `${label}: ${why}`,
+      nobody: (label: string) => `${label} is connected, but no one is approved yet`,
+      fix: (id: string) => `Settings → Channels, or \`myrmidon channels ${id}\``,
+      approveFix: (id: string) => `message the bot, then \`myrmidon channels approve ${id} <code>\``,
     },
     devices: {
       ok: (n: number) => `${n} paired ${n === 1 ? 'device' : 'devices'}`,

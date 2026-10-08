@@ -257,9 +257,14 @@ Open work, in the order it will be done:
         off the page, /gw/<id> forwards API calls and bridges sockets, previews through the hub's preview origin,
         sidebar switcher per window, HTTP + socket health, a "can't reach" screen; revoking a device now closes all
         its sockets (terminals too); Bun's stop() hang after server-closed sockets worked around.
-11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"): talk to Myrmidon from WhatsApp, Telegram
-      and similar — research how OpenClaw and Hermes Agent do channels (pairing a chat to the gateway, allowlists,
-      approvals from the channel, media), then spec, likely as plugins on the gateway.
+11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"; research docs/research/2026-10-08-channels.md,
+      spec docs/superpowers/specs/2026-10-08-channels-design.md)
+      - [x] Step 1: channel core + Telegram text — ChannelHub (pairing codes, owner/members, groups by approval and
+        mention, one chat per conversation, /new /stop /status /help, status line, chunked answers, dedupe and saved
+        offset), Telegram over plain HTTP, Settings → Channels, `myrmidon channels`, doctor, docs/channels.md.
+      - [ ] Step 2: approvals and questions in the chat (buttons), delivery ledger.
+      - [ ] Step 3: media in/out, voice notes, schedules delivering to a channel.
+      - [ ] Step 4: WhatsApp and other platforms as plugins.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
