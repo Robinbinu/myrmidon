@@ -36,3 +36,20 @@ test('plain text keeps the words and drops the markup, for reading out', () => {
   ).toBe("I'll fix calc.py first.\n\nPlan\n\nFix add\nRun the tests\n\nSee docs")
   expect(plainText('snake_case_name stays')).toBe('snake_case_name stays')
 })
+
+test('a long line of unclosed brackets renders in linear time', () => {
+  for (const line of ['[a'.repeat(25_000), '[a](x'.repeat(10_000)]) {
+    const start = performance.now()
+    html(line)
+    plainText(line)
+    // Quadratic matching took seconds on these 50k-character lines; linear takes a few milliseconds.
+    expect(performance.now() - start).toBeLessThan(1000)
+  }
+})
+
+test('a link inside an unclosed bracket still links', () => {
+  const out = html('see [a [docs](https://example.com) here')
+  expect(out).toContain('see [a <a ')
+  expect(out).toMatch(/href="https:\/\/example.com"[^>]*>docs<\/a> here/)
+  expect(plainText('see [a [docs](https://example.com) here')).toBe('see [a docs here')
+})

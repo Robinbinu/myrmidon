@@ -3,8 +3,10 @@ import { Fragment, type ReactNode } from 'react'
 import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
 
+// A link's label and address stop at the next `[`: each attempt then scans only to the next link's start, so a long
+// line of unclosed `[` stays linear instead of rescanning the rest of the line from every bracket.
 const INLINE =
-  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^\]\n]+\]\([^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^[\]\n]+\]\([^\s)[\]]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
 const LINK =
   'font-medium text-accent-fg underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
@@ -68,7 +70,7 @@ export function plainText(text: string): string {
   return text
     .replace(/^```.*$/gm, '')
     .replace(/^[ \t]{0,3}(#{1,6}|>|[-*]|\d+\.)[ \t]+/gm, '')
-    .replace(/\[([^\]\n]+)\]\([^\s)]+\)/g, '$1')
+    .replace(/\[([^[\]\n]+)\]\([^\s)[\]]+\)/g, '$1')
     .replace(/(\*\*|`)/g, '')
     .replace(/(?<![\w*])[*_]([^*_\s][^*_\n]*?)[*_](?![\w*])/g, '$1')
     .trim()
