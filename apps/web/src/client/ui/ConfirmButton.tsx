@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactElement, type ReactNode, useRef, useState } from 'react'
 import { CONFIRM_ARM_DELAY_MS } from '../ui-config.ts'
 import { Button, IconButton } from './primitives.tsx'
 
@@ -12,10 +12,13 @@ export function ConfirmButton(props: {
   label: string
   /** An accessible name for the text button when its label alone is ambiguous in a list. */
   name?: string
+  /** The icon button's tooltip, when it has more to say than its name. */
+  title?: string
   /** What the armed button says, such as "Remove for good". */
   confirm: string
   onConfirm(): void
-  icon?: boolean
+  /** An icon button instead of text: the trash can, or the glyph given for a removal that deletes nothing. */
+  icon?: boolean | ReactElement
   /** A consequence worth spelling out, shown beside the armed button. */
   warning?: ReactNode
   disabled?: boolean
@@ -30,7 +33,7 @@ export function ConfirmButton(props: {
   }
   if (armed)
     return (
-      <span className="inline-flex items-center gap-2">
+      <span data-armed className="inline-flex items-center gap-2">
         {props.warning && (
           <span role="alert" className="max-w-64 text-right text-small leading-snug text-bad-ink">
             {props.warning}
@@ -69,8 +72,15 @@ export function ConfirmButton(props: {
       </span>
     )
   return props.icon ? (
-    <IconButton size="sm" label={props.label} disabled={props.disabled} autoFocus={refocus} onClick={arm}>
-      <Trash2 className="size-4" />
+    <IconButton
+      size="sm"
+      label={props.label}
+      title={props.title}
+      disabled={props.disabled}
+      autoFocus={refocus}
+      onClick={arm}
+    >
+      {props.icon === true ? <Trash2 className="size-4" /> : props.icon}
     </IconButton>
   ) : (
     <Button

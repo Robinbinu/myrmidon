@@ -665,6 +665,8 @@ export const copy = {
       removeLabel: (name: string) => `Remove ${name} from projects`,
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
+      /** The armed remove button: the second click removes the project from the list. */
+      removeConfirm: 'Remove',
     },
     empty: 'Your conversations will appear here.',
     noMatches: (query: string) => `No chats match “${query}”.`,
@@ -1361,6 +1363,8 @@ export const copy = {
     crewConsole: 'Crew console',
     noCrews: 'No crews yet.',
     crewSelect: 'Crew',
+    /** The first stop on the page for keyboard users, shown only while focused. */
+    skipToComposer: 'Skip to message box',
   },
 
   colonyScreen: {

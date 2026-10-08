@@ -814,6 +814,16 @@ export function App() {
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
       <div className="flex h-dvh overflow-hidden bg-bg text-fg">
+        {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
+        {!settingsOpen && view === 'chat' && config && (
+          <button
+            type="button"
+            onClick={() => composer.current?.focus()}
+            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+          >
+            {copy.app.skipToComposer}
+          </button>
+        )}
         <AnimatePresence initial={false}>
           {!collapsed && (
             <motion.div
