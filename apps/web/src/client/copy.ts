@@ -1844,7 +1844,7 @@ export const copy = {
       sandboxedHint:
         'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
       unsandboxedHint:
-        'No sandbox was found on the computer Myrmidon runs on, so the shell tool stays off. On Linux, install bubblewrap and restart Myrmidon.',
+        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless Myrmidon was started with --unsafe-no-sandbox, which runs commands unconfined. On Linux, install bubblewrap and restart Myrmidon.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
@@ -2277,7 +2277,7 @@ export const copy = {
       },
       title: 'Schedules',
       intro:
-        'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running; notifications (General) say when one ends.',
+        'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running. Turn on notifications in General to hear when one ends.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
       when: 'When',
@@ -2314,7 +2314,7 @@ export const copy = {
       title: 'Hooks',
       /** Intro text around the tool-name examples `fs_edit`, `shell`, `Edit|Write` and `Bash`. */
       introBeforeFsEdit:
-        "Commands run before or after a tool or when a run ends, so a rule always holds. They get the event as JSON on stdin; exit 2 blocks the tool, or after it tells the agent. Tool names are Myrmidon's (",
+        "Commands run before or after a tool or when a run ends, so a rule always holds. They get the event as JSON on stdin; exit code 2 before a tool blocks it; after a tool, it tells the agent. Tool names are Myrmidon's (",
       introBeforeShell: ', ',
       introBeforeEditWrite: ") or Claude Code's (",
       introBeforeBash: ', ',
