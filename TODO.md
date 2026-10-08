@@ -78,8 +78,15 @@ Open work, in the order it will be done:
       - [x] Step 1: remote server mode — --host/--public-url, exact Host/Origin allowlist, device pairing
         (`myrmidon pair`, single-use 10-minute codes), HttpOnly device cookies (`__Host-` over HTTPS), full/chat
         scopes, Settings → Devices with revoke, auth audit log, docs/remote.md.
-      - [ ] Step 2: previews from a remote gateway (fixed preview port + preview URL).
+      - [x] Step 2: previews from a remote gateway — --preview-port/--preview-url, per-device preview keys (revoke
+        ends previews), preview Host allowlist, a note instead of a broken frame when a device has no preview address.
+      - [ ] Step 2b (asked 2026-10-08): set up a VPS gateway from the CLI alone, since VPSes usually have no
+        desktop: model sign-ins (device-code / paste-back OAuth where providers allow), API keys, default model and
+        team, checks (sandbox, Chromium), all without a browser on the server.
       - [ ] Step 3: one client, N gateways (hub registry, proxy, switcher, health).
+11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"): talk to Myrmidon from WhatsApp, Telegram
+      and similar — research how OpenClaw and Hermes Agent do channels (pairing a chat to the gateway, allowlists,
+      approvals from the channel, media), then spec, likely as plugins on the gateway.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).

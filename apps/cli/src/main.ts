@@ -47,7 +47,9 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
   myrmidon serve [--port N] [--dev] [--debug] [--host ADDR] [--public-url URL] [--allow-host HOST:PORT]
+               [--preview-port N] [--preview-url URL]
                --host / --public-url make a remote gateway: devices pair, see docs/remote.md
+               --preview-port / --preview-url: where devices open agent-built pages from a remote gateway
   myrmidon pair [--scope full|chat]
                Print a single-use link that pairs a device with the running server (10 minutes)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
@@ -77,6 +79,8 @@ const { values, positionals } = parseArgs({
     host: { type: 'string' },
     'public-url': { type: 'string' },
     'allow-host': { type: 'string', multiple: true },
+    'preview-port': { type: 'string' },
+    'preview-url': { type: 'string' },
     scope: { type: 'string' },
     debug: { type: 'boolean', default: false },
     chat: { type: 'string' },
@@ -350,12 +354,20 @@ async function main() {
         ...(values.host ? { host: values.host } : {}),
         ...(values['public-url'] ? { publicUrl: values['public-url'] } : {}),
         ...(values['allow-host']?.length ? { allowHosts: values['allow-host'] } : {}),
+        ...(values['preview-port'] ? { previewPort: Number(values['preview-port']) } : {}),
+        ...(values['preview-url'] ? { previewUrl: values['preview-url'] } : {}),
         debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
       if (server.remote)
         console.log(
           `${c.green('remote gateway')}${server.publicUrl ? ` at ${server.publicUrl}` : ''}: pair a device with ${c.bold('myrmidon pair')} (see docs/remote.md)`,
+        )
+      if (server.remote && !server.previewUrl)
+        console.log(
+          c.dim(
+            'previews of agent-built pages open only over an SSH tunnel or the bound address; add --preview-port and --preview-url for others (docs/remote.md)',
+          ),
         )
       if (values.dev)
         console.log(c.yellow('dev mode: no access token. Any program on this machine can use the API.'))

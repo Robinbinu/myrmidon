@@ -4,8 +4,8 @@ Myrmidon can run on a VPS or a home server (a "gateway") while you use it from y
 works the way Hermes Agent and OpenClaw do: the gateway stays private by default, you reach it over **Tailscale** or
 an **SSH tunnel**, and every device you use it from is **paired** once and can be revoked.
 
-> Not yet: previews of agent-built pages from a remote gateway, and switching between several gateways in one window.
-> Both are coming (see `docs/superpowers/specs/2026-10-08-remote-gateways-design.md`).
+> Not yet: switching between several gateways in one window (see
+> `docs/superpowers/specs/2026-10-08-remote-gateways-design.md`).
 
 ## How it stays safe
 
@@ -20,6 +20,14 @@ an **SSH tunnel**, and every device you use it from is **paired** once and can b
   plugins, MCP, hooks, folders or devices).
 - Pairings, wrong codes, revocations and rejected devices are written to `<home>/logs/device-auth.log` (no tokens or
   codes).
+- Pages agents build open on a **separate preview port**, so their scripts cannot act as the dashboard. Each device
+  gets its own preview key, and revoking the device ends its previews too.
+
+## Previews of agent-built pages
+
+Previews need their own address: another port (or host) than the dashboard, never a path under it. Start the
+gateway with a fixed `--preview-port` and, unless you only use an SSH tunnel, a `--preview-url` saying where devices
+reach that port. Without one, a device sees the page's code with a note instead of the preview.
 
 ## Pairing a device
 
@@ -39,13 +47,13 @@ last seen, and lets you **Revoke** it, which locks it out at once.
 On the server:
 
 ```bash
-myrmidon serve --port 4318
+myrmidon serve --port 4318 --preview-port 4320
 ```
 
-On your Mac:
+On your Mac (forward both ports, each to the same number):
 
 ```bash
-ssh -N -L 4318:127.0.0.1:4318 you@box
+ssh -N -L 4318:127.0.0.1:4318 -L 4320:127.0.0.1:4320 you@box
 ```
 
 Then open the `http://127.0.0.1:4318/#token=…` link the server printed. Through the tunnel the gateway sees a local
@@ -57,24 +65,29 @@ server over SSH.
 On the server (with Tailscale installed and logged in; find its name with `tailscale status`):
 
 ```bash
-myrmidon serve --port 4318 --public-url https://box.tail1234.ts.net
+myrmidon serve --port 4318 --public-url https://box.tail1234.ts.net \
+  --preview-port 4320 --preview-url https://box.tail1234.ts.net:8443
 ```
 
 ```bash
 tailscale serve --bg 4318
 ```
 
-Tailscale gives the gateway an HTTPS address only your tailnet can reach and proxies it to `127.0.0.1:4318`. Then run
-`myrmidon pair` on the server and open the link on each device. Do not use Tailscale **Funnel** (public internet)
+```bash
+tailscale serve --bg --https=8443 4320
+```
+
+Tailscale gives the gateway an HTTPS address only your tailnet can reach and proxies it to `127.0.0.1:4318` (and
+port 8443 to the previews on 4320). Then run `myrmidon pair` on the server and open the link on each device. Do not use Tailscale **Funnel** (public internet)
 without thinking it through: pairing then stands between the internet and your machine.
 
 ## Option 3: listen on the tailnet address
 
 ```bash
-myrmidon serve --host 100.101.102.103 --port 4318 --public-url http://100.101.102.103:4318
+myrmidon serve --host 100.101.102.103 --port 4318 --public-url http://100.101.102.103:4318 --preview-port 4320
 ```
 
-Every request then needs a paired device. Over plain HTTP the cookie cannot be Secure; prefer option 2's HTTPS.
+Every request then needs a paired device. Previews open at `http://100.101.102.103:4320` without a `--preview-url`. Over plain HTTP the cookie cannot be Secure; prefer option 2's HTTPS.
 
 ## Setting up a Linux server
 
@@ -93,7 +106,7 @@ Description=Myrmidon gateway
 After=network-online.target
 
 [Service]
-ExecStart=%h/.bun/bin/bun %h/myrmidon/apps/cli/src/main.ts serve --port 4318 --public-url https://box.tail1234.ts.net
+ExecStart=%h/.bun/bin/bun %h/myrmidon/apps/cli/src/main.ts serve --port 4318 --public-url https://box.tail1234.ts.net --preview-port 4320 --preview-url https://box.tail1234.ts.net:8443
 Restart=on-failure
 
 [Install]
@@ -114,4 +127,8 @@ loginctl enable-linger $USER
   `--public-url`, or add the address with `--allow-host name:port`.
 - **The pairing page keeps coming back**: the device's cookie was not kept (private browsing, or a different address
   than the one you paired on). Pair again on the address you will use.
+- **A page shows its code with a note instead of a preview**: the gateway has no preview address for that device;
+  add `--preview-port` and `--preview-url` (or forward the preview port in your tunnel).
+- **The preview frame says "unauthorized"**: the preview URL's host is not the one in `--preview-url`, or the device
+  was revoked.
 - **"this device can use chats only"**: it was paired with chats-only access; pair it again with full access.

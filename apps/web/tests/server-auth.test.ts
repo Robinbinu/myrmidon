@@ -122,3 +122,83 @@ test('pairing codes expire after enough wrong guesses, and chat devices are kept
   expect(needsFull('GET', '/api/projects/p1/git/diff')).toBe(false)
   expect(needsFull('POST', '/api/chats')).toBe(false)
 })
+
+/** A port that was free a moment ago, for a fixed preview port. */
+function freePort() {
+  const probe = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response() })
+  const port = probe.port
+  probe.stop(true)
+  return port
+}
+
+type PreviewConfig = { previewOrigin: string | null; previewToken?: string }
+
+test('previews: each device gets its own key on the preview origin, which a foreign name or a revoke ends', async () => {
+  const previewPort = freePort()
+  const { server, call } = serve({
+    publicUrl: 'https://box.example.ts.net',
+    previewPort,
+    previewUrl: 'https://box.example.ts.net:8443',
+  })
+  expect(server.previewUrl).toBe('https://box.example.ts.net:8443')
+  const publicHost = { host: 'box.example.ts.net', origin: 'https://box.example.ts.net' }
+  const { code } = server.pairingLink('chat')
+  const paired = await call('/api/pair', {
+    ...publicHost,
+    method: 'POST',
+    body: JSON.stringify({ code, name: 'Phone' }),
+  })
+  const device = { cookie: (paired.headers.get('set-cookie') ?? '').split(';')[0] ?? '' }
+  const me = (await (await call('/api/whoami', { ...publicHost, headers: device })).json()) as {
+    device: { id: string }
+  }
+
+  const config = (await (
+    await call('/api/config', { ...publicHost, headers: device })
+  ).json()) as PreviewConfig
+  expect(config.previewOrigin).toBe('https://box.example.ts.net:8443')
+  expect(config.previewToken?.startsWith(`${me.device.id}.`)).toBe(true)
+
+  /** The preview server as Tailscale Serve would reach it: on its port, with the preview URL's host. */
+  const preview = (key: string, host = 'box.example.ts.net:8443') =>
+    fetch(`http://127.0.0.1:${previewPort}/c-missing/${key}/index.html`, { headers: { host } })
+  // Past the key check: the colony is simply not there.
+  expect((await preview(config.previewToken ?? '')).status).toBe(404)
+  expect((await preview(`${me.device.id}.forged`)).status).toBe(401)
+  expect((await preview(config.previewToken ?? '', `evil.example:${previewPort}`)).status).toBe(401)
+
+  await call(`/api/devices/${me.device.id}`, { method: 'DELETE', headers: bearer(server.token) })
+  expect((await preview(config.previewToken ?? '')).status).toBe(401)
+})
+
+test('previews: a remote gateway without a preview address says so; on loopback the preview port is beside it', async () => {
+  const { server, call } = serve({ publicUrl: 'https://box.example.ts.net' })
+  const { code } = server.pairingLink('full')
+  const publicHost = { host: 'box.example.ts.net', origin: 'https://box.example.ts.net' }
+  const paired = await call('/api/pair', {
+    ...publicHost,
+    method: 'POST',
+    body: JSON.stringify({ code, name: 'Mac' }),
+  })
+  const device = { cookie: (paired.headers.get('set-cookie') ?? '').split(';')[0] ?? '' }
+  const remote = (await (
+    await call('/api/config', { ...publicHost, headers: device })
+  ).json()) as PreviewConfig
+  expect(remote).toEqual({ previewOrigin: null })
+
+  // Over an SSH tunnel the request is local: previews open on this machine's preview port.
+  const local = (await (await call('/api/config', { headers: bearer(server.token) })).json()) as PreviewConfig
+  expect(local.previewOrigin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+  expect(local.previewToken?.startsWith('local.')).toBe(true)
+})
+
+test('a preview URL needs a fixed port and its own origin', () => {
+  expect(() => serve({ previewUrl: 'https://box.example.ts.net:8443' })).toThrow('--preview-port')
+  expect(() =>
+    serve({
+      publicUrl: 'https://box.example.ts.net',
+      previewPort: freePort(),
+      previewUrl: 'https://box.example.ts.net',
+    }),
+  ).toThrow('own origin')
+})

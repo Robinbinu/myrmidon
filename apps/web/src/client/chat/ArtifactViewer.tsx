@@ -30,6 +30,7 @@ export function ArtifactViewer(props: {
   const [text, setText] = useState<string>()
   const [prev, setPrev] = useState<string>()
   const [preview, setPreview] = useState<string>()
+  const [noPreview, setNoPreview] = useState(false)
   const [error, setError] = useState<string>()
   const [copied, copyText] = useCopy()
 
@@ -52,7 +53,11 @@ export function ArtifactViewer(props: {
   }, [props.colonyId, blob, prevBlob])
 
   useEffect(() => {
-    if (isHtml) void previewUrl(props.colonyId, props.name).then(setPreview)
+    if (isHtml)
+      void previewUrl(props.colonyId, props.name).then((url) => {
+        setPreview(url)
+        setNoPreview(url === undefined)
+      })
   }, [isHtml, props.colonyId, props.name])
 
   const download = () => {
@@ -174,6 +179,11 @@ export function ArtifactViewer(props: {
         </span>
       </div>
       {error && <div className="bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{error}</div>}
+      {view === 'preview' && noPreview && (
+        <div className="border-b border-line bg-fill px-4 py-2 text-[12.5px] text-fg-2">
+          {copy.artifactViewer.noPreview}
+        </div>
+      )}
       {view === 'preview' && preview ? (
         <iframe
           className="min-h-[60vh] w-full flex-1 border-0 bg-white"

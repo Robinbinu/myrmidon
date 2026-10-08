@@ -25,13 +25,18 @@ window.addEventListener('hashchange', () => {
 
 export class ApiError extends Error {}
 
-let previewConfig: Promise<{ previewOrigin: string; previewToken: string }> | undefined
+type PreviewConfig = { previewOrigin: string; previewToken: string } | { previewOrigin: null }
+let previewConfig: Promise<PreviewConfig> | undefined
 
-/** Agent-built pages are served from a separate preview origin with its own token. */
-export async function previewUrl(colony: string, artifact: string): Promise<string> {
-  previewConfig ??= api<{ previewOrigin: string; previewToken: string }>('/api/config')
-  const { previewOrigin, previewToken } = await previewConfig
-  return `${previewOrigin}/${colony}/${previewToken}/${artifact.split('/').map(encodeURIComponent).join('/')}`
+/**
+ * Agent-built pages are served from a separate preview origin with this device's own key. Undefined when a remote
+ * gateway has no preview address this device can reach.
+ */
+export async function previewUrl(colony: string, artifact: string): Promise<string | undefined> {
+  previewConfig ??= api<PreviewConfig>('/api/config')
+  const config = await previewConfig
+  if (config.previewOrigin === null) return undefined
+  return `${config.previewOrigin}/${colony}/${config.previewToken}/${artifact.split('/').map(encodeURIComponent).join('/')}`
 }
 
 export async function api<T>(path: string): Promise<T> {

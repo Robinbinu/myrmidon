@@ -1,4 +1,4 @@
-import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
+import { createHmac, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -63,6 +63,13 @@ export interface ServeOptions {
   readonly publicUrl?: string
   /** More Host values to accept (`name:port`), exactly as clients send them. */
   readonly allowHosts?: readonly string[]
+  /** A fixed port for agent-built pages (random by default), so a tunnel or Tailscale Serve can forward it. */
+  readonly previewPort?: number
+  /**
+   * The address clients open agent-built pages at on a remote gateway, e.g. `https://box.tail1234.ts.net:8443`. It
+   * must be its own origin (another port or host, never a path), so a page cannot act as the dashboard.
+   */
+  readonly previewUrl?: string
   readonly token?: string
   /**
    * Development only: skip the bearer token. The server still binds to 127.0.0.1 and still rejects
@@ -108,6 +115,8 @@ export interface WebServer {
   readonly url: string
   /** A remote gateway's address for clients, when it has one. */
   readonly publicUrl?: string
+  /** Where clients open agent-built pages, when the gateway names it. */
+  readonly previewUrl?: string
   /** Whether devices must pair (the gateway is reachable beyond this machine). */
   readonly remote: boolean
   readonly token: string
@@ -238,6 +247,12 @@ export function startServer(options: ServeOptions): WebServer {
       '--dev turns off auth, so it only works on this machine: drop --host/--public-url, or --dev',
     )
   const publicUrl = options.publicUrl ? new URL(options.publicUrl) : undefined
+  const previewUrl = options.previewUrl ? new URL(options.previewUrl) : undefined
+  // A preview URL names what a proxy or tunnel forwards to; a random port would leave it pointing nowhere.
+  if (previewUrl && options.previewPort === undefined)
+    throw new Error('--preview-url needs --preview-port, the port it forwards to')
+  if (previewUrl && publicUrl && previewUrl.origin === publicUrl.origin)
+    throw new Error('--preview-url must be its own origin (another port or host than --public-url)')
   const devices = new DeviceStore(options.home)
   const pairing = new PairingCodes()
   const audit = new AuthAudit(options.home)
@@ -340,7 +355,11 @@ export function startServer(options: ServeOptions): WebServer {
 
   const guard =
     (
-      handler: (req: Request & { params: Record<string, string> }, url: URL) => Promise<Response> | Response,
+      handler: (
+        req: Request & { params: Record<string, string> },
+        url: URL,
+        access: Access,
+      ) => Promise<Response> | Response,
     ) =>
     async (req: Request & { params: Record<string, string> }) => {
       const url = new URL(req.url)
@@ -348,7 +367,7 @@ export function startServer(options: ServeOptions): WebServer {
       if (!access) return json({ error: 'unauthorized' }, 401)
       if (access.scope !== 'full' && needsFull(req.method, url.pathname)) return forbidden()
       try {
-        return await handler(req, url)
+        return await handler(req, url, access)
       } catch (err) {
         if (
           err instanceof MyrError &&
@@ -363,16 +382,55 @@ export function startServer(options: ServeOptions): WebServer {
     }
 
   // Agent-built pages run on their own port: a separate origin cannot read the dashboard's token or call its API.
-  const previewToken = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
+  // Each device gets its own preview key, so revoking a device ends its previews too.
+  const previewSecret = crypto.getRandomValues(new Uint8Array(32))
+  const previewSig = (subject: string) =>
+    createHmac('sha256', previewSecret).update(subject).digest('base64url').slice(0, 32)
+  const previewKey = (access: Access) => {
+    const subject = access.device?.id ?? 'local'
+    return `${subject}.${previewSig(subject)}`
+  }
+  const previewKeyValid = (key: string) => {
+    const dot = key.indexOf('.')
+    if (dot < 1) return false
+    const subject = key.slice(0, dot)
+    if (!tokenEquals(key.slice(dot + 1), previewSig(subject))) return false
+    return subject === 'local' || devices.list().some((d) => d.id === subject)
+  }
+  /** Host values the preview server answers to, as for the dashboard: no foreign name that only resolves here. */
+  const previewHosts = () =>
+    new Set([
+      `127.0.0.1:${preview.port}`,
+      `localhost:${preview.port}`,
+      `[::1]:${preview.port}`,
+      ...(isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::'
+        ? []
+        : [bindHost.includes(':') ? `[${bindHost}]:${preview.port}` : `${bindHost}:${preview.port}`]),
+      ...(previewUrl ? [previewUrl.host] : []),
+      ...(options.allowHosts ?? []),
+    ])
+  /** Where this request's page opens previews: the named preview URL, else the address it reached us on. */
+  const previewOrigin = (req: Request): string | undefined => {
+    if (previewUrl) return previewUrl.origin
+    const host = req.headers.get('host') ?? ''
+    // On this machine (an SSH tunnel included, when it forwards the preview port too).
+    if (isLoopback(host)) return `http://127.0.0.1:${preview.port}`
+    // Opened straight at the address the gateway is bound to (a tailnet address): the preview port is beside it.
+    const name = bindHost.includes(':') ? `[${bindHost}]` : bindHost
+    if (host === `${name}:${server.port}`) return `http://${name}:${preview.port}`
+    return undefined
+  }
   const preview = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
+    hostname: bindHost,
+    port: options.previewPort ?? 0,
     async fetch(req) {
+      if (!previewHosts().has(req.headers.get('host') ?? ''))
+        return new Response('unauthorized', { status: 401 })
       const url = new URL(req.url)
       const match = /^\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
       if (!match) return new Response('not found', { status: 404 })
       const [, rawId, given, rawPath] = match as unknown as [string, string, string, string]
-      if (!tokenEquals(given, previewToken)) return new Response('unauthorized', { status: 401 })
+      if (!previewKeyValid(given)) return new Response('unauthorized', { status: 401 })
       try {
         const id = colonyId(rawId)
         const state = foldColony(id, await store.read(id))
@@ -383,7 +441,8 @@ export function startServer(options: ServeOptions): WebServer {
         return new Response(Buffer.from(await blobs.get(latest.blob)), {
           headers: {
             'content-type': `${latest.mediaType}; charset=utf-8`,
-            'content-security-policy': "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'",
+            'content-security-policy':
+              "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'; form-action 'self'",
             'cache-control': 'no-store',
           },
         })
@@ -518,7 +577,13 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ ok: true })
         }),
       },
-      '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
+      // Without a preview address this device can reach, the page says how to add one instead of a broken frame.
+      '/api/config': guard((req, _url, access) => {
+        const origin = previewOrigin(req)
+        return json(
+          origin ? { previewOrigin: origin, previewToken: previewKey(access) } : { previewOrigin: null },
+        )
+      }),
       '/api/models': guard(async (_req, url) => {
         const omp = options.omp
         if (!omp) return json({ models: [], defaults: options.settings?.get().team })
@@ -1550,6 +1615,7 @@ export function startServer(options: ServeOptions): WebServer {
       ? `http://${localHost}:${server.port}/`
       : `http://${localHost}:${server.port}/#token=${token}`,
     ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+    ...(previewUrl ? { previewUrl: previewUrl.origin } : {}),
     remote,
     pairingLink,
     token,

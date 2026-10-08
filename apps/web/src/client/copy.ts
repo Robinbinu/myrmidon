@@ -448,6 +448,8 @@ export const copy = {
     open: 'Open',
     by: 'by',
     previewOf: (name: string) => `Preview of ${name}`,
+    noPreview:
+      'This gateway has no preview address for this device yet, so here is the code. Start it with --preview-port and --preview-url (see docs/remote.md).',
   },
 
   audit: {
