@@ -28,6 +28,13 @@ test('shifted and optioned shortcuts match the physical key', () => {
   expect(matchCombo('mod+shift+[', key('[', 'BracketLeft', { meta: true }))).toBe(false)
   expect(matchCombo('mod+alt+n', key('˜', 'KeyN', { meta: true, alt: true }))).toBe(true)
   expect(matchCombo('mod+n', key('˜', 'KeyN', { meta: true, alt: true }))).toBe(false)
+  // AltGr on Windows arrives as Ctrl+Alt but types a character: AltGr+7 is "{" on a German layout.
+  const altGr = {
+    ...key('{', 'Digit7', { ctrl: true, alt: true }),
+    getModifierState: (k: string) => k === 'AltGraph',
+  }
+  expect(matchCombo('mod+alt+7', altGr)).toBe(false)
+  expect(matchCombo('mod+alt+7', key('7', 'Digit7', { ctrl: true, alt: true }))).toBe(true)
 })
 
 test('a symbol that needs Shift on some layouts still matches', () => {

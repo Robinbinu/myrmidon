@@ -36,10 +36,13 @@ function plainKey(code: string): string | undefined {
   return CODE_KEYS[code]
 }
 
-type KeyInput = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>
+type KeyInput = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> &
+  Partial<Pick<KeyboardEvent, 'getModifierState'>>
 
 export function matchCombo(combo: string, e: KeyInput): boolean {
   const c = parseCombo(combo)
+  // AltGr reports Ctrl and Alt on Windows, but it types characters (AltGr+7 is "{" on German layouts).
+  if (e.getModifierState?.('AltGraph')) return false
   if (c.mod !== (e.metaKey || e.ctrlKey) || c.alt !== e.altKey) return false
   const key = e.key.toLowerCase()
   // Shift and Option change the character typed ("{", "˜"), so those shortcuts match the physical key too.

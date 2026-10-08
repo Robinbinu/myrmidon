@@ -530,7 +530,8 @@ function LiveTab({
             return
           }
           // ⌘ and Ctrl shortcuts stay this app's and the browser's: paste (below), copy, a password manager's.
-          if (e.metaKey || e.ctrlKey) return
+          // AltGr reports Ctrl too on Windows, but it types a character ("@", "{"), which goes to the page.
+          if ((e.metaKey || e.ctrlKey) && !e.getModifierState('AltGraph')) return
           e.preventDefault()
           if (KEYS.has(e.key)) send({ type: 'key', key: e.key })
           else if (e.key.length === 1) send({ type: 'text', text: e.key })
