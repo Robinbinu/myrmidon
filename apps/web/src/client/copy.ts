@@ -981,6 +981,8 @@ export const copy = {
     waitingHint: 'Answer below and the crew continues where it left off, with its files.',
     failed: 'Failed',
     stopped: 'Stopped',
+    /** In place of the runtime's reason when the person stopped the run. */
+    stoppedByYou: 'You stopped this run',
     lastVerification: 'Last review',
     resuming: 'Resuming…',
     resume: 'Resume',

@@ -7,6 +7,7 @@ import {
   type MyrEvent,
   outsideEffects,
   roundSlice,
+  STOPPED_BY_USER,
 } from '@myrmidon/protocol'
 import {
   ArrowDown,
@@ -1282,12 +1283,21 @@ function Halted(props: {
   const { state, retry } = props
   const [resuming, setResuming] = useState(false)
   const last = state.verdicts.filter((v) => v.target === 'colony').at(-1)
+  const byYou = state.statusReason === STOPPED_BY_USER
+  // Red is for a real failure; a stop the person made is neutral, and one a limit or a stall made is a warning.
+  const tone =
+    state.status === 'failed' || state.modelError
+      ? { text: 'text-bad-ink', box: 'border-bad/25 bg-bad-soft' }
+      : byYou
+        ? { text: 'text-muted', box: 'border-line bg-surface' }
+        : { text: 'text-warn-ink', box: 'border-warn/25 bg-warn-soft' }
   return (
     <motion.div
       {...enter}
       className={cn(
-        'flex items-start gap-3 px-4 py-3 text-reading text-bad-ink',
-        props.inCard ? 'border-t border-line' : 'rounded-2xl border border-bad/25 bg-bad-soft',
+        'flex items-start gap-3 px-4 py-3 text-reading',
+        tone.text,
+        props.inCard ? 'border-t border-line' : cn('rounded-2xl border', tone.box),
       )}
       role="status"
     >
@@ -1300,7 +1310,7 @@ function Halted(props: {
               {state.statusReason && ' · '}
             </span>
           )}
-          <span className="text-callout">{state.statusReason}</span>
+          <span className="text-callout">{byYou ? copy.outcome.stoppedByYou : state.statusReason}</span>
         </div>
         <AlreadyDone events={props.events} />
         {last && !last.pass && (
