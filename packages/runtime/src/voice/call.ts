@@ -931,13 +931,22 @@ export class CallSession {
   /**
    * On a direct call, a reply is spoken while the lead (or the agent) is still writing it. Only a reply tool's text:
    * the model's own text may be narration before a tool call ("Let me look…"), so a plain answer is spoken when it
-   * arrives finished, as chat/reply.
+   * arrives finished, as chat/reply. A reply cut off is not marked spoken, so the next chat/reply is read.
    */
   private _onStream(colonyId: string, agent: string, text: string, done: boolean, plain: boolean) {
-    if (this._ended || plain || !this._sent.some((t) => t.colonyId === colonyId)) return
+    if (this._ended || !this._sent.some((t) => t.colonyId === colonyId)) return
     if (this.direct !== 'lead' && agent !== this.direct) return
     const key = `${colonyId}:${agent}`
     let stream = this._streams.get(key)
+    if (plain) {
+      // A reply cut off (its reply tool call aborted) ends with none in it: what was said stands, and the stream
+      // must end, or it would hold back everything queued after it for the rest of the call.
+      if (!stream || !done) return
+      stream.done = true
+      this._streams.delete(key)
+      this._feed()
+      return
+    }
     if (!stream) {
       stream = {
         from: agent,

@@ -729,3 +729,18 @@ test('the call assistant cannot answer an approval with a yes said before it was
   expect(decided).toEqual([])
   call.hangUp()
 })
+
+test('a reply cut off mid-stream does not leave a direct call silent', async () => {
+  const { call, say, said, sent, stream, events } = setup(() => [], { talkTo: 'lead', colony: 'c' })
+  await call.start()
+  say('status')
+  await until(() => sent.length === 1)
+  stream('c', 'lead', 'The build is', false)
+  // The reply_user call was aborted: the message ends with no reply in it.
+  stream('c', 'lead', '', true, true)
+  events('c', [{ type: 'chat/reply', payload: { agent: 'lead', text: 'Sorry, here it is: all green.' } }])
+  await until(() => said().some((t) => t.includes('all green.')))
+  events('c', [{ type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm x' } }])
+  await until(() => said().some((t) => t.includes('wants approval')))
+  call.hangUp()
+})
