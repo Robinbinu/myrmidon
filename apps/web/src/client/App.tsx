@@ -37,6 +37,7 @@ import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
+import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
@@ -200,6 +201,22 @@ function notify(text: string, chatId?: string, tag = chatId) {
   }
 }
 
+const VIEW_PARAM = 'view'
+const SETTINGS_PARAM = 'settings'
+const VIEWS: readonly View[] = ['chat', 'colonies', 'compare', 'system']
+/** The new-chat screen's draft, beside each chat's own. */
+const NEW_CHAT_DRAFT = 'new'
+
+function viewFromAddress(): View {
+  const v = new URLSearchParams(location.search).get(VIEW_PARAM)
+  return VIEWS.find((view) => view === v) ?? 'chat'
+}
+
+/** The Settings section an address names; Settings shows its first section for a name it doesn't know. */
+function sectionFromAddress(): Section | undefined {
+  return (new URLSearchParams(location.search).get(SETTINGS_PARAM) as Section | null) ?? undefined
+}
+
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
@@ -210,7 +227,7 @@ export function App() {
   const [models, setModels] = useState<ModelOption[]>([])
   const [modelsError, setModelsError] = useState<string>()
   const [config, setConfig] = useState<TeamConfig>()
-  const [view, setView] = useState<View>('chat')
+  const [view, setView] = useState<View>(() => viewFromAddress())
   const [activeChat, setActiveChatState] = useState<string | undefined>(
     () => new URLSearchParams(location.search).get('chat') ?? undefined,
   )
@@ -223,14 +240,16 @@ export function App() {
     if (window.innerWidth < 1280) setWorkspaceOpen(false)
   }, [])
   const [colonyModal, setColonyModal] = useState<string>()
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
     setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
-  const [settingsSection, setSettingsSection] = useState<Section>('general')
+  const [settingsSection, setSettingsSection] = useState<Section>(() => sectionFromAddress() ?? 'general')
+  /** The section Settings shows now; it moves on its own as the person picks sections, unlike the one it opens on. */
+  const [shownSection, setShownSection] = useState<Section>(settingsSection)
   /** A channel whose sheet Settings → Channels opens on, from a request's toast; forgotten once Settings closes. */
   const [settingsChannel, setSettingsChannel] = useState<string>()
   useEffect(() => {
@@ -268,6 +287,22 @@ export function App() {
     else url.searchParams.delete('chat')
     history.replaceState(null, '', url)
   }, [])
+
+  // A refresh comes back to the same screen: the screen and an open Settings section live in the address beside the
+  // chat. A chats-only device has neither Settings nor System, so an address naming them falls back to the chat.
+  useEffect(() => {
+    if (!fullAccess && (settingsOpen || view === 'system')) {
+      setSettingsOpen(false)
+      if (view === 'system') setView('chat')
+      return
+    }
+    const url = new URL(location.href)
+    if (view === 'chat') url.searchParams.delete(VIEW_PARAM)
+    else url.searchParams.set(VIEW_PARAM, view)
+    if (settingsOpen) url.searchParams.set(SETTINGS_PARAM, shownSection)
+    else url.searchParams.delete(SETTINGS_PARAM)
+    if (url.href !== location.href) history.replaceState(null, '', url)
+  }, [view, settingsOpen, shownSection, fullAccess])
 
   const loadModels = useCallback(() => {
     api<{ models: ModelOption[]; default?: string; defaults?: Record<string, unknown> }>(
@@ -734,6 +769,7 @@ export function App() {
     setDeleteBusy(true)
     try {
       await request('DELETE', `/api/chats/${deleting.chatId}`)
+      forgetDraft(deleting.chatId)
       toast(copy.app.toasts.deleted(deleting.title), 'success')
       if (deleting.chatId === activeChat) newTask()
       setDeleting(undefined)
@@ -835,6 +871,7 @@ export function App() {
             <Settings
               key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
               initialSection={settingsSection}
+              onSection={setShownSection}
               {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
               guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
@@ -972,7 +1009,9 @@ export function App() {
                     )
                   const box = config ? (
                     <Composer
+                      key={activeChat ?? NEW_CHAT_DRAFT}
                       ref={composer}
+                      draftKey={activeChat ?? NEW_CHAT_DRAFT}
                       models={models}
                       config={config}
                       onConfig={updateConfig}

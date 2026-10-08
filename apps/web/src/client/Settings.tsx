@@ -377,9 +377,16 @@ export function Settings(props: {
    * edits are unsaved), for the ways out of Settings that the app itself offers.
    */
   guard?: { current?: (go: () => void) => void }
+  /** Told the section on screen, so the app can keep it in the address and a refresh comes back to it. */
+  onSection?(section: Section): void
 }) {
   const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
+  const onSection = useRef(props.onSection)
+  onSection.current = props.onSection
+  useEffect(() => {
+    onSection.current?.(section)
+  }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
   const [data, setData] = useState<SettingsResponse>()
   const [error, setError] = useState<string>()
