@@ -143,3 +143,88 @@ export function telegramHtml(markdown: string): string {
   if (code) out.push(`<pre>${escapeHtml(code.lines.join('\n'))}</pre>`)
   return out.join('\n')
 }
+
+/** How a platform marks text, for `restyle`. */
+interface Marks {
+  readonly bold: string
+  readonly italic: string
+  readonly strike: string
+  /** Inline code and code blocks keep their backticks; plain text drops them. */
+  readonly code: boolean
+  readonly link: (label: string, url: string) => string
+}
+
+/** Inline Markdown with its marks swapped for a platform's own; nothing inside inline code is touched. */
+function restyleInline(line: string, m: Marks): string {
+  const codes: string[] = []
+  // Private-use markers keep one step's output from being read by the next (Google's bold `*x*` is not italic).
+  const out = line
+    .replace(/`([^`\n]+)`/g, (_m, code: string) => {
+      codes.push(m.code ? `\`${code}\`` : code)
+      return `${codes.length - 1}`
+    })
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label: string, url: string) =>
+      m.link(label, url),
+    )
+    .replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '$1')
+    .replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '$1')
+    .replace(/~~(?!\s)([^~\n]+?)(?<!\s)~~/g, '$1')
+    .replace(/(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])/g, '$1')
+    .replace(/(?<![\w_])_(?![\s_])([^_\n]+?)(?<![\s_])_(?![\w_])/g, '$1')
+  return out
+    .replace(//g, m.bold)
+    .replace(//g, m.strike)
+    .replace(//g, m.italic)
+    .replace(/(\d+)/g, (_m, i: string) => codes[Number(i)] ?? '')
+}
+
+/** Markdown in a platform's own marks: headings as bold, bullets as `•`, code blocks kept or unfenced. */
+function restyle(markdown: string, m: Marks): string {
+  const out: string[] = []
+  let inCode = false
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      inCode = !inCode
+      if (m.code) out.push('```')
+      continue
+    }
+    if (inCode) {
+      out.push(line)
+      continue
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line)
+    if (heading) {
+      out.push(`${m.bold}${restyleInline(heading[1] ?? '', m)}${m.bold}`)
+      continue
+    }
+    const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+    if (bullet) {
+      out.push(`${bullet[1] ?? ''}• ${restyleInline(bullet[2] ?? '', m)}`)
+      continue
+    }
+    out.push(restyleInline(line.replace(/^>\s?/, ''), m))
+  }
+  // A block left open (a cut that missed its fence) is still closed.
+  if (inCode && m.code) out.push('```')
+  return out.join('\n')
+}
+
+/** Markdown as Google Chat's own formatting: `*bold*`, `_italic_`, `~strike~`, `<url|label>` links, code kept. */
+export const googleChatText = (markdown: string) =>
+  restyle(markdown, {
+    bold: '*',
+    italic: '_',
+    strike: '~',
+    code: true,
+    link: (label, url) => `<${url}|${label}>`,
+  })
+
+/** Markdown as plain text, for platforms that show no formatting (LINE): marks dropped, links spelled out. */
+export const plainText = (markdown: string) =>
+  restyle(markdown, {
+    bold: '',
+    italic: '',
+    strike: '',
+    code: false,
+    link: (label, url) => (label === url ? url : `${label} (${url})`),
+  })
