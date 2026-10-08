@@ -81,14 +81,15 @@ import { ago, day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } fr
 import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
+  Badge,
   Button,
+  CountBadge,
   cn,
   Dot,
   Empty,
   Field,
   IconButton,
   Kbd,
-  Pill,
   Segmented,
   Select,
   Switch,
@@ -475,7 +476,7 @@ export function Settings(props: {
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
         <Button
-          variant="ghost"
+          variant="borderless"
           size="sm"
           onClick={() => leave(props.onClose)}
           icon={<ArrowLeft className="size-4" />}
@@ -502,7 +503,7 @@ export function Settings(props: {
               <span aria-hidden>·</span>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 onClick={() => unsaved.current && persist(unsaved.current)}
                 icon={<RefreshCw className="size-3" />}
               >
@@ -580,13 +581,12 @@ export function Settings(props: {
                   >
                     <s.icon className="size-4" />
                     {s.id === 'channels' && waiting > 0 && (
-                      <span
-                        role="img"
-                        aria-label={copy.settings.channels.waitingBadge(waiting)}
-                        className="absolute -top-1 -right-1 grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-semibold tabular-nums text-white"
-                      >
-                        {waiting}
-                      </span>
+                      <CountBadge
+                        count={waiting}
+                        tone="accent"
+                        corner
+                        label={copy.settings.channels.waitingBadge(waiting)}
+                      />
                     )}
                   </span>
                   {wideNav && (
@@ -729,7 +729,7 @@ export function Settings(props: {
           <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
             <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setLeaving(undefined)}>
+              <Button variant="borderless" onClick={() => setLeaving(undefined)}>
                 {copy.settings.page.unsaved.keep}
               </Button>
               <Button
@@ -941,11 +941,12 @@ function ModelsSection(props: {
               .catch((err) => toast(String(err.message ?? err), 'error'))
               .finally(() => setRefreshing(false))
           }}
-          icon={<RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />}
+          loading={refreshing}
+          icon={<RefreshCw className="size-3.5" />}
         >
           {copy.settings.models.refresh}
         </Button>
-        <Button variant="soft" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
+        <Button variant="primary" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
           {copy.settings.models.addModels}
         </Button>
       </div>
@@ -1026,12 +1027,9 @@ function ModelsSection(props: {
                         />
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="borderless"
                           onClick={() => void test(m.ref)}
-                          disabled={t === 'running'}
-                          icon={
-                            t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined
-                          }
+                          loading={t === 'running'}
                         >
                           {copy.settings.models.test}
                         </Button>
@@ -1251,14 +1249,14 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
                     {l.name}
-                    {l.ready ? <Pill tone="ok">{copy.settings.signIns.signedIn}</Pill> : null}
+                    {l.ready ? <Badge tone="ok">{copy.settings.signIns.signedIn}</Badge> : null}
                   </div>
                   <div className="font-mono text-footnote text-muted">{l.provider}</div>
                 </div>
                 {active ? (
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="borderless"
                     onClick={() =>
                       send('DELETE', `/api/logins/${active.id}`).then(() => setSession(undefined))
                     }
@@ -1410,7 +1408,7 @@ function Providers(props: {
             </div>
             {importing === 'confirm' ? (
               <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setImporting('idle')}>
+                <Button size="sm" variant="borderless" onClick={() => setImporting('idle')}>
                   {copy.settings.shared.cancel}
                 </Button>
                 <Button
@@ -1432,12 +1430,7 @@ function Providers(props: {
                 </Button>
               </div>
             ) : (
-              <Button
-                size="sm"
-                onClick={() => setImporting('confirm')}
-                disabled={importing === 'busy'}
-                icon={importing === 'busy' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
-              >
+              <Button size="sm" onClick={() => setImporting('confirm')} loading={importing === 'busy'}>
                 {copy.settings.providers.import}
               </Button>
             )}
@@ -1499,7 +1492,7 @@ function Providers(props: {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-body">{p.id}</span>
-                  {p.custom && <Pill tone="accent">{copy.settings.providers.custom}</Pill>}
+                  {p.custom && <Badge tone="accent">{copy.settings.providers.custom}</Badge>}
                   <span className="text-small text-muted">
                     {copy.settings.providers.modelCount(p.models)}
                   </span>
@@ -1508,7 +1501,7 @@ function Providers(props: {
               </div>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 onClick={() => setEditing(editing === p.id ? undefined : p.id)}
               >
                 {p.custom
@@ -1759,13 +1752,12 @@ function ProviderForm(props: {
           />
         </Field>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={props.onCancel}>
+          <Button variant="borderless" onClick={props.onCancel}>
             {copy.settings.shared.cancel}
           </Button>
           <Button
             variant="primary"
-            disabled={busy}
-            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+            loading={busy}
             onClick={async () => {
               if (Object.values(errors).some(Boolean)) return setTried(true)
               setBusy(true)
@@ -2228,7 +2220,7 @@ function McpServers() {
         <div className="flex gap-2">
           <Button
             size="sm"
-            variant="ghost"
+            variant="borderless"
             disabled={busy}
             onClick={() => act(() => send('POST', '/api/mcp-reload'), copy.settings.mcp.reconnected)}
             icon={<RefreshCw className="size-3.5" />}
@@ -2293,19 +2285,17 @@ function McpServers() {
             )}
           </div>
           <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
-            <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            <Button size="sm" variant="borderless" onClick={() => setAdding(false)}>
               {copy.settings.shared.cancel}
             </Button>
             <Button
               size="sm"
               variant="primary"
               disabled={
-                busy ||
-                !form.name.trim() ||
-                (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())
+                !form.name.trim() || (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())
               }
               onClick={add}
-              icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
+              loading={busy}
             >
               {copy.settings.mcp.addAndConnect}
             </Button>
@@ -2328,7 +2318,7 @@ function McpServers() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-reading font-medium">
                     {m.name}
-                    <Pill tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Pill>
+                    <Badge tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Badge>
                     {m.tools.length > 0 && (
                       <span className="text-small text-muted">
                         {copy.settings.mcp.toolCount(m.tools.length)}
@@ -2454,7 +2444,7 @@ function DevicesSection() {
                   <code className="min-w-0 flex-1 truncate rounded-xl bg-fill px-3 py-2 font-mono text-callout">
                     {link.link}
                   </code>
-                  <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                  <Button size="sm" variant="borderless" onClick={() => copyText(link.link)}>
                     {copied ? t.copied : t.copy}
                   </Button>
                 </div>
@@ -2483,7 +2473,7 @@ function DevicesSection() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="truncate text-reading font-semibold">{d.name}</span>
-                  {d.current && <Pill tone="accent">{t.thisDevice}</Pill>}
+                  {d.current && <Badge tone="accent">{t.thisDevice}</Badge>}
                 </div>
                 <div className="truncate text-small text-muted">
                   {t.scopeNames[d.scope]}
@@ -2624,7 +2614,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-reading font-semibold">{c.label}</span>
-                    {c.pending.length > 0 && <Pill tone="warn">{t.waitingBadge(c.pending.length)}</Pill>}
+                    {c.pending.length > 0 && <Badge tone="warn">{t.waitingBadge(c.pending.length)}</Badge>}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-small text-muted">
                     <Dot status={channelState(c)} />
@@ -3071,9 +3061,9 @@ function ChannelSheet(props: {
                     {p.name}
                     {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
                   </div>
-                  <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                  <Badge tone={p.role === 'owner' ? 'accent' : 'neutral'}>
                     {p.role === 'owner' ? t.owner : t.member}
-                  </Pill>
+                  </Badge>
                   {p.role === 'member' && (
                     <ConfirmButton
                       label={t.makeOwner}
@@ -3799,8 +3789,9 @@ function GatewaysSection() {
           <Button
             size="sm"
             variant="primary"
-            disabled={busy || !link.trim()}
-            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            disabled={!link.trim()}
+            loading={busy}
+            icon={<Plus className="size-3.5" />}
             onClick={() => void add()}
           >
             {busy ? t.adding : t.add}
@@ -3813,13 +3804,11 @@ function GatewaysSection() {
         <Card>
           {list?.map((g) => (
             <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-              <span
-                className={cn('inline-flex size-2 shrink-0 rounded-full', g.health.ok ? 'bg-ok' : 'bg-bad')}
-              />
+              <Dot tone={g.health.ok ? 'ok' : 'bad'} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="truncate text-reading font-semibold">{g.name}</span>
-                  {g.id === active && <Pill tone="accent">{t.shown}</Pill>}
+                  {g.id === active && <Badge tone="accent">{t.shown}</Badge>}
                 </div>
                 <div className="truncate text-small text-muted">
                   {new URL(g.url).host} · {copy.settings.devices.scopeNames[g.scope]} ·{' '}
@@ -3828,7 +3817,7 @@ function GatewaysSection() {
                 </div>
               </div>
               {g.id !== active && (
-                <Button size="sm" variant="ghost" onClick={() => switchGateway(g.id)}>
+                <Button size="sm" variant="borderless" onClick={() => switchGateway(g.id)}>
                   {t.show}
                 </Button>
               )}
@@ -3904,7 +3893,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                     {s.off.length > 0 && ` · ${t.toolsOff(s.off.map((g) => t.groups[g]).join(', '))}`}
                   </div>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
+                <Button size="sm" variant="borderless" onClick={() => setOpen(s.id)}>
                   {t.edit}
                 </Button>
                 <ConfirmButton
@@ -4434,7 +4423,7 @@ function SchedulesSection() {
                 </div>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="borderless"
                   onClick={() =>
                     act(() => send('POST', `/api/schedules/${s.id}/run`), copy.settings.schedules.started)
                   }
@@ -4634,7 +4623,7 @@ function HooksSection(props: { onDirty(dirty: boolean): void }) {
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 icon={<Plus className="size-3.5" />}
                 onClick={() => {
                   setRows((rs) => [
@@ -4799,8 +4788,9 @@ function PluginsSection() {
         <Button
           type="submit"
           variant="primary"
-          disabled={!source.trim() || adding}
-          icon={adding ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+          disabled={!source.trim()}
+          loading={adding}
+          icon={<Plus className="size-3.5" />}
         >
           {adding ? copy.settings.plugins.adding : copy.settings.plugins.add}
         </Button>
@@ -4832,9 +4822,9 @@ function PluginsSection() {
                     )}
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {parts(p).map((part) => (
-                        <Pill key={part} tone="neutral">
+                        <Badge key={part} tone="neutral">
                           {part}
-                        </Pill>
+                        </Badge>
                       ))}
                     </div>
                     {p.error && <p className="mt-1.5 text-callout text-bad-ink">{p.error}</p>}
@@ -5021,13 +5011,13 @@ function SkillsSection() {
                     <span className="font-mono text-reading font-medium" title={s.dir}>
                       {s.name}
                     </span>
-                    <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
+                    <Badge tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
-                    </Pill>
-                    {s.curation && <Pill>{copy.settings.skills.learned}</Pill>}
+                    </Badge>
+                    {s.curation && <Badge>{copy.settings.skills.learned}</Badge>}
                     {s.curation?.stale && (
                       <span title={data.retire && copy.settings.skills.staleHint(data.retire.archiveDays)}>
-                        <Pill tone="warn">{copy.settings.skills.stale}</Pill>
+                        <Badge tone="warn">{copy.settings.skills.stale}</Badge>
                       </span>
                     )}
                   </div>
@@ -5044,7 +5034,7 @@ function SkillsSection() {
                 {s.curation && (
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="borderless"
                     icon={<Pin className={cn('size-3.5', s.curation.kept && 'fill-current')} />}
                     aria-pressed={s.curation.kept}
                     title={copy.settings.skills.keepHint}
@@ -5087,7 +5077,7 @@ function SkillsSection() {
                   </div>
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="borderless"
                     icon={<ArchiveRestore className="size-3.5" />}
                     onClick={() =>
                       void post(`/api/skills/${a.name}/restore`, {})
@@ -5280,7 +5270,9 @@ function MemorySection() {
                               : copy.settings.memory.addedByYou}{' '}
                             · {day(m.updatedAt)}
                           </span>
-                          {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
+                          {m.status === 'proposed' && (
+                            <Badge tone="warn">{copy.settings.memory.waiting}</Badge>
+                          )}
                         </div>
                         {m.source.why && (
                           <p className="mt-1 text-small text-muted">

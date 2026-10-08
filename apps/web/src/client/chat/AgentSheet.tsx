@@ -130,7 +130,7 @@ export function AgentSheet(props: {
             ) : (
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 icon={<BookmarkPlus className="size-3.5" />}
                 onClick={() => setKeeping(true)}
               >

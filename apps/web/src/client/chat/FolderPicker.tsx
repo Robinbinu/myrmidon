@@ -1,4 +1,4 @@
-import { ArrowUp, Folder, FolderPlus, LoaderCircle } from 'lucide-react'
+import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
@@ -57,11 +57,10 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
         <Button
           size="sm"
           variant="primary"
-          disabled={busy || !typed.trim()}
+          disabled={!typed.trim()}
           onClick={() => add(typed)}
-          icon={
-            busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <FolderPlus className="size-3.5" />
-          }
+          loading={busy}
+          icon={<FolderPlus className="size-3.5" />}
         >
           {copy.folderPicker.useFolder}
         </Button>

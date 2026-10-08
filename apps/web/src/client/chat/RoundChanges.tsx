@@ -124,7 +124,7 @@ export function RoundChanges(props: {
         )}
         <span className="flex-1" />
         {!rewound && (
-          <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <Button size="sm" variant="borderless" onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? copy.roundChanges.hideDiff : copy.roundChanges.viewDiff}
           </Button>
         )}
@@ -176,7 +176,7 @@ export function RoundChanges(props: {
               {skipped.length > 0 ? (
                 <div className="flex justify-end gap-2">
                   <Button
-                    variant="ghost"
+                    variant="borderless"
                     onClick={() => {
                       setSkipped([])
                       setConfirm(false)
@@ -196,7 +196,7 @@ export function RoundChanges(props: {
                 </div>
               ) : (
                 <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
+                  <Button variant="borderless" onClick={() => setConfirm(false)} disabled={busy}>
                     {copy.roundChanges.confirm.cancel}
                   </Button>
                   <Button

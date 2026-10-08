@@ -75,7 +75,7 @@ export function ConfirmButton(props: {
   ) : (
     <Button
       size="sm"
-      variant="ghost"
+      variant="borderless"
       aria-label={props.name}
       disabled={props.disabled}
       autoFocus={refocus}

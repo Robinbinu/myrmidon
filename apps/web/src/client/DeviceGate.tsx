@@ -152,7 +152,7 @@ function GatewayGate(props: { children: ReactNode }) {
                 {t.down.back(local)}
               </Button>
               <Button
-                variant="ghost"
+                variant="borderless"
                 icon={<RefreshCw className="size-4" />}
                 onClick={() => {
                   setGateway('checking')

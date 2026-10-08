@@ -17,7 +17,7 @@ import { CrewCursor } from '../ui/cursor.tsx'
 import { clock } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
-import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
+import { Badge, Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
 import { type Activity, activityOf } from './activity.ts'
 
@@ -465,17 +465,17 @@ function LiveTab({
           </div>
         </div>
         {controlling ? (
-          <Pill tone="warn">{copy.computer.youHaveControl}</Pill>
+          <Badge tone="warn">{copy.computer.youHaveControl}</Badge>
         ) : live ? (
-          <Pill tone="work">{copy.computer.agentBrowsing}</Pill>
+          <Badge tone="work">{copy.computer.agentBrowsing}</Badge>
         ) : (
-          <Pill>{copy.computer.ended}</Pill>
+          <Badge>{copy.computer.ended}</Badge>
         )}
         {live && (
           <Button
             ref={handBack}
             size="sm"
-            variant={controlling ? 'primary' : 'secondary'}
+            variant={controlling ? 'primary' : 'push'}
             onClick={() => send({ type: 'control', by: controlling ? 'agent' : 'person' })}
             icon={controlling ? <Undo2 className="size-3.5" /> : <Hand className="size-3.5" />}
           >
@@ -640,7 +640,7 @@ function LiveTab({
             {live && (
               <Button
                 size="sm"
-                variant={at === 'live' ? 'primary' : 'secondary'}
+                variant={at === 'live' ? 'primary' : 'push'}
                 onClick={() => setAt('live')}
                 icon={<Radio className="size-3.5" />}
               >

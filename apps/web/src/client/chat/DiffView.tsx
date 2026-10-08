@@ -1,7 +1,7 @@
 import { ChevronRight, Columns2, Folder, Rows2 } from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { cn } from '../ui/primitives.tsx'
+import { CountBadge, cn } from '../ui/primitives.tsx'
 import { FOLDER_FOLD_AT } from '../ui-config.ts'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
 import { FoldChevron, type Folds, useFolds } from './Folds.tsx'
@@ -301,9 +301,7 @@ export function FolderGroups<T extends { path: string }>(props: {
               <FoldChevron open={folds.isOpen(g.folder)} className="text-muted" />
               <Folder className="size-3.5 shrink-0 text-muted" />
               <span className="min-w-0 truncate font-mono">{g.folder}/</span>
-              <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums text-muted">
-                {g.items.length}
-              </span>
+              <CountBadge count={g.items.length} />
             </button>
             {folds.isOpen(g.folder) && (
               <div className={cn('flex flex-col pl-3', props.className)}>

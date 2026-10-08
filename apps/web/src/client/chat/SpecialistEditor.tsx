@@ -91,7 +91,7 @@ export function SpecialistEditor(props: {
       <Field label={t.model} hint={t.modelHint} inline>
         <div className="flex min-w-0 items-center gap-2">
           {draft.model && (
-            <Button type="button" variant="ghost" size="sm" onClick={() => set({ model: undefined })}>
+            <Button type="button" variant="borderless" size="sm" onClick={() => set({ model: undefined })}>
               {t.useTeamModel}
             </Button>
           )}
@@ -121,7 +121,7 @@ export function SpecialistEditor(props: {
         </div>
       </Field>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={props.onCancel} disabled={busy}>
+        <Button type="button" variant="borderless" size="sm" onClick={props.onCancel} disabled={busy}>
           {t.cancel}
         </Button>
         <Button type="submit" variant="primary" size="sm" disabled={busy}>

@@ -1,3 +1,4 @@
+import { LoaderCircle } from 'lucide-react'
 import { motion } from 'motion/react'
 import {
   type ButtonHTMLAttributes,
@@ -17,56 +18,46 @@ export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
 }
 
-type Variant =
-  | 'primary'
-  | 'push'
-  | 'borderless'
-  | 'toolbar'
-  | 'destructive'
-  | 'danger'
-  // Older names, kept until every screen uses the ones above.
-  | 'secondary'
-  | 'ghost'
-  | 'soft'
+type Variant = 'primary' | 'push' | 'borderless' | 'destructive' | 'danger'
 type Size = 'sm' | 'md'
-
-const PUSH =
-  'border border-line-strong/70 bg-control text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] hover:bg-control-hover active:bg-control-active'
-const BORDERLESS = 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong'
 
 const VARIANTS: Record<Variant, string> = {
   primary:
     'bg-accent text-on-accent shadow-[inset_0_0.5px_0_rgb(255_255_255/0.4),0_0.5px_1px_rgb(0_0_0/0.2)] hover:bg-accent-hover active:brightness-95',
-  push: PUSH,
-  borderless: BORDERLESS,
-  toolbar: BORDERLESS,
+  push: 'border border-line-strong/70 bg-control text-fg shadow-control hover:bg-control-hover active:bg-control-active',
+  borderless: 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong',
   destructive: 'bg-bad-fill text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
   danger: 'border border-bad/35 text-bad-ink hover:bg-bad-soft',
-  secondary: PUSH,
-  ghost: BORDERLESS,
-  soft: 'bg-accent-soft text-accent-fg hover:brightness-105',
 }
 
 export const Button = forwardRef<
   HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size; icon?: ReactNode }
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: Variant
+    size?: Size
+    icon?: ReactNode
+    /** Work under way: a spinner takes the icon's place and the button waits. */
+    loading?: boolean
+  }
 >(function Button(
-  { variant = 'push', size = 'md', icon, className, children, type = 'button', ...rest },
+  { variant = 'push', size = 'md', icon, loading, disabled, className, children, type = 'button', ...rest },
   ref,
 ) {
   return (
     <button
       ref={ref}
       type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45',
-        size === 'sm' ? 'h-[22px] rounded-sm px-2 text-small' : 'h-7 rounded-md px-3 text-body',
+        size === 'sm' ? 'h-6 rounded-sm px-2 text-small' : 'h-7 rounded-md px-3 text-body',
         VARIANTS[variant],
         className,
       )}
       {...rest}
     >
-      {icon}
+      {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : icon}
       {children}
     </button>
   )
@@ -83,7 +74,7 @@ export const IconButton = forwardRef<
       aria-label={label}
       title={rest.title ?? label}
       className={cn(
-        'inline-grid shrink-0 place-items-center rounded-md transition-colors duration-100 disabled:opacity-40',
+        'inline-grid shrink-0 place-items-center rounded-md transition-colors duration-100 disabled:pointer-events-none disabled:opacity-40',
         size === 'sm' ? 'size-6' : 'size-7',
         active ? 'bg-fill-strong text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong',
         className,
@@ -129,25 +120,54 @@ export function Badge({
   )
 }
 
-/** The older name for Badge, kept until every screen uses Badge. */
-export const Pill = Badge
+const DOT: Record<Tone, string> = {
+  ok: 'bg-ok',
+  bad: 'bg-bad',
+  warn: 'bg-warn',
+  work: 'bg-work',
+  accent: 'bg-accent',
+  neutral: 'bg-muted/60',
+}
 
-export function Dot({ status }: { status: string }) {
-  const tone = toneFor(status)
-  const color = {
-    ok: 'bg-ok',
-    bad: 'bg-bad',
-    warn: 'bg-warn',
-    work: 'bg-work',
-    accent: 'bg-accent',
-    neutral: 'bg-muted/60',
-  }[tone]
+/**
+ * A status dot. `status` picks its colour as everywhere else (toneFor); `tone` sets it directly, as for a health
+ * check. Work in motion pings unless `pulse` is false, as in a lane heading that would otherwise never stop.
+ */
+export function Dot(props: ({ status: string } | { tone: Tone }) & { pulse?: boolean }) {
+  const tone = 'tone' in props ? props.tone : toneFor(props.status)
+  const color = DOT[tone]
   return (
     <span className="relative inline-flex size-2 shrink-0">
-      {tone === 'work' && (
+      {(props.pulse ?? tone === 'work') && (
         <span className={cn('absolute inset-0 animate-ping rounded-full opacity-60', color)} />
       )}
       <span className={cn('relative inline-flex size-2 rounded-full', color)} />
+    </span>
+  )
+}
+
+/**
+ * A number on a capsule: items in a tab, requests waiting. Accent asks for the person; `corner` pins it to the
+ * corner of the icon it counts for. With `label` it is read as that sentence instead of a bare number.
+ */
+export function CountBadge(props: {
+  count: number
+  tone?: 'neutral' | 'accent'
+  corner?: boolean
+  label?: string
+  className?: string
+}) {
+  return (
+    <span
+      {...(props.label ? { role: 'img', 'aria-label': props.label, title: props.label } : {})}
+      className={cn(
+        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 font-sans text-caption font-semibold leading-none tracking-normal tabular-nums',
+        props.tone === 'accent' ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
+        props.corner && 'absolute -right-1 -top-1',
+        props.className,
+      )}
+    >
+      {props.count > 99 ? '99+' : props.count}
     </span>
   )
 }
@@ -213,7 +233,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   return (
     <select
       className={cn(
-        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-control outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
         className,
       )}
       {...rest}
@@ -345,11 +365,7 @@ export function Tabs<T extends string>(props: {
           )}
         >
           {t.label}
-          {!!t.count && (
-            <span className="rounded-full bg-fill-strong px-1.5 text-caption tabular-nums text-fg-2">
-              {t.count}
-            </span>
-          )}
+          {!!t.count && <CountBadge count={t.count} />}
           {props.value === t.value && (
             <motion.span
               layoutId={`tab-${props.id}`}

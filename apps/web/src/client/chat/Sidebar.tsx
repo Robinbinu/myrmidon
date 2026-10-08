@@ -30,7 +30,7 @@ import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { runPhase } from '../ui/status.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
@@ -468,12 +468,12 @@ export function Sidebar(props: {
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
             <Settings className="size-4" /> {copy.sidebar.nav.settings}
             {waiting > 0 && (
-              <span
-                className="ml-auto rounded-full bg-accent px-1.5 text-caption font-semibold leading-[18px] text-on-accent"
-                title={copy.settings.channels.waitingBadge(waiting)}
-              >
-                {waiting}
-              </span>
+              <CountBadge
+                count={waiting}
+                tone="accent"
+                label={copy.settings.channels.waitingBadge(waiting)}
+                className="ml-auto"
+              />
             )}
           </button>
           <IconButton

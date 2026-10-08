@@ -61,7 +61,7 @@ import {
 } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
@@ -878,7 +878,7 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
+                    <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && voiceOn && !call && (
@@ -886,7 +886,7 @@ export function App() {
                 )}
                 {view === 'chat' && chat && (
                   <Button
-                    variant="toolbar"
+                    variant="borderless"
                     size="sm"
                     icon={<Network className="size-4" />}
                     onClick={() => {
@@ -1093,7 +1093,7 @@ export function App() {
                 </p>
               )}
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+                <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
                   {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
@@ -1192,7 +1192,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
         )}
         <span className="flex-1">{props.error ? t.failed : t.loading}</span>
         {props.error && (
-          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+          <Button variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
             {t.retry}
           </Button>
         )}

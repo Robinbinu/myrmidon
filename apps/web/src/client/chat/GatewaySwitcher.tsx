@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { activeGateway, GATEWAYS_CHANGED, type GatewayInfo, listGateways, switchGateway } from '../api.ts'
 import { copy } from '../copy.ts'
 import { isMac } from '../ui/platform.ts'
-import { cn } from '../ui/primitives.tsx'
+import { cn, Dot } from '../ui/primitives.tsx'
 import { GATEWAY_POLL_MS, spring } from '../ui-config.ts'
 
 /** The gateways this machine knows, checked again every so often; undefined until the first answer. */
@@ -27,10 +27,6 @@ export function useGateways(): GatewayInfo[] | undefined {
     }
   }, [])
   return list
-}
-
-function HealthDot(props: { ok: boolean }) {
-  return <span className={cn('inline-flex size-2 shrink-0 rounded-full', props.ok ? 'bg-ok' : 'bg-bad')} />
 }
 
 /**
@@ -79,7 +75,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-body font-medium text-fg">
           <span className="truncate">{props.name}</span>
-          {props.ok !== undefined && <HealthDot ok={props.ok} />}
+          {props.ok !== undefined && <Dot tone={props.ok ? 'ok' : 'bad'} />}
         </span>
         <span className="block truncate text-footnote text-muted">{props.detail}</span>
       </span>
@@ -103,7 +99,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
       >
         {current ? <Server className="size-3.5 shrink-0" /> : <Laptop className="size-3.5 shrink-0" />}
         <span className="min-w-0 flex-1 truncate text-left">{current?.name ?? local}</span>
-        {current && <HealthDot ok={current.health.ok} />}
+        {current && <Dot tone={current.health.ok ? 'ok' : 'bad'} />}
         <ChevronDown className="size-3 shrink-0 text-muted" />
       </button>
       <AnimatePresence>

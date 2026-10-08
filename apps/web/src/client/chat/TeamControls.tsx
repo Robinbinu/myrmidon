@@ -412,7 +412,7 @@ function Stepper(props: {
   const step =
     'grid h-full w-6 place-items-center text-fg-2 transition-colors hover:bg-fill disabled:opacity-30'
   return (
-    <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-line-strong/70 bg-control shadow-[0_0.5px_1px_rgb(0_0_0/0.08)]">
+    <div className="inline-flex h-7 items-center overflow-hidden rounded-md border border-line-strong/70 bg-control shadow-control">
       <button
         type="button"
         disabled={props.value <= props.min}

@@ -35,7 +35,7 @@ import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
+import { Badge, CountBadge, cn, Dot, Empty, IconButton, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { agentPhase } from '../ui/status.ts'
@@ -548,9 +548,9 @@ function WorkspaceBody({
                                         open={open && details}
                                         className={details ? 'text-muted' : 'invisible'}
                                       />
-                                      <Pill tone={toneFor(t.status)}>
+                                      <Badge tone={toneFor(t.status)}>
                                         {copy.workspace.taskStatus[t.status]}
-                                      </Pill>
+                                      </Badge>
                                       <span className="font-mono text-caption text-muted">{t.id}</span>
                                       {t.owner && <span className="text-small text-muted">· {t.owner}</span>}
                                     </button>
@@ -617,9 +617,9 @@ function WorkspaceBody({
                                         {a.info.specialty}
                                       </span>
                                     )}
-                                    <Pill tone={toneFor(phase)}>
+                                    <Badge tone={toneFor(phase)}>
                                       <Dot status={phase} /> {copy.status.agent[phase]}
-                                    </Pill>
+                                    </Badge>
                                   </div>
                                   <div className="truncate font-mono text-footnote text-muted">
                                     {a.info.model}
@@ -812,11 +812,7 @@ function WorkspaceBody({
                       />
                     )}
                     <v.icon className="size-[18px]" />
-                    {!!count && (
-                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-caption font-medium leading-4 tabular-nums text-fg-2">
-                        {count > 99 ? '99+' : count}
-                      </span>
-                    )}
+                    {!!count && <CountBadge count={count} corner />}
                   </button>
                 </Fragment>
               )

@@ -103,6 +103,8 @@
   --text-title: 14px;
   --text-headline: 15px;
   --text-heading: 17px;
+  /* The hairline drop under push buttons, pop-up buttons and other raised controls. */
+  --shadow-control: 0 0.5px 1px rgb(0 0 0 / 0.08);
 }
 
 @layer base {

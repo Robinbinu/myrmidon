@@ -165,7 +165,7 @@ export function ModelPicker(props: {
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'
-              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-control transition-colors hover:bg-control-hover'
               : 'group flex w-full flex-col items-start gap-0.5 rounded-lg border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >

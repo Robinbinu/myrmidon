@@ -18,7 +18,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
-import { Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
+import { Button, CountBadge, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import {
   type DiffFile,
@@ -131,9 +131,7 @@ function Section(props: {
             className={cn('size-3.5 shrink-0 transition-transform', !props.closed && 'rotate-90')}
           />
           {props.title}
-          <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums tracking-normal">
-            {props.count}
-          </span>
+          <CountBadge count={props.count} />
         </button>
         <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           {props.actions}
@@ -558,7 +556,7 @@ export function GitView({ project }: { project: string }) {
                 {copy.git.discardDialog.cannotUndo}
               </p>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDiscard(undefined)} disabled={busy}>
+                <Button variant="borderless" onClick={() => setDiscard(undefined)} disabled={busy}>
                   {copy.git.discardDialog.cancel}
                 </Button>
                 <Button

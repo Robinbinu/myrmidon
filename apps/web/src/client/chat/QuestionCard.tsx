@@ -187,7 +187,7 @@ export function QuestionCard(props: {
         <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
           <Button
             size="sm"
-            variant="ghost"
+            variant="borderless"
             disabled={sending === 'yes'}
             onClick={() =>
               send(

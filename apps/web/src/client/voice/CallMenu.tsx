@@ -95,7 +95,7 @@ export function CallMenu(props: { crew: readonly CrewMember[]; onCall(to: CallTa
   return (
     <div ref={box} className="relative">
       <Button
-        variant="toolbar"
+        variant="borderless"
         icon={<Phone className="size-4" />}
         aria-haspopup="menu"
         aria-expanded={open}

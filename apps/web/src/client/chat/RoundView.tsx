@@ -49,7 +49,7 @@ import {
   type Mood,
   PixelFace,
 } from '../ui/pixel.tsx'
-import { Button, cn, IconButton, Pill, Skeleton } from '../ui/primitives.tsx'
+import { Badge, Button, cn, Dot, IconButton, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -556,8 +556,8 @@ function AgentMessage(props: {
           <div className="mb-1 flex items-center gap-2 text-callout">
             <span className="font-semibold text-fg">{props.from}</span>
             <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
-            {props.final && !props.plain && <Pill tone="ok">{copy.round.agent.finalAnswer}</Pill>}
-            {props.assumption && <Pill tone="accent">{copy.round.agent.checkIn}</Pill>}
+            {props.final && !props.plain && <Badge tone="ok">{copy.round.agent.finalAnswer}</Badge>}
+            {props.assumption && <Badge tone="accent">{copy.round.agent.checkIn}</Badge>}
           </div>
         )}
         <div
@@ -577,7 +577,7 @@ function AgentMessage(props: {
         </div>
         <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-within:opacity-100">
           <Button
-            variant="ghost"
+            variant="borderless"
             size="sm"
             onClick={() => copyText(props.text)}
             icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -918,10 +918,7 @@ function LiveServers({ state }: { state: ColonyState }) {
   if (live.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-body">
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-        <span className="relative inline-flex size-2 rounded-full bg-ok" />
-      </span>
+      <Dot tone="ok" pulse />
       {live.map((s) => (
         <a
           key={s.name}
@@ -1031,7 +1028,7 @@ function RunCard(props: {
           </motion.span>
         </button>
         <Button
-          variant="ghost"
+          variant="borderless"
           size="sm"
           onClick={props.onOpenColony}
           icon={<Network className="size-3.5" />}
@@ -1231,18 +1228,18 @@ function ModelFailure(props: {
             variant="primary"
             disabled={!pick || resuming !== undefined}
             onClick={() => go('other')}
-            icon={
-              resuming === 'other' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Play className="size-3.5" />
-              )
-            }
+            loading={resuming === 'other'}
+            icon={<Play className="size-3.5" />}
           >
             {resuming === 'other' ? copy.modelFailure.continuing : copy.modelFailure.continue}
           </Button>
           {canRetry && (
-            <Button size="sm" variant="ghost" disabled={resuming !== undefined} onClick={() => go('same')}>
+            <Button
+              size="sm"
+              variant="borderless"
+              disabled={resuming !== undefined}
+              onClick={() => go('same')}
+            >
               {resuming === 'same'
                 ? copy.modelFailure.retrying
                 : overflow
@@ -1351,8 +1348,9 @@ function Halted(props: {
             setResuming(true)
             void props.onResume().finally(() => setResuming(false))
           }}
-          disabled={resuming || retry === 'starting'}
-          icon={resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+          disabled={retry === 'starting'}
+          loading={resuming}
+          icon={<Play className="size-3.5" />}
         >
           {resuming ? copy.outcome.resuming : copy.outcome.resume}
         </Button>
@@ -1361,14 +1359,8 @@ function Halted(props: {
         <Button
           size="sm"
           onClick={props.onRetry}
-          disabled={retry === 'starting'}
-          icon={
-            retry === 'starting' ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="size-3.5" />
-            )
-          }
+          loading={retry === 'starting'}
+          icon={<RotateCcw className="size-3.5" />}
         >
           {retry === 'starting' ? copy.outcome.starting : copy.outcome.retry}
         </Button>

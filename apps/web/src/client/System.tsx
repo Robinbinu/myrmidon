@@ -91,7 +91,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             <h1 className="text-heading font-semibold tracking-tight">{t.title}</h1>
             <p className="text-body text-muted">{headline}</p>
           </div>
-          <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
+          <Button size="sm" variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
             {t.refresh}
           </Button>
         </div>
@@ -123,7 +123,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                 </code>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="borderless"
                   icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                   onClick={() => status.home && copyText(status.home)}
                 >
@@ -166,7 +166,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             action={
               <Button
                 size="sm"
-                variant="ghost"
+                variant="borderless"
                 icon={<Settings2 className="size-3.5" />}
                 onClick={props.onManageChannels}
               >
@@ -300,7 +300,7 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
         )}
       </div>
       {c.enabled && (
-        <Button size="sm" variant="ghost" disabled={restarting} onClick={() => void restart()}>
+        <Button size="sm" variant="borderless" disabled={restarting} onClick={() => void restart()}>
           {restarting ? t.restarting : t.restart}
         </Button>
       )}

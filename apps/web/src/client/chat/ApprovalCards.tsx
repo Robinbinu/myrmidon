@@ -148,7 +148,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         )}
         {/* The card's decision is the point of it, so its buttons get a full-size target, not the compact one. */}
         <Button
-          variant="ghost"
+          variant="borderless"
           disabled={busy}
           onClick={() => void decide(false)}
           icon={<X className="size-3.5" />}
@@ -398,7 +398,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
-              variant="ghost"
+              variant="borderless"
               disabled={busy === m.id}
               onClick={() => void decide(m.id, false)}
               icon={<X className="size-3.5" />}
@@ -516,7 +516,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       <div className="flex justify-end gap-2">
         <Button
           size="sm"
-          variant="ghost"
+          variant="borderless"
           disabled={busy}
           onClick={() => void decide(false)}
           icon={<X className="size-3.5" />}

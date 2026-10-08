@@ -3,7 +3,7 @@ import { Ban, FileCode, Globe, Search, ShieldCheck, SquareTerminal, Wrench } fro
 import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
-import { cn, Empty, Pill, Select, TextInput } from '../ui/primitives.tsx'
+import { Badge, cn, Empty, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
 const KINDS: { value: AuditKind | 'all'; label: string }[] = [
@@ -157,10 +157,10 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-1 text-footnote text-muted">
                       {t.actions.map((a) => (
-                        <Pill key={a}>{a}</Pill>
+                        <Badge key={a}>{a}</Badge>
                       ))}
                       <span>{t.agents.join(', ')}</span>
-                      {t.failed > 0 && <Pill tone="bad">{copy.audit.failed(t.failed)}</Pill>}
+                      {t.failed > 0 && <Badge tone="bad">{copy.audit.failed(t.failed)}</Badge>}
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-footnote tabular-nums text-muted">

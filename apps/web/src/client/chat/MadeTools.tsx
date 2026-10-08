@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
-import { Button, cn, Pill } from '../ui/primitives.tsx'
+import { Badge, Button, cn } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
 /** A tool as the library stores it; a colony's made tools add who made it and whether it came from the library. */
@@ -96,9 +96,9 @@ export function ColonyTools(props: { colonyId: string; tools: ColonyState['madeT
             meta={`${t.library ? copy.madeTools.fromLibrary : copy.madeTools.madeBy(t.agent)} · ${t.language}`}
             action={
               kept ? (
-                <Pill tone="ok">
+                <Badge tone="ok">
                   <BookmarkCheck className="size-3" /> {copy.madeTools.kept}
-                </Pill>
+                </Badge>
               ) : (
                 <Button
                   size="sm"

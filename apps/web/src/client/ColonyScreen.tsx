@@ -38,7 +38,7 @@ import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
-import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
+import { Badge, cn, Dot, Empty, Tabs, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
 import { MAX_ACTIVITY_ITEMS, REPLAY_SPEEDS } from './ui-config.ts'
 import { useColony } from './use-colony.ts'
@@ -291,9 +291,9 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-headline font-semibold tracking-tight">{state.name}</h2>
-            <Pill tone={toneFor(run)}>
+            <Badge tone={toneFor(run)}>
               <Dot status={run} /> {copy.status.run[run]}
-            </Pill>
+            </Badge>
           </div>
           {state.statusReason && <p className="truncate text-callout text-muted">{state.statusReason}</p>}
         </div>
@@ -655,11 +655,11 @@ function Board({ state }: { state: ColonyState }) {
   )
 }
 
-const COLUMNS: { title: string; statuses: string[]; tone: string }[] = [
-  { title: copy.colonyScreen.columns.todo, statuses: ['pending', 'rejected'], tone: 'bg-muted/50' },
-  { title: copy.colonyScreen.columns.inProgress, statuses: ['in_progress'], tone: 'bg-work' },
-  { title: copy.colonyScreen.columns.inReview, statuses: ['submitted'], tone: 'bg-warn' },
-  { title: copy.colonyScreen.columns.done, statuses: ['verified'], tone: 'bg-ok' },
+const COLUMNS: { title: string; statuses: string[] }[] = [
+  { title: copy.colonyScreen.columns.todo, statuses: ['pending', 'rejected'] },
+  { title: copy.colonyScreen.columns.inProgress, statuses: ['in_progress'] },
+  { title: copy.colonyScreen.columns.inReview, statuses: ['submitted'] },
+  { title: copy.colonyScreen.columns.done, statuses: ['verified'] },
 ]
 
 function Kanban({ state }: { state: ColonyState }) {
@@ -677,7 +677,7 @@ function Kanban({ state }: { state: ColonyState }) {
         return (
           <div key={col.title} className="flex min-h-0 flex-col rounded-2xl bg-surface-2/60 p-2">
             <div className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-callout font-semibold">
-              <span className={cn('size-2 rounded-full', col.tone)} />
+              <Dot status={col.statuses[0] ?? 'pending'} pulse={false} />
               {col.title}
               <span className="text-muted">{list.length}</span>
             </div>
@@ -691,7 +691,7 @@ function Kanban({ state }: { state: ColonyState }) {
                 >
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-caption text-muted">{t.id}</span>
-                    {t.status === 'rejected' && <Pill tone="bad">{copy.colonyScreen.rework}</Pill>}
+                    {t.status === 'rejected' && <Badge tone="bad">{copy.colonyScreen.rework}</Badge>}
                     {t.owner && <span className="ml-auto text-footnote text-muted">{t.owner}</span>}
                   </div>
                   <p className="text-body font-medium">{t.subject}</p>
@@ -767,9 +767,9 @@ function Verdicts({ state }: { state: ColonyState }) {
             )}
           >
             <div className="mb-1 flex flex-wrap items-center gap-2 text-callout">
-              <Pill tone={v.pass ? 'ok' : 'bad'}>
+              <Badge tone={v.pass ? 'ok' : 'bad'}>
                 {v.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail}
-              </Pill>
+              </Badge>
               <span className="font-mono">{v.verifierId}</span>
               <span className="text-muted">
                 {copy.colonyScreen.verdictTarget(copy.reviewTarget(v.target))}

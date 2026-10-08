@@ -79,7 +79,7 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
         {ended && (
           <Button
             size="sm"
-            variant="ghost"
+            variant="borderless"
             onClick={() => setSession(session + 1)}
             icon={<RotateCcw className="size-3.5" />}
           >

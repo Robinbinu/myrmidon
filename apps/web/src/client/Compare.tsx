@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api, type ColonySummary } from './api.ts'
 import { copy } from './copy.ts'
 import { duration, knownCost, money } from './ui/hooks.ts'
-import { cn, IconButton, Pill, toneFor } from './ui/primitives.tsx'
+import { Badge, cn, IconButton, toneFor } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 
 /** Side-by-side run metrics for research comparisons; tick two runs to see what differs between them. */
@@ -83,7 +83,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
                   </div>
                 </td>
                 <td>
-                  <Pill tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Pill>
+                  <Badge tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Badge>
                   {c.statusReason && <div className="muted small">{c.statusReason}</div>}
                 </td>
                 <td>{copy.compare.patterns[c.pattern] ?? c.pattern}</td>
@@ -205,7 +205,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
         </button>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-small text-muted">
-        <Pill tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Pill>
+        <Badge tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Badge>
         {run.tier && <span>{run.tier}</span>}
         {run.mode && <span>· {run.mode}</span>}
         {run.judge && (
@@ -320,13 +320,13 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
                 className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small"
               >
                 <span className="font-mono">{f.name}</span>
-                <Pill tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
+                <Badge tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
                   {f.in === 'both'
                     ? f.same
                       ? copy.compare.same
                       : copy.compare.differs
                     : copy.compare.onlyIn(f.in.toUpperCase())}
-                </Pill>
+                </Badge>
               </li>
             ))}
           </ul>
