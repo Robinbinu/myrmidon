@@ -2636,6 +2636,9 @@ test('agents see the skills by name and load one when the task matches', async (
   expect(loaded).toContain('Always 5-7-5, no rhyme')
   const used = (await events(colonyId)).find((e) => e.type === 'skill/used')
   expect(used?.payload).toEqual({ agent: 'lead', name: 'haiku-style' })
+  // Each load is counted, so a learned skill nobody uses can be retired.
+  const usage = JSON.parse(readFileSync(join(home, 'skills-usage.json'), 'utf8'))
+  expect(usage['haiku-style']).toMatchObject({ uses: 1 })
   await chats.stopAll()
   rmSync(claude, { recursive: true, force: true })
 })

@@ -328,6 +328,12 @@ async function main() {
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
+      // Learned skills nobody uses are retired to the archive; Settings → Skills restores them.
+      skills.curateEvery((archived, err) =>
+        err
+          ? console.error(c.yellow(`skills: ${err instanceof Error ? err.message : err}`))
+          : console.log(c.dim(`skills archived (unused for a while): ${archived.join(', ')}`)),
+      )
       const hooks = new HookStore(home, () => plugins.hooks())
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.

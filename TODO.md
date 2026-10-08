@@ -242,8 +242,13 @@ Open work, in the order it will be done:
       finished round with 20+ tool calls (or any, with /learn or the round's button) and proposes a skill or an update
       to a learned one (`source: learned`, never the person's own); kept or discarded in the chat card or Settings →
       Skills; kept skills go to every chat.
-11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
-      archived after 90; needs use counts from use_skill.
+11b. - [x] **Retire stale learned skills** — done 2026-10-08, after Hermes's curator (the curator noted here as Qwen
+      Code's is Hermes's). Each use_skill load is counted (`skills-usage.json`); learned skills unused 30 days show
+      "unused" (still offered; using one makes it active), at 90 they move to `skills/.archive/` (never deleted);
+      Keep pins one; Settings → Skills shows uses and restores archived ones. Checked at start and every 6 hours.
+      Skills the person wrote or installed are never touched. Not done: Hermes's model pass that merges
+      near-duplicates (the skill reviewer already proposes changes). Badges not yet seen in the browser (no learned
+      skills on this machine yet).
 11c. - [x] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw"; research
       docs/research/2026-10-08-remote-gateways.md, spec docs/superpowers/specs/2026-10-08-remote-gateways-design.md)
       - [x] Step 1: remote server mode — --host/--public-url, exact Host/Origin allowlist, device pairing

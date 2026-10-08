@@ -590,6 +590,7 @@ export class ColonyRun implements ColonyHost {
     const library = this.options.skills
     if (!library) throw new Error('no skills are installed')
     const text = library.read(name, this.spec.chat?.project?.path, file)
+    if (!file) library.noteUse(name)
     await this.append({
       type: 'skill/used',
       actor: agentActor(agent),

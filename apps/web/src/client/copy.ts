@@ -2127,6 +2127,22 @@ export const copy = {
       /** Skills a reviewer proposed from finished work, waiting for the person. */
       proposed: (n: number) => `Proposed from your chats (${n})`,
       canUse: (name: string) => `Agents can use ${name}`,
+      learned: 'learned',
+      uses: (n: number, last?: string) =>
+        n === 0 ? 'Not used yet' : `Used ${n === 1 ? 'once' : `${n} times`}${last ? `, last ${last}` : ''}`,
+      stale: 'unused',
+      staleHint: (archiveDays: number) =>
+        `Not used for a while: moved to the archive after ${archiveDays} days unused, unless an agent uses it or you keep it.`,
+      keep: 'Keep',
+      kept: 'Kept',
+      keepHint: 'Never retire this skill, however rarely it is used',
+      retireIntro: (staleDays: number, archiveDays: number) =>
+        `Skills Myrmidon learned are marked unused after ${staleDays} days without use and archived after ${archiveDays}; yours are never touched.`,
+      archivedTitle: (n: number) => `Archived (${n})`,
+      archivedHint:
+        'Learned skills retired for lack of use. Agents no longer see them; restore one to bring it back.',
+      restore: 'Restore',
+      restored: (name: string) => `Restored ${name}`,
       showMore: 'Show more',
       showLess: 'Show less',
     },

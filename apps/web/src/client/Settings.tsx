@@ -1,4 +1,5 @@
 import {
+  ArchiveRestore,
   ArrowLeft,
   BookMarked,
   Bot,
@@ -25,6 +26,7 @@ import {
   MonitorSmartphone,
   Moon,
   Palette,
+  Pin,
   Plug,
   Plus,
   Puzzle,
@@ -3992,6 +3994,14 @@ interface SkillEntry {
   dir: string
   source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
+  curation?: { uses: number; lastUsed?: string; stale: boolean; kept: boolean }
+}
+
+interface SkillsResponse {
+  skills: SkillEntry[]
+  archived: { name: string; description: string }[]
+  dir?: string
+  retire?: { staleDays: number; archiveDays: number }
 }
 
 const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
@@ -4284,13 +4294,13 @@ function SkillDescription(props: { text: string; dir: string }) {
 /** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
 function SkillsSection() {
   const toast = useToast()
-  const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
+  const [data, setData] = useState<SkillsResponse>()
   const [proposed, setProposed] = useState<SkillProposalView[]>([])
   const load = () => {
     api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
       .then((r) => setProposed(r.proposals))
       .catch(() => {})
-    return api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+    return api<SkillsResponse>('/api/skills')
       .then(setData)
       .catch((err: Error) => toast(err.message, 'error'))
   }
@@ -4308,6 +4318,8 @@ function SkillsSection() {
         {copy.settings.skills.introBeforeProjectDir}
         <code className="font-mono text-callout">.claude/skills</code>
         {copy.settings.skills.introAfterProjectDir}
+        {data?.retire &&
+          ` ${copy.settings.skills.retireIntro(data.retire.staleDays, data.retire.archiveDays)}`}
       </Heading>
       {proposed.length > 0 && (
         <div className="mb-6 flex flex-col gap-3">
@@ -4342,9 +4354,39 @@ function SkillsSection() {
                     <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
                     </Pill>
+                    {s.curation && <Pill>{copy.settings.skills.learned}</Pill>}
+                    {s.curation?.stale && (
+                      <span title={data.retire && copy.settings.skills.staleHint(data.retire.archiveDays)}>
+                        <Pill tone="warn">{copy.settings.skills.stale}</Pill>
+                      </span>
+                    )}
                   </div>
                   <SkillDescription text={s.description} dir={s.dir} />
+                  {s.curation && (
+                    <div className="mt-1 text-footnote text-muted">
+                      {copy.settings.skills.uses(
+                        s.curation.uses,
+                        s.curation.lastUsed ? ago(s.curation.lastUsed) : undefined,
+                      )}
+                    </div>
+                  )}
                 </div>
+                {s.curation && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Pin className={cn('size-3.5', s.curation.kept && 'fill-current')} />}
+                    aria-pressed={s.curation.kept}
+                    title={copy.settings.skills.keepHint}
+                    onClick={() =>
+                      void send('PUT', `/api/skills/${s.name}`, { kept: !s.curation?.kept })
+                        .then(load)
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  >
+                    {s.curation.kept ? copy.settings.skills.kept : copy.settings.skills.keep}
+                  </Button>
+                )}
                 <Switch
                   checked={s.enabled}
                   label={copy.settings.skills.canUse(s.name)}
@@ -4358,6 +4400,41 @@ function SkillsSection() {
             </Row>
           ))}
         </Card>
+      )}
+      {!!data?.archived.length && (
+        <div className="mt-8">
+          <h4 className="text-body font-semibold text-fg-2">
+            {copy.settings.skills.archivedTitle(data.archived.length)}
+          </h4>
+          <p className="mb-3 text-footnote text-muted">{copy.settings.skills.archivedHint}</p>
+          <Card>
+            {data.archived.map((a) => (
+              <Row key={a.name}>
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-reading font-medium text-fg-2">{a.name}</div>
+                    <div className="text-footnote text-muted">{a.description}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<ArchiveRestore className="size-3.5" />}
+                    onClick={() =>
+                      void post(`/api/skills/${a.name}/restore`, {})
+                        .then(() => {
+                          toast(copy.settings.skills.restored(a.name), 'success')
+                          return load()
+                        })
+                        .catch((err: Error) => toast(err.message, 'error'))
+                    }
+                  >
+                    {copy.settings.skills.restore}
+                  </Button>
+                </div>
+              </Row>
+            ))}
+          </Card>
+        </div>
       )}
     </>
   )

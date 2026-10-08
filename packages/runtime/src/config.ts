@@ -149,6 +149,11 @@ export const RECALL_CHARS = 6_000
 export const SKILL_MAX_FILE_CHARS = 40_000
 /** Bundled files listed per skill, so a big skill does not flood the agent. */
 export const SKILL_MAX_FILES = 60
+/** A learned skill unused this long is marked stale (still usable), and this long is moved to the archive. */
+export const SKILL_STALE_DAYS = 30
+export const SKILL_ARCHIVE_DAYS = 90
+/** How often the server looks for learned skills to retire. */
+export const SKILL_CURATE_EVERY_MS = 6 * 60 * 60_000
 /** The largest script a made tool may have, to keep tools small. */
 export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 

@@ -1364,15 +1364,36 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/skills': guard((_req, url) => {
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : undefined
-        return json({ skills: options.skills?.list(path) ?? [], dir: options.skills?.dir })
+        return json({
+          skills: options.skills?.list(path) ?? [],
+          archived: options.skills?.archived() ?? [],
+          dir: options.skills?.dir,
+          retire: options.skills?.retire,
+        })
       }),
       '/api/skills/:name': {
         PUT: guard(async (req) => {
           if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
-          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
-          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
-          options.skills.setEnabled(req.params.name ?? '', enabled)
+          const { enabled, kept } = (await req.json().catch(() => ({}))) as {
+            enabled?: unknown
+            kept?: unknown
+          }
+          if (typeof enabled !== 'boolean' && typeof kept !== 'boolean')
+            return json({ error: 'enabled or kept must be true or false' }, 400)
+          if (typeof enabled === 'boolean') options.skills.setEnabled(req.params.name ?? '', enabled)
+          if (typeof kept === 'boolean') options.skills.setKept(req.params.name ?? '', kept)
           return json({ skills: options.skills.list() })
+        }),
+      },
+      '/api/skills/:name/restore': {
+        POST: guard((req) => {
+          if (!options.skills) return json({ error: 'skills need the chat runtime' }, 503)
+          try {
+            options.skills.restore(req.params.name ?? '')
+            return json({ skills: options.skills.list(), archived: options.skills.archived() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
         }),
       },
       '/api/memory': {
