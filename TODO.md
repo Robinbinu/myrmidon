@@ -80,14 +80,15 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### Phase 2 — design system and accessibility
 
-- [ ] Radius scale out of order (`lg` 14px, `xl` 12px); 21 arbitrary radii; 56 arbitrary text sizes; no display type
+- [x] Radius scale out of order (`lg` 14px, `xl` 12px); 21 arbitrary radii; 56 arbitrary text sizes; no display type
       steps.
-- [ ] Six status dots, four badges, five hand-rolled popovers, four section/row copies, ~15 banners → `Dot`,
+- [x] Six status dots, four badges, five hand-rolled popovers, four section/row copies, ~15 banners → `Dot`,
       `usePopover`/`Menu`, `Card`, `SectionHeader`, `Banner`; Button aliases and no loading state.
-- [ ] Inline field errors in 5 of 66 fields; one-click revoke/remove left; seven icons shared by two features.
-- [ ] WCAG: muted text 3.7:1 (30 nodes); accessible names miss the visible text (36 nodes); 49 tabs to the message
+- [x] Inline field errors in 5 of 66 fields; one-click revoke/remove left; seven icons shared by two features.
+- [x] WCAG: muted text 3.7:1 (30 nodes); accessible names miss the visible text (36 nodes); 49 tabs to the message
       box; menus and tabs without arrow keys; Settings badge 2.1:1; side panel covers the chat at 200% zoom.
-- [ ] Settings IA: a "Connect" group for Devices, Gateways, Channels, Voice; shortcuts list missing ⌥⌘1–0.
+- [x] Settings IA: a "Connect" group for Devices, Gateways, Channels, Voice; shortcuts list missing ⌥⌘1–0.
+      (axe-core WCAG 2.1 AA: 0 violations on 18 screens in light and dark, down from 24 + 5 found on real data.)
 
 ### Phase 2 — copy
 
