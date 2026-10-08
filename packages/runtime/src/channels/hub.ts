@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   type ApprovalRequest,
@@ -331,6 +331,30 @@ export class ChannelHub {
       : t.pairing.approved(approved.person?.role === 'owner', adapter?.commandPrefix ?? '/')
     await adapter?.send(approved.request.chat, { text }).catch(() => {})
     return approved
+  }
+
+  /**
+   * Removes a channel: stops it and forgets everything it kept (settings and token, people, codes, which chats it
+   * continues, answers owed, its adapter's files such as a linked device's keys). Chats it started stay in Myrmidon.
+   */
+  async remove(id: string) {
+    this._kind(id)
+    const running = this._running.get(id)
+    this._running.delete(id)
+    await running?.stop().catch(() => {})
+    for (const tracker of [...this._trackers.values()])
+      if (tracker.channel === id) {
+        this._release(tracker)
+        this._trackers.delete(tracker.colonyId)
+      }
+    for (const [k, a] of this._approvals) if (a.channel === id) this._approvals.delete(k)
+    for (const [k, q] of this._questions) if (q.channel === id) this._questions.delete(k)
+    this._status.delete(id)
+    this._health.delete(id)
+    this._activity.delete(id)
+    this.store.remove(id)
+    this._ledger.forget(id)
+    rmSync(join(this.options.dir, id), { recursive: true, force: true })
   }
 
   revoke(id: string, kind: 'person' | 'group' | 'request', target: string): boolean {

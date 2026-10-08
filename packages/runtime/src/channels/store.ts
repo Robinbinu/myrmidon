@@ -138,11 +138,23 @@ export class ChannelStore {
     const config = this.get(channel)
     const result = change(config)
     all[channel] = config
+    this._save(all)
+    return result
+  }
+
+  /** Forgets a channel entirely: its settings, secrets, people, groups, codes and chats. */
+  remove(channel: string) {
+    const all = this._all()
+    if (!(channel in all)) return
+    delete all[channel]
+    this._save(all)
+  }
+
+  private _save(all: Record<string, unknown>) {
     const tmp = `${this._file}.${process.pid}.tmp`
     writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 })
     chmodSync(tmp, 0o600)
     renameSync(tmp, this._file)
-    return result
   }
 
   /**
@@ -330,6 +342,13 @@ export class ChannelLedger {
       ...(thread ? { thread } : {}),
       ...(error ? { error } : {}),
     }))
+  }
+
+  /** Forgets what a removed channel left here: messages seen, answers owed and its adapter's values. */
+  forget(channel: string) {
+    this._db.run('delete from seen where channel = ?', [channel])
+    this._db.run('delete from outbox where channel = ?', [channel])
+    this._db.run("delete from kv where key like ? escape '\\'", [`${channel.replace(/[\\%_]/g, '\\$&')}:%`])
   }
 
   close() {

@@ -1799,6 +1799,11 @@ export const copy = {
           n === 1 ? '1 answer waiting to be resent' : `${n} answers waiting to be resent`,
       },
       noActivity: 'Nothing has happened on this channel yet.',
+      remove: 'Remove channel',
+      removeConfirm: 'Remove for good',
+      removeWarning:
+        'Disconnects it and forgets its token, approved people and groups, and any linked device. Chats it started stay.',
+      removed: (label: string) => `Removed ${label}`,
       add: 'Add a channel',
       addHint:
         'Pick an app to set it up. Each one runs through the same access rules, approvals and delivery.',

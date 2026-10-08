@@ -1,10 +1,10 @@
 import {
-  Activity,
   BarChart3,
   ChevronRight,
   CircleAlert,
   Folder,
   FolderPlus,
+  HeartPulse,
   Monitor,
   Moon,
   Network,
@@ -457,7 +457,7 @@ export function Sidebar(props: {
           className={navItem(props.view === 'system')}
           onClick={() => props.onView('system')}
         >
-          <Activity className="size-4" /> {copy.system.nav}
+          <HeartPulse className="size-4" /> {copy.system.nav}
         </button>
         <div className="flex items-center gap-1">
           <button type="button" className={navItem(false)} onClick={props.onSettings}>

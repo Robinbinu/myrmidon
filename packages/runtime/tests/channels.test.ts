@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
@@ -269,6 +269,37 @@ test('a stranger gets a code and nothing they say is acted on; the first approve
   await until(() => chats.sends.length === 2)
   expect(chats.sends[1]?.text).toContain('"Bob", an approved Telegram member (not the owner')
   expect(chats.sends[1]?.text).toEndWith('summarize the news')
+})
+
+test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {
+  const { hub, adapter, chats, say, pair, dir } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'build me a calculator')
+  await until(() => chats.sends.length === 1)
+  await say(BOB, 'hi')
+  await until(() => adapter.to('200').length === 1)
+  adapter.io?.set('offset', '42')
+  writeFileSync(join(dir, 'telegram', 'auth.json'), '{}')
+  await until(() => Object.keys(hub.chatChannels()).length === 1)
+
+  await hub.remove('telegram')
+  const [info] = hub.list()
+  expect(info).toMatchObject({
+    enabled: false,
+    secretsSet: [],
+    people: [],
+    pending: [],
+    status: { state: 'off' },
+  })
+  expect(hub.store.exists('telegram')).toBe(false)
+  expect(hub.chatChannels()).toEqual({})
+  expect(hub.activity('telegram')).toEqual([])
+  expect(existsSync(join(dir, 'telegram'))).toBe(false)
+  // Set up again, it starts from nothing: no offset carried over, and a stranger gets a fresh code.
+  await hub.configure('telegram', { values: { token: 'tok2' } })
+  await until(() => adapter.io !== undefined)
+  expect(adapter.io?.get('offset')).toBeUndefined()
+  expect(hub.store.get('telegram').people).toEqual([])
 })
 
 test('access policies: an allowlist lets listed people in (the first as owner) and ignores the rest silently', async () => {

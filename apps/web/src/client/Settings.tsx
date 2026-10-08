@@ -23,7 +23,6 @@ import {
   Monitor,
   MonitorSmartphone,
   Moon,
-  Network,
   Palette,
   Plug,
   Plus,
@@ -31,6 +30,7 @@ import {
   RefreshCw,
   Search,
   Server,
+  ServerCog,
   ShieldCheck,
   SlidersHorizontal,
   Smile,
@@ -283,7 +283,7 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     group: 'you',
     label: copy.settings.sections.gateways.label,
     hint: copy.settings.sections.gateways.hint,
-    icon: Network,
+    icon: ServerCog,
   },
   {
     id: 'channels',
@@ -2827,6 +2827,26 @@ function ChannelSheet(props: {
                 )}
               </Card>
             )}
+            {inUse(c) && (
+              <div className="flex justify-end">
+                <ConfirmButton
+                  label={t.remove}
+                  confirm={t.removeConfirm}
+                  warning={t.removeWarning}
+                  disabled={busy}
+                  onConfirm={() =>
+                    void send('DELETE', `/api/channels/${c.id}`).then(
+                      () => {
+                        toast(t.removed(c.label), 'success')
+                        props.onClose()
+                        void props.onChanged()
+                      },
+                      (err: Error) => toast(err.message, 'error'),
+                    )
+                  }
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -3131,7 +3151,7 @@ function GatewaysSection() {
         </Row>
       </Card>
       {list && list.length === 0 ? (
-        <Empty icon={<Network className="size-5" />} title={t.empty} />
+        <Empty icon={<ServerCog className="size-5" />} title={t.empty} />
       ) : (
         <Card>
           {list?.map((g) => (

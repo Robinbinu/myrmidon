@@ -823,6 +823,15 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
+        DELETE: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          try {
+            await channels.remove(req.params.id ?? '')
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
       },
       '/api/channels/:id/approve': {
         POST: guard(async (req) => {
