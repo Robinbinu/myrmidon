@@ -317,6 +317,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
   const thinking = ['low', 'medium', 'high'].includes(raw.thinking as string)
     ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
     : {}
+  const helpers = raw.helpers === 'always' ? { helpers: 'always' as const } : {}
   const roster = Array.isArray(raw.roster)
     ? (raw.roster as RosterEntry[])
         .filter((r) => typeof r?.role === 'string' && str(r?.model))
@@ -335,6 +336,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
       extraWorkers: 0,
       judgeModel,
       ...thinking,
+      ...helpers,
     }
   return {
     mode: 'orchestrated',
@@ -346,6 +348,7 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
     extraWorkers: typeof raw.extraWorkers === 'number' ? raw.extraWorkers : 2,
     judgeModel,
     ...thinking,
+    ...helpers,
   }
 }
 
