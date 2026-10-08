@@ -1334,6 +1334,7 @@ export const copy = {
       /** Follows the Esc key in the header. */
       escToClose: ' to close',
       sectionPicker: 'Section',
+      groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
       modelsTab: 'Your models',
       providersTab: 'Keys & providers',
       loading: 'Loading settings…',

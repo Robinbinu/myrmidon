@@ -93,3 +93,11 @@ export const CURSOR = {
 
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000
+
+/* ------------------------------------------------------------------ settings */
+
+/**
+ * Below this window width Settings shows its section list as icons only: next to the app sidebar (260px) the full
+ * list (256px) would leave the page too little room.
+ */
+export const SETTINGS_NAV_COLLAPSE_PX = 1100

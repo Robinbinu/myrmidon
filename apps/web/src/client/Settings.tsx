@@ -85,7 +85,7 @@ import {
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
-import { AGENT_MIN_WINDOW, MASCOT_COLORS, softSpring, spring } from './ui-config.ts'
+import { AGENT_MIN_WINDOW, MASCOT_COLORS, SETTINGS_NAV_COLLAPSE_PX, softSpring, spring } from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -167,96 +167,114 @@ export type Section =
   | 'instructions'
   | 'memory'
 
-const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
-  {
-    id: 'general',
-    label: copy.settings.sections.general.label,
-    hint: copy.settings.sections.general.hint,
-    icon: Palette,
-  },
-  {
-    id: 'mascot',
-    label: copy.settings.sections.mascot.label,
-    hint: copy.settings.sections.mascot.hint,
-    icon: Smile,
-  },
-  {
-    id: 'specialists',
-    label: copy.settings.sections.specialists.label,
-    hint: copy.settings.sections.specialists.hint,
-    icon: UserCog,
-  },
-  {
-    id: 'devices',
-    label: copy.settings.sections.devices.label,
-    hint: copy.settings.sections.devices.hint,
-    icon: MonitorSmartphone,
-  },
-  {
-    id: 'gateways',
-    label: copy.settings.sections.gateways.label,
-    hint: copy.settings.sections.gateways.hint,
-    icon: Network,
-  },
+type SectionGroup = keyof typeof copy.settings.page.groups
+
+/** The sections in the order the list shows them, each under its group's heading. */
+const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
   {
     id: 'models',
+    group: 'setup',
     label: copy.settings.sections.models.label,
     hint: copy.settings.sections.models.hint,
     icon: Brain,
   },
   {
     id: 'team',
+    group: 'setup',
     label: copy.settings.sections.team.label,
     hint: copy.settings.sections.team.hint,
     icon: Users,
   },
   {
-    id: 'tools',
-    label: copy.settings.sections.tools.label,
-    hint: copy.settings.sections.tools.hint,
-    icon: Wrench,
-  },
-  {
-    id: 'skills',
-    label: copy.settings.sections.skills.label,
-    hint: copy.settings.sections.skills.hint,
-    icon: GraduationCap,
-  },
-  {
-    id: 'plugins',
-    label: copy.settings.sections.plugins.label,
-    hint: copy.settings.sections.plugins.hint,
-    icon: Puzzle,
-  },
-  {
-    id: 'hooks',
-    label: copy.settings.sections.hooks.label,
-    hint: copy.settings.sections.hooks.hint,
-    icon: Webhook,
-  },
-  {
-    id: 'schedules',
-    label: copy.settings.sections.schedules.label,
-    hint: copy.settings.sections.schedules.hint,
-    icon: CalendarClock,
-  },
-  {
     id: 'verification',
+    group: 'setup',
     label: copy.settings.sections.verification.label,
     hint: copy.settings.sections.verification.hint,
     icon: Gavel,
   },
   {
+    id: 'specialists',
+    group: 'agents',
+    label: copy.settings.sections.specialists.label,
+    hint: copy.settings.sections.specialists.hint,
+    icon: UserCog,
+  },
+  {
     id: 'instructions',
+    group: 'agents',
     label: copy.settings.sections.instructions.label,
     hint: copy.settings.sections.instructions.hint,
     icon: MessageSquareText,
   },
   {
     id: 'memory',
+    group: 'agents',
     label: copy.settings.sections.memory.label,
     hint: copy.settings.sections.memory.hint,
     icon: BookMarked,
+  },
+  {
+    id: 'skills',
+    group: 'agents',
+    label: copy.settings.sections.skills.label,
+    hint: copy.settings.sections.skills.hint,
+    icon: GraduationCap,
+  },
+  {
+    id: 'tools',
+    group: 'extend',
+    label: copy.settings.sections.tools.label,
+    hint: copy.settings.sections.tools.hint,
+    icon: Wrench,
+  },
+  {
+    id: 'plugins',
+    group: 'extend',
+    label: copy.settings.sections.plugins.label,
+    hint: copy.settings.sections.plugins.hint,
+    icon: Puzzle,
+  },
+  {
+    id: 'hooks',
+    group: 'extend',
+    label: copy.settings.sections.hooks.label,
+    hint: copy.settings.sections.hooks.hint,
+    icon: Webhook,
+  },
+  {
+    id: 'schedules',
+    group: 'extend',
+    label: copy.settings.sections.schedules.label,
+    hint: copy.settings.sections.schedules.hint,
+    icon: CalendarClock,
+  },
+  {
+    id: 'general',
+    group: 'you',
+    label: copy.settings.sections.general.label,
+    hint: copy.settings.sections.general.hint,
+    icon: Palette,
+  },
+  {
+    id: 'mascot',
+    group: 'you',
+    label: copy.settings.sections.mascot.label,
+    hint: copy.settings.sections.mascot.hint,
+    icon: Smile,
+  },
+  {
+    id: 'devices',
+    group: 'you',
+    label: copy.settings.sections.devices.label,
+    hint: copy.settings.sections.devices.hint,
+    icon: MonitorSmartphone,
+  },
+  {
+    id: 'gateways',
+    group: 'you',
+    label: copy.settings.sections.gateways.label,
+    hint: copy.settings.sections.gateways.hint,
+    icon: Network,
   },
 ]
 
@@ -272,6 +290,20 @@ const API_HINT_URL: Record<Api, string> = {
   'openai-responses': 'https://api.openai.com/v1',
   'anthropic-messages': 'https://api.anthropic.com',
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
+}
+
+/** Whether the window is at least `px` wide, following it as it resizes. */
+function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const change = () => setMatch(media.matches)
+    change()
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [query])
+  return match
 }
 
 /** Full-page settings, shown in place of the chat. Every change autosaves. */
@@ -294,6 +326,7 @@ export function Settings(props: {
   const [error, setError] = useState<string>()
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
   const onClose = useRef(props.onClose)
   onClose.current = props.onClose
 
@@ -380,38 +413,65 @@ export function Settings(props: {
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
-        <nav className="hidden w-64 shrink-0 flex-col gap-1 overflow-auto border-r border-line p-3 md:flex">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              aria-current={section === s.id ? 'page' : undefined}
-              className={cn(
-                'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
-                section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+        <nav
+          aria-label={copy.settings.page.title}
+          className={cn(
+            'hidden shrink-0 flex-col overflow-auto border-r border-line p-3 md:flex',
+            wideNav ? 'w-64' : 'w-[68px] items-center',
+          )}
+        >
+          {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
+            <div key={group} className="flex w-full flex-col gap-1">
+              {wideNav ? (
+                <div
+                  className={cn(
+                    'px-3 pb-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted',
+                    i > 0 && 'pt-4',
+                  )}
+                >
+                  {copy.settings.page.groups[group]}
+                </div>
+              ) : (
+                i > 0 && <div aria-hidden className="mx-2 my-2 border-t border-line" />
               )}
-            >
-              {section === s.id && (
-                <motion.span
-                  layoutId="settings-nav"
-                  transition={spring}
-                  className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
-                />
-              )}
-              <span
-                className={cn(
-                  'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                  section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
-                )}
-              >
-                <s.icon className="size-4" />
-              </span>
-              <span className="relative min-w-0">
-                <span className="block text-[13.5px] font-medium">{s.label}</span>
-                <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
-              </span>
-            </button>
+              {SECTIONS.filter((s) => s.group === group).map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSection(s.id)}
+                  aria-current={section === s.id ? 'page' : undefined}
+                  aria-label={wideNav ? undefined : s.label}
+                  title={wideNav ? undefined : s.label}
+                  className={cn(
+                    'relative flex items-center gap-3 rounded-xl text-left transition-colors',
+                    wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+                  )}
+                >
+                  {section === s.id && (
+                    <motion.span
+                      layoutId="settings-nav"
+                      transition={spring}
+                      className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
+                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
+                    )}
+                  >
+                    <s.icon className="size-4" />
+                  </span>
+                  {wideNav && (
+                    <span className="relative min-w-0">
+                      <span className="block text-[13.5px] font-medium">{s.label}</span>
+                      <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
@@ -422,10 +482,14 @@ export function Settings(props: {
               className="w-full"
               aria-label={copy.settings.page.sectionPicker}
             >
-              {SECTIONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
+              {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group) => (
+                <optgroup key={group} label={copy.settings.page.groups[group]}>
+                  {SECTIONS.filter((s) => s.group === group).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </Select>
           </div>
