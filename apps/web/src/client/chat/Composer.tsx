@@ -1,7 +1,6 @@
 import {
   ArrowUp,
   ChevronRight,
-  FileText,
   ListEnd,
   Navigation,
   Paperclip,
@@ -35,6 +34,7 @@ import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
+import { PendingFiles } from './Attachments.tsx'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
@@ -230,12 +230,6 @@ export interface ComposerHandle {
 export type Delivery = 'steer' | 'queue'
 
 /** A file's size the way people say it: 812 B, 34 KB, 1.3 MB. */
-export function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 /** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
 const CHIP =
   'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
@@ -558,26 +552,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           )}
         >
           {files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
-              {files.map((f, i) => (
-                <span
-                  key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-small"
-                >
-                  <FileText className="size-3.5 shrink-0 text-muted" />
-                  <span className="truncate">{f.name}</span>
-                  <span className="shrink-0 text-muted">{formatSize(f.size)}</span>
-                  <button
-                    type="button"
-                    aria-label={copy.composer.removeFile(f.name)}
-                    onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
-                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-3 hover:text-fg"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </span>
-              ))}
-            </div>
+            <PendingFiles
+              files={files}
+              onRemove={(i) => setFiles((prev) => prev.filter((_, n) => n !== i))}
+            />
           )}
           <textarea
             ref={area}

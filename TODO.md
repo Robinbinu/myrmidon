@@ -389,9 +389,10 @@ Open work, in the order it will be done:
       only picks models it can call. A photo without a caption failed with "message is empty": files alone are now a
       message. Stickers: a still one comes as its WebP image with its emoji, an animated one as its emoji.
       Not yet checked against the real Telegram (needs a message sent to the bot).
-12e. - [ ] **Flaky under load: LINE sender name** — channels-line "events become messages…" saw "Someone" for
+12e. - [ ] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
       "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
       passes alone.
+      Also channels-feishu "check() names the bot…" once (Feishu refused this App ID…) in a full run; passes alone.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned

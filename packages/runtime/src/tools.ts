@@ -111,6 +111,11 @@ const IMAGE_MAGIC: Record<string, (b: Uint8Array) => boolean> = {
   'image/webp': (b) => b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
 }
 
+/** The raster image type these bytes really are (PNG, JPEG, GIF, WebP), whatever the file is called. */
+export function sniffImage(bytes: Uint8Array): string | undefined {
+  return Object.entries(IMAGE_MAGIC).find(([, is]) => is(bytes))?.[0]
+}
+
 /** Media types whose bytes are readable text. */
 export function isTextual(mediaType: string): boolean {
   return (

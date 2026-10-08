@@ -170,6 +170,18 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
   return URL.createObjectURL(await res.blob())
 }
 
+/**
+ * A picture stored with a chat (a photo someone sent) as an object URL for <img src>, fetched with the auth header.
+ * The server serves it as an image only if its bytes are one; anything else is refused here.
+ */
+export async function blobImage(colony: string, hash: string): Promise<string> {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=image`, { headers: auth })
+  if (!res.ok) throw failure(res.status)
+  const blob = await res.blob()
+  if (!blob.type.startsWith('image/')) throw new ApiError(copy.attachments.notPicture)
+  return URL.createObjectURL(blob)
+}
+
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.

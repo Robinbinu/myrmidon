@@ -151,3 +151,5 @@ export const CALL_HANG_UP_COMBO = 'mod+shift+h'
 export const VOICE_POLL_MS = 2000
 /** Speech speeds offered in Settings → Voice. */
 export const VOICE_SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
+/** Thumbnails of pictures in the message box before sending, in pixels. */
+export const ATTACH_THUMB_PX = 64

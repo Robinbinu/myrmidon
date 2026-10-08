@@ -168,6 +168,24 @@ export const copy = {
   },
 
   /** A new request to talk to the crew through a channel, as a toast and a desktop notification. */
+  /** Files on messages: before sending and once sent. */
+  attachments: {
+    kinds: {
+      image: 'Image',
+      pdf: 'PDF',
+      audio: 'Audio',
+      video: 'Video',
+      archive: 'Archive',
+      sheet: 'Spreadsheet',
+      code: 'Code',
+      text: 'Document',
+      file: 'File',
+    },
+    open: (name: string) => `Open ${name}`,
+    view: (name: string) => `View ${name} full size`,
+    notPicture: 'That file is not a picture.',
+  },
+
   call: {
     start: 'Call',
     startTitle: 'Talk with your crew by voice',

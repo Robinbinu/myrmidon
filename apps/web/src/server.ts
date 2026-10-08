@@ -49,6 +49,7 @@ import {
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  sniffImage,
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
@@ -2098,11 +2099,15 @@ export function startServer(options: ServeOptions): WebServer {
         const id = colonyId(req.params.id ?? '')
         if (!(await store.exists(id))) return json({ error: 'no such colony' }, 404)
         const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
-        // Browser keyframes are JPEGs; everything else is served as inert text.
-        const image = new URL(req.url).searchParams.get('as') === 'jpeg'
-        return new Response(Buffer.from(await blobs.get(req.params.hash ?? '')), {
+        // Browser keyframes are JPEGs; `as=image` (a picture in a chat) is served as an image only when its bytes
+        // are one (PNG, JPEG, GIF, WebP: never SVG, which can carry script); everything else as inert text.
+        const as = new URL(req.url).searchParams.get('as')
+        const bytes = await blobs.get(req.params.hash ?? '')
+        const image = as === 'jpeg' ? 'image/jpeg' : as === 'image' ? sniffImage(bytes) : undefined
+        return new Response(Buffer.from(bytes), {
           headers: {
-            'content-type': image ? 'image/jpeg' : 'text/plain; charset=utf-8',
+            'content-type': image ?? 'text/plain; charset=utf-8',
+            'x-content-type-options': 'nosniff',
             'cache-control': 'private, max-age=31536000, immutable',
           },
         })

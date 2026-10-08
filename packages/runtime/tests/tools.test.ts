@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { ColonyHost } from '../src/host.ts'
-import { flowStepFailure, logLines, mcpBreaker, similar } from '../src/tools.ts'
+import { flowStepFailure, logLines, mcpBreaker, similar, sniffImage } from '../src/tools.ts'
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -107,4 +107,13 @@ test('a failed browser-flow step reports its own error even when the page can no
   expect(gone).toContain('the page could not be read: Protocol error')
   const read = await flowStepFailure(0, step, 'timeout', async () => 'url: http://x/')
   expect(read).toBe('step 1 ({"click":"text=No such button"}) failed: timeout\nurl: http://x/')
+})
+
+test('a picture is served as one only when its bytes are one, whatever it is called', () => {
+  expect(sniffImage(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]))).toBe('image/png')
+  expect(sniffImage(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg')
+  expect(sniffImage(new TextEncoder().encode('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp')
+  // SVG can carry script: never served as an image.
+  expect(sniffImage(new TextEncoder().encode('<svg onload="alert(1)"/>'))).toBeUndefined()
+  expect(sniffImage(new TextEncoder().encode('just text'))).toBeUndefined()
 })

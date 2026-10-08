@@ -55,6 +55,7 @@ import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
 import { Approval, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
+import { type SentFile, SentFiles } from './Attachments.tsx'
 import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
@@ -231,13 +232,20 @@ export function RoundView(props: {
     : lastReply
       ? copy.round.agent.said(lastReply.from, plainText(lastReply.text))
       : ''
+  // A sent file is its first version: what the person uploaded, whatever agents later wrote over it.
+  const sent = (names: readonly string[] | undefined): SentFile[] =>
+    (names ?? []).map((name) => {
+      const v = state.artifacts[name]?.[0]
+      return { name, ...(v ? { mediaType: v.mediaType, blob: v.blob, size: v.size } : {}) }
+    })
   const message = (m: ChatEntry) =>
     m.from === 'user' ? (
       <UserMessage
         key={m.id}
         text={m.text}
         to={m.to}
-        attachments={m.attachments}
+        colonyId={props.colonyId}
+        files={sent(m.attachments)}
         onOpen={setFile}
         mode={m.mode}
         readBy={m.readBy}
@@ -292,7 +300,8 @@ export function RoundView(props: {
         <UserMessage
           text={opening.text}
           to={opening.to}
-          attachments={opening.attachments}
+          colonyId={props.colonyId}
+          files={sent(opening.attachments)}
           onOpen={setFile}
           voice={opening.voice}
         />
@@ -446,13 +455,24 @@ export function RoundView(props: {
   )
 }
 
+/**
+ * Files sent without words carry stand-in words: the app's ("See the attached files.") or, from a channel, the
+ * runtime's ("(sent photo-6.jpg)"). With the files shown, a bubble saying so adds nothing.
+ */
+function filesOnly(text: string, files: readonly SentFile[]): boolean {
+  if (files.length === 0) return false
+  const names = files.map((f) => f.name.replace(/^uploads\//, '')).join(', ')
+  return text === copy.composer.attachedOnly || text === `(sent ${names})`
+}
+
 function UserMessage(props: {
   text: string
   /** Set for messages sent while the round was running. */
   mode?: 'steer' | 'queue' | undefined
   readBy?: readonly string[] | undefined
   live?: boolean
-  attachments?: readonly string[] | undefined
+  colonyId?: string
+  files?: readonly SentFile[]
   /** Crew members the person wrote to directly (@name). */
   to?: readonly string[] | undefined
   /** Said aloud on a voice call. */
@@ -461,26 +481,17 @@ function UserMessage(props: {
 }) {
   const [copied, copyText] = useCopy()
   const read = props.readBy?.length ? props.readBy : undefined
+  const files = props.files ?? []
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
-        {props.text}
-      </div>
-      {props.attachments?.length ? (
-        <div className="flex max-w-[min(85%,640px)] flex-wrap justify-end gap-1.5">
-          {props.attachments.map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => props.onOpen?.(name)}
-              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
-            >
-              <FileText className="size-3.5 shrink-0 text-muted" />
-              <span className="truncate">{name.replace(/^uploads\//, '')}</span>
-            </button>
-          ))}
+      {props.colonyId && files.length > 0 && (
+        <SentFiles colonyId={props.colonyId} files={files} onOpenFile={(name) => props.onOpen?.(name)} />
+      )}
+      {!filesOnly(props.text, files) && (
+        <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
+          {props.text}
         </div>
-      ) : null}
+      )}
       <div className="flex items-center gap-1.5">
         {props.voice && (
           <span className="flex items-center gap-1 text-footnote text-muted">
