@@ -22,6 +22,7 @@ import {
   Monitor,
   MonitorSmartphone,
   Moon,
+  Network,
   Palette,
   Plug,
   Plus,
@@ -42,7 +43,19 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ModelOption, post, send, type TeamConfig } from './api.ts'
+import {
+  activeGateway,
+  api,
+  GATEWAYS_CHANGED,
+  type GatewayInfo,
+  hubSend,
+  listGateways,
+  type ModelOption,
+  post,
+  send,
+  switchGateway,
+  type TeamConfig,
+} from './api.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
@@ -140,6 +153,7 @@ export type Section =
   | 'mascot'
   | 'specialists'
   | 'devices'
+  | 'gateways'
   | 'models'
   | 'team'
   | 'tools'
@@ -175,6 +189,12 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
     label: copy.settings.sections.devices.label,
     hint: copy.settings.sections.devices.hint,
     icon: MonitorSmartphone,
+  },
+  {
+    id: 'gateways',
+    label: copy.settings.sections.gateways.label,
+    hint: copy.settings.sections.gateways.hint,
+    icon: Network,
   },
   {
     id: 'models',
@@ -483,6 +503,7 @@ export function Settings(props: {
               {section === 'mascot' && data && <MascotSection data={data} update={update} />}
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
+              {section === 'gateways' && <GatewaysSection />}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -2152,6 +2173,130 @@ function DevicesSection() {
               </div>
               <Button size="sm" variant="ghost" onClick={() => void revoke(d)}>
                 {t.revoke}
+              </Button>
+            </div>
+          ))}
+        </Card>
+      )}
+    </>
+  )
+}
+
+/**
+ * Other gateways this machine shows (it is their hub): add one with its pairing link, see whether it answers, show it
+ * in this window, or remove it. Always this machine's list, whichever gateway the window shows.
+ */
+function GatewaysSection() {
+  const t = copy.settings.gateways
+  const toast = useToast()
+  const [list, setList] = useState<GatewayInfo[]>()
+  const [link, setLink] = useState('')
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const active = activeGateway()
+  const load = () =>
+    listGateways()
+      .then(setList)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  const add = async () => {
+    setBusy(true)
+    try {
+      const { gateway } = await hubSend<{ gateway: GatewayInfo }>('POST', '/api/gateways', {
+        link: link.trim(),
+        ...(name.trim() ? { name: name.trim() } : {}),
+      })
+      toast(t.added(gateway.name), 'success')
+      window.dispatchEvent(new Event(GATEWAYS_CHANGED))
+      setLink('')
+      setName('')
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = (g: GatewayInfo) =>
+    hubSend('DELETE', `/api/gateways/${encodeURIComponent(g.id)}`).then(
+      () => {
+        toast(t.removed(g.name), 'info')
+        // The window cannot keep showing a gateway that is gone.
+        if (g.id === active) switchGateway(undefined)
+        else {
+          window.dispatchEvent(new Event(GATEWAYS_CHANGED))
+          void load()
+        }
+      },
+      (err: Error) => toast(err.message, 'error'),
+    )
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.link} hint={t.linkHint}>
+            <TextInput
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://box.tail1234.ts.net/#pair=…"
+              aria-label={t.link}
+              className="font-mono"
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.name} hint={t.nameHint}>
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={40}
+              aria-label={t.name}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy || !link.trim()}
+            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            onClick={() => void add()}
+          >
+            {busy ? t.adding : t.add}
+          </Button>
+        </Row>
+      </Card>
+      {list && list.length === 0 ? (
+        <Empty icon={<Network className="size-5" />} title={t.empty} />
+      ) : (
+        <Card>
+          {list?.map((g) => (
+            <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+              <span
+                className={cn('inline-flex size-2 shrink-0 rounded-full', g.health.ok ? 'bg-ok' : 'bg-bad')}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-[13.5px] font-semibold">{g.name}</span>
+                  {g.id === active && <Pill tone="accent">{t.shown}</Pill>}
+                </div>
+                <div className="truncate text-[12px] text-muted">
+                  {new URL(g.url).host} · {copy.settings.devices.scopeNames[g.scope]} ·{' '}
+                  {g.health.ok ? t.reachable : g.health.error} ·{' '}
+                  {t.checked(new Date(g.health.checkedAt).toLocaleTimeString())}
+                </div>
+              </div>
+              {g.id !== active && (
+                <Button size="sm" variant="ghost" onClick={() => switchGateway(g.id)}>
+                  {t.show}
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => void remove(g)}>
+                {t.remove}
               </Button>
             </div>
           ))}

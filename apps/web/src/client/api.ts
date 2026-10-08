@@ -25,6 +25,40 @@ window.addEventListener('hashchange', () => {
 
 export class ApiError extends Error {}
 
+const GATEWAY_KEY = 'myr-gateway'
+
+/** The gateway this window shows: its own choice (this tab), else the last one chosen anywhere. */
+function readGateway(): string | undefined {
+  try {
+    return sessionStorage.getItem(GATEWAY_KEY) ?? localStorage.getItem(GATEWAY_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+const gateway = readGateway()
+/**
+ * Where this window's requests go: this machine's own API, or another gateway's through it (`/gw/<id>`), which
+ * forwards them with its token there. Every request and socket below goes through this one prefix.
+ */
+const base = gateway ? `/gw/${gateway}` : ''
+
+/** The other gateway this window shows, if any; undefined for this machine. */
+export const activeGateway = () => gateway
+
+/** Shows another gateway (or this machine) in this window; everything reloads, so nothing of one mixes with another. */
+export function switchGateway(id: string | undefined) {
+  try {
+    for (const store of [sessionStorage, localStorage]) {
+      if (id) store.setItem(GATEWAY_KEY, id)
+      else store.removeItem(GATEWAY_KEY)
+    }
+  } catch {
+    // Storage blocked: the switch lasts until this page reloads by other means.
+  }
+  location.reload()
+}
+
 type PreviewConfig = { previewOrigin: string; previewToken: string } | { previewOrigin: null }
 let previewConfig: Promise<PreviewConfig> | undefined
 
@@ -40,6 +74,11 @@ export async function previewUrl(colony: string, artifact: string): Promise<stri
 }
 
 export async function api<T>(path: string): Promise<T> {
+  return hubApi<T>(`${base}${path}`)
+}
+
+/** A request to this machine itself, whichever gateway the window shows (the list of gateways lives here). */
+export async function hubApi<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: auth })
   if (!res.ok) throw new ApiError(res.status === 401 ? copy.auth.notAuthorized : `${res.status} ${path}`)
   return res.json() as Promise<T>
@@ -47,7 +86,7 @@ export async function api<T>(path: string): Promise<T> {
 
 /** A browser keyframe as an object URL for <img src>, fetched with the auth header (no token in URLs). */
 export async function keyframeImage(colony: string, hash: string): Promise<string> {
-  const res = await fetch(`/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
+  const res = await fetch(`${base}/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
     headers: auth,
   })
   if (!res.ok) throw new ApiError(`keyframe ${hash.slice(0, 8)}: ${res.status}`)
@@ -56,6 +95,8 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
 
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
+  // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
+  if (gateway) throw new ApiError(copy.gateways.pluginElsewhere)
   const res = await fetch(`/api/plugins/${encodeURIComponent(name)}/ui.js`, {
     headers: auth,
   })
@@ -72,7 +113,7 @@ export async function importPluginUI(name: string): Promise<unknown> {
 }
 
 export async function blobText(colony: string, hash: string): Promise<string> {
-  const res = await fetch(`/api/colonies/${colony}/blobs/${hash}`, {
+  const res = await fetch(`${base}/api/colonies/${colony}/blobs/${hash}`, {
     headers: auth,
   })
   if (!res.ok) throw new ApiError(`blob ${hash.slice(0, 8)}: ${res.status}`)
@@ -95,7 +136,7 @@ export interface ColonySummary {
 export function browserSocket(colony: string, agent: string): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   return new WebSocket(
-    `${proto}://${location.host}/api/colonies/${colony}/browser/${encodeURIComponent(agent)}${token ? `?token=${encodeURIComponent(token)}` : ''}`,
+    `${proto}://${location.host}${base}/api/colonies/${colony}/browser/${encodeURIComponent(agent)}${token ? `?token=${encodeURIComponent(token)}` : ''}`,
   )
 }
 
@@ -108,7 +149,7 @@ export function terminalSocket(project: string | undefined, cols: number, rows: 
     rows: String(rows),
     ...(project ? { project } : {}),
   })
-  const ws = new WebSocket(`${proto}://${location.host}/api/terminal?${query}`)
+  const ws = new WebSocket(`${proto}://${location.host}${base}/api/terminal?${query}`)
   ws.binaryType = 'arraybuffer'
   return ws
 }
@@ -133,7 +174,7 @@ export function streamEvents(
   const connect = () => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     ws = new WebSocket(
-      `${proto}://${location.host}/api/colonies/${colony}/stream?from=${cursor}${token ? `&token=${encodeURIComponent(token)}` : ''}`,
+      `${proto}://${location.host}${base}/api/colonies/${colony}/stream?from=${cursor}${token ? `&token=${encodeURIComponent(token)}` : ''}`,
     )
     ws.onmessage = (msg) => {
       const data = JSON.parse(String(msg.data)) as MyrEvent[] | ({ type: 'stream' } & ReplyStream)
@@ -159,7 +200,7 @@ export function streamEvents(
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${base}${path}`, {
     method: 'POST',
     headers: { ...auth, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -183,6 +224,15 @@ export interface ModelOption {
 }
 
 export async function send<T>(
+  method: 'PUT' | 'PATCH' | 'DELETE' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return hubSend<T>(method, `${base}${path}`, body)
+}
+
+/** A change on this machine itself, whichever gateway the window shows. */
+export async function hubSend<T>(
   method: 'PUT' | 'PATCH' | 'DELETE' | 'POST',
   path: string,
   body?: unknown,
@@ -344,6 +394,7 @@ export interface WhoAmI {
   device?: { id: string; name: string }
 }
 
+/** Who this is to this machine (not to the gateway the window shows): pairing happens here. */
 export async function whoami(): Promise<{ ok: true; me: WhoAmI } | { ok: false; remote: boolean }> {
   const res = await fetch('/api/whoami', { headers: auth })
   const data = (await res.json().catch(() => ({}))) as WhoAmI & { remote?: boolean }
@@ -360,3 +411,18 @@ export async function pairDevice(code: string, name: string): Promise<void> {
   const data = (await res.json().catch(() => ({}))) as { error?: string }
   if (!res.ok) throw new ApiError(data.error ?? `pairing failed (${res.status})`)
 }
+
+/** Another gateway as this machine (the hub) lists it; its token stays here. */
+export interface GatewayInfo {
+  id: string
+  name: string
+  url: string
+  scope: 'full' | 'chat'
+  addedAt: string
+  health: { ok: boolean; error?: string; checkedAt: string }
+}
+
+export const listGateways = () => hubApi<{ gateways: GatewayInfo[] }>('/api/gateways').then((r) => r.gateways)
+
+/** Sent when gateways are added or removed, so the switcher lists them again at once. */
+export const GATEWAYS_CHANGED = 'myr-gateways-changed'

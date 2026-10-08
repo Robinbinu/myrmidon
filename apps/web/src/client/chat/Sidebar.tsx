@@ -28,6 +28,7 @@ import { cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { spring } from '../ui-config.ts'
+import { GatewaySwitcher } from './GatewaySwitcher.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
@@ -63,6 +64,7 @@ export function Sidebar(props: {
   onProjectPermissions(project: Project): void
   onView(v: View): void
   onSettings(): void
+  onGateways(): void
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
@@ -227,6 +229,7 @@ export function Sidebar(props: {
           <SquarePen className="size-4" />
         </IconButton>
       </Toolbar>
+      <GatewaySwitcher onManage={props.onGateways} />
       <div className="px-2.5 pb-1">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />

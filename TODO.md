@@ -73,7 +73,7 @@ Open work, in the order it will be done:
       Skills; kept skills go to every chat.
 11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
       archived after 90; needs use counts from use_skill.
-11c. - [ ] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw"; research
+11c. - [x] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw"; research
       docs/research/2026-10-08-remote-gateways.md, spec docs/superpowers/specs/2026-10-08-remote-gateways-design.md)
       - [x] Step 1: remote server mode — --host/--public-url, exact Host/Origin allowlist, device pairing
         (`myrmidon pair`, single-use 10-minute codes), HttpOnly device cookies (`__Host-` over HTTPS), full/chat
@@ -84,7 +84,10 @@ Open work, in the order it will be done:
         (device codes, pasted redirect or an SSH-forwarded callback; full auth URL instead of omp's loopback
         launcher), `key` (hidden or piped), `model` (saved once it answers), `doctor` (runs the sandbox, exits 1 on
         problems); SIGTERM shuts `serve` down cleanly for systemd.
-      - [ ] Step 3: one client, N gateways (hub registry, proxy, switcher, health).
+      - [x] Step 3: one client, N gateways — Settings → Gateways (pair by link), gateways.json (0600) keeps tokens
+        off the page, /gw/<id> forwards API calls and bridges sockets, previews through the hub's preview origin,
+        sidebar switcher per window, HTTP + socket health, a "can't reach" screen; revoking a device now closes all
+        its sockets (terminals too); Bun's stop() hang after server-closed sockets worked around.
 11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"): talk to Myrmidon from WhatsApp, Telegram
       and similar — research how OpenClaw and Hermes Agent do channels (pairing a chat to the gateway, allowlists,
       approvals from the channel, media), then spec, likely as plugins on the gateway.

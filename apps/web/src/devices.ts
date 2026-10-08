@@ -96,11 +96,16 @@ export class DeviceStore {
 
   private _write(list: Device[]) {
     this._cache = list
-    const tmp = `${this._file}.${process.pid}.tmp`
-    writeFileSync(tmp, `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 })
-    chmodSync(tmp, 0o600)
-    renameSync(tmp, this._file)
+    writePrivateJson(this._file, list)
   }
+}
+
+/** Writes JSON readable only by this user, atomically (a crash leaves the old file, never half a new one). */
+export function writePrivateJson(file: string, data: unknown) {
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
+  chmodSync(tmp, 0o600)
+  renameSync(tmp, file)
 }
 
 /** No look-alike characters (0/O, 1/I/L), so a code read aloud or retyped survives. */
@@ -136,12 +141,16 @@ export class PairingCodes {
 
 /**
  * Requests a `chat` device may not make: the terminal, keys and providers, Settings and permission changes, plugins,
- * MCP servers, hooks, browsing the server's folders, git actions on projects, and managing devices.
+ * MCP servers, hooks, browsing the server's folders, git actions on projects, managing devices, and other gateways.
  */
 export function needsFull(method: string, path: string): boolean {
   const write = method !== 'GET' && method !== 'HEAD'
+  // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
+  if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|credentials|providers|logins|devices|import-omp|folders|mcp-reload)(\/|$)/.test(path)
+    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|import-omp|folders|mcp-reload)(\/|$)/.test(
+      path,
+    )
   )
     return true
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true

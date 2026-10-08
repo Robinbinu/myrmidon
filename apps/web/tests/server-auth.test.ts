@@ -202,3 +202,29 @@ test('a preview URL needs a fixed port and its own origin', () => {
     }),
   ).toThrow('own origin')
 })
+
+test('revoking a device closes every socket it has open, not only event streams', async () => {
+  const { server, call, base } = serve({ publicUrl: 'https://box.example.ts.net' })
+  const publicHost = { host: 'box.example.ts.net', origin: 'https://box.example.ts.net' }
+  const { code } = server.pairingLink('full')
+  const paired = await call('/api/pair', {
+    ...publicHost,
+    method: 'POST',
+    body: JSON.stringify({ code, name: 'Mac' }),
+  })
+  const cookie = (paired.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+  const me = (await (await call('/api/whoami', { ...publicHost, headers: { cookie } })).json()) as {
+    device: { id: string }
+  }
+  const ws = new WebSocket(`ws://${base.host}/api/health/socket`, {
+    headers: { cookie, host: 'box.example.ts.net', origin: 'https://box.example.ts.net' },
+  } as never)
+  await new Promise((resolve) => {
+    ws.onmessage = resolve
+  })
+  const closed = new Promise<number>((resolve) => {
+    ws.onclose = (e) => resolve(e.code)
+  })
+  await call(`/api/devices/${me.device.id}`, { method: 'DELETE', headers: bearer(server.token) })
+  expect(await closed).toBe(4401)
+})

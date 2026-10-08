@@ -26,6 +26,21 @@ export const copy = {
   },
 
   /** Pairing a device with a remote gateway. */
+  /** Switching between this machine and other gateways. */
+  gateways: {
+    local: (mac: boolean) => (mac ? 'This Mac' : 'This computer'),
+    switcher: 'Gateway shown in this window',
+    manage: 'Manage gateways…',
+    unreachable: 'Not reachable',
+    pluginElsewhere: "A plugin's screen from another gateway opens on that gateway's own address.",
+    down: {
+      title: (name: string) => `Can't reach ${name}`,
+      checking: (name: string) => `Connecting to ${name}…`,
+      back: (local: string) => `Use ${local}`,
+      retry: 'Try again',
+    },
+  },
+
   pairing: {
     title: 'Pair this device',
     introBefore:
@@ -1276,6 +1291,7 @@ export const copy = {
       mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
       specialists: { label: 'Specialists', hint: 'Agents you keep and bring back' },
       devices: { label: 'Devices', hint: 'Who can use this gateway' },
+      gateways: { label: 'Gateways', hint: 'Other Myrmidons, one window' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Team & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
@@ -1518,6 +1534,25 @@ export const copy = {
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
       removed: (name: string) => `Removed ${name}`,
+    },
+    gateways: {
+      title: 'Gateways',
+      intro:
+        'Other Myrmidons this one can show, such as a VPS or a home server. Switch between them at the top of the sidebar; chats, files and settings always belong to the one shown. Their access is kept on this machine and never reaches the page.',
+      add: 'Add a gateway',
+      link: 'Pairing link',
+      linkHint: 'Run `myrmidon pair` on the gateway (or use its Settings → Devices) and paste the link here.',
+      name: 'Name',
+      nameHint: 'How it shows in the sidebar; the first part of its address if left empty.',
+      adding: 'Pairing…',
+      added: (name: string) => `Added ${name}`,
+      remove: 'Remove',
+      removed: (name: string) => `Removed ${name}; it no longer has this machine paired.`,
+      show: 'Show',
+      shown: 'Shown here',
+      empty: 'No other gateways yet.',
+      reachable: 'Reachable',
+      checked: (when: string) => `checked ${when}`,
     },
     devices: {
       title: 'Devices',

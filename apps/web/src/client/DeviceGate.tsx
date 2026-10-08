@@ -1,8 +1,9 @@
-import { KeyRound } from 'lucide-react'
+import { KeyRound, Laptop, RefreshCw } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
-import { pairDevice, whoami } from './api.ts'
+import { activeGateway, type GatewayInfo, listGateways, pairDevice, switchGateway, whoami } from './api.ts'
 import { copy } from './copy.ts'
 import { Logo } from './ui/Logo.tsx'
+import { isMac } from './ui/platform.ts'
 import { Button, Field, TextInput } from './ui/primitives.tsx'
 
 /** A name the person will recognise in Settings → Devices: what this is and which browser. */
@@ -49,8 +50,80 @@ export function DeviceGate(props: { children: ReactNode }) {
       .catch(() => setState('open'))
   }, [state])
   if (state === 'checking') return null
-  if (state === 'open') return <>{props.children}</>
+  if (state === 'open') {
+    if (activeGateway()) return <GatewayGate>{props.children}</GatewayGate>
+    return <>{props.children}</>
+  }
   return <PairScreen onPaired={() => setState('open')} />
+}
+
+/**
+ * With another gateway shown, the app opens once that gateway answers; otherwise the window says why, with a way back
+ * to this machine. A gateway removed meanwhile sends the window back by itself.
+ */
+function GatewayGate(props: { children: ReactNode }) {
+  const t = copy.gateways
+  const [gateway, setGateway] = useState<GatewayInfo | 'checking'>('checking')
+  const [attempt, setAttempt] = useState(0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the check
+  useEffect(() => {
+    let alive = true
+    listGateways()
+      .then((list) => {
+        const found = list.find((g) => g.id === activeGateway())
+        if (!found) switchGateway(undefined)
+        else if (alive) setGateway(found)
+      })
+      .catch(() => alive && switchGateway(undefined))
+    return () => {
+      alive = false
+    }
+  }, [attempt])
+  if (gateway !== 'checking' && gateway.health.ok) return <>{props.children}</>
+  const local = t.local(isMac)
+  return (
+    <div className="grid min-h-dvh place-items-center bg-bg px-4">
+      <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-line bg-surface p-6 shadow-pop">
+        <div className="flex items-center gap-3">
+          <Logo size={36} />
+          <div className="min-w-0">
+            <h1 className="truncate text-[17px] font-semibold tracking-tight">
+              {gateway === 'checking' ? t.down.checking('…') : t.down.title(gateway.name)}
+            </h1>
+            {gateway !== 'checking' && (
+              <p className="truncate text-[12.5px] text-muted">{new URL(gateway.url).host}</p>
+            )}
+          </div>
+        </div>
+        {gateway !== 'checking' && (
+          <>
+            <p className="rounded-lg bg-bad-soft px-3 py-2 text-[12.5px] text-bad-ink">
+              {gateway.health.error ?? t.unreachable}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="primary"
+                icon={<Laptop className="size-4" />}
+                onClick={() => switchGateway(undefined)}
+              >
+                {t.down.back(local)}
+              </Button>
+              <Button
+                variant="ghost"
+                icon={<RefreshCw className="size-4" />}
+                onClick={() => {
+                  setGateway('checking')
+                  setAttempt((n) => n + 1)
+                }}
+              >
+                {t.down.retry}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function PairScreen(props: { onPaired(): void }) {

@@ -33,7 +33,7 @@ import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { syncPluginUI } from './plugins.tsx'
-import { Settings } from './Settings.tsx'
+import { type Section, Settings } from './Settings.tsx'
 import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
@@ -172,7 +172,7 @@ export function App() {
     setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
-  const [settingsSection, setSettingsSection] = useState<'general' | 'tools'>('general')
+  const [settingsSection, setSettingsSection] = useState<Section>('general')
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -515,6 +515,11 @@ export function App() {
         setMobileNav(false)
       }}
       onSettings={() => {
+        setSettingsOpen(true)
+        setMobileNav(false)
+      }}
+      onGateways={() => {
+        setSettingsSection('gateways')
         setSettingsOpen(true)
         setMobileNav(false)
       }}

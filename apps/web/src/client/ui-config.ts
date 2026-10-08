@@ -90,3 +90,6 @@ export const CURSOR = {
   labelTiltMax: 8,
   labelTiltPerPx: 0.11,
 }
+
+/** How often the gateway switcher checks whether the other gateways answer. */
+export const GATEWAY_POLL_MS = 30_000

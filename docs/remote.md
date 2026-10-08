@@ -4,8 +4,6 @@ Myrmidon can run on a VPS or a home server (a "gateway") while you use it from y
 works the way Hermes Agent and OpenClaw do: the gateway stays private by default, you reach it over **Tailscale** or
 an **SSH tunnel**, and every device you use it from is **paired** once and can be revoked.
 
-> Not yet: switching between several gateways in one window (see
-> `docs/superpowers/specs/2026-10-08-remote-gateways-design.md`).
 
 ## How it stays safe
 
@@ -118,6 +116,24 @@ systemctl --user enable --now myrmidon
 ```bash
 loginctl enable-linger $USER
 ```
+
+## Several gateways in one window
+
+The Myrmidon on your Mac can show your other gateways too (a VPS, a home server), one at a time:
+
+1. On the gateway, run `myrmidon pair` (full access, or `--scope chat` for chats only).
+2. On your Mac, open **Settings → Gateways**, paste the link and press **Add a gateway**.
+3. Switch at the top of the sidebar: **This Mac** or a gateway, with a green or red dot for whether it answers.
+
+Each window remembers what it shows; chats, files, Settings and the terminal always belong to that gateway, and
+nothing mixes between them. Your Mac pairs with the gateway as one more device ("Myrmidon on <your Mac>") and keeps
+that access in `<home>/gateways.json`, readable only by you; the page never sees it. Requests and sockets go
+through your Mac to the gateway's API only, and a gateway's pages open on your Mac's own preview address, so they
+work even when the gateway has no `--preview-url`. Removing a gateway also unpairs your Mac there when it can be
+reached. A plugin's own screen from another gateway does not open in this window, since it would run with your
+Mac's access; open that gateway's address instead.
+
+If a gateway shown in a window stops answering, the window says why and offers to go back to This Mac.
 
 ## Setting it up from the terminal
 
