@@ -61,6 +61,8 @@ export class ColonyAgent {
   private readonly _agent: Agent
   /** The current model's own stream function, if it has one (test models); otherwise pi's default. */
   private _stream?: StreamFn
+  /** The model the latest call streamed with: a reply is priced by it, even if the agent switched model meanwhile. */
+  private _streamedWith?: Model
   private readonly _compactor = new ContextCompactor({
     model: () => this._agent.state.model,
     summarizers: () => this._earlierModels(),
@@ -125,12 +127,14 @@ export class ColonyAgent {
       // a mid-round model switch reach models that bring their own stream too.
       // On-demand tools stay callable but are left out of the request until loaded (find_tools), so their
       // definitions do not ride along in every model call.
-      streamFn: (model, context, options) =>
-        (this._stream ?? streamSimple)(
+      streamFn: (model, context, options) => {
+        this._streamedWith = model
+        return (this._stream ?? streamSimple)(
           model,
           context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
           withOllamaContext(model, options),
-        ),
+        )
+      },
     })
     this._agent.subscribe((e) => this._onEvent(e))
   }
@@ -495,13 +499,11 @@ export class ColonyAgent {
     const toolCalls = m.content.flatMap((c) =>
       c.type === 'toolCall' ? [{ id: c.id, name: c.name, arguments: c.arguments ?? {} }] : [],
     )
-    // pi prices a reply from the model's rate card, so a model without one reports $0: that cost is unknown, not
-    // free, and is left out so totals say n/a instead of undercounting.
-    const model = this._agent.state.model
-    const priced =
-      model.provider === m.provider &&
-      model.id === m.model &&
-      ['fixed', 'free', 'included'].includes(getModelPricingStatus(model))
+    // pi prices a reply from the rate card of the model the call went to, so a model without one reports $0: that
+    // cost is unknown, not free, and is left out so totals say n/a instead of undercounting. The reply's own model
+    // name can differ (a provider's fallback), and a /model switch can land mid-reply, so neither decides.
+    const model = this._streamedWith ?? this._agent.state.model
+    const priced = ['fixed', 'free', 'included'].includes(getModelPricingStatus(model))
     const cost = priced ? (m.usage as { cost?: { total?: number } } | undefined)?.cost?.total : undefined
     void this.host
       .append({
