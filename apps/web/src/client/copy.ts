@@ -1641,7 +1641,7 @@ export const copy = {
       sectionPicker: 'Section',
       saveFailed: 'Couldn’t save',
       retry: 'Retry',
-      groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
+      groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You', connect: 'Connect' },
       unsaved: {
         title: 'Leave without saving?',
         body: 'Your hook changes are not saved yet. If you leave now, they are lost.',
@@ -2420,6 +2420,8 @@ export const copy = {
       close: 'Close dialogs and panels',
       muteCall: 'Mute or unmute a call',
       hangUp: 'Hang up a call',
+      /** ⌥⌘1 to ⌥⌘0 open the workspace panel's views in the order they sit down its rail. */
+      workspaceView: 'Show a workspace view, in rail order',
     },
     about: {
       title: 'About Myrmidon',

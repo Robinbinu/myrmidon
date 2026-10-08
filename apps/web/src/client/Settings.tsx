@@ -214,6 +214,8 @@ export type Section =
   | 'memory'
 
 type SectionGroup = keyof typeof copy.settings.page.groups
+/** The order the section list shows its groups in. */
+const GROUPS: readonly SectionGroup[] = ['setup', 'agents', 'extend', 'connect', 'you']
 
 /** The sections in the order the list shows them, each under its group's heading. */
 const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
@@ -310,28 +312,28 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
   },
   {
     id: 'devices',
-    group: 'you',
+    group: 'connect',
     label: copy.settings.sections.devices.label,
     hint: copy.settings.sections.devices.hint,
     icon: FEATURE_ICONS.devices,
   },
   {
     id: 'gateways',
-    group: 'you',
+    group: 'connect',
     label: copy.settings.sections.gateways.label,
     hint: copy.settings.sections.gateways.hint,
     icon: FEATURE_ICONS.gateways,
   },
   {
     id: 'channels',
-    group: 'you',
+    group: 'connect',
     label: copy.settings.sections.channels.label,
     hint: copy.settings.sections.channels.hint,
     icon: FEATURE_ICONS.channels,
   },
   {
     id: 'voice',
-    group: 'you',
+    group: 'connect',
     label: copy.settings.sections.voice.label,
     hint: copy.settings.sections.voice.hint,
     icon: AudioLines,
@@ -536,7 +538,7 @@ export function Settings(props: {
             wideNav ? 'w-64' : 'w-[68px] items-center',
           )}
         >
-          {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
+          {GROUPS.map((group, i) => (
             <div key={group} className="flex w-full flex-col gap-1">
               {wideNav ? (
                 <div className={cn('px-3 pb-1 section-label text-muted', i > 0 && 'pt-4')}>
@@ -604,7 +606,7 @@ export function Settings(props: {
               className="w-full"
               aria-label={copy.settings.page.sectionPicker}
             >
-              {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group) => (
+              {GROUPS.map((group) => (
                 <optgroup key={group} label={copy.settings.page.groups[group]}>
                   {SECTIONS.filter((s) => s.group === group).map((s) => (
                     <option key={s.id} value={s.id}>
@@ -5321,6 +5323,7 @@ const SHORTCUTS: [string, string[]][] = [
   [copy.settings.shortcuts.focusComposer, ['/']],
   [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
   [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
+  [copy.settings.shortcuts.workspaceView, ['⌥', '⌘', '1–0']],
   [copy.settings.shortcuts.openSettings, ['⌘', ',']],
   [copy.settings.shortcuts.send, ['Enter']],
   [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
