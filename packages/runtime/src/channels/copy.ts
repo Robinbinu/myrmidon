@@ -11,9 +11,9 @@ export const channelCopy = {
     mattermost:
       "In Mattermost, open Integrations → Bot Accounts → Add Bot Account, then paste your server's address and the bot's token. Message the bot directly: it replies with a code to approve here. In channels, add the bot and mention it. Buttons for approvals need this Myrmidon's public address; without one, reply /approve KEY (type a space before the slash, or Mattermost takes it as its own command).",
     email:
-      "Use a mailbox of its own for Myrmidon, with an app password (Gmail, Outlook and iCloud require one). Choose 'listed people only' for direct messages and list your address, so strangers' mail is ignored rather than answered with a code; after your first mail, make yourself the owner under People. Mail is only accepted when your mail server verified the sender (DMARC, SPF or DKIM). Each email thread is a conversation of its own.",
+      "Use a mailbox of its own for Myrmidon, with an app password (Gmail, Outlook and iCloud require one). Choose 'listed people only' for direct messages and list your address, so strangers' mail is ignored rather than answered with a code; after your first mail, make yourself the owner under People. Mail is only accepted when your mail server verified the sender (DMARC, SPF or DKIM). Each email thread is a chat of its own.",
     sms: "In the Twilio console, copy the Account SID and Auth Token and buy or pick a number. SMS needs this Myrmidon's public address: Twilio posts each text to it, and the number is pointed there for you. List your phone number (as +15551234567) under 'let in without a code', and after your first text make yourself the owner under People.",
-    ntfy: 'Pick a long random topic name (anyone who knows it can read and write it), subscribe to it in the ntfy app, then write there. The topic is one conversation; the access rules here still apply, so approve the code it replies with. Add an access token for a protected topic or your own server.',
+    ntfy: 'Pick a long random topic name (anyone who knows it can read and write it), subscribe to it in the ntfy app, then write there. The topic is one chat; the access rules here still apply, so approve the code it replies with. Add an access token for a protected topic or your own server.',
     signal:
       'Signal needs signal-cli running as a daemon with its HTTP API, on a number of its own: register or link it with signal-cli, then run `signal-cli -a +NUMBER daemon --http 127.0.0.1:8080`. Give its address and the number here, then message that number from your phone: it replies with a code to approve here. The first person approved is the owner.',
     imessage:
@@ -29,7 +29,7 @@ export const channelCopy = {
     'nextcloud-talk':
       'Needs this Myrmidon to have a public HTTPS address. On the Nextcloud server run: occ talk:bot:install "Myrmidon" "<secret>" "<public-url>/hooks/channels/nextcloud-talk" --feature webhook --feature response, enable the bot in a conversation, and paste the server address and the same secret here. A Nextcloud user and app password (optional) let it tell one-to-one conversations from group ones.',
     simplex:
-      'Run the SimpleX Chat terminal app on this machine as a bot: simplex-chat -p 5225 (create its profile the first time), and make a contact address with /address. Paste the WebSocket address here (ws://127.0.0.1:5225 by default). Contact requests are accepted; strangers then get a code to approve here.',
+      'Run the SimpleX Chat terminal app as a bot on the computer Myrmidon runs on: simplex-chat -p 5225 (create its profile the first time), and make a contact address with /address. Paste the WebSocket address here (ws://127.0.0.1:5225 by default). Contact requests are accepted; strangers then get a code to approve here.',
     tlon: 'Paste your ship’s URL and its access code (in Landscape: System Preferences → Access Key, or +code in the dojo). DM the ship from another one: it replies with a code to approve here. In groups, mention the ship (or its nickname).',
     webhook:
       'For scripts, home automation and anything that can send HTTP. Needs this Myrmidon to have a public HTTPS address: POST JSON to <public-url>/hooks/channels/webhook signed with the shared secret (see docs/channels.md); replies are POSTed to the callback URL, signed the same way.',
@@ -43,10 +43,10 @@ export const channelCopy = {
     dingtalk:
       'In the DingTalk developer console, create an internal app, add a Robot with Stream mode as its message receiving mode, and publish it. Paste its Client ID (AppKey) and Client Secret here, then message the robot: it replies with a code to approve here.',
     wecom:
-      "Needs Myrmidon to have a public HTTPS address. In the WeCom admin console, create a self-built app; under Receive Messages set the URL to <public-url>/hooks/channels/wecom with a Token and an EncodingAESKey, and add this server's IP to the app's trusted IPs. Paste the corp ID, the app's AgentId and Secret, the Token and the EncodingAESKey here.",
+      "Needs Myrmidon to have a public HTTPS address. In the WeCom admin console, create a self-built app; under Receive Messages set the URL to <public-url>/hooks/channels/wecom with a Token and an EncodingAESKey, and add the IP address of the computer Myrmidon runs on to the app's trusted IPs. Paste the corp ID, the app's AgentId and Secret, the Token and the EncodingAESKey here.",
     weixin:
       "Turn WeChat on, then scan the code that appears with WeChat on your phone and confirm. It links a bot identity to your account through Tencent's iLink bot API (as Hermes Agent does) and answers direct messages to it.",
-    qq: "On q.qq.com, create a bot, turn on direct messages and group @-messages, add this server's IP to its IP allowlist, and paste its App ID and AppSecret here. Buttons need QQ's Markdown permission: without it, set Markdown to off.",
+    qq: "On q.qq.com, create a bot, turn on direct messages and group @-messages, add the IP address of the computer Myrmidon runs on to its IP allowlist, and paste its App ID and AppSecret here. Buttons need QQ's Markdown permission: without it, set Markdown to off.",
     irc: 'Pick a server, a nick for the bot and the channels to join. With a password it signs in by SASL (the nick must be the account name), else sends it as the server password. Message the bot directly: it replies with a code to approve here. In channels it answers lines that start with its nick ("mybot: …"). People are known by nick!user@host, so register nicks with NickServ.',
     twitch:
       'Make a Twitch account for the bot, then a token with the chat:read and chat:edit scopes for it (Twitch Developer Console, or a token generator) and paste it with the bot\'s username. Chat is public and bots cannot whisper, so put your own Twitch username under "Let in without a code" and set Groups to "any group": it answers only listed people who @mention it. After your first message, make yourself the owner under People.',
@@ -71,7 +71,7 @@ export const channelCopy = {
       account: { label: 'Bot phone number', hint: 'The number signal-cli is registered or linked with' },
     },
     imessage: {
-      url: { label: 'BlueBubbles server address', hint: 'Its address as this machine reaches it' },
+      url: { label: 'BlueBubbles server address', hint: 'Its address as Myrmidon’s computer reaches it' },
       password: { label: 'Server password' },
       name: {
         label: 'Name in group chats',
@@ -169,7 +169,7 @@ export const channelCopy = {
     code: (code: string, channel: string) =>
       [
         "Hi! This Myrmidon doesn't know you yet, so it won't act on your messages.",
-        `If it's yours, approve this code in Settings → Channels, or on its machine run:`,
+        `If it's yours, approve this code in Settings → Channels, or run this on the computer it runs on:`,
         `myrmidon channels approve ${channel} ${code}`,
         'The code works for an hour.',
       ].join('\n'),

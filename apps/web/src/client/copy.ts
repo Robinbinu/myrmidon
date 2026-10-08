@@ -1113,7 +1113,7 @@ export const copy = {
     wontFit: (window: string) => `Under ${window}: this chat won't fit`,
     continuing: 'Continuing…',
     continue: 'Continue',
-    retrying: 'Retrying…',
+    retrying: 'Trying again…',
     summarizeAndRetry: 'Summarize and try again',
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
