@@ -620,15 +620,15 @@ Reply with JSON only. Nothing worth keeping: {"skip": true}. Otherwise:
 
 Use only the facts given; never invent work, names or numbers. Fold in what matters most: something waiting on their answer, then something that failed, then what finished, then what is still running. With no news, play on the time of day, the weekday, or how long they were away.
 
-Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Shorten a chat title to a word or two if you mention it.`,
+Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Never quote a chat title: titles are the person's own first message, often long or as bare as "hi". Say "your last task", or name the kind of work in a word or two.`,
     facts: (facts: Record<string, unknown>) => `Facts:\n${JSON.stringify(facts, null, 2)}`,
-    /** The built-in lines, most important news first; `title` comes already quoted and short. */
+    /** The built-in lines, most important news first. */
     lines: {
       waitingMany: (n: number, name: string) => `${n} chats need your answer, ${name}.`,
       waitingOne: (name: string) => `${name}, I have a question for you.`,
-      failed: (name: string, title: string) => `${name}, ${title} hit a snag.`,
+      failed: (name: string) => `${name}, your last task hit a snag.`,
       finishedMany: (name: string, n: number) => `Welcome back, ${name}. ${n} things are done.`,
-      finishedOne: (name: string, title: string) => `${title} is done, ${name}.`,
+      finishedOne: (name: string) => `Your last task is done, ${name}.`,
       runningMany: (name: string, n: number) => `${n} crews are at work, ${name}.`,
       runningOne: (name: string) => `The crew is still at it, ${name}.`,
       first: (name: string) => `Hi ${name}, I'm your lead.`,

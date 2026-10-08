@@ -33,11 +33,14 @@ test('the greeting leads with what matters most, in one line', () => {
   ]
   expect(ruleGreeting({ ...base, chats }).headline).toBe('Robin, I have a question for you.')
   expect(ruleGreeting({ ...base, chats: chats.slice(0, 2) }).headline).toBe(
-    'Robin, “SSL research” hit a snag.',
+    'Robin, your last task hit a snag.',
   )
-  expect(ruleGreeting({ ...base, chats: chats.slice(0, 1) }).headline).toBe(
-    '“portfolio site” is done, Robin.',
-  )
+  expect(ruleGreeting({ ...base, chats: chats.slice(0, 1) }).headline).toBe('Your last task is done, Robin.')
+  // A title is the person's first message; the line never repeats it, however short or long.
+  for (const title of ['Hi', 'Add a multiply(a, b) function to calc.py and test it'])
+    expect(
+      ruleGreeting({ ...base, chats: [chat('d', title, 'completed', '2026-10-07T15:00:00')] }).headline,
+    ).not.toContain(title)
   // Done before the person last looked is not news.
   const old = [chat('a', 'portfolio site', 'completed', '2026-10-07T09:00:00')]
   expect(ruleGreeting({ ...base, chats: old }).headline).toBe('Welcome back, Robin.')
