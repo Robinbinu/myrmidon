@@ -4,7 +4,7 @@ import { copy } from '../copy.ts'
 import { cn } from '../ui/primitives.tsx'
 import { FOLDER_FOLD_AT } from '../ui-config.ts'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
-import { FoldChevron, useFolds } from './Folds.tsx'
+import { FoldChevron, type Folds, useFolds } from './Folds.tsx'
 
 export interface DiffFile {
   path: string
@@ -254,19 +254,37 @@ export function groupByFolder<T extends { path: string }>(
 }
 
 /**
- * Changed files under their top folder, each folder folding. A folder of many files starts folded, so a pile of
- * caches or build output cannot bury the few files that matter. `name` is the path within its folder.
+ * Whether a folder's group starts open: a folder of many files starts folded, so a pile of caches or build output
+ * cannot bury the few files that matter, unless it holds the file the list was opened on (`open`).
+ */
+export function folderStartsOpen(items: readonly { path: string }[], folder: string, open?: string): boolean {
+  if (open?.startsWith(`${folder}/`)) return true
+  return items.filter((i) => i.path.startsWith(`${folder}/`)).length <= FOLDER_FOLD_AT
+}
+
+/** The folders a list groups its files under, for folding them all at once. */
+export const folderIds = (items: readonly { path: string }[]) =>
+  groupByFolder(items).flatMap((g) => (g.folder ? [g.folder] : []))
+
+/** Open/closed state for a list's folder groups, for a list that folds them itself (Expand all). */
+export function useFolderFolds(items: readonly { path: string }[], open?: string): Folds {
+  return useFolds((folder) => folderStartsOpen(items, folder, open))
+}
+
+/**
+ * Changed files under their top folder, each folder folding (see folderStartsOpen). `name` is the path within its
+ * folder. Pass `folds` (useFolderFolds) when the list also folds its folders from outside.
  */
 export function FolderGroups<T extends { path: string }>(props: {
   items: readonly T[]
   /** Spacing between a folder's own rows. */
   className?: string
+  folds?: Folds
   children(item: T, name: string): ReactNode
 }) {
   const groups = groupByFolder(props.items)
-  const folds = useFolds(
-    (folder) => (groups.find((g) => g.folder === folder)?.items.length ?? 0) <= FOLDER_FOLD_AT,
-  )
+  const own = useFolderFolds(props.items)
+  const folds = props.folds ?? own
   return (
     <>
       {groups.map((g) =>
@@ -360,11 +378,18 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
   const sections = useMemo(() => splitPatch(props.patch), [props.patch])
   const [mode, setMode] = useDiffMode()
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(props.open ? [props.open] : []))
+  const folds = useFolderFolds(props.files, props.open)
   if (props.files.length === 0)
     return <p className="px-1 py-2 text-[12.5px] text-muted">{copy.diffView.noChanges}</p>
   const added = props.files.reduce((n, f) => n + (f.added ?? 0), 0)
   const removed = props.files.reduce((n, f) => n + (f.removed ?? 0), 0)
-  const allOpen = open.size === props.files.length
+  // A file in a folded folder is out of sight however it is set, so "all open" takes its folder too.
+  const folders = folderIds(props.files)
+  const allOpen = open.size === props.files.length && folders.every((f) => folds.isOpen(f))
+  const setAllOpen = (to: boolean) => {
+    setOpen(to ? new Set(props.files.map((f) => f.path)) : new Set())
+    folds.setAll(folders, to)
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-1 text-[12px] text-muted">
@@ -377,13 +402,13 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
         <button
           type="button"
           className="rounded-md px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg"
-          onClick={() => setOpen(allOpen ? new Set() : new Set(props.files.map((f) => f.path)))}
+          onClick={() => setAllOpen(!allOpen)}
         >
           {allOpen ? copy.diffView.collapseAll : copy.diffView.expandAll}
         </button>
         <DiffModeToggle mode={mode} onMode={setMode} />
       </div>
-      <FolderGroups items={props.files} className="gap-2 pt-1">
+      <FolderGroups items={props.files} folds={folds} className="gap-2 pt-1">
         {(f, name) => (
           <FileDiff
             key={f.path}
