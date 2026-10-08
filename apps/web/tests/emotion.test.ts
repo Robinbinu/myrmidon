@@ -13,7 +13,7 @@ test('the mascot reads the mood of a draft', () => {
 })
 
 test('its resting mood follows the colony and the clock', () => {
-  expect(ambient({ working: 2, hour: 14 }).label).toBe('2 runs going')
+  expect(ambient({ working: 2, hour: 14 }).label).toBe('2 crews working')
   expect(ambient({ working: 0, latest: { status: 'completed', agoMs: 30_000 }, hour: 14 })).toBe(
     EMOTIONS.proud,
   )

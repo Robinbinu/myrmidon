@@ -6,8 +6,8 @@
  * judge, verifier, verdict, observer, steer, queue, newTask); those stay identifiers and never reach the screen.
  *   chat        one conversation with the lead, listed in the sidebar. Not "task" or "conversation"; a task is only
  *               a card on the task board.
- *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team". A list of past work
- *               is a list of runs, not of crews.
+ *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team". Each chat's crew and
+ *               its history is listed under Crews, and Compare puts two crews side by side.
  *   lead        the agent you talk to; it plans and brings in helpers.
  *   helper      an agent working with the lead. Not "worker". In Swarm mode there is no lead and the agents are
  *               "peers", equals sharing one plan.
@@ -280,7 +280,7 @@ export const copy = {
     sleepy: 'zzz',
     night: 'late night',
     busy: 'working',
-    crewsWorking: (n: number) => (n === 1 ? '1 run going' : `${n} runs going`),
+    crewsWorking: (n: number) => (n === 1 ? '1 crew working' : `${n} crews working`),
   },
 
   modelPicker: {
@@ -689,7 +689,7 @@ export const copy = {
     empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
     noMatches: (query: string) => `No chats match “${query}”.`,
     searchingMessages: 'Searching messages…',
-    nav: { crews: 'Runs', compare: 'Compare runs', settings: 'Settings' },
+    nav: { crews: 'Crews', compare: 'Compare crews', settings: 'Settings' },
     theme: (theme: string, next: string) => `Theme: ${theme}. Switch to ${next}`,
   },
 
@@ -1324,8 +1324,8 @@ export const copy = {
     },
     titles: {
       newTask: 'New chat',
-      crews: 'Runs',
-      compare: 'Compare runs',
+      crews: 'Crews',
+      compare: 'Compare crews',
     },
     resizeSidebar: 'Resize sidebar',
     /** One calm line under the toolbar while the server is not answering; it clears by itself. */
@@ -1348,7 +1348,7 @@ export const copy = {
     chatsOnly: 'This device can use chats only.',
     /** A chat link opened while the chat list will not load. */
     chatFailed: "Couldn't load this chat",
-    crewsFailed: "Couldn't load runs",
+    crewsFailed: "Couldn't load crews",
     showSidebar: 'Show sidebar',
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
     newTask: 'New chat',
@@ -1379,9 +1379,9 @@ export const copy = {
       deleting: 'Deleting…',
       confirm: 'Delete chat',
     },
-    crewConsole: 'Run details',
-    noCrews: 'No runs yet. Send a message in a chat and its run shows here.',
-    crewSelect: 'Run',
+    crewConsole: 'Crew',
+    noCrews: 'No crews yet. Send a message in a chat and its crew shows here.',
+    crewSelect: 'Crew',
   },
 
   colonyScreen: {
@@ -1459,12 +1459,12 @@ export const copy = {
   },
 
   compare: {
-    noCrews: 'No runs yet. Send a message in a chat, then tick two runs here to compare them.',
-    tickTwo: 'Tick two runs to see what differs between them.',
+    noCrews: 'No crews yet. Send a message in a chat, then tick two crews here to compare them.',
+    tickTwo: 'Tick two crews to see what differs between them.',
     comparing: 'Comparing…',
     columns: {
       compare: 'Compare',
-      crew: 'Run',
+      crew: 'Crew',
       status: 'Status',
       pattern: 'Mode',
       models: 'Models',
@@ -1491,9 +1491,9 @@ export const copy = {
       judgeScore: 'Review score',
     },
     judge: (passed: boolean) => `· review ${passed ? 'passed' : 'failed'}`,
-    runDiff: 'Run diff',
+    runDiff: 'What differs',
     /** Warns that two compared runs were asked to do different things. */
-    differentTasks: 'These runs had different requests, so their numbers are not like for like.',
+    differentTasks: 'These crews worked on different requests, so their numbers are not like for like.',
     close: 'Close the comparison',
     measure: 'Measure',
     versus: 'B vs A',
