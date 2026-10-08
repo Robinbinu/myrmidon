@@ -1744,6 +1744,7 @@ export const copy = {
         on: (account: string) => `Connected as ${account}`,
         retrying: (error: string) => `Reconnecting: ${error}`,
         error: (error: string) => error,
+        linking: 'Scan this code with your phone to link it',
       },
       waiting: 'Waiting for approval',
       waitingHint: 'People and groups who messaged your bot. Approve only those you know.',

@@ -102,6 +102,11 @@ export type AdapterStatus =
   | { readonly state: 'retrying'; readonly error: string }
   /** It gave up until the person changes something (a refused token). */
   | { readonly state: 'error'; readonly error: string }
+  /**
+   * It needs the person to link it by scanning a code with their phone (WhatsApp's linked devices): `qr` is the
+   * code's content (printed in the terminal), `image` the same as a PNG data URL (shown in Settings).
+   */
+  | { readonly state: 'linking'; readonly qr: string; readonly image: string; readonly hint?: string }
 
 export interface ChannelAdapter {
   readonly id: string

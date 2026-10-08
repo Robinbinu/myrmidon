@@ -83,6 +83,7 @@ export const setupCopy = {
       on: (account: string) => `connected as ${account}`,
       retrying: (error: string) => `reconnecting: ${error}`,
       error: (error: string) => error,
+      linking: 'scan this code with your phone to link it',
     },
     notSet: (id: string) => `not set up: run \`myrmidon channels ${id}\``,
     people: (names: string[]) => `approved: ${names.join(', ')}`,

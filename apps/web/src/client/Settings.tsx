@@ -2481,6 +2481,7 @@ interface ChannelView {
     | { state: 'off' | 'connecting' }
     | { state: 'on'; account: string }
     | { state: 'retrying' | 'error'; error: string }
+    | { state: 'linking'; qr: string; image: string; hint?: string }
   people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
   approvedGroups: { id: string; title: string }[]
   pending: {
@@ -2551,7 +2552,9 @@ function ChannelsSection() {
         ? t.status.retrying(s.error)
         : s.state === 'error'
           ? t.status.error(s.error)
-          : t.status[s.state]
+          : s.state === 'linking'
+            ? (s.hint ?? t.status.linking)
+            : t.status[s.state]
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
@@ -2584,6 +2587,13 @@ function ChannelsSection() {
                   )}
                 </div>
                 {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
+                {c.status.state === 'linking' && (
+                  <img
+                    src={c.status.image}
+                    alt={t.status.linking}
+                    className="mt-3 size-56 rounded-lg bg-white p-2"
+                  />
+                )}
               </Row>
               {c.fields.map((f) => {
                 const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])

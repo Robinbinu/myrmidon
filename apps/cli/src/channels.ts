@@ -1,3 +1,4 @@
+import QRCode from 'qrcode'
 import { setupCopy } from './copy.ts'
 import type { Call, Terminal } from './setup.ts'
 
@@ -15,6 +16,7 @@ export interface ChannelView {
     | { state: 'off' | 'connecting' }
     | { state: 'on'; account: string }
     | { state: 'retrying' | 'error'; error: string }
+    | { state: 'linking'; qr: string; image: string; hint?: string }
   people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
   approvedGroups: { id: string; title: string }[]
   pending: {
@@ -33,7 +35,9 @@ export const statusText = (s: ChannelView['status']) =>
       ? t.status.retrying(s.error)
       : s.state === 'error'
         ? t.status.error(s.error)
-        : t.status[s.state]
+        : s.state === 'linking'
+          ? (s.hint ?? t.status.linking)
+          : t.status[s.state]
 
 export const listChannels = async (call: Call) =>
   (await call<{ channels: ChannelView[] }>('GET', '/api/channels')).channels
@@ -164,6 +168,15 @@ export async function channels(call: Call, term: Terminal, args: string[]): Prom
   let shown = channel
   for (let i = 0; i < 20 && shown.status.state === 'connecting'; i++) {
     await Bun.sleep(250)
+    shown = (await listChannels(call)).find((x) => x.id === c.id) ?? shown
+  }
+  // Linking by QR (WhatsApp): show the code in the terminal and wait for the phone to scan it.
+  for (let i = 0; i < 240 && shown.status.state === 'linking'; i++) {
+    if (i === 0 || i % 40 === 0) {
+      term.print(statusText(shown.status))
+      term.print(await QRCode.toString(shown.status.qr, { type: 'terminal', small: true }))
+    }
+    await Bun.sleep(500)
     shown = (await listChannels(call)).find((x) => x.id === c.id) ?? shown
   }
   if (shown.status.state === 'on') {
