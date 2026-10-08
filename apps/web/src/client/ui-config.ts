@@ -102,5 +102,8 @@ export const CURSOR = {
 export const STREAM_RETRY_MS = 1500
 export const STREAM_RETRY_MAX_MS = 15_000
 
+/** After a 401, how long before another one asks the server again whether this device is still paired. */
+export const SIGNED_OUT_RECHECK_MS = 10_000
+
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000

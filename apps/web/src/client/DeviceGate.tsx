@@ -14,6 +14,7 @@ import { copy } from './copy.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, Field, TextInput } from './ui/primitives.tsx'
+import { SIGNED_OUT_RECHECK_MS } from './ui-config.ts'
 
 /** A name the person will recognise in Settings → Devices: what this is and which browser. */
 function guessName(): string {
@@ -73,10 +74,19 @@ export function DeviceGate(props: { children: ReactNode }) {
   }, [state])
   useEffect(() => {
     if (state !== 'open') return
+    // Every poll that gets a 401 says so; one question at a time, and not again soon after, is enough.
+    let asking = false
+    let askedAt = 0
     const recheck = () => {
+      if (asking || Date.now() - askedAt < SIGNED_OUT_RECHECK_MS) return
+      asking = true
+      askedAt = Date.now()
       whoami()
         .then((r) => !r.ok && r.remote && setState('pair'))
         .catch(() => {})
+        .finally(() => {
+          asking = false
+        })
     }
     window.addEventListener(SIGNED_OUT, recheck)
     return () => window.removeEventListener(SIGNED_OUT, recheck)
