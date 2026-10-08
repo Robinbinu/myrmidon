@@ -1181,6 +1181,8 @@ export const copy = {
     },
     judge: (passed: boolean) => `· judge ${passed ? 'passed' : 'failed'}`,
     runDiff: 'Run diff',
+    /** Warns that two compared runs were asked to do different things. */
+    differentTasks: 'These runs had different tasks, so their numbers are not like for like.',
     close: 'Close the comparison',
     measure: 'Measure',
     versus: 'B vs A',

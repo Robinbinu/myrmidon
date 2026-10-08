@@ -66,3 +66,23 @@ test('a run diff lines up tools, files and agents of two runs', () => {
     },
   ])
 })
+
+test('a run side names its task, and a team mode only when the run used a team', () => {
+  const withTeam = (tier: string) =>
+    run('m/one', [], {}).map((e) =>
+      e.type === 'colony/created'
+        ? {
+            ...e,
+            payload: {
+              ...(e.payload as object),
+              tier,
+              team: { mode: 'orchestrated', maxWorkers: 3, workerModels: [] },
+            },
+          }
+        : e,
+    ) as MyrEvent[]
+  const diff = runDiff({ id: 'a', events: withTeam('solo') }, { id: 'b', events: withTeam('team') })
+  expect(diff.a.task).toBe('Build it')
+  expect(diff.a.mode).toBeUndefined()
+  expect(diff.b.mode).toBe('orchestrated')
+})

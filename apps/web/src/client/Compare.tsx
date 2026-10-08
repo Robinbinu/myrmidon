@@ -3,9 +3,9 @@ import { X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type ColonySummary } from './api.ts'
 import { copy } from './copy.ts'
-import { cn, IconButton, Pill } from './ui/primitives.tsx'
-
-const secs = (ms: number) => `${Math.round(ms / 1000)}s`
+import { duration, knownCost, money } from './ui/hooks.ts'
+import { cn, IconButton, Pill, toneFor } from './ui/primitives.tsx'
+import { runPhase } from './ui/status.ts'
 
 /** Side-by-side run metrics for research comparisons; tick two runs to see what differs between them. */
 export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): void }) {
@@ -41,79 +41,93 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
       ) : (
         <p className="mb-3 text-[12.5px] text-muted">{error ?? copy.compare.comparing}</p>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>
-              <span className="sr-only">{copy.compare.columns.compare}</span>
-            </th>
-            <th>{copy.compare.columns.crew}</th>
-            <th>{copy.compare.columns.status}</th>
-            <th>{copy.compare.columns.pattern}</th>
-            <th>{copy.compare.columns.models}</th>
-            <th className="num">{copy.compare.columns.wall}</th>
-            <th className="num">{copy.compare.columns.tokens}</th>
-            <th className="num">{copy.compare.columns.cost}</th>
-            <th className="num">{copy.compare.columns.turns}</th>
-            <th className="num">{copy.compare.columns.toolCalls}</th>
-            <th className="num">{copy.compare.columns.messages}</th>
-            <th className="num">{copy.compare.columns.artifactVersions}</th>
-            <th className="num">{copy.compare.columns.rejections}</th>
-            <th className="num">{copy.compare.columns.bestScore}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.colonies.map((c) => (
-            <tr key={c.id}>
-              <td>
-                <input
-                  type="checkbox"
-                  aria-label={copy.compare.pick(c.name)}
-                  checked={picked.includes(c.id)}
-                  onChange={() => toggle(c.id)}
-                />
-              </td>
-              <td>
-                <button type="button" className="link" onClick={() => props.onOpen(c.id)}>
-                  {c.name}
-                </button>
-                <div className="muted small mono">{c.id}</div>
-              </td>
-              <td>
-                <span className={`pill status-${c.status}`}>{c.status}</span>
-                {c.statusReason && <div className="muted small">{c.statusReason}</div>}
-              </td>
-              <td>{c.pattern}</td>
-              <td className="small">{[...new Set(c.agents.map((a) => a.model))].join(', ')}</td>
-              <td className="num">{secs(c.metrics.wallMs)}</td>
-              <td className="num">{c.metrics.tokens.toLocaleString()}</td>
-              <td className="num">{c.metrics.cost === undefined ? '—' : `$${c.metrics.cost.toFixed(3)}`}</td>
-              <td className="num">{c.metrics.turns}</td>
-              <td className="num">{c.metrics.toolCalls}</td>
-              <td className="num">{c.metrics.messages}</td>
-              <td className="num">{c.metrics.artifactVersions}</td>
-              <td className="num">{c.metrics.rejections}</td>
-              <td className="num">
-                {c.metrics.bestScore === undefined ? '—' : c.metrics.bestScore.toFixed(2)}
-              </td>
+      <div className="overflow-x-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                <span className="sr-only">{copy.compare.columns.compare}</span>
+              </th>
+              <th>{copy.compare.columns.crew}</th>
+              <th>{copy.compare.columns.status}</th>
+              <th>{copy.compare.columns.pattern}</th>
+              <th>{copy.compare.columns.models}</th>
+              <th className="num">{copy.compare.columns.wall}</th>
+              <th className="num">{copy.compare.columns.tokens}</th>
+              <th className="num">{copy.compare.columns.cost}</th>
+              <th className="num">{copy.compare.columns.turns}</th>
+              <th className="num">{copy.compare.columns.toolCalls}</th>
+              <th className="num">{copy.compare.columns.messages}</th>
+              <th className="num">{copy.compare.columns.artifactVersions}</th>
+              <th className="num">{copy.compare.columns.rejections}</th>
+              <th className="num">{copy.compare.columns.bestScore}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {props.colonies.map((c) => (
+              <tr key={c.id}>
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={copy.compare.pick(c.name)}
+                    checked={picked.includes(c.id)}
+                    onChange={() => toggle(c.id)}
+                  />
+                </td>
+                <td>
+                  <button type="button" className="link" onClick={() => props.onOpen(c.id)}>
+                    {c.name}
+                  </button>
+                  <div className="muted small mono max-w-48 truncate" title={c.id}>
+                    {c.id}
+                  </div>
+                </td>
+                <td>
+                  <Pill tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Pill>
+                  {c.statusReason && <div className="muted small">{c.statusReason}</div>}
+                </td>
+                <td>{c.pattern}</td>
+                <td className="small">{[...new Set(c.agents.map((a) => a.model))].join(', ')}</td>
+                <td className="num">{duration(c.metrics.wallMs)}</td>
+                <td className="num">{c.metrics.tokens.toLocaleString()}</td>
+                <td className="num">{money(c.metrics.cost, c.metrics.tokens)}</td>
+                <td className="num">{c.metrics.turns}</td>
+                <td className="num">{c.metrics.toolCalls}</td>
+                <td className="num">{c.metrics.messages}</td>
+                <td className="num">{c.metrics.artifactVersions}</td>
+                <td className="num">{c.metrics.rejections}</td>
+                <td className="num">
+                  {c.metrics.bestScore === undefined ? '—' : c.metrics.bestScore.toFixed(2)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
 
-type Metric = { label: string; a?: number; b?: number; format(n: number): string; better: 'lower' | 'higher' }
+type Metric = {
+  label: string
+  a?: number
+  b?: number
+  format(n: number): string
+  better: 'lower' | 'higher'
+  /** Shown for a side without this measure. */
+  none?: string
+}
 
 function metricRows(a: RunSide, b: RunSide): Metric[] {
   const n = (x: number) => x.toLocaleString()
+  const costA = knownCost(a.metrics.cost, a.metrics.tokens)
+  const costB = knownCost(b.metrics.cost, b.metrics.tokens)
   return [
     {
       label: copy.compare.metrics.wallTime,
       a: a.metrics.wallMs,
       b: b.metrics.wallMs,
-      format: secs,
+      format: duration,
       better: 'lower',
     },
     {
@@ -123,14 +137,15 @@ function metricRows(a: RunSide, b: RunSide): Metric[] {
       format: n,
       better: 'lower',
     },
-    ...(a.metrics.cost !== undefined || b.metrics.cost !== undefined
+    ...(costA !== undefined || costB !== undefined
       ? [
           {
             label: copy.compare.metrics.cost,
-            a: a.metrics.cost,
-            b: b.metrics.cost,
+            a: costA,
+            b: costB,
             format: (x: number) => `$${x.toFixed(3)}`,
             better: 'lower' as const,
+            none: copy.unknownCost,
           },
         ]
       : []),
@@ -190,9 +205,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
         </button>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
-        <Pill tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'bad' : 'neutral'}>
-          {run.status}
-        </Pill>
+        <Pill tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Pill>
         {run.tier && <span>{run.tier}</span>}
         {run.mode && <span>· {run.mode}</span>}
         {run.judge && (
@@ -228,6 +241,11 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
           <X className="size-4" />
         </IconButton>
       </div>
+      {a.task.trim() !== b.task.trim() && (
+        <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-[12.5px] text-warn-ink">
+          {copy.compare.differentTasks}
+        </p>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
@@ -243,8 +261,12 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {metricRows(a, b).map((m) => (
               <tr key={m.label} className="border-t border-line">
                 <td className="px-2 py-1.5">{m.label}</td>
-                <td className={cn(cell, 'text-right')}>{m.a === undefined ? '—' : m.format(m.a)}</td>
-                <td className={cn(cell, 'text-right')}>{m.b === undefined ? '—' : m.format(m.b)}</td>
+                <td className={cn(cell, 'text-right')}>
+                  {m.a === undefined ? (m.none ?? '—') : m.format(m.a)}
+                </td>
+                <td className={cn(cell, 'text-right')}>
+                  {m.b === undefined ? (m.none ?? '—') : m.format(m.b)}
+                </td>
                 <td className={cn(cell, 'text-right')}>
                   <Delta m={m} />
                 </td>
