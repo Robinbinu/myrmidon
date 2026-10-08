@@ -68,6 +68,7 @@ import { baseUrlError, clampNumber, cronError, providerNameError } from './setti
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
@@ -306,7 +307,7 @@ function useMinWidth(px: number): boolean {
   return match
 }
 
-/** Full-page settings, shown in place of the chat. Every change autosaves. */
+/** Full-page settings, shown in place of the chat. Every change autosaves, except hooks (see HooksSection). */
 export function Settings(props: {
   onClose(): void
   theme: ThemeChoice
@@ -324,11 +325,18 @@ export function Settings(props: {
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
   const [data, setData] = useState<SettingsResponse>()
   const [error, setError] = useState<string>()
-  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [saveError, setSaveError] = useState<string>()
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // The settings last sent, so a failed save can be retried as it was.
+  const unsaved = useRef<ServerSettings>(undefined)
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
-  const onClose = useRef(props.onClose)
-  onClose.current = props.onClose
+  // Hooks are the one section with an explicit Save; leaving it with edits asks first.
+  const [hooksDirty, setHooksDirty] = useState(false)
+  const [leaving, setLeaving] = useState<() => void>()
+  const leave = (go: () => void) => (hooksDirty ? setLeaving(() => go) : go())
+  const onClose = useRef(() => leave(props.onClose))
+  onClose.current = () => leave(props.onClose)
 
   useEffect(() => {
     api<SettingsResponse>('/api/settings')
@@ -345,29 +353,33 @@ export function Settings(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const persist = (next: ServerSettings) => {
+    unsaved.current = next
+    setSaving('saving')
+    send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
+      .then((r) => {
+        setData((d) => (d ? { ...d, settings: r.settings } : d))
+        setSaving('saved')
+        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
+        props.onModelsChanged()
+        window.dispatchEvent(new Event(SETTINGS_SAVED))
+      })
+      .catch((err) => {
+        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
+        setSaving('failed')
+        setSaveError(String(err.message ?? err))
+        toast(String(err.message ?? err), 'error')
+      })
+  }
+
   /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
   const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
     if (!data) return
     const next = patch(structuredClone(data.settings))
     setData({ ...data, settings: next })
     clearTimeout(timer.current)
-    const save = () => {
-      setSaving('saving')
-      send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
-        .then((r) => {
-          setData((d) => (d ? { ...d, settings: r.settings } : d))
-          setSaving('saved')
-          setTimeout(() => setSaving('idle'), 1200)
-          props.onModelsChanged()
-          window.dispatchEvent(new Event(SETTINGS_SAVED))
-        })
-        .catch((err) => {
-          setSaving('idle')
-          toast(String(err.message ?? err), 'error')
-        })
-    }
-    if (immediate) save()
-    else timer.current = setTimeout(save, 450)
+    if (immediate) persist(next)
+    else timer.current = setTimeout(() => persist(next), 450)
   }
 
   const providersChanged = (providers: ProviderInfo[]) => {
@@ -383,7 +395,12 @@ export function Settings(props: {
         data-toolbar
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
-        <Button variant="ghost" size="sm" onClick={props.onClose} icon={<ArrowLeft className="size-4" />}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => leave(props.onClose)}
+          icon={<ArrowLeft className="size-4" />}
+        >
           {copy.settings.page.back}
         </Button>
         <span className="text-[13px] font-semibold">{copy.settings.page.title}</span>
@@ -391,20 +408,46 @@ export function Settings(props: {
         <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
         <span className="flex-1" />
         <AnimatePresence>
-          {saving !== 'idle' && (
+          {saving === 'failed' ? (
             <motion.span
+              key="failed"
+              role="alert"
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+              title={saveError}
+              className="inline-flex items-center gap-1.5 text-[12px] text-bad-ink"
             >
-              {saving === 'saving' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Check className="size-3.5 text-ok-ink" />
-              )}
-              {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
+              <CircleX className="size-3.5" />
+              {copy.settings.page.saveFailed}
+              <span aria-hidden>·</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => unsaved.current && persist(unsaved.current)}
+                icon={<RefreshCw className="size-3" />}
+              >
+                {copy.settings.page.retry}
+              </Button>
             </motion.span>
+          ) : (
+            saving !== 'idle' && (
+              <motion.span
+                key="saving"
+                role="status"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+              >
+                {saving === 'saving' ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Check className="size-3.5 text-ok-ink" />
+                )}
+                {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
+              </motion.span>
+            )
           )}
         </AnimatePresence>
         <span className="hidden text-[11.5px] text-muted md:inline">
@@ -438,7 +481,7 @@ export function Settings(props: {
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => setSection(s.id)}
+                  onClick={() => leave(() => setSection(s.id))}
                   aria-current={section === s.id ? 'page' : undefined}
                   aria-label={wideNav ? undefined : s.label}
                   title={wideNav ? undefined : s.label}
@@ -478,7 +521,10 @@ export function Settings(props: {
           <div className="border-b border-line p-3 md:hidden">
             <Select
               value={section}
-              onChange={(e) => setSection(e.target.value as Section)}
+              onChange={(e) => {
+                const next = e.target.value as Section
+                leave(() => setSection(next))
+              }}
               className="w-full"
               aria-label={copy.settings.page.sectionPicker}
             >
@@ -580,7 +626,7 @@ export function Settings(props: {
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
               {section === 'plugins' && <PluginsSection />}
-              {section === 'hooks' && <HooksSection />}
+              {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
                 <div className="flex items-center gap-2 text-[13px] text-muted">
@@ -591,6 +637,28 @@ export function Settings(props: {
           </AnimatePresence>
         </div>
       </div>
+      <AnimatePresence>
+        {leaving && (
+          <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
+            <p className="text-[13.5px] leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setLeaving(undefined)}>
+                {copy.settings.page.unsaved.keep}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setLeaving(undefined)
+                  setHooksDirty(false)
+                  leaving()
+                }}
+              >
+                {copy.settings.page.unsaved.discard}
+              </Button>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -3048,12 +3116,17 @@ function fileOf(rows: HookRow[]): HooksFile {
 
 /**
  * The person's hooks, in Claude Code's format: commands Myrmidon runs before or after matching tools, or when a
- * round ends. They run as the person, outside the sandbox.
+ * round ends. They run as the person, outside the sandbox, which is why they save only on Save rather than as each
+ * character is typed: a half-written command would already run on the next tool call.
  */
-function HooksSection() {
+function HooksSection(props: { onDirty(dirty: boolean): void }) {
   const toast = useToast()
   const [rows, setRows] = useState<HookRow[]>()
   const [dirty, setDirty] = useState(false)
+  const { onDirty } = props
+  useEffect(() => {
+    onDirty(dirty)
+  }, [dirty, onDirty])
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     api<HooksFile>('/api/hooks')

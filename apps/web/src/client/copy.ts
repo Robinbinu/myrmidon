@@ -1334,7 +1334,15 @@ export const copy = {
       /** Follows the Esc key in the header. */
       escToClose: ' to close',
       sectionPicker: 'Section',
+      saveFailed: 'Couldn’t save',
+      retry: 'Retry',
       groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
+      unsaved: {
+        title: 'Leave without saving?',
+        body: 'Your hook changes are not saved yet. If you leave now, they are lost.',
+        keep: 'Keep editing',
+        discard: 'Discard changes',
+      },
       modelsTab: 'Your models',
       providersTab: 'Keys & providers',
       loading: 'Loading settings…',
