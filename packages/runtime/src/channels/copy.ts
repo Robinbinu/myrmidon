@@ -24,6 +24,15 @@ export const channelCopy = {
       'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent and copy the token (Reset Token). Invite the bot with OAuth2 → URL Generator (scope "bot"; View Channels, Send Messages, Send Messages in Threads, Read Message History, Attach Files). Then DM the bot: it replies with a code to approve here. The first person approved is the owner.',
     slack:
       'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…). Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
+    'synology-chat':
+      'Needs this gateway to have a public HTTPS address. In Synology Chat → Integration → Bots, create a bot: set its outgoing URL to <public-url>/hooks/channels/synology-chat, then paste its token and its incoming URL here. Then message the bot: it replies with a code to approve here.',
+    'nextcloud-talk':
+      'Needs this gateway to have a public HTTPS address. On the Nextcloud server run: occ talk:bot:install "Myrmidon" "<secret>" "<public-url>/hooks/channels/nextcloud-talk" --feature webhook --feature response, enable the bot in a conversation, and paste the server address and the same secret here. A Nextcloud user and app password (optional) let it tell one-to-one conversations from group ones.',
+    simplex:
+      'Run the SimpleX Chat terminal app on this machine as a bot: simplex-chat -p 5225 (create its profile the first time), and make a contact address with /address. Paste the WebSocket address here (ws://127.0.0.1:5225 by default). Contact requests are accepted; strangers then get a code to approve here.',
+    tlon: 'Paste your ship’s URL and its access code (in Landscape: System Preferences → Access Key, or +code in the dojo). DM the ship from another one: it replies with a code to approve here. In groups, mention the ship (or its nickname).',
+    webhook:
+      'For scripts, home automation and anything that can send HTTP. Needs this gateway to have a public HTTPS address: POST JSON to <public-url>/hooks/channels/webhook signed with the shared secret (see docs/channels.md); replies are POSTed to the callback URL, signed the same way.',
   },
   /** Settings the WhatsApp Cloud API needs. */
   fields: {
@@ -244,4 +253,7 @@ export const channelCopy = {
     thinking: 'thinking',
     tool: (name: string) => `using ${name}`,
   },
+  /** A platform that pushes messages to this gateway cannot run without a public address. */
+  needsPublicUrl: (label: string) =>
+    `${label} sends messages to this gateway, so it needs a public HTTPS address: start it with --public-url (see remote.md)`,
 }

@@ -16,6 +16,7 @@ function mattermost(options: { challenge?: 'fail' } = {}) {
   const sockets: ServerWebSocket<unknown>[] = []
   let n = 0
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req, srv) {
       const url = new URL(req.url)

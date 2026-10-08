@@ -420,6 +420,7 @@ type GraphCall = {
 function graphApi(handler: (call: GraphCall) => unknown = () => ({ messages: [{ id: 'wamid.OUT' }] })) {
   const calls: GraphCall[] = []
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)

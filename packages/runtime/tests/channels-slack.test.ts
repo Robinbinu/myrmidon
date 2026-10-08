@@ -29,6 +29,7 @@ function fakeSlack(routes: Record<string, Route> = {}) {
   const responses: Record<string, unknown>[] = []
   const counts = new Map<string, number>()
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req, srv) {
       const url = new URL(req.url)

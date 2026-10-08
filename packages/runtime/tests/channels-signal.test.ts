@@ -19,6 +19,7 @@ function daemon(handlers: Record<string, Handler> = {}, options: { up?: boolean 
   const counts = new Map<string, number>()
   const streams: ReadableStreamDefaultController<Uint8Array>[] = []
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     idleTimeout: 0,
     async fetch(req) {

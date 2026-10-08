@@ -16,6 +16,7 @@ function homeserver(handlers: Record<string, Handler>) {
   const calls: Call[] = []
   const counts = new Map<string, number>()
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)

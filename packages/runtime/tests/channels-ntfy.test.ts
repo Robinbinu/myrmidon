@@ -16,7 +16,9 @@ function ntfy(options: { token?: string } = {}) {
   const push = (event: Record<string, unknown>) => {
     for (const c of streams) c.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
   }
+  // Bound to the address the adapter is given, so no other test's server on the same port can answer instead.
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     idleTimeout: 0,
     async fetch(req) {

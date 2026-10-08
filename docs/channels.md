@@ -172,7 +172,6 @@ place (`m.replace`), typing shows while the crew works, and files go through the
 (authenticated media, with the older path for servers without it). Rate limits (`retry_after_ms`) are waited out.
 There are no buttons, so approvals are typed (`/approve KEY`).
 
-
 ## Set up Discord
 
 1. In the [Discord Developer Portal](https://discord.com/developers/applications), press **New Application** and
@@ -307,6 +306,115 @@ direct chats.
 - Photos, documents, videos and voice notes come in (fetched from Meta with the token); files the run made go back as
   images (up to 5 MB) or documents (up to 100 MB).
 
+## Set up Synology Chat
+
+Needs a gateway with a public HTTPS address (`--public-url`): Synology Chat posts each message to it.
+
+1. In Synology Chat, open **Integration → Bots** and create a bot. Set its **outgoing URL** to
+   `<public-url>/hooks/channels/synology-chat`, and copy its **token** and its **incoming URL**.
+2. **Settings → Channels → Synology Chat**: paste the incoming URL and the token (`myrmidon channels synology-chat`
+   on a server). The incoming URL is checked by asking the NAS for its users.
+3. Message the bot: it replies with a code to approve, as on Telegram.
+
+Every post must carry the bot's token (in the body, `?token=`, or an `X-Synology-Token` / `Authorization: Bearer`
+header), compared in constant time. Bots are talked to one to one, so every chat is a direct message, keyed by the
+person's numeric Synology user id (never by their nickname, which they can change). Synology Chat cannot edit a
+bot's messages or show typing, so the answer arrives when the run is done. Files the crew makes are sent as a link
+the NAS fetches from the gateway: a random address on the same webhook route that works for ten minutes (up to
+32 MB; web pages and markup are not sent).
+
+## Set up Nextcloud Talk
+
+Needs a gateway with a public HTTPS address: Talk posts each message to it.
+
+1. On the Nextcloud server, install a bot with a long secret of your own:
+
+   ```bash
+   occ talk:bot:install "Myrmidon" "<secret>" "<public-url>/hooks/channels/nextcloud-talk" --feature webhook --feature response
+   ```
+
+   Keep `--feature response`: without it Talk refuses the bot's replies. Then enable the bot in a conversation's
+   settings (**Bots**).
+2. **Settings → Channels → Nextcloud Talk**: the server address and the same secret. Optionally the bot's name (if
+   not "Myrmidon": people mention it as `@name` in group conversations) and a **Nextcloud user with an app
+   password** (Personal settings → Security), which lets Myrmidon look up whether a conversation is one to one.
+
+Talk signs each webhook with the secret (`X-Nextcloud-Talk-Signature`, an HMAC-SHA256 of a random value and the
+body); unsigned or wrongly signed posts are refused. Replies are signed the same way. Talk's webhook does not say
+whether a conversation is one to one, so without the user and app password every conversation is a group: the bot
+answers when mentioned, and since codes are only sent in direct chats, let yourself in by your Nextcloud user id
+(`users/alice`) under "Let in without a code". With them, one-to-one and note-to-self conversations are direct
+chats with a pairing code. The bot API cannot edit messages or send files; shared files are not read (they need
+the person's own Nextcloud access).
+
+## Set up SimpleX
+
+Runs the SimpleX Chat terminal app beside the gateway, on the same machine; nothing needs to be public.
+
+1. Install the CLI (`simplex-chat`), start it once in a terminal to create the bot's profile, and make an address
+   people can connect to (`/address`). Then run it as a server: `simplex-chat -p 5225`.
+2. **Settings → Channels → SimpleX**: the WebSocket address (`ws://127.0.0.1:5225` when left empty).
+3. Connect to the bot's address from your phone and send a message: it replies with a code to approve.
+
+Contact requests are accepted (SimpleX has no other way in; Hermes does the same by default), and strangers then get
+a code and nothing else. Contacts are kept by their SimpleX contact id, groups as `group:<id>`; a group member who is
+also a contact is the same person in both. In groups the bot answers when mentioned (`@name`), replied to, or sent a
+command. Photos, voice notes and files you send are downloaded by the daemon and handed to the crew; files the crew
+makes are written to the channel's folder for the daemon to send. SimpleX has no typing indicator and the bot does
+not edit messages.
+
+## Set up Tlon (Urbit)
+
+1. Get the ship's URL and access code (Landscape: System Preferences → Access Key; or `+code` in the dojo).
+2. **Settings → Channels → Tlon**: paste both. Logging in with the code is the check.
+3. DM the ship from another ship: it accepts the invitation and replies with a code to approve.
+
+Myrmidon keeps one Eyre channel open to the ship, subscribed to its chat and channels updates (a stream of
+server-sent events, acknowledged in batches), and pokes the ship to send; nothing needs to be public. Direct
+messages are with a ship (`~sampel-palnet`); group chat channels are conversations by their nest
+(`chat/~host/name`), and a reply thread is a conversation of its own, answered in the thread. In groups the ship
+answers when its name is mentioned (or `@all`). Images in messages reach the crew as files; Tlon messages are not
+edited, and files are not sent.
+
+## Set up a generic webhook
+
+For anything that can send HTTP: scripts, home automation, another service. Needs a gateway with a public HTTPS
+address (or a reverse proxy to it).
+
+**Settings → Channels → Webhook**: a shared secret (at least 16 characters, e.g. `openssl rand -hex 32`), the
+callback URL replies are POSTed to, and optionally a name. Then POST messages to
+`<public-url>/hooks/channels/webhook`:
+
+```json
+{ "id": "evt-1", "chat": "kitchen", "sender": { "id": "ha", "name": "Home Assistant" }, "text": "Is the oven off?" }
+```
+
+- `chat` is an id (a direct chat), or `{ "id", "kind": "dm" | "group", "title", "thread" }`. In a group,
+  `"mentioned": false` marks a message the crew should not answer.
+- `files` (optional): `[{ "name", "mimeType", "data": "<base64>" }]`.
+- `id` is unique per message: a repeated id is dropped.
+
+Each request is signed with the secret, with the time bound into the signature so a captured request cannot be
+replayed, even with a fresh timestamp (Hermes's generic HMAC scheme):
+
+```text
+X-Timestamp: <unix seconds>
+X-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<raw body>">
+```
+
+Unsigned or wrongly signed requests get 401, as do ones signed more than five minutes ago. For example:
+
+```bash
+body='{"id":"1","chat":"me","sender":{"id":"me"},"text":"hello"}'; ts=$(date +%s)
+sig=$(printf '%s' "$ts.$body" | openssl dgst -sha256 -hmac "$SECRET" | cut -d' ' -f2)
+curl -X POST "$PUBLIC_URL/hooks/channels/webhook" -H "X-Timestamp: $ts" -H "X-Signature: sha256=$sig" -d "$body"
+```
+
+Replies are POSTed to the callback URL as JSON, signed the same way (check them before trusting them):
+`{ "type": "message", "id", "chat", "thread"?, "text" }`, `{ "type": "edit", "id", "chat", "text" }` (the status
+line is updated by editing its message), and `{ "type": "file", "id", "chat", "name", "mimeType", "data",
+"caption"? }`. The callback must answer 2xx; failed replies are retried. No typing indicator is sent.
+
 ## Using it
 
 - Send what you want done. A status line appears and updates as the crew works ("researcher: searching …"),
@@ -389,3 +497,7 @@ stream, `/sync`), so they need no public address.
   messages tab" must be on, and the app needs `im:history` and the `message.im` event (reinstall after changing
   scopes).
 - **"Slack sent a page instead of the file"**: give the app `files:read` and reinstall it.
+- **"needs a public HTTPS address"** (Synology Chat, Nextcloud Talk, webhook): these platforms post to the gateway,
+  so start it with `--public-url` (see `remote.md`) and point the platform at `<public-url>/hooks/channels/<id>`.
+- **"cannot reach simplex-chat"**: start the CLI with `simplex-chat -p 5225` on this machine.
+- **"the ship refused this access code"**: the code changes when it is reset (`+code` shows the current one).
