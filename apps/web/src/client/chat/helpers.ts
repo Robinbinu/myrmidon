@@ -1,6 +1,6 @@
 /** The helpers setting: what it is called everywhere, and the helpers set aside while it is off. */
 
-import type { RosterEntry, TeamConfig } from '../api.ts'
+import type { ModelOption, RosterEntry, TeamConfig } from '../api.ts'
 import { copy } from '../copy.ts'
 
 export type HelperMode = 'never' | 'auto' | 'always'
@@ -38,9 +38,15 @@ export function readSavedHelpers(): SavedHelpers | undefined {
   try {
     const raw = JSON.parse(localStorage.getItem(SAVED_HELPERS_KEY) ?? 'null') as Partial<SavedHelpers> | null
     if (!raw || (raw.mode !== 'orchestrated' && raw.mode !== 'swarm') || !Array.isArray(raw.roster)) return
-    const roster = raw.roster.filter(
-      (r): r is RosterEntry => typeof r?.role === 'string' && typeof r?.model === 'string' && !!r.model,
-    )
+    const roster = (raw.roster as Partial<Record<keyof RosterEntry, unknown>>[])
+      .filter((r) => typeof r?.role === 'string' && typeof r?.model === 'string' && !!r.model)
+      .map(
+        (r): RosterEntry => ({
+          role: r.role as string,
+          model: r.model as string,
+          ...(typeof r.specialist === 'string' && r.specialist ? { specialist: r.specialist } : {}),
+        }),
+      )
     const extraWorkers = typeof raw.extraWorkers === 'number' ? Math.max(0, Math.floor(raw.extraWorkers)) : 0
     return roster.length || extraWorkers ? { mode: raw.mode, roster, extraWorkers } : undefined
   } catch {
@@ -57,10 +63,28 @@ export function saveHelpers(saved: SavedHelpers) {
 }
 
 /**
+ * The helpers set aside, on models that can still be used: one that is gone since (a provider signed out, a key
+ * removed) is swapped for the lead's model, which the server would otherwise refuse as unknown.
+ */
+function restoredHelpers(config: TeamConfig, models: readonly ModelOption[]): SavedHelpers | undefined {
+  const saved = readSavedHelpers()
+  if (!saved) return undefined
+  const known = new Set(models.map((m) => m.ref))
+  return {
+    ...saved,
+    roster: saved.roster.map((r) => (known.has(r.model) ? r : { ...r, model: config.leadModel })),
+  }
+}
+
+/**
  * The config with helpers set to `next`. Never sets the helpers aside and leaves the lead alone (a swarm without
  * peers is no swarm, so it becomes a lead); turning them on brings back the ones set aside, or two to start with.
  */
-export function withHelperMode(config: TeamConfig, next: HelperMode): TeamConfig {
+export function withHelperMode(
+  config: TeamConfig,
+  next: HelperMode,
+  models: readonly ModelOption[],
+): TeamConfig {
   const { helpers: _, ...rest } = config
   const on = helperMode(config) !== 'never'
   if (next === 'never') {
@@ -71,7 +95,7 @@ export function withHelperMode(config: TeamConfig, next: HelperMode): TeamConfig
     ...rest,
     ...(on
       ? {}
-      : (readSavedHelpers() ?? {
+      : (restoredHelpers(config, models) ?? {
           mode: 'orchestrated',
           roster: [
             { role: 'researcher', model: config.leadModel },

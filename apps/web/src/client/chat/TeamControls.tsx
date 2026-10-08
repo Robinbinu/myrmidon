@@ -349,7 +349,7 @@ export function HelpersChip(props: {
   const { config } = props
   const mode = helperMode(config)
   const on = mode !== 'never'
-  const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next))
+  const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next, props.models))
   return (
     <ChipMenu
       label={copy.teamControls.helpers.label}

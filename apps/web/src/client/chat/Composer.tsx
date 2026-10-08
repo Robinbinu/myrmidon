@@ -166,7 +166,7 @@ export function TeamSettings(props: {
             id="composer-helpers"
             value={helperMode(config)}
             options={[...HELPER_MODES]}
-            onChange={(mode) => props.onConfig(withHelperMode(config, mode))}
+            onChange={(mode) => props.onConfig(withHelperMode(config, mode, props.models))}
           />
         </Row>
         {helperMode(config) !== 'never' && (
