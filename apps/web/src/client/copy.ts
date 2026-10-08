@@ -227,7 +227,9 @@ export const copy = {
     colonyCreated: (name: string) => `colony created: ${name}`,
     crewStarted: 'crew started',
     colonyStopped: (reason: string) => `colony stopped: ${reason}`,
-    crewCompleted: 'crew COMPLETED (verified)',
+    /** Whether it was reviewed is the verdict line's to say: a round can finish unreviewed. */
+    crewCompleted: 'crew COMPLETED',
+    notReviewed: 'final answer delivered, not reviewed',
     turn: (agent: string, turn: number, phase: string, trigger: string) =>
       `${agent} turn ${turn} ${phase} [${trigger}]`,
     ok: 'ok',
@@ -1094,6 +1096,7 @@ export const copy = {
       replied: 'replied to you',
       published: (name: string, version: number, size: string) => `published ${name} v${version} (${size}B)`,
       verdict: (result: string, target: string) => `${result} on ${target}`,
+      notReviewed: 'final answer delivered, not reviewed',
       broughtIn: (name: string, model: string) => `brought in ${name} (${model})`,
     },
     pass: 'PASS',

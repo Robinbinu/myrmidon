@@ -2,7 +2,12 @@ import { expect, test } from 'bun:test'
 import type { MyrEvent } from '../src/index.ts'
 import { runDiff } from '../src/index.ts'
 
-function run(model: string, tools: string[], files: Record<string, string>): MyrEvent[] {
+function run(
+  model: string,
+  tools: string[],
+  files: Record<string, string>,
+  verdict?: { verifierId: string; pass: boolean; score?: number },
+): MyrEvent[] {
   let seq = 0
   const ev = (type: string, payload: Record<string, unknown>) =>
     ({
@@ -31,6 +36,7 @@ function run(model: string, tools: string[], files: Record<string, string>): Myr
     ...Object.entries(files).map(([name, blob]) =>
       ev('artifact/versioned', { name, version: 1, blob, size: 1, author: 'lead', mediaType: 'text/plain' }),
     ),
+    ...(verdict ? [ev('verifier/verdict', { target: 'colony', evidence: 'x', ...verdict })] : []),
   ]
 }
 
@@ -65,4 +71,13 @@ test('a run diff lines up tools, files and agents of two runs', () => {
       b: { model: 'm/two', turns: 0, tokens: 0, toolCalls: 3 },
     },
   ])
+})
+
+test('a round nobody reviewed has no judge result, while a judged one keeps its verdict', () => {
+  const diff = runDiff(
+    { id: 'a', events: run('m/one', [], {}, { verifierId: 'delivered', pass: true }) },
+    { id: 'b', events: run('m/one', [], {}, { verifierId: 'judge#0', pass: true, score: 0.9 }) },
+  )
+  expect(diff.a.judge).toBeUndefined()
+  expect(diff.b.judge).toEqual({ pass: true, score: 0.9 })
 })

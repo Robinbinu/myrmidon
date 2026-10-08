@@ -92,6 +92,12 @@ export interface ArtifactVersion extends Entry {
   readonly parentVersion?: number
 }
 
+/**
+ * The verifier of a round nobody reviews: completion must cite a passing verdict, so its final answer records that it
+ * was delivered. It checks nothing, so it is never shown as a review, an approval, or a judge's pass.
+ */
+export const DELIVERED_VERIFIER = 'delivered'
+
 export interface VerdictEntry extends Entry {
   readonly target: string
   readonly verifierId: string

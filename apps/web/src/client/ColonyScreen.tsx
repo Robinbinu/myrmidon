@@ -1,4 +1,10 @@
-import { type ColonyState, colonyMetrics, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  colonyMetrics,
+  DELIVERED_VERIFIER,
+  type EventPayloads,
+  type MyrEvent,
+} from '@myrmidon/protocol'
 import {
   Activity,
   BadgeCheck,
@@ -192,6 +198,17 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
       }
       case 'verifier/verdict': {
         const p = e.payload as EventPayloads['verifier/verdict']
+        if (p.verifierId === DELIVERED_VERIFIER) {
+          items.push({
+            ...base,
+            agent: copy.colonyScreen.agents.colony,
+            kind: 'event',
+            icon: CircleDot,
+            tone: 'text-muted',
+            text: copy.colonyScreen.activity.notReviewed,
+          })
+          break
+        }
         items.push({
           ...base,
           agent: p.verifierId,

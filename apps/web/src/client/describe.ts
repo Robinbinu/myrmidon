@@ -1,4 +1,4 @@
-import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
+import { DELIVERED_VERIFIER, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
 import { copy } from './copy.ts'
 
 const short = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -65,6 +65,7 @@ export function describeEvent(e: MyrEvent): string {
       return copy.events.verificationRequested((p as EventPayloads['verifier/requested']).by)
     case 'verifier/verdict': {
       const s = p as EventPayloads['verifier/verdict']
+      if (s.verifierId === DELIVERED_VERIFIER) return copy.events.notReviewed
       return copy.events.verdict(s.verifierId, s.target, s.pass)
     }
     default:

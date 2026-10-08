@@ -15,6 +15,7 @@ import {
   type ColonyId,
   type ColonyState,
   crewOf,
+  DELIVERED_VERIFIER,
   describeEffect,
   type EventDraft,
   type EventPayloads,
@@ -1314,10 +1315,10 @@ export class ColonyRun implements ColonyHost {
       // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
       const verdict = await this.append({
         type: 'verifier/verdict',
-        actor: { kind: 'verifier', id: 'delivered' },
+        actor: { kind: 'verifier', id: DELIVERED_VERIFIER },
         payload: {
           target: 'colony',
-          verifierId: 'delivered',
+          verifierId: DELIVERED_VERIFIER,
           pass: true,
           evidence:
             this.spec.review === 'auto'
