@@ -301,8 +301,8 @@ export class ChannelHub {
   }
 
   /**
-   * Saves a channel's settings (new values are checked with the platform first), access rules and project; then
-   * restarts it.
+   * Saves a channel's settings (all its required ones, checked with the platform first; never some of them), access
+   * rules and project; then restarts it.
    */
   async configure(id: string, patch: ChannelPatch) {
     const kind = this._kind(id)
@@ -318,12 +318,13 @@ export class ChannelHub {
         if (v.trim()) values[k] = v.trim()
         else delete values[k]
       }
-      const filled = kind.fields.every((f) => f.optional || Boolean(values[f.key]))
+      const missing = kind.fields.filter((f) => !f.optional && !values[f.key])
+      if (missing.length) throw new Error(t.missing(missing.map((f) => f.label)))
       // Settings are only kept once the platform accepts them.
-      if (filled) await kind.make(values).check()
+      await kind.make(values).check()
       this.store.update(id, (c) => {
         c.values = values
-        if (filled && patch.enabled === undefined) c.enabled = true
+        if (patch.enabled === undefined) c.enabled = true
       })
     }
     this.store.update(id, (c) => {

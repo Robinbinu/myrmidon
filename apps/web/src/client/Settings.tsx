@@ -73,7 +73,7 @@ import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { StateDot } from './System.tsx'
-import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
+import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
@@ -2715,7 +2715,12 @@ function ChannelSheet(props: {
   const [allowDraft, setAllowDraft] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<{ at: string; kind: string; text: string }[]>()
-  const changed = Object.values(draft).some((v) => v.trim())
+  const saved = new Set([...c.secretsSet, ...Object.keys(c.values).filter((k) => c.values[k])])
+  const setup = channelSetup(c.fields, saved, draft)
+  const changed = Object.keys(setup.values).length > 0
+  // Why the settings were not saved: on the one field it is about, or for the form when it is about several.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [setupError, setSetupError] = useState<string>()
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload on a timer while the tab shows
   useEffect(() => {
     if (tab !== 'activity') return
@@ -2730,14 +2735,34 @@ function ChannelSheet(props: {
   const configure = async (patch: Record<string, unknown>) => {
     setBusy(true)
     try {
-      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, patch)
-      if (patch.values) {
-        setDraft({})
-        if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
-      }
+      await send('PUT', `/api/channels/${c.id}`, patch)
       await props.onChanged()
     } catch (err) {
       toast((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const saveValues = async () => {
+    setSetupError(undefined)
+    if (setup.missing.length)
+      return setFieldErrors(
+        Object.fromEntries(setup.missing.map((k) => [k, copy.settings.validation.required])),
+      )
+    setFieldErrors({})
+    setBusy(true)
+    try {
+      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, {
+        values: setup.values,
+      })
+      setDraft({})
+      if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
+      await props.onChanged()
+    } catch (err) {
+      const why = (err as Error).message
+      const typed = Object.keys(setup.values)
+      if (typed.length === 1 && typed[0]) setFieldErrors({ [typed[0]]: why })
+      else setSetupError(why)
     } finally {
       setBusy(false)
     }
@@ -2821,34 +2846,53 @@ function ChannelSheet(props: {
             )}
             {(c.fields.length > 0 || !c.enabled || c.configured) && (
               <Card>
-                {c.fields.map((f) => {
-                  const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])
-                  return (
-                    <Row key={f.key}>
-                      <Field label={f.label} hint={f.secret && saved ? t.secretSet : f.hint}>
-                        <TextInput
-                          type={f.secret ? 'password' : 'text'}
-                          autoComplete="off"
-                          value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
-                          onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-                          placeholder={f.placeholder}
-                          aria-label={f.label}
-                          className="font-mono"
-                        />
-                      </Field>
-                    </Row>
-                  )
-                })}
+                {c.fields.map((f) => (
+                  <Row key={f.key}>
+                    <Field
+                      label={f.optional ? t.optional(f.label) : f.label}
+                      hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
+                      error={fieldErrors[f.key]}
+                    >
+                      <TextInput
+                        type={f.secret ? 'password' : 'text'}
+                        autoComplete="off"
+                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setDraft((d) => ({ ...d, [f.key]: value }))
+                          setFieldErrors(({ [f.key]: _, ...rest }) => rest)
+                          setSetupError(undefined)
+                        }}
+                        placeholder={f.placeholder}
+                        className="font-mono"
+                      />
+                    </Field>
+                  </Row>
+                ))}
                 {c.fields.length > 0 ? (
                   <Row>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={busy || !changed}
-                      onClick={() => void configure({ values: draft })}
-                    >
-                      {busy ? t.saving : t.save}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || !changed}
+                        onClick={() => void saveValues()}
+                      >
+                        {busy ? t.saving : t.save}
+                      </Button>
+                      {setup.missing.length > 0 && (
+                        <span className="text-[12px] text-muted">
+                          {t.stillNeeded(
+                            c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    {setupError && (
+                      <p role="alert" className="mt-2 text-small leading-snug text-bad-ink">
+                        {setupError}
+                      </p>
+                    )}
                   </Row>
                 ) : (
                   !c.enabled && (
@@ -2931,33 +2975,39 @@ function ChannelSheet(props: {
                           {t.expires(new Date(p.expires).toLocaleTimeString())}
                         </div>
                       </div>
-                      <Field label={t.code} hint={t.codeHint} error={codeErrors[p.id]} inline>
-                        <TextInput
-                          value={codes[p.id] ?? ''}
-                          onChange={(e) => {
-                            const code = e.target.value
-                            setCodes((all) => ({ ...all, [p.id]: code }))
-                            setCodeErrors(({ [p.id]: _, ...rest }) => rest)
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void approve(p)
-                          }}
-                          autoComplete="off"
-                          spellCheck={false}
-                          maxLength={PAIRING_CODE_LENGTH}
-                          className="w-36 font-mono uppercase"
-                        />
-                      </Field>
-                      <div className="flex justify-end gap-2">
-                        <ConfirmButton
-                          label={t.decline}
-                          name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
-                          confirm={t.declineConfirm}
-                          onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                        />
-                        <Button size="sm" variant="primary" onClick={() => void approve(p)}>
-                          {asOwner ? t.makeOwner : t.approve}
-                        </Button>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="w-48">
+                          <Field label={t.code} error={codeErrors[p.id]}>
+                            <TextInput
+                              value={codes[p.id] ?? ''}
+                              onChange={(e) => {
+                                const code = e.target.value
+                                setCodes((all) => ({ ...all, [p.id]: code }))
+                                setCodeErrors(({ [p.id]: _, ...rest }) => rest)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void approve(p)
+                              }}
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={PAIRING_CODE_LENGTH}
+                              className="font-mono uppercase"
+                            />
+                          </Field>
+                        </div>
+                        <div className="ml-auto flex gap-2">
+                          <ConfirmButton
+                            label={t.decline}
+                            name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
+                            confirm={t.declineConfirm}
+                            onConfirm={() =>
+                              void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))
+                            }
+                          />
+                          <Button size="sm" variant="primary" onClick={() => void approve(p)}>
+                            {asOwner ? t.makeOwner : t.approve}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )

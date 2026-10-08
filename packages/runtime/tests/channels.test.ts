@@ -317,6 +317,12 @@ test('a flood is answered once with a "slow down", not dropped silently and not 
   expect(chats.sends.length).toBeLessThanOrEqual(20)
 })
 
+test('a channel’s settings are saved whole or not at all: a missing required one is named, nothing is kept', async () => {
+  const { hub } = await setup()
+  await expect(hub.configure('telegram', { values: { token: ' ' } })).rejects.toThrow('Still needed: Token')
+  expect(hub.store.get('telegram').values).toEqual({ token: 'tok' })
+})
+
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {
   const { hub, adapter, chats, say, pair, dir } = await setup()
   await pair(ALICE)

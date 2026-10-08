@@ -106,3 +106,21 @@ export function clampNumber(text: string, min: number, max: number, fallback: nu
   if (!text.trim() || !Number.isFinite(v)) return fallback
   return Math.min(max, Math.max(min, v))
 }
+
+/**
+ * A channel's settings as Save sends them, and the required ones it would still lack, which
+ * `packages/runtime/src/channels/hub.ts` refuses. A secret typed and then emptied is left out: sending it empty would
+ * delete the one saved.
+ */
+export function channelSetup(
+  fields: readonly { key: string; secret?: boolean; optional?: boolean }[],
+  saved: ReadonlySet<string>,
+  draft: Readonly<Record<string, string>>,
+): { values: Record<string, string>; missing: string[] } {
+  const secret = new Set(fields.filter((f) => f.secret).map((f) => f.key))
+  const values = Object.fromEntries(Object.entries(draft).filter(([k, v]) => !secret.has(k) || v.trim()))
+  const missing = fields
+    .filter((f) => !f.optional && !(f.key in values ? values[f.key]?.trim() : saved.has(f.key)))
+    .map((f) => f.key)
+  return { values, missing }
+}

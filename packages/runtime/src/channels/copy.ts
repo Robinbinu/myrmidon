@@ -283,6 +283,7 @@ export const channelCopy = {
   unreadable: (why: string) =>
     `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak from the same folder.`,
   notObject: 'it does not hold a list of channels',
+  missing: (labels: string[]) => `Still needed: ${labels.join(', ')}`,
   /** What an agent is doing, by tool. */
   doing: {
     shell: (command: string) => `running \`${command}\``,

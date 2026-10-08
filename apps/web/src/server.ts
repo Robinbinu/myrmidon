@@ -903,7 +903,7 @@ export function startServer(options: ServeOptions): WebServer {
           const body = (await req.json().catch(() => ({}))) as { code?: unknown; request?: unknown }
           // Only the code proves the request is from someone the approver knows: a request id alone is not enough.
           if (typeof body.code !== 'string' || !body.code.trim())
-            return json({ error: 'type the code the bot sent them' }, 400)
+            return json({ error: 'Type the code the bot sent them.' }, 400)
           const by = {
             code: body.code,
             ...(typeof body.request === 'string' ? { request: body.request } : {}),
@@ -911,7 +911,7 @@ export function startServer(options: ServeOptions): WebServer {
           try {
             const approved = await channels.approve(req.params.id ?? '', by)
             if (!approved)
-              return json({ error: 'that is not the code this request was sent; it may have expired' }, 404)
+              return json({ error: 'That is not the code this request was sent, or it has expired.' }, 404)
             return json({ person: approved.person, group: approved.group })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
