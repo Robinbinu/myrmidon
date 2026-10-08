@@ -135,6 +135,13 @@ export interface OmpRuntime {
    * For voice notes arriving on a channel.
    */
   transcribe(audio: Uint8Array, mimeType: string, fileName: string): Promise<string>
+  /** Text to speech (WAV) with the first speech model omp can call (OpenAI or xAI); throws when there is none. */
+  speak(
+    text: string,
+    options?: { voice?: string; speed?: number },
+  ): Promise<{ audio: Uint8Array; mimeType: string }>
+  /** The speech models omp can call now, as `provider/id`, for Settings → Voice. */
+  speechModels(): { stt: string[]; tts: string[] }
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
@@ -185,6 +192,7 @@ async function start(home: string): Promise<OmpRuntime> {
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
   const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
+  const { isSpeechApi, synthesizeSpeech } = await import('@oh-my-pi/pi-ai/speech/index')
   const modelsPath = join(agentDir, 'models.yml')
 
   type Credentials = {
@@ -392,6 +400,33 @@ async function start(home: string): Promise<OmpRuntime> {
         { apiKey: apiKey as never },
       )
       return result.text
+    },
+    async speak(text, options = {}) {
+      const model = core.registry.getAvailable('tts').find((m) => isSpeechApi(m.api))
+      if (!model) throw new Error('no text-to-speech model: add an OpenAI or xAI key in Settings → Models')
+      const apiKey = (await core.registry.getApiKey(model)) as string | undefined
+      if (!apiKey) throw new Error(`no key for ${model.provider}`)
+      const result = await synthesizeSpeech(
+        model,
+        {
+          text,
+          format: 'wav',
+          ...(options.voice ? { voice: options.voice } : {}),
+          ...(options.speed ? { speed: options.speed } : {}),
+        },
+        { apiKey: apiKey as never },
+      )
+      return { audio: result.audio, mimeType: result.mimeType }
+    },
+    speechModels() {
+      const ref = (m: { provider: string; id: string }) => `${m.provider}/${m.id}`
+      return {
+        stt: core.registry.getAvailable('stt').map(ref),
+        tts: core.registry
+          .getAvailable('tts')
+          .filter((m) => isSpeechApi(m.api))
+          .map(ref),
+      }
     },
     async search(query, options = {}) {
       const result = await search.runSearchQuery(

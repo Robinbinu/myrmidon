@@ -170,3 +170,17 @@ export const RECOVERY_GRACE_MS = 60_000
 export const CHAT_SEARCH_LIMIT = 50
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
+
+/**
+ * Voice call turn taking (after Hermes): speech above the level for VOICE_START_MS starts a turn, VOICE_END_MS of
+ * quiet ends it (shorter than Hermes's 3 s: replies on a call are short), and VOICE_MAX_TURN_MS cuts a turn that runs
+ * on. VOICE_PRE_ROLL_MS of audio from before the start is kept so the first syllable is not lost.
+ */
+export const VOICE_START_MS = 300
+export const VOICE_END_MS = 800
+export const VOICE_MAX_TURN_MS = 30_000
+export const VOICE_PRE_ROLL_MS = 300
+/** Speech level (RMS of 16-bit samples) for each sensitivity in Settings → Voice; Hermes uses 200. */
+export const VOICE_THRESHOLDS = { low: 700, normal: 400, high: 200 } as const
+/** How long Phonon-2's server may take to answer after starting; the first start downloads its 164 MB model. */
+export const VOICE_PHONON_START_MS = 10 * 60_000
