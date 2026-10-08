@@ -289,6 +289,8 @@ export const VOICE_VAD_HYSTERESIS = 0.15
 export const VOICE_MAX_CALLS = 4
 /** Days a call's transcript is kept (`<home>/calls`); a chat's go with it when it is deleted. */
 export const VOICE_TRANSCRIPT_DAYS = 30
+/** How often a running gateway drops transcripts older than that. */
+export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3

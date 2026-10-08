@@ -15,6 +15,7 @@ import {
   VOICE_SMART_TURN_BYTES,
   VOICE_THRESHOLDS,
   VOICE_TRANSCRIPT_DAYS,
+  VOICE_TRANSCRIPT_PRUNE_MS,
   VOICE_VAD_BYTES,
   VOICE_VAD_HYSTERESIS,
   VOICE_VAD_START,
@@ -141,6 +142,8 @@ export class VoiceHub {
       readonly turn?: SmartTurn
       /** Kitten TTS from Hugging Face unless given (tests give one that downloads from a stand-in). */
       readonly kitten?: KittenTts
+      /** How often old transcripts are dropped while the gateway runs (VOICE_TRANSCRIPT_PRUNE_MS unless given). */
+      readonly pruneMs?: number
     },
   ) {
     const log = options.log ?? (() => {})
@@ -160,6 +163,8 @@ export class VoiceHub {
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
     this._prune()
+    // A gateway left running for weeks drops old transcripts too, not only when it starts or a call ends.
+    setInterval(() => this._prune(), options.pruneMs ?? VOICE_TRANSCRIPT_PRUNE_MS).unref()
   }
 
   status(): VoiceStatus {
@@ -418,7 +423,8 @@ export class VoiceHub {
     return {
       context: prompts.voice.transcripts(lines),
       tell: () => {
-        for (const c of calls) this._write({ ...c, told: true })
+        // A transcript deleted meanwhile (its chat was) is not written back.
+        for (const c of calls) if (existsSync(this._file(c.id))) this._write({ ...c, told: true })
       },
     }
   }
@@ -470,9 +476,13 @@ export class VoiceHub {
     for (const { file, call } of this._saved()) if (call.endedAt < before) rmSync(file, { force: true })
   }
 
+  private _file(id: string): string {
+    return join(this._callsDir, `${id}.json`)
+  }
+
   private _write(call: SavedCall) {
     mkdirSync(this._callsDir, { recursive: true, mode: 0o700 })
-    writeFileSync(join(this._callsDir, `${call.id}.json`), `${JSON.stringify(call, null, 2)}\n`, {
+    writeFileSync(this._file(call.id), `${JSON.stringify(call, null, 2)}\n`, {
       mode: 0o600,
     })
   }

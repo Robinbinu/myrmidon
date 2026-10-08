@@ -1,6 +1,15 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
@@ -276,4 +285,38 @@ test('transcripts go with their chat, a call that made no chat is not kept, and 
   })
   expect(later.calls('c2')).toEqual([])
   expect(later.status().transcriptDays).toBe(30)
+})
+
+test('a running gateway drops old transcripts, and telling the crew never brings back a deleted one', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-voicehub-'))
+  dirs.push(home)
+  const dir = join(home, 'calls')
+  mkdirSync(dir, { recursive: true })
+  const write = (id: string, chatId: string, endedAt: string) =>
+    writeFileSync(
+      join(dir, `${id}.json`),
+      JSON.stringify({
+        id,
+        chatId,
+        startedAt: endedAt,
+        endedAt,
+        turns: [{ at: endedAt, who: 'person', text: 'hi' }],
+        rounds: [],
+      }),
+    )
+  const hub = new VoiceHub({
+    home,
+    resolver: new ModelResolver(),
+    settings: () => ({ voice: new SettingsStore(home).get().voice }),
+    pruneMs: 20,
+  })
+  write('fresh', 'c1', new Date().toISOString())
+  const untold = hub.untold('c1')
+  hub.forget('c1')
+  untold?.tell()
+  expect(readdirSync(dir)).toEqual([])
+  // Aged past the limit while the gateway was up.
+  write('aged', 'c2', '2020-01-01T00:00:00.000Z')
+  await Bun.sleep(60)
+  expect(readdirSync(dir)).toEqual([])
 })
