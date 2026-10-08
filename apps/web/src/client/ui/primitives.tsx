@@ -40,7 +40,7 @@ const VARIANTS: Record<Variant, string> = {
   push: PUSH,
   borderless: BORDERLESS,
   toolbar: BORDERLESS,
-  destructive: 'bg-bad text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
+  destructive: 'bg-bad-fill text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
   danger: 'border border-bad/35 text-bad-ink hover:bg-bad-soft',
   secondary: PUSH,
   ghost: BORDERLESS,

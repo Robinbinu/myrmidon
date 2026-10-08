@@ -48,6 +48,7 @@
   --color-warn-soft: var(--warn-soft);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --color-bad-fill: var(--bad-fill);
   --color-work: var(--work);
   --color-ok-ink: var(--ok-ink);
   --color-warn-ink: var(--warn-ink);

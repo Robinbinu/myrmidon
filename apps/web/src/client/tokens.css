@@ -40,16 +40,18 @@
   --signal: #ffb31a;
   --lime: #d4ff3a;
   /* Status colours are Apple's light system colours, bright enough to read at a glance as dots, icons and fills.
-     Text uses the -ink shade of the same hue, deep enough for 4.5:1 on white. */
+     Text uses the -ink shade of the same hue, deep enough for 4.5:1 on white and on the hue's -soft fill. */
   --ok: #34c759;
   --ok-soft: rgb(52 199 89 / 0.14);
-  --ok-ink: #008a2e;
+  --ok-ink: #007928;
   --warn: #ff9500;
   --warn-soft: rgb(255 149 0 / 0.15);
-  --warn-ink: #c45200;
+  --warn-ink: #ac4800;
   --bad: #ff3b30;
   --bad-soft: rgb(255 59 48 / 0.12);
   --bad-ink: #d70015;
+  /* Fill behind white text on destructive buttons, the same in both themes: --bad is too bright for white text. */
+  --bad-fill: #d70015;
   --work: #ffb31a;
   --work-ink: #8a5a00;
   --idle: #aeaeb2;
@@ -97,7 +99,7 @@
   --terminal-bg: #0b0b0d;
   --terminal-text: #d7d7de;
   --terminal-command: #9be37a;
-  --terminal-muted: #6b6b78;
+  --terminal-muted: #7a7a86;
   --terminal-error: #ff8a8a;
   --shell-log-bg: #0b0f17;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
