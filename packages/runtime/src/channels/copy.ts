@@ -4,7 +4,35 @@ export const channelCopy = {
   setup: {
     telegram:
       'In Telegram, message @BotFather, send /newbot and follow its steps, then paste the token it gives you. Then message your bot: it replies with a code to approve here. The first person approved is the owner.',
+    mattermost:
+      "In Mattermost, open Integrations → Bot Accounts → Add Bot Account, then paste your server's address and the bot's token. Message the bot directly: it replies with a code to approve here. In channels, add the bot and mention it. Buttons for approvals need this gateway's public address; without one, reply /approve KEY (type a space before the slash, or Mattermost takes it as its own command).",
+    email:
+      "Use a mailbox of its own for Myrmidon, with an app password (Gmail, Outlook and iCloud require one). Choose 'listed people only' for direct messages and list your address, so strangers' mail is ignored rather than answered with a code. Mail is only accepted when your mail server verified the sender (DMARC, SPF or DKIM). Each email thread is a conversation of its own.",
+    sms: "In the Twilio console, copy the Account SID and Auth Token and buy or pick a number. SMS needs this gateway's public address: Twilio posts each text to it, and the number is pointed there for you. List your phone number (as +15551234567) under 'let in without a code'.",
+    ntfy: 'Pick a long random topic name (anyone who knows it can read and write it), subscribe to it in the ntfy app, then write there. The topic is one conversation; the access rules here still apply, so approve the code it replies with. Add an access token for a protected topic or your own server.',
   },
+  /** What platforms report in Settings when they cannot connect. */
+  errors: {
+    mattermostToken: 'Mattermost refused this token; copy it again from Integrations → Bot Accounts',
+    mattermostUnreachable: (why: string) => `cannot reach the Mattermost server: ${why}`,
+    emailLogin: 'The mail server refused this username and password (many need an app password)',
+    emailSend: (why: string) => `cannot send mail: ${why}`,
+    smsToken: 'Twilio refused this Account SID and Auth Token; copy them again from the Twilio console',
+    smsNumber: (number: string) => `${number} is not a number on this Twilio account`,
+    smsPublic:
+      "SMS needs this gateway's public address (start it with --public-url): Twilio delivers texts by posting to it",
+    ntfyRefused: 'The ntfy server refused access to this topic; check the access token',
+    ntfyTopic: 'A topic is letters, digits, - and _, up to 64 characters',
+    ntfyGuessable:
+      'Pick a topic of at least 12 characters (anyone who knows it can read it), or protect it with an access token',
+  },
+  /** Email specifics: the subject of a new thread, and how a new thread's subject reaches the crew. */
+  email: {
+    subject: 'Myrmidon',
+    withSubject: (subject: string, body: string) => (body ? `${subject}\n\n${body}` : subject),
+  },
+  /** What a message on an ntfy topic is shown as coming from (ntfy has no senders). */
+  ntfySender: 'ntfy topic',
   pairing: {
     code: (code: string, channel: string) =>
       [

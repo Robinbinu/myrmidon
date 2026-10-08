@@ -143,3 +143,119 @@ export function telegramHtml(markdown: string): string {
   if (code) out.push(`<pre>${escapeHtml(code.lines.join('\n'))}</pre>`)
   return out.join('\n')
 }
+
+/**
+ * Markdown as plain text, for platforms that show it literally (SMS): markers dropped, links as `label (url)`,
+ * bullets as `•`, code kept as it is.
+ */
+export function plainText(markdown: string): string {
+  const out: string[] = []
+  let code = false
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      code = !code
+      continue
+    }
+    if (code) {
+      out.push(line)
+      continue
+    }
+    const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+    const codes: string[] = []
+    // Inline code is set aside first, so the markers inside it are kept.
+    const body = (bullet ? `${bullet[1] ?? ''}• ${bullet[2] ?? ''}` : line)
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^>\s?/, '')
+      .replace(/`([^`\n]+)`/g, (_m, c: string) => {
+        codes.push(c)
+        return `${codes.length - 1}`
+      })
+      .replace(/!\[[^\]\n]*\]\(([^)\s]+)\)/g, '$1')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label: string, url: string) =>
+        label === url ? url : `${label} (${url})`,
+      )
+      .replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '$1')
+      .replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '$1')
+      .replace(/~~(?!\s)([^~\n]+?)(?<!\s)~~/g, '$1')
+      .replace(/(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])/g, '$1')
+      .replace(/(?<![\w_])_(?![\s_])([^_\n]+?)(?<![\s_])_(?![\w_])/g, '$1')
+      .replace(/(\d+)/g, (_m, i: string) => codes[Number(i)] ?? '')
+    out.push(body)
+  }
+  return out
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * Markdown as a simple HTML email body: paragraphs, headings, lists, quotes and code blocks, with the same inline
+ * formatting as `telegramHtml`; everything else escaped.
+ */
+export function emailHtml(markdown: string): string {
+  const out: string[] = []
+  let code: string[] | undefined
+  let list: 'ul' | 'ol' | undefined
+  let para: string[] = []
+  const flush = () => {
+    if (para.length) out.push(`<p>${para.join('<br>\n')}</p>`)
+    para = []
+  }
+  const closeList = () => {
+    if (list) out.push(`</${list}>`)
+    list = undefined
+  }
+  const item = (kind: 'ul' | 'ol', text: string) => {
+    flush()
+    if (list !== kind) {
+      closeList()
+      out.push(`<${kind}>`)
+      list = kind
+    }
+    out.push(`<li>${inline(text)}</li>`)
+  }
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      if (code) {
+        out.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`)
+        code = undefined
+      } else {
+        flush()
+        closeList()
+        code = []
+      }
+      continue
+    }
+    if (code) {
+      code.push(line)
+      continue
+    }
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line)
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line)
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line)
+    if (!line.trim()) {
+      flush()
+      closeList()
+    } else if (heading) {
+      flush()
+      closeList()
+      // An email's own subject is its title, so `#` starts at h2.
+      const level = Math.min(6, (heading[1] ?? '#').length + 1)
+      out.push(`<h${level}>${inline(heading[2] ?? '')}</h${level}>`)
+    } else if (bullet) item('ul', bullet[1] ?? '')
+    else if (numbered) item('ol', numbered[1] ?? '')
+    else if (/^>\s?/.test(line)) {
+      flush()
+      closeList()
+      out.push(`<blockquote>${inline(line.replace(/^>\s?/, ''))}</blockquote>`)
+    } else {
+      closeList()
+      para.push(inline(line))
+    }
+  }
+  // A block left open (a cut that missed its fence) is still closed.
+  if (code) out.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`)
+  flush()
+  closeList()
+  return out.join('\n')
+}
