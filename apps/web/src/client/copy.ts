@@ -543,6 +543,15 @@ export const copy = {
       deny: 'Deny',
       approve: 'Approve',
     },
+    /** What became of a call once decided, as the one line it leaves in the chat. */
+    decided: {
+      approved: (what: string) => `Approved: ${what}`,
+      approvedEdited: (what: string) => `Approved your version: ${what}`,
+      denied: (what: string) => `Denied: ${what}`,
+      timedOut: (what: string) => `Not answered in time: ${what}`,
+      stopped: (what: string) => `Not run, the round stopped: ${what}`,
+      withNote: (line: string, note: string) => `${line} · ${note}`,
+    },
     /** A change shown in full before it happens. */
     review: {
       edit: 'Edit',
@@ -755,6 +764,10 @@ export const copy = {
       meanwhileHint: 'Reply below to change it; the work keeps going.',
       copied: 'Copied',
       copy: 'Copy',
+      /** Read out once while a reply streams in, instead of every chunk of it. */
+      replying: (name: string) => `${name} is replying`,
+      /** A finished reply, read out once it lands. */
+      said: (name: string, text: string) => `${name}: ${text}`,
     },
     thoughts: {
       thinkingFor: (time: string) => `Thinking for ${time}`,
@@ -764,6 +777,8 @@ export const copy = {
     lead: {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
+      /** The round is paused on a call the person has to approve. */
+      approval: 'Waiting for your approval',
       toTeam: 'Bringing in helpers',
       toAgent: 'Handing this to one agent with every tool',
       doneIn: (time: string) => `Done in ${time}`,

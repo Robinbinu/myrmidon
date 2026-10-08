@@ -26,11 +26,12 @@ import {
   Network,
   Play,
   RotateCcw,
+  ShieldQuestion,
   TriangleAlert,
   Users,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
@@ -47,9 +48,9 @@ import {
 } from '../ui/pixel.tsx'
 import { Button, cn, IconButton, Pill, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
-import type { ColonyView } from '../use-colony.ts'
+import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
-import { ApprovalCards, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
+import { Approval, LoginCards, MemoryCards, type Pending, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
@@ -71,6 +72,22 @@ export function modeLabel(state: ColonyState): string {
 export function isRunning(status: string) {
   return status === 'running' || status === 'created'
 }
+
+/** The round is paused on a call only the person can let through. */
+const awaitingApproval = (state: ColonyState) => Object.values(state.approvals).some((a) => !a.decided)
+
+/** A round that stopped or failed on its own account: not paused for the person, a failed model, or a hand-over. */
+function halted(state: ColonyState) {
+  if (state.escalated) return false
+  if (state.status === 'failed') return true
+  return state.status === 'stopped' && !state.modelError && state.statusReason !== AWAITING
+}
+
+/** One thing in a round's conversation, placed by where it happened in the log. */
+type Item =
+  | { seq: number; message: ChatEntry }
+  | { seq: number; approval: Pending }
+  | { seq: number; stream: string; live: LiveReply }
 
 const enter = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: softSpring }
 
@@ -158,8 +175,32 @@ export function RoundView(props: {
   const [first, ...rest] = state.chatMessages
   const opening = first?.from === 'user' ? first : undefined
   const thread = opening ? rest : state.chatMessages
+  const streaming =
+    latest && isRunning(state.status)
+      ? Object.entries(colony.streams).filter(
+          ([agent, live]) =>
+            live.text && !state.chatMessages.some((m) => m.from === agent && m.seq > live.since),
+        )
+      : []
+  const timeline: Item[] = [
+    ...thread.map((m) => ({ seq: m.seq, message: m })),
+    ...events.flatMap((e) => {
+      if (e.type !== 'approval/requested') return []
+      const a = state.approvals[(e.payload as EventPayloads['approval/requested']).id]
+      // Only the round running now can still be waiting on the person.
+      return a && (a.decided || latest) ? [{ seq: e.seq, approval: a }] : []
+    }),
+    // A reply still being written sits where it began, after what was in the log by then.
+    ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
+  ].sort((a, b) => a.seq - b.seq)
   // The run card sits under the latest message sent mid-run, so what the colony did next reads in order.
-  const split = thread.findLastIndex((m) => m.from === 'user') + 1
+  const split = timeline.findLastIndex((i) => 'message' in i && i.message.from === 'user') + 1
+  const lastReply = state.chatMessages.findLast((m) => m.from !== 'user')
+  const announce = streaming[0]
+    ? copy.round.agent.replying(streaming[0][0])
+    : lastReply
+      ? copy.round.agent.said(lastReply.from, lastReply.text)
+      : ''
   const message = (m: ChatEntry) =>
     m.from === 'user' ? (
       <UserMessage
@@ -193,6 +234,19 @@ export function RoundView(props: {
         )}
       </div>
     )
+  const item = (i: Item) =>
+    'message' in i ? (
+      message(i.message)
+    ) : 'approval' in i ? (
+      <Approval key={i.approval.id} colonyId={props.colonyId} request={i.approval} />
+    ) : (
+      <StreamingReply
+        key={`stream:${i.stream}`}
+        from={i.stream}
+        text={i.live.text}
+        plain={solo && i.stream === speaker}
+      />
+    )
   // Files this round wrote; earlier rounds' files are still in the colony but belong to their own rounds.
   const from = info?.startSeq ?? 0
   const to = info?.endSeq ?? Number.POSITIVE_INFINITY
@@ -205,7 +259,7 @@ export function RoundView(props: {
       {opening && (
         <UserMessage text={opening.text} to={opening.to} attachments={opening.attachments} onOpen={setFile} />
       )}
-      <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
+      <AnimatePresence initial={false}>{timeline.slice(0, split).map(item)}</AnimatePresence>
       {solo && <Thoughts events={events} running={isRunning(state.status)} />}
       {!solo && (
         <motion.div layout transition={softSpring}>
@@ -216,26 +270,38 @@ export function RoundView(props: {
             onOpenColony={() => props.onOpenColony(props.colonyId)}
             onInspect={setInspect}
             {...(latest ? { onLearn: props.onLearn } : {})}
+            {...(halted(state)
+              ? {
+                  footer: (
+                    <Halted
+                      inCard
+                      state={state}
+                      events={events}
+                      retry={props.retry}
+                      onRetry={() => opening && props.onRetry(opening.text)}
+                      onResume={props.onResume}
+                    />
+                  ),
+                }
+              : {})}
           />
         </motion.div>
       )}
       {latest && (
         <>
           <LiveServers state={state} />
-          <ApprovalCards colonyId={props.colonyId} state={state} />
           <LoginCards state={state} />
           <MemoryCards state={state} />
           <SkillCards state={state} />
         </>
       )}
-      <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
-      {latest &&
-        isRunning(state.status) &&
-        Object.entries(colony.streams).map(([agent, live]) =>
-          live.text && !state.chatMessages.some((m) => m.from === agent && m.seq > live.since) ? (
-            <StreamingReply key={agent} from={agent} text={live.text} plain={solo && agent === speaker} />
-          ) : null,
-        )}
+      <AnimatePresence initial={false}>{timeline.slice(split).map(item)}</AnimatePresence>
+      {/* Screen readers hear that a reply is coming, then the reply once, not every chunk as it streams. */}
+      {latest && (
+        <p className="sr-only" aria-live="polite">
+          {announce}
+        </p>
+      )}
       <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
       {solo && !addressed && (
         <Helpers
@@ -254,7 +320,8 @@ export function RoundView(props: {
           {...(latest ? { onLearn: props.onLearn } : {})}
         />
       )}
-      {state.status !== 'completed' && (
+      {/* A team round that stopped says so on its run card, so the banner would only repeat it. */}
+      {state.status !== 'completed' && (solo || !halted(state)) && (
         <Outcome
           state={state}
           events={events}
@@ -404,7 +471,7 @@ function UserMessage(props: {
           type="button"
           onClick={() => copyText(props.text)}
           aria-label={copy.round.message.copyMessage}
-          className="rounded-md p-1 text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
@@ -520,7 +587,7 @@ function Helpers(props: {
           onClick={props.onOpenColony}
           title={copy.round.helpers.crew}
           aria-label={copy.round.helpers.crew}
-          className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+          className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
         >
           <Network className="size-3.5" />
         </button>
@@ -556,7 +623,7 @@ function Helpers(props: {
 /** A reply as the model writes it; the finished one replaces it once it is in the log. */
 function StreamingReply(props: { from: string; text: string; plain: boolean }) {
   return (
-    <div className="flex gap-3" aria-live="polite" aria-busy="true">
+    <div className="flex gap-3" aria-busy="true">
       <AgentAvatar name={props.from} status="running" size={32} awake />
       <div className="min-w-0 flex-1">
         {!props.plain && (
@@ -657,6 +724,8 @@ function LeadActivity(props: {
   const steps = useMemo(() => deriveSteps(events), [events])
   const now = running ? currentStep(events) : undefined
   const awaiting = state.statusReason === AWAITING
+  // The last step is the call that asked; the lead does nothing more until the person answers it.
+  const approving = running && awaitingApproval(state)
   const m = props.metrics
   const visible = steps.slice(-30).reverse()
   // The clock ticks on its own while the lead works; the log only moves when something happens.
@@ -670,26 +739,35 @@ function LeadActivity(props: {
   const elapsed = running ? Math.max(0, clock - started) : m.wallMs
   // Steps are phrased for a team ("lead is searching…"); one-on-one, the name goes without saying.
   const doing = now?.replace(/^lead is /, '')
-  const label = running
-    ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : copy.round.lead.thinking}…`
-    : awaiting
-      ? copy.round.lead.waiting
-      : state.escalated
-        ? state.escalated.to === 'team'
-          ? copy.round.lead.toTeam
-          : copy.round.lead.toAgent
-        : state.status === 'completed'
-          ? copy.round.lead.doneIn(duration(m.wallMs))
-          : state.status === 'failed'
-            ? copy.round.lead.failed
-            : copy.round.lead.stopped
+  const label = approving
+    ? copy.round.lead.approval
+    : running
+      ? `${doing ? doing[0]?.toUpperCase() + doing.slice(1) : copy.round.lead.thinking}…`
+      : awaiting
+        ? copy.round.lead.waiting
+        : state.escalated
+          ? state.escalated.to === 'team'
+            ? copy.round.lead.toTeam
+            : copy.round.lead.toAgent
+          : state.status === 'completed'
+            ? copy.round.lead.doneIn(duration(m.wallMs))
+            : state.status === 'failed'
+              ? copy.round.lead.failed
+              : copy.round.lead.stopped
   return (
     // Once done it tucks under the reply, in line with its text (past the 32px avatar and its gap).
     <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
       <div className="flex items-center gap-2.5 text-[12.5px] text-muted">
         {running && (
           <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-screen">
-            <PixelFace mood="working" color={LEAD_COLOR} cols={7} rows={7} cell={2} gap={1} />
+            <PixelFace
+              mood={approving ? 'waiting' : 'working'}
+              color={LEAD_COLOR}
+              cols={7}
+              rows={7}
+              cell={2}
+              gap={1}
+            />
           </span>
         )}
         <button
@@ -718,7 +796,7 @@ function LeadActivity(props: {
             onClick={props.onOpenColony}
             title={copy.round.lead.detailsTitle}
             aria-label={copy.round.lead.detailsLabel}
-            className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
           >
             <Network className="size-3.5" />
           </button>
@@ -729,7 +807,7 @@ function LeadActivity(props: {
             onClick={props.onLearn}
             title={copy.round.lead.learnTitle}
             aria-label={copy.round.lead.learnTitle}
-            className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
           >
             <GraduationCap className="size-3.5" />
           </button>
@@ -833,9 +911,12 @@ function RunCard(props: {
   onInspect(name: string): void
   /** On the chat's latest round: learn a skill from how it was done. */
   onLearn?(): void
+  /** Under the header, always shown: why the round stopped and the way on. */
+  footer?: ReactNode
 }) {
   const { state, events } = props
   const running = isRunning(state.status)
+  const approving = running && awaitingApproval(state)
   const [open, setOpen] = useState<boolean>()
   const expanded = open ?? running
   const [showAll, setShowAll] = useState(false)
@@ -973,18 +1054,26 @@ function RunCard(props: {
                   {showAll ? copy.round.run.showFewer : copy.round.run.showAll(steps.length)}
                 </button>
               )}
-              {now && (
+              {approving ? (
                 <div className="flex items-center gap-2 text-[12.5px] text-muted">
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                  <motion.span key={now} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    {now}…
-                  </motion.span>
+                  <ShieldQuestion className="size-3.5" />
+                  <span>{copy.round.lead.approval}</span>
                 </div>
+              ) : (
+                now && (
+                  <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    <motion.span key={now} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                      {now}…
+                    </motion.span>
+                  </div>
+                )
               )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+      {props.footer}
     </motion.div>
   )
 }
@@ -1148,6 +1237,85 @@ function Elapsed({ ms }: { ms: number }) {
   return <DotMatrix text={text} dot={2} className="mr-1 text-fg-2" />
 }
 
+/**
+ * Why a round stopped or failed, what it already did outside, and Resume / Retry: a banner of its own, or the run
+ * card's footer (`inCard`), whose header already says it stopped.
+ */
+function Halted(props: {
+  state: ColonyState
+  events: readonly MyrEvent[]
+  retry: 'ready' | 'starting' | 'hidden'
+  onRetry(): void
+  onResume(model?: string): Promise<void>
+  inCard?: boolean
+}) {
+  const { state, retry } = props
+  const [resuming, setResuming] = useState(false)
+  const last = state.verdicts.filter((v) => v.target === 'colony').at(-1)
+  return (
+    <motion.div
+      {...enter}
+      className={cn(
+        'flex items-start gap-3 px-4 py-3 text-[13.5px] text-bad-ink',
+        props.inCard ? 'border-t border-line' : 'rounded-2xl border border-bad/25 bg-bad-soft',
+      )}
+      role="status"
+    >
+      <CircleStop className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div>
+          {!props.inCard && (
+            <span className="font-semibold">
+              {state.status === 'failed' ? copy.outcome.failed : copy.outcome.stopped}
+              {state.statusReason && ' · '}
+            </span>
+          )}
+          <span className="text-[12.5px]">{state.statusReason}</span>
+        </div>
+        <AlreadyDone events={props.events} />
+        {last && !last.pass && (
+          <details className="mt-1 text-fg-2">
+            <summary className="text-[12.5px]">{copy.outcome.lastVerification}</summary>
+            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+              {last.evidence}
+            </pre>
+          </details>
+        )}
+      </div>
+      {retry !== 'hidden' && (
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={() => {
+            setResuming(true)
+            void props.onResume().finally(() => setResuming(false))
+          }}
+          disabled={resuming || retry === 'starting'}
+          icon={resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+        >
+          {resuming ? copy.outcome.resuming : copy.outcome.resume}
+        </Button>
+      )}
+      {retry !== 'hidden' && (
+        <Button
+          size="sm"
+          onClick={props.onRetry}
+          disabled={retry === 'starting'}
+          icon={
+            retry === 'starting' ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="size-3.5" />
+            )
+          }
+        >
+          {retry === 'starting' ? copy.outcome.starting : copy.outcome.retry}
+        </Button>
+      )}
+    </motion.div>
+  )
+}
+
 function Outcome({
   state,
   events,
@@ -1163,7 +1331,6 @@ function Outcome({
   onResume(model?: string): Promise<void>
   models: ModelOption[]
 }) {
-  const [resuming, setResuming] = useState(false)
   const failed = state.status === 'stopped' ? state.modelError : undefined
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
@@ -1231,62 +1398,8 @@ function Outcome({
       </motion.div>
     )
   }
-  if (state.status === 'stopped' || state.status === 'failed') {
-    return (
-      <motion.div {...enter} className={cn(box, 'border-bad/25 bg-bad-soft text-bad-ink')} role="status">
-        <CircleStop className="mt-0.5 size-4 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div>
-            <span className="font-semibold">
-              {state.status === 'failed' ? copy.outcome.failed : copy.outcome.stopped}
-            </span>
-            <span className="text-[12.5px]"> · {state.statusReason}</span>
-          </div>
-          <AlreadyDone events={events} />
-          {last && !last.pass && (
-            <details className="mt-1 text-fg-2">
-              <summary className="text-[12.5px]">{copy.outcome.lastVerification}</summary>
-              <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
-                {last.evidence}
-              </pre>
-            </details>
-          )}
-        </div>
-        {retry !== 'hidden' && (
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              setResuming(true)
-              void onResume().finally(() => setResuming(false))
-            }}
-            disabled={resuming || retry === 'starting'}
-            icon={
-              resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />
-            }
-          >
-            {resuming ? copy.outcome.resuming : copy.outcome.resume}
-          </Button>
-        )}
-        {retry !== 'hidden' && (
-          <Button
-            size="sm"
-            onClick={onRetry}
-            disabled={retry === 'starting'}
-            icon={
-              retry === 'starting' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <RotateCcw className="size-3.5" />
-              )
-            }
-          >
-            {retry === 'starting' ? copy.outcome.starting : copy.outcome.retry}
-          </Button>
-        )}
-      </motion.div>
-    )
-  }
+  if (halted(state))
+    return <Halted state={state} events={events} retry={retry} onRetry={onRetry} onResume={onResume} />
   return last && !last.pass ? (
     <motion.div {...enter} className={cn(box, 'border-warn/25 bg-warn-soft text-warn-ink')} role="status">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
