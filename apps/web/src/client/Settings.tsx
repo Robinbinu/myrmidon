@@ -320,6 +320,11 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /**
+   * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
+   * edits are unsaved), for the ways out of Settings that the app itself offers.
+   */
+  guard?: { current?: (go: () => void) => void }
 }) {
   const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
@@ -338,6 +343,26 @@ export function Settings(props: {
   const leave = (go: () => void) => (hooksDirty ? setLeaving(() => go) : go())
   const onClose = useRef(() => leave(props.onClose))
   onClose.current = () => leave(props.onClose)
+  const { guard } = props
+  // Every render, since leave changes with hooksDirty; a Settings that remounts clears only its own.
+  useEffect(() => {
+    if (!guard) return
+    guard.current = leave
+    return () => {
+      if (guard.current === leave) guard.current = undefined
+    }
+  })
+  // Reloading or closing the window would drop unsaved hook edits too.
+  useEffect(() => {
+    if (!hooksDirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Safari before 17 asks only when returnValue is set.
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hooksDirty])
 
   useEffect(() => {
     api<SettingsResponse>('/api/settings')

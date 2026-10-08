@@ -173,6 +173,12 @@ export function App() {
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
   const [settingsSection, setSettingsSection] = useState<Section>('general')
+  // Ways out of Settings go through its guard, which asks first when hook edits are unsaved.
+  const settingsGuard = useRef<(go: () => void) => void>(undefined)
+  const leaveSettings = useCallback(
+    (go: () => void) => (settingsGuard.current ? settingsGuard.current(go) : go()),
+    [],
+  )
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -270,15 +276,16 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string) => {
-      setNewProject(project)
-      setActiveChat(undefined)
-      setView('chat')
-      setSettingsOpen(false)
-      setMobileNav(false)
-      requestAnimationFrame(() => composer.current?.focus())
-    },
-    [setActiveChat],
+    (project?: string) =>
+      leaveSettings(() => {
+        setNewProject(project)
+        setActiveChat(undefined)
+        setView('chat')
+        setSettingsOpen(false)
+        setMobileNav(false)
+        requestAnimationFrame(() => composer.current?.focus())
+      }),
+    [setActiveChat, leaveSettings],
   )
 
   useHotkeys([
@@ -437,8 +444,10 @@ export function App() {
         return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
       case 'mcp':
       case 'settings':
-        setSettingsSection(name === 'mcp' ? 'tools' : 'general')
-        return setSettingsOpen(true)
+        return leaveSettings(() => {
+          setSettingsSection(name === 'mcp' ? 'tools' : 'general')
+          setSettingsOpen(true)
+        })
       default: {
         const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
         if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
@@ -488,12 +497,14 @@ export function App() {
       view={view}
       theme={theme}
       onTheme={setTheme}
-      onSelect={(id) => {
-        setActiveChat(id)
-        setView('chat')
-        setSettingsOpen(false)
-        setMobileNav(false)
-      }}
+      onSelect={(id) =>
+        leaveSettings(() => {
+          setActiveChat(id)
+          setView('chat')
+          setSettingsOpen(false)
+          setMobileNav(false)
+        })
+      }
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
@@ -509,20 +520,24 @@ export function App() {
           toast(String((err as Error).message ?? err), 'error')
         }
       }}
-      onView={(v) => {
-        setView(v)
-        setSettingsOpen(false)
-        setMobileNav(false)
-      }}
+      onView={(v) =>
+        leaveSettings(() => {
+          setView(v)
+          setSettingsOpen(false)
+          setMobileNav(false)
+        })
+      }
       onSettings={() => {
         setSettingsOpen(true)
         setMobileNav(false)
       }}
-      onGateways={() => {
-        setSettingsSection('gateways')
-        setSettingsOpen(true)
-        setMobileNav(false)
-      }}
+      onGateways={() =>
+        leaveSettings(() => {
+          setSettingsSection('gateways')
+          setSettingsOpen(true)
+          setMobileNav(false)
+        })
+      }
       onCollapse={() => (window.innerWidth < 768 ? setMobileNav(false) : setCollapsed(true))}
     />
   )
@@ -592,6 +607,7 @@ export function App() {
             <Settings
               key={settingsSection}
               initialSection={settingsSection}
+              guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
               theme={theme}
               onTheme={setTheme}
