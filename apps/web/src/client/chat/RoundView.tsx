@@ -353,6 +353,7 @@ export function RoundView(props: {
       {/* A team round that stopped says so on its run card, so the banner would only repeat it. */}
       {state.status !== 'completed' && (solo || !halted(state)) && (
         <Outcome
+          latest={latest}
           state={state}
           events={events}
           retry={props.retry}
@@ -368,6 +369,7 @@ export function RoundView(props: {
       >
         {state.status === 'completed' && (
           <Outcome
+            latest={latest}
             state={state}
             events={events}
             retry={props.retry}
@@ -1357,6 +1359,7 @@ function Halted(props: {
 }
 
 function Outcome({
+  latest,
   state,
   events,
   retry,
@@ -1364,6 +1367,8 @@ function Outcome({
   onResume,
   models,
 }: {
+  /** Whether this is the chat's latest round: only that one can still be waiting for the person. */
+  latest: boolean
   state: ColonyState
   events: readonly MyrEvent[]
   retry: 'ready' | 'starting' | 'hidden'
@@ -1423,6 +1428,8 @@ function Outcome({
   // Questions with options are their own call to answer; the banner would only repeat it.
   if (state.status === 'stopped' && state.statusReason === AWAITING && state.chatMessages.at(-1)?.choices)
     return null
+  // An earlier round that ended on a question was answered by the round after it.
+  if (state.status === 'stopped' && state.statusReason === AWAITING && !latest) return null
   if (state.status === 'stopped' && state.statusReason === AWAITING) {
     return (
       <motion.div
