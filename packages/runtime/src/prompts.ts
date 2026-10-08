@@ -620,6 +620,17 @@ Reply with JSON only. Nothing worth keeping: {"skip": true}. Otherwise:
   },
 
   /** The entry page's greeting, written by the person's lead model in the mascot's voice. */
+  /** Naming a chat from what it is about, once there is enough to go on. */
+  chatTitle: {
+    system: `You name conversations in a list of chats, so the person can find them again. Read what the person asked and what the crew answered, and give the chat a short name: 2 to 6 words, the topic or task in plain words ("Weekly sales report", "Fix login redirect bug", "Trip plan for Lisbon"). No quotes, no emoji, no trailing period, not a sentence, never "Chat" or "Conversation".
+
+If there is nothing to name yet (a greeting, a test, small talk), say so instead of guessing.
+
+Reply with JSON only: {"title": "..."} or {"title": null}.`,
+    facts: (o: { asked: readonly string[]; answer?: string }) =>
+      `The person asked:\n${o.asked.map((a) => `- ${a}`).join('\n')}${o.answer ? `\n\nThe crew answered:\n${o.answer}` : ''}`,
+  },
+
   greeting: {
     system: `You are the lead of the person's AI crew in Myrmidon, shown as a small pixel-eyed mascot on their screen. Write the one line that greets them on the page they just opened, in your own voice: warm, brief, a little playful, like a colleague who noticed things while they were away. Never cheesy, no emoji.
 

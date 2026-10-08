@@ -58,7 +58,8 @@ export interface MyrSettings {
    */
   permissions: Record<string, 'allow' | 'ask' | 'off'>
   /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
-  profile: { name?: string; greeting: 'model' | 'rules' }
+  /** `titles`: name chats from what they are about (`model`), or keep their first message as the name. */
+  profile: { name?: string; greeting: 'model' | 'rules'; titles: 'model' | 'first-message' }
   /** How the entry page's mascot looks, and what its screen shows beside its mood. */
   mascot: {
     eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
@@ -134,6 +135,7 @@ export const settingsSchema = Schema.object({
   profile: Schema.object({
     name: Schema.string().max(40),
     greeting: Schema.union(['model', 'rules']).default('model'),
+    titles: Schema.union(['model', 'first-message']).default('model'),
   }).default({}),
   mascot: Schema.object({
     eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
@@ -182,6 +184,7 @@ function parse(input: unknown): MyrSettings {
     profile: {
       ...(s.profile.name?.trim() ? { name: s.profile.name.trim() } : {}),
       greeting: s.profile.greeting,
+      titles: s.profile.titles,
     },
     mascot: s.mascot,
     voice: {

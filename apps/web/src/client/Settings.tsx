@@ -151,7 +151,7 @@ export interface ServerSettings {
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
   /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
   permissions: Record<string, 'allow' | 'ask' | 'off'>
-  profile?: { name?: string; greeting: 'model' | 'rules' }
+  profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
   mascot?: MascotLook
   voice: {
     enabled: boolean
@@ -3758,6 +3758,21 @@ function MascotSection(props: {
               ]}
               onChange={(greeting) =>
                 props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+              }
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
+            <Segmented
+              id="titles"
+              value={profile.titles ?? 'model'}
+              options={[
+                { value: 'model', label: t.titlesModel },
+                { value: 'first-message', label: t.titlesFirst },
+              ]}
+              onChange={(titles) =>
+                props.update((s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }), true)
               }
             />
           </Field>

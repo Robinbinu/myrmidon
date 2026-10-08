@@ -16,9 +16,10 @@ import {
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
+import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
-import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
+import { CHAT_TITLE_ROUNDS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -651,12 +652,45 @@ export class ChatService {
       if (final.escalated)
         this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
       // A finished round that took real work is read for a skill worth keeping, after the fact.
+      if (final.status === 'completed')
+        this._nameChat(id, config.leadModel).catch((err) =>
+          console.error(`naming ${id} failed: ${err instanceof Error ? err.message : err}`),
+        )
       if (final.status === 'completed' && this.options.skillProposals && this.options.skills)
         this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
           console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
         )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
+  }
+
+  /**
+   * Names a chat from what it is about, after a round: not one anyone named (the person, a channel, a schedule), and
+   * not once it has a name. "hi" has nothing to name, so the next rounds try again, up to CHAT_TITLE_ROUNDS.
+   */
+  private async _nameChat(chatId: string, model: string) {
+    // Without a settings store (tests, bare runtimes) chats keep their first message as their name.
+    if (this.options.settings?.get().profile.titles !== 'model') return
+    const rounds = await this.rounds(chatId)
+    const latest = rounds.at(-1)
+    if (!latest || rounds.length > CHAT_TITLE_ROUNDS || latest.state.chatTitle) return
+    const answer = messagesOf(latest)
+      .filter((m) => m.from !== 'user' && m.final)
+      .at(-1)?.text
+    const title = await nameChat(this.options.resolver, model, {
+      asked: rounds.map((r) => r.round.request),
+      ...(answer ? { answer } : {}),
+    })
+    // Renamed meanwhile (by the person, say): theirs stands.
+    if (!title || (await this.rounds(chatId)).at(-1)?.state.chatTitle) return
+    const draft = {
+      type: 'chat/renamed',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: { title, by: 'auto' },
+    } as const
+    const live = this._live.get(chatId)
+    if (live?.id === latest.id) await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */

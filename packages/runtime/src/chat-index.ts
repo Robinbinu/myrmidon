@@ -20,7 +20,7 @@ export interface IndexedRound {
   readonly awaiting?: boolean
   /** On a chat's latest round: whether it stopped because a model failed. */
   readonly failed?: boolean
-  readonly title?: { readonly title: string; readonly at: string }
+  readonly title?: { readonly title: string; readonly at: string; readonly by?: 'auto' }
   readonly project?: { readonly id: string; readonly name: string }
   /** On a chat's latest round: who is on its crew now, so the person can write to them (@name). */
   readonly crew?: readonly CrewMember[]
@@ -250,7 +250,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     ...(r.endedAt ? { endedAt: r.endedAt } : {}),
     swarm: r.swarm,
     ...(r === last && cause.awaiting ? { awaiting: true } : {}),
-    ...(title ? { title: { title: title.title, at: title.at } } : {}),
+    ...(title ? { title: { title: title.title, at: title.at, ...(title.by ? { by: title.by } : {}) } } : {}),
     ...(r === last
       ? {
           failed: !!cause.failed,

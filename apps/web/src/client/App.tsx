@@ -297,7 +297,10 @@ export function App() {
     return () => window.removeEventListener(CONNECTION_CHANGED, back)
   }, [config, loadModels, loadProjects])
 
-  // Announce rounds that finish while the user is elsewhere.
+  // Announce rounds that finish while the user is elsewhere: another chat, another view, or another window. The chat
+  // on screen shows its own answer arriving, so a pop-up there only repeats it.
+  const onScreen = useRef<string | undefined>(undefined)
+  onScreen.current = !settingsOpen && view === 'chat' ? activeChat : undefined
   useEffect(() => {
     for (const c of chats) {
       const before = seen.current.get(c.chatId)
@@ -306,7 +309,9 @@ export function App() {
           c.status === 'completed'
             ? copy.app.toasts.roundDone(c.title)
             : copy.app.toasts.roundEnded(c.title, c.status === 'stopped' ? copy.app.toasts.paused : c.status)
-        toast(text, c.status === 'completed' ? 'success' : 'info')
+        const watching =
+          c.chatId === onScreen.current && document.visibilityState === 'visible' && document.hasFocus()
+        if (!watching) toast(text, c.status === 'completed' ? 'success' : 'info')
         notify(text, c.chatId)
       }
       seen.current.set(c.chatId, c.status)

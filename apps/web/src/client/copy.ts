@@ -2054,7 +2054,8 @@ export const copy = {
     },
     mascot: {
       title: 'You & your mascot',
-      intro: 'What the mascot calls you, who writes the line it greets you with, and how it looks.',
+      intro:
+        'What the mascot calls you, who writes the line it greets you with and names your chats, and how it looks.',
       name: 'Your name',
       nameHint: (account: string) => `Leave empty to use your computer account's name (${account}).`,
       greeting: 'Greeting',
@@ -2065,6 +2066,14 @@ export const copy = {
       },
       greetingModel: 'Lead',
       greetingRules: 'Built in',
+      titles: 'Chat names',
+      titlesHints: {
+        model:
+          'Your lead model names each chat from what it is about after a round (a chat that is only "hi" so far waits). Names you give are kept.',
+        'first-message': 'Chats are named with their first message. No model calls.',
+      },
+      titlesModel: 'From the topic',
+      titlesFirst: 'First message',
       preview: 'Preview',
       eyes: 'Eyes',
       eyeStyles: { round: 'Round', happy: 'Happy', tall: 'Tall', sleepy: 'Sleepy', lashes: 'Lashes' },

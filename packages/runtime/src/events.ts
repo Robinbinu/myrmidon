@@ -415,7 +415,13 @@ const defs: EventTypeDefinition[] = [
       plan: Schema.string(),
     }),
   },
-  { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
+  {
+    type: 'chat/renamed',
+    version: 1,
+    actors: ['user', 'system'],
+    // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
+    schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
   {
     type: 'colony/escalated',
     version: 1,

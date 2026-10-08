@@ -3263,3 +3263,44 @@ test('a message said on a call reaches the lead marked as spoken, with what the 
   expect(user?.payload).toMatchObject({ text: 'how did the call go', voice: true })
   await chats.stopAll()
 })
+
+test('a chat is named from what it is about once there is something to name, and a given name is kept', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const resolver = new ModelResolver()
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      const sys = ctx.systemPrompt?.join('\n') ?? ''
+      const seen = JSON.stringify(ctx.messages)
+      if (sys.includes('You name conversations'))
+        return { content: [seen.includes('sales') ? '{"title": "Weekly sales summary"}' : '{"title": null}'] }
+      return {
+        content: seen.includes('reply_user')
+          ? ['done']
+          : [tool('reply_user', { text: 'Hello!', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const team = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const first = await chats.send('hi', team)
+  await waitFor(first.colonyId)
+  await Bun.sleep(50)
+  // "hi" has nothing to name: the chat keeps its first message for now.
+  expect((await chats.list()).find((c) => c.chatId === first.chatId)?.title).toBe('hi')
+  const second = await chats.send('summarize this week’s sales', team, first.chatId)
+  await waitFor(second.colonyId, (x) => x.rounds.length === 2 && x.rounds.at(-1)?.status === 'completed')
+  const named = async () => (await chats.list()).find((c) => c.chatId === first.chatId)?.title
+  const end = Date.now() + 3000
+  while ((await named()) !== 'Weekly sales summary' && Date.now() < end) await Bun.sleep(20)
+  expect(await named()).toBe('Weekly sales summary')
+  // A name the person gives is theirs: later rounds do not rename it.
+  await chats.rename(first.chatId, 'Sales')
+  const third = await chats.send('and last week’s sales?', team, first.chatId)
+  await waitFor(third.colonyId, (x) => x.rounds.length === 3 && x.rounds.at(-1)?.status === 'completed')
+  await Bun.sleep(50)
+  expect(await named()).toBe('Sales')
+  await chats.stopAll()
+})

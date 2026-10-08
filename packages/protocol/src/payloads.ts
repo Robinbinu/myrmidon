@@ -321,7 +321,8 @@ export interface EventPayloads {
     plan?: string
   }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
-  'chat/renamed': { title: string }
+  /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
+  'chat/renamed': { title: string; by?: 'auto' }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

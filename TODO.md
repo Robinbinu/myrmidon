@@ -306,10 +306,12 @@ Open work, in the order it will be done:
       - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
       - [ ] Phonon `--hotwords` from agent and project names.
       - [ ] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode.
-12b. - [ ] **Smart chat names** (asked 2026-10-08): chats are titled with their first message ("hi"), so they are not
-      recognisable; name a chat from what it is about once there is enough to go on, and rename as it changes.
-12c. - [ ] **No pop-up on every answer** (asked 2026-10-08): "<chat> is done" appears after every reply; drop it for the
-      chat being looked at and keep it only for work that finishes elsewhere (or long rounds).
+12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
+      is about (Open WebUI's task-model pattern); "hi" has nothing to name, so it tries again after rounds 2 and 3.
+      Names given by the person, a channel or a schedule are kept (`chat/renamed` now says `by: 'auto'` for ours).
+      Settings → You & mascot → Chat names: from the topic, or the first message.
+12c. - [x] **No pop-up on every answer** (asked 2026-10-08) — done: the "… is done" toast is skipped for the chat on
+      screen in a focused window; it still shows for other chats and other views, and the desktop notice when away.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
