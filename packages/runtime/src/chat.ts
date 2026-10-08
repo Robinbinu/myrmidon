@@ -586,7 +586,8 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
-      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
+      onStream: (agent: string, text: string, done: boolean, plain: boolean) =>
+        this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -949,7 +950,8 @@ export class ChatService {
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
       ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
-      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
+      onStream: (agent: string, text: string, done: boolean, plain: boolean) =>
+        this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -1068,7 +1070,7 @@ export class ChatService {
   }
 
   private readonly _streams = new Set<
-    (colonyId: string, agent: string, text: string, done: boolean) => void
+    (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void
   >()
 
   /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
@@ -1082,13 +1084,15 @@ export class ChatService {
     return this.store.read(colonyId as never)
   }
 
-  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
+  onStream(
+    listener: (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void,
+  ): () => void {
     this._streams.add(listener)
     return () => this._streams.delete(listener)
   }
 
-  private _streamed(colonyId: string, agent: string, text: string, done: boolean) {
-    for (const listener of this._streams) listener(colonyId, agent, text, done)
+  private _streamed(colonyId: string, agent: string, text: string, done: boolean, plain: boolean) {
+    for (const listener of this._streams) listener(colonyId, agent, text, done, plain)
   }
 
   async stopAll(): Promise<void> {

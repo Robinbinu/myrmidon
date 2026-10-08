@@ -57,9 +57,10 @@ export interface ColonyHost {
   pluginPrompts(role: 'lead' | 'worker'): string[]
   /**
    * The speaking agent's reply as it is being written (`done` when the model message ends). Live only: shown to
-   * whoever is watching, never logged; the finished reply arrives as chat/reply.
+   * whoever is watching, never logged; the finished reply arrives as chat/reply. `plain`: the model's own text, not
+   * a reply tool's, so it may turn out to be narration before a tool call ("Let me look…") rather than an answer.
    */
-  streamed(agent: string, text: string, done: boolean): void
+  streamed(agent: string, text: string, done: boolean, plain: boolean): void
   /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
   readonly plugins?: PluginHost
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */

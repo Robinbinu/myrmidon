@@ -95,7 +95,9 @@ class FakeChats implements ChannelChats {
   events = new Map<string, MyrEvent[]>()
   running = new Set<string>()
   private _listeners = new Set<(colonyId: string, events: readonly MyrEvent[]) => void>()
-  private _streams = new Set<(colonyId: string, agent: string, text: string, done: boolean) => void>()
+  private _streams = new Set<
+    (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void
+  >()
   private _n = 0
 
   async send(
@@ -137,7 +139,7 @@ class FakeChats implements ChannelChats {
     this._listeners.add(listener)
     return () => this._listeners.delete(listener)
   }
-  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void) {
+  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void) {
     this._streams.add(listener)
     return () => this._streams.delete(listener)
   }
@@ -158,7 +160,7 @@ class FakeChats implements ChannelChats {
     return this.heard
   }
   stream(colonyId: string, text: string) {
-    for (const l of this._streams) l(colonyId, 'lead', text, false)
+    for (const l of this._streams) l(colonyId, 'lead', text, false, false)
   }
   emit(colonyId: string, type: string, payload: Record<string, unknown>) {
     const list = this.events.get(colonyId) ?? []

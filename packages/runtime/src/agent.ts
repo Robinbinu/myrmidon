@@ -469,7 +469,7 @@ export class ColonyAgent {
     if (!text && !this._streamedText) return
     this._streamedAt = now
     this._streamedText = done ? '' : text
-    this.host.streamed(this.name, text, done)
+    this.host.streamed(this.name, text, done, reply.length === 0)
   }
 
   private _onEvent(e: AgentEvent) {

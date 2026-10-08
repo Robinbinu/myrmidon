@@ -824,16 +824,35 @@ test("the speaker's reply streams to listeners as it is written, and never into 
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [['Let me check.', tool('reply_user', { text: 'It is 4.', final: true })]])
   const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
-  const seen: { colonyId: string; agent: string; text: string; done: boolean }[] = []
-  const stop = chats.onStream((colonyId, agent, text, done) => seen.push({ colonyId, agent, text, done }))
+  const seen: { colonyId: string; agent: string; text: string; done: boolean; plain: boolean }[] = []
+  const stop = chats.onStream((colonyId, agent, text, done, plain) =>
+    seen.push({ colonyId, agent, text, done, plain }),
+  )
   const { colonyId } = await chats.send('What is 2+2?', solo('mock/lead'))
   const s = await waitFor(colonyId)
   stop()
   expect(s.chatMessages.at(-1)?.text).toBe('It is 4.')
   // The reply_user text is what streams, not the words around the call.
   expect(seen.filter((x) => !x.done).map((x) => x.text)).toContain('It is 4.')
-  expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true })
+  expect(seen.at(-1)).toMatchObject({ colonyId, agent: 'lead', text: 'It is 4.', done: true, plain: false })
   expect((await events(colonyId)).some((e) => (e.type as string).includes('stream'))).toBe(false)
+})
+
+test('text written before a tool call streams as plain, so a voice call can tell it from the answer', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [
+    ['Let me look.', tool('append_note', { text: 'checked', section: 'notes' })],
+    ['It is 4, as the notes say.'],
+  ])
+  const chats = new ChatService(runtime, { resolver, classify: fixed('answer') })
+  const seen: { text: string; done: boolean; plain: boolean }[] = []
+  const stop = chats.onStream((_c, _a, text, done, plain) => seen.push({ text, done, plain }))
+  const { colonyId } = await chats.send('What is 2+2?', solo('mock/lead'))
+  const s = await waitFor(colonyId)
+  stop()
+  expect(s.chatMessages.at(-1)?.text).toBe('It is 4, as the notes say.')
+  expect(seen).toContainEqual({ text: 'Let me look.', done: true, plain: true })
+  expect(s.chatMessages.some((m) => m.text === 'Let me look.')).toBe(false)
 })
 
 test('a round left running by a Myrmidon that is gone is stopped, and the chat takes messages again', async () => {
