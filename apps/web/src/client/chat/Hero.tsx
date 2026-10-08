@@ -6,6 +6,7 @@ import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
 import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
 import {
+  HERO_MASCOT_MIN_HEIGHT,
   MASCOT_COLORS,
   MASCOT_DOZE_MS,
   MASCOT_PAT_MS,
@@ -55,6 +56,20 @@ function useToken(name: string): string {
     }
   }, [name])
   return value
+}
+
+/** Whether the window is at least `px` tall, kept current as it is resized. */
+function useTallerThan(px: number): boolean {
+  const query = `(min-height: ${px}px)`
+  const [tall, setTall] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = () => setTall(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return tall
 }
 
 /** A colour canvas can draw with: a `var(--token)` resolves to the token's value, anything else passes through. */
@@ -145,6 +160,7 @@ export function Hero(props: {
   children: ReactNode
 }) {
   const reduce = useReducedMotion()
+  const roomy = useTallerThan(HERO_MASCOT_MIN_HEIGHT)
   const mascot = useMascotLook()
   const { greeting, name } = useGreeting(props.news)
   const headline = greeting?.headline ?? copy.hero.headline
@@ -353,89 +369,98 @@ export function Hero(props: {
 
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-4 py-8 sm:px-6">
-        <div className="relative">
-          <motion.div
-            initial={{ opacity: 0, y: 12, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={softSpring}
-            className="relative"
-          >
-            <button
-              ref={scope}
-              type="button"
-              onClick={() => react(pick(POKED))}
-              onPointerEnter={() => {
-                clearTimeout(patTimer.current)
-                patTimer.current = setTimeout(() => setPetted(true), MASCOT_PAT_MS)
-              }}
-              onPointerLeave={() => {
-                clearTimeout(patTimer.current)
-                setPetted(false)
-              }}
-              aria-label={copy.hero.poke}
-              className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-6 py-8">
+        {roomy && (
+          <div className="relative">
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={softSpring}
+              className="relative"
             >
-              <PixelFace
-                mood={emotion.mood}
-                color={eyes}
-                cols={15}
-                rows={8}
-                cell={20}
-                gap={6}
-                glow
-                eyes={mascot.eyes}
-                {...(look ? { look } : {})}
-                className="h-auto w-[min(400px,calc(100vw-96px))]"
-              />
-              <div className="mt-5 flex items-center justify-between px-1">
-                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
-                  <span
-                    className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
-                  />
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={label}
-                      initial={{ opacity: 0, y: 3 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -3 }}
-                      transition={{ duration: 0.14 }}
-                    >
-                      {label}
-                    </motion.span>
-                  </AnimatePresence>
-                </span>
-                <Readout mode={mascot.screen} {...(name ? { name } : {})} working={props.working} />
-              </div>
-            </button>
-            {mascot.look === 'flower' && (
-              <PixelSprite
-                sprite={FLOWER}
-                cell={9}
-                className="pointer-events-none absolute -right-5 -top-5"
-              />
-            )}
-            {mascot.look === 'bow' && (
-              <PixelSprite
-                sprite={BOW}
-                cell={4.5}
-                className="pointer-events-none absolute left-1/2 top-full -mt-2.5 -translate-x-1/2"
-              />
-            )}
-          </motion.div>
+              <button
+                ref={scope}
+                type="button"
+                onClick={() => react(pick(POKED))}
+                onPointerEnter={() => {
+                  clearTimeout(patTimer.current)
+                  patTimer.current = setTimeout(() => setPetted(true), MASCOT_PAT_MS)
+                }}
+                onPointerLeave={() => {
+                  clearTimeout(patTimer.current)
+                  setPetted(false)
+                }}
+                aria-label={copy.hero.poke}
+                className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+              >
+                <PixelFace
+                  mood={emotion.mood}
+                  color={eyes}
+                  cols={15}
+                  rows={8}
+                  cell={20}
+                  gap={6}
+                  glow
+                  eyes={mascot.eyes}
+                  {...(look ? { look } : {})}
+                  className="h-auto w-[min(400px,calc(100vw-96px))]"
+                />
+                <div className="mt-5 flex items-center justify-between px-1">
+                  <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
+                    <span
+                      className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
+                    />
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.span
+                        key={label}
+                        initial={{ opacity: 0, y: 3 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ duration: 0.14 }}
+                      >
+                        {label}
+                      </motion.span>
+                    </AnimatePresence>
+                  </span>
+                  <Readout mode={mascot.screen} {...(name ? { name } : {})} working={props.working} />
+                </div>
+              </button>
+              {mascot.look === 'flower' && (
+                <PixelSprite
+                  sprite={FLOWER}
+                  cell={9}
+                  className="pointer-events-none absolute -right-5 -top-5"
+                />
+              )}
+              {mascot.look === 'bow' && (
+                <PixelSprite
+                  sprite={BOW}
+                  cell={4.5}
+                  className="pointer-events-none absolute left-1/2 top-full -mt-2.5 -translate-x-1/2"
+                />
+              )}
+            </motion.div>
 
-          <motion.div
-            className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
-            aria-hidden
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4, duration: 0.3 }}
-          >
-            {crew.map((c) => (
-              <CrewCursor key={c.name} name={c.name} color={c.color} x={c.x} y={c.y} clicking={c.clicking} />
-            ))}
-          </motion.div>
-        </div>
+            <motion.div
+              className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
+              aria-hidden
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4, duration: 0.3 }}
+            >
+              {crew.map((c) => (
+                <CrewCursor
+                  key={c.name}
+                  name={c.name}
+                  color={c.color}
+                  x={c.x}
+                  y={c.y}
+                  clicking={c.clicking}
+                />
+              ))}
+            </motion.div>
+          </div>
+        )}
 
         <h1 className="sr-only">{headline}</h1>
         <motion.div
@@ -457,6 +482,8 @@ export function Hero(props: {
             dashLength={4}
             dashGap={2}
             specks={0}
+            // Its measuring box follows the pointer only; sweeping by itself it looked like a stray selection.
+            sweep={false}
             speed={0.6}
           />
         </motion.div>

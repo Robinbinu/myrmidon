@@ -67,6 +67,11 @@ export const MASCOT_PAT_MS = 700
 export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
+/**
+ * Windows shorter than this leave the mascot off the entry page: its screen (about 300px) would push the message box
+ * and the starters below the fold, and they matter more.
+ */
+export const HERO_MASCOT_MIN_HEIGHT = 760
 
 /* ------------------------------------------------------------------ crew cursors */
 
