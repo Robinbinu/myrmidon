@@ -211,7 +211,7 @@ export const channelCopy = {
   status: {
     working: 'Working…',
     starting: 'Starting',
-    waitingApproval: 'Waiting for your OK',
+    waitingApproval: 'Waiting for your approval',
     waitingAnswer: 'Waiting for your answer',
     done: (time: string, cost?: string) => `Done · ${time}${cost ? ` · ${cost}` : ''}`,
     stopped: (time: string, reason?: string) => `Stopped after ${time}${reason ? `: ${reason}` : ''}`,
@@ -222,11 +222,11 @@ export const channelCopy = {
     member: (name: string) =>
       `${name} (a member, not the owner) asked for this run, so every step that changes something asks you, even tools you always allow.`,
     expires: (minutes: number) => `Unanswered after ${minutes} minutes, it is denied.`,
-    elsewhere: "Waiting for the owner's OK.",
+    elsewhere: "Waiting for the owner's approval.",
     onlyOwner: 'Only the owner can approve this.',
     noOwner: 'Approve it in the Myrmidon app: no owner is set up on this channel yet.',
     closed: 'This request is no longer open.',
-    gone: 'That round is no longer running.',
+    gone: 'That run has already ended.',
     once: 'Allow once',
     always: (tool: string) => `Always allow ${tool}`,
     deny: 'Deny',

@@ -497,7 +497,7 @@ test('approvals go to the owner with buttons; only the owner decides, and "alway
   const ask = adapter.sent.find((s) => s.chat === '100' && s.buttons)
   expect(ask?.text).toContain('**lead** wants to run `rm -rf build`')
   expect(ask?.text).toContain('Bob (a member, not the owner)')
-  await until(() => adapter.to('200').includes("Waiting for the owner's OK."))
+  await until(() => adapter.to('200').includes("Waiting for the owner's approval."))
   // No "always" from a member's run: it would widen the owner's own rules.
   const [once, deny] = (ask?.buttons ?? []).map((row) => row[0]?.data ?? '')
   expect(ask?.buttons).toHaveLength(2)
@@ -552,6 +552,8 @@ test('without buttons, approvals and questions are answered by typing', async ()
     summary: 'write a.txt',
   })
   await until(() => adapter.to('100').some((t) => t.includes('/deny ')))
+  await say(ALICE, '/status')
+  await until(() => adapter.to('100').some((t) => t.endsWith('Waiting for your approval')))
   const k = /\/deny (\S+?)\./.exec(adapter.to('100').find((t) => t.includes('/deny')) ?? '')?.[1] ?? ''
   await say(ALICE, `/deny ${k}`)
   await until(() => chats.decided.length === 1)

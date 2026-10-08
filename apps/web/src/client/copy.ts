@@ -1831,7 +1831,6 @@ export const copy = {
       groupsTitle: { messengers: 'Messengers', work: 'Work chat', other: 'Other' },
       waitingBadge: (n: number) => `${n} waiting`,
       tabs: { setup: 'Setup', people: 'People', rules: 'Rules', activity: 'Activity' },
-      close: 'Close',
       health: {
         lastIn: (when: string) => `Last message ${when}`,
         lastOut: (when: string) => `Last answer ${when}`,
@@ -1903,7 +1902,6 @@ export const copy = {
       revokeGroupWarning: 'The bot ignores the group until it is approved again with a new code.',
       none: 'No one yet: message your bot to get a code.',
       approved: (name: string) => `Approved ${name}`,
-      access: 'Who can write',
       dm: 'Direct messages',
       dmHint: {
         pairing:

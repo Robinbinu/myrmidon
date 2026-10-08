@@ -712,7 +712,7 @@ sent to the bot come in as attachments; files cannot be sent back (Zalo takes ph
 - Writing while it works reaches the crew at once, as in the app.
 - **Questions** with options arrive as buttons (or a numbered list to answer by number); several questions are
   answered one by one and sent together.
-- **Approvals**: a risky step waiting for an OK is sent to the owner with **Allow once**, **Always allow <tool>**
+- **Approvals**: a risky step waiting for approval is sent to the owner with **Allow once**, **Always allow <tool>**
   (which sets that tool to "allow" in Settings → Tools) and **Deny**. Only the owner's press counts. A run a
   member (anyone but the owner) starts or writes into asks the owner, in the owner's own chat, before every step
   that changes something outside the run (files, commands, the browser, MCP and plugin tools), even tools set to
