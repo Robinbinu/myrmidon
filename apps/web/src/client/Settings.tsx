@@ -69,7 +69,15 @@ import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
-import { ago, day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import {
+  ago,
+  day,
+  NOTIFY_KEY,
+  type ThemeChoice,
+  useCopy,
+  useMinWidth,
+  usePersistentFlag,
+} from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
@@ -342,20 +350,6 @@ const API_HINT_URL: Record<Api, string> = {
   'openai-responses': 'https://api.openai.com/v1',
   'anthropic-messages': 'https://api.anthropic.com',
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
-}
-
-/** Whether the window is at least `px` wide, following it as it resizes. */
-function useMinWidth(px: number): boolean {
-  const query = `(min-width: ${px}px)`
-  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    const change = () => setMatch(media.matches)
-    change()
-    media.addEventListener('change', change)
-    return () => media.removeEventListener('change', change)
-  }, [query])
-  return match
 }
 
 /** Full-page settings, shown in place of the chat. Every change autosaves, except hooks (see HooksSection). */

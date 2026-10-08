@@ -30,7 +30,7 @@ import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { clock, compact, useHotkeys, useMinWidth, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
@@ -48,7 +48,7 @@ import {
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { agentPhase } from '../ui/status.ts'
-import { softSpring } from '../ui-config.ts'
+import { softSpring, WORKSPACE_DOCK_PX } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -310,8 +310,10 @@ function WorkspaceBody({
   const worth = CONTENT_VIEWS.find((t) => has[t])
   // The panel the person keeps open shows itself only in chats with something in it (a one-line question has
   // nothing); opening it in this chat (the rail, ⌘J, a card in the chat) shows it anyway. Closing it is remembered.
+  // Where the panel would cover the chat (a narrow or zoomed window) it never shows itself.
   const [asked, setAsked] = useState(false)
-  const shown = open && (asked || worth !== undefined)
+  const docks = useMinWidth(WORKSPACE_DOCK_PX)
+  const shown = open && (asked || (docks && worth !== undefined))
   const show = (next: boolean) => {
     setAsked(next)
     onOpenChange(next)

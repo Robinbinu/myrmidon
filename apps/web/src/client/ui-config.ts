@@ -38,6 +38,14 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024
  */
 export const TOOLBAR_FOLD_SLACK_PX = 24
 
+/* ------------------------------------------------------------------ workspace panel */
+
+/**
+ * From this window width (Tailwind's xl) the workspace panel docks beside the chat; below it, it covers the chat, so
+ * it opens only when asked for, never by itself because a chat has files.
+ */
+export const WORKSPACE_DOCK_PX = 1280
+
 /* ------------------------------------------------------------------ sidebar */
 
 /** How long typing in the chat search pauses before the server searches what was said; titles match at once. */

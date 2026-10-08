@@ -217,11 +217,6 @@ export function App() {
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
   const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
-  // Below the docking width the panel covers the chat, so it never reopens on its own there.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
-  useEffect(() => {
-    if (window.innerWidth < 1280) setWorkspaceOpen(false)
-  }, [])
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.

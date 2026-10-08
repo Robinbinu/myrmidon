@@ -59,6 +59,20 @@ export function useReduceMotion(): [boolean, (v: boolean) => void] {
   return [reduce, setReduce]
 }
 
+/** Whether the window is at least `px` wide, following it as it resizes or zooms. */
+export function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const change = () => setMatch(media.matches)
+    change()
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [query])
+  return match
+}
+
 /** Copies text and reports `copied` for a moment so buttons can confirm it. */
 export function useCopy(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false)
