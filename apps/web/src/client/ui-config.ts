@@ -14,6 +14,8 @@ export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as con
  * request is 9–12k tokens, a helper's up to 26k.
  */
 export const AGENT_MIN_WINDOW = 32_000
+/** The shortest a model picker's list gets before it opens the other way. */
+export const MODEL_LIST_MIN_PX = 160
 
 /* ------------------------------------------------------------------ composer */
 
@@ -21,6 +23,12 @@ export const AGENT_MIN_WINDOW = 32_000
 export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
+/**
+ * When the composer toolbar's chips don't fit at their full width, thinking, reviewer and helpers fold into one Team
+ * chip so the model and project keep their names. They unfold only once this much more room than they need is free,
+ * so a width at the edge doesn't flip them back and forth.
+ */
+export const TOOLBAR_FOLD_SLACK_PX = 24
 
 /* ------------------------------------------------------------------ scrolling */
 

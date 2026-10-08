@@ -1,6 +1,5 @@
 import {
   ArrowUp,
-  AtSign,
   ChevronRight,
   FileText,
   ListEnd,
@@ -12,7 +11,15 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  type ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   type CrewMember,
   getReviewMode,
@@ -26,11 +33,15 @@ import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
-import { MAX_FILES, spring } from '../ui-config.ts'
+import { useToast } from '../ui/Toast.tsx'
+import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
-import { ModelPicker } from './ModelPicker.tsx'
-import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './TeamControls.tsx'
+import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
+import { ModelPicker, PickerHost } from './ModelPicker.tsx'
+import { withoutDatedAliases } from './model-list.ts'
+import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
+import { idleRoom, naturalWidth, shouldFold } from './toolbar-fit.ts'
 
 export const MODES = [
   {
@@ -57,6 +68,12 @@ const THINKING = [
   { value: 'low', label: copy.composer.thinking.low },
   { value: 'medium', label: copy.composer.thinking.medium },
   { value: 'high', label: copy.composer.thinking.high },
+] as const
+
+const HELPER_MODES = [
+  { value: 'never', label: copy.teamControls.helperModes.never.title },
+  { value: 'auto', label: copy.teamControls.helperModes.auto.title },
+  { value: 'always', label: copy.teamControls.helperModes.always.title },
 ] as const
 
 const REVIEW = [
@@ -88,8 +105,6 @@ export function TeamSettings(props: {
     [swarm ? undefined : config.leadModel, ...config.roster.map((r) => r.model)].some(
       (m) => m && providerOf(m) === judging,
     ) && props.models.some((m) => !m.hidden && m.provider !== judging)
-  const n = config.roster.length
-  const summary = n === 0 ? copy.composer.helpersNone : copy.composer.helpersCount(n, swarm)
   const reviewOff = props.review === 'off'
 
   return (
@@ -155,26 +170,35 @@ export function TeamSettings(props: {
       )}
 
       <div className={GROUP}>
-        <button
-          type="button"
-          onClick={() => setHelpersOpen(!helpersOpen)}
-          aria-expanded={helpersOpen}
-          className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
-        >
-          <ChevronRight
-            className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
+        <Row label={copy.composer.helpers} hint={helpersHint(config)}>
+          <Segmented
+            id="composer-helpers"
+            value={helperMode(config)}
+            options={[...HELPER_MODES]}
+            onChange={(mode) => props.onConfig(withHelperMode(config, mode, props.models))}
           />
-          <span className="flex-1 text-[13px]">{copy.composer.helpers}</span>
-          <span className="text-[12px] text-muted">
-            {summary} · {copy.composer.helpersMode(swarm)}
-          </span>
-        </button>
+        </Row>
+        {helperMode(config) !== 'never' && (
+          <button
+            type="button"
+            onClick={() => setHelpersOpen(!helpersOpen)}
+            aria-expanded={helpersOpen}
+            className="flex min-h-11 w-full items-center gap-2 px-3 text-left"
+          >
+            <ChevronRight
+              className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
+            />
+            <span className="flex-1 text-[13px]">{copy.composer.helperList}</span>
+            <span className="text-[12px] text-muted">{helpersLabel(config)}</span>
+          </button>
+        )}
         <AnimatePresence initial={false}>
-          {helpersOpen && (
+          {helpersOpen && helperMode(config) !== 'never' && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
+              // Clipped only while it folds, so the helpers' model lists can open past its edge.
+              animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
+              exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
               transition={{ duration: 0.18 }}
               className="overflow-hidden"
             >
@@ -190,7 +214,6 @@ export function TeamSettings(props: {
           )}
         </AnimatePresence>
       </div>
-      <p className="px-1 text-[11.5px] leading-snug text-muted">{copy.composer.helpersNote}</p>
     </div>
   )
 }
@@ -250,16 +273,15 @@ const MENTION_AT_END = /(^|\s)@([a-z0-9-]*)$/i
 
 /**
  * While an @name is being typed, the crew members it could be: picking one completes the name, and the message then
- * goes to them directly. Escape closes the list for that text.
+ * goes to them directly.
  */
 function mentionMenu(
   text: string,
   crew: readonly CrewMember[] | undefined,
-  closedFor: string | undefined,
   insert: (name: string) => void,
 ): MenuModel | undefined {
   const typed = MENTION_AT_END.exec(text)
-  if (!typed || !crew?.length || text === closedFor) return undefined
+  if (!typed || !crew?.length) return undefined
   const prefix = (typed[2] ?? '').toLowerCase()
   const items = crew
     .filter((c) => c.name.toLowerCase().startsWith(prefix))
@@ -268,7 +290,7 @@ function mentionMenu(
       ...(i === 0 ? { section: copy.composer.mention.section } : {}),
       title: `@${c.name}`,
       description: c.specialty ?? c.role,
-      icon: AtSign,
+      agent: c.name,
       run: () => insert(c.name),
       complete: () => insert(c.name),
     }))
@@ -294,14 +316,56 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
+  const toast = useToast()
+  // Files that can't go are refused here, by name, rather than at send time or silently.
   const addFiles = (list: Iterable<File>) => {
-    const added = [...list].filter((f) => f.size > 0)
-    if (added.length === 0) return
-    setFiles((prev) => [...prev, ...added].slice(0, MAX_FILES))
+    const nonEmpty = [...list].filter((f) => f.size > 0)
+    const tooLarge = nonEmpty.filter((f) => f.size > MAX_FILE_BYTES)
+    const [first] = tooLarge
+    if (first)
+      toast(
+        tooLarge.length === 1
+          ? copy.app.fileTooLarge(first.name)
+          : copy.composer.filesTooLarge(tooLarge.map((f) => f.name)),
+        'error',
+      )
+    const fitting = nonEmpty.filter((f) => f.size <= MAX_FILE_BYTES)
+    const room = Math.max(0, MAX_FILES - files.length)
+    if (fitting.length > room) toast(copy.composer.tooManyFiles(MAX_FILES, fitting.length - room), 'error')
+    const added = fitting.slice(0, room)
+    if (added.length > 0) setFiles((prev) => [...prev, ...added].slice(0, MAX_FILES))
   }
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
+  const teamPanel = useRef<HTMLDivElement>(null)
   const { config } = props
+
+  // Where the toolbar can't fit every chip, Thinking, Reviewer and Helpers fold into one Team chip, so the model and
+  // project chips keep their names. The chips' full width is measured while they are all shown (it changes with the
+  // model and project names) and remembered while folded.
+  const chipRow = useRef<HTMLDivElement>(null)
+  const actions = useRef<HTMLDivElement>(null)
+  const folded = useRef(false)
+  const fullChips = useRef(0)
+  const [narrow, setNarrow] = useState(false)
+  const fitChips = useRef(() => {})
+  fitChips.current = () => {
+    const row = chipRow.current
+    const right = actions.current
+    if (!row || !right) return
+    if (!folded.current) fullChips.current = naturalWidth(row)
+    folded.current = shouldFold(folded.current, idleRoom(row, right), fullChips.current)
+    setNarrow(folded.current)
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure before paint when what the chips say changes
+  useLayoutEffect(() => {
+    fitChips.current()
+  }, [config, review, props.project, props.models])
+  useEffect(() => {
+    const observer = new ResizeObserver(() => fitChips.current())
+    for (const el of [chipRow.current, actions.current]) if (el) observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   useImperativeHandle(ref, () => ({
     focus: () => area.current?.focus(),
@@ -362,6 +426,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (command.name === 'help') return setShowHelp(true)
     try {
       await props.onCommand(command.name, arg)
+      // The download starts without any sign in the page; say it happened and where to look. Without a chat there is
+      // nothing to download, and the app already says so.
+      if (command.name === 'export' && props.chatState?.chat) toast(copy.composer.exported, 'success')
     } catch {
       setText(`/${command.name}${arg ? ` ${arg}` : ''}`)
     }
@@ -384,11 +451,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  const [mentionClosed, setMentionClosed] = useState<string>()
-  const mention = mentionMenu(text, props.crew, mentionClosed, (name) =>
+  // Escape closes the menu for the text as it is, and keeps the text; any change to the text (typing, sending,
+  // picking) opens it again.
+  const [closedFor, setClosedFor] = useState<string>()
+  useEffect(() => {
+    if (text !== closedFor) setClosedFor(undefined)
+  }, [text, closedFor])
+  const mention = mentionMenu(text, props.crew, (name) =>
     fillCommand(text.replace(MENTION_AT_END, (_m, space: string) => `${space}@${name} `)),
   )
-  const menu =
+  const listed =
     mention ??
     buildMenu({
       text,
@@ -396,13 +468,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       ctx: { running: props.running, chat: !!props.chatState?.chat, resumable: !!props.chatState?.resumable },
       dynamicOptions: (c) =>
         c.name === 'model'
-          ? props.models
-              .filter((m) => !m.hidden)
-              .map((m) => ({
-                value: m.ref,
-                label: m.name,
-                description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
-              }))
+          ? withoutDatedAliases(
+              props.models.filter((m) => !m.hidden),
+              config.leadModel,
+            ).map((m) => ({
+              value: m.ref,
+              label: m.name,
+              description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
+            }))
           : undefined,
       current: (c) =>
         c.name === 'model'
@@ -421,6 +494,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       pickOption: (c, value) => void runCommand(c, value),
       submit: () => void send(),
     })
+  const menu = !showHelp && text === closedFor ? undefined : listed
   const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
@@ -437,6 +511,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           )}
           {showTeam && (
             <motion.div
+              ref={teamPanel}
               role="dialog"
               aria-label={copy.composer.teamDialog}
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -449,13 +524,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <h3 className="text-[13px] font-semibold">{copy.composer.teamHeading}</h3>
                 <span className="text-[11.5px] text-muted">{copy.composer.teamApplies}</span>
               </div>
-              <TeamSettings
-                models={props.models}
-                config={config}
-                onConfig={props.onConfig}
-                {...(review ? { review } : {})}
-                onReview={changeReview}
-              />
+              <PickerHost.Provider value={teamPanel}>
+                <TeamSettings
+                  models={props.models}
+                  config={config}
+                  onConfig={props.onConfig}
+                  {...(review ? { review } : {})}
+                  onReview={changeReview}
+                />
+              </PickerHost.Provider>
             </motion.div>
           )}
         </AnimatePresence>
@@ -484,7 +561,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-1 pl-2 pr-1 text-[12px]"
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-[12px]"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{f.name}</span>
@@ -493,9 +570,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     type="button"
                     aria-label={copy.composer.removeFile(f.name)}
                     onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
-                    className="rounded p-0.5 text-muted hover:bg-surface-3 hover:text-fg"
+                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <X className="size-3" />
+                    <X className="size-3.5" />
                   </button>
                 </span>
               ))}
@@ -524,10 +601,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 }
                 if (e.key === 'Escape') {
                   e.preventDefault()
-                  if (menu === mention) return setMentionClosed(text)
-                  setShowHelp(false)
-                  if (!showHelp) setText('')
-                  return
+                  if (showHelp) return setShowHelp(false)
+                  return setClosedFor(text)
                 }
                 if (e.key === 'Tab' && pick?.complete) {
                   e.preventDefault()
@@ -560,7 +635,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 e.target.value = ''
               }}
             />
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div ref={chipRow} className="flex min-w-0 flex-1 items-center gap-1">
               <button
                 type="button"
                 onClick={() => picker.current?.click()}
@@ -579,15 +654,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 models={props.models}
                 onChange={(leadModel) => props.onConfig({ ...config, leadModel })}
               />
-              <ThinkingChip config={config} onConfig={props.onConfig} />
-              <ReviewChip
-                models={props.models}
-                config={config}
-                onConfig={props.onConfig}
-                {...(review ? { review } : {})}
-                onReview={changeReview}
-              />
-              <HelpersChip models={props.models} config={config} onConfig={props.onConfig} />
+              {narrow ? (
+                <TeamChip
+                  config={config}
+                  {...(review ? { review } : {})}
+                  open={showTeam}
+                  onClick={() => setShowTeam(!showTeam)}
+                />
+              ) : (
+                <>
+                  <ThinkingChip config={config} onConfig={props.onConfig} />
+                  <ReviewChip
+                    models={props.models}
+                    config={config}
+                    onConfig={props.onConfig}
+                    {...(review ? { review } : {})}
+                    onReview={changeReview}
+                  />
+                  <HelpersChip models={props.models} config={config} onConfig={props.onConfig} />
+                </>
+              )}
               {chips.map(({ plugin, def }) => (
                 <PluginSlot
                   key={plugin}
@@ -601,7 +687,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               ))}
               {props.project}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div ref={actions} className="flex shrink-0 items-center gap-1.5">
               <AnimatePresence initial={false}>
                 {props.running && (
                   <motion.button
@@ -611,7 +697,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={spring}
-                    onClick={() => setDelivery(delivery === 'steer' ? 'queue' : 'steer')}
+                    onClick={() => {
+                      setDelivery(delivery === 'steer' ? 'queue' : 'steer')
+                      // Back to the message, so Enter sends it instead of flipping the toggle again.
+                      area.current?.focus()
+                    }}
                     title={copy.composer.deliveryTitle(DELIVERIES.find((d) => d.value === delivery)?.hint)}
                     aria-label={copy.composer.deliveryLabel(
                       delivery,
@@ -630,23 +720,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   </motion.button>
                 )}
               </AnimatePresence>
+              {/* While a round runs, Stop holds the rightmost place; Send appears to its left once there is something to
+                  send, so reaching for Stop never sends a message. */}
               <AnimatePresence mode="popLayout" initial={false}>
-                {props.running && !text.trim() ? (
-                  <motion.button
-                    key="stop"
-                    type="button"
-                    initial={{ scale: 0.6, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.6, opacity: 0 }}
-                    transition={spring}
-                    onClick={props.onStop}
-                    aria-label={copy.composer.stopLabel}
-                    title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
-                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
-                  >
-                    <Square className="size-3.5" fill="currentColor" />
-                  </motion.button>
-                ) : (
+                {(!props.running || canSend) && (
                   <motion.button
                     key="send"
                     type="button"
@@ -664,6 +741,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     )}
                   >
                     <ArrowUp className="size-4" strokeWidth={2.5} />
+                  </motion.button>
+                )}
+                {props.running && (
+                  <motion.button
+                    key="stop"
+                    type="button"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.6, opacity: 0 }}
+                    transition={spring}
+                    onClick={props.onStop}
+                    aria-label={copy.composer.stopLabel}
+                    title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
+                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
+                  >
+                    <Square className="size-3.5" fill="currentColor" />
                   </motion.button>
                 )}
               </AnimatePresence>

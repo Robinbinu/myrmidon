@@ -156,8 +156,6 @@ export const copy = {
         : `Orchestrated · ${n} specialist${n === 1 ? '' : 's'}`,
     thinking: { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' },
     review: { off: 'Off', auto: 'Auto', always: 'Always' },
-    helpersNone: 'None',
-    helpersCount: (n: number, swarm: boolean) => `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'}`,
     lead: 'Lead',
     leadHint: 'Who you talk to',
     reviewer: 'Reviewer',
@@ -172,8 +170,8 @@ export const copy = {
     sameProvider:
       'The reviewer shares a provider with the team; one from another provider catches more of its blind spots.',
     helpers: 'Helpers',
-    helpersMode: (swarm: boolean) => (swarm ? 'equal peers' : 'called by the lead'),
-    helpersNote: 'The lead answers itself and calls helpers only for big jobs.',
+    /** The fold under the helpers setting that lists each helper and its model. */
+    helperList: 'Who helps',
     deliveries: {
       steer: { label: 'Steer', hint: 'Read at the next step' },
       queue: { label: 'Queue', hint: 'Read once the current work is done' },
@@ -189,6 +187,12 @@ export const copy = {
     teamHeading: 'Lead & helpers',
     teamApplies: 'Applies to your next messages',
     removeFile: (name: string) => `Remove ${name}`,
+    /** Several attachments refused at once; one file uses copy.app.fileTooLarge, which names the same size. */
+    filesTooLarge: (names: readonly string[]) =>
+      `${names.length} files are larger than 10 MB: ${names.join(', ')}`,
+    tooManyFiles: (max: number, left: number) =>
+      `A message can carry ${max} files; ${left} ${left === 1 ? 'was' : 'were'} not attached`,
+    exported: 'Chat downloaded as Markdown; look in your downloads folder',
     message: 'Message',
     attach: 'Attach files',
     attachTitle: 'Attach files (or drop / paste them)',
@@ -337,13 +341,18 @@ export const copy = {
       valueAuto: 'Review',
       model: 'Reviewer model',
     },
+    /** The one chip thinking, reviewer and helpers fold into when the toolbar is narrow. */
+    team: {
+      label: 'Team',
+      summary: (thinking: string, reviewer: string, helpers: string) =>
+        `Team: thinking ${thinking.toLowerCase()} · ${reviewer.toLowerCase()} · ${helpers.toLowerCase()}`,
+    },
+    /** One set of words for the helpers setting, used on the chip and in every summary of it. */
     helpers: {
       label: 'Helpers',
-      solo: 'Solo',
-      teamOf: (n: number) => `Team of ${n}`,
-      count: (n: number, who: string) => `${n} ${who}`,
-      peers: 'peers',
-      helpers: 'helpers',
+      none: 'No helpers',
+      summary: (n: number, swarm: boolean, mode: string) =>
+        `${n} ${swarm ? 'peer' : 'helper'}${n === 1 ? '' : 's'} · ${mode.toLowerCase()}`,
     },
     helperModes: {
       never: { title: 'Never', hint: 'The lead works alone, like a chat' },
@@ -438,6 +447,21 @@ export const copy = {
   commandMenu: {
     label: 'Commands',
     recent: 'Recent',
+    /** The last section of the slash menu: commands that can't run in this chat right now. */
+    unavailable: 'Not available now',
+    help: {
+      title: 'Every command, and the keys the composer knows',
+      keysSection: 'Keys',
+      keys: [
+        { keys: ['Enter'], does: 'Send, or run the highlighted command' },
+        { keys: ['Shift', 'Enter'], does: 'New line' },
+        { keys: ['Alt', 'Enter'], does: 'While a round runs, send the other way (steer or queue)' },
+        { keys: ['/'], does: 'Commands, typed at the start of a message' },
+        { keys: ['@'], does: 'Write directly to a crew member by name' },
+        { keys: ['Tab'], does: 'Complete the highlighted command' },
+        { keys: ['Esc'], does: 'Close this menu and keep what you typed' },
+      ],
+    },
     chooseFor: (args: string, name: string) => `Choose ${args} for /${name}`,
     anArgument: 'an argument',
     noMatches: 'No matches. Esc to close.',
