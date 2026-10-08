@@ -77,6 +77,11 @@ export interface ChannelKind {
    * listed people (a pairing code by email or paid text helps no one), group-only platforms answer in any group.
    */
   readonly defaults?: Partial<Pick<ChannelConfig, 'dm' | 'groups' | 'mention'>>
+  /**
+   * What an entry under "Let in without a code" looks like here (an ID, or a handle the platform vouches for), so a
+   * typo is refused instead of never matching; `example` is the field's placeholder.
+   */
+  readonly allow?: { readonly pattern: RegExp; readonly example: string }
 }
 
 /** One channel as Settings shows it; secret values never leave the hub. */
@@ -97,6 +102,8 @@ export interface ChannelInfo {
   readonly stream: ChannelConfig['stream']
   readonly perPerson: boolean
   readonly allow: readonly string[]
+  /** What an entry in `allow` looks like here. */
+  readonly allowExample?: string
   readonly status: AdapterStatus | { readonly state: 'off' }
   readonly health: ChannelHealth
   readonly people: readonly ChannelPerson[]
@@ -287,6 +294,7 @@ export class ChannelHub {
         stream: c.stream,
         perPerson: c.perPerson,
         allow: c.allow,
+        ...(kind.allow ? { allowExample: kind.allow.example } : {}),
         status: this._running.has(id) ? (this._status.get(id) ?? { state: 'connecting' }) : { state: 'off' },
         health: { reconnects: 0, ...this._health.get(id), owed: this._ledger.owed(id).length },
         people: c.people,
@@ -306,6 +314,10 @@ export class ChannelHub {
    */
   async configure(id: string, patch: ChannelPatch) {
     const kind = this._kind(id)
+    const allow = patch.allow?.map((a) => a.trim()).filter(Boolean)
+    // An entry with a space is two run together; one in the wrong form would never match anyone.
+    const wrong = allow?.filter((a) => /\s/.test(a) || (kind.allow && !kind.allow.pattern.test(a))) ?? []
+    if (wrong.length) throw new Error(t.allowInvalid(kind.label, wrong, kind.allow?.example))
     // The first time a channel is configured it starts from its platform's own rules.
     if (kind.defaults && !this.store.exists(id))
       this.store.update(id, (c) => {
@@ -334,7 +346,7 @@ export class ChannelHub {
       if (patch.mention !== undefined) c.mention = patch.mention
       if (patch.stream !== undefined) c.stream = patch.stream
       if (patch.perPerson !== undefined) c.perPerson = patch.perPerson
-      if (patch.allow) c.allow = patch.allow.map((a) => a.trim()).filter(Boolean)
+      if (allow) c.allow = allow
       if (patch.project === null) delete c.project
       else if (patch.project !== undefined) c.project = patch.project
     })

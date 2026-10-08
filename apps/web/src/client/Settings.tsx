@@ -2532,6 +2532,7 @@ interface ChannelView {
   stream: 'progress' | 'partial' | 'final'
   perPerson: boolean
   allow: string[]
+  allowExample?: string
   status: ChannelConnection
   health: {
     connectedAt?: string
@@ -2575,6 +2576,7 @@ const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
  */
 function ChannelsSection(props: { initial?: string | undefined }) {
   const t = copy.settings.channels
+  const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [open, setOpen] = useState<string | undefined>(props.initial)
@@ -2591,9 +2593,9 @@ function ChannelsSection(props: { initial?: string | undefined }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
   useEffect(() => {
     void load()
-    void api<{ projects: { id: string; name: string }[] }>('/api/projects').then((r) =>
-      setProjects(r.projects),
-    )
+    void api<{ projects: { id: string; name: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch((err: Error) => toast(err.message, 'error'))
     const timer = setInterval(() => void load(), CHANNELS_POLL_MS)
     return () => clearInterval(timer)
   }, [])
@@ -2639,6 +2641,11 @@ function ChannelsSection(props: { initial?: string | undefined }) {
             ))}
           </div>
         </section>
+      )}
+      {!list && !loadError && (
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
+        </div>
       )}
       {list && (
         <section>
@@ -2715,19 +2722,25 @@ function ChannelSheet(props: {
   const [allowDraft, setAllowDraft] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<{ at: string; kind: string; text: string }[]>()
+  // Shown in the tab while it lasts, not toasted again on every poll.
+  const [eventsError, setEventsError] = useState<string>()
+  const [allowError, setAllowError] = useState<string>()
+  const [allowSaved, setAllowSaved] = useState(false)
   const saved = new Set([...c.secretsSet, ...Object.keys(c.values).filter((k) => c.values[k])])
   const setup = channelSetup(c.fields, saved, draft)
   const changed = Object.keys(setup.values).length > 0
   // Why the settings were not saved: on the one field it is about, or for the form when it is about several.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [setupError, setSetupError] = useState<string>()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on a timer while the tab shows
   useEffect(() => {
     if (tab !== 'activity') return
     const get = () =>
       api<{ events: { at: string; kind: string; text: string }[] }>(`/api/channels/${c.id}/activity`)
-        .then((r) => setEvents(r.events))
-        .catch((err: Error) => toast(err.message, 'error'))
+        .then((r) => {
+          setEvents(r.events)
+          setEventsError(undefined)
+        })
+        .catch((err: Error) => setEventsError(err.message))
     void get()
     const timer = setInterval(() => void get(), CHANNELS_POLL_MS)
     return () => clearInterval(timer)
@@ -2765,6 +2778,23 @@ function ChannelSheet(props: {
       else setSetupError(why)
     } finally {
       setBusy(false)
+    }
+  }
+  const saveAllow = async () => {
+    if (allowDraft === undefined) return
+    const allow = allowDraft
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+    try {
+      await send('PUT', `/api/channels/${c.id}`, { allow })
+      setAllowDraft(undefined)
+      setAllowError(undefined)
+      setAllowSaved(true)
+      await props.onChanged()
+    } catch (err) {
+      setAllowError((err as Error).message)
+      setAllowSaved(false)
     }
   }
   const act = (promise: Promise<unknown>, done?: string) =>
@@ -3120,21 +3150,24 @@ function ChannelSheet(props: {
               </Field>
             </Row>
             <Row>
-              <Field label={t.allow} hint={t.allowHint}>
+              <Field
+                label={t.allow}
+                hint={
+                  <>
+                    {t.allowHint}
+                    {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
+                  </>
+                }
+                error={allowError}
+              >
                 <TextInput
                   value={allowDraft ?? c.allow.join(', ')}
-                  onChange={(e) => setAllowDraft(e.target.value)}
-                  onBlur={() => {
-                    if (allowDraft === undefined) return
-                    void configure({
-                      allow: allowDraft
-                        .split(',')
-                        .map((a) => a.trim())
-                        .filter(Boolean),
-                    })
+                  onChange={(e) => {
+                    setAllowDraft(e.target.value)
+                    setAllowSaved(false)
                   }}
-                  placeholder="@alice, 123456789"
-                  aria-label={t.allow}
+                  onBlur={() => void saveAllow()}
+                  placeholder={c.allowExample ?? t.allowPlaceholder}
                 />
               </Field>
             </Row>
@@ -3167,6 +3200,11 @@ function ChannelSheet(props: {
             {c.health.lastError && channelState(c) !== 'on' && (
               <div className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
                 {h.lastError(c.health.lastError)}
+              </div>
+            )}
+            {eventsError && (
+              <div role="alert" className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+                {eventsError}
               </div>
             )}
             <Card>

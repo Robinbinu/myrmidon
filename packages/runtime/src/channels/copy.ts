@@ -284,6 +284,22 @@ export const channelCopy = {
     `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak from the same folder.`,
   notObject: 'it does not hold a list of channels',
   missing: (labels: string[]) => `Still needed: ${labels.join(', ')}`,
+  /** What "Let in without a code" takes on each platform, shown as its placeholder and when an entry is wrong. */
+  allowExample: {
+    telegram: '@alice, 123456789',
+    'whatsapp-cloud': '+15551234567',
+    email: 'you@example.com',
+    sms: '+15551234567',
+    signal: '+15551234567',
+    matrix: '@alice:matrix.org',
+    discord: '@alice, 123456789012345678',
+    irc: 'alice!~alice@host.example',
+    twitch: 'yourname',
+    x: '@yourname',
+    nostr: 'npub1…',
+  },
+  allowInvalid: (label: string, entries: string[], example?: string) =>
+    `Not a ${label} ID or username: ${entries.join(', ')}.${example ? ` For example: ${example}` : ''}`,
   /** What an agent is doing, by tool. */
   doing: {
     shell: (command: string) => `running \`${command}\``,

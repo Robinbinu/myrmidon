@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
 import {
   type AdapterIO,
+  BUILT_IN_CHANNELS,
   type ButtonPress,
   type ChannelAdapter,
   type ChannelChat,
@@ -321,6 +322,25 @@ test('a channel’s settings are saved whole or not at all: a missing required o
   const { hub } = await setup()
   await expect(hub.configure('telegram', { values: { token: ' ' } })).rejects.toThrow('Still needed: Token')
   expect(hub.store.get('telegram').values).toEqual({ token: 'tok' })
+})
+
+test('"let in without a code" takes entries in the platform’s own form, so a typo is refused, not ignored', async () => {
+  const { hub } = await setup()
+  await expect(hub.configure('telegram', { allow: ['@alice bob'] })).rejects.toThrow(
+    'Not a Telegram ID or username: @alice bob.',
+  )
+  await hub.configure('telegram', { allow: [' @alice ', '123456789'] })
+  expect(hub.store.get('telegram').allow).toEqual(['@alice', '123456789'])
+  const ok = (id: string, entry: string) => BUILT_IN_CHANNELS[id]?.allow?.pattern.test(entry)
+  // On IRC only the full mask can match (a nick is anyone's to take).
+  expect(ok('irc', 'alice')).toBe(false)
+  expect(ok('irc', 'alice!~al@host.example')).toBe(true)
+  expect(ok('telegram', '@alice')).toBe(true)
+  expect(ok('sms', '5551234567')).toBe(false)
+  expect(ok('sms', '+15551234567')).toBe(true)
+  expect(ok('matrix', '@alice:matrix.org')).toBe(true)
+  expect(hub.list()[0]?.allowExample).toBeUndefined()
+  expect(BUILT_IN_CHANNELS.irc?.allow?.example).toBe('alice!~alice@host.example')
 })
 
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {

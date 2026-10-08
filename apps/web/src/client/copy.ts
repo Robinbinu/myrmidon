@@ -1934,6 +1934,8 @@ export const copy = {
       allow: 'Let in without a code',
       allowHint:
         'IDs or @usernames, separated by commas. They come in as members; make someone the owner under People.',
+      allowPlaceholder: '@alice, 123456789',
+      allowSaved: 'Saved.',
       stream: 'While the crew works',
       streamHint: {
         progress: 'One message that updates with what each agent is doing, then the answer as a new message.',
