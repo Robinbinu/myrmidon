@@ -791,6 +791,7 @@ export class ColonyRun implements ColonyHost {
               ...(this.spec.chat.project ? { project: this.spec.chat.project } : {}),
               ...(this.spec.chat.escalate?.length ? { escalate: this.spec.chat.escalate } : {}),
               ...(this.spec.chat.memory?.length ? { memory: this.spec.chat.memory } : {}),
+              ...(this.spec.chat.addressed?.length ? { addressed: this.spec.chat.addressed } : {}),
             },
           }
         : {}),

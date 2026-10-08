@@ -340,6 +340,8 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
     text: 'Shorter now: ants march.',
     final: true,
   })
+  // The round remembers who opened it, so the page shows it as a conversation with them.
+  expect(done.chat?.addressed).toEqual([writer])
   const from = done.rounds.at(-1)?.startSeq ?? 0
   const round2 = (await events(next.colonyId)).filter((e) => e.seq >= from)
   expect(turnsOf(round2, 'lead')).toHaveLength(0)
