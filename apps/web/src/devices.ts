@@ -155,7 +155,8 @@ export function needsFull(method: string, path: string): boolean {
     return true
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
   if (write && /^\/api\/(settings|plugins|mcp|hooks)(\/|$)/.test(path)) return true
-  if (write && path === '/api/projects') return true
+  // Adding or removing a project; reading the list stays open so chats show their folder.
+  if (write && /^\/api\/projects(\/[^/]+)?$/.test(path)) return true
   return false
 }
 

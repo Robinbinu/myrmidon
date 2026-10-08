@@ -121,6 +121,9 @@ test('pairing codes expire after enough wrong guesses, and chat devices are kept
   expect(needsFull('POST', '/api/projects/p1/git/commit')).toBe(true)
   expect(needsFull('GET', '/api/projects/p1/git/diff')).toBe(false)
   expect(needsFull('POST', '/api/chats')).toBe(false)
+  expect(needsFull('POST', '/api/projects')).toBe(true)
+  expect(needsFull('DELETE', '/api/projects/p1')).toBe(true)
+  expect(needsFull('GET', '/api/projects')).toBe(false)
 })
 
 /** A port that was free a moment ago, for a fixed preview port. */
