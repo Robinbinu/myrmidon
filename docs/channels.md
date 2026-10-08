@@ -18,13 +18,15 @@ OpenClaw (OpenClaw Foundation), both MIT licensed; see `research/2026-10-08-chan
    (it asks for the token without showing it; `myrmidon channels telegram < token.txt` for scripts). The token is
    checked with Telegram first and kept in `<home>/channels/channels.json`, readable only by you.
 3. Message your bot. It replies with a **code**, and does nothing else until you approve it, in Settings →
-   Channels (press **Approve**) or with:
+   Channels → People (type the code and press **Make owner**, or **Approve** once there is an owner) or with:
 
    ```bash
    myrmidon channels approve telegram K7QX3MNP
    ```
 
-   The first person approved is the **owner**; anyone approved later is a **member**.
+   The first person approved is the **owner**; anyone approved later is a **member**. Approving always takes the
+   code the bot sent: only whoever received it can know it, so a stranger who wrote first cannot be approved by
+   mistake.
 
 Nothing needs to be reachable from the internet: Myrmidon asks Telegram for new messages (long polling).
 
@@ -639,7 +641,8 @@ password (`PASS`, before registering). Ported from OpenClaw's and Hermes's IRC a
    join (the bot's own when empty). The token is validated with Twitch (it must belong to that username and carry
    both scopes), again on every connection and every hour, as Twitch requires.
 3. Twitch chat is public and bots cannot whisper, so there is no direct chat to send a code to: put **your Twitch
-   username** under "Let in without a code" (you become the owner) and set **Groups** to *any group*. It then
+   username** under "Let in without a code" and set **Groups** to *any group*; after your first message, make
+   yourself the owner in Settings → Channels → People. It then
    answers only listed and approved people, and only when they `@mention` it or reply to it; everyone else is
    ignored.
 
@@ -709,9 +712,12 @@ sent to the bot come in as attachments; files cannot be sent back (Zalo takes ph
 - Writing while it works reaches the crew at once, as in the app.
 - **Questions** with options arrive as buttons (or a numbered list to answer by number); several questions are
   answered one by one and sent together.
-- **Approvals**: a risky step waiting for an OK is sent to the owner with **Allow once**, **Always allow <tool>**
-  (which sets that tool to "allow" in Settings → Tools) and **Deny**. Only the owner's press counts; a member's run
-  asks the owner in the owner's own chat. Unanswered after 15 minutes, it is denied. Without buttons, reply
+- **Approvals**: a risky step waiting for approval is sent to the owner with **Allow once**, **Always allow <tool>**
+  (which sets that tool to "allow" in Settings → Tools) and **Deny**. Only the owner's press counts. A run a
+  member (anyone but the owner) starts or writes into asks the owner, in the owner's own chat, before every step
+  that changes something outside the run (files, commands, the browser, MCP and plugin tools) and before reading
+  the chat's project folder, even tools set to "allow", and offers no **Always allow**. Web searches and page reads,
+  and the agents' own notes and scratch files, need no approval. Unanswered after 15 minutes, it is denied. Without buttons, reply
   `/approve KEY`, `/approve KEY always` or `/deny KEY`. Deciding in the app closes the message too.
 - **Photos and files** you send go to the crew as attachments (up to 10 MB). **Voice notes** are transcribed (with an
   OpenAI or Groq key in Settings → Models) and the transcript is echoed back so you see what was heard.
@@ -735,8 +741,12 @@ commands are typed with `!` instead: `!approve KEY`, `!new`, `!stop`, `!status`,
   minutes, at most 3 waiting, and nothing they write is acted on), *listed people only* (strangers are ignored
   without a reply), *anyone* (only for a bot no one else knows: an approved person's messages run with this
   machine's tools), or *off*.
-- **Let in without a code**: IDs or @usernames; the first of them to write becomes the owner if there is none.
-- **Members**' messages reach the agents marked as theirs (not the owner's).
+- **Let in without a code**: IDs or @usernames. Listed people come in as members: an owner is made only by
+  approving a code or with **Make owner** under People. A handle matches only where the platform vouches for it;
+  on IRC, where anyone can take a free nick, list the full `nick!user@host`.
+- **Members**' messages reach the agents marked as theirs (not the owner's), and their runs ask the owner before
+  every step that changes something or reads the project. In a group, only whoever asked for a run (or the owner)
+  can answer its questions.
 - **Groups**: add the bot to a group and mention it; the bot sends a code for the group, which you approve. It then
   answers only when mentioned or replied to (unless you turn that off), and only to approved people. Groups can be
   *approve each*, *any group* or *off*; with *a conversation per person*, each person gets their own chat with the

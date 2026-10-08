@@ -224,6 +224,11 @@ export function App() {
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
   const [settingsSection, setSettingsSection] = useState<Section>('general')
+  /** A channel whose sheet Settings → Channels opens on, from a request's toast; forgotten once Settings closes. */
+  const [settingsChannel, setSettingsChannel] = useState<string>()
+  useEffect(() => {
+    if (!settingsOpen) setSettingsChannel(undefined)
+  }, [settingsOpen])
   // Ways out of Settings go through its guard, which asks first when hook edits are unsaved.
   const settingsGuard = useRef<(go: () => void) => void>(undefined)
   const leaveSettings = useCallback(
@@ -320,7 +325,8 @@ export function App() {
     }
   }, [chats, toast])
 
-  // Someone new asking to talk to the crew on a channel: a toast to approve them from here, and a desktop notice.
+  // Someone new asking to talk to the crew on a channel: a toast that opens their channel's People tab (approving
+  // takes the code they were sent, typed there), and a desktop notice.
   const { status } = useStatus()
   const knownRequests = useRef<Set<string>>(undefined)
   useEffect(() => {
@@ -334,19 +340,17 @@ export function App() {
       if (known.has(`${w.channel}/${w.id}`)) continue
       const text = copy.channelRequest[w.kind](w.name, w.label)
       toast(text, 'info', {
-        label: copy.channelRequest.approve,
-        run: async () => {
-          try {
-            await post(`/api/channels/${w.channel}/approve`, { request: w.id })
-            toast(copy.channelRequest.approved(w.name), 'success')
-          } catch (err) {
-            toast(String((err as Error).message ?? err), 'error')
-          }
-        },
+        label: copy.channelRequest.review,
+        run: () =>
+          leaveSettings(() => {
+            setSettingsSection('channels')
+            setSettingsChannel(w.channel)
+            setSettingsOpen(true)
+          }),
       })
       notify(text, undefined, `channel-request-${w.channel}-${w.id}`)
     }
-  }, [status?.waiting, toast])
+  }, [status?.waiting, toast, leaveSettings])
 
   // Learned skills the curator archived: said once per archiving, with the way to restore them.
   const archived = status?.skillsArchived
@@ -766,8 +770,9 @@ export function App() {
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
           {settingsOpen ? (
             <Settings
-              key={settingsSection}
+              key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
               initialSection={settingsSection}
+              {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
               guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
               theme={theme}

@@ -610,6 +610,20 @@ export class ColonyRun implements ColonyHost {
   }
 
   /**
+   * Someone other than the person wrote into this round: from now on it asks before every outside step (`askAll`),
+   * logged so a resumed round keeps asking.
+   */
+  async askForAll() {
+    if (this.spec.askAll) return
+    this.spec.askAll = true
+    await this.append({
+      type: 'permissions/changed',
+      actor: { kind: 'user', id: 'user' },
+      payload: { off: [], ask: [], allow: [], askAll: true, interrupted: [] },
+    })
+  }
+
+  /**
    * New tool rules from the person, applied to this round at once. If they got stricter (a tool switched off or
    * made to ask first, a project made read-only or ask-first), an agent mid-turn is stopped, so a call the person
    * just took back cannot go ahead, and told what changed.
@@ -804,6 +818,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
       ...(this.spec.askTools?.length ? { askTools: this.spec.askTools } : {}),
       ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
+      ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
     }
   }

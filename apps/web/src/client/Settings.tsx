@@ -63,6 +63,7 @@ import {
   type TeamConfig,
 } from './api.ts'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
+import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
@@ -71,7 +72,7 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
-import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
+import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
@@ -367,6 +368,8 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /** A channel whose sheet Settings → Channels opens on (a new request's toast). */
+  initialChannel?: string
   /**
    * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
    * edits are unsaved), for the ways out of Settings that the app itself offers.
@@ -699,7 +702,7 @@ export function Settings(props: {
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
               {section === 'gateways' && <GatewaysSection />}
-              {section === 'channels' && <ChannelsSection />}
+              {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
                 <VoiceSection settings={data.settings} update={update} models={props.models} />
               )}
@@ -2528,11 +2531,9 @@ interface ChannelView {
   stream: 'progress' | 'partial' | 'final'
   perPerson: boolean
   allow: string[]
-  status:
-    | { state: 'off' | 'connecting' }
-    | { state: 'on'; account: string }
-    | { state: 'retrying' | 'error'; error: string }
-    | { state: 'linking'; qr: string; image: string; hint?: string }
+  allowExample?: string
+  allowInvalid: string[]
+  status: ChannelConnection
   health: {
     connectedAt?: string
     reconnects: number
@@ -2541,12 +2542,12 @@ interface ChannelView {
     lastOut?: string
     owed: number
   }
-  people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
+  people: { id: string; name: string; handle?: string; role: 'owner' | 'member'; by?: 'code' | 'settings' }[]
   approvedGroups: { id: string; title: string }[]
   pending: {
     id: string
     kind: 'person' | 'group'
-    sender: { name: string; handle?: string }
+    sender: { id: string; name: string; handle?: string }
     chat: { title?: string }
     expires: string
   }[]
@@ -2559,6 +2560,9 @@ interface ChannelView {
 const inUse = (c: ChannelView) =>
   c.enabled || c.secretsSet.length > 0 || Object.keys(c.values).length > 0 || c.people.length > 0
 
+/** The pairing codes the bot sends are this long (`packages/runtime/src/channels/store.ts`). */
+const PAIRING_CODE_LENGTH = 8
+
 /** How often Settings → Channels looks again, so a code someone just asked for shows up. */
 const CHANNELS_POLL_MS = 3000
 
@@ -2566,40 +2570,32 @@ type ChannelTab = 'setup' | 'people' | 'rules' | 'activity'
 
 const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
 
-function channelStatusText(s: ChannelView['status']) {
-  const t = copy.settings.channels.status
-  return s.state === 'on'
-    ? t.on(s.account)
-    : s.state === 'retrying'
-      ? t.retrying(s.error)
-      : s.state === 'error'
-        ? t.error(s.error)
-        : s.state === 'linking'
-          ? (s.hint ?? t.linking)
-          : t[s.state]
-}
-
 /**
  * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
  * their state and who is waiting, then every other app to add, grouped and searchable. A tile opens the app's sheet.
  */
-function ChannelsSection() {
+function ChannelsSection(props: { initial?: string | undefined }) {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [open, setOpen] = useState<string>()
+  const [open, setOpen] = useState<string | undefined>(props.initial)
   const [query, setQuery] = useState('')
+  // Shown on the page while it lasts (a damaged channels.json, the server away), not toasted again on every poll.
+  const [loadError, setLoadError] = useState<string>()
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
-      .then((r) => setList(r.channels))
-      .catch((err: Error) => toast(err.message, 'error'))
+      .then((r) => {
+        setList(r.channels)
+        setLoadError(undefined)
+      })
+      .catch((err: Error) => setLoadError(err.message))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
   useEffect(() => {
     void load()
-    void api<{ projects: { id: string; name: string }[] }>('/api/projects').then((r) =>
-      setProjects(r.projects),
-    )
+    void api<{ projects: { id: string; name: string }[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch((err: Error) => toast(err.message, 'error'))
     const timer = setInterval(() => void load(), CHANNELS_POLL_MS)
     return () => clearInterval(timer)
   }, [])
@@ -2611,9 +2607,14 @@ function ChannelsSection() {
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
+      {loadError && (
+        <div role="alert" className="mb-6 rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+          {t.loadError(loadError)}
+        </div>
+      )}
       {connected.length > 0 && (
         <section className="mb-8">
-          <h3 className="mb-2 text-[13px] font-semibold">{t.connected}</h3>
+          <h3 className="mb-2 text-[13px] font-semibold">{t.yours}</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {connected.map((c) => (
               <button
@@ -2631,7 +2632,7 @@ function ChannelsSection() {
                   <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
                     <Dot status={channelState(c)} />
                     <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
-                      {c.enabled ? channelStatusText(c.status) : t.status.off}
+                      {channelStatusText(c)}
                     </span>
                   </div>
                 </div>
@@ -2640,6 +2641,11 @@ function ChannelsSection() {
             ))}
           </div>
         </section>
+      )}
+      {!list && !loadError && (
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
+        </div>
       )}
       {list && (
         <section>
@@ -2716,14 +2722,25 @@ function ChannelSheet(props: {
   const [allowDraft, setAllowDraft] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<{ at: string; kind: string; text: string }[]>()
-  const changed = Object.values(draft).some((v) => v.trim())
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on a timer while the tab shows
+  // Shown in the tab while it lasts, not toasted again on every poll.
+  const [eventsError, setEventsError] = useState<string>()
+  const [allowError, setAllowError] = useState<string>()
+  const [allowSaved, setAllowSaved] = useState(false)
+  const saved = new Set([...c.secretsSet, ...Object.keys(c.values).filter((k) => c.values[k])])
+  const setup = channelSetup(c.fields, saved, draft)
+  const changed = Object.keys(setup.values).length > 0
+  // Why the settings were not saved: on the one field it is about, or for the form when it is about several.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [setupError, setSetupError] = useState<string>()
   useEffect(() => {
     if (tab !== 'activity') return
     const get = () =>
       api<{ events: { at: string; kind: string; text: string }[] }>(`/api/channels/${c.id}/activity`)
-        .then((r) => setEvents(r.events))
-        .catch((err: Error) => toast(err.message, 'error'))
+        .then((r) => {
+          setEvents(r.events)
+          setEventsError(undefined)
+        })
+        .catch((err: Error) => setEventsError(err.message))
     void get()
     const timer = setInterval(() => void get(), CHANNELS_POLL_MS)
     return () => clearInterval(timer)
@@ -2731,16 +2748,53 @@ function ChannelSheet(props: {
   const configure = async (patch: Record<string, unknown>) => {
     setBusy(true)
     try {
-      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, patch)
-      if (patch.values) {
-        setDraft({})
-        if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
-      }
+      await send('PUT', `/api/channels/${c.id}`, patch)
       await props.onChanged()
     } catch (err) {
       toast((err as Error).message, 'error')
     } finally {
       setBusy(false)
+    }
+  }
+  const saveValues = async () => {
+    setSetupError(undefined)
+    if (setup.missing.length)
+      return setFieldErrors(
+        Object.fromEntries(setup.missing.map((k) => [k, copy.settings.validation.required])),
+      )
+    setFieldErrors({})
+    setBusy(true)
+    try {
+      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, {
+        values: setup.values,
+      })
+      setDraft({})
+      if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
+      await props.onChanged()
+    } catch (err) {
+      const why = (err as Error).message
+      const typed = Object.keys(setup.values)
+      if (typed.length === 1 && typed[0]) setFieldErrors({ [typed[0]]: why })
+      else setSetupError(why)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const saveAllow = async () => {
+    if (allowDraft === undefined) return
+    const allow = allowDraft
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+    try {
+      await send('PUT', `/api/channels/${c.id}`, { allow })
+      setAllowDraft(undefined)
+      setAllowError(undefined)
+      setAllowSaved(true)
+      await props.onChanged()
+    } catch (err) {
+      setAllowError((err as Error).message)
+      setAllowSaved(false)
     }
   }
   const act = (promise: Promise<unknown>, done?: string) =>
@@ -2751,6 +2805,25 @@ function ChannelSheet(props: {
       },
       (err: Error) => toast(err.message, 'error'),
     )
+  const hasOwner = c.people.some((p) => p.role === 'owner')
+  // An owner from before ownership was recorded may have become it only by being on the allowlist.
+  const unconfirmed = c.allow.length > 0 ? c.people.find((p) => p.role === 'owner' && !p.by) : undefined
+  // Approving takes the code the bot sent the requester: the server checks it, so a stranger who wrote first (even
+  // under the owner's name) cannot be approved by a click.
+  const [codes, setCodes] = useState<Record<string, string>>({})
+  const [codeErrors, setCodeErrors] = useState<Record<string, string>>({})
+  const approve = async (p: ChannelView['pending'][number]) => {
+    const code = (codes[p.id] ?? '').trim()
+    if (!code) return setCodeErrors((all) => ({ ...all, [p.id]: copy.settings.validation.required }))
+    try {
+      await post(`/api/channels/${c.id}/approve`, { code, request: p.id })
+      toast(t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name), 'success')
+      setCodes(({ [p.id]: _, ...rest }) => rest)
+      await props.onChanged()
+    } catch (err) {
+      setCodeErrors((all) => ({ ...all, [p.id]: (err as Error).message }))
+    }
+  }
   const tabs: { value: ChannelTab; label: string; count?: number }[] = [
     { value: 'setup', label: t.tabs.setup },
     ...(c.configured
@@ -2775,7 +2848,7 @@ function ChannelSheet(props: {
             <span className="flex items-center gap-1.5 text-[12px] font-normal text-muted">
               <Dot status={channelState(c)} />
               <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
-                {c.enabled ? channelStatusText(c.status) : t.status.off}
+                {channelStatusText(c)}
               </span>
             </span>
           </span>
@@ -2805,34 +2878,53 @@ function ChannelSheet(props: {
             )}
             {(c.fields.length > 0 || !c.enabled || c.configured) && (
               <Card>
-                {c.fields.map((f) => {
-                  const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])
-                  return (
-                    <Row key={f.key}>
-                      <Field label={f.label} hint={f.secret && saved ? t.secretSet : f.hint}>
-                        <TextInput
-                          type={f.secret ? 'password' : 'text'}
-                          autoComplete="off"
-                          value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
-                          onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
-                          placeholder={f.placeholder}
-                          aria-label={f.label}
-                          className="font-mono"
-                        />
-                      </Field>
-                    </Row>
-                  )
-                })}
+                {c.fields.map((f) => (
+                  <Row key={f.key}>
+                    <Field
+                      label={f.optional ? t.optional(f.label) : f.label}
+                      hint={f.secret && c.secretsSet.includes(f.key) ? t.secretSet : f.hint}
+                      error={fieldErrors[f.key]}
+                    >
+                      <TextInput
+                        type={f.secret ? 'password' : 'text'}
+                        autoComplete="off"
+                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setDraft((d) => ({ ...d, [f.key]: value }))
+                          setFieldErrors(({ [f.key]: _, ...rest }) => rest)
+                          setSetupError(undefined)
+                        }}
+                        placeholder={f.placeholder}
+                        className="font-mono"
+                      />
+                    </Field>
+                  </Row>
+                ))}
                 {c.fields.length > 0 ? (
                   <Row>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={busy || !changed}
-                      onClick={() => void configure({ values: draft })}
-                    >
-                      {busy ? t.saving : t.save}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || !changed}
+                        onClick={() => void saveValues()}
+                      >
+                        {busy ? t.saving : t.save}
+                      </Button>
+                      {setup.missing.length > 0 && (
+                        <span className="text-[12px] text-muted">
+                          {t.stillNeeded(
+                            c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    {setupError && (
+                      <p role="alert" className="mt-2 text-small leading-snug text-bad-ink">
+                        {setupError}
+                      </p>
+                    )}
                   </Row>
                 ) : (
                   !c.enabled && (
@@ -2888,45 +2980,89 @@ function ChannelSheet(props: {
 
         {tab === 'people' && (
           <div className="flex flex-col gap-4">
+            {unconfirmed && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-4 py-3">
+                <p className="min-w-0 flex-1 text-[12.5px] text-warn-ink">
+                  {t.confirmOwner(unconfirmed.name)}
+                </p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() =>
+                    void act(
+                      post(`/api/channels/${c.id}/owner`, { person: unconfirmed.id }),
+                      t.ownerConfirmed(unconfirmed.name),
+                    )
+                  }
+                >
+                  {t.confirmOwnerButton}
+                </Button>
+              </div>
+            )}
             {c.pending.length > 0 && (
               <Card>
                 <Row>
                   <div className="text-[13px] font-semibold">{t.waiting}</div>
                   <div className="text-[12px] text-muted">{t.waitingHint}</div>
                 </Row>
-                {c.pending.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13.5px] font-semibold">
-                        {p.sender.name}
-                        {p.sender.handle ? ` (@${p.sender.handle})` : ''}
-                        {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
+                  <Row>
+                    <p className="text-[12.5px] text-warn-ink">{t.ownerFirst}</p>
+                  </Row>
+                )}
+                {c.pending.map((p) => {
+                  const asOwner = !hasOwner && p.kind === 'person'
+                  return (
+                    <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13.5px] font-semibold">
+                          {p.sender.name}
+                          {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                        </div>
+                        <div className="truncate font-mono text-[12px] text-muted">
+                          {t.sender(c.label, p.sender.id, p.sender.handle)}
+                        </div>
+                        <div className="text-[12px] text-muted">
+                          {t.expires(new Date(p.expires).toLocaleTimeString())}
+                        </div>
                       </div>
-                      <div className="text-[12px] text-muted">
-                        {t.expires(new Date(p.expires).toLocaleTimeString())}
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="w-48">
+                          <Field label={t.code} error={codeErrors[p.id]}>
+                            <TextInput
+                              value={codes[p.id] ?? ''}
+                              onChange={(e) => {
+                                const code = e.target.value
+                                setCodes((all) => ({ ...all, [p.id]: code }))
+                                setCodeErrors(({ [p.id]: _, ...rest }) => rest)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void approve(p)
+                              }}
+                              autoComplete="off"
+                              spellCheck={false}
+                              maxLength={PAIRING_CODE_LENGTH}
+                              className="font-mono uppercase"
+                            />
+                          </Field>
+                        </div>
+                        <div className="ml-auto flex gap-2">
+                          <ConfirmButton
+                            label={t.decline}
+                            name={t.declineName(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name)}
+                            confirm={t.declineConfirm}
+                            onConfirm={() =>
+                              void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))
+                            }
+                          />
+                          <Button size="sm" variant="primary" onClick={() => void approve(p)}>
+                            {asOwner ? t.makeOwner : t.approve}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() =>
-                        void act(
-                          post(`/api/channels/${c.id}/approve`, { request: p.id }),
-                          t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
-                        )
-                      }
-                    >
-                      {t.approve}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                    >
-                      {t.dismiss}
-                    </Button>
-                  </div>
-                ))}
+                  )
+                })}
               </Card>
             )}
             <Card>
@@ -2943,13 +3079,24 @@ function ChannelSheet(props: {
                   <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
                     {p.role === 'owner' ? t.owner : t.member}
                   </Pill>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  {p.role === 'member' && (
+                    <ConfirmButton
+                      label={t.makeOwner}
+                      name={t.makeOwnerName(p.name)}
+                      confirm={t.makeOwnerConfirm}
+                      warning={hasOwner ? t.makeOwnerWarning : t.makeOwnerFirstWarning}
+                      onConfirm={() =>
+                        void act(post(`/api/channels/${c.id}/owner`, { person: p.id }), t.madeOwner(p.name))
+                      }
+                    />
+                  )}
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(p.name)}
+                    confirm={t.revokeConfirm}
+                    warning={p.role === 'owner' ? t.revokeOwnerWarning : t.revokeWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                  />
                 </div>
               ))}
               {c.approvedGroups.length > 0 && (
@@ -2960,13 +3107,13 @@ function ChannelSheet(props: {
               {c.approvedGroups.map((g) => (
                 <div key={g.id} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
+                  <ConfirmButton
+                    label={t.revoke}
+                    name={t.revokeName(g.title)}
+                    confirm={t.revokeConfirm}
+                    warning={t.revokeGroupWarning}
+                    onConfirm={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                  />
                 </div>
               ))}
             </Card>
@@ -3024,21 +3171,27 @@ function ChannelSheet(props: {
               </Field>
             </Row>
             <Row>
-              <Field label={t.allow} hint={t.allowHint}>
+              <Field
+                label={t.allow}
+                hint={
+                  <>
+                    {t.allowHint}
+                    {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
+                  </>
+                }
+                error={
+                  allowError ??
+                  (c.allowInvalid.length ? t.allowStale(c.allowInvalid, c.allowExample) : undefined)
+                }
+              >
                 <TextInput
                   value={allowDraft ?? c.allow.join(', ')}
-                  onChange={(e) => setAllowDraft(e.target.value)}
-                  onBlur={() => {
-                    if (allowDraft === undefined) return
-                    void configure({
-                      allow: allowDraft
-                        .split(',')
-                        .map((a) => a.trim())
-                        .filter(Boolean),
-                    })
+                  onChange={(e) => {
+                    setAllowDraft(e.target.value)
+                    setAllowSaved(false)
                   }}
-                  placeholder="@alice, 123456789"
-                  aria-label={t.allow}
+                  onBlur={() => void saveAllow()}
+                  placeholder={c.allowExample ?? t.allowPlaceholder}
                 />
               </Field>
             </Row>
@@ -3071,6 +3224,11 @@ function ChannelSheet(props: {
             {c.health.lastError && channelState(c) !== 'on' && (
               <div className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
                 {h.lastError(c.health.lastError)}
+              </div>
+            )}
+            {eventsError && (
+              <div role="alert" className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+                {eventsError}
               </div>
             )}
             <Card>

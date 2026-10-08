@@ -70,11 +70,13 @@ export * from './x.ts'
 export * from './zalo.ts'
 
 const cloud = channelCopy.fields.whatsappCloud
+const { allowExample } = channelCopy
 
 /** Channels Myrmidon has built in; plugins add more with `ctx.channels.register`. */
 export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   telegram: {
     label: 'Telegram',
+    allow: { pattern: /^(-?\d+|@?[A-Za-z][A-Za-z0-9_]{3,31})$/, example: allowExample.telegram },
     setup: channelCopy.setup.telegram,
     fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: '123456:ABC-…' }],
     // MYR_TELEGRAM_API points at a self-hosted Bot API server (Telegram's own `telegram-bot-api`) instead.
@@ -89,6 +91,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   'whatsapp-cloud': {
     label: 'WhatsApp Cloud API',
+    allow: { pattern: /^\+?\d{6,15}$/, example: allowExample['whatsapp-cloud'] },
     setup: channelCopy.setup['whatsapp-cloud'],
     fields: [
       {
@@ -120,6 +123,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   email: {
     label: 'Email',
+    allow: { pattern: /^[^\s@]+@[^\s@]+$/, example: allowExample.email },
     defaults: { dm: 'allowlist' },
     setup: channelCopy.setup.email,
     fields: [
@@ -173,6 +177,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   sms: {
     label: 'SMS (Twilio)',
+    allow: { pattern: /^\+\d{6,15}$/, example: allowExample.sms },
     defaults: { dm: 'allowlist' },
     setup: channelCopy.setup.sms,
     fields: [
@@ -212,6 +217,10 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   signal: {
     label: 'Signal',
+    allow: {
+      pattern: /^(\+\d{6,15}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+      example: allowExample.signal,
+    },
     setup: channelCopy.setup.signal,
     fields: [
       { key: 'url', ...channelCopy.fields.signal.url, placeholder: 'http://127.0.0.1:8080' },
@@ -231,6 +240,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   matrix: {
     label: 'Matrix',
+    allow: { pattern: /^@[^\s:]+:\S+$/, example: allowExample.matrix },
     setup: channelCopy.setup.matrix,
     fields: [
       { key: 'homeserver', ...channelCopy.fields.matrix.homeserver, placeholder: 'https://matrix.org' },
@@ -246,6 +256,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   discord: {
     label: 'Discord',
+    allow: { pattern: /^(\d{15,21}|@?[a-z0-9_.]{2,32})$/i, example: allowExample.discord },
     setup: channelCopy.setup.discord,
     fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: 'MTA…' }],
     make: (values) => new DiscordAdapter(values.token ?? ''),
@@ -509,6 +520,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   irc: {
     label: 'IRC',
+    allow: { pattern: /^[^\s!@]+![^\s@]+@\S+$/, example: allowExample.irc },
     setup: channelCopy.setup.irc,
     fields: [
       { key: 'server', label: 'Server', placeholder: 'irc.libera.chat' },
@@ -534,6 +546,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   twitch: {
     label: 'Twitch',
+    allow: { pattern: /^(\d+|@?\w{1,25})$/, example: allowExample.twitch },
     defaults: { groups: 'open' },
     setup: channelCopy.setup.twitch,
     fields: [
@@ -551,6 +564,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   x: {
     label: 'X',
+    allow: { pattern: /^(\d+|@?\w{1,15})$/, example: allowExample.x },
     defaults: { groups: 'open' },
     setup: channelCopy.setup.x,
     fields: [
@@ -569,6 +583,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   nostr: {
     label: 'Nostr',
+    allow: { pattern: /^(npub1[02-9ac-hj-np-z]{58}|[0-9a-f]{64})$/, example: allowExample.nostr },
     setup: channelCopy.setup.nostr,
     fields: [
       { key: 'privateKey', label: 'Private key', secret: true, placeholder: 'nsec1…' },

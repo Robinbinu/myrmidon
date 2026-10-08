@@ -136,10 +136,12 @@ test('it joins, answers PING, and maps DMs and addressed channel lines; the rest
 
   expect(received[0]).toMatchObject({
     chat: { id: 'alice', kind: 'dm' },
-    sender: { id: 'alice!~al@host.example', name: 'alice', handle: 'alice' },
+    sender: { id: 'alice!~al@host.example', name: 'alice' },
     text: 'hello there',
     mentioned: true,
   })
+  // A nick is anyone's to take: no handle, so the allowlist can match only the full mask.
+  expect(received[0]?.sender.handle).toBeUndefined()
   expect(received[1]).toMatchObject({
     chat: { id: '#room', kind: 'group', title: '#Room' },
     text: 'run the tests',

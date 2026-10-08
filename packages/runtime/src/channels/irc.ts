@@ -585,7 +585,8 @@ export class IrcAdapter implements ChannelAdapter {
     await this._io?.receive({
       messageId: line.tags.msgid ?? `${Date.now()}-${++this._seq}`,
       chat,
-      sender: { id, name: from.nick, handle: from.nick },
+      // No handle: anyone can take any free nick, so only the full mask may match the allowlist.
+      sender: { id, name: from.nick },
       text: bangCommands(text),
       mentioned,
       time: line.tags.time ?? new Date().toISOString(),

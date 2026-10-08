@@ -92,6 +92,10 @@ test('MCP tools ask first unless their server marks them read-only; the person c
     false,
   )
   expect(needsApproval({ askTools: ['shell'] }, 'shell', false)).toBe(true)
+  // A round someone else started asks for everything that is not read-only, even what the person allowed.
+  expect(needsApproval({ askAll: true, allowTools: ['shell'] }, 'shell', false)).toBe(true)
+  expect(needsApproval({ askAll: true, allowTools: ['mcp'] }, 'mcp__notes_delete', false)).toBe(true)
+  expect(needsApproval({ askAll: true }, 'fs_read', true)).toBe(false)
 })
 
 test('a failed browser-flow step reports its own error even when the page can no longer be read', async () => {

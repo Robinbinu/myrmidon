@@ -17,6 +17,10 @@ export interface ChannelChat {
 export interface ChannelSender {
   readonly id: string
   readonly name: string
+  /**
+   * An @username the platform vouches for (the allowlist matches it). Left out where anyone can take any name at
+   * will, such as an IRC nick or a Synology Chat nickname.
+   */
   readonly handle?: string
 }
 

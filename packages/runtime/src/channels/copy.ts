@@ -11,8 +11,8 @@ export const channelCopy = {
     mattermost:
       "In Mattermost, open Integrations → Bot Accounts → Add Bot Account, then paste your server's address and the bot's token. Message the bot directly: it replies with a code to approve here. In channels, add the bot and mention it. Buttons for approvals need this gateway's public address; without one, reply /approve KEY (type a space before the slash, or Mattermost takes it as its own command).",
     email:
-      "Use a mailbox of its own for Myrmidon, with an app password (Gmail, Outlook and iCloud require one). Choose 'listed people only' for direct messages and list your address, so strangers' mail is ignored rather than answered with a code. Mail is only accepted when your mail server verified the sender (DMARC, SPF or DKIM). Each email thread is a conversation of its own.",
-    sms: "In the Twilio console, copy the Account SID and Auth Token and buy or pick a number. SMS needs this gateway's public address: Twilio posts each text to it, and the number is pointed there for you. List your phone number (as +15551234567) under 'let in without a code'.",
+      "Use a mailbox of its own for Myrmidon, with an app password (Gmail, Outlook and iCloud require one). Choose 'listed people only' for direct messages and list your address, so strangers' mail is ignored rather than answered with a code; after your first mail, make yourself the owner under People. Mail is only accepted when your mail server verified the sender (DMARC, SPF or DKIM). Each email thread is a conversation of its own.",
+    sms: "In the Twilio console, copy the Account SID and Auth Token and buy or pick a number. SMS needs this gateway's public address: Twilio posts each text to it, and the number is pointed there for you. List your phone number (as +15551234567) under 'let in without a code', and after your first text make yourself the owner under People.",
     ntfy: 'Pick a long random topic name (anyone who knows it can read and write it), subscribe to it in the ntfy app, then write there. The topic is one conversation; the access rules here still apply, so approve the code it replies with. Add an access token for a protected topic or your own server.',
     signal:
       'Signal needs signal-cli running as a daemon with its HTTP API, on a number of its own: register or link it with signal-cli, then run `signal-cli -a +NUMBER daemon --http 127.0.0.1:8080`. Give its address and the number here, then message that number from your phone: it replies with a code to approve here. The first person approved is the owner.',
@@ -49,8 +49,8 @@ export const channelCopy = {
     qq: "On q.qq.com, create a bot, turn on direct messages and group @-messages, add this server's IP to its IP allowlist, and paste its App ID and AppSecret here. Buttons need QQ's Markdown permission: without it, set Markdown to off.",
     irc: 'Pick a server, a nick for the bot and the channels to join. With a password it signs in by SASL (the nick must be the account name), else sends it as the server password. Message the bot directly: it replies with a code to approve here. In channels it answers lines that start with its nick ("mybot: …"). People are known by nick!user@host, so register nicks with NickServ.',
     twitch:
-      'Make a Twitch account for the bot, then a token with the chat:read and chat:edit scopes for it (Twitch Developer Console, or a token generator) and paste it with the bot\'s username. Chat is public and bots cannot whisper, so put your own Twitch username under "Let in without a code" and set Groups to "any group": it answers only listed people who @mention it.',
-    x: 'Needs a paid X API plan: the free one cannot read mentions. In the X developer portal, give the app "Read and write" permission (add "Direct Messages" to answer DMs too), then generate the API key and secret and the access token and secret for the bot account. Replies are public: it answers only mentions from the accounts under "Answers publicly". Put those under "Let in without a code" too and set Groups to "any group", since each X thread is a group.',
+      'Make a Twitch account for the bot, then a token with the chat:read and chat:edit scopes for it (Twitch Developer Console, or a token generator) and paste it with the bot\'s username. Chat is public and bots cannot whisper, so put your own Twitch username under "Let in without a code" and set Groups to "any group": it answers only listed people who @mention it. After your first message, make yourself the owner under People.',
+    x: 'Needs a paid X API plan: the free one cannot read mentions. In the X developer portal, give the app "Read and write" permission (add "Direct Messages" to answer DMs too), then generate the API key and secret and the access token and secret for the bot account. Replies are public: it answers only mentions from the accounts under "Answers publicly". Put those under "Let in without a code" too and set Groups to "any group", since each X thread is a group; after your first mention, make yourself the owner under People.',
     nostr:
       "Paste the bot's private key (nsec1… or hex; make a fresh one for the bot, not your own) and, if you like, its relays. Message its npub from any Nostr client with NIP-04 DMs (Damus, Amethyst…): it replies with a code to approve here.",
     zalo: 'At bot.zaloplatforms.com sign in, create a bot and paste its token (12345689:abc…). Message the bot in Zalo: it replies with a code to approve here. In groups it answers when @mentioned. This is the official bot API, not the personal-account route (which can get an account banned).',
@@ -211,7 +211,7 @@ export const channelCopy = {
   status: {
     working: 'Working…',
     starting: 'Starting',
-    waitingApproval: 'Waiting for your OK',
+    waitingApproval: 'Waiting for your approval',
     waitingAnswer: 'Waiting for your answer',
     done: (time: string, cost?: string) => `Done · ${time}${cost ? ` · ${cost}` : ''}`,
     stopped: (time: string, reason?: string) => `Stopped after ${time}${reason ? `: ${reason}` : ''}`,
@@ -219,17 +219,20 @@ export const channelCopy = {
   },
   approval: {
     ask: (agent: string, summary: string) => `🔐 **${agent}** wants to ${summary}`,
+    member: (name: string) =>
+      `${name} (a member, not the owner) asked for this run, so every step that changes something or reads your project asks you, even tools you always allow.`,
     expires: (minutes: number) => `Unanswered after ${minutes} minutes, it is denied.`,
-    elsewhere: "Waiting for the owner's OK.",
+    elsewhere: "Waiting for the owner's approval.",
     onlyOwner: 'Only the owner can approve this.',
     noOwner: 'Approve it in the Myrmidon app: no owner is set up on this channel yet.',
     closed: 'This request is no longer open.',
-    gone: 'That round is no longer running.',
+    gone: 'That run has already ended.',
     once: 'Allow once',
     always: (tool: string) => `Always allow ${tool}`,
     deny: 'Deny',
     typed: (key: string, p: string) =>
       `Reply ${p}approve ${key}, ${p}approve ${key} always, or ${p}deny ${key}.`,
+    typedOnce: (key: string, p: string) => `Reply ${p}approve ${key} or ${p}deny ${key}.`,
     allowed: (who: string) => `✅ Allowed by ${who}`,
     allowedAlways: (who: string, tool: string) => `✅ Allowed by ${who}; ${tool} is now always allowed`,
     denied: (who: string) => `❌ Denied by ${who}`,
@@ -246,13 +249,15 @@ export const channelCopy = {
     answer: (question: string, said: string) => `${question} → ${said}`,
     skipped: '(skipped: your call)',
     pressNoted: 'Noted',
+    notYours: 'This question is for whoever asked for the work (or the owner) to answer.',
   },
   voice: {
     heard: (text: string) => `🎙️ “${text}”`,
     cannot:
       "I can't listen to voice notes yet: add an OpenAI or Groq key in Settings → Models (they transcribe audio), or type it.",
-    failed: (why: string) => `I couldn't transcribe that: ${why}`,
+    failed: "I couldn't transcribe that; type it instead. The owner can see why in Myrmidon.",
   },
+  slowDown: "That's a lot of messages at once, so I'm skipping some. Wait a minute, then send what you need.",
   fileTooBig: (name: string) => `${name} is too large to bring in; send a smaller file.`,
   recovered: '♻️ Recovered reply: the gateway restarted while sending it, so it may be a duplicate:\n\n',
   notify: {
@@ -268,12 +273,34 @@ export const channelCopy = {
     pairing: (name: string) => `Sent ${name} a code to approve`,
     approved: (name: string) => `Approved ${name}`,
     approval: (agent: string) => `Asked the owner to approve a step by ${agent}`,
+    refused: (why: string) => `Couldn't act on a message: ${why}`,
   },
   /** A channel chat's name in the app's sidebar. */
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
-  failed: (why: string) => `I couldn't start that: ${why}`,
+  failed: "I couldn't do that. The owner can see why in Myrmidon.",
+  /** Why channels are off when their settings file is damaged; nothing is saved over it until it is repaired. */
+  unreadable: (why: string) =>
+    `Can't read channels.json (${why}): channels stay off and nothing is saved until it is repaired, or replaced by channels.json.bak (or the older .bak.2 or .bak.3) from the same folder.`,
+  notObject: 'it does not hold a list of channels',
+  missing: (labels: string[]) => `Still needed: ${labels.join(', ')}`,
+  /** What "Let in without a code" takes on each platform, shown as its placeholder and when an entry is wrong. */
+  allowExample: {
+    telegram: '@alice, 123456789',
+    'whatsapp-cloud': '+15551234567',
+    email: 'you@example.com',
+    sms: '+15551234567',
+    signal: '+15551234567',
+    matrix: '@alice:matrix.org',
+    discord: '@alice, 123456789012345678',
+    irc: 'alice!~alice@host.example',
+    twitch: 'yourname',
+    x: '@yourname',
+    nostr: 'npub1…',
+  },
+  allowInvalid: (label: string, entries: string[], example?: string) =>
+    `Not a ${label} ID or username: ${entries.join(', ')}.${example ? ` For example: ${example}` : ''}`,
   /** What an agent is doing, by tool. */
   doing: {
     shell: (command: string) => `running \`${command}\``,

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   type ColonyState,
@@ -302,19 +302,70 @@ function writableFor(host: ColonyHost, agent: string): string[] {
   return [...new Set([host.workspace.workdir(agent), scratch])]
 }
 
-/** Tools the person set to "ask" in Settings wait for their approval on every call, showing what it would do. */
 /**
- * Whether a call needs the person's approval first. A tool's own rule wins, then the rule for every MCP tool; with
- * neither, an MCP tool asks unless its server marks it read-only (it changes nothing), and other tools follow their
- * groups.
+ * Write tools whose effects stay inside the colony: its notes, tasks, messages, helpers and answers. A round that asks
+ * for everything (`askAll`) still lets them run, since it could not work at all otherwise.
+ */
+const COLONY_ONLY = new Set([
+  'append_note',
+  'message',
+  'create_group',
+  'update_group',
+  'create_task',
+  'claim_task',
+  'assign_task',
+  'release_task',
+  'reject_task',
+  'submit_task',
+  'publish_artifact',
+  'request_review',
+  'request_final_verification',
+  'escalate',
+  'reply_user',
+  'reply_person',
+  'check_in',
+  'ask_user',
+  'propose',
+  'spawn_worker',
+  'dismiss_worker',
+  'update_todo',
+])
+
+/** File tools that read from the working directory, which is the person's project in a chat that has one. */
+const PROJECT_READS = new Set(['fs_read', 'fs_list', 'grep', 'glob'])
+
+/**
+ * Whether a call reads the person's project rather than the agent's own scratch. A round someone else started
+ * (`askAll`) asks before these, so a member cannot have secrets such as `.env` read and sent back to them.
+ */
+function readsProject(host: ColonyHost, agent: string, tool: string, params: unknown): boolean {
+  if (!host.spec.chat?.project || !PROJECT_READS.has(tool)) return false
+  const path = (params as { path?: unknown } | undefined)?.path
+  let target: string
+  try {
+    target = host.workspace.resolveInWorkdir(agent, typeof path === 'string' ? path : '.')
+  } catch {
+    // The tool refuses that path itself.
+    return false
+  }
+  const scratch = host.workspace.scratch(agent)
+  return target !== scratch && !target.startsWith(scratch + sep)
+}
+
+/**
+ * Whether a call needs the person's approval first. A round started by someone else (`askAll`) asks for every call
+ * that is not `readOnly`, whatever the person allowed. Otherwise a tool's own rule wins, then the rule for every MCP
+ * tool; with neither, an MCP tool asks unless its server marks it read-only, and other tools follow their groups.
+ * `readOnly`: the call changes nothing outside the colony.
  */
 export function needsApproval(
-  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools'>,
+  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools' | 'askAll'>,
   tool: string,
   readOnly: boolean,
 ): boolean {
   const ask = spec.askTools ?? []
   const allow = spec.allowTools ?? []
+  if (spec.askAll && !readOnly) return true
   if (ask.includes(tool)) return true
   if (allow.includes(tool) || !tool.startsWith('mcp__')) return false
   if (ask.includes('mcp')) return true
@@ -395,9 +446,10 @@ async function askFirst(
   agent: string,
   tool: string,
   params: unknown,
+  readOnly: boolean,
   key?: string,
 ): Promise<boolean> {
-  if (!needsApproval(host.spec, tool, tool.startsWith('mcp__') && host.mcpReadOnly(tool))) return false
+  if (!needsApproval(host.spec, tool, readOnly)) return false
   const args = JSON.stringify(params ?? {})
   const decision = await host.reviewChange(
     agent,
@@ -2645,7 +2697,8 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         } else {
           const refused = breaker?.refusal()
           if (refused) throw new Error(refused)
-          const edited = await askFirst(host, agent, tool.name, params, key)
+          const readOnly = tool.name.startsWith('mcp__') && host.mcpReadOnly(tool.name)
+          const edited = await askFirst(host, agent, tool.name, params, readOnly, key)
           await host.beforeTool(agent, tool.name, params)
           ran = true
           result = await untilAborted(tool.execute(callId, params as never, signal), signal)
@@ -2721,7 +2774,10 @@ function harnessTools(agent: string, allow: ReadonlySet<string>, host: ColonyHos
             if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            const edited = await askFirst(host, agent, def.name, params, key)
+            const readOnly =
+              (def.tier === 'read' && !readsProject(host, agent, def.name, params)) ||
+              COLONY_ONLY.has(def.name)
+            const edited = await askFirst(host, agent, def.name, params, readOnly, key)
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result = def.tier === 'read' ? await run() : await inCallOrder(host, agent, run)

@@ -128,6 +128,7 @@ export class MattermostAdapter implements ChannelAdapter {
   private _queue: Promise<void> = Promise.resolve()
   /** What a channel is, learned from its posts, for button presses (which only carry its id). */
   private readonly _channels = new Map<string, Pick<ChannelChat, 'kind' | 'title'>>()
+  private readonly _usernames = new Map<string, string>()
 
   constructor(
     url: string,
@@ -325,6 +326,18 @@ export class MattermostAdapter implements ChannelAdapter {
     return Response.json({})
   }
 
+  /** A user's @username from the server, undefined when it cannot say (no handle then rather than a guess). */
+  private async _username(id: string): Promise<string | undefined> {
+    const known = this._usernames.get(id)
+    if (known) return known
+    const name = await this._api<MmUser>('GET', `users/${encodeURIComponent(id)}`).then(
+      (u) => u.username || undefined,
+      () => undefined,
+    )
+    if (name) this._usernames.set(id, name)
+    return name
+  }
+
   private async _channel(id: string): Promise<Pick<ChannelChat, 'kind' | 'title'>> {
     const c = await this._api<{ type?: string; display_name?: string }>('GET', `channels/${id}`).catch(
       () => ({}) as { type?: string; display_name?: string },
@@ -391,11 +404,14 @@ export class MattermostAdapter implements ChannelAdapter {
       infos = fetched.filter((f): f is MmFileInfo => Boolean(f))
     }
     const files = infos.map((f) => this._file(f))
-    const sender = (data.sender_name ?? '').replace(/^@/, '') || post.user_id
+    // `sender_name` follows the server's display setting (it may be a name the person picked), so the handle the
+    // allowlist matches is the account's username, looked up by id.
+    const username = await this._username(post.user_id)
+    const name = (data.sender_name ?? '').replace(/^@/, '') || username || post.user_id
     return {
       messageId: post.id,
       chat: { id: post.channel_id, ...known, ...(post.root_id ? { thread: post.root_id } : {}) },
-      sender: { id: post.user_id, name: sender, handle: sender },
+      sender: { id: post.user_id, name, ...(username ? { handle: username } : {}) },
       text: raw.replace(at, '').trim(),
       mentioned,
       ...(files.length ? { files } : {}),

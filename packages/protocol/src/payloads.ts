@@ -135,6 +135,8 @@ export interface EventPayloads {
     /** Tools whose every call waits for the person's approval. */
     askTools?: string[]
     allowTools?: string[]
+    /** Every call that changes something outside the colony waits for approval (a round a channel member started). */
+    askAll?: boolean
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
   }
@@ -267,6 +269,8 @@ export interface EventPayloads {
     ask: string[]
     allow: string[]
     project?: string
+    /** From here on the round asks before every outside step: someone other than the person wrote into it. */
+    askAll?: boolean
     interrupted: string[]
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
