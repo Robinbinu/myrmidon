@@ -2586,7 +2586,10 @@ function ChannelsSection() {
                     />
                   )}
                 </div>
-                {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
+                {/* A platform with nothing to fill in (WhatsApp) counts as set up, so its setup shows until it is on. */}
+                {(!c.configured || (!c.fields.length && !c.enabled)) && c.setup && (
+                  <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>
+                )}
                 {c.status.state === 'linking' && (
                   <img
                     src={c.status.image}
@@ -2615,16 +2618,18 @@ function ChannelsSection() {
                   </Row>
                 )
               })}
-              <Row>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={busy === c.id || !changed}
-                  onClick={() => void configure(c, { values: draft })}
-                >
-                  {busy === c.id ? t.saving : t.save}
-                </Button>
-              </Row>
+              {c.fields.length > 0 && (
+                <Row>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={busy === c.id || !changed}
+                    onClick={() => void configure(c, { values: draft })}
+                  >
+                    {busy === c.id ? t.saving : t.save}
+                  </Button>
+                </Row>
+              )}
               {c.configured && (
                 <Row>
                   <Field label={t.project} hint={t.projectHint} inline>
