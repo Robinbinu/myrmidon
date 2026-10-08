@@ -1058,6 +1058,9 @@ export const copy = {
       title: 'Connect a model',
       body: 'The crew needs a model to think with. Sign in to a provider or add an API key, and it can start.',
       action: 'Connect a model',
+      /** On a chats-only device, which cannot open Settings. */
+      askOwner:
+        'The crew needs a model to think with. Whoever set up this Myrmidon can connect one in Settings.',
     },
     /** A link to a chat that is not on this machine (deleted, or from another gateway). */
     chatNotFound: {

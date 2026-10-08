@@ -61,9 +61,10 @@ export function Sidebar(props: {
   onNew(): void
   projects: Project[]
   onNewInProject(project: Project): void
-  onAddProject(): void
-  onRemoveProject(project: Project): void
-  onProjectPermissions(project: Project): void
+  /** The project actions; each left out (a chats-only device) hides its control. */
+  onAddProject?(): void
+  onRemoveProject?(project: Project): void
+  onProjectPermissions?(project: Project): void
   onView(v: View): void
   onSettings(): void
   onGateways(): void
@@ -246,19 +247,25 @@ export function Sidebar(props: {
         </div>
       </div>
       <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
-        <div className="group/projects flex items-center px-2 pb-1 pt-3">
-          <span className="flex-1 text-[11px] font-semibold text-muted">{copy.sidebar.projects.heading}</span>
-          <button
-            type="button"
-            onClick={props.onAddProject}
-            aria-label={copy.sidebar.projects.add}
-            title={copy.sidebar.projects.add}
-            className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
-          >
-            <FolderPlus className="size-3.5" />
-          </button>
-        </div>
-        {props.projects.length === 0 && (
+        {(props.projects.length > 0 || props.onAddProject) && (
+          <div className="group/projects flex items-center px-2 pb-1 pt-3">
+            <span className="flex-1 text-[11px] font-semibold text-muted">
+              {copy.sidebar.projects.heading}
+            </span>
+            {props.onAddProject && (
+              <button
+                type="button"
+                onClick={props.onAddProject}
+                aria-label={copy.sidebar.projects.add}
+                title={copy.sidebar.projects.add}
+                className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
+              >
+                <FolderPlus className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+        {props.projects.length === 0 && props.onAddProject && (
           <button
             type="button"
             onClick={props.onAddProject}
@@ -287,15 +294,17 @@ export function Sidebar(props: {
                   <span className="truncate">{p.name}</span>
                   <PermissionMark {...(p.permissions ? { mode: p.permissions.mode } : {})} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => props.onProjectPermissions(p)}
-                  aria-label={copy.sidebar.projects.permissionsLabel(p.name)}
-                  title={copy.sidebar.projects.permissionsTitle}
-                  className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                >
-                  <ShieldCheck className="size-3.5" />
-                </button>
+                {props.onProjectPermissions && (
+                  <button
+                    type="button"
+                    onClick={() => props.onProjectPermissions?.(p)}
+                    aria-label={copy.sidebar.projects.permissionsLabel(p.name)}
+                    title={copy.sidebar.projects.permissionsTitle}
+                    className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  >
+                    <ShieldCheck className="size-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => props.onNewInProject(p)}
@@ -305,15 +314,17 @@ export function Sidebar(props: {
                 >
                   <Plus className="size-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => props.onRemoveProject(p)}
-                  aria-label={copy.sidebar.projects.removeLabel(p.name)}
-                  title={copy.sidebar.projects.removeTitle}
-                  className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                >
-                  <X className="size-3.5" />
-                </button>
+                {props.onRemoveProject && (
+                  <button
+                    type="button"
+                    onClick={() => props.onRemoveProject?.(p)}
+                    aria-label={copy.sidebar.projects.removeLabel(p.name)}
+                    title={copy.sidebar.projects.removeTitle}
+                    className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
               </div>
               {open && (
                 <div className="pl-5">

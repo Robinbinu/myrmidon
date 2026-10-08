@@ -556,18 +556,23 @@ export function App() {
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
-      onAddProject={() => setPicking(true)}
-      onProjectPermissions={setPermissionsFor}
-      onRemoveProject={async (p) => {
-        try {
-          const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
-          setProjects(r.projects)
-          if (newProject === p.id) setNewProject(undefined)
-          toast(copy.app.toasts.projectRemoved(p.name), 'info')
-        } catch (err) {
-          toast(String((err as Error).message ?? err), 'error')
-        }
-      }}
+      // A chats-only device works in the projects there are; adding, changing or removing them is not for it.
+      {...(fullAccess
+        ? {
+            onAddProject: () => setPicking(true),
+            onProjectPermissions: setPermissionsFor,
+            onRemoveProject: async (p: Project) => {
+              try {
+                const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
+                setProjects(r.projects)
+                if (newProject === p.id) setNewProject(undefined)
+                toast(copy.app.toasts.projectRemoved(p.name), 'info')
+              } catch (err) {
+                toast(String((err as Error).message ?? err), 'error')
+              }
+            },
+          }
+        : {})}
       onView={(v) => {
         setView(v)
         setSettingsOpen(false)
@@ -765,7 +770,7 @@ export function App() {
                       onPick={(t) => composer.current?.fill(t)}
                     >
                       {config && !models.some(canLead) && (
-                        <SetupCard onConnect={() => openSettings('models')} />
+                        <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
                       )}
                       {box}
                     </Hero>
@@ -856,8 +861,11 @@ export function App() {
   )
 }
 
-/** On the entry page while no model can lead: where to connect one, instead of a picker with nothing in it. */
-function SetupCard(props: { onConnect(): void }) {
+/**
+ * On the entry page while no model can lead: where to connect one, instead of a picker with nothing in it. Without
+ * `onConnect` (a chats-only device, which cannot open Settings) it says who can.
+ */
+function SetupCard(props: { onConnect?(): void }) {
   const t = copy.app.setup
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
@@ -866,11 +874,13 @@ function SetupCard(props: { onConnect(): void }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-[13.5px] font-semibold">{t.title}</p>
-        <p className="text-[12.5px] leading-snug text-muted">{t.body}</p>
+        <p className="text-[12.5px] leading-snug text-muted">{props.onConnect ? t.body : t.askOwner}</p>
       </div>
-      <Button variant="primary" onClick={props.onConnect}>
-        {t.action}
-      </Button>
+      {props.onConnect && (
+        <Button variant="primary" onClick={props.onConnect}>
+          {t.action}
+        </Button>
+      )}
     </div>
   )
 }
