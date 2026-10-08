@@ -1,5 +1,5 @@
-import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
+import { AnimatePresence } from 'motion/react'
 import {
   createContext,
   type ReactNode,
@@ -12,9 +12,11 @@ import {
 } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
+import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX, spring } from '../ui-config.ts'
+import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX } from '../ui-config.ts'
 import { withoutDatedAliases } from './model-list.ts'
 
 /** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
@@ -77,15 +79,6 @@ export function ModelPicker(props: {
   )
   const host = useContext(PickerHost)
   const current = props.models.find((m) => m.ref === props.value)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
 
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -150,14 +143,11 @@ export function ModelPicker(props: {
             ),
           )
         }}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={variant === 'field' ? undefined : copy.modelPicker.buttonLabel(props.label)}
-        title={
-          variant === 'chip'
-            ? copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
-            : undefined
-        }
+        // The button reads as the model it shows, so what is seen is what is heard and what voice control matches;
+        // which model it is (lead, reviewer, a helper) is its tooltip and description.
+        title={variant === 'field' ? undefined : props.label}
         className={
           variant === 'chip'
             ? cn(
@@ -165,8 +155,8 @@ export function ModelPicker(props: {
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'
-              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
-              : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-control transition-colors hover:bg-control-hover'
+              : 'group flex w-full flex-col items-start gap-0.5 rounded-lg border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >
         {variant === 'chip' ? (
@@ -182,7 +172,7 @@ export function ModelPicker(props: {
           </>
         ) : (
           <>
-            <span className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted">
+            <span className="flex items-center gap-1 section-label text-muted">
               {props.icon}
               {props.label}
             </span>
@@ -195,14 +185,15 @@ export function ModelPicker(props: {
       </button>
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0, y: up ? 6 : -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
-            transition={spring}
+          <Popover
+            role="dialog"
+            label={copy.modelPicker.buttonLabel(props.label)}
+            onClose={() => setOpen(false)}
+            within={box}
+            up={up}
             style={{ maxHeight: fit.max, ...(fit.lift ? { bottom: `calc(100% + ${fit.lift}px)` } : {}) }}
             className={cn(
-              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-pop',
               variant === 'compact' ? 'right-0' : 'left-0',
               variant === 'chip' && 'material-menu border-line',
               up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',
@@ -212,8 +203,8 @@ export function ModelPicker(props: {
               <Search className="pointer-events-none absolute left-4.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
               <input
                 type="search"
-                // biome-ignore lint/a11y/noAutofocus: the popover exists to search
-                autoFocus
+                // The popover exists to search; it focuses this once it has noted the button to return to.
+                data-autofocus
                 placeholder={copy.modelPicker.search(visible.length)}
                 value={query}
                 onChange={(e) => {
@@ -221,11 +212,7 @@ export function ModelPicker(props: {
                   setActive(0)
                 }}
                 onKeyDown={(e) => {
-                  // Escape closes the list only, not a dialog or popover the picker sits in.
-                  if (e.key === 'Escape') {
-                    e.stopPropagation()
-                    setOpen(false)
-                  } else if (e.key === 'ArrowDown') {
+                  if (e.key === 'ArrowDown') {
                     e.preventDefault()
                     setActive((a) => Math.min(hits.length - 1, a + 1))
                   } else if (e.key === 'ArrowUp') {
@@ -238,7 +225,7 @@ export function ModelPicker(props: {
                   }
                 }}
                 aria-label={copy.modelPicker.searchLabel(props.label)}
-                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+                className="w-full rounded-xl bg-fill py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div
@@ -254,7 +241,7 @@ export function ModelPicker(props: {
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-caption font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 section-label text-muted">
                     <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>
@@ -274,8 +261,8 @@ export function ModelPicker(props: {
                         onClick={() => choose(m.ref)}
                         className={cn(
                           // The margin keeps a row scrolled into view clear of the sticky provider heading.
-                          'flex w-full scroll-mt-9 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-                          i === active && !blocked && 'bg-surface-2',
+                          'flex w-full scroll-mt-9 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors',
+                          i === active && !blocked && 'bg-fill',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',
                           blocked && 'cursor-not-allowed',
@@ -302,11 +289,11 @@ export function ModelPicker(props: {
                         )}
                         {m.reasoning && (
                           <span title={copy.modelPicker.thinking} className="text-muted">
-                            <Brain className="size-3.5" />
+                            <FEATURE_ICONS.thinking className="size-3.5" />
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (
-                          <span className="rounded bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
+                          <span className="rounded-sm bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
                             {m.source === 'custom' ? copy.modelPicker.custom : copy.modelPicker.key}
                           </span>
                         )}
@@ -317,7 +304,7 @@ export function ModelPicker(props: {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </Popover>
         )}
       </AnimatePresence>
     </div>

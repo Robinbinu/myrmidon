@@ -12,7 +12,6 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
-  Plug,
   RefreshCw,
   SquarePen,
   Trash2,
@@ -37,6 +36,7 @@ import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
+import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
@@ -59,9 +59,10 @@ import {
   useReduceMotion,
   useTheme,
 } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
@@ -200,6 +201,22 @@ function notify(text: string, chatId?: string, tag = chatId) {
   }
 }
 
+const VIEW_PARAM = 'view'
+const SETTINGS_PARAM = 'settings'
+const VIEWS: readonly View[] = ['chat', 'colonies', 'compare', 'system']
+/** The new-chat screen's draft, beside each chat's own. */
+const NEW_CHAT_DRAFT = 'new'
+
+function viewFromAddress(): View {
+  const v = new URLSearchParams(location.search).get(VIEW_PARAM)
+  return VIEWS.find((view) => view === v) ?? 'chat'
+}
+
+/** The Settings section an address names; Settings shows its first section for a name it doesn't know. */
+function sectionFromAddress(): Section | undefined {
+  return (new URLSearchParams(location.search).get(SETTINGS_PARAM) as Section | null) ?? undefined
+}
+
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
@@ -210,27 +227,24 @@ export function App() {
   const [models, setModels] = useState<ModelOption[]>([])
   const [modelsError, setModelsError] = useState<string>()
   const [config, setConfig] = useState<TeamConfig>()
-  const [view, setView] = useState<View>('chat')
+  const [view, setView] = useState<View>(() => viewFromAddress())
   const [activeChat, setActiveChatState] = useState<string | undefined>(
     () => new URLSearchParams(location.search).get('chat') ?? undefined,
   )
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
   const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
-  // Below the docking width the panel covers the chat, so it never reopens on its own there.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
-  useEffect(() => {
-    if (window.innerWidth < 1280) setWorkspaceOpen(false)
-  }, [])
   const [colonyModal, setColonyModal] = useState<string>()
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
     setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
     void syncPluginUI(pluginList.plugins)
   }, [pluginList])
-  const [settingsSection, setSettingsSection] = useState<Section>('general')
+  const [settingsSection, setSettingsSection] = useState<Section>(() => sectionFromAddress() ?? 'general')
+  /** The section Settings shows now; it moves on its own as the person picks sections, unlike the one it opens on. */
+  const [shownSection, setShownSection] = useState<Section>(settingsSection)
   /** A channel whose sheet Settings → Channels opens on, from a request's toast; forgotten once Settings closes. */
   const [settingsChannel, setSettingsChannel] = useState<string>()
   useEffect(() => {
@@ -268,6 +282,22 @@ export function App() {
     else url.searchParams.delete('chat')
     history.replaceState(null, '', url)
   }, [])
+
+  // A refresh comes back to the same screen: the screen and an open Settings section live in the address beside the
+  // chat. A chats-only device has neither Settings nor System, so an address naming them falls back to the chat.
+  useEffect(() => {
+    if (!fullAccess && (settingsOpen || view === 'system')) {
+      setSettingsOpen(false)
+      if (view === 'system') setView('chat')
+      return
+    }
+    const url = new URL(location.href)
+    if (view === 'chat') url.searchParams.delete(VIEW_PARAM)
+    else url.searchParams.set(VIEW_PARAM, view)
+    if (settingsOpen) url.searchParams.set(SETTINGS_PARAM, shownSection)
+    else url.searchParams.delete(SETTINGS_PARAM)
+    if (url.href !== location.href) history.replaceState(null, '', url)
+  }, [view, settingsOpen, shownSection, fullAccess])
 
   const loadModels = useCallback(() => {
     api<{ models: ModelOption[]; default?: string; defaults?: Record<string, unknown> }>(
@@ -449,12 +479,12 @@ export function App() {
           ),
         approvalDone: (id) =>
           setCall((c) => c && { ...c, approvals: c.approvals.filter((a) => a.id !== id) }),
-        // A refusal that names Settings → Voice (an engine to install, no call model…) opens it from the toast.
-        error: (message) =>
+        // Voice off (4409) or not ready (4503: an engine to install, no call model…) is fixed in Settings → Voice.
+        error: (message, code) =>
           toast(
             message,
             'error',
-            fullAccess && message.includes('Settings → Voice')
+            fullAccess && (code === 4409 || code === 4503)
               ? { label: copy.call.openVoiceSettings, run: () => openSettings('voice') }
               : undefined,
           ),
@@ -557,8 +587,9 @@ export function App() {
       : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
     ...(call
       ? [
-          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted), inInputs: true },
-          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp(), inInputs: true },
+          // Not while typing: on a Mac, Ctrl+D (which `mod` also matches) deletes forward in a text field.
+          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted) },
+          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp() },
         ]
       : []),
   ])
@@ -733,6 +764,7 @@ export function App() {
     setDeleteBusy(true)
     try {
       await request('DELETE', `/api/chats/${deleting.chatId}`)
+      forgetDraft(deleting.chatId)
       toast(copy.app.toasts.deleted(deleting.title), 'success')
       if (deleting.chatId === activeChat) newTask()
       setDeleting(undefined)
@@ -813,6 +845,16 @@ export function App() {
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
       <div className="flex h-dvh overflow-hidden bg-bg text-fg">
+        {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
+        {!settingsOpen && view === 'chat' && config && (
+          <button
+            type="button"
+            onClick={() => composer.current?.focus()}
+            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+          >
+            {copy.app.skipToComposer}
+          </button>
+        )}
         <AnimatePresence initial={false}>
           {!collapsed && (
             <motion.div
@@ -834,6 +876,7 @@ export function App() {
             <Settings
               key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
               initialSection={settingsSection}
+              onSection={setShownSection}
               {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
               guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
@@ -877,7 +920,7 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
+                    <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && voiceOn && !call && (
@@ -885,7 +928,7 @@ export function App() {
                 )}
                 {view === 'chat' && chat && (
                   <Button
-                    variant="toolbar"
+                    variant="borderless"
                     size="sm"
                     icon={<Network className="size-4" />}
                     onClick={() => {
@@ -920,14 +963,18 @@ export function App() {
                     lines={call.lines}
                     muted={call.muted}
                     onMute={muteCall}
-                    onHangUp={() => callRef.current?.hangUp()}
+                    onHangUp={() => {
+                      callRef.current?.hangUp()
+                      // The bar and its button go; the message box is where the conversation carries on.
+                      composer.current?.focus()
+                    }}
                   />
                 )}
               </AnimatePresence>
               {!online ? (
                 <div
                   role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
                 >
                   <LoaderCircle className="size-3.5 animate-spin text-muted" />
                   {copy.app.reconnecting}
@@ -971,7 +1018,9 @@ export function App() {
                     )
                   const box = config ? (
                     <Composer
+                      key={activeChat ?? NEW_CHAT_DRAFT}
                       ref={composer}
+                      draftKey={activeChat ?? NEW_CHAT_DRAFT}
                       models={models}
                       config={config}
                       onConfig={updateConfig}
@@ -1086,13 +1135,9 @@ export function App() {
                 </span>
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
-              {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
-                  {copy.app.deleteChat.stillRunning}
-                </p>
-              )}
+              {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+                <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
                   {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
@@ -1159,8 +1204,8 @@ function SetupCard(props: { onConnect?(): void }) {
   const t = copy.app.setup
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
-        <Plug className="size-4" />
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+        <FEATURE_ICONS.providers className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-reading font-semibold">{t.title}</p>
@@ -1182,7 +1227,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />
@@ -1191,7 +1236,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
         )}
         <span className="flex-1">{props.error ? t.failed : t.loading}</span>
         {props.error && (
-          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+          <Button variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
             {t.retry}
           </Button>
         )}
@@ -1211,7 +1256,7 @@ function PaneNotice(props: {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
       {props.icon}
       <div>
-        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-headline font-semibold tracking-tight">{props.title}</p>
         <p className="text-body text-muted">{props.body}</p>
       </div>
       {props.action && (

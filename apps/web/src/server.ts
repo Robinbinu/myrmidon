@@ -545,7 +545,7 @@ export function startServer(options: ServeOptions): WebServer {
     for (const ws of opened) if (ws.data.device === id) ws.close(4401, 'device revoked')
   }
   const forbidden = () =>
-    json({ error: 'this device can use chats only; pair it with full access for this' }, 403)
+    json({ error: 'This device can use chats only. To do this, pair it again with full access.' }, 403)
 
   const guard =
     (
@@ -667,7 +667,9 @@ export function startServer(options: ServeOptions): WebServer {
           if (!res.ok) return new Response(await res.text(), { status: res.status })
           return previewResponse(res.body ?? '', res.headers.get('x-myr-media-type') ?? 'text/plain')
         } catch {
-          return new Response(`${gw.name} is unreachable`, { status: 502 })
+          return new Response(`Can't reach ${gw.name}. Check that it is running and online, then reload.`, {
+            status: 502,
+          })
         }
       }
       const match = /^\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
@@ -731,7 +733,13 @@ export function startServer(options: ServeOptions): WebServer {
             audit.record('pair-failed', { host })
             // A wrong code costs a moment, so guessing is slow as well as capped.
             await Bun.sleep(500)
-            return json({ error: 'that pairing code is wrong, used or expired; make a new one' }, 401)
+            return json(
+              {
+                error:
+                  'That pairing code is wrong, used or expired. Make a new one on a paired device, or run myrmidon pair.',
+              },
+              401,
+            )
           }
           const hub = body.hub === true
           const { device, token: deviceToken } = devices.add(
@@ -817,7 +825,14 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/channels/chats': {
-        GET: guard(() => json({ chats: channels?.chatChannels() ?? {} })),
+        GET: guard(() => {
+          try {
+            return json({ chats: channels?.chatChannels() ?? {} })
+          } catch (err) {
+            // A damaged channels.json: say why rather than a bare internal error.
+            return json({ error: err instanceof Error ? err.message : String(err) }, 500)
+          }
+        }),
       },
       '/api/channels/:id/activity': {
         GET: guard((req) => json({ events: channels?.activity(req.params.id) ?? [] })),
@@ -1076,8 +1091,11 @@ export function startServer(options: ServeOptions): WebServer {
           })
           return new Response(res.body, { status: res.status, headers: responseHeaders(res) })
         } catch (err) {
-          const why = err instanceof Error && err.name === 'TimeoutError' ? 'no answer' : 'unreachable'
-          return json({ error: `${gw.name} is ${why}` }, 502)
+          const error =
+            err instanceof Error && err.name === 'TimeoutError'
+              ? `${gw.name} didn't answer in time. Check that it is running, then try again.`
+              : `Can't reach ${gw.name}. Check that it is running and online, then try again.`
+          return json({ error }, 502)
         }
       },
       '/api/devices/:id': {

@@ -36,6 +36,7 @@ function mattermost(options: { challenge?: 'fail' } = {}) {
         )
       if (path === 'users/me') return Response.json(ME)
       if (path === 'users/u9') return Response.json({ id: 'u9', username: 'carol' })
+      if (path === 'users/u1') return Response.json({ id: 'u1', username: 'alice' })
       if (path === 'channels/c-town') return Response.json({ id: 'c-town', type: 'O', display_name: 'Town' })
       if (path === 'files' && req.method === 'POST') return Response.json({ file_infos: [{ id: 'f-up' }] })
       if (path === 'files/f1') return new Response(new Uint8Array([4, 5, 6]))
@@ -209,6 +210,25 @@ test('posted events become messages: direct chats, mentions, threads, files; own
   expect(fake.calls.at(-1)).toMatchObject({ path: 'files/f1', auth: `Bearer ${TOKEN}` })
   expect(received[5]?.files?.[0]).toMatchObject({ kind: 'document', name: 'notes.txt' })
   expect(received.map((m) => m.messageId)).not.toContain('p-own')
+})
+
+test('the handle is the account’s username, not the display name a post carries', async () => {
+  const { fake, received } = await running()
+  fake.emit(
+    'posted',
+    posted({ id: 'p1', channel_id: 'c-dm', message: 'hi' }, { channel_type: 'D', sender_name: '@root' }),
+  )
+  fake.emit(
+    'posted',
+    posted(
+      { id: 'p2', user_id: 'u7', channel_id: 'c-dm', message: 'hi' },
+      { channel_type: 'D', sender_name: '@root' },
+    ),
+  )
+  await until(() => received.length === 2)
+  expect(received[0]?.sender).toEqual({ id: 'u1', name: 'root', handle: 'alice' })
+  // A user the server will not describe gets no handle at all.
+  expect(received[1]?.sender).toEqual({ id: 'u7', name: 'root' })
 })
 
 test('sending: threads, edits that drop buttons, typing over the socket, files by id', async () => {

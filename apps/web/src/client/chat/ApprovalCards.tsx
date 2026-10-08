@@ -1,14 +1,5 @@
 import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import {
-  BookmarkPlus,
-  Check,
-  GraduationCap,
-  KeyRound,
-  MonitorSmartphone,
-  PencilLine,
-  ShieldQuestion,
-  X,
-} from 'lucide-react'
+import { BookmarkPlus, Check, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -27,6 +18,7 @@ const action = (tool: string) =>
       ? copy.approvals.actions.file
       : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import type { Pending } from './approvals.ts'
 
 /**
@@ -113,7 +105,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
       className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
     >
       <div className="flex items-center gap-2 text-reading">
-        <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
+        <FEATURE_ICONS.approvalAsk className="size-4 shrink-0 text-warn-ink" />
         <span className="min-w-0">
           <span className="font-semibold">{a.agent}</span>{' '}
           {a.review ? (
@@ -131,7 +123,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
           onEdit={(key, value) => setEdits((e) => ({ ...e, [key]: value }))}
         />
       ) : (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-callout">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-surface px-3 py-2 font-mono text-callout">
           {a.summary}
         </pre>
       )}
@@ -148,7 +140,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         )}
         {/* The card's decision is the point of it, so its buttons get a full-size target, not the compact one. */}
         <Button
-          variant="ghost"
+          variant="borderless"
           disabled={busy}
           onClick={() => void decide(false)}
           icon={<X className="size-3.5" />}
@@ -184,7 +176,7 @@ function ReviewBody(props: {
         const value = props.edits[f.key] ?? f.value
         const isEditing = editing === f.key
         return (
-          <div key={f.key} className="overflow-hidden rounded-lg border border-line bg-surface">
+          <div key={f.key} className="overflow-hidden rounded-xl border border-line bg-surface">
             <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-small">
               <span className="min-w-0 truncate font-mono text-fg-2">{f.label}</span>
               {value !== f.value && <span className="text-accent-fg">{copy.approvals.review.edited}</span>}
@@ -194,7 +186,7 @@ function ReviewBody(props: {
                   onClick={() => setEditing(isEditing ? undefined : f.key)}
                   aria-pressed={isEditing}
                   aria-label={copy.approvals.review.editLabel(f.label)}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted transition-colors hover:bg-fill hover:text-fg"
                 >
                   <PencilLine className="size-3.5" />
                   {isEditing ? copy.approvals.review.preview : copy.approvals.review.edit}
@@ -275,7 +267,7 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
     <div className="max-h-80 overflow-auto font-mono text-small leading-[1.55]">
       {rows.map((r) =>
         'fold' in r ? (
-          <div key={`f${r.i}`} className="bg-surface-2/60 px-3 py-0.5 text-footnote text-muted">
+          <div key={`f${r.i}`} className="bg-fill/60 px-3 py-0.5 text-footnote text-muted">
             {copy.approvals.review.moreLines(r.fold)}
           </div>
         ) : (
@@ -323,7 +315,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3"
         >
           <div className="flex items-center gap-2 text-reading">
-            <KeyRound className="size-4 shrink-0 text-accent-fg" />
+            <FEATURE_ICONS.siteSignIn className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
@@ -336,7 +328,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
             <Button
               size="sm"
               variant="primary"
-              icon={<MonitorSmartphone className="size-3.5" />}
+              icon={<FEATURE_ICONS.computer className="size-3.5" />}
               onClick={() =>
                 window.dispatchEvent(
                   new CustomEvent('myr:open-view', { detail: { view: 'computer', agent: l.agent } }),
@@ -390,17 +382,15 @@ export function MemoryCards({ state }: { state: ColonyState }) {
               {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
             </span>
           </div>
-          <p className="rounded-lg bg-surface px-3 py-2 text-reading">
-            <span className="mr-1.5 font-mono text-caption uppercase tracking-[0.12em] text-muted">
-              {m.kind}
-            </span>
+          <p className="rounded-xl bg-surface px-3 py-2 text-reading">
+            <span className="mr-1.5 section-label text-muted">{m.kind}</span>
             {m.text}
           </p>
           {m.why && <p className="text-small text-muted">{copy.approvals.memory.why(m.why)}</p>}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
-              variant="ghost"
+              variant="borderless"
               disabled={busy === m.id}
               onClick={() => void decide(m.id, false)}
               icon={<X className="size-3.5" />}
@@ -471,7 +461,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
     >
       <div className="flex items-center gap-2 text-reading">
-        <GraduationCap className="size-4 shrink-0 text-accent-fg" />
+        <FEATURE_ICONS.skills className="size-4 shrink-0 text-accent-fg" />
         <span className="min-w-0">
           {p.update ? t.improve : t.learned} <span className="font-mono font-semibold">{p.name}</span>
         </span>
@@ -479,7 +469,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           type="button"
           onClick={() => setEditing(!editing)}
           aria-pressed={editing}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-fill hover:text-fg"
         >
           <PencilLine className="size-3.5" />
           {editing ? t.preview : t.edit}
@@ -504,7 +494,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="overflow-hidden rounded-xl border border-line bg-surface">
           <p className="border-b border-line px-3 py-2 text-body">{description}</p>
           {lines ? (
             <DiffLines lines={lines} />
@@ -518,7 +508,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       <div className="flex justify-end gap-2">
         <Button
           size="sm"
-          variant="ghost"
+          variant="borderless"
           disabled={busy}
           onClick={() => void decide(false)}
           icon={<X className="size-3.5" />}

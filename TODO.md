@@ -32,48 +32,51 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### Channels (`packages/runtime/src/channels`, Settings → Channels)
 
-- [ ] **Pairing code never checked; first approved becomes owner** — approve by typed code; toast opens the sheet;
+- [x] **Pairing code never checked; first approved becomes owner** — approve by typed code; toast opens the sheet;
       "Make owner" shows handle and id.
-- [ ] **Non-owners run with the owner's tool permissions** — their runs ask the owner for every non-read-only tool.
-- [ ] **IRC nicks can claim ownership** — match unverified platforms by id; never auto-assign owner from a handle.
-- [ ] Revoke and Dismiss one click → ConfirmButton; strangers see internal errors → generic reply; corrupt
+- [x] **Non-owners run with the owner's tool permissions** — their runs ask the owner for every non-read-only tool.
+- [x] **IRC nicks can claim ownership** — match unverified platforms by id; never auto-assign owner from a handle.
+- [x] Revoke and Dismiss one click → ConfirmButton; strangers see internal errors → generic reply; corrupt
       `channels.json` overwritten → fail loudly with a backup; flood guard silent → reply once.
-- [ ] "Connected" heading over an "Off" channel; token errors only as toasts; optional fields unmarked; allow-list
+- [x] "Connected" heading over an "Off" channel; token errors only as toasts; optional fields unmarked; allow-list
       without feedback; blank while loading; repeated error toasts while polling.
 
 ### Voice runtime (`packages/runtime/src/voice`, the call socket)
 
-- [ ] **Spoken yes/no prefix-matched and decides the newest approval** — whole-utterance, the one read out, read
+- [x] **Spoken yes/no prefix-matched and decides the newest approval** — whole-utterance, the one read out, read
       back; no early turn end while an approval waits.
-- [ ] **Crew updates reach the call model as the person's words** — send them as tool results; `answer_approval`
+- [x] **Crew updates reach the call model as the person's words** — send them as tool results; `answer_approval`
       only after a spoken yes/no.
-- [ ] Call kept alive after its socket closes during warm-up; refusals arrive as a bare 1006; several calls per chat.
-- [ ] Transcripts outlive deleted chats; orphan calls; no retention.
-- [ ] Kitten unpinned/unhashed and trusts a remote file name; Phonon unpinned; enabling voice doesn't download what it
-      promises.
-- [ ] Re-transcribes the whole turn on every pause; direct calls split thoughts; turn-model failure toasts per pause;
+- [x] Call kept alive after its socket closes during warm-up; refusals arrive as a bare 1006; several calls per chat.
+- [x] Transcripts outlive deleted chats; orphan calls; no retention.
+- [x] Kitten unpinned/unhashed and trusts a remote file name; Phonon unpinned; enabling voice doesn't download what it
+      promises. (Phonon-2 still installs only from its Install button: it is a `uv` tool install, not a file.)
+- [x] Re-transcribes the whole turn on every pause; direct calls split thoughts; turn-model failure toasts per pause;
       overlapping streams silence each other; lead narration spoken; barge-in too sensitive without the turn model;
       unguarded JSON/binary frames; "That round failed".
 
 ### Voice in the app (`apps/web/src/client/voice`, Settings → Voice)
 
-- [ ] **Hanging up while connecting leaves the mic and socket live**.
-- [ ] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
+- [x] **Hanging up while connecting leaves the mic and socket live**.
+- [x] Mute leaves the mic on and the bar says "Listening"; bar doesn't name the chat or who answered; lines labelled
       "Crew"; members labelled "worker"; Call button 22px; menu without arrow keys; whole bar a live region.
-- [ ] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
+- [x] Untrue privacy copy ("nothing you say leaves this machine"); download sizes not disclosed; endpoint URL
       unchecked; polls every 2 s; duplicated headings; raw engine errors; spoken messages look typed.
+      ("Via the call assistant" not shown yet: `start_task` sends no flag the client can read. The call bar hides while
+      Settings is open, so a live call keeps running out of sight; the shortcuts still work.)
 
 ### Trust, System page, gating
 
-- [ ] **Untrue statements**: "agents never edit your files directly", "can only write to their own scratch folder".
-- [ ] Raw server errors in toasts ("unauthorized", "no such colony", zod text, "needs the chat runtime").
-- [ ] Chats-only devices: skill keep/restore, delivering schedules, the System page.
-- [ ] System: "confined (unknown)", raw sandbox names and errors, own status dots, Restart without state, nothing
+- [x] **Untrue statements**: "agents never edit your files directly", "can only write to their own scratch folder".
+- [x] Raw server errors in toasts ("unauthorized", "no such colony", zod text, "needs the chat runtime").
+- [x] Chats-only devices: skill keep/restore, delivering schedules, the System page.
+- [x] System: "confined (unknown)", raw sandbox names and errors, own status dots, Restart without state, nothing
       while loading, "No channels set up" for a channel that is off.
-- [ ] Skill curator archives every old learned skill on upgrade, silently.
-- [ ] Chat naming can overwrite an older chat's own name; naming a deleted chat leaves a file.
-- [ ] omp writes request logs to the real `~/.omp/logs`; model-failure fallback preselects "Claude 4 Opus"; adding a
-      project keeps you in a project-less chat.
+- [x] Skill curator archives every old learned skill on upgrade, silently.
+- [x] Chat naming can overwrite an older chat's own name; naming a deleted chat leaves a file.
+- [x] omp writes request logs to the real `~/.omp/logs`; model-failure fallback preselects "Claude 4 Opus"; adding a
+      project keeps you in a project-less chat. (The fallback can't yet avoid a provider-wide auth or quota failure:
+      model errors aren't classified by cause.)
 
 ### Phase 2 — design system and accessibility
 
@@ -88,8 +91,18 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### Phase 2 — copy
 
-- [ ] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
+- [x] One word per concept (run/round, chat/New task, Allow/Approve, Delete/Remove/Revoke), jargon explained on first
       use, error messages with a cause and a fix, shorter long hints, calmer mascot moods.
+      (Kept on purpose: "Crews" for the list of chats' crews; channel `/new` and `/approve` keep the platforms' own
+      words. The changes check can't show the server's reason yet: RoundChanges drops it.)
+
+### Asked during the fixes
+
+- [x] **A refresh keeps the message box's text** (asked 2026-10-08) — each chat and the new-chat screen keep their own
+      unsent text in the browser; it goes when the message is sent or the chat is deleted. Attached files can't
+      survive a reload.
+- [x] **A refresh stays where you were** (asked 2026-10-08) — the screen (Crews, Compare, System) and an open Settings
+      section join the chat in the address, so a reload comes back to them; chats-only devices fall back to the chat.
 
 ### [decide] New
 

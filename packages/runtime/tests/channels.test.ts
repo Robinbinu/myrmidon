@@ -309,9 +309,15 @@ test('approving takes the code the requester was sent: a request id alone, or an
 test('a damaged channels.json is refused loudly and never overwritten; each save keeps the version before it', async () => {
   const { hub, dir } = await setup()
   const file = join(dir, 'channels.json')
-  const saved = readFileSync(file, 'utf8')
-  await hub.configure('telegram', { mention: false })
-  expect(readFileSync(`${file}.bak`, 'utf8')).toBe(saved)
+  const versions = [readFileSync(file, 'utf8')]
+  for (const stream of ['partial', 'final', 'progress'] as const) {
+    await hub.configure('telegram', { stream })
+    versions.push(readFileSync(file, 'utf8'))
+  }
+  // The last three versions before the current one, newest first: a bad save does not take the good one with it.
+  expect(readFileSync(`${file}.bak`, 'utf8')).toBe(versions[2] ?? '')
+  expect(readFileSync(`${file}.bak.2`, 'utf8')).toBe(versions[1] ?? '')
+  expect(readFileSync(`${file}.bak.3`, 'utf8')).toBe(versions[0] ?? '')
   expect(statSync(`${file}.bak`).mode & 0o777).toBe(0o600)
 
   writeFileSync(file, '{"telegram": {"values": {"token": "tok"}, "peop')
@@ -354,6 +360,26 @@ test('"let in without a code" takes entries in the platform’s own form, so a t
   expect(ok('matrix', '@alice:matrix.org')).toBe(true)
   expect(hub.list()[0]?.allowExample).toBeUndefined()
   expect(BUILT_IN_CHANNELS.irc?.allow?.example).toBe('alice!~alice@host.example')
+})
+
+test('owners record how they became it, and entries saved before they were checked are flagged, not blocking', async () => {
+  const { hub, pair } = await setup()
+  await pair(ALICE)
+  expect(hub.store.get('telegram').people[0]).toMatchObject({ role: 'owner', by: 'code' })
+  await pair(BOB)
+  hub.setOwner('telegram', '200')
+  const [alice, bob] = hub.store.get('telegram').people
+  expect(alice?.by).toBeUndefined()
+  expect(bob).toMatchObject({ role: 'owner', by: 'settings' })
+
+  // An entry saved before entries were checked: shown as never matching, and other edits still save.
+  hub.store.update('telegram', (c) => {
+    c.allow = ['bob smith']
+  })
+  expect(hub.list()[0]?.allowInvalid).toEqual(['bob smith'])
+  await hub.configure('telegram', { allow: ['bob smith', '@carol'] })
+  expect(hub.store.get('telegram').allow).toEqual(['bob smith', '@carol'])
+  await expect(hub.configure('telegram', { allow: ['bob smith', 'dan jones'] })).rejects.toThrow('dan jones')
 })
 
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {

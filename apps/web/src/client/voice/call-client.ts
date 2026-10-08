@@ -30,7 +30,8 @@ export interface CallHandlers {
   /** The call started its first task in a new chat. */
   chat(chatId: string): void
   task(request: string): void
-  error(message: string): void
+  /** `code`: the close code when the socket closed on a refusal or an error, for what the person can do about it. */
+  error(message: string, code?: number): void
   /** How long the last answer took to start after the person stopped talking. */
   latency(ms: number): void
   /** Something waits for the person's yes or no; `approvalDone` once it is answered. */
@@ -47,6 +48,8 @@ export interface CallHandlers {
  */
 export function closeMessage(code: number, reason: string, opened: boolean): string {
   if (code >= 4000 && code < 5000 && reason) return reason
+  // An older server says why an engine would not start with 1011 too.
+  if (code === 1011 && reason) return reason
   if (code === 1009 || code === 1011) return copy.call.failed
   return opened ? copy.call.dropped : copy.call.couldNotStart
 }
@@ -79,6 +82,21 @@ class MyrMic extends AudioWorkletProcessor {
 registerProcessor('myr-mic', MyrMic)
 `
 
+/** What a call takes from the browser: the mic, audio, and the call socket. Tests hand in their own. */
+export interface CallMedia {
+  mic(constraints: MediaStreamConstraints): Promise<MediaStream>
+  audio(): AudioContext
+  worklet(ctx: AudioContext, name: string): AudioWorkletNode
+  socket(chatId: string | undefined, rate: number, talk?: string): WebSocket
+}
+
+const BROWSER: CallMedia = {
+  mic: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+  audio: () => new AudioContext(),
+  worklet: (ctx, name) => new AudioWorkletNode(ctx, name),
+  socket: callSocket,
+}
+
 /**
  * One voice call from this window: the mic (with the browser's echo cancellation, so the call's own voice is not
  * heard as the person talking over it) goes up the call socket; the call's speech comes down as binary frames and is
@@ -100,18 +118,19 @@ export class CallClient {
     private readonly on: CallHandlers,
     /** `lead` or a crew member's name to talk to them directly; the call assistant otherwise. */
     private readonly talk?: string,
+    private readonly media: CallMedia = BROWSER,
   ) {}
 
   async start() {
     this.on.state('connecting')
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await this.media.mic({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
     })
     this._stream = stream
     // Hung up while the browser asked for the mic: nothing may start after that.
     if (this._ended) return this._release()
     this._applyMute()
-    const ctx = new AudioContext()
+    const ctx = this.media.audio()
     this._ctx = ctx
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }))
     try {
@@ -120,10 +139,10 @@ export class CallClient {
       URL.revokeObjectURL(url)
     }
     if (this._ended) return this._release()
-    const node = new AudioWorkletNode(ctx, 'myr-mic')
+    const node = this.media.worklet(ctx, 'myr-mic')
     this._node = node
     ctx.createMediaStreamSource(stream).connect(node)
-    const ws = callSocket(this.chatId, CALL_RATE, this.talk)
+    const ws = this.media.socket(this.chatId, CALL_RATE, this.talk)
     this._ws = ws
     node.port.onmessage = (e: MessageEvent<{ frame: Int16Array<ArrayBuffer>; level: number }>) => {
       this.on.level(this._muted ? 0 : e.data.level)
@@ -170,7 +189,7 @@ export class CallClient {
     }
     ws.onclose = (e) => {
       if (this._ended) return
-      if (e.code !== 1000) this.on.error(closeMessage(e.code, e.reason, this._opened))
+      if (e.code !== 1000) this.on.error(closeMessage(e.code, e.reason, this._opened), e.code)
       this._end(e.code === 1000 ? 'hung-up' : 'error')
     }
   }

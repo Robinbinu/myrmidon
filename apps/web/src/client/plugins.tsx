@@ -1,16 +1,24 @@
 import { PLUGIN_SLOTS, type PluginSlotName, type PluginSlotProps } from '@myrmidon/protocol'
 import * as React from 'react'
-import { Component, type ComponentType, type ReactNode, useSyncExternalStore } from 'react'
+import {
+  Component,
+  type ComponentProps,
+  type ComponentType,
+  forwardRef,
+  type ReactNode,
+  useSyncExternalStore,
+} from 'react'
 import * as jsxRuntime from 'react/jsx-runtime'
 import { importPluginUI } from './api.ts'
 import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import {
+  Badge,
+  Banner,
   Button,
   cn,
   Empty,
   IconButton,
-  Pill,
   Segmented,
   Select,
   Skeleton,
@@ -34,10 +42,27 @@ export interface SlotDef<S extends PluginSlotName = PluginSlotName> {
 
 type Slots = { [S in PluginSlotName]?: SlotDef<S> }
 
+/** Button variants the kit offered before they were merged; plugins that still pass one get the nearest today. */
+const OLD_VARIANTS: Record<string, ComponentProps<typeof Button>['variant']> = {
+  ghost: 'borderless',
+  toolbar: 'borderless',
+  secondary: 'push',
+  soft: 'push',
+}
+
+const PluginButton = forwardRef<
+  HTMLButtonElement,
+  Omit<ComponentProps<typeof Button>, 'variant'> & { variant?: string }
+>(function PluginButton({ variant, ...rest }, ref) {
+  const known = (variant && OLD_VARIANTS[variant]) || (variant as ComponentProps<typeof Button>['variant'])
+  return <Button ref={ref} variant={known} {...rest} />
+})
+
 const kit = {
-  Button,
+  Button: PluginButton,
   IconButton,
-  Pill,
+  Badge,
+  Pill: Badge,
   Switch,
   TextInput,
   TextArea,
@@ -116,13 +141,7 @@ class SlotBoundary extends Component<{ plugin: string; children: ReactNode }, { 
   }
   override render() {
     if (this.state.error)
-      return (
-        <div
-          className={cn('rounded-lg border border-bad/25 bg-bad-soft px-3 py-2 text-callout text-bad-ink')}
-        >
-          {copy.pluginSlot.failed(this.props.plugin, this.state.error)}
-        </div>
-      )
+      return <Banner tone="bad">{copy.pluginSlot.failed(this.props.plugin, this.state.error)}</Banner>
     return this.props.children
   }
 }

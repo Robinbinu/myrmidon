@@ -13,7 +13,6 @@ import {
   Plus,
   Search,
   Settings,
-  ShieldCheck,
   SquarePen,
   Sun,
   Trash2,
@@ -21,16 +20,18 @@ import {
   X,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ChatSummary, type Project } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
+import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import type { ThemeChoice } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { runPhase } from '../ui/status.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
@@ -72,6 +73,11 @@ function marked(hit: MessageHit): ReactNode {
 /** The chat's title or one of its requests contains `q` (lower case). */
 const titled = (c: ChatSummary, q: string) =>
   c.title.toLowerCase().includes(q) || c.rounds.some((r) => r.request.toLowerCase().includes(q))
+
+/** The one chat row the Tab key lands on: the first preferred one that is on screen, else the first row shown. */
+export function tabStopRow(shown: readonly string[], preferred: readonly (string | undefined)[]) {
+  return preferred.find((id) => id !== undefined && shown.includes(id)) ?? shown[0]
+}
 
 function ageDays(iso: string) {
   const start = new Date()
@@ -122,6 +128,11 @@ export function Sidebar(props: {
   const [draft, setDraft] = useState('')
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   const cancelled = useRef(false)
+  // A rename finished from the keyboard puts focus back on its row, so the list can be walked on from there.
+  const backToRow = useRef(false)
+  const nav = useRef<HTMLElement>(null)
+  const focusRow = (chatId: string) =>
+    nav.current?.querySelector<HTMLElement>(`[data-chat="${CSS.escape(chatId)}"]`)?.focus()
   const startRename = (c: ChatSummary) => {
     cancelled.current = false
     setEditing(c.chatId)
@@ -131,6 +142,8 @@ export function Sidebar(props: {
     setEditing(undefined)
     const next = draft.trim()
     if (save && next && next !== c.title) void props.onRename(c, next)
+    if (backToRow.current) requestAnimationFrame(() => focusRow(c.chatId))
+    backToRow.current = false
   }
   // Titles and requests match as the person types; what was said in a chat comes from the server a moment later.
   const [found, setFound] = useState<{ query: string; hits: ReadonlyMap<string, MessageHit> }>()
@@ -182,6 +195,48 @@ export function Sidebar(props: {
     }
     return out
   }, [hits, known])
+  // The chat list is one Tab stop: the row last focused (or the open chat, or the first) takes it, and the arrow keys
+  // walk the rest. Its rename and delete buttons are for the pointer; F2 and Delete do the same from the keyboard.
+  const [lastRow, setLastRow] = useState<string>()
+  // Only rows on screen can hold it: a chat inside a folded project has no row to Tab to.
+  const shownRows = [
+    ...props.projects.filter((p) => !closed.has(p.id)).flatMap((p) => byProject.get(p.id) ?? []),
+    ...grouped.flatMap((g) => g.chats),
+  ].map((c) => c.chatId)
+  const tabRow = tabStopRow(shownRows, [lastRow, props.activeChat])
+  // A deleted chat takes its row, and the focus on it, away; the row after it (or before, at the end) takes focus.
+  const afterDelete = useRef<{ chatId: string; next?: string }>(undefined)
+  const requestDelete = (c: ChatSummary) => {
+    const at = shownRows.indexOf(c.chatId)
+    afterDelete.current = { chatId: c.chatId, next: shownRows[at + 1] ?? shownRows[at - 1] }
+    props.onDelete(c)
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the list of chats changes
+  useEffect(() => {
+    const pending = afterDelete.current
+    if (!pending || props.chats.some((c) => c.chatId === pending.chatId)) return
+    afterDelete.current = undefined
+    const lost = !document.activeElement || document.activeElement === document.body
+    if (lost && pending.next) focusRow(pending.next)
+  }, [props.chats])
+  const walkRows = (e: KeyboardEvent<HTMLElement>) => {
+    const rows = [...(nav.current?.querySelectorAll<HTMLElement>('[data-chat]') ?? [])]
+    const at = rows.indexOf(e.target as HTMLElement)
+    if (at === -1) return
+    const next =
+      e.key === 'ArrowDown'
+        ? Math.min(rows.length - 1, at + 1)
+        : e.key === 'ArrowUp'
+          ? Math.max(0, at - 1)
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? rows.length - 1
+              : undefined
+    if (next === undefined) return
+    e.preventDefault()
+    rows[next]?.focus()
+  }
   const toggle = (id: string) =>
     setClosed((s) => {
       const next = new Set(s)
@@ -210,15 +265,31 @@ export function Sidebar(props: {
             onKeyDown={(e) => {
               // Both keys leave through blur, which saves unless Escape asked to cancel.
               if (e.key === 'Escape') cancelled.current = true
-              if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+              if (e.key === 'Enter' || e.key === 'Escape') {
+                backToRow.current = true
+                e.currentTarget.blur()
+              }
             }}
             className="h-7 w-full rounded-md border border-focus bg-control px-2 text-body outline-none ring-3 ring-focus/30"
           />
         ) : (
           <button
             type="button"
+            data-chat={c.chatId}
+            tabIndex={c.chatId === tabRow ? 0 : -1}
+            onFocus={() => setLastRow(c.chatId)}
             onClick={() => props.onSelect(c.chatId)}
             onDoubleClick={() => startRename(c)}
+            onKeyDown={(e) => {
+              if (e.key === 'F2') {
+                e.preventDefault()
+                startRename(c)
+              } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
+                e.preventDefault()
+                requestDelete(c)
+              }
+            }}
+            aria-keyshortcuts="F2 Delete Meta+Backspace"
             title={c.title}
             aria-current={on ? 'page' : undefined}
             className={cn(
@@ -262,6 +333,7 @@ export function Sidebar(props: {
         {editing !== c.chatId && (
           <button
             type="button"
+            tabIndex={-1}
             onClick={() => startRename(c)}
             aria-label={copy.sidebar.chat.renameLabel(c.title)}
             title={copy.sidebar.chat.rename}
@@ -273,7 +345,8 @@ export function Sidebar(props: {
         <button
           type="button"
           hidden={editing === c.chatId}
-          onClick={() => props.onDelete(c)}
+          tabIndex={-1}
+          onClick={() => requestDelete(c)}
           aria-label={copy.sidebar.chat.deleteLabel(c.title)}
           title={copy.sidebar.chat.delete}
           className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100"
@@ -333,7 +406,7 @@ export function Sidebar(props: {
           />
         </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
+      <nav ref={nav} onKeyDown={walkRows} className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
         {(props.projects.length > 0 || props.onAddProject) && (
           <div className="group/projects flex items-center px-2 pb-1 pt-3">
             <span className="flex-1 text-caption font-semibold text-muted">
@@ -387,9 +460,9 @@ export function Sidebar(props: {
                     onClick={() => props.onProjectPermissions?.(p)}
                     aria-label={copy.sidebar.projects.permissionsLabel(p.name)}
                     title={copy.sidebar.projects.permissionsTitle}
-                    className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                    className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 group-has-[[data-armed]]:invisible"
                   >
-                    <ShieldCheck className="size-3.5" />
+                    <FEATURE_ICONS.permissions className="size-3.5" />
                   </button>
                 )}
                 <button
@@ -397,20 +470,21 @@ export function Sidebar(props: {
                   onClick={() => props.onNewInProject(p)}
                   aria-label={copy.sidebar.projects.newChatIn(p.name)}
                   title={copy.sidebar.projects.newChatIn(p.name)}
-                  className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 group-has-[[data-armed]]:invisible"
                 >
                   <Plus className="size-3.5" />
                 </button>
                 {props.onRemoveProject && (
-                  <button
-                    type="button"
-                    onClick={() => props.onRemoveProject?.(p)}
-                    aria-label={copy.sidebar.projects.removeLabel(p.name)}
-                    title={copy.sidebar.projects.removeTitle}
-                    className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+                  // Visible while armed too: the armed button holds focus, and the row's other buttons make room.
+                  <span className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <ConfirmButton
+                      icon={<X className="size-3.5" />}
+                      label={copy.sidebar.projects.removeLabel(p.name)}
+                      title={copy.sidebar.projects.removeTitle}
+                      confirm={copy.sidebar.projects.removeConfirm}
+                      onConfirm={() => props.onRemoveProject?.(p)}
+                    />
+                  </span>
                 )}
               </div>
               {open && (
@@ -425,7 +499,9 @@ export function Sidebar(props: {
           )
         })}
         {props.loaded && props.chats.length === 0 && (
-          <p className="px-2 py-4 text-callout text-muted">{copy.sidebar.empty}</p>
+          <p className="px-2 py-4 text-callout text-muted">
+            {copy.sidebar.empty(comboLabel('mod+k', isMac))}
+          </p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
           <p className="px-2 py-4 text-callout text-muted">
@@ -468,12 +544,12 @@ export function Sidebar(props: {
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
             <Settings className="size-4" /> {copy.sidebar.nav.settings}
             {waiting > 0 && (
-              <span
-                className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-semibold leading-[18px] text-on-accent"
-                title={copy.settings.channels.waitingBadge(waiting)}
-              >
-                {waiting}
-              </span>
+              <CountBadge
+                count={waiting}
+                tone="accent"
+                label={copy.settings.channels.waitingBadge(waiting)}
+                className="ml-auto"
+              />
             )}
           </button>
           <IconButton
@@ -513,7 +589,7 @@ function GatewayChip(props: { onOpen?(): void }) {
         onClick={offline ? refresh : props.onOpen}
         title={offline ? t.offlineHint : props.onOpen ? t.open : undefined}
         className={cn(
-          'flex h-8 w-full items-center gap-2 rounded-[9px] px-2.5 text-[12.5px] font-medium transition-colors',
+          'flex h-8 w-full items-center gap-2 rounded-base px-2.5 text-callout font-medium transition-colors',
           offline
             ? 'bg-bad-soft text-bad-ink hover:bg-bad-soft/80'
             : 'bg-warn-soft text-warn-ink hover:bg-warn-soft/80',

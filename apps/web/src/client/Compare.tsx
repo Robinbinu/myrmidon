@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api, type ColonySummary } from './api.ts'
 import { copy } from './copy.ts'
 import { duration, knownCost, money } from './ui/hooks.ts'
-import { cn, IconButton, Pill, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, cn, IconButton, toneFor } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 
 /** Side-by-side run metrics for research comparisons; tick two runs to see what differs between them. */
@@ -83,7 +83,7 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
                   </div>
                 </td>
                 <td>
-                  <Pill tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Pill>
+                  <Badge tone={toneFor(runPhase(c))}>{copy.status.run[runPhase(c)]}</Badge>
                   {c.statusReason && <div className="muted small">{c.statusReason}</div>}
                 </td>
                 <td>{copy.compare.patterns[c.pattern] ?? c.pattern}</td>
@@ -191,9 +191,9 @@ function Delta({ m }: { m: Metric }) {
 
 function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(id: string): void }) {
   return (
-    <div className="min-w-0 rounded-xl border border-line bg-surface p-3">
+    <div className="min-w-0 rounded-lg border border-line bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span className="grid size-5 place-items-center rounded-md bg-surface-2 font-mono text-caption font-bold">
+        <span className="grid size-5 place-items-center rounded-md bg-fill font-mono text-caption font-bold">
           {label}
         </span>
         <button
@@ -205,7 +205,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
         </button>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-small text-muted">
-        <Pill tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Pill>
+        <Badge tone={toneFor(runPhase(run))}>{copy.status.run[runPhase(run)]}</Badge>
         {run.tier && <span>{run.tier}</span>}
         {run.mode && <span>· {run.mode}</span>}
         {run.judge && (
@@ -225,12 +225,12 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
   const most = Math.max(1, ...tools.flatMap((t) => [t.a, t.b]))
   const [allTools, setAllTools] = useState(false)
   const shownTools = allTools ? tools : tools.slice(0, 10)
-  const head = 'px-2 py-1.5 text-left font-mono text-caption uppercase tracking-[0.12em] text-muted'
+  const head = 'px-2 py-1.5 text-left section-label text-muted'
   const cell = 'px-2 py-1.5 tabular-nums'
   return (
     <section
       aria-label={copy.compare.runDiff}
-      className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-surface-2/40 p-4"
+      className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-fill/40 p-4"
     >
       <div className="flex items-start gap-3">
         <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
@@ -242,9 +242,9 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
         </IconButton>
       </div>
       {a.task.trim() !== b.task.trim() && (
-        <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-callout text-warn-ink">
+        <Banner tone="warn" role="note">
           {copy.compare.differentTasks}
-        </p>
+        </Banner>
       )}
 
       <div className="overflow-x-auto">
@@ -302,7 +302,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             <button
               type="button"
               onClick={() => setAllTools(!allTools)}
-              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-surface-2 hover:text-fg"
+              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-fill hover:text-fg"
             >
               {allTools ? copy.compare.showFewer : copy.compare.showAllTools(tools.length)}
             </button>
@@ -317,16 +317,16 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {files.map((f) => (
               <li
                 key={f.name}
-                className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small"
+                className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small"
               >
                 <span className="font-mono">{f.name}</span>
-                <Pill tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
+                <Badge tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
                   {f.in === 'both'
                     ? f.same
                       ? copy.compare.same
                       : copy.compare.differs
                     : copy.compare.onlyIn(f.in.toUpperCase())}
-                </Pill>
+                </Badge>
               </li>
             ))}
           </ul>
@@ -374,7 +374,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {[a, b].map((r, i) => (
               <p
                 key={r.id}
-                className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-3 text-callout text-fg-2"
+                className="whitespace-pre-wrap rounded-lg border border-line bg-surface p-3 text-callout text-fg-2"
               >
                 <span className="mr-1 font-mono text-caption font-bold">{i === 0 ? 'A' : 'B'}</span>
                 {r.finalReply ?? copy.compare.noAnswer}

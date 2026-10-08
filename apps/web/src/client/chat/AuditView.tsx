@@ -1,9 +1,10 @@
 import { type AuditKind, auditOf, type MyrEvent } from '@myrmidon/protocol'
-import { Ban, FileCode, Globe, Search, ShieldCheck, SquareTerminal, Wrench } from 'lucide-react'
+import { Ban, type LucideIcon, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
-import { cn, Empty, Pill, Select, TextInput } from '../ui/primitives.tsx'
+import { FEATURE_ICONS } from '../ui/icons.ts'
+import { Badge, cn, Empty, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
 const KINDS: { value: AuditKind | 'all'; label: string }[] = [
@@ -15,12 +16,12 @@ const KINDS: { value: AuditKind | 'all'; label: string }[] = [
   { value: 'other', label: copy.audit.kinds.other },
 ]
 
-const ICONS: Record<AuditKind, typeof FileCode> = {
-  file: FileCode,
-  url: Globe,
-  command: SquareTerminal,
+const ICONS: Record<AuditKind, LucideIcon> = {
+  file: FEATURE_ICONS.files,
+  url: FEATURE_ICONS.web,
+  command: FEATURE_ICONS.agentShell,
   search: Search,
-  other: Wrench,
+  other: FEATURE_ICONS.tools,
 }
 
 const STOPPED_BY = {
@@ -51,7 +52,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
 
   if (audit.entries.length === 0 && audit.stops.length === 0)
     return (
-      <Empty icon={<ShieldCheck className="size-5" />} title={copy.audit.empty.title}>
+      <Empty icon={<FEATURE_ICONS.audit className="size-5" />} title={copy.audit.empty.title}>
         {copy.audit.empty.body}
       </Empty>
     )
@@ -59,7 +60,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       {audit.stops.length > 0 && (
-        <section className="rounded-xl border border-warn/30 bg-warn-soft p-3">
+        <section className="rounded-lg border border-warn/30 bg-warn-soft p-3">
           <h3 className="mb-1.5 flex items-center gap-1.5 text-callout font-semibold text-warn-ink">
             <Ban className="size-3.5" /> {copy.audit.stopped(audit.stops.length)}
           </h3>
@@ -87,7 +88,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
               'rounded-full border px-2.5 py-1 text-small transition-colors',
               kind === k.value
                 ? 'border-accent/40 bg-accent-soft text-accent-fg'
-                : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
+                : 'border-line text-muted hover:bg-fill hover:text-fg',
             )}
           >
             {k.label} <span className="tabular-nums opacity-70">{count(k.value)}</span>
@@ -141,7 +142,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                   type="button"
                   onClick={() => folds.toggle(key)}
                   aria-expanded={open}
-                  className="flex w-full items-start gap-2 rounded-lg px-1.5 py-2 text-left hover:bg-surface-2"
+                  className="flex w-full items-start gap-2 rounded-xl px-1.5 py-2 text-left hover:bg-fill"
                 >
                   <FoldChevron open={open} className="mt-1 text-muted" />
                   <Icon className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
@@ -157,10 +158,10 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-1 text-footnote text-muted">
                       {t.actions.map((a) => (
-                        <Pill key={a}>{a}</Pill>
+                        <Badge key={a}>{a}</Badge>
                       ))}
                       <span>{t.agents.join(', ')}</span>
-                      {t.failed > 0 && <Pill tone="bad">{copy.audit.failed(t.failed)}</Pill>}
+                      {t.failed > 0 && <Badge tone="bad">{copy.audit.failed(t.failed)}</Badge>}
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-footnote tabular-nums text-muted">

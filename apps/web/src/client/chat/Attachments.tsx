@@ -1,7 +1,7 @@
 import {
   FileArchive,
   FileAudio,
-  FileCode,
+  FileBraces,
   File as FileIcon,
   FileSpreadsheet,
   FileText,
@@ -65,7 +65,7 @@ const ICONS: Record<Kind, typeof FileIcon> = {
   video: FileVideo,
   archive: FileArchive,
   sheet: FileSpreadsheet,
-  code: FileCode,
+  code: FileBraces,
   text: FileText,
   file: FileIcon,
 }

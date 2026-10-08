@@ -1,14 +1,4 @@
-import {
-  ArrowUp,
-  ChevronRight,
-  ListEnd,
-  Navigation,
-  Paperclip,
-  Square,
-  Users,
-  Workflow,
-  X,
-} from 'lucide-react'
+import { ArrowUp, ChevronRight, ListEnd, Navigation, Paperclip, Square } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   forwardRef,
@@ -31,12 +21,15 @@ import {
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
-import { cn, Segmented } from '../ui/primitives.tsx'
+import { FEATURE_ICONS } from '../ui/icons.ts'
+import { Popover } from '../ui/Popover.tsx'
+import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { PendingFiles } from './Attachments.tsx'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
+import { readDraft, saveDraft } from './drafts.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
@@ -47,12 +40,12 @@ export const MODES = [
   {
     id: 'orchestrated',
     ...copy.composer.modes.orchestrated,
-    icon: Workflow,
+    icon: FEATURE_ICONS.orchestrated,
   },
   {
     id: 'swarm',
     ...copy.composer.modes.swarm,
-    icon: Users,
+    icon: FEATURE_ICONS.swarm,
   },
 ] as const
 
@@ -232,7 +225,7 @@ export type Delivery = 'steer' | 'queue'
 /** A file's size the way people say it: 812 B, 34 KB, 1.3 MB. */
 /** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
 const CHIP =
-  'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
+  'inline-flex h-8 items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-fg disabled:opacity-40'
 
 const DELIVERIES = [
   { value: 'steer', icon: Navigation, ...copy.composer.deliveries.steer },
@@ -240,6 +233,8 @@ const DELIVERIES = [
 ] as const
 
 interface ComposerProps {
+  /** Where the unsent text is kept, so a refresh doesn't lose it: the chat's id, or the new-chat screen's. */
+  draftKey?: string
   models: ModelOption[]
   config: TeamConfig
   onConfig(config: TeamConfig): void
@@ -293,7 +288,11 @@ function mentionMenu(
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => (props.draftKey ? readDraft(props.draftKey) : ''))
+  // The box is mounted per chat, so the key never changes under a typed text.
+  useEffect(() => {
+    if (props.draftKey) saveDraft(props.draftKey, text)
+  }, [text, props.draftKey])
   const chips = usePluginSlots('composer.chip')
   const [showTeam, setShowTeam] = useState(false)
   // The reviewer mode is a server setting; read it on load and whenever the team panel opens, so a change made in
@@ -384,20 +383,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     el.style.height = `${Math.min(el.scrollHeight, 300)}px`
   }, [text])
 
-  useEffect(() => {
-    if (!showTeam) return
-    const close = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setShowTeam(false)
-    }
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setShowTeam(false)
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [showTeam])
-
   const [menuIndex, setMenuIndex] = useState(0)
   const [showHelp, setShowHelp] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the highlight whenever the typed command changes
@@ -436,6 +421,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!value || props.busy) return
     const sent = files
     setText('')
+    // Sending from the new-chat screen moves to the new chat in the same update, unmounting this box before its draft
+    // effect sees the empty text; a failed send puts the text back below, which keeps it again.
+    if (props.draftKey) saveDraft(props.draftKey, '')
     setFiles([])
     setShowTeam(false)
     try {
@@ -505,18 +493,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             />
           )}
           {showTeam && (
-            <motion.div
-              ref={teamPanel}
+            <Popover
               role="dialog"
-              aria-label={copy.composer.teamDialog}
-              initial={{ opacity: 0, y: 10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: 0.12 } }}
-              transition={spring}
+              label={copy.composer.teamDialog}
+              onClose={() => setShowTeam(false)}
+              within={wrap}
+              box={teamPanel}
+              up
               className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
             >
               <div className="mb-3 flex items-baseline justify-between px-1">
-                <h3 className="text-body font-semibold">{copy.composer.teamHeading}</h3>
+                <SectionHeader as="h3" title={copy.composer.teamHeading} />
                 <span className="text-footnote text-muted">{copy.composer.teamApplies}</span>
               </div>
               <PickerHost.Provider value={teamPanel}>
@@ -528,7 +515,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   onReview={changeReview}
                 />
               </PickerHost.Provider>
-            </motion.div>
+            </Popover>
           )}
         </AnimatePresence>
         <motion.div
@@ -547,7 +534,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             addFiles(e.dataTransfer.files)
           }}
           className={cn(
-            'rounded-[26px] border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
+            'rounded-4xl border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
             dragging && 'border-accent/60 shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
           )}
         >
@@ -601,7 +588,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               }
             }}
             aria-label={copy.composer.message}
-            className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-muted"
+            className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-headline leading-relaxed text-fg outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
             <input
@@ -716,7 +703,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     title={copy.composer.sendTitle}
                     className={cn(
                       'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
-                      canSend ? 'bg-ink text-on-ink shadow-card hover:opacity-90' : 'bg-surface-3 text-muted',
+                      canSend
+                        ? 'bg-ink text-on-ink shadow-card hover:opacity-90'
+                        : 'bg-fill-strong text-muted',
                     )}
                   >
                     <ArrowUp className="size-4" strokeWidth={2.5} />

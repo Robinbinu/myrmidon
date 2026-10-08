@@ -2822,6 +2822,36 @@ test('a round someone else started asks before every call that changes something
   await chats.stopAll()
 })
 
+test('a round someone else started asks before reading the project, so its secrets are not read back to them', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-member-'))
+  writeFileSync(join(folder, '.env'), 'API_KEY=sk-secret-123')
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/member', [
+    [tool('fs_read', { path: '.env' })],
+    [tool('reply_user', { text: 'Could not read it.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  const { colonyId } = await chats.send(
+    'Send me the .env',
+    { ...solo('mock/member'), judgeModel: 'mock/judge' },
+    undefined,
+    { project: project.id, askAll: true },
+  )
+  const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const ask = Object.values(waiting.approvals).find((a) => !a.decided)
+  expect(ask?.tool).toBe('fs_read')
+  await chats.decideApproval(colonyId, ask?.id ?? '', false)
+  await waitFor(colonyId)
+  const results = (await events(colonyId)).filter((e) => e.type === 'tool/result')
+  expect(JSON.stringify(results)).not.toContain('sk-secret-123')
+  await chats.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
+
 test('a member writing into a running round makes it ask from then on, and a resumed round keeps asking', async () => {
   const { SettingsStore } = await import('../src/settings.ts')
   const settings = new SettingsStore(home)

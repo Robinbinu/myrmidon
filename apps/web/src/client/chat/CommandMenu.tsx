@@ -1,10 +1,8 @@
 import {
-  Brain,
   Check,
   CircleHelp,
   ClipboardList,
   CornerDownLeft,
-  Cpu,
   Download,
   ListEnd,
   type LucideIcon,
@@ -12,17 +10,15 @@ import {
   Paperclip,
   Pencil,
   Play,
-  Plug,
   Plus,
   RotateCcw,
   Settings,
   Square,
-  Users,
-  Workflow,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Fragment, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar } from '../ui/pixel.tsx'
 import { cn, Kbd } from '../ui/primitives.tsx'
 import { spring } from '../ui-config.ts'
@@ -47,15 +43,15 @@ const ICONS: Record<string, LucideIcon> = {
   stop: Square,
   resume: Play,
   retry: RotateCcw,
-  model: Cpu,
-  mode: Workflow,
-  thinking: Brain,
-  team: Users,
+  model: FEATURE_ICONS.models,
+  mode: FEATURE_ICONS.orchestrated,
+  thinking: FEATURE_ICONS.thinking,
+  team: FEATURE_ICONS.crew,
   new: Plus,
   rename: Pencil,
   attach: Paperclip,
   export: Download,
-  mcp: Plug,
+  mcp: FEATURE_ICONS.mcp,
   settings: Settings,
   help: CircleHelp,
 }
@@ -288,9 +284,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           return (
             <div key={it.key}>
               {it.section && (
-                <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted first:pt-1">
-                  {it.section}
-                </div>
+                <div className="px-2.5 pb-1 pt-2.5 section-label text-muted first:pt-1">{it.section}</div>
               )}
               <button
                 type="button"
@@ -305,8 +299,8 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   if (!it.disabled) it.run()
                 }}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors duration-100',
-                  active && 'bg-surface-2',
+                  'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-100',
+                  active && 'bg-fill',
                   it.disabled && 'opacity-45',
                 )}
               >
@@ -315,8 +309,8 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                 ) : ItemIcon ? (
                   <span
                     className={cn(
-                      'grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                      active && !it.disabled ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2 text-fg-2',
+                      'grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
+                      active && !it.disabled ? 'bg-accent-soft text-accent-fg' : 'bg-fill text-fg-2',
                     )}
                   >
                     <ItemIcon className="size-4" />
@@ -344,7 +338,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   )}
                 </span>
                 {it.value && (
-                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-caption text-fg-2">
+                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-fill px-1.5 py-0.5 text-caption text-fg-2">
                     {it.value}
                   </span>
                 )}
@@ -355,7 +349,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
         })}
         {help && (
           <>
-            <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted">
+            <div className="px-2.5 pb-1 pt-2.5 section-label text-muted">
               {copy.commandMenu.help.keysSection}
             </div>
             <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 px-2.5 pb-2 text-callout">
