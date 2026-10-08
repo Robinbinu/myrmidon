@@ -378,7 +378,7 @@ export const copy = {
     sentBack: (task: string) => `Sent ${task} back:`,
     needsRework: 'Task needs rework:',
     broughtIn: 'Brought in',
-    promptInjection: 'Possible prompt injection:',
+    promptInjection: 'May have followed instructions from a web page:',
     injectionSource: (reason: string, source: string) => `${reason} (from ${source})`,
     startedServer: (name: string) => `Started ${name} at`,
     stoppedServer: (name: string) => `Stopped ${name}`,
@@ -402,9 +402,8 @@ export const copy = {
     approved: 'Allowed',
     notApprovedInTime: 'Not answered in time',
     denied: 'Denied',
-    compacted: 'Compacted its context',
-    compactedTail: (messages: number, kTokens: number) =>
-      `summarized ${messages} earlier messages at ~${kTokens}k tokens`,
+    compacted: 'Summarized older messages to make room',
+    compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
     askedJudge: 'Asked the reviewer to check the result',
@@ -612,7 +611,7 @@ export const copy = {
       attach: { description: 'Attach files to your next message' },
       export: { description: 'Download this chat as Markdown' },
       learn: { description: 'Learn a skill from how this chat did its work' },
-      mcp: { description: 'Manage MCP servers' },
+      mcp: { description: 'Manage MCP servers (tool connectors)' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
     },
@@ -721,7 +720,7 @@ export const copy = {
     by: 'by',
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
-      'This gateway has no preview address for this device yet, so here is the code. Start it with --preview-port and --preview-url (see docs/remote.md).',
+      'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
   },
 
   audit: {
@@ -860,7 +859,7 @@ export const copy = {
       title: 'Work in a project folder',
       none: 'No project',
       label: 'Project folder',
-      noneOption: 'No project (scratch only)',
+      noneOption: 'No project (private working folder only)',
       open: 'Open a folder…',
     },
   },
@@ -1244,7 +1243,7 @@ export const copy = {
     running: 'running…',
     editor: (path: string) => `Editor · ${path}`,
     edited: ' (edit)',
-    publishedFromScratch: '(published from a file in its scratch directory)',
+    publishedFromScratch: '(published from its private working folder)',
     agentsComputer: (agent: string) => `${agent}’s computer`,
     blankPage: 'blank page',
     youHaveControl: 'you have control',
@@ -1469,26 +1468,26 @@ export const copy = {
       status: 'Status',
       pattern: 'Mode',
       models: 'Models',
-      wall: 'Wall',
+      wall: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
       turns: 'Turns',
       toolCalls: 'Tool calls',
       messages: 'Messages',
-      artifactVersions: 'Artifact versions',
-      rejections: 'Rejections',
-      bestScore: 'Best score',
+      artifactVersions: 'File versions',
+      rejections: 'Changes asked',
+      bestScore: 'Review score',
     },
     pick: (name: string) => `Compare ${name}`,
     /** The runtime's pattern ids, named like the composer's modes. */
     patterns: { blackboard: 'Swarm', 'lead-workers': 'Orchestrated' } as Record<string, string>,
     metrics: {
-      wallTime: 'Wall time',
+      wallTime: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
       turns: 'Turns',
       toolCalls: 'Tool calls',
-      rejections: 'Rejections',
+      rejections: 'Changes asked',
       judgeScore: 'Review score',
     },
     judge: (passed: boolean) => `· review ${passed ? 'passed' : 'failed'}`,
@@ -1735,11 +1734,12 @@ export const copy = {
       intro:
         'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on the computer Myrmidon runs on, readable only by your account, and never sent back to the browser.',
       storedIn: (dir: string) => `Stored in ${dir}`,
-      importTitle: 'Import your omp setup',
-      importConfirm: 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.',
+      importTitle: 'Import keys from oh-my-pi (omp)',
+      importConfirm:
+        'Replaces Myrmidon’s keys, sign-ins, and custom providers with oh-my-pi’s, from ~/.omp/agent.',
       importHint:
-        'Copy keys, OAuth logins, and custom providers from ~/.omp/agent. The omp CLI is not needed.',
-      imported: 'Imported your omp setup',
+        'oh-my-pi is the agent toolkit Myrmidon builds on. This copies its keys, sign-ins, and custom providers from ~/.omp/agent; it need not be installed.',
+      imported: 'Imported your keys from oh-my-pi',
       replaceAndImport: 'Replace and import',
       import: 'Import',
       heading: 'Providers',
@@ -1748,7 +1748,7 @@ export const copy = {
       connected: (name: string) => `Connected ${name}`,
       emptyTitle: 'No providers ready yet',
       emptyBody:
-        'Import your omp setup, add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any OpenAI, Anthropic, or Gemini-compatible endpoint.',
+        'Import keys from oh-my-pi (omp), add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any OpenAI, Anthropic, or Gemini-compatible endpoint.',
       custom: 'custom',
       modelCount: (n: number) => `${n} model${n === 1 ? '' : 's'}`,
       edit: 'Edit',
@@ -1825,20 +1825,27 @@ export const copy = {
           hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
         },
         files: {
-          label: 'Scratch files',
-          hint: 'Private working files for drafts before publishing artifacts.',
+          label: 'Working files',
+          hint: 'A private working folder for drafts before publishing files.',
         },
         messaging: { label: 'Messaging', hint: 'Board posts, direct mail between agents, and shared notes.' },
         mcp: {
-          label: 'MCP servers',
+          label: 'MCP servers (tool connectors)',
           hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
         },
       },
-      sandboxActive: (sandbox: string) => `Sandbox active: ${sandbox}`,
+      /** `sandbox` is the runtime's sandbox kind. */
+      sandboxActive: (sandbox: string) =>
+        sandbox === 'sandbox-exec'
+          ? 'Sandbox on: macOS confines shell commands'
+          : sandbox === 'bubblewrap'
+            ? 'Sandbox on: bubblewrap confines shell commands'
+            : `Sandbox on: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
       sandboxedHint:
         'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
-      unsandboxedHint: 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.',
+      unsandboxedHint:
+        'No sandbox was found on this computer, so the shell tool stays off. On Linux, install bubblewrap and restart Myrmidon.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
@@ -1854,14 +1861,14 @@ export const copy = {
       webSearch: 'Web search',
       searchProvider: 'Search provider',
       searchProviderHint:
-        'Auto tries omp’s chain: providers you have keys for first, then keyless ones like DuckDuckGo.',
+        'Auto tries the search providers you have keys for first, then keyless ones like DuckDuckGo.',
       searchAuto: 'Auto',
     },
     mcp: {
       added: (name: string) => `Added ${name}`,
       reconnected: 'Reconnected MCP servers',
-      title: 'MCP servers',
-      subtitle: 'from mcp.json; imported with your omp setup',
+      title: 'MCP servers (tool connectors)',
+      subtitle: 'from mcp.json, including any imported from oh-my-pi',
       reconnect: 'Reconnect',
       addServer: 'Add server',
       name: 'Name',
@@ -1875,7 +1882,7 @@ export const copy = {
       environmentHint: 'KEY=value per line. Your own API keys are not passed on otherwise.',
       url: 'URL',
       addAndConnect: 'Add and connect',
-      empty: 'No MCP servers yet. Add one, or import your omp setup under Models & providers.',
+      empty: 'No MCP servers yet. Add one, or import them from oh-my-pi under Models & providers.',
       statuses: {
         connected: 'connected',
         connecting: 'connecting',
@@ -2040,10 +2047,10 @@ export const copy = {
       ttsTitle: 'Text to speech',
       engineLabel: 'Engine',
       providers: {
-        phonon: 'Phonon-2 (on this Mac)',
+        phonon: 'On-device speech recognition (Phonon-2)',
         omp: 'Cloud (your signed-in providers)',
-        endpoint: 'OpenAI-compatible endpoint',
-        kitten: 'Kitten TTS (on this Mac)',
+        endpoint: 'Your own service (OpenAI-compatible)',
+        kitten: 'On-device voices (Kitten TTS)',
       },
       hints: {
         phonon: (size: string) =>
@@ -2277,7 +2284,7 @@ export const copy = {
       when: 'When',
       custom: 'Custom (cron)',
       cronExpression: 'Cron expression',
-      cronPlaceholder: 'm h dom mon dow',
+      cronPlaceholder: 'e.g. 0 9 * * 1-5 (minute hour day month weekday)',
       project: 'Project',
       noProject: 'No project',
       deliver: 'Send results to',
@@ -2446,7 +2453,7 @@ export const copy = {
       intro: 'Crews of agents that plan, research, build, and review on your computer.',
       dataDirectory: 'Data folder',
       providersReady: 'Providers ready',
-      providersReadyHint: 'Through the embedded omp provider stack.',
+      providersReadyHint: 'Through oh-my-pi’s provider code, built into Myrmidon.',
       sandbox: 'Sandbox',
       eventLog:
         'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',
