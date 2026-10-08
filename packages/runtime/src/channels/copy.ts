@@ -258,6 +258,17 @@ export const channelCopy = {
   notify: {
     noOwner: 'No channel has an owner with a direct chat yet: approve yourself on one first.',
   },
+  /** A channel's activity, as its Activity tab and the System page list it. Names only, never message text. */
+  activity: {
+    connected: (account: string) => `Connected as ${account}`,
+    in: (name: string, group?: string) =>
+      group ? `Message from ${name} in ${group}` : `Message from ${name}`,
+    out: 'Answer delivered',
+    failed: (why: string, retrying: boolean) => `Couldn't send: ${why}${retrying ? ' (will retry)' : ''}`,
+    pairing: (name: string) => `Sent ${name} a code to approve`,
+    approved: (name: string) => `Approved ${name}`,
+    approval: (agent: string) => `Asked the owner to approve a step by ${agent}`,
+  },
   /** A channel chat's name in the app's sidebar. */
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,

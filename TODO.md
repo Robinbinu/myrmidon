@@ -276,11 +276,14 @@ Open work, in the order it will be done:
       - [ ] Follow-ups: try each against the real service (all tested only with fakes); Feishu long connection,
         DingTalk Stream and QQ gateway were written without SDK source; Matrix encryption; Teams/Google Chat/LINE
         file sending; Slack/Discord webhook modes; press notes flagged by the hub instead of string checks.
-11e. - [ ] **Channels UI and usage redesign** (asked 2026-10-08: "the ui looks boring", "the channels ui and usage
-      feels very bad"): each messaging app's logo (picker, cards, chats that came from a channel), and a proper
-      design pass on setting a channel up and using it; show options before building.
-11f. - [ ] **Gateway indicator and inspector** (asked 2026-10-08, "like hermes"): research how Hermes shows its gateway
-      (status indicator, inspector of connected platforms, sessions, deliveries), then build ours.
+11e. - [x] **Channels UI and usage redesign** (asked 2026-10-08) — done: every app's logo (Simple Icons, CC0, inline);
+      Settings → Channels as a logo gallery (connected first, then grouped and searchable) with a sheet per app (Setup,
+      People, Rules, Activity); logos on chats from a channel; a waiting count on Settings and Channels; a toast with
+      Approve and a desktop notice on a new request. Spec 2026-10-08-channels-ui-and-gateway-status-design.
+      Follow-up: try the request toast and the waiting badges against a real platform.
+11f. - [x] **Gateway indicator and inspector** (asked 2026-10-08) — done after OpenClaw: a sidebar chip only when
+      something is wrong ("Offline · Retry", or the problem, opening System); a System page with the gateway, models,
+      sandbox, what is running, each channel's health (last in/out, reconnects, last error, Restart) and recent activity.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).

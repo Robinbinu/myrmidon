@@ -47,6 +47,8 @@ import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
+import { SystemPage } from './System.tsx'
+import { useStatus } from './status.tsx'
 import {
   day,
   NOTIFY_KEY,
@@ -167,13 +169,14 @@ async function exportChat(chat: ChatSummary) {
 }
 
 /** A desktop notification while Myrmidon is in the background, if the person turned them on in Settings. */
-function notify(text: string, chatId: string) {
+function notify(text: string, chatId?: string, tag = chatId) {
   try {
     if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted' || !document.hidden) return
-    const n = new Notification(copy.brand.name, { body: text, tag: chatId })
+    const n = new Notification(copy.brand.name, { body: text, tag })
     n.onclick = () => {
       window.focus()
+      if (!chatId) return
       const url = new URL(location.href)
       url.searchParams.set('chat', chatId)
       location.href = url.toString()
@@ -304,6 +307,34 @@ export function App() {
       seen.current.set(c.chatId, c.status)
     }
   }, [chats, toast])
+
+  // Someone new asking to talk to the crew on a channel: a toast to approve them from here, and a desktop notice.
+  const { status } = useStatus()
+  const knownRequests = useRef<Set<string>>(undefined)
+  useEffect(() => {
+    const waiting = status?.waiting
+    if (!waiting) return
+    const known = knownRequests.current
+    knownRequests.current = new Set(waiting.map((w) => `${w.channel}/${w.id}`))
+    // The requests already waiting when the page opened are on the Channels page; only new ones interrupt.
+    if (!known) return
+    for (const w of waiting) {
+      if (known.has(`${w.channel}/${w.id}`)) continue
+      const text = copy.channelRequest[w.kind](w.name, w.label)
+      toast(text, 'info', {
+        label: copy.channelRequest.approve,
+        run: async () => {
+          try {
+            await post(`/api/channels/${w.channel}/approve`, { request: w.id })
+            toast(copy.channelRequest.approved(w.name), 'success')
+          } catch (err) {
+            toast(String((err as Error).message ?? err), 'error')
+          }
+        },
+      })
+      notify(text, undefined, `channel-request-${w.channel}-${w.id}`)
+    }
+  }, [status?.waiting, toast])
 
   const updateConfig = (c: TeamConfig) => {
     setConfig(c)
@@ -611,7 +642,9 @@ export function App() {
       ? (chat?.title ?? (missing ? copy.app.chatNotFound.title : copy.app.titles.newTask))
       : view === 'colonies'
         ? copy.app.titles.crews
-        : copy.app.titles.compare
+        : view === 'system'
+          ? copy.system.title
+          : copy.app.titles.compare
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -824,6 +857,15 @@ export function App() {
                 })()}
               {view === 'colonies' && <ColoniesPane />}
               {view === 'compare' && <ComparePane onOpen={setColonyModal} />}
+              {view === 'system' && (
+                <SystemPage
+                  onManageChannels={() => openSettings('channels')}
+                  onOpenChat={(id) => {
+                    setActiveChat(id)
+                    setView('chat')
+                  }}
+                />
+              )}
             </>
           )}
         </main>

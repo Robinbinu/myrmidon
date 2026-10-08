@@ -406,6 +406,7 @@ export function startServer(options: ServeOptions): WebServer {
       }
     })
 
+  const startedAt = new Date().toISOString()
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -726,6 +727,62 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/channels': {
         GET: guard(() => json({ channels: channels?.list() ?? [] })),
       },
+      '/api/channels/chats': {
+        GET: guard(() => json({ chats: channels?.chatChannels() ?? {} })),
+      },
+      '/api/channels/:id/activity': {
+        GET: guard((req) => json({ events: channels?.activity(req.params.id) ?? [] })),
+      },
+      // What the gateway indicator and the System page show: how this gateway is doing, and why when it is not.
+      '/api/status': guard(async (_req, _url, access) => {
+        const models = options.omp?.available().length ?? 0
+        const list = (options.chats ? await options.chats.list() : []).filter((c) => c.status === 'running')
+        const inUse = (channels?.list() ?? []).filter(
+          (c) => c.enabled || c.secretsSet.length || Object.keys(c.values).length,
+        )
+        // Problems as data; the page words them.
+        const problems: (
+          | { kind: 'no-models' }
+          | { kind: 'channel'; channel: string; label: string; error: string }
+        )[] = []
+        if (options.omp && models === 0) problems.push({ kind: 'no-models' })
+        for (const c of inUse)
+          if (c.enabled && (c.status.state === 'retrying' || c.status.state === 'error'))
+            problems.push({ kind: 'channel', channel: c.id, label: c.label, error: c.status.error })
+        const overall = problems.length ? 'degraded' : 'ok'
+        // A chats-only device learns whether things work, not who is waiting or how channels are set up.
+        if (access.scope !== 'full') return json({ overall, problems })
+        return json({
+          overall,
+          problems,
+          startedAt,
+          remote,
+          ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+          home: options.home,
+          models,
+          sandbox: options.sandboxKind ?? 'unknown',
+          running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
+          channels: inUse.map((c) => ({
+            id: c.id,
+            label: c.label,
+            enabled: c.enabled,
+            status: c.status,
+            health: c.health,
+            waiting: c.pending.length,
+          })),
+          waiting: inUse.flatMap((c) =>
+            c.pending.map((p) => ({
+              channel: c.id,
+              label: c.label,
+              id: p.id,
+              kind: p.kind,
+              name: p.kind === 'group' ? (p.chat.title ?? p.sender.name) : p.sender.name,
+              createdAt: p.createdAt,
+            })),
+          ),
+          activity: channels?.activity().slice(0, 50) ?? [],
+        })
+      }),
       '/api/channels/:id': {
         PUT: guard(async (req) => {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)

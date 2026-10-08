@@ -88,15 +88,38 @@ export interface ChannelInfo {
   readonly perPerson: boolean
   readonly allow: readonly string[]
   readonly status: AdapterStatus | { readonly state: 'off' }
+  readonly health: ChannelHealth
   readonly people: readonly ChannelPerson[]
   readonly approvedGroups: readonly { id: string; title: string; approvedAt: string }[]
   readonly pending: readonly Omit<PairingRequest, 'codeHash'>[]
+}
+
+/** How a channel has been doing since this gateway started (OpenClaw's per-account health). */
+export interface ChannelHealth {
+  readonly connectedAt?: string
+  /** Times it went from connected to reconnecting. */
+  readonly reconnects: number
+  readonly lastError?: string
+  readonly lastIn?: string
+  readonly lastOut?: string
+  /** Answers still owed (failed to send and waiting for a retry). */
+  readonly owed: number
+}
+
+/** Something that happened on a channel, for its Activity tab and the System page. Names only, never message text. */
+export interface ChannelEvent {
+  readonly at: string
+  readonly channel: string
+  readonly kind: 'connected' | 'trouble' | 'in' | 'out' | 'failed' | 'pairing' | 'approved' | 'approval'
+  readonly text: string
 }
 
 export type ChannelPatch = Partial<
   Pick<ChannelConfig, 'enabled' | 'dm' | 'groups' | 'mention' | 'stream' | 'perPerson' | 'allow'>
 > & { values?: Record<string, string>; project?: string | null }
 
+/** Events kept per channel for its Activity tab. */
+const ACTIVITY_KEEP = 100
 /** Typing lasts about 5 s on Telegram; renewing it a little sooner keeps it steady. */
 const TYPING_MS = 4000
 /** More messages than this from one chat in a minute are dropped (a loop, or someone flooding). */
@@ -176,6 +199,8 @@ export class ChannelHub {
   private readonly _approvals = new Map<string, OpenApproval>()
   private readonly _questions = new Map<string, OpenQuestions>()
   private readonly _retries = new Set<ReturnType<typeof setTimeout>>()
+  private readonly _health = new Map<string, Omit<ChannelHealth, 'owed'>>()
+  private readonly _activity = new Map<string, ChannelEvent[]>()
   private _offEvents?: () => void
   private _offStream?: () => void
 
@@ -241,6 +266,7 @@ export class ChannelHub {
         perPerson: c.perPerson,
         allow: c.allow,
         status: this._running.has(id) ? (this._status.get(id) ?? { state: 'connecting' }) : { state: 'off' },
+        health: { reconnects: 0, ...this._health.get(id), owed: this._ledger.owed(id).length },
         people: c.people,
         approvedGroups: c.approvedGroups,
         pending: c.pending.map(({ codeHash: _hash, ...rest }) => rest),
@@ -298,6 +324,7 @@ export class ChannelHub {
     this._kind(id)
     const approved = this.store.approve(id, by)
     if (!approved) return undefined
+    this._note(id, 'approved', t.activity.approved(approved.group?.title ?? approved.person?.name ?? ''))
     const adapter = this._running.get(id)
     const text = approved.group
       ? t.pairing.groupApproved
@@ -309,6 +336,31 @@ export class ChannelHub {
   revoke(id: string, kind: 'person' | 'group' | 'request', target: string): boolean {
     this._kind(id)
     return this.store.revoke(id, kind, target)
+  }
+
+  /** A channel's recent events, newest first; every channel's, interleaved, without an id. */
+  activity(id?: string): ChannelEvent[] {
+    const all = id ? (this._activity.get(id) ?? []) : [...this._activity.values()].flat()
+    return [...all].sort((a, b) => b.at.localeCompare(a.at))
+  }
+
+  /** Which channel each Myrmidon chat came from, so the app can show its logo. */
+  chatChannels(): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const id of Object.keys(this.options.kinds()))
+      for (const chatId of Object.values(this.store.get(id).chats)) out[chatId] = id
+    return out
+  }
+
+  private _note(channel: string, kind: ChannelEvent['kind'], text: string) {
+    const list = this._activity.get(channel) ?? []
+    list.push({ at: new Date().toISOString(), channel, kind, text })
+    if (list.length > ACTIVITY_KEEP) list.splice(0, list.length - ACTIVITY_KEEP)
+    this._activity.set(channel, list)
+  }
+
+  private _touch(channel: string, patch: Partial<Omit<ChannelHealth, 'owed'>>) {
+    this._health.set(channel, { reconnects: 0, ...this._health.get(channel), ...patch })
   }
 
   /**
@@ -376,8 +428,17 @@ export class ChannelHub {
       status: (status) => {
         const was = this._status.get(id)?.state
         this._status.set(id, status)
-        // Back online: answers owed from before (a restart, an outage) go out now.
-        if (status.state === 'on' && was !== 'on') void this._redeliver(id, adapter)
+        if (status.state === 'on' && was !== 'on') {
+          this._touch(id, { connectedAt: new Date().toISOString() })
+          this._note(id, 'connected', t.activity.connected(status.account))
+          // Back online: answers owed from before (a restart, an outage) go out now.
+          void this._redeliver(id, adapter)
+        }
+        if ((status.state === 'retrying' || status.state === 'error') && was !== status.state) {
+          const reconnects = (this._health.get(id)?.reconnects ?? 0) + (was === 'on' ? 1 : 0)
+          this._touch(id, { lastError: status.error, reconnects })
+          this._note(id, 'trouble', status.error)
+        }
       },
       log: (message) => this.options.log?.(`${id}: ${message}`),
       ...(webhookUrl ? { webhookUrl } : {}),
@@ -467,7 +528,10 @@ export class ChannelHub {
     // Not acted on, not kept: in a direct chat under `pairing`, a code at most once per window.
     if (m.chat.kind === 'dm' && c.dm === 'pairing') {
       const code = this.store.request(channel, 'person', m.sender, m.chat)
-      if (code) await adapter.send(m.chat, { text: t.pairing.code(code, channel) })
+      if (code) {
+        await adapter.send(m.chat, { text: t.pairing.code(code, channel) })
+        this._note(channel, 'pairing', t.activity.pairing(m.sender.name))
+      }
     }
     return undefined
   }
@@ -476,6 +540,13 @@ export class ChannelHub {
     const c = this.store.get(channel)
     const person = await this._admit(channel, adapter, c, m)
     if (!person) return
+    this._touch(channel, { lastIn: new Date().toISOString() })
+    if (!m.press)
+      this._note(
+        channel,
+        'in',
+        t.activity.in(person.name, m.chat.kind === 'group' ? m.chat.title : undefined),
+      )
     if (m.press) return this._press(channel, adapter, person, m)
     if (this._flooded(channel, m.chat.id)) return
     const reply = (text: string) => adapter.send(m.chat, { text })
@@ -865,6 +936,7 @@ export class ChannelHub {
       return
     }
     const ref = await tracker.adapter.send(target, message)
+    this._note(tracker.channel, 'approval', t.activity.approval(request.agent))
     this._approvals.set(k, {
       channel: tracker.channel,
       colonyId: tracker.colonyId,
@@ -1031,8 +1103,13 @@ export class ChannelHub {
     try {
       await adapter.send(entry.chat, { text: entry.text })
       this._ledger.delivered(entry.id)
+      this._touch(channel, { lastOut: new Date().toISOString() })
+      this._note(channel, 'out', t.activity.out)
     } catch (err) {
-      this._ledger.failed(entry.id, err instanceof Error ? err.message : String(err))
+      const why = err instanceof Error ? err.message : String(err)
+      this._ledger.failed(entry.id, why)
+      this._touch(channel, { lastError: why })
+      this._note(channel, 'failed', t.activity.failed(why, RETRY_MS[tries] !== undefined))
       const wait = RETRY_MS[tries]
       if (wait === undefined) return
       const timer = setTimeout(() => {

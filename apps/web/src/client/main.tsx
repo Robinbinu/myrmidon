@@ -3,6 +3,7 @@ import '@fontsource-variable/geist-mono'
 import { createRoot } from 'react-dom/client'
 import { App } from './App.tsx'
 import { DeviceGate } from './DeviceGate.tsx'
+import { StatusProvider } from './status.tsx'
 import { installNativeBehavior } from './ui/platform.ts'
 import { ToastProvider } from './ui/Toast.tsx'
 
@@ -16,7 +17,9 @@ createRoot(root, {
 }).render(
   <ToastProvider>
     <DeviceGate>
-      <App />
+      <StatusProvider>
+        <App />
+      </StatusProvider>
     </DeviceGate>
   </ToastProvider>,
 )

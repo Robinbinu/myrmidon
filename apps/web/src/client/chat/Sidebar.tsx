@@ -1,6 +1,8 @@
 import {
+  Activity,
   BarChart3,
   ChevronRight,
+  CircleAlert,
   Folder,
   FolderPlus,
   Monitor,
@@ -15,12 +17,15 @@ import {
   SquarePen,
   Sun,
   Trash2,
+  WifiOff,
   X,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ChatSummary, type Project } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useStatus } from '../status.tsx'
+import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
@@ -32,7 +37,7 @@ import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
-export type View = 'chat' | 'colonies' | 'compare'
+export type View = 'chat' | 'colonies' | 'compare' | 'system'
 
 const GROUPS: { label: string; maxAgeDays: number }[] = [
   { label: copy.sidebar.groups.today, maxAgeDays: 1 },
@@ -98,6 +103,18 @@ export function Sidebar(props: {
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
+  const { status } = useStatus()
+  const waiting = status?.waiting?.length ?? 0
+  // Which chats came from a channel, for their logo; looked up again when the list of chats changes.
+  const [channelOf, setChannelOf] = useState<Record<string, string>>({})
+  const chatIds = props.chats.map((c) => c.chatId).join(',')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the set of chats changes
+  useEffect(() => {
+    api<{ chats: Record<string, string> }>('/api/channels/chats')
+      .then((r) => setChannelOf(r.chats))
+      // A chats-only device may not see channels; its chats simply show no logo.
+      .catch(() => setChannelOf({}))
+  }, [chatIds])
   const [editing, setEditing] = useState<string>()
   const [draft, setDraft] = useState('')
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
@@ -216,6 +233,9 @@ export function Sidebar(props: {
             )}
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
               <Dot status={runPhase(c)} />
+              {channelOf[c.chatId] && (
+                <ChannelLogo id={channelOf[c.chatId] ?? ''} size={15} className="relative" />
+              )}
               <span className="truncate">{c.title}</span>
               <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
               {c.rounds.length > 1 && (
@@ -416,6 +436,7 @@ export function Sidebar(props: {
           </div>
         ))}
       </nav>
+      <GatewayChip onOpen={() => props.onView('system')} />
       <div className="grid gap-px border-t border-line p-2.5">
         <button
           type="button"
@@ -431,9 +452,24 @@ export function Sidebar(props: {
         >
           <BarChart3 className="size-4" /> {copy.sidebar.nav.compare}
         </button>
+        <button
+          type="button"
+          className={navItem(props.view === 'system')}
+          onClick={() => props.onView('system')}
+        >
+          <Activity className="size-4" /> {copy.system.nav}
+        </button>
         <div className="flex items-center gap-1">
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
             <Settings className="size-4" /> {copy.sidebar.nav.settings}
+            {waiting > 0 && (
+              <span
+                className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-semibold leading-[18px] text-on-accent"
+                title={copy.settings.channels.waitingBadge(waiting)}
+              >
+                {waiting}
+              </span>
+            )}
           </button>
           <IconButton
             label={copy.sidebar.theme(props.theme, nextTheme)}
@@ -451,5 +487,41 @@ export function Sidebar(props: {
         </div>
       </div>
     </aside>
+  )
+}
+
+/**
+ * The gateway indicator, OpenClaw-style: nothing while all is well. Unreachable, a chip that retries at once; a
+ * problem (a channel down, no model can answer), a chip naming it that opens System.
+ */
+function GatewayChip(props: { onOpen(): void }) {
+  const t = copy.gatewayStatus
+  const { status, offline, refresh } = useStatus()
+  const problems = status?.problems ?? []
+  if (!offline && !problems.length) return null
+  const first = problems[0]
+  const label = offline ? t.offline : first?.kind === 'channel' ? t.channelDown(first.label) : t.noModels
+  return (
+    <div className="px-2.5 pb-1.5" role="status" aria-live="polite">
+      <button
+        type="button"
+        onClick={offline ? refresh : props.onOpen}
+        title={offline ? t.offlineHint : t.open}
+        className={cn(
+          'flex h-8 w-full items-center gap-2 rounded-[9px] px-2.5 text-[12.5px] font-medium transition-colors',
+          offline
+            ? 'bg-bad-soft text-bad-ink hover:bg-bad-soft/80'
+            : 'bg-warn-soft text-warn-ink hover:bg-warn-soft/80',
+        )}
+      >
+        {offline ? <WifiOff className="size-3.5 shrink-0" /> : <CircleAlert className="size-3.5 shrink-0" />}
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+        {offline ? (
+          <span className="shrink-0">{t.retry}</span>
+        ) : (
+          problems.length > 1 && <span className="shrink-0 opacity-80">{t.more(problems.length - 1)}</span>
+        )}
+      </button>
+    </div>
   )
 }

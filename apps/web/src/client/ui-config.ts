@@ -136,3 +136,6 @@ export const SETTINGS_NAV_COLLAPSE_PX = 1100
  * arms it cannot also confirm it.
  */
 export const CONFIRM_ARM_DELAY_MS = 400
+
+/** How often the page asks the gateway how it is doing (the indicator, badges, request notifications). */
+export const STATUS_POLL_MS = 10_000

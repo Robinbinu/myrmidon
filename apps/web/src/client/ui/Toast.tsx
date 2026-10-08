@@ -6,13 +6,19 @@ import { spring } from '../ui-config.ts'
 import { cn } from './primitives.tsx'
 
 type Kind = 'info' | 'success' | 'error'
+/** A button on a toast, e.g. Approve on "Bob wants to talk to your crew". */
+export interface ToastAction {
+  readonly label: string
+  run(): void
+}
 interface Toast {
   readonly id: number
   readonly kind: Kind
   readonly text: string
+  readonly action?: ToastAction
 }
 
-const ToastContext = createContext<(text: string, kind?: Kind) => void>(() => {})
+const ToastContext = createContext<(text: string, kind?: Kind, action?: ToastAction) => void>(() => {})
 
 export function useToast() {
   return useContext(ToastContext)
@@ -22,13 +28,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), [])
   const push = useCallback(
-    (text: string, kind: Kind = 'info') => {
+    (text: string, kind: Kind = 'info', action?: ToastAction) => {
       const id = Date.now() + Math.random()
       // A message already on screen (a retried request, a poll) is not stacked again.
       setToasts((t) =>
-        t.some((x) => x.text === text && x.kind === kind) ? t : [...t.slice(-3), { id, kind, text }],
+        t.some((x) => x.text === text && x.kind === kind)
+          ? t
+          : [...t.slice(-3), { id, kind, text, ...(action ? { action } : {}) }],
       )
-      setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 3500)
+      // One with a button stays long enough to reach for it.
+      setTimeout(() => dismiss(id), action ? 15000 : kind === 'error' ? 7000 : 3500)
     },
     [dismiss],
   )
@@ -64,6 +73,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                   )}
                 />
                 <span className="flex-1">{t.text}</span>
+                {t.action && (
+                  <button
+                    type="button"
+                    className="-my-1 shrink-0 rounded-md bg-accent px-2.5 py-1 text-small font-medium text-on-accent transition-colors hover:brightness-110"
+                    onClick={() => {
+                      t.action?.run()
+                      dismiss(t.id)
+                    }}
+                  >
+                    {t.action.label}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="-my-1 -mr-1.5 grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-fill hover:text-fg"

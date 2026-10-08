@@ -652,3 +652,28 @@ test('platforms set their own command prefix and starting rules; an owner withou
   await until(() => adapter.to('#stream').some((t) => t.includes('!approve ')))
   expect(adapter.to('#stream').some((t) => t.includes('no owner'))).toBe(false)
 })
+
+test('health and activity: last message in and out, events by name only, and which chat came from where', async () => {
+  const { hub, adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'a private question about my health records')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'chat/reply', { agent: 'lead', text: 'Here you go.', final: true })
+  chats.emit('col-chat-1', 'colony/completed', {})
+  await until(() => adapter.to('100').includes('Here you go.'))
+  const info = hub.list().find((c) => c.id === 'telegram')
+  expect(info?.health).toMatchObject({ reconnects: 0, owed: 0 })
+  expect(info?.health.lastIn).toBeDefined()
+  expect(info?.health.lastOut).toBeDefined()
+  const events = hub.activity('telegram').map((e) => e.text)
+  expect(events).toContain('Message from Alice')
+  expect(events).toContain('Answer delivered')
+  expect(events).toContain('Approved Alice')
+  // What people wrote never reaches the activity log.
+  expect(JSON.stringify(hub.activity())).not.toContain('health records')
+  expect(hub.chatChannels()).toEqual({ 'chat-1': 'telegram' })
+
+  // Trouble is counted and named.
+  adapter.io?.status({ state: 'retrying', error: 'network down' })
+  expect(hub.list()[0]?.health).toMatchObject({ reconnects: 1, lastError: 'network down' })
+})

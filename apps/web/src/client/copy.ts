@@ -98,6 +98,56 @@ export const copy = {
     },
   },
 
+  /** The sidebar chip that appears only when this gateway (or one of its channels) is in trouble. */
+  gatewayStatus: {
+    offline: 'Offline',
+    retry: 'Retry',
+    offlineHint: 'This gateway is not answering. Retry checks again now.',
+    noModels: 'No model can answer',
+    channelDown: (label: string) => `${label} down`,
+    more: (n: number) => `+${n} more`,
+    open: 'Open System',
+  },
+
+  /** System: how this gateway is doing, after Hermes's inspector and OpenClaw's Control UI. */
+  system: {
+    title: 'System',
+    nav: 'System',
+    ok: 'Everything is working',
+    degraded: 'Something needs attention',
+    offline: "This gateway isn't answering",
+    problems: {
+      noModels: 'No model can answer: add a key or sign in under Settings → Models.',
+      channel: (label: string, error: string) => `${label}: ${error}`,
+    },
+    gateway: 'This gateway',
+    local: 'This machine only',
+    remote: (url?: string) => (url ? `Remote gateway at ${url}` : 'Remote gateway'),
+    up: (since: string) => `Up since ${since}`,
+    ping: (ms: number) => `Answers in ${ms} ms`,
+    home: 'Data folder',
+    models: (n: number) => (n === 1 ? '1 model can answer' : `${n} models can answer`),
+    sandbox: (kind: string) =>
+      kind === 'none' ? 'Shell commands run unconfined' : `Shell commands are confined (${kind})`,
+    running: 'Running now',
+    nothingRunning: 'Nothing is running.',
+    channels: 'Channels',
+    noChannels: 'No channels set up. Add one in Settings → Channels.',
+    activity: 'Recent activity',
+    noActivity: 'Nothing yet.',
+    restart: 'Restart',
+    manage: 'Manage',
+    refresh: 'Refresh',
+  },
+
+  /** A new request to talk to the crew through a channel, as a toast and a desktop notification. */
+  channelRequest: {
+    person: (name: string, label: string) => `${name} wants to talk to your crew on ${label}`,
+    group: (name: string, label: string) => `The ${label} group “${name}” wants your crew`,
+    approve: 'Approve',
+    approved: (name: string) => `Approved ${name}`,
+  },
+
   pairing: {
     title: 'Pair this device',
     introBefore:
@@ -1732,6 +1782,23 @@ export const copy = {
         "Talk to your agents from a messaging app. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
       secretSet: 'Saved; type a new one to replace it',
       turnOn: 'Turn on',
+      connected: 'Connected',
+      search: 'Search apps…',
+      noMatch: 'No app matches that.',
+      groupsTitle: { messengers: 'Messengers', work: 'Work chat', other: 'Other' },
+      waitingBadge: (n: number) => `${n} waiting`,
+      tabs: { setup: 'Setup', people: 'People', rules: 'Rules', activity: 'Activity' },
+      close: 'Close',
+      health: {
+        lastIn: (when: string) => `Last message ${when}`,
+        lastOut: (when: string) => `Last answer ${when}`,
+        never: 'nothing yet',
+        reconnects: (n: number) => (n === 1 ? 'Reconnected once' : `Reconnected ${n} times`),
+        lastError: (error: string) => `Last error: ${error}`,
+        owed: (n: number) =>
+          n === 1 ? '1 answer waiting to be resent' : `${n} answers waiting to be resent`,
+      },
+      noActivity: 'Nothing has happened on this channel yet.',
       add: 'Add a channel',
       addHint:
         'Pick an app to set it up. Each one runs through the same access rules, approvals and delivery.',
