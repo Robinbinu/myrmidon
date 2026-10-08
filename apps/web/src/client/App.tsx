@@ -534,8 +534,9 @@ export function App() {
       : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
     ...(call
       ? [
-          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted), inInputs: true },
-          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp(), inInputs: true },
+          // Not while typing: on a Mac, Ctrl+D (which `mod` also matches) deletes forward in a text field.
+          { combo: CALL_MUTE_COMBO, run: () => muteCall(!call.muted) },
+          { combo: CALL_HANG_UP_COMBO, run: () => callRef.current?.hangUp() },
         ]
       : []),
   ])
