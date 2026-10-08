@@ -129,7 +129,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
         </motion.div>
       </motion.div>
       <motion.span
-        className="absolute left-0 top-0 inline-flex items-center whitespace-nowrap rounded-full px-3 py-[5px] text-[12.5px] font-medium leading-none shadow-[0_2px_10px_rgb(0_0_0/0.15)]"
+        className="absolute left-0 top-0 inline-flex items-center whitespace-nowrap rounded-full px-3 py-[5px] text-callout font-medium leading-none shadow-[0_2px_10px_rgb(0_0_0/0.15)]"
         style={{
           x: labelX,
           y: labelY,

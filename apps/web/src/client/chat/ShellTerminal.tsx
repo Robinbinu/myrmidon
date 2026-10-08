@@ -69,7 +69,7 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[11.5px] text-muted">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-footnote text-muted">
         <span className="min-w-0 flex-1 truncate font-mono">{props.cwdLabel}</span>
         {ended && (
           <span role="status" className="min-w-0 shrink truncate" title={ended}>

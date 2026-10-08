@@ -125,13 +125,13 @@ function Section(props: {
           type="button"
           onClick={props.onToggle}
           aria-expanded={!props.closed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-[11px] uppercase tracking-[0.14em] text-muted hover:text-fg"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-caption uppercase tracking-[0.14em] text-muted hover:text-fg"
         >
           <ChevronRight
             className={cn('size-3.5 shrink-0 transition-transform', !props.closed && 'rotate-90')}
           />
           {props.title}
-          <span className="rounded-full bg-surface-2 px-1.5 text-[11px] tabular-nums tracking-normal">
+          <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums tracking-normal">
             {props.count}
           </span>
         </button>
@@ -206,7 +206,7 @@ function ChangeRow(props: {
         </span>
         <span
           title={s.title}
-          className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}
+          className={cn('w-3 shrink-0 text-center font-mono text-caption font-bold', s.className)}
         >
           {s.label}
         </span>
@@ -278,7 +278,7 @@ export function GitView({ project }: { project: string }) {
     }
   }
 
-  if (error) return <p className="p-4 text-[13px] text-bad-ink">{error}</p>
+  if (error) return <p className="p-4 text-body text-bad-ink">{error}</p>
   if (!status)
     return (
       <div className="p-4">
@@ -304,12 +304,12 @@ export function GitView({ project }: { project: string }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center gap-1.5">
-        <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-[12.5px]">
+        <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-callout">
           <GitBranch className="size-3.5 shrink-0 text-muted" />
           <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
             <span
-              className="flex shrink-0 items-center gap-1 font-mono text-[11px] text-muted"
+              className="flex shrink-0 items-center gap-1 font-mono text-caption text-muted"
               title={status.upstream}
             >
               <ArrowUp className="size-3" />
@@ -341,7 +341,7 @@ export function GitView({ project }: { project: string }) {
           rows={2}
           placeholder={copy.git.messagePlaceholder(status.branch ?? 'HEAD')}
           aria-label={copy.git.messageLabel}
-          className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-muted focus:border-line-strong"
+          className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-callout outline-none placeholder:text-muted focus:border-line-strong"
         />
         <Button
           size="sm"
@@ -355,7 +355,7 @@ export function GitView({ project }: { project: string }) {
         </Button>
       </div>
 
-      {nothing && <p className="px-1 text-[12.5px] text-muted">{copy.git.noChanges}</p>}
+      {nothing && <p className="px-1 text-callout text-muted">{copy.git.noChanges}</p>}
       {staged.length > 0 && (
         <Section
           id="staged"
@@ -503,7 +503,7 @@ export function GitView({ project }: { project: string }) {
         onToggle={() => toggle('history')}
       >
         {status.log.length === 0 ? (
-          <p className="px-2 text-[12.5px] text-muted">{copy.git.noCommits}</p>
+          <p className="px-2 text-callout text-muted">{copy.git.noCommits}</p>
         ) : (
           <ol className="relative ml-[15px] border-l border-line">
             {status.log.map((c, i) => (
@@ -520,8 +520,8 @@ export function GitView({ project }: { project: string }) {
                   className="flex w-full items-start gap-2 rounded-lg py-1.5 pl-3 pr-2 text-left hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px]">{c.subject}</span>
-                    <span className="flex items-center gap-1.5 text-[11.5px] text-muted">
+                    <span className="block truncate text-body">{c.subject}</span>
+                    <span className="flex items-center gap-1.5 text-footnote text-muted">
                       <span
                         className="grid size-4 place-items-center rounded-full text-[8px] font-bold text-white"
                         style={{ background: `hsl(${hue(c.author)} 45% 45%)` }}
@@ -531,7 +531,7 @@ export function GitView({ project }: { project: string }) {
                       {c.author} · {ago(c.date)}
                     </span>
                   </span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted">{c.short}</span>
+                  <span className="shrink-0 font-mono text-caption text-muted">{c.short}</span>
                 </button>
               </li>
             ))}
@@ -547,7 +547,7 @@ export function GitView({ project }: { project: string }) {
             size="sm"
           >
             <div className="flex flex-col gap-4">
-              <p className="text-[13.5px] leading-relaxed text-fg-2">
+              <p className="text-reading leading-relaxed text-fg-2">
                 {discard.untracked
                   ? copy.git.discardDialog.untracked(discard.paths[0])
                   : copy.git.discardDialog.tracked(
@@ -602,16 +602,16 @@ function Tree(props: {
               type="button"
               style={pad}
               onClick={() => props.onPick(n.file as string)}
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[12.5px] hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout hover:bg-surface-2"
             >
               <span className="min-w-0 flex-1 truncate font-mono">{n.name}</span>
               {f?.added !== undefined && (
-                <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                <span className="shrink-0 font-mono text-caption tabular-nums">
                   <span className="text-ok-ink">+{f.added}</span>{' '}
                   <span className="text-bad-ink">−{f.removed}</span>
                 </span>
               )}
-              <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}>
+              <span className={cn('w-3 shrink-0 text-center font-mono text-caption font-bold', s.className)}>
                 {s.label}
               </span>
             </button>
@@ -631,7 +631,7 @@ function Tree(props: {
                   return next
                 })
               }
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[12.5px] text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout text-fg-2 hover:bg-surface-2"
             >
               <ChevronRight className={cn('size-3 shrink-0 transition-transform', !shut && 'rotate-90')} />
               <Folder className="size-3.5 shrink-0 text-muted" />
@@ -685,12 +685,12 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
       flush
     >
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-3 text-[12.5px] text-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-3 text-callout text-muted">
           {target.kind === 'commit' && (
             <>
               <span className="flex items-center gap-1.5">
                 <span
-                  className="grid size-5 place-items-center rounded-full text-[11px] font-bold text-white"
+                  className="grid size-5 place-items-center rounded-full text-caption font-bold text-white"
                   style={{ background: `hsl(${hue(target.commit.author)} 45% 45%)` }}
                 >
                   {initials(target.commit.author)}
@@ -704,7 +704,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                   void navigator.clipboard.writeText(target.commit.hash)
                   toast(copy.git.full.copiedSha, 'success')
                 }}
-                className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2 hover:text-fg"
+                className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-footnote text-fg-2 hover:text-fg"
                 title={copy.git.full.copySha}
               >
                 {target.commit.short} <Copy className="size-3" />
@@ -732,7 +732,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           <DiffModeToggle mode={mode} onMode={setMode} />
         </div>
         {target.kind === 'commit' && data?.body && (
-          <pre className="whitespace-pre-wrap border-b border-line px-5 py-2.5 font-sans text-[13px] text-fg-2">
+          <pre className="whitespace-pre-wrap border-b border-line px-5 py-2.5 font-sans text-body text-fg-2">
             {data.body}
           </pre>
         )}
@@ -741,7 +741,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
             <LoaderCircle className="size-5 animate-spin text-muted" />
           </div>
         ) : data.files.length === 0 ? (
-          <p className="p-5 text-[13px] text-muted">{copy.git.full.noChanges}</p>
+          <p className="p-5 text-body text-muted">{copy.git.full.noChanges}</p>
         ) : (
           <div className="flex min-h-0 flex-1">
             <nav
@@ -776,7 +776,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                   }
                 />
               ))}
-              {data.truncated && <p className="text-[12px] text-muted">{copy.git.full.truncated}</p>}
+              {data.truncated && <p className="text-small text-muted">{copy.git.full.truncated}</p>}
             </div>
           </div>
         )}

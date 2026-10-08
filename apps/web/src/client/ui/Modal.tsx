@@ -36,7 +36,7 @@ export function Modal(props: {
   }[props.size ?? 'md']
   return (
     <motion.div
-      className="fixed inset-0 z-[60] grid place-items-center bg-black/45 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-[60] grid place-items-center bg-scrim p-4 backdrop-blur-[2px]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

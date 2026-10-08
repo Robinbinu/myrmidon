@@ -32,7 +32,7 @@ export function ConfirmButton(props: {
     return (
       <span className="inline-flex items-center gap-2">
         {props.warning && (
-          <span role="alert" className="max-w-64 text-right text-[12px] leading-snug text-bad-ink">
+          <span role="alert" className="max-w-64 text-right text-small leading-snug text-bad-ink">
             {props.warning}
           </span>
         )}

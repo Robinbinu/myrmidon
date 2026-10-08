@@ -161,11 +161,11 @@ export function ModelPicker(props: {
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'
-              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
               : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >
@@ -182,11 +182,11 @@ export function ModelPicker(props: {
           </>
         ) : (
           <>
-            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            <span className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted">
               {props.icon}
               {props.label}
             </span>
-            <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
+            <span className="flex w-full items-center justify-between gap-2 text-body font-medium">
               <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
               <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
             </span>
@@ -235,7 +235,7 @@ export function ModelPicker(props: {
                   }
                 }}
                 aria-label={copy.modelPicker.searchLabel(props.label)}
-                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-[13px] outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div
@@ -245,13 +245,13 @@ export function ModelPicker(props: {
               aria-label={copy.modelPicker.buttonLabel(props.label)}
             >
               {groups.length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-muted">
+                <div className="px-3 py-6 text-center text-body text-muted">
                   {copy.modelPicker.noMatch(query)}
                 </div>
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-caption font-semibold uppercase tracking-wider text-muted">
                     <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>
@@ -280,8 +280,8 @@ export function ModelPicker(props: {
                       >
                         <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
                         <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-[13px] font-medium">{m.name}</span>
-                          <span className="truncate font-mono text-[11px] text-muted">
+                          <span className="truncate text-body font-medium">{m.name}</span>
+                          <span className="truncate font-mono text-caption text-muted">
                             {blocked ? props.minReason : small ? copy.modelPicker.tooSmall : m.id}
                           </span>
                         </span>
@@ -289,7 +289,7 @@ export function ModelPicker(props: {
                           <span
                             title={windowHint(m)}
                             className={cn(
-                              'shrink-0 font-mono text-[11px] tabular-nums',
+                              'shrink-0 font-mono text-caption tabular-nums',
                               small ? 'text-warn-ink' : 'text-muted',
                             )}
                           >
@@ -303,7 +303,7 @@ export function ModelPicker(props: {
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (
-                          <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
+                          <span className="rounded bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
                             {m.source === 'custom' ? copy.modelPicker.custom : copy.modelPicker.key}
                           </span>
                         )}

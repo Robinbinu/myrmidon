@@ -261,7 +261,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
       className="absolute bottom-[calc(100%+8px)] left-0 z-30 flex max-h-[min(420px,60vh)] w-full max-w-[560px] origin-bottom-left flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-pop"
     >
       {command && Icon && (
-        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-[12.5px]">
+        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-callout">
           <span className="grid size-6 place-items-center rounded-md bg-accent-soft text-accent-fg">
             <Icon className="size-3.5" />
           </span>
@@ -270,7 +270,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
         </div>
       )}
       {help && (
-        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-[12.5px]">
+        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-callout">
           <span className="grid size-6 place-items-center rounded-md bg-accent-soft text-accent-fg">
             <CircleHelp className="size-3.5" />
           </span>
@@ -280,7 +280,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
       )}
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {props.menu.items.length === 0 && (
-          <p className="px-3 py-3 text-[12.5px] text-muted">{copy.commandMenu.noMatches}</p>
+          <p className="px-3 py-3 text-callout text-muted">{copy.commandMenu.noMatches}</p>
         )}
         {props.menu.items.map((it, i) => {
           const active = i === props.active
@@ -288,7 +288,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           return (
             <div key={it.key}>
               {it.section && (
-                <div className="px-2.5 pb-1 pt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted first:pt-1">
+                <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted first:pt-1">
                   {it.section}
                 </div>
               )}
@@ -328,15 +328,15 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                 )}
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className={cn('shrink-0 text-[13px] font-medium', it.mono && 'font-mono')}>
+                    <span className={cn('shrink-0 text-body font-medium', it.mono && 'font-mono')}>
                       <Highlight text={it.title} {...(it.matches ? { at: it.matches } : {})} />
                     </span>
                     {it.hint && (
-                      <span className="truncate font-mono text-[11.5px] text-muted">{it.hint}</span>
+                      <span className="truncate font-mono text-footnote text-muted">{it.hint}</span>
                     )}
                   </span>
                   {(it.disabled ?? it.description) && (
-                    <span className={cn('block text-[12px] text-muted', !help && 'truncate')}>
+                    <span className={cn('block text-small text-muted', !help && 'truncate')}>
                       {help && it.disabled
                         ? `${it.description} · ${it.disabled}`
                         : (it.disabled ?? it.description)}
@@ -344,7 +344,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                   )}
                 </span>
                 {it.value && (
-                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-fg-2">
+                  <span className="max-w-[160px] shrink-0 truncate rounded-md bg-surface-2 px-1.5 py-0.5 text-caption text-fg-2">
                     {it.value}
                   </span>
                 )}
@@ -355,10 +355,10 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
         })}
         {help && (
           <>
-            <div className="px-2.5 pb-1 pt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+            <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted">
               {copy.commandMenu.help.keysSection}
             </div>
-            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 px-2.5 pb-2 text-[12.5px]">
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 px-2.5 pb-2 text-callout">
               {copy.commandMenu.help.keys.map((k) => (
                 <Fragment key={k.does}>
                   <dt className="flex items-center gap-1">
@@ -373,7 +373,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           </>
         )}
       </div>
-      <div className="flex items-center gap-3 border-t border-line px-3.5 py-1.5 text-[11px] text-muted">
+      <div className="flex items-center gap-3 border-t border-line px-3.5 py-1.5 text-caption text-muted">
         <span className="flex items-center gap-1">
           <Kbd>↑</Kbd>
           <Kbd>↓</Kbd> {copy.commandMenu.footer.move}

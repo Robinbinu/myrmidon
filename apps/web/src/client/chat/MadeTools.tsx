@@ -36,9 +36,9 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
           <Wrench className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-[13px] font-medium">tool_{t.name}</div>
-          <p className="mt-0.5 text-[12.5px] leading-snug text-fg-2">{t.description}</p>
-          <div className="mt-1 text-[11.5px] text-muted">{props.meta}</div>
+          <div className="font-mono text-body font-medium">tool_{t.name}</div>
+          <p className="mt-0.5 text-callout leading-snug text-fg-2">{t.description}</p>
+          <div className="mt-1 text-footnote text-muted">{props.meta}</div>
         </div>
         {props.action}
       </div>
@@ -46,7 +46,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 border-t border-line px-3 py-1.5 text-left text-[11.5px] text-muted hover:text-fg"
+        className="flex w-full items-center gap-1.5 border-t border-line px-3 py-1.5 text-left text-footnote text-muted hover:text-fg"
       >
         <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
         {t.inputs.length
@@ -57,7 +57,7 @@ function ToolRow(props: { tool: LibraryTool; meta: string; action?: ReactNode })
         <span className="ml-auto">{open ? copy.madeTools.hideSource : copy.madeTools.source}</span>
       </button>
       {open && (
-        <pre className="max-h-72 overflow-auto border-t border-line bg-surface-2 px-3 py-2 font-mono text-[11.5px] leading-relaxed">
+        <pre className="max-h-72 overflow-auto border-t border-line bg-surface-2 px-3 py-2 font-mono text-footnote leading-relaxed">
           {t.source}
         </pre>
       )}
@@ -86,7 +86,7 @@ export function ColonyTools(props: { colonyId: string; tools: ColonyState['madeT
   }
   return (
     <div className="flex flex-col gap-2 p-2">
-      <div className="px-1.5 pt-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+      <div className="px-1.5 pt-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
         {copy.madeTools.heading}
       </div>
       {tools.map((t) => {
@@ -135,7 +135,7 @@ export function ToolLibraryList() {
   if (!tools) return null
   if (tools.length === 0)
     return (
-      <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-[13px] text-muted">
+      <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-body text-muted">
         {copy.madeTools.empty}
       </p>
     )

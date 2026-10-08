@@ -134,13 +134,13 @@ function GatewayGate(props: { children: ReactNode }) {
               {gateway === 'checking' ? t.down.checking('…') : t.down.title(gateway.name)}
             </h1>
             {gateway !== 'checking' && (
-              <p className="truncate text-[12.5px] text-muted">{new URL(gateway.url).host}</p>
+              <p className="truncate text-callout text-muted">{new URL(gateway.url).host}</p>
             )}
           </div>
         </div>
         {gateway !== 'checking' && (
           <>
-            <p className="rounded-lg bg-bad-soft px-3 py-2 text-[12.5px] text-bad-ink">
+            <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">
               {gateway.health.error ?? t.unreachable}
             </p>
             <div className="flex gap-2">
@@ -210,12 +210,12 @@ function PairScreen(props: { onPaired(): void }) {
           <Logo size={36} />
           <div>
             <h1 className="text-[17px] font-semibold tracking-tight">{t.title}</h1>
-            <p className="text-[12.5px] text-muted">{location.host}</p>
+            <p className="text-callout text-muted">{location.host}</p>
           </div>
         </div>
-        <p className="text-[13.5px] leading-relaxed text-fg-2">
+        <p className="text-reading leading-relaxed text-fg-2">
           {t.introBefore}
-          <code className="rounded bg-fill px-1 font-mono text-[12.5px]">myrmidon pair</code>
+          <code className="rounded bg-fill px-1 font-mono text-callout">myrmidon pair</code>
           {t.introAfter}
         </p>
         <Field label={t.code} hint={t.codeHint}>
@@ -236,7 +236,7 @@ function PairScreen(props: { onPaired(): void }) {
             aria-label={t.name}
           />
         </Field>
-        {error && <p className="rounded-lg bg-bad-soft px-3 py-2 text-[12.5px] text-bad-ink">{error}</p>}
+        {error && <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">{error}</p>}
         <Button
           type="submit"
           variant="primary"

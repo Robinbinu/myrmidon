@@ -108,11 +108,11 @@ export function PendingRound({ text }: { text: string }) {
         <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-screen">
           <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
         </span>
-        <span className="text-[13px] font-medium text-fg-2">
+        <span className="text-body font-medium text-fg-2">
           {copy.round.pending.thinking}
           <span className="caret">…</span>
         </span>
-        <span className="font-mono text-[11.5px] tabular-nums text-muted">
+        <span className="font-mono text-footnote tabular-nums text-muted">
           {copy.round.pending.seconds((elapsed / 1000).toFixed(1))}
         </span>
       </motion.div>
@@ -139,7 +139,7 @@ export function JumpToLatest({ follow }: { follow: Omit<FollowLatest<HTMLElement
             <button
               type="button"
               onClick={follow.jump}
-              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-[12.5px] font-medium text-fg-2 shadow-pop transition-colors hover:bg-surface-2 hover:text-fg"
+              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-callout font-medium text-fg-2 shadow-pop transition-colors hover:bg-surface-2 hover:text-fg"
             >
               {follow.fresh ? copy.round.jump.fresh : copy.round.jump.latest}
               <ArrowDown className="size-3.5" />
@@ -182,7 +182,7 @@ export function RoundView(props: {
   const [inspect, setInspect] = useState<string>()
 
   if (colony.error)
-    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{colony.error}</div>
+    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
   if (events.length === 0) {
     return (
       <section className="flex flex-col gap-3" aria-busy="true">
@@ -377,7 +377,7 @@ export function RoundView(props: {
         )}
         {files.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5">
-            <span className="mr-1 text-[12.5px] text-muted">{copy.round.files}</span>
+            <span className="mr-1 text-callout text-muted">{copy.round.files}</span>
             {files.map(([name, versions]) => {
               const latest = versions.at(-1)
               const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
@@ -387,12 +387,12 @@ export function RoundView(props: {
                   type="button"
                   onClick={() => setFile(name)}
                   title={copy.round.fileTitle(latest?.version, compact(latest?.size ?? 0), latest?.author)}
-                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-[12.5px] font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
+                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{name}</span>
                   {(latest?.version ?? 1) > 1 && (
-                    <span className="text-[11px] text-muted">{copy.round.fileVersion(latest?.version)}</span>
+                    <span className="text-caption text-muted">{copy.round.fileVersion(latest?.version)}</span>
                   )}
                 </button>
               )
@@ -449,7 +449,7 @@ function UserMessage(props: {
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-[14px] leading-[1.6] text-on-bubble shadow-soft">
+      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
         {props.text}
       </div>
       {props.attachments?.length ? (
@@ -459,7 +459,7 @@ function UserMessage(props: {
               key={name}
               type="button"
               onClick={() => props.onOpen?.(name)}
-              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] transition-colors hover:bg-surface-2"
+              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
             >
               <FileText className="size-3.5 shrink-0 text-muted" />
               <span className="truncate">{name.replace(/^uploads\//, '')}</span>
@@ -469,7 +469,7 @@ function UserMessage(props: {
       ) : null}
       <div className="flex items-center gap-1.5">
         {props.to?.length ? (
-          <span className="flex items-center gap-1 text-[11.5px] text-muted">
+          <span className="flex items-center gap-1 text-footnote text-muted">
             {copy.round.message.to}
             {props.to.map((name) => (
               <span key={name} className="inline-flex items-center gap-1 font-medium text-fg-2">
@@ -480,7 +480,7 @@ function UserMessage(props: {
           </span>
         ) : null}
         {props.mode && (
-          <span className="flex items-center gap-1 text-[11.5px] text-muted" aria-live="polite">
+          <span className="flex items-center gap-1 text-footnote text-muted" aria-live="polite">
             {props.mode === 'steer' ? copy.round.message.steer : copy.round.message.queued}
             <span aria-hidden>·</span>
             {read ? (
@@ -527,13 +527,13 @@ function AgentMessage(props: {
         type="button"
         onClick={props.onInspect}
         aria-label={copy.round.agent.inspect(props.from)}
-        className="h-fit rounded-[10px] transition-transform hover:scale-105"
+        className="h-fit rounded-base transition-transform hover:scale-105"
       >
         <AgentAvatar name={props.from} status={props.final ? 'completed' : 'idle'} size={32} awake />
       </button>
       <div className="min-w-0 flex-1">
         {(!props.plain || props.assumption) && (
-          <div className="mb-1 flex items-center gap-2 text-[12.5px]">
+          <div className="mb-1 flex items-center gap-2 text-callout">
             <span className="font-semibold text-fg">{props.from}</span>
             <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
             {props.final && !props.plain && <Pill tone="ok">{copy.round.agent.finalAnswer}</Pill>}
@@ -549,7 +549,7 @@ function AgentMessage(props: {
         >
           <Markdown text={props.text} />
           {props.assumption && (
-            <p className="mt-2 border-t border-accent/20 pt-2 text-[12.5px] text-fg-2">
+            <p className="mt-2 border-t border-accent/20 pt-2 text-callout text-fg-2">
               <span className="font-medium text-fg">{copy.round.agent.meanwhile}</span>
               {props.assumption} <span className="text-muted">{copy.round.agent.meanwhileHint}</span>
             </p>
@@ -595,7 +595,7 @@ function Helpers(props: {
   if (helpers.length === 0) return null
   return (
     <motion.div {...enter} className="flex flex-col gap-2 pl-11">
-      <div className="flex items-center gap-1 text-[12.5px] text-muted">
+      <div className="flex items-center gap-1 text-callout text-muted">
         <button
           type="button"
           onClick={() => setOpen(!open)}
@@ -657,7 +657,7 @@ function StreamingReply(props: { from: string; text: string; plain: boolean }) {
       <AgentAvatar name={props.from} status="running" size={32} awake />
       <div className="min-w-0 flex-1">
         {!props.plain && (
-          <div className="mb-1 flex items-center gap-2 text-[12.5px]">
+          <div className="mb-1 flex items-center gap-2 text-callout">
             <span className="font-semibold text-fg">{props.from}</span>
             <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
           </div>
@@ -697,7 +697,7 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-[12.5px] text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
+        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
       >
         <Brain className="size-3.5" />
         <span className="tabular-nums">
@@ -721,7 +721,7 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
           >
             <div
               ref={list}
-              className="flex max-h-96 flex-col gap-3 overflow-y-auto overscroll-contain border-l-2 border-line pl-3 text-[13px] text-fg-2"
+              className="flex max-h-96 flex-col gap-3 overflow-y-auto overscroll-contain border-l-2 border-line pl-3 text-body text-fg-2"
             >
               {thoughts.map((t) => (
                 <div key={t.id} className="select-text">
@@ -787,7 +787,7 @@ function LeadActivity(props: {
   return (
     // Once done it tucks under the reply, in line with its text (past the 32px avatar and its gap).
     <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
-      <div className="flex items-center gap-2.5 text-[12.5px] text-muted">
+      <div className="flex items-center gap-2.5 text-callout text-muted">
         {running && (
           <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-screen">
             <PixelFace
@@ -897,7 +897,7 @@ function LiveServers({ state }: { state: ColonyState }) {
   const live = Object.values(state.servers).filter((s) => !s.stopped)
   if (live.length === 0) return null
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-[13px]">
+    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-body">
       <span className="relative flex size-2">
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
         <span className="relative inline-flex size-2 rounded-full bg-ok" />
@@ -912,7 +912,7 @@ function LiveServers({ state }: { state: ColonyState }) {
           className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 hover:bg-surface-2"
         >
           <span className="font-medium">{s.name}</span>
-          <span className="font-mono text-[12px] text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
+          <span className="font-mono text-small text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
           <ExternalLink className="size-3.5 text-muted" />
         </a>
       ))}
@@ -993,12 +993,12 @@ function RunCard(props: {
           aria-expanded={expanded}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
         >
-          <span className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-screen">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-screen">
             <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13.5px] font-semibold">{head.title}</span>
-            <span className="block truncate text-[12px] tabular-nums text-muted">
+            <span className="block text-reading font-semibold">{head.title}</span>
+            <span className="block truncate text-small tabular-nums text-muted">
               {modeLabel(state)} · {copy.round.run.agents(agents.length)} ·{' '}
               {copy.round.run.steps(steps.length)}
               {tasks.length > 0 && ` · ${copy.round.run.tasks(done, tasks.length)}`} ·{' '}
@@ -1079,19 +1079,19 @@ function RunCard(props: {
                 <button
                   type="button"
                   onClick={() => setShowAll(!showAll)}
-                  className="self-start text-[12.5px] font-medium text-accent-fg hover:underline"
+                  className="self-start text-callout font-medium text-accent-fg hover:underline"
                 >
                   {showAll ? copy.round.run.showFewer : copy.round.run.showAll(steps.length)}
                 </button>
               )}
               {approving ? (
-                <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                <div className="flex items-center gap-2 text-callout text-muted">
                   <ShieldQuestion className="size-3.5" />
                   <span>{copy.round.lead.approval}</span>
                 </div>
               ) : (
                 now && (
-                  <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                  <div className="flex items-center gap-2 text-callout text-muted">
                     <LoaderCircle className="size-3.5 animate-spin" />
                     <motion.span key={now} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                       {now}…
@@ -1170,17 +1170,17 @@ function ModelFailure(props: {
           <TriangleAlert className="size-3.5" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-semibold text-fg">
+          <div className="text-title font-semibold text-fg">
             {title}
             <span className="font-normal text-muted"> · {failed.agent}</span>
           </div>
-          <p className="mt-0.5 text-[13px] leading-relaxed text-fg-2">{explain}</p>
+          <p className="mt-0.5 text-body leading-relaxed text-fg-2">{explain}</p>
           <details className="group mt-1.5">
-            <summary className="cursor-default list-none text-[12px] text-muted hover:text-fg-2">
+            <summary className="cursor-default list-none text-small text-muted hover:text-fg-2">
               <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
               {copy.modelFailure.providerMessage}
             </summary>
-            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-[11.5px] text-fg-2">
+            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
               {failed.message}
             </pre>
           </details>
@@ -1229,11 +1229,11 @@ function ModelFailure(props: {
             </Button>
           )}
           {!pick && needed && (
-            <span className="text-[12px] text-muted">{copy.modelFailure.noModel(windowLabel(needed))}</span>
+            <span className="text-small text-muted">{copy.modelFailure.noModel(windowLabel(needed))}</span>
           )}
         </div>
       )}
-      <p className="pl-10 text-[12px] text-muted">{copy.modelFailure.kept}</p>
+      <p className="pl-10 text-small text-muted">{copy.modelFailure.kept}</p>
     </motion.div>
   )
 }
@@ -1247,15 +1247,15 @@ function AlreadyDone(props: { events: readonly MyrEvent[] }) {
   if (effects.length === 0) return null
   return (
     <details className="mt-1.5 text-fg-2">
-      <summary className="text-[12.5px]">{copy.outcome.effects(effects.length)}</summary>
-      <ul className="mt-1.5 flex max-h-48 flex-col gap-0.5 overflow-auto font-mono text-[12px]">
+      <summary className="text-callout">{copy.outcome.effects(effects.length)}</summary>
+      <ul className="mt-1.5 flex max-h-48 flex-col gap-0.5 overflow-auto font-mono text-small">
         {effects.map((e) => (
           <li key={e.id} className="truncate" title={describeEffect(e)}>
             <span className="text-muted">{e.agent}:</span> {describeEffect(e)}
           </li>
         ))}
       </ul>
-      <p className="mt-1 text-[12px] text-muted">{copy.outcome.effectsHint}</p>
+      <p className="mt-1 text-small text-muted">{copy.outcome.effectsHint}</p>
     </details>
   )
 }
@@ -1286,7 +1286,7 @@ function Halted(props: {
     <motion.div
       {...enter}
       className={cn(
-        'flex items-start gap-3 px-4 py-3 text-[13.5px] text-bad-ink',
+        'flex items-start gap-3 px-4 py-3 text-reading text-bad-ink',
         props.inCard ? 'border-t border-line' : 'rounded-2xl border border-bad/25 bg-bad-soft',
       )}
       role="status"
@@ -1300,13 +1300,13 @@ function Halted(props: {
               {state.statusReason && ' · '}
             </span>
           )}
-          <span className="text-[12.5px]">{state.statusReason}</span>
+          <span className="text-callout">{state.statusReason}</span>
         </div>
         <AlreadyDone events={props.events} />
         {last && !last.pass && (
           <details className="mt-1 text-fg-2">
-            <summary className="text-[12.5px]">{copy.outcome.lastVerification}</summary>
-            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+            <summary className="text-callout">{copy.outcome.lastVerification}</summary>
+            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-small">
               {last.evidence}
             </pre>
           </details>
@@ -1364,13 +1364,13 @@ function Outcome({
   const failed = state.status === 'stopped' ? state.modelError : undefined
   const finals = state.verdicts.filter((v) => v.target === 'colony')
   const last = finals.at(-1)
-  const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13.5px]'
+  const box = 'flex items-start gap-3 rounded-2xl border px-4 py-3 text-reading'
   if (state.status === 'completed') {
     const judge = finals.filter((v) => v.score !== undefined).at(-1)
     // A round the reviewer did not look at needs no banner; the round card already says it is done.
     if (!judge) return null
     return (
-      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-[13.5px] text-ok-ink" role="status">
+      <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-reading text-ok-ink" role="status">
         <BadgeCheck className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
@@ -1380,8 +1380,8 @@ function Outcome({
             )}
           </div>
           <details className="mt-1 text-fg-2">
-            <summary className="text-[12.5px]">{copy.outcome.whyPassed}</summary>
-            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+            <summary className="text-callout">{copy.outcome.whyPassed}</summary>
+            <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-small">
               {judge.evidence}
             </pre>
           </details>
@@ -1403,7 +1403,7 @@ function Outcome({
           <div className="font-semibold">
             {copy.outcome.movedTo(state.escalated.to === 'team' ? copy.outcome.aTeam : copy.outcome.oneAgent)}
           </div>
-          <div className="text-[12.5px] text-fg-2">
+          <div className="text-callout text-fg-2">
             {state.escalated.reason} {copy.outcome.escalatedNext}
           </div>
         </div>
@@ -1423,7 +1423,7 @@ function Outcome({
         <MessageCircleQuestion className="mt-0.5 size-4 shrink-0" />
         <div>
           <div className="font-semibold">{copy.outcome.waiting}</div>
-          <div className="text-[12.5px] text-fg-2">{copy.outcome.waitingHint}</div>
+          <div className="text-callout text-fg-2">{copy.outcome.waitingHint}</div>
         </div>
       </motion.div>
     )
@@ -1435,10 +1435,10 @@ function Outcome({
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <div className="min-w-0 flex-1">
         <span className="font-semibold">{copy.outcome.changesAsked}</span>
-        <span className="text-[12.5px]"> · {copy.outcome.fixing}</span>
+        <span className="text-callout"> · {copy.outcome.fixing}</span>
         <details className="mt-1 text-fg-2">
-          <summary className="text-[12.5px]">{copy.outcome.feedback}</summary>
-          <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-[12px]">
+          <summary className="text-callout">{copy.outcome.feedback}</summary>
+          <pre className="mt-1.5 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-small">
             {last.evidence}
           </pre>
         </details>

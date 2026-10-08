@@ -53,7 +53,7 @@ export function TaskBoard(props: {
                 aria-label={lane.label}
                 className={cn('flex min-w-0 flex-col gap-2', cards.length === 0 && 'opacity-60')}
               >
-                <h3 className="flex items-center gap-2 px-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                <h3 className="flex items-center gap-2 px-1 font-mono text-caption uppercase tracking-[0.14em] text-muted">
                   <span className={cn('size-2 rounded-full', lane.dot)} />
                   {lane.label}
                   <span className="tabular-nums">{cards.length}</span>
@@ -73,7 +73,7 @@ export function TaskBoard(props: {
                           lane.status === 'verified' && 'opacity-70',
                         )}
                       >
-                        <div className="flex items-center gap-2 text-[11px] text-muted">
+                        <div className="flex items-center gap-2 text-caption text-muted">
                           <span className="font-mono">{t.id}</span>
                           <span className="flex-1" />
                           {at && lane.status !== 'verified' && (
@@ -82,8 +82,8 @@ export function TaskBoard(props: {
                             </span>
                           )}
                         </div>
-                        <p className="line-clamp-2 text-[13px] leading-snug">{t.subject}</p>
-                        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
+                        <p className="line-clamp-2 text-body leading-snug">{t.subject}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-footnote text-muted">
                           {owner && (
                             <button
                               type="button"

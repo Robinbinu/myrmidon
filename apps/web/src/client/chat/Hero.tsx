@@ -406,7 +406,7 @@ export function Hero(props: {
                   className="h-auto w-[min(400px,calc(100vw-96px))]"
                 />
                 <div className="mt-5 flex items-center justify-between px-1">
-                  <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
+                  <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
                     <span
                       className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
                     />
@@ -504,7 +504,7 @@ export function Hero(props: {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...softSpring, delay: 0.15 + i * 0.04 }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-[12.5px] font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-callout font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
             >
               <s.icon className="size-3.5" />
               {s.label}

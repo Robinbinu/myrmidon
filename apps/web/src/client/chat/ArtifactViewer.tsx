@@ -119,7 +119,7 @@ export function ArtifactViewer(props: {
 
   return (
     <Modal
-      title={<span className="font-mono text-[14px]">{props.name}</span>}
+      title={<span className="font-mono text-title">{props.name}</span>}
       onClose={props.onClose}
       size="full"
       flush
@@ -163,7 +163,7 @@ export function ArtifactViewer(props: {
               href={preview}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[12.5px] font-medium transition-colors hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-callout font-medium transition-colors hover:bg-surface-2"
             >
               <ExternalLink className="size-3.5" /> {copy.artifactViewer.open}
             </a>
@@ -173,14 +173,14 @@ export function ArtifactViewer(props: {
     >
       <div className="flex items-center justify-between border-b border-line pr-4">
         <Tabs id="viewer" value={view} onChange={setView} tabs={tabs} className="border-0" />
-        <span className="shrink-0 text-[12px] text-muted">
+        <span className="shrink-0 text-small text-muted">
           {compact(selected?.size ?? 0)}B · {selected?.mediaType} · {copy.artifactViewer.by}{' '}
           {selected?.author}
         </span>
       </div>
-      {error && <div className="bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{error}</div>}
+      {error && <div className="bg-bad-soft px-4 py-2 text-body text-bad-ink">{error}</div>}
       {view === 'preview' && noPreview && (
-        <div className="border-b border-line bg-fill px-4 py-2 text-[12.5px] text-fg-2">
+        <div className="border-b border-line bg-fill px-4 py-2 text-callout text-fg-2">
           {copy.artifactViewer.noPreview}
         </div>
       )}
@@ -204,7 +204,7 @@ export function ArtifactViewer(props: {
           </article>
         </div>
       ) : (
-        <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-[12.5px] leading-[1.65]">
+        <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-callout leading-[1.65]">
           {(view === 'diff' && prev !== undefined
             ? diffLines(prev, text)
             : text.split('\n').map((line) => ({ kind: 'same' as const, text: line }))

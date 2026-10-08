@@ -61,7 +61,7 @@ export function teamLabel(config: TeamConfig): string {
   return copy.composer.teamLabel(config.mode === 'swarm', n)
 }
 
-const GROUP = 'divide-y divide-line overflow-visible rounded-[10px] border border-line bg-surface'
+const GROUP = 'divide-y divide-line overflow-visible rounded-base border border-line bg-surface'
 
 const THINKING = [
   { value: 'auto', label: copy.composer.thinking.auto },
@@ -166,7 +166,7 @@ export function TeamSettings(props: {
         </Row>
       </div>
       {sameJudge && !reviewOff && (
-        <p className="-mt-1 px-1 text-[11.5px] leading-snug text-muted">{copy.composer.sameProvider}</p>
+        <p className="-mt-1 px-1 text-footnote leading-snug text-muted">{copy.composer.sameProvider}</p>
       )}
 
       <div className={GROUP}>
@@ -188,8 +188,8 @@ export function TeamSettings(props: {
             <ChevronRight
               className={cn('size-3.5 shrink-0 text-muted transition-transform', helpersOpen && 'rotate-90')}
             />
-            <span className="flex-1 text-[13px]">{copy.composer.helperList}</span>
-            <span className="text-[12px] text-muted">{helpersLabel(config)}</span>
+            <span className="flex-1 text-body">{copy.composer.helperList}</span>
+            <span className="text-small text-muted">{helpersLabel(config)}</span>
           </button>
         )}
         <AnimatePresence initial={false}>
@@ -237,7 +237,7 @@ function formatSize(bytes: number) {
 
 /** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
 const CHIP =
-  'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
+  'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
 
 const DELIVERIES = [
   { value: 'steer', icon: Navigation, ...copy.composer.deliveries.steer },
@@ -521,8 +521,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-full origin-bottom rounded-2xl border border-line bg-surface p-4 shadow-pop"
             >
               <div className="mb-3 flex items-baseline justify-between px-1">
-                <h3 className="text-[13px] font-semibold">{copy.composer.teamHeading}</h3>
-                <span className="text-[11.5px] text-muted">{copy.composer.teamApplies}</span>
+                <h3 className="text-body font-semibold">{copy.composer.teamHeading}</h3>
+                <span className="text-footnote text-muted">{copy.composer.teamApplies}</span>
               </div>
               <PickerHost.Provider value={teamPanel}>
                 <TeamSettings
@@ -561,7 +561,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-[12px]"
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-small"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{f.name}</span>

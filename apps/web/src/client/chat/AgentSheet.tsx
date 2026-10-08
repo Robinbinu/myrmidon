@@ -17,7 +17,7 @@ import { deriveSteps } from './steps.ts'
 function Section(props: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn('border-t border-line px-5 py-4', props.className)}>
-      <h3 className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">{props.title}</h3>
+      <h3 className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">{props.title}</h3>
       {props.children}
     </section>
   )
@@ -76,7 +76,7 @@ export function AgentSheet(props: {
       <motion.button
         type="button"
         aria-label={copy.agentSheet.close}
-        className="fixed inset-0 z-40 bg-black/25"
+        className="fixed inset-0 z-40 bg-scrim"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -96,15 +96,15 @@ export function AgentSheet(props: {
           <div className="min-w-0 flex-1 pt-1">
             <div className="flex items-center gap-2">
               <h2 className="text-[20px] font-semibold tracking-tight">{props.name}</h2>
-              <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
+              <span className="rounded-full border border-line px-2 py-px text-caption text-muted">
                 {lead ? copy.agentSheet.leadBadge : (agent.info.specialty ?? agent.info.role)}
               </span>
             </div>
-            <div className="mt-1 flex items-center gap-1.5 text-[13px] text-fg-2">
+            <div className="mt-1 flex items-center gap-1.5 text-body text-fg-2">
               <Dot status={phase} />
               {copy.status.agent[phase]}
             </div>
-            <div className="mt-0.5 truncate font-mono text-[11.5px] text-muted">{agent.info.model}</div>
+            <div className="mt-0.5 truncate font-mono text-footnote text-muted">{agent.info.model}</div>
           </div>
           <IconButton label={copy.agentSheet.close} onClick={props.onClose}>
             <X className="size-4" />
@@ -141,16 +141,16 @@ export function AgentSheet(props: {
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <Section title={lead ? copy.agentSheet.sections.role : copy.agentSheet.sections.focus}>
-            <p className="text-[13.5px] leading-relaxed text-fg-2">
+            <p className="text-reading leading-relaxed text-fg-2">
               {focus ?? (lead ? copy.agentSheet.defaultFocus.lead : copy.agentSheet.defaultFocus.worker)}
             </p>
           </Section>
 
           {current && (
             <Section title={copy.agentSheet.sections.workingOn}>
-              <p className="text-[13.5px] font-medium">{current.subject}</p>
+              <p className="text-reading font-medium">{current.subject}</p>
               {current.description && (
-                <p className="mt-1 line-clamp-3 text-[12.5px] text-muted">{current.description}</p>
+                <p className="mt-1 line-clamp-3 text-callout text-muted">{current.description}</p>
               )}
             </Section>
           )}
@@ -158,12 +158,12 @@ export function AgentSheet(props: {
           {thought && (
             <Section title={copy.agentSheet.sections.latestThinking}>
               {thought.text.trim() && (
-                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg-2">
+                <p className="whitespace-pre-wrap text-body leading-relaxed text-fg-2">
                   {thought.text.trim().slice(0, 1200)}
                 </p>
               )}
               {thought.thinking?.trim() && (
-                <details className="mt-2 text-[12.5px] text-muted">
+                <details className="mt-2 text-callout text-muted">
                   <summary>{copy.agentSheet.reasoning}</summary>
                   <p className="mt-1.5 max-h-48 overflow-auto whitespace-pre-wrap">
                     {thought.thinking.trim()}
@@ -183,7 +183,7 @@ export function AgentSheet(props: {
               ].map(([label, value]) => (
                 <span key={label} className="flex flex-col gap-1">
                   <DotMatrix text={value ?? ''} dot={2.1} className="text-fg" />
-                  <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                  <span className="font-mono text-caption uppercase tracking-[0.14em] text-muted">
                     {label}
                   </span>
                 </span>
@@ -195,10 +195,10 @@ export function AgentSheet(props: {
             <Section title={copy.agentSheet.sections.files}>
               <ul className="flex flex-col gap-1">
                 {files.map(([name, versions]) => (
-                  <li key={name} className="flex items-center gap-2 text-[13px]">
+                  <li key={name} className="flex items-center gap-2 text-body">
                     <FileText className="size-3.5 text-muted" />
                     <span className="truncate">{name}</span>
-                    <span className="ml-auto text-[11.5px] tabular-nums text-muted">
+                    <span className="ml-auto text-footnote tabular-nums text-muted">
                       v{versions.at(-1)?.version}
                     </span>
                   </li>
@@ -209,7 +209,7 @@ export function AgentSheet(props: {
 
           <Section title={copy.agentSheet.sections.activity(steps.length)}>
             {steps.length === 0 ? (
-              <p className="text-[13px] text-muted">{copy.agentSheet.nothingYet}</p>
+              <p className="text-body text-muted">{copy.agentSheet.nothingYet}</p>
             ) : (
               <ol className="relative flex flex-col">
                 <span className="absolute bottom-3 left-[11px] top-3 w-px bg-line" aria-hidden />

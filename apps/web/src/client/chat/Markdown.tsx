@@ -78,7 +78,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, copyCode] = useCopy()
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-code">
-      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-[11.5px] text-muted">
+      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-footnote text-muted">
         <span className="font-mono">{lang || copy.markdown.codeFallback}</span>
         <button
           type="button"
@@ -89,7 +89,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
           {copied ? copy.markdown.copied : copy.markdown.copy}
         </button>
       </div>
-      <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-[12.5px] leading-relaxed">
+      <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-callout leading-relaxed">
         <code>{code}</code>
       </pre>
     </div>
@@ -132,7 +132,7 @@ export function Markdown({ text }: { text: string }) {
         rows.push(CELLS(lines[i++] as string))
       blocks.push(
         <div key={key++} className="my-3 overflow-x-auto rounded-xl border border-line">
-          <table className="w-full border-collapse text-[13.5px]">
+          <table className="w-full border-collapse text-reading">
             <thead className="bg-surface-2">
               <tr>
                 {head.map((h, n) => (
@@ -255,7 +255,7 @@ export function Markdown({ text }: { text: string }) {
     )
   }
   return (
-    <div className="select-text break-words text-[14px] leading-[1.65] text-fg [&>*:first-child]:mt-0">
+    <div className="select-text break-words text-title leading-[1.65] text-fg [&>*:first-child]:mt-0">
       {blocks}
     </div>
   )

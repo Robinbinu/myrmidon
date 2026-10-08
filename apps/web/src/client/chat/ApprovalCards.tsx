@@ -66,7 +66,7 @@ function ApprovalRecord({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={spring}
-      className="flex min-w-0 items-center gap-1.5 pl-11 text-[12.5px] text-muted"
+      className="flex min-w-0 items-center gap-1.5 pl-11 text-callout text-muted"
     >
       {decided.approved ? (
         <Check className="size-3.5 shrink-0 text-ok-ink" />
@@ -112,7 +112,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
       role="alert"
       className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
     >
-      <div className="flex items-center gap-2 text-[13.5px]">
+      <div className="flex items-center gap-2 text-reading">
         <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
         <span className="min-w-0">
           <span className="font-semibold">{a.agent}</span>{' '}
@@ -131,7 +131,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
           onEdit={(key, value) => setEdits((e) => ({ ...e, [key]: value }))}
         />
       ) : (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-[12.5px]">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-callout">
           {a.summary}
         </pre>
       )}
@@ -143,7 +143,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
             placeholder={copy.approvals.review.note(a.agent)}
             aria-label={copy.approvals.review.noteLabel}
             maxLength={2000}
-            className="h-8 min-w-0 flex-1 text-[12.5px]"
+            className="h-8 min-w-0 flex-1"
           />
         )}
         {/* The card's decision is the point of it, so its buttons get a full-size target, not the compact one. */}
@@ -179,13 +179,13 @@ function ReviewBody(props: {
   const [editing, setEditing] = useState<string>()
   return (
     <div className="flex flex-col gap-2">
-      {props.summary && <p className="text-[13px] text-fg-2">{props.summary}</p>}
+      {props.summary && <p className="text-body text-fg-2">{props.summary}</p>}
       {props.review.fields.map((f) => {
         const value = props.edits[f.key] ?? f.value
         const isEditing = editing === f.key
         return (
           <div key={f.key} className="overflow-hidden rounded-lg border border-line bg-surface">
-            <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[12px]">
+            <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-small">
               <span className="min-w-0 truncate font-mono text-fg-2">{f.label}</span>
               {value !== f.value && <span className="text-accent-fg">{copy.approvals.review.edited}</span>}
               {f.editable && (
@@ -208,7 +208,7 @@ function ReviewBody(props: {
                 rows={Math.min(18, Math.max(3, value.split('\n').length + 1))}
                 aria-label={copy.approvals.review.editLabel(f.label)}
                 className={cn(
-                  'rounded-none border-0 text-[12.5px] focus-visible:ring-0',
+                  'rounded-none border-0 focus-visible:ring-0',
                   f.format !== 'text' && 'font-mono',
                 )}
               />
@@ -234,9 +234,9 @@ function FieldView({ field, value }: { field: ReviewField; value: string }) {
   )
   if (lines) return <DiffLines lines={lines} />
   return field.format === 'text' ? (
-    <p className="max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 text-[13px]">{value}</p>
+    <p className="max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 text-body">{value}</p>
   ) : (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all px-3 py-2 font-mono text-[12.5px]">
+    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all px-3 py-2 font-mono text-callout">
       {value}
     </pre>
   )
@@ -261,7 +261,7 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
   const near = (i: number) =>
     lines.slice(Math.max(0, i - 3), i + 4).some((l) => l.kind !== 'same') || lines.length <= 12
   if (!lines.some((l) => l.kind !== 'same'))
-    return <p className="px-3 py-2 text-[12.5px] text-muted">{copy.approvals.review.unchanged}</p>
+    return <p className="px-3 py-2 text-callout text-muted">{copy.approvals.review.unchanged}</p>
   const rows: ({ line: DiffLine; i: number } | { fold: number; i: number })[] = []
   for (const [i, line] of lines.entries()) {
     if (near(i)) rows.push({ line, i })
@@ -272,10 +272,10 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
     }
   }
   return (
-    <div className="max-h-80 overflow-auto font-mono text-[12px] leading-[1.55]">
+    <div className="max-h-80 overflow-auto font-mono text-small leading-[1.55]">
       {rows.map((r) =>
         'fold' in r ? (
-          <div key={`f${r.i}`} className="bg-surface-2/60 px-3 py-0.5 text-[11.5px] text-muted">
+          <div key={`f${r.i}`} className="bg-surface-2/60 px-3 py-0.5 text-footnote text-muted">
             {copy.approvals.review.moreLines(r.fold)}
           </div>
         ) : (
@@ -322,14 +322,14 @@ export function LoginCards({ state }: { state: ColonyState }) {
           role="alert"
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3"
         >
-          <div className="flex items-center gap-2 text-[13.5px]">
+          <div className="flex items-center gap-2 text-reading">
             <KeyRound className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
             </span>
           </div>
-          <p className="text-[12.5px] leading-relaxed text-fg-2">
+          <p className="text-callout leading-relaxed text-fg-2">
             {l.reason} {copy.approvals.login.instructions(l.agent)}
           </p>
           <div className="flex justify-end">
@@ -383,20 +383,20 @@ export function MemoryCards({ state }: { state: ColonyState }) {
           transition={spring}
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
         >
-          <div className="flex items-center gap-2 text-[13.5px]">
+          <div className="flex items-center gap-2 text-reading">
             <BookmarkPlus className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{m.agent}</span> {copy.approvals.memory.wantsToRemember}
               {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
             </span>
           </div>
-          <p className="rounded-lg bg-surface px-3 py-2 text-[13.5px]">
-            <span className="mr-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
+          <p className="rounded-lg bg-surface px-3 py-2 text-reading">
+            <span className="mr-1.5 font-mono text-caption uppercase tracking-[0.12em] text-muted">
               {m.kind}
             </span>
             {m.text}
           </p>
-          {m.why && <p className="text-[12px] text-muted">{copy.approvals.memory.why(m.why)}</p>}
+          {m.why && <p className="text-small text-muted">{copy.approvals.memory.why(m.why)}</p>}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -470,7 +470,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
       transition={spring}
       className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
     >
-      <div className="flex items-center gap-2 text-[13.5px]">
+      <div className="flex items-center gap-2 text-reading">
         <GraduationCap className="size-4 shrink-0 text-accent-fg" />
         <span className="min-w-0">
           {p.update ? t.improve : t.learned} <span className="font-mono font-semibold">{p.name}</span>
@@ -479,13 +479,13 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           type="button"
           onClick={() => setEditing(!editing)}
           aria-pressed={editing}
-          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-small text-muted transition-colors hover:bg-surface-2 hover:text-fg"
         >
           <PencilLine className="size-3.5" />
           {editing ? t.preview : t.edit}
         </button>
       </div>
-      {p.why && <p className="text-[12.5px] text-fg-2">{t.why(p.why)}</p>}
+      {p.why && <p className="text-callout text-fg-2">{t.why(p.why)}</p>}
       {editing ? (
         <div className="flex flex-col gap-2">
           <TextArea
@@ -493,23 +493,23 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             aria-label={t.description}
-            className="text-[13px]"
+            className="text-body"
           />
           <TextArea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={Math.min(18, body.split('\n').length + 2)}
             aria-label={t.instructions}
-            className="font-mono text-[12.5px]"
+            className="font-mono"
           />
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-line bg-surface">
-          <p className="border-b border-line px-3 py-2 text-[13px]">{description}</p>
+          <p className="border-b border-line px-3 py-2 text-body">{description}</p>
           {lines ? (
             <DiffLines lines={lines} />
           ) : (
-            <div className="max-h-72 overflow-auto px-3 py-2 text-[13px]">
+            <div className="max-h-72 overflow-auto px-3 py-2 text-body">
               <Markdown text={body} />
             </div>
           )}

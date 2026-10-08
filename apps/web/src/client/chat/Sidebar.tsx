@@ -192,7 +192,7 @@ export function Sidebar(props: {
               if (e.key === 'Escape') cancelled.current = true
               if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
             }}
-            className="h-7 w-full rounded-md border border-focus bg-control px-2 text-[13px] outline-none ring-3 ring-focus/30"
+            className="h-7 w-full rounded-md border border-focus bg-control px-2 text-body outline-none ring-3 ring-focus/30"
           />
         ) : (
           <button
@@ -202,7 +202,7 @@ export function Sidebar(props: {
             title={c.title}
             aria-current={on ? 'page' : undefined}
             className={cn(
-              'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-[13px] transition-colors',
+              'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-body transition-colors',
               line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
               on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
@@ -220,7 +220,7 @@ export function Sidebar(props: {
               <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
               {c.rounds.length > 1 && (
                 <span
-                  className="ml-auto text-[11px] tabular-nums text-muted"
+                  className="ml-auto text-caption tabular-nums text-muted"
                   title={copy.sidebar.chat.rounds(c.rounds.length)}
                 >
                   <span aria-hidden="true">{c.rounds.length}</span>
@@ -229,7 +229,7 @@ export function Sidebar(props: {
               )}
             </span>
             {line && (
-              <span className="relative basis-full truncate pl-4 text-[11.5px] text-muted">
+              <span className="relative basis-full truncate pl-4 text-footnote text-muted">
                 {copy.sidebar.chat.matchFrom(line.from)}
                 {marked(line)}
               </span>
@@ -266,7 +266,7 @@ export function Sidebar(props: {
     props.theme === 'system' ? 'light' : props.theme === 'light' ? 'dark' : 'system'
   const navItem = (on: boolean) =>
     cn(
-      'flex h-7 w-full items-center gap-2 rounded-md px-2 text-[13px] transition-colors',
+      'flex h-7 w-full items-center gap-2 rounded-md px-2 text-body transition-colors',
       on ? 'bg-row-selected text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
     )
 
@@ -276,7 +276,7 @@ export function Sidebar(props: {
       aria-label={copy.sidebar.label}
     >
       <Toolbar inset material={false} className="border-b-0">
-        <span className="hidden items-center gap-2 pl-1 text-[13px] font-semibold tracking-[-0.01em] browser:flex">
+        <span className="hidden items-center gap-2 pl-1 text-body font-semibold tracking-[-0.01em] browser:flex">
           <Logo size={20} />
           {copy.brand.name}
         </span>
@@ -306,14 +306,14 @@ export function Sidebar(props: {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label={copy.sidebar.search.label}
-            className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
+            className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-body outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
           />
         </div>
       </div>
       <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
         {(props.projects.length > 0 || props.onAddProject) && (
           <div className="group/projects flex items-center px-2 pb-1 pt-3">
-            <span className="flex-1 text-[11px] font-semibold text-muted">
+            <span className="flex-1 text-caption font-semibold text-muted">
               {copy.sidebar.projects.heading}
             </span>
             {props.onAddProject && (
@@ -333,7 +333,7 @@ export function Sidebar(props: {
           <button
             type="button"
             onClick={props.onAddProject}
-            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] text-muted hover:bg-fill/70 hover:text-fg"
+            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-callout text-muted hover:bg-fill/70 hover:text-fg"
           >
             <Folder className="size-4" /> {copy.sidebar.projects.empty}
           </button>
@@ -349,7 +349,7 @@ export function Sidebar(props: {
                   onClick={() => toggle(p.id)}
                   aria-expanded={open}
                   title={p.path}
-                  className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-[13px] text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-body text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
                 >
                   <ChevronRight
                     className={cn('size-3.5 shrink-0 text-muted transition-transform', open && 'rotate-90')}
@@ -394,7 +394,7 @@ export function Sidebar(props: {
                 <div className="pl-5">
                   {chats.map(row)}
                   {chats.length === 0 && (
-                    <p className="px-2 py-1 text-[12px] text-muted">{copy.sidebar.projects.noChats}</p>
+                    <p className="px-2 py-1 text-small text-muted">{copy.sidebar.projects.noChats}</p>
                   )}
                 </div>
               )}
@@ -402,16 +402,16 @@ export function Sidebar(props: {
           )
         })}
         {props.loaded && props.chats.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">{copy.sidebar.empty}</p>
+          <p className="px-2 py-4 text-callout text-muted">{copy.sidebar.empty}</p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">
+          <p className="px-2 py-4 text-callout text-muted">
             {searching ? copy.sidebar.searchingMessages : copy.sidebar.noMatches(query)}
           </p>
         )}
         {grouped.map((g) => (
           <div key={g.label}>
-            <div className="px-2 pb-1 pt-4 text-[11px] font-semibold text-muted">{g.label}</div>
+            <div className="px-2 pb-1 pt-4 text-caption font-semibold text-muted">{g.label}</div>
             {g.chats.map(row)}
           </div>
         ))}

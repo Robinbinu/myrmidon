@@ -41,7 +41,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
       transition={softSpring}
-      className="relative grid grid-cols-[24px_1fr_auto] items-start gap-2.5 py-1.5 text-[13px] text-fg-2"
+      className="relative grid grid-cols-[24px_1fr_auto] items-start gap-2.5 py-1.5 text-body text-fg-2"
     >
       <span
         className={cn(
@@ -57,7 +57,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
             {!hideAgent && <span>{step.agent} · </span>}
             {step.lead} <span className="italic">{step.strong}</span>
           </summary>
-          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
+          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 px-3 py-2 text-callout leading-relaxed text-fg-2">
             {step.detail}
           </div>
         </details>
@@ -68,7 +68,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
           {step.tail && <span className="text-muted">{step.tail}</span>}
         </span>
       )}
-      <time dateTime={step.time} className="pt-0.5 text-[11.5px] tabular-nums text-muted">
+      <time dateTime={step.time} className="pt-0.5 text-footnote tabular-nums text-muted">
         {clock(step.time)}
       </time>
     </motion.li>

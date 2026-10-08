@@ -106,15 +106,15 @@ export function ProjectPermissions(props: {
                 className={cn('mt-0.5 size-4 shrink-0', mode === m.value ? 'text-accent-fg' : 'text-muted')}
               />
               <span>
-                <span className="block text-[13.5px] font-medium">{m.label}</span>
-                <span className="block text-[12.5px] leading-snug text-muted">{m.hint}</span>
+                <span className="block text-reading font-medium">{m.label}</span>
+                <span className="block text-callout leading-snug text-muted">{m.hint}</span>
               </span>
             </label>
           ))}
         </fieldset>
         {mode === 'ask' && (
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="allow-commands" className="text-[12.5px] text-muted">
+            <label htmlFor="allow-commands" className="text-callout text-muted">
               {copy.permissions.allow.label}
             </label>
             <TextArea
@@ -123,11 +123,11 @@ export function ProjectPermissions(props: {
               onChange={(e) => setAllow(e.target.value)}
               rows={4}
               placeholder={'bun test\nbun run typecheck\ngit status'}
-              className="font-mono text-[12.5px]"
+              className="font-mono"
             />
           </div>
         )}
-        <p className="text-[12px] text-muted">{copy.permissions.appliesFrom}</p>
+        <p className="text-small text-muted">{copy.permissions.appliesFrom}</p>
       </div>
     </Modal>
   )

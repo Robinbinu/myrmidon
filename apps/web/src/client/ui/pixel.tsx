@@ -582,7 +582,7 @@ export function AgentChip(props: {
       initial={{ opacity: 0, scale: 0.3 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ type: 'spring', stiffness: 520, damping: 17 }}
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-[12px] transition-colors hover:border-line-strong hover:bg-surface-2"
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-small transition-colors hover:border-line-strong hover:bg-surface-2"
       style={props.active ? { borderColor: `${color}88`, boxShadow: `0 0 0 3px ${color}22` } : undefined}
       title={props.detail}
     >

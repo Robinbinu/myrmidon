@@ -109,7 +109,7 @@ export function SpecialistEditor(props: {
       <Field label={t.tools}>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
           {GROUPS.map((g) => (
-            <span key={g} className="inline-flex items-center gap-2 text-[13px]">
+            <span key={g} className="inline-flex items-center gap-2 text-body">
               <Switch
                 checked={!draft.off.includes(g)}
                 onChange={(on) => set({ off: on ? draft.off.filter((x) => x !== g) : [...draft.off, g] })}

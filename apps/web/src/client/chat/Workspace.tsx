@@ -355,7 +355,7 @@ function WorkspaceBody({
                 className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-line pl-4 pr-2"
               >
                 <View className="size-4 text-muted" />
-                <span className="hidden min-w-0 flex-1 truncate text-[14px] font-semibold md:block">
+                <span className="hidden min-w-0 flex-1 truncate text-title font-semibold md:block">
                   {views.find((v) => v.value === tab)?.label}
                 </span>
                 {/* Phones have no rail; the views are picked here instead. */}
@@ -431,8 +431,8 @@ function WorkspaceBody({
                                   <Icon className="size-4" />
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-[13.5px] font-medium">{name}</span>
-                                  <span className="text-[11.5px] text-muted">
+                                  <span className="block truncate text-reading font-medium">{name}</span>
+                                  <span className="text-footnote text-muted">
                                     {copy.workspace.files.meta(versions.length, compact(latest?.size ?? 0))} ·{' '}
                                     {latest?.author}
                                   </span>
@@ -455,16 +455,16 @@ function WorkspaceBody({
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                              <summary className="flex list-none items-center justify-between font-mono text-caption uppercase tracking-[0.14em] text-muted">
                                 {copy.workspace.tasks.plan(plan.agent)}
                               </summary>
-                              <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
+                              <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-callout leading-relaxed text-fg-2">
                                 {plan.text}
                               </p>
                             </details>
                           )}
                           <div className="border-b border-line px-4 py-3.5">
-                            <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
+                            <div className="mb-2 flex items-baseline justify-between text-callout">
                               <span className="font-semibold">
                                 {copy.workspace.tasks.done(by('verified'), tasks.length)}
                               </span>
@@ -511,7 +511,7 @@ function WorkspaceBody({
                                   aria-pressed={board === value}
                                   onClick={() => setBoard(value)}
                                   className={cn(
-                                    'rounded-md px-2 py-0.5 text-[12px] transition-colors',
+                                    'rounded-md px-2 py-0.5 text-small transition-colors',
                                     board === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
                                   )}
                                 >
@@ -551,8 +551,8 @@ function WorkspaceBody({
                                       <Pill tone={toneFor(t.status)}>
                                         {copy.workspace.taskStatus[t.status]}
                                       </Pill>
-                                      <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                                      {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                                      <span className="font-mono text-caption text-muted">{t.id}</span>
+                                      {t.owner && <span className="text-small text-muted">· {t.owner}</span>}
                                     </button>
                                     <span className="sr-only">{t.subject}</span>
                                     {/* Agents complete tasks, so the check is a live readout, not a control. */}
@@ -571,12 +571,12 @@ function WorkspaceBody({
                                       />
                                     </div>
                                     {open && t.description && (
-                                      <div className="whitespace-pre-wrap text-[12.5px] text-muted">
+                                      <div className="whitespace-pre-wrap text-callout text-muted">
                                         {t.description}
                                       </div>
                                     )}
                                     {open && t.blockedBy.length > 0 && (
-                                      <div className="text-[11.5px] text-muted">
+                                      <div className="text-footnote text-muted">
                                         {copy.workspace.tasks.after(t.blockedBy.join(', '))}
                                       </div>
                                     )}
@@ -613,7 +613,7 @@ function WorkspaceBody({
                                     <span className="font-semibold">{a.info.name}</span>
                                     {lead && <Crown className="size-3.5 text-signal" />}
                                     {a.info.specialty && (
-                                      <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
+                                      <span className="rounded-full border border-line px-2 py-px text-caption text-muted">
                                         {a.info.specialty}
                                       </span>
                                     )}
@@ -621,11 +621,11 @@ function WorkspaceBody({
                                       <Dot status={phase} /> {copy.status.agent[phase]}
                                     </Pill>
                                   </div>
-                                  <div className="truncate font-mono text-[11.5px] text-muted">
+                                  <div className="truncate font-mono text-footnote text-muted">
                                     {a.info.model}
                                   </div>
                                   {(task || detail) && (
-                                    <div className="text-[12.5px]">
+                                    <div className="text-callout">
                                       {task ? copy.workspace.team.workingOn(task.subject) : detail}
                                     </div>
                                   )}
@@ -637,13 +637,13 @@ function WorkspaceBody({
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                                        <span className="font-mono text-caption uppercase tracking-[0.14em] text-muted">
                                           {label}
                                         </span>
                                       </span>
                                     ))}
                                     {a.costKnown && a.cost > 0 && (
-                                      <span className="self-end text-[11.5px] tabular-nums text-muted">
+                                      <span className="self-end text-footnote tabular-nums text-muted">
                                         ${a.cost.toFixed(3)}
                                       </span>
                                     )}
@@ -665,7 +665,7 @@ function WorkspaceBody({
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-[12px] text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -676,7 +676,7 @@ function WorkspaceBody({
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
-                                    <span className="flex items-center gap-2 text-[11px] text-slate-400">
+                                    <span className="flex items-center gap-2 text-caption text-slate-400">
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
@@ -746,7 +746,7 @@ function WorkspaceBody({
                           {[...steps].reverse().map((s) => (
                             <li
                               key={s.id}
-                              className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-[12.5px] last:border-0"
+                              className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-callout last:border-0"
                             >
                               <span className="min-w-0 break-words text-fg-2">
                                 <span className="text-muted">{s.agent} · </span>
@@ -815,7 +815,7 @@ function WorkspaceBody({
                     )}
                     <v.icon className="size-[18px]" />
                     {!!count && (
-                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[11px] font-medium leading-4 tabular-nums text-fg-2">
+                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-caption font-medium leading-4 tabular-nums text-fg-2">
                         {count > 99 ? '99+' : count}
                       </span>
                     )}
@@ -829,10 +829,10 @@ function WorkspaceBody({
           <div
             role="tooltip"
             style={{ top: hint.top, right: hint.right }}
-            className="material-menu pointer-events-none fixed z-50 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-md border border-line px-2 py-1 text-[12px] text-fg"
+            className="material-menu pointer-events-none fixed z-50 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-md border border-line px-2 py-1 text-small text-fg"
           >
             {hint.label}
-            {hint.combo && <kbd className="font-sans text-[11.5px] text-muted">{hint.combo}</kbd>}
+            {hint.combo && <kbd className="font-sans text-footnote text-muted">{hint.combo}</kbd>}
           </div>
         )}
       </div>
@@ -919,22 +919,22 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
               )}
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
-                  <span className="truncate text-[13px] font-semibold text-fg">{threadTitle(t)}</span>
+                  <span className="truncate text-body font-semibold text-fg">{threadTitle(t)}</span>
                   {t.kind === 'group' && (
-                    <span className="shrink-0 text-[11.5px] text-muted">
+                    <span className="shrink-0 text-footnote text-muted">
                       {copy.workspace.mail.members(t.members.length)}
                     </span>
                   )}
-                  <time className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
+                  <time className="ml-auto shrink-0 text-footnote tabular-nums text-muted">
                     {clock(last?.time)}
                   </time>
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
+                  <span className="min-w-0 flex-1 truncate text-callout text-muted">
                     {last ? `${last.from}: ${last.text}` : ''}
                   </span>
                   {unread > 0 && (
-                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-[11px] font-semibold leading-5 text-on-bright">
+                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright">
                       {unread}
                     </span>
                   )}
@@ -963,11 +963,11 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
         <IconButton size="sm" label={copy.workspace.mail.back} onClick={props.onBack}>
           <ChevronRight className="size-4 rotate-180" />
         </IconButton>
-        <span className="truncate text-[13px] font-semibold">{threadTitle(thread)}</span>
+        <span className="truncate text-body font-semibold">{threadTitle(thread)}</span>
         {thread.kind === 'group' && (
-          <span className="truncate text-[12px] text-muted">{thread.members.join(', ')}</span>
+          <span className="truncate text-small text-muted">{thread.members.join(', ')}</span>
         )}
-        <span className="ml-auto pr-2 text-[12px] text-muted">
+        <span className="ml-auto pr-2 text-small text-muted">
           {copy.workspace.mail.count(thread.messages.length)}
         </span>
       </div>
@@ -993,17 +993,17 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                 </span>
                 <div
                   className={cn(
-                    'max-w-[80%] rounded-2xl px-3 py-1.5 text-[12.5px] leading-relaxed',
+                    'max-w-[80%] rounded-2xl px-3 py-1.5 text-callout leading-relaxed',
                     mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
                   )}
                 >
                   {first && (
-                    <div className="text-[11.5px] font-semibold" style={{ color: agentColor(m.from) }}>
+                    <div className="text-footnote font-semibold" style={{ color: agentColor(m.from) }}>
                       {m.from}
                     </div>
                   )}
                   {quoted && (
-                    <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-[11.5px] text-muted">
+                    <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-footnote text-muted">
                       {quoted.from}: {quoted.text}
                     </div>
                   )}

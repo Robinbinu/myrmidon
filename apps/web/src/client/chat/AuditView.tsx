@@ -60,12 +60,12 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
     <div className="flex flex-col gap-3 p-3">
       {audit.stops.length > 0 && (
         <section className="rounded-xl border border-warn/30 bg-warn-soft p-3">
-          <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-warn-ink">
+          <h3 className="mb-1.5 flex items-center gap-1.5 text-callout font-semibold text-warn-ink">
             <Ban className="size-3.5" /> {copy.audit.stopped(audit.stops.length)}
           </h3>
           <ul className="flex flex-col gap-1">
             {audit.stops.map((s) => (
-              <li key={`${s.time}-${s.tool}-${s.why}`} className="text-[12.5px] text-fg-2">
+              <li key={`${s.time}-${s.tool}-${s.why}`} className="text-callout text-fg-2">
                 <span className="text-muted">
                   {clock(s.time, true)} · {s.agent || copy.audit.agentFallback} · {s.tool} ·{' '}
                 </span>
@@ -84,7 +84,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
             aria-pressed={kind === k.value}
             onClick={() => setKind(k.value)}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-[12px] transition-colors',
+              'rounded-full border px-2.5 py-1 text-small transition-colors',
               kind === k.value
                 ? 'border-accent/40 bg-accent-soft text-accent-fg'
                 : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
@@ -118,12 +118,12 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
           </Select>
         )}
       </div>
-      <div className="flex items-center justify-between px-1 text-[12px] text-muted">
+      <div className="flex items-center justify-between px-1 text-small text-muted">
         <span>{copy.audit.summary(targets.length, audit.targets.length, audit.entries.length)}</span>
         <FoldAll ids={targets.map(keyOf)} folds={folds} />
       </div>
       {targets.length === 0 ? (
-        <p className="px-1 py-6 text-center text-[13px] text-muted">{copy.audit.noMatches}</p>
+        <p className="px-1 py-6 text-center text-body text-muted">{copy.audit.noMatches}</p>
       ) : (
         <ul className="flex flex-col">
           {targets.map((t) => {
@@ -149,13 +149,13 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                     <span
                       title={t.target}
                       className={cn(
-                        'block font-mono text-[12.5px] text-fg',
+                        'block font-mono text-callout text-fg',
                         open ? 'whitespace-pre-wrap break-all' : 'truncate',
                       )}
                     >
                       {t.target}
                     </span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1 text-[11.5px] text-muted">
+                    <span className="mt-1 flex flex-wrap items-center gap-1 text-footnote text-muted">
                       {t.actions.map((a) => (
                         <Pill key={a}>{a}</Pill>
                       ))}
@@ -163,13 +163,13 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                       {t.failed > 0 && <Pill tone="bad">{copy.audit.failed(t.failed)}</Pill>}
                     </span>
                   </span>
-                  <span className="shrink-0 text-right text-[11.5px] tabular-nums text-muted">
+                  <span className="shrink-0 text-right text-footnote tabular-nums text-muted">
                     {t.count > 1 && <span className="block">×{t.count}</span>}
                     <time>{clock(t.last, true)}</time>
                   </span>
                 </button>
                 {open && (
-                  <ol className="mb-2 ml-9 flex flex-col gap-0.5 text-[12px]">
+                  <ol className="mb-2 ml-9 flex flex-col gap-0.5 text-small">
                     {calls.map((e) => (
                       <li key={e.id} className="flex gap-2 text-fg-2">
                         <time className="tabular-nums text-muted">{clock(e.time, true)}</time>
