@@ -1824,6 +1824,7 @@ export function startServer(options: ServeOptions): WebServer {
           const deleted = await options.chats.delete(req.params.chatId ?? '')
           if (deleted.length === 0) return json({ error: 'no such chat' }, 404)
           for (const id of deleted) store.forget(id as ColonyId)
+          voice?.forget(req.params.chatId ?? '')
           for (const ws of sockets)
             if (ws.data.kind === 'events' && deleted.includes(ws.data.colony))
               ws.close(1000, 'colony deleted')

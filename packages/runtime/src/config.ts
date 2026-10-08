@@ -287,6 +287,8 @@ export const VOICE_VAD_START = { low: 0.7, normal: 0.5, high: 0.35 } as const
 export const VOICE_VAD_HYSTERESIS = 0.15
 /** Calls this gateway takes at once (each holds a call model and speech engines busy); one per chat at most. */
 export const VOICE_MAX_CALLS = 4
+/** Days a call's transcript is kept (`<home>/calls`); a chat's go with it when it is deleted. */
+export const VOICE_TRANSCRIPT_DAYS = 30
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3

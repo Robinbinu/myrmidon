@@ -86,7 +86,8 @@ messages.
   time. It can decide only when the last thing you said was a plain yes or no, and reads back what was decided. What
   the crew reports reaches the call model as a crew update, never as your words.
 - Say goodbye (or press Hang up) to end the call. Its transcript is kept with the chat
-  (`<home>/calls/<id>.json`) and shown as a card before the first round it started.
+  (`<home>/calls/<id>.json`) and shown as a card before the first round it started. Transcripts are kept for 30 days
+  and deleted with their chat; a call that started no work in a new chat has no chat to keep it, so it is not kept.
 - A call from a new chat makes the chat when it starts its first task.
 
 Calls need the microphone, which browsers allow on this machine or over https. Devices paired for chats only can call;

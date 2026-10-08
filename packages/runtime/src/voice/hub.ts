@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -13,6 +14,7 @@ import {
   VOICE_PHONON_MODEL_BYTES,
   VOICE_SMART_TURN_BYTES,
   VOICE_THRESHOLDS,
+  VOICE_TRANSCRIPT_DAYS,
   VOICE_VAD_BYTES,
   VOICE_VAD_HYSTERESIS,
   VOICE_VAD_START,
@@ -70,7 +72,7 @@ interface VoiceSecrets {
 
 export interface SavedCall {
   readonly id: string
-  readonly chatId?: string
+  readonly chatId: string
   readonly startedAt: string
   readonly endedAt: string
   readonly turns: readonly CallTurn[]
@@ -106,11 +108,14 @@ export interface VoiceStatus {
    * model (its command line comes from the Install button), each Kitten model, the speech detector, the turn model.
    */
   readonly sizes: { phonon: number; kitten: Record<KittenModel, number>; vad: number; turn: number }
+  /** Days a call's transcript is kept. */
+  readonly transcriptDays: number
 }
 
 /**
  * Voice calls for this gateway: the engines on this machine (Phonon-2, Kitten TTS) and the providers chosen in
- * Settings → Voice, the calls in progress, and their transcripts (`<home>/calls/<id>.json`).
+ * Settings → Voice, the calls in progress, and their transcripts (`<home>/calls/<id>.json`, kept with their chat for
+ * VOICE_TRANSCRIPT_DAYS).
  */
 export class VoiceHub {
   readonly phonon: PhononStt
@@ -154,6 +159,7 @@ export class VoiceHub {
     this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
+    this._prune()
   }
 
   status(): VoiceStatus {
@@ -189,6 +195,7 @@ export class VoiceHub {
         vad: VOICE_VAD_BYTES,
         turn: VOICE_SMART_TURN_BYTES,
       },
+      transcriptDays: VOICE_TRANSCRIPT_DAYS,
     }
   }
 
@@ -381,18 +388,15 @@ export class VoiceHub {
 
   /** The calls made in a chat, oldest first. */
   calls(chatId: string): SavedCall[] {
-    if (!existsSync(this._callsDir)) return []
-    return readdirSync(this._callsDir)
-      .filter((f) => f.endsWith('.json'))
-      .flatMap((f) => {
-        try {
-          const call = JSON.parse(readFileSync(join(this._callsDir, f), 'utf8')) as SavedCall
-          return call.chatId === chatId ? [call] : []
-        } catch {
-          return []
-        }
-      })
+    return this._saved()
+      .flatMap(({ call }) => (call.chatId === chatId ? [call] : []))
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  }
+
+  /** A chat was deleted: its calls end, and their transcripts go with it. */
+  forget(chatId: string) {
+    for (const call of [...this._calls.values()]) if (call.chatId === chatId) call.hangUp()
+    for (const { file, call } of this._saved()) if (call.chatId === chatId) rmSync(file, { force: true })
   }
 
   /**
@@ -429,10 +433,11 @@ export class VoiceHub {
 
   private _save(session: CallSession) {
     const turns = session.transcript()
-    if (!turns.some((t) => t.who === 'person')) return
+    // A call that made no chat (it started no work) has nowhere to be shown or deleted with: it is not kept.
+    if (!session.chatId || !turns.some((t) => t.who === 'person')) return
     const saved: SavedCall = {
       id: session.id,
-      ...(session.chatId ? { chatId: session.chatId } : {}),
+      chatId: session.chatId,
       startedAt: session.startedAt,
       endedAt: new Date().toISOString(),
       turns,
@@ -441,6 +446,28 @@ export class VoiceHub {
       ...(session.direct ? { talkTo: session.direct, told: true } : {}),
     }
     this._write(saved)
+    this._prune()
+  }
+
+  /** Every saved call, with its file; one that cannot be read is skipped. */
+  private _saved(): { file: string; call: SavedCall }[] {
+    if (!existsSync(this._callsDir)) return []
+    return readdirSync(this._callsDir)
+      .filter((f) => f.endsWith('.json'))
+      .flatMap((f) => {
+        const file = join(this._callsDir, f)
+        try {
+          return [{ file, call: JSON.parse(readFileSync(file, 'utf8')) as SavedCall }]
+        } catch {
+          return []
+        }
+      })
+  }
+
+  /** Drops transcripts older than VOICE_TRANSCRIPT_DAYS. */
+  private _prune() {
+    const before = new Date(Date.now() - VOICE_TRANSCRIPT_DAYS * 86_400_000).toISOString()
+    for (const { file, call } of this._saved()) if (call.endedAt < before) rmSync(file, { force: true })
   }
 
   private _write(call: SavedCall) {

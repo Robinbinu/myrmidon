@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
@@ -225,4 +225,55 @@ test('one call per chat, a few calls at most, and engines that are not ready ref
   expect(() => kitten.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})).toThrow(
     'the Kitten TTS model is still downloading',
   )
+})
+
+test('transcripts go with their chat, a call that made no chat is not kept, and old ones are dropped', async () => {
+  const { hub, home } = setup({
+    stt: { provider: 'omp' },
+    tts: { provider: 'omp', kittenModel: 'nano', voice: 'Leo', speed: 1 },
+  })
+  const chats = {
+    send: async () => ({ chatId: 'c1', colonyId: 'col', started: true }),
+    onEvents: () => () => {},
+    decideApproval: async () => {},
+  }
+  const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
+  const talk = async (chatId?: string) => {
+    const call = hub.call(
+      chats,
+      { ...(chatId ? { chatId } : {}), name: 'Robin', sampleRate: 16_000 },
+      () => {},
+    )
+    for (let i = 0; i < 25; i++) call.audio(loud)
+    for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+    const end = Date.now() + 2000
+    while (!call.transcript().some((t) => t.who === 'person') && Date.now() < end) await Bun.sleep(5)
+    return call
+  }
+  // Heard, but it started no work, so no chat: nothing is kept.
+  ;(await talk()).hangUp()
+  const dir = join(home, 'calls')
+  expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([])
+  ;(await talk('c1')).hangUp()
+  expect(hub.calls('c1')).toHaveLength(1)
+  // A call still going in a deleted chat ends, and nothing of the chat's is left.
+  await talk('c1')
+  hub.forget('c1')
+  expect(hub.calls('c1')).toEqual([])
+  expect(readdirSync(dir)).toEqual([])
+
+  const old = {
+    id: 'old',
+    chatId: 'c2',
+    startedAt: '2020-01-01T00:00:00.000Z',
+    endedAt: '2020-01-01T00:01:00.000Z',
+  }
+  writeFileSync(join(dir, 'old.json'), JSON.stringify({ ...old, turns: [], rounds: [] }))
+  const later = new VoiceHub({
+    home,
+    resolver: new ModelResolver(),
+    settings: () => ({ voice: new SettingsStore(home).get().voice }),
+  })
+  expect(later.calls('c2')).toEqual([])
+  expect(later.status().transcriptDays).toBe(30)
 })

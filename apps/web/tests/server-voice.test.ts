@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -311,4 +311,40 @@ test('odd frames and broken messages do not break a call; oversized ones close i
   await until(() => c.messages.some((m) => m.state === 'muted'))
   c.ws.send(new Uint8Array(200_000))
   expect((await c.closed).code).toBe(1009)
+})
+
+test("deleting a chat deletes its calls' transcripts", async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-voice-server-'))
+  homes.push(home)
+  const settings = new SettingsStore(home)
+  const chats = {
+    list: async () => [],
+    onEvents: () => () => {},
+    onStream: () => () => {},
+    delete: async (chatId: string) => (chatId === 'c1' ? ['col-1'] : []),
+  } as unknown as ChatService
+  const offline = 'http://127.0.0.1:9/no-model.onnx'
+  const voiceModels = { vad: new SileroVad(home, offline), turn: new SmartTurn(home, offline) }
+  const server = startServer({ home, port: 0, chats, resolver: new ModelResolver(), settings, voiceModels })
+  servers.push(server)
+  const origin = new URL(server.url.replace(/#.*$/, ''))
+  const auth = { authorization: `Bearer ${server.token}` }
+  mkdirSync(join(home, 'calls'), { recursive: true })
+  const saved = (id: string, chatId: string) =>
+    writeFileSync(
+      join(home, 'calls', `${id}.json`),
+      JSON.stringify({
+        id,
+        chatId,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        turns: [],
+        rounds: [],
+      }),
+    )
+  saved('a', 'c1')
+  saved('b', 'c2')
+  const res = await fetch(new URL('/api/chats/c1', origin), { method: 'DELETE', headers: auth })
+  expect(res.status).toBe(200)
+  expect(readdirSync(join(home, 'calls'))).toEqual(['b.json'])
 })
