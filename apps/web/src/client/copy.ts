@@ -1223,7 +1223,7 @@ export const copy = {
       /** The chat everyone on the crew is in. */
       team: 'Crew',
       members: (n: number) => `${n} people`,
-      back: 'All conversations',
+      back: 'All messages',
       read: 'Read',
       unread: 'Not read yet',
     },
@@ -1305,7 +1305,7 @@ export const copy = {
       notRunningSendNormally: 'Nothing is running; send it as a normal message',
       notRunning: 'Nothing is running',
       stillRunning: 'Still running',
-      nothingToRetry: 'Nothing to retry yet',
+      nothingToRetry: 'Nothing to run again yet',
       openChatToRename: 'Open a chat to rename it',
       renamed: 'Renamed',
       modeUsage: 'Use /mode orchestrated or /mode swarm',
@@ -1493,7 +1493,7 @@ export const copy = {
     judge: (passed: boolean) => `· review ${passed ? 'passed' : 'failed'}`,
     runDiff: 'Run diff',
     /** Warns that two compared runs were asked to do different things. */
-    differentTasks: 'These runs had different tasks, so their numbers are not like for like.',
+    differentTasks: 'These runs had different requests, so their numbers are not like for like.',
     close: 'Close the comparison',
     measure: 'Measure',
     versus: 'B vs A',
@@ -1845,7 +1845,7 @@ export const copy = {
       sandboxedHint:
         'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
       unsandboxedHint:
-        'No sandbox was found on this computer, so the shell tool stays off. On Linux, install bubblewrap and restart Myrmidon.',
+        'No sandbox was found on the computer Myrmidon runs on, so the shell tool stays off. On Linux, install bubblewrap and restart Myrmidon.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
@@ -2375,7 +2375,7 @@ export const copy = {
       title: 'Skills',
       /** Intro text around the three skill folder paths. */
       introBeforeDir:
-        "Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents see each skill's name and description, and load the full skill when a task matches. Add one by putting its folder in ",
+        "Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents see each skill's name and description, and load the full skill when the work matches. Add one by putting its folder in ",
       introBeforeUserDir: ' or ',
       introBeforeProjectDir: "; a project's ",
       introAfterProjectDir: ' apply to its chats.',
