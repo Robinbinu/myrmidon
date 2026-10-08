@@ -2509,6 +2509,8 @@ function ChannelsSection() {
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({})
   const [allowDrafts, setAllowDrafts] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string>()
+  // A channel not set up yet, opened from the list to set it up.
+  const [adding, setAdding] = useState<string>()
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
       .then((r) => setList(r.channels))
@@ -2558,269 +2560,299 @@ function ChannelsSection() {
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
-      {list?.map((c) => {
-        const draft = drafts[c.id] ?? {}
-        const changed = Object.values(draft).some((v) => v.trim())
-        return (
-          <div key={c.id} className="mb-6 flex flex-col gap-4">
-            <Card>
-              <Row>
-                <div className="flex items-center gap-3">
-                  <MessagesSquare className="size-4 shrink-0 text-muted" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13.5px] font-semibold">{c.label}</div>
-                    <div
-                      className={cn(
-                        'truncate text-[12px]',
-                        c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
-                      )}
-                    >
-                      {statusText(c.status)}
+      {list
+        ?.filter((c) => c.configured || c.id === adding)
+        .map((c) => {
+          const draft = drafts[c.id] ?? {}
+          const changed = Object.values(draft).some((v) => v.trim())
+          return (
+            <div key={c.id} className="mb-6 flex flex-col gap-4">
+              <Card>
+                <Row>
+                  <div className="flex items-center gap-3">
+                    <MessagesSquare className="size-4 shrink-0 text-muted" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13.5px] font-semibold">{c.label}</div>
+                      <div
+                        className={cn(
+                          'truncate text-[12px]',
+                          c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
+                        )}
+                      >
+                        {statusText(c.status)}
+                      </div>
                     </div>
+                    {c.configured && (
+                      <Switch
+                        checked={c.enabled}
+                        onChange={(enabled) => void configure(c, { enabled })}
+                        label={t.on}
+                      />
+                    )}
                   </div>
-                  {c.configured && (
-                    <Switch
-                      checked={c.enabled}
-                      onChange={(enabled) => void configure(c, { enabled })}
-                      label={t.on}
+                  {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
+                  {c.status.state === 'linking' && (
+                    <img
+                      src={c.status.image}
+                      alt={t.status.linking}
+                      className="mt-3 size-56 rounded-lg bg-white p-2"
                     />
                   )}
-                </div>
-                {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
-                {c.status.state === 'linking' && (
-                  <img
-                    src={c.status.image}
-                    alt={t.status.linking}
-                    className="mt-3 size-56 rounded-lg bg-white p-2"
-                  />
+                </Row>
+                {c.fields.map((f) => {
+                  const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])
+                  return (
+                    <Row key={f.key}>
+                      <Field label={f.label} hint={f.secret && saved ? t.secretSet : f.hint}>
+                        <TextInput
+                          type={f.secret ? 'password' : 'text'}
+                          autoComplete="off"
+                          value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                          onChange={(e) =>
+                            setDrafts((all) => ({
+                              ...all,
+                              [c.id]: { ...all[c.id], [f.key]: e.target.value },
+                            }))
+                          }
+                          placeholder={f.placeholder}
+                          aria-label={f.label}
+                          className="font-mono"
+                        />
+                      </Field>
+                    </Row>
+                  )
+                })}
+                <Row>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={busy === c.id || !changed}
+                    onClick={() => void configure(c, { values: draft })}
+                  >
+                    {busy === c.id ? t.saving : t.save}
+                  </Button>
+                </Row>
+                {c.configured && (
+                  <Row>
+                    <Field label={t.project} hint={t.projectHint} inline>
+                      <Select
+                        value={c.project ?? ''}
+                        onChange={(e) => void configure(c, { project: e.target.value || null })}
+                        aria-label={t.project}
+                      >
+                        <option value="">{t.noProject}</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </Row>
                 )}
-              </Row>
-              {c.fields.map((f) => {
-                const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])
-                return (
-                  <Row key={f.key}>
-                    <Field label={f.label} hint={f.secret && saved ? t.secretSet : f.hint}>
-                      <TextInput
-                        type={f.secret ? 'password' : 'text'}
-                        autoComplete="off"
-                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
-                        onChange={(e) =>
-                          setDrafts((all) => ({ ...all, [c.id]: { ...all[c.id], [f.key]: e.target.value } }))
-                        }
-                        placeholder={f.placeholder}
-                        aria-label={f.label}
-                        className="font-mono"
+              </Card>
+              {c.configured && (
+                <Card>
+                  <Row>
+                    <div className="text-[13px] font-semibold">{t.access}</div>
+                  </Row>
+                  <Row>
+                    <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
+                      <Select
+                        value={c.dm}
+                        onChange={(e) => void configure(c, { dm: e.target.value })}
+                        aria-label={t.dm}
+                      >
+                        {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
+                          <option key={v} value={v}>
+                            {t.dmOptions[v]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </Row>
+                  <Row>
+                    <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
+                      <Select
+                        value={c.groups}
+                        onChange={(e) => void configure(c, { groups: e.target.value })}
+                        aria-label={t.groupsLabel}
+                      >
+                        {(['approve', 'open', 'disabled'] as const).map((v) => (
+                          <option key={v} value={v}>
+                            {t.groupsOptions[v]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </Row>
+                  <Row>
+                    <Field label={t.mention} hint={t.mentionHint} inline>
+                      <Switch
+                        checked={c.mention}
+                        onChange={(mention) => void configure(c, { mention })}
+                        label={t.mention}
                       />
                     </Field>
                   </Row>
-                )
-              })}
-              <Row>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={busy === c.id || !changed}
-                  onClick={() => void configure(c, { values: draft })}
-                >
-                  {busy === c.id ? t.saving : t.save}
-                </Button>
-              </Row>
-              {c.configured && (
-                <Row>
-                  <Field label={t.project} hint={t.projectHint} inline>
-                    <Select
-                      value={c.project ?? ''}
-                      onChange={(e) => void configure(c, { project: e.target.value || null })}
-                      aria-label={t.project}
-                    >
-                      <option value="">{t.noProject}</option>
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </Row>
-              )}
-            </Card>
-            {c.configured && (
-              <Card>
-                <Row>
-                  <div className="text-[13px] font-semibold">{t.access}</div>
-                </Row>
-                <Row>
-                  <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
-                    <Select
-                      value={c.dm}
-                      onChange={(e) => void configure(c, { dm: e.target.value })}
-                      aria-label={t.dm}
-                    >
-                      {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
-                        <option key={v} value={v}>
-                          {t.dmOptions[v]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </Row>
-                <Row>
-                  <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
-                    <Select
-                      value={c.groups}
-                      onChange={(e) => void configure(c, { groups: e.target.value })}
-                      aria-label={t.groupsLabel}
-                    >
-                      {(['approve', 'open', 'disabled'] as const).map((v) => (
-                        <option key={v} value={v}>
-                          {t.groupsOptions[v]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </Row>
-                <Row>
-                  <Field label={t.mention} hint={t.mentionHint} inline>
-                    <Switch
-                      checked={c.mention}
-                      onChange={(mention) => void configure(c, { mention })}
-                      label={t.mention}
-                    />
-                  </Field>
-                </Row>
-                <Row>
-                  <Field label={t.perPerson} hint={t.perPersonHint} inline>
-                    <Switch
-                      checked={c.perPerson}
-                      onChange={(perPerson) => void configure(c, { perPerson })}
-                      label={t.perPerson}
-                    />
-                  </Field>
-                </Row>
-                <Row>
-                  <Field label={t.allow} hint={t.allowHint}>
-                    <TextInput
-                      value={allowDrafts[c.id] ?? c.allow.join(', ')}
-                      onChange={(e) => setAllowDrafts((all) => ({ ...all, [c.id]: e.target.value }))}
-                      onBlur={() => {
-                        const typed = allowDrafts[c.id]
-                        if (typed === undefined) return
-                        void configure(c, {
-                          allow: typed
-                            .split(',')
-                            .map((a) => a.trim())
-                            .filter(Boolean),
-                        })
-                      }}
-                      placeholder="@alice, 123456789"
-                      aria-label={t.allow}
-                    />
-                  </Field>
-                </Row>
-                <Row>
-                  <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
-                    <Select
-                      value={c.stream}
-                      onChange={(e) => void configure(c, { stream: e.target.value })}
-                      aria-label={t.stream}
-                    >
-                      {(['progress', 'partial', 'final'] as const).map((v) => (
-                        <option key={v} value={v}>
-                          {t.streamOptions[v]}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </Row>
-              </Card>
-            )}
-            {c.pending.length > 0 && (
-              <Card>
-                <Row>
-                  <div className="text-[13px] font-semibold">{t.waiting}</div>
-                  <div className="text-[12px] text-muted">{t.waitingHint}</div>
-                </Row>
-                {c.pending.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13.5px] font-semibold">
-                        {p.sender.name}
-                        {p.sender.handle ? ` (@${p.sender.handle})` : ''}
-                        {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
-                      </div>
-                      <div className="text-[12px] text-muted">
-                        {t.expires(new Date(p.expires).toLocaleTimeString())}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() =>
-                        void act(
-                          post(`/api/channels/${c.id}/approve`, { request: p.id }),
-                          t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
-                        )
-                      }
-                    >
-                      {t.approve}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                    >
-                      {t.dismiss}
-                    </Button>
-                  </div>
-                ))}
-              </Card>
-            )}
-            {c.configured && (
-              <Card>
-                <Row>
-                  <div className="text-[13px] font-semibold">{t.people}</div>
-                </Row>
-                {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
-                {c.people.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1 truncate text-[13.5px]">
-                      {p.name}
-                      {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
-                    </div>
-                    <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
-                      {p.role === 'owner' ? t.owner : t.member}
-                    </Pill>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                    >
-                      {t.revoke}
-                    </Button>
-                  </div>
-                ))}
-                {c.approvedGroups.length > 0 && (
                   <Row>
-                    <div className="text-[13px] font-semibold">{t.groups}</div>
+                    <Field label={t.perPerson} hint={t.perPersonHint} inline>
+                      <Switch
+                        checked={c.perPerson}
+                        onChange={(perPerson) => void configure(c, { perPerson })}
+                        label={t.perPerson}
+                      />
+                    </Field>
                   </Row>
-                )}
-                {c.approvedGroups.map((g) => (
-                  <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                    >
-                      {t.revoke}
-                    </Button>
-                  </div>
-                ))}
-              </Card>
-            )}
+                  <Row>
+                    <Field label={t.allow} hint={t.allowHint}>
+                      <TextInput
+                        value={allowDrafts[c.id] ?? c.allow.join(', ')}
+                        onChange={(e) => setAllowDrafts((all) => ({ ...all, [c.id]: e.target.value }))}
+                        onBlur={() => {
+                          const typed = allowDrafts[c.id]
+                          if (typed === undefined) return
+                          void configure(c, {
+                            allow: typed
+                              .split(',')
+                              .map((a) => a.trim())
+                              .filter(Boolean),
+                          })
+                        }}
+                        placeholder="@alice, 123456789"
+                        aria-label={t.allow}
+                      />
+                    </Field>
+                  </Row>
+                  <Row>
+                    <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
+                      <Select
+                        value={c.stream}
+                        onChange={(e) => void configure(c, { stream: e.target.value })}
+                        aria-label={t.stream}
+                      >
+                        {(['progress', 'partial', 'final'] as const).map((v) => (
+                          <option key={v} value={v}>
+                            {t.streamOptions[v]}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </Row>
+                </Card>
+              )}
+              {c.pending.length > 0 && (
+                <Card>
+                  <Row>
+                    <div className="text-[13px] font-semibold">{t.waiting}</div>
+                    <div className="text-[12px] text-muted">{t.waitingHint}</div>
+                  </Row>
+                  {c.pending.map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13.5px] font-semibold">
+                          {p.sender.name}
+                          {p.sender.handle ? ` (@${p.sender.handle})` : ''}
+                          {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                        </div>
+                        <div className="text-[12px] text-muted">
+                          {t.expires(new Date(p.expires).toLocaleTimeString())}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() =>
+                          void act(
+                            post(`/api/channels/${c.id}/approve`, { request: p.id }),
+                            t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
+                          )
+                        }
+                      >
+                        {t.approve}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
+                      >
+                        {t.dismiss}
+                      </Button>
+                    </div>
+                  ))}
+                </Card>
+              )}
+              {c.configured && (
+                <Card>
+                  <Row>
+                    <div className="text-[13px] font-semibold">{t.people}</div>
+                  </Row>
+                  {c.people.length === 0 && (
+                    <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>
+                  )}
+                  {c.people.map((p) => (
+                    <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1 truncate text-[13.5px]">
+                        {p.name}
+                        {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
+                      </div>
+                      <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                        {p.role === 'owner' ? t.owner : t.member}
+                      </Pill>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                      >
+                        {t.revoke}
+                      </Button>
+                    </div>
+                  ))}
+                  {c.approvedGroups.length > 0 && (
+                    <Row>
+                      <div className="text-[13px] font-semibold">{t.groups}</div>
+                    </Row>
+                  )}
+                  {c.approvedGroups.map((g) => (
+                    <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                      >
+                        {t.revoke}
+                      </Button>
+                    </div>
+                  ))}
+                </Card>
+              )}
+            </div>
+          )
+        })}
+      {list && list.some((c) => !c.configured && c.id !== adding) && (
+        <Card>
+          <Row>
+            <div className="text-[13px] font-semibold">{t.add}</div>
+            <div className="text-[12px] text-muted">{t.addHint}</div>
+          </Row>
+          <div className="grid grid-cols-2 gap-1.5 px-4 pb-4 sm:grid-cols-3">
+            {list
+              .filter((c) => !c.configured && c.id !== adding)
+              .map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setAdding(c.id)}
+                  className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-[13px] transition-colors hover:bg-fill"
+                >
+                  <MessagesSquare className="size-3.5 shrink-0 text-muted" />
+                  <span className="truncate">{c.label}</span>
+                </button>
+              ))}
           </div>
-        )
-      })}
+        </Card>
+      )}
     </>
   )
 }
