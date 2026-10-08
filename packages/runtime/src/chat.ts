@@ -543,7 +543,9 @@ export class ChatService {
     chatId?: string,
     options: SendOptions = {},
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
-    const message = text.trim()
+    // Files alone (a photo sent without a caption) are a message too: it says what was sent.
+    const names = (options.attachments ?? []).map((a) => a.name)
+    const message = text.trim() || (names.length ? prompts.chat.filesOnly(names) : '')
     if (!message) throw new Error('message is empty')
     const id = chatId ?? newChatId()
     const turn = (this._sending.get(id) ?? Promise.resolve())

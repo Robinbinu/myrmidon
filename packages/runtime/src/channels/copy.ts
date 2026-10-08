@@ -279,6 +279,8 @@ export const channelCopy = {
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
+  /** What a sticker says to the crew (a still one also comes as its image). */
+  sticker: (emoji?: string) => (emoji ? `(sent a ${emoji} sticker)` : '(sent a sticker)'),
   failed: "I couldn't do that. The owner can see why in Myrmidon.",
   /** Why channels are off when their settings file is damaged; nothing is saved over it until it is repaired. */
   unreadable: (why: string) =>

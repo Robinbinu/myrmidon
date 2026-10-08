@@ -320,3 +320,27 @@ test('a running gateway drops old transcripts, and telling the crew never brings
   await Bun.sleep(60)
   expect(readdirSync(dir)).toEqual([])
 })
+
+test("a channel's voice note is read by the chosen speech to text while voice is on, as the file it came in", async () => {
+  const got: { type?: string; name?: string }[] = []
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: async (req) => {
+      const file = (await req.formData()).get('file') as File
+      got.push({ type: file.type, name: file.name })
+      return Response.json({ text: ' remind me at five ' })
+    },
+  })
+  try {
+    const stt = { provider: 'endpoint' as const, baseUrl: `http://127.0.0.1:${server.port}/v1`, model: 'm' }
+    const on = setup({ stt })
+    const ogg = new Uint8Array([0x4f, 0x67, 0x67, 0x53])
+    expect(await on.hub.transcribeFile(ogg, 'audio/ogg', 'voice-9.ogg')).toBe('remind me at five')
+    expect(got).toEqual([{ type: 'audio/ogg', name: 'voice-9.ogg' }])
+    // Voice off: the hub does not take it (the gateway falls back to omp's cloud models).
+    expect(await setup({ enabled: false, stt }).hub.transcribeFile(ogg, 'audio/ogg', 'v.ogg')).toBeUndefined()
+  } finally {
+    server.stop(true)
+  }
+})

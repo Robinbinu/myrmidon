@@ -129,6 +129,26 @@ test('updates become messages: mentions in groups, commands, bots ignored, the o
         photo: [{}],
       },
     },
+    {
+      update_id: 16,
+      message: {
+        message_id: 7,
+        date: 1,
+        from: user(1, 'Alice'),
+        chat: { id: 1, type: 'private' },
+        sticker: { file_id: 's1', emoji: '👍', is_animated: false, is_video: false },
+      },
+    },
+    {
+      update_id: 17,
+      message: {
+        message_id: 8,
+        date: 1,
+        from: user(1, 'Alice'),
+        chat: { id: 1, type: 'private' },
+        sticker: { file_id: 's2', emoji: '🎉', is_animated: true, is_video: false },
+      },
+    },
   ]
   const { server, calls, api } = botApi({
     getMe: () => ME,
@@ -140,7 +160,7 @@ test('updates become messages: mentions in groups, commands, bots ignored, the o
   adapters.push(adapter)
   const { handle, received, statuses, kv } = io()
   await adapter.start(handle)
-  await until(() => received.length === 5)
+  await until(() => received.length === 7)
 
   expect(statuses).toContainEqual({ state: 'on', account: '@myrbot' })
   expect(calls.some((c) => c.method === 'setMyCommands')).toBe(true)
@@ -158,10 +178,20 @@ test('updates become messages: mentions in groups, commands, bots ignored, the o
   expect(received[2]).toMatchObject({ mentioned: false })
   expect(received[3]).toMatchObject({ text: '/status', mentioned: true })
   expect(received[4]?.files?.[0]).toMatchObject({ kind: 'image', mimeType: 'image/jpeg' })
+  // A still sticker comes as its image with its emoji; an animated one (not an image) as its emoji alone.
+  expect(received[5]).toMatchObject({ text: '(sent a 👍 sticker)' })
+  expect(received[5]?.files?.[0]).toMatchObject({
+    kind: 'image',
+    mimeType: 'image/webp',
+    name: 'sticker-7.webp',
+  })
+  expect(received[6]).toMatchObject({ text: '(sent a 🎉 sticker)' })
+  expect(received[6]?.files).toBeUndefined()
+  expect(received[6]?.unsupported).toBeUndefined()
   // The bot's own kind is never delivered, and the offset moves past everything handled.
   expect(received.some((m) => m.text === 'bot talk')).toBe(false)
-  await until(() => kv.get('offset') === '16')
-  expect(calls.filter((c) => c.method === 'getUpdates').at(1)?.body.offset).toBe(16)
+  await until(() => kv.get('offset') === '18')
+  expect(calls.filter((c) => c.method === 'getUpdates').at(1)?.body.offset).toBe(18)
 })
 
 test('sending renders HTML, falls back to plain text when Telegram cannot parse it, and edits ignore "not modified"', async () => {

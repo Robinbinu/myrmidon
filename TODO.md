@@ -383,6 +383,15 @@ Open work, in the order it will be done:
       Settings → You & mascot → Chat names: from the topic, or the first message.
 12c. - [x] **No pop-up on every answer** (asked 2026-10-08) — done: the "… is done" toast is skipped for the chat on
       screen in a focused window; it still shows for other chats and other views, and the desktop notice when away.
+12d. - [x] **Telegram media** (asked 2026-10-08) — done: voice notes failed because omp picked a local Whisper it
+      cannot call ("Unsupported transcription API: local-inference"); channel voice notes now go to the voice engine
+      chosen in Settings → Voice while voice is on (Phonon-2 reads Telegram's OGG/Opus as is), and omp's fallback
+      only picks models it can call. A photo without a caption failed with "message is empty": files alone are now a
+      message. Stickers: a still one comes as its WebP image with its emoji, an animated one as its emoji.
+      Not yet checked against the real Telegram (needs a message sent to the bot).
+12e. - [ ] **Flaky under load: LINE sender name** — channels-line "events become messages…" saw "Someone" for
+      "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
+      passes alone.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned

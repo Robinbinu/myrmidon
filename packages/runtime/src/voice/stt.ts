@@ -10,6 +10,8 @@ const WARM_CLIP = join(import.meta.dir, 'warm-speech.wav')
 /** Speech to text for a call: one finished turn of 16-bit mono audio in, its words out. */
 export interface SpeechToText {
   transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string>
+  /** A whole recording as it came (a channel's voice note: OGG/Opus, MP3, M4A…), when the engine reads it as is. */
+  transcribeFile?(audio: Uint8Array, mimeType: string, name: string): Promise<string>
 }
 
 /** An OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, a local whisper server, Phonon's own). */
@@ -25,9 +27,22 @@ export class OpenAiCompatibleStt implements SpeechToText {
     },
   ) {}
 
-  async transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
+  transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
+    return this._post(wav(pcm, sampleRate), 'audio/wav', 'turn.wav', signal)
+  }
+
+  transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string> {
+    return this._post(audio, mimeType, name)
+  }
+
+  private async _post(
+    audio: Uint8Array,
+    mimeType: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const form = new FormData()
-    form.append('file', new Blob([wav(pcm, sampleRate)], { type: 'audio/wav' }), 'turn.wav')
+    form.append('file', new Blob([audio as Uint8Array<ArrayBuffer>], { type: mimeType }), name)
     form.append('model', this.options.model)
     form.append('response_format', 'json')
     const res = await fetch(`${this.options.baseUrl.replace(/\/+$/, '')}/audio/transcriptions`, {
@@ -49,6 +64,10 @@ export class FunctionStt implements SpeechToText {
 
   async transcribe(pcm: Int16Array, sampleRate: number): Promise<string> {
     return (await this.run(wav(pcm, sampleRate), 'audio/wav', 'turn.wav')).trim()
+  }
+
+  async transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string> {
+    return (await this.run(audio, mimeType, name)).trim()
   }
 }
 
@@ -127,6 +146,11 @@ export class PhononStt implements SpeechToText {
 
   async transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
     return (await this.start()).transcribe(pcm, sampleRate, signal)
+  }
+
+  /** Phonon-2's server reads WAV, FLAC, OGG (Opus, as Telegram sends voice notes) and AIFF as they are. */
+  async transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string> {
+    return (await this.start()).transcribeFile(audio, mimeType, name)
   }
 
   /**

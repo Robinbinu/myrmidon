@@ -401,7 +401,9 @@ export function startServer(options: ServeOptions): WebServer {
         },
         ...(options.omp
           ? {
-              transcribe: (audio, mimeType, name) =>
+              // The voice engine chosen in Settings → Voice (Phonon-2 on this Mac) while voice is on; omp's otherwise.
+              transcribe: async (audio, mimeType, name) =>
+                (await voice?.transcribeFile(audio, mimeType, name)) ??
                 (options.omp as OmpRuntime).transcribe(audio, mimeType, name),
             }
           : {}),

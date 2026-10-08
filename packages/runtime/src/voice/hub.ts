@@ -297,6 +297,16 @@ export class VoiceHub {
     return done
   }
 
+  /**
+   * A recording as text with the speech to text chosen in Settings → Voice (a channel's voice note), while voice is
+   * on; undefined when it is off or the engine cannot read a whole file, so the caller can try something else.
+   */
+  async transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string | undefined> {
+    if (!this.enabled) return undefined
+    const stt = this.stt()
+    return stt.transcribeFile ? (await stt.transcribeFile(audio, mimeType, name)).trim() : undefined
+  }
+
   /** A sentence in the chosen voice, for "Try it" in Settings. */
   async sample(text: string): Promise<Speech> {
     const speech = await this.tts().speak(text)

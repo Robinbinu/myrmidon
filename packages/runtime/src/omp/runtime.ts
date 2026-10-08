@@ -390,10 +390,14 @@ async function start(home: string): Promise<OmpRuntime> {
       await core.registry.refresh('online')
     },
     async transcribe(audio, mimeType, fileName) {
-      const models = core.registry.getAvailable('stt')
+      // Only models this transcriber can call: omp also lists local ones it runs another way ("local-inference").
+      const models = core.registry.getAvailable('stt').filter((m) => m.api === 'openai-transcriptions')
       // Whisper-style models first; any speech model otherwise.
       const model = models.find((m) => /whisper/i.test(m.id)) ?? models[0]
-      if (!model) throw new Error('no speech-to-text model: add an OpenAI or Groq key in Settings → Models')
+      if (!model)
+        throw new Error(
+          'no speech-to-text model: turn on Voice calls in Settings → Voice (Phonon-2 runs on this Mac), or add an OpenAI or Groq key in Settings → Models',
+        )
       const apiKey = (await core.registry.getApiKey(model)) as string | undefined
       if (!apiKey) throw new Error(`no key for ${model.provider}`)
       const result = await transcribeAudio(

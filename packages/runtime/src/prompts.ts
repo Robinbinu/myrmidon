@@ -465,6 +465,8 @@ nobody owns, publish artifacts, and request final verification once the output m
 
   /** What a chat sets up for each round. */
   chat: {
+    /** The message when the person sent files and no words (a photo without a caption). */
+    filesOnly: (names: readonly string[]) => `(sent ${names.join(', ')})`,
     /** Added to a message the person said aloud on a voice call. */
     spoken:
       '\n\n(Said aloud on a voice call; your reply will be read aloud. Answer in one to three short spoken sentences, in plain words, with no markdown, lists, code or links. Put anything longer in a file or a later message, and say so.)',

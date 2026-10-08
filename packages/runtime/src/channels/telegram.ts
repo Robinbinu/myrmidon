@@ -82,7 +82,7 @@ interface TgMessage {
   audio?: TgFile
   video?: TgFile
   document?: TgFile
-  sticker?: unknown
+  sticker?: TgFile & { emoji?: string; is_animated?: boolean; is_video?: boolean }
   location?: unknown
 }
 interface TgUpdate {
@@ -355,14 +355,18 @@ export class TelegramAdapter implements ChannelAdapter {
     if (msg.video) files.push(this._file('video', msg.video, `video-${msg.message_id}.mp4`, 'video/mp4'))
     if (msg.document)
       files.push(this._file('document', msg.document, `file-${msg.message_id}`, 'application/octet-stream'))
+    // A sticker says its emoji; a still one is a WebP image the crew can look at (animated ones are not images).
+    const sticker = msg.sticker
+    if (sticker && !sticker.is_animated && !sticker.is_video)
+      files.push(this._file('image', sticker, `sticker-${msg.message_id}.webp`, 'image/webp'))
     return {
       messageId: String(msg.message_id),
       chat,
       sender: senderOf(msg.from),
-      text,
+      text: text || (sticker ? channelCopy.sticker(sticker.emoji) : ''),
       mentioned,
       ...(files.length ? { files } : {}),
-      ...(!raw && !files.length && (msg.sticker || msg.location) ? { unsupported: true } : {}),
+      ...(!raw && !files.length && !sticker && msg.location ? { unsupported: true } : {}),
       time: new Date(msg.date * 1000).toISOString(),
     }
   }

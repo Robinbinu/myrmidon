@@ -3471,3 +3471,23 @@ test('a chat is named from what it is about once there is something to name, and
   expect(await named()).toBe('Sales')
   await chats.stopAll()
 })
+
+test('a photo sent without words is still a message: it says what was sent, and the file is there', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Nice photo.', final: true })]])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10])
+  const { colonyId } = await chats.send('', { ...solo('mock/lead'), judgeModel: 'mock/judge' }, undefined, {
+    attachments: [{ name: 'photo-6.jpg', bytes: jpeg }],
+  })
+  const s = await waitFor(colonyId)
+  const user = (await events(colonyId)).find((e) => e.type === 'chat/user')
+  expect(user?.payload).toMatchObject({ text: '(sent photo-6.jpg)' })
+  expect(Object.keys(s.artifacts).some((name) => name.endsWith('photo-6.jpg'))).toBe(true)
+  // Neither words nor files is still nothing to send.
+  await expect(chats.send('  ', { ...solo('mock/lead'), judgeModel: 'mock/judge' })).rejects.toThrow(
+    'message is empty',
+  )
+  await chats.stopAll()
+})
