@@ -179,10 +179,10 @@ export const channelCopy = {
         `Approve it in Settings → Channels, or run: myrmidon channels approve ${channel} ${code}`,
       ].join('\n'),
     waiting: 'Your request is still waiting for approval.',
-    approved: (owner: boolean) =>
+    approved: (owner: boolean, p: string) =>
       owner
-        ? "You're set up as the owner. Send me what you want done; /help lists the commands."
-        : "You've been approved. Send me what you want done; /help lists the commands.",
+        ? `You're set up as the owner. Send me what you want done; ${p}help lists the commands.`
+        : `You've been approved. Send me what you want done; ${p}help lists the commands.`,
     groupApproved: 'This group is approved. Mention me (or reply to me) when you want something done.',
   },
   commands: {
@@ -193,18 +193,20 @@ export const channelCopy = {
       { command: 'status', description: 'What is running' },
       { command: 'help', description: 'What I can do' },
     ],
-    help: [
-      'Send a message and the crew works on it; I keep a status line updated and send the answer when done.',
-      'Writing while it works reaches the crew at once.',
-      '/new: start a fresh conversation',
-      '/stop: stop the work in progress',
-      '/status: what is running',
-      'This chat is also in the Myrmidon app, where you can follow it in detail.',
-    ].join('\n'),
+    /** `p` is how commands are typed on this platform: `/`, or `!` where the app keeps `/` for itself. */
+    help: (p: string) =>
+      [
+        'Send a message and the crew works on it; I keep a status line updated and send the answer when done.',
+        'Writing while it works reaches the crew at once.',
+        `${p}new: start a fresh conversation`,
+        `${p}stop: stop the work in progress`,
+        `${p}status: what is running`,
+        'This chat is also in the Myrmidon app, where you can follow it in detail.',
+      ].join('\n'),
     fresh: 'Fresh start: your next message begins a new conversation.',
     stopped: 'Stopping.',
     nothingRunning: 'Nothing is running.',
-    unknown: (name: string) => `I don't know /${name}. /help lists the commands.`,
+    unknown: (name: string, p: string) => `I don't know ${p}${name}. ${p}help lists the commands.`,
   },
   status: {
     working: 'Working…',
@@ -226,7 +228,8 @@ export const channelCopy = {
     once: 'Allow once',
     always: (tool: string) => `Always allow ${tool}`,
     deny: 'Deny',
-    typed: (key: string) => `Reply /approve ${key}, /approve ${key} always, or /deny ${key}.`,
+    typed: (key: string, p: string) =>
+      `Reply ${p}approve ${key}, ${p}approve ${key} always, or ${p}deny ${key}.`,
     allowed: (who: string) => `✅ Allowed by ${who}`,
     allowedAlways: (who: string, tool: string) => `✅ Allowed by ${who}; ${tool} is now always allowed`,
     denied: (who: string) => `❌ Denied by ${who}`,

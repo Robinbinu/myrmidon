@@ -58,6 +58,8 @@ export class TwitchAdapter implements ChannelAdapter {
   /** Twitch's message limit; no edits, files or buttons in chat. */
   readonly limits = { text: MESSAGE_CHARS, editMs: 1500 }
   readonly can = { buttons: false, files: false, edit: false }
+  /** The app keeps `/` for its own commands, so the hub's are typed with `!` (turned into `/` on the way in). */
+  readonly commandPrefix = '!'
   private _login?: string
   private _ws?: WebSocket
   private _ready = false

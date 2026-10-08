@@ -599,3 +599,56 @@ test('a platform that cannot edit is told how an approval ended in a new message
   await until(() => adapter.to('100').includes('✅ Allowed in the app'))
   expect(adapter.edits.some((e) => e.text.includes('Allowed'))).toBe(false)
 })
+
+test('platforms set their own command prefix and starting rules; an owner without a private chat approves in the group', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-channels-'))
+  dirs.push(dir)
+  const adapter = Object.assign(new FakeAdapter(), { commandPrefix: '!' })
+  adapter.can = { buttons: false, files: false, edit: false }
+  const chats = new FakeChats()
+  const hub = new ChannelHub({
+    dir,
+    chats,
+    kinds: () => ({
+      twitch: {
+        label: 'Twitch',
+        fields: [{ key: 'token', label: 'Token', secret: true }],
+        defaults: { groups: 'open' },
+        make: () => adapter,
+      },
+    }),
+  })
+  hubs.push(hub)
+  await hub.configure('twitch', { values: { token: 'tok' }, allow: ['@owner'] })
+  // The platform's own starting rule applied, and only the first time.
+  expect(hub.store.get('twitch').groups).toBe('open')
+  await hub.configure('twitch', { groups: 'approve' })
+  await hub.configure('twitch', { groups: 'open', mention: true })
+  expect(hub.store.get('twitch').groups).toBe('open')
+
+  const owner = { id: 'o1', name: 'Olive', handle: 'owner' }
+  const say = (text: string) =>
+    adapter.io?.receive({
+      messageId: `${Math.random()}`,
+      chat: { id: '#stream', kind: 'group', title: 'stream' },
+      sender: owner,
+      text,
+      mentioned: true,
+      time: new Date().toISOString(),
+    })
+  // The adapter turns `!help` into `/help` on the way in; the hub's answer writes commands the platform's way.
+  await say('/help')
+  await until(() => adapter.to('#stream').some((t) => t.includes('!new: start a fresh conversation')))
+
+  await say('play a song list')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-9',
+    agent: 'lead',
+    tool: 'web_fetch',
+    summary: 'read a page',
+  })
+  // No private chat on this platform: the approval is asked in the group, with `!` commands.
+  await until(() => adapter.to('#stream').some((t) => t.includes('!approve ')))
+  expect(adapter.to('#stream').some((t) => t.includes('no owner'))).toBe(false)
+})

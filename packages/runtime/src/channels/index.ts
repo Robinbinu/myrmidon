@@ -120,6 +120,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   email: {
     label: 'Email',
+    defaults: { dm: 'allowlist' },
     setup: channelCopy.setup.email,
     fields: [
       { key: 'address', label: 'Its email address', placeholder: 'myrmidon@example.com' },
@@ -172,6 +173,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   sms: {
     label: 'SMS (Twilio)',
+    defaults: { dm: 'allowlist' },
     setup: channelCopy.setup.sms,
     fields: [
       { key: 'sid', label: 'Account SID', placeholder: 'AC…' },
@@ -532,6 +534,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   twitch: {
     label: 'Twitch',
+    defaults: { groups: 'open' },
     setup: channelCopy.setup.twitch,
     fields: [
       { key: 'username', label: "Bot's username", placeholder: 'mybot' },
@@ -548,6 +551,7 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
   },
   x: {
     label: 'X',
+    defaults: { groups: 'open' },
     setup: channelCopy.setup.x,
     fields: [
       { key: 'apiKey', label: 'API key', secret: true },

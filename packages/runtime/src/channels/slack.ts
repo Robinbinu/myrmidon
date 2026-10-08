@@ -199,6 +199,8 @@ export class SlackAdapter implements ChannelAdapter {
   /** One section per message, about one edit a second, and files as large as Telegram's. */
   readonly limits = { text: SECTION_MAX, editMs: 1500, file: 50 * 1024 * 1024 }
   readonly can = { buttons: true, files: true, edit: true }
+  /** The app keeps `/` for its own commands, so the hub's are typed with `!` (turned into `/` on the way in). */
+  readonly commandPrefix = '!'
   private _me?: { id: string; name: string; team: string }
   private _io?: AdapterIO
   private _abort?: AbortController

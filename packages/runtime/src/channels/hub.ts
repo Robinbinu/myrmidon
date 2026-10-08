@@ -62,6 +62,11 @@ export interface ChannelKind {
   readonly make: AdapterFactory
   /** A line for Settings on how to get the settings (create a bot, link a device…). */
   readonly setup?: string
+  /**
+   * Access rules this platform starts with, where the general defaults would not suit it: email and SMS answer only
+   * listed people (a pairing code by email or paid text helps no one), group-only platforms answer in any group.
+   */
+  readonly defaults?: Partial<Pick<ChannelConfig, 'dm' | 'groups' | 'mention'>>
 }
 
 /** One channel as Settings shows it; secret values never leave the hub. */
@@ -253,6 +258,11 @@ export class ChannelHub {
    */
   async configure(id: string, patch: ChannelPatch) {
     const kind = this._kind(id)
+    // The first time a channel is configured it starts from its platform's own rules.
+    if (kind.defaults && !this.store.exists(id))
+      this.store.update(id, (c) => {
+        Object.assign(c, kind.defaults)
+      })
     if (patch.values) {
       const values = { ...this.store.get(id).values }
       for (const [k, v] of Object.entries(patch.values)) {
@@ -291,7 +301,7 @@ export class ChannelHub {
     const adapter = this._running.get(id)
     const text = approved.group
       ? t.pairing.groupApproved
-      : t.pairing.approved(approved.person?.role === 'owner')
+      : t.pairing.approved(approved.person?.role === 'owner', adapter?.commandPrefix ?? '/')
     await adapter?.send(approved.request.chat, { text }).catch(() => {})
     return approved
   }
@@ -545,7 +555,8 @@ export class ChannelHub {
     const conversation = this._conversation(c, m)
     const chatId = c.chats[conversation]
     const tracker = [...this._trackers.values()].find((x) => x.chatId === chatId)
-    if (name === 'start' || name === 'help') return void (await reply(t.commands.help))
+    const p = adapter.commandPrefix ?? '/'
+    if (name === 'start' || name === 'help') return void (await reply(t.commands.help(p)))
     if (name === 'new') {
       this.store.update(channel, (cfg) => {
         delete cfg.chats[conversation]
@@ -565,7 +576,7 @@ export class ChannelHub {
       const decision = name === 'deny' ? 'd' : always === 'always' ? 'a' : 'o'
       return this._decide(channel, person, k ?? '', decision, (note) => reply(note))
     }
-    await reply(t.commands.unknown(name))
+    await reply(t.commands.unknown(name, p))
   }
 
   private async _press(channel: string, adapter: ChannelAdapter, person: ChannelPerson, m: Inbound) {
@@ -838,13 +849,17 @@ export class ChannelHub {
             [{ label: t.approval.deny, data: `a:d:${k}` }],
           ],
         }
-      : { text: `${text}\n\n${t.approval.typed(k)}` }
+      : { text: `${text}\n\n${t.approval.typed(k, tracker.adapter.commandPrefix ?? '/')}` }
     const here = tracker.to.kind === 'dm' && owner?.dm === tracker.to.id
+    // An owner with no private chat (group-only platforms like Twitch) is asked where the run is; only their press
+    // counts there too.
     const target: ChannelChat | undefined = here
       ? tracker.to
       : owner?.dm
         ? { id: owner.dm, kind: 'dm' }
-        : undefined
+        : owner
+          ? tracker.to
+          : undefined
     if (!target) {
       await tracker.adapter.send(tracker.to, { text: t.approval.noOwner }).catch(() => {})
       return
@@ -858,7 +873,8 @@ export class ChannelHub {
       text,
       messages: [{ adapter: tracker.adapter, ref, to: target }],
     })
-    if (!here) await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})
+    if (target !== tracker.to)
+      await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})
   }
 
   private _closeApproval(decided: EventPayloads['approval/decided']) {

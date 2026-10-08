@@ -115,6 +115,11 @@ export interface ChannelAdapter {
   readonly label: string
   /** The longest message it can send, how long to wait between edits of one message, the largest file. */
   readonly limits: { readonly text: number; readonly editMs: number; readonly file?: number }
+  /**
+   * How people type the hub's commands here: `/` by default, `!` where the app keeps `/` for its own commands (Slack,
+   * IRC, Twitch). The adapter turns them into `/` commands on the way in; the hub writes them this way in its help.
+   */
+  readonly commandPrefix?: string
   /** What it can do beyond text; the hub falls back to typed commands and file names. */
   readonly can: { readonly buttons: boolean; readonly files: boolean; readonly edit: boolean }
   /** Checks its credentials and says which account they are (e.g. `@mybot`); throws with the reason otherwise. */

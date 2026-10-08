@@ -484,6 +484,8 @@ export class IrcAdapter implements ChannelAdapter {
   /** The hub's pieces, each then cut into lines of at most 400 bytes; IRC has no edits, files or buttons. */
   readonly limits = { text: 2000, editMs: 1500 }
   readonly can = { buttons: false, files: false, edit: false }
+  /** The app keeps `/` for its own commands, so the hub's are typed with `!` (turned into `/` on the way in). */
+  readonly commandPrefix = '!'
   private _conn?: IrcConnection
   private _io?: AdapterIO
   private _abort?: AbortController

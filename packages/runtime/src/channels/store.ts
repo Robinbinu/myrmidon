@@ -111,6 +111,11 @@ export class ChannelStore {
     }
   }
 
+  /** Whether a channel has been configured at all (so a platform's own defaults apply only the first time). */
+  exists(channel: string): boolean {
+    return channel in this._all()
+  }
+
   get(channel: string): ChannelConfig {
     const now = Date.now()
     const saved = this._all()[channel] ?? {}
