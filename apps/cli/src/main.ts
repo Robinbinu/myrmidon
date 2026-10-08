@@ -36,6 +36,7 @@ import {
   ScheduleStore,
   SettingsStore,
   SkillLibrary,
+  SkillProposalStore,
   SpecialistStore,
   ToolLibrary,
 } from '@myrmidon/runtime'
@@ -291,6 +292,7 @@ async function main() {
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
+      const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
@@ -309,6 +311,7 @@ async function main() {
         browser,
         projects,
         specialists,
+        skillProposals,
         library,
         checkpoints,
         memory,
@@ -327,6 +330,7 @@ async function main() {
         browser,
         projects,
         specialists,
+        skillProposals,
         library,
         memory,
         skills,

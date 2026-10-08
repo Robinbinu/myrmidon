@@ -348,9 +348,26 @@ export function App() {
   }
 
   /** Slash commands from the composer (the ones it does not handle itself). */
+  /** Asks a reviewer to read the open chat for a skill worth keeping; the proposal appears as a card in the chat. */
+  const learn = async () => {
+    if (!activeChat) return toast(copy.app.toasts.openChatToLearn, 'info')
+    toast(copy.app.toasts.learning, 'info')
+    try {
+      const r = await post<{ proposal: { name: string } | null }>(`/api/chats/${activeChat}/learn`, {})
+      toast(
+        r.proposal ? copy.app.toasts.learned(r.proposal.name) : copy.app.toasts.nothingToLearn,
+        r.proposal ? 'success' : 'info',
+      )
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+
   const command = async (name: string, arg: string) => {
     const last = chat?.rounds.at(-1)
     switch (name) {
+      case 'learn':
+        return learn()
       case 'plan':
         return send(arg, activeChat, 'steer', [], true)
       case 'steer':
@@ -698,6 +715,7 @@ export function App() {
                         {...(chat ? { chat } : {})}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
+                        onLearn={() => void learn()}
                         onAnswer={(t) => void send(t).catch(() => {})}
                         onResume={resume}
                         models={models}
@@ -808,6 +826,8 @@ function Transcript(props: {
   chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Asks for a skill to be learned from this chat. */
+  onLearn(): void
   onAnswer(text: string): void
   onResume(model?: string): Promise<void>
   models: ModelOption[]
@@ -835,6 +855,7 @@ function Transcript(props: {
                 round={r.round}
                 onOpenColony={props.onOpenColony}
                 onRetry={props.onRetry}
+                onLearn={props.onLearn}
                 onAnswer={props.onAnswer}
                 onResume={props.onResume}
                 models={props.models}

@@ -170,6 +170,8 @@ export interface ColonyState {
   >
   /** Results of approved calls that ran, by receipt key. */
   receipts: Record<string, string>
+  /** Skills proposed from this colony's work, and whether the person kept them (unset while undecided). */
+  skillProposals: Record<string, EventPayloads['skill/proposed'] & { seq: number; kept?: boolean }>
   /** Project folder snapshots of this round, and the latest rewind (if any). */
   checkpoints: {
     start?: string
@@ -239,6 +241,7 @@ export function emptyColonyState(id: string): ColonyState {
     checkpoints: {},
     approvals: {},
     receipts: {},
+    skillProposals: {},
     servers: {},
     worktrees: {},
     memories: {},
@@ -376,6 +379,17 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['approval/decided']
       const request = state.approvals[p.id]
       if (request) request.decided = p
+      break
+    }
+    case 'skill/proposed': {
+      const p = event.payload as EventPayloads['skill/proposed']
+      state.skillProposals[p.id] = { ...p, seq: event.seq }
+      break
+    }
+    case 'skill/decided': {
+      const p = event.payload as EventPayloads['skill/decided']
+      const proposal = state.skillProposals[p.id]
+      if (proposal) proposal.kept = p.kept
       break
     }
     case 'review/done': {

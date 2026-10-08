@@ -166,6 +166,16 @@ export interface EventPayloads {
     why: string
   }
   'memory/decided': { id: string; kept: boolean }
+  /** A reviewer read the round and proposes a skill (or, with `update`, a change to one it learned before). */
+  'skill/proposed': {
+    id: string
+    name: string
+    description: string
+    body: string
+    why: string
+    update?: { description: string; body: string }
+  }
+  'skill/decided': { id: string; kept: boolean }
   /**
    * One of the person's hooks ran. `outcome`: `blocked` stopped the tool, `asked` sent it to the person,
    * `feedback` told the agent something after the tool, `failed` means the hook itself errored.

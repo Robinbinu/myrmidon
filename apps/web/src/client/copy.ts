@@ -346,6 +346,7 @@ export const copy = {
       rename: { args: '<title>', description: 'Rename this chat' },
       attach: { description: 'Attach files to your next message' },
       export: { description: 'Download this chat as Markdown' },
+      learn: { description: 'Learn a skill from how this chat did its work' },
       mcp: { description: 'Manage MCP servers' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
@@ -538,6 +539,20 @@ export const copy = {
       keep: 'Keep',
       kept: 'Kept: later chats start with it',
     },
+    /** A skill a reviewer proposed from finished work. */
+    skill: {
+      learned: 'Learned a skill',
+      improve: 'Improve the skill',
+      why: (why: string) => `Why: ${why}`,
+      description: 'When to use it',
+      instructions: 'Instructions',
+      edit: 'Edit',
+      preview: 'Preview',
+      discard: 'Discard',
+      keep: 'Keep',
+      kept: (name: string) => `Kept ${name}: every chat can use it now`,
+      discarded: 'Discarded',
+    },
   },
 
   folderPicker: {
@@ -727,6 +742,7 @@ export const copy = {
       steps: (n: number) => `${n} step${n === 1 ? '' : 's'}`,
       detailsTitle: 'Map, replay and transcripts of this round',
       detailsLabel: "Open the round's details",
+      learnTitle: 'Learn a skill from how this was done',
     },
     helpers: {
       /** Each helper as "nova (researcher)". */
@@ -949,6 +965,10 @@ export const copy = {
       fallbackName: 'chat',
     },
     toasts: {
+      learning: 'Reading this chat for a skill worth keeping…',
+      learned: (name: string) => `Proposed a skill: ${name}. Keep or discard it below.`,
+      nothingToLearn: 'Nothing in this chat worth keeping as a skill.',
+      openChatToLearn: 'Open a chat to learn a skill from it',
       roundDone: (title: string) => `“${title}” is done`,
       roundEnded: (title: string, status: string) => `“${title}” ${status}`,
       paused: 'paused',
@@ -1674,6 +1694,8 @@ export const copy = {
       loading: 'Loading skills…',
       emptyTitle: 'No skills yet',
       emptyBody: 'Put a skill folder in one of the places above and it appears here.',
+      /** Skills a reviewer proposed from finished work, waiting for the person. */
+      proposed: (n: number) => `Proposed from your chats (${n})`,
       canUse: (name: string) => `Agents can use ${name}`,
     },
     memory: {

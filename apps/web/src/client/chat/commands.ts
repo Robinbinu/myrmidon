@@ -130,6 +130,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
   { name: 'attach', description: copy.commands.list.attach.description, group: 'Chat' },
   { name: 'export', description: copy.commands.list.export.description, group: 'Chat', when: 'chat' },
+  { name: 'learn', description: copy.commands.list.learn.description, group: 'Chat', when: 'chat' },
   { name: 'mcp', description: copy.commands.list.mcp.description, group: 'App' },
   { name: 'settings', description: copy.commands.list.settings.description, group: 'App' },
   { name: 'help', description: copy.commands.list.help.description, group: 'App' },

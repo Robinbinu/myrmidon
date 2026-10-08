@@ -37,6 +37,7 @@ import {
   type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
+  type SkillProposalStore,
   type SpecialistInput,
   type SpecialistStore,
   startScheduler,
@@ -76,6 +77,7 @@ export interface ServeOptions {
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
+  readonly skillProposals?: SkillProposalStore
   /** Tools agents made that the person chose to keep. */
   readonly library?: ToolLibrary
   /** What the person keeps across chats (memory). */
@@ -766,6 +768,41 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.memory) return json({ error: 'memory needs the chat runtime' }, 503)
           options.memory.remove(req.params.id ?? '')
           return json({ memories: options.memory.list() })
+        }),
+      },
+      // Skills a reviewer proposed from finished work: listed for Settings, kept or discarded by the person.
+      '/api/skill-proposals': {
+        GET: guard(() => json({ proposals: options.skillProposals?.list('proposed') ?? [] })),
+      },
+      '/api/skill-proposals/:id/decide': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            keep?: unknown
+            description?: unknown
+            body?: unknown
+          }
+          if (typeof body.keep !== 'boolean') return json({ error: 'keep must be true or false' }, 400)
+          try {
+            await options.chats.decideSkill(req.params.id ?? '', body.keep, {
+              ...(typeof body.description === 'string' ? { description: body.description } : {}),
+              ...(typeof body.body === 'string' ? { body: body.body } : {}),
+            })
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+      },
+      '/api/chats/:chatId/learn': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const proposal = await options.chats.learnNow(req.params.chatId ?? '')
+            return json({ proposal: proposal ?? null })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
         }),
       },
       '/api/memory/:id/decide': {

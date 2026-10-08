@@ -17,7 +17,7 @@ import type { BrowserHub } from './browser.ts'
 import { ChatIndex, type CrewMember, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
-import { MAX_WORKERS } from './config.ts'
+import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -29,6 +29,13 @@ import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
 import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import {
+  reviewRound,
+  roundDigest,
+  type SkillProposal,
+  type SkillProposalStore,
+  toolCallsSince,
+} from './skill-learning.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
 import { type SpecialistStore, specialistAgent } from './specialists.ts'
@@ -262,8 +269,95 @@ export class ChatService {
       projects?: ProjectStore
       /** Agents the person defined once and brings back. */
       specialists?: SpecialistStore
+      /** Skills a reviewer proposed from finished work, waiting for the person or decided. */
+      skillProposals?: SkillProposalStore
     },
   ) {}
+
+  /**
+   * Reads a colony's latest round for a skill worth keeping and proposes it. Unless the person asked (/learn), only a
+   * round that took real work is read. Returns the proposal, or undefined when there is nothing worth keeping.
+   */
+  private async _reviewForSkill(
+    colonyId: string,
+    model: string,
+    asked: boolean,
+  ): Promise<SkillProposal | undefined> {
+    const { skills, skillProposals } = this.options
+    if (!skills || !skillProposals) throw new Error('learning skills needs the skill library')
+    const events = await this.store.read(colonyId as never)
+    const state = foldColony(colonyId, events)
+    const from = state.rounds.at(-1)?.startSeq ?? 0
+    if (!asked && toolCallsSince(events, from) < SKILL_REVIEW_CALLS) return undefined
+    const review = await reviewRound({
+      resolver: this.options.resolver,
+      model,
+      skills,
+      digest: roundDigest(events, from),
+      asked,
+    })
+    if (!review) return undefined
+    const proposal = skillProposals.add({
+      ...review,
+      colonyId,
+      ...(state.chat ? { chatId: state.chat.chatId } : {}),
+    })
+    await this._appendTo(colonyId, {
+      type: 'skill/proposed',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: {
+        id: proposal.id,
+        name: proposal.name,
+        description: proposal.description,
+        body: proposal.body,
+        why: proposal.why,
+        ...(proposal.update ? { update: proposal.update } : {}),
+      },
+    })
+    return proposal
+  }
+
+  /** Logs to a colony whether or not one of its rounds is running. */
+  private async _appendTo(colonyId: string, draft: Parameters<ColonyRun['append']>[0]) {
+    const live = [...this._live.values()].find((r) => r.id === colonyId)
+    if (live && live.state().status === 'running') await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(colonyId as never, draft)
+  }
+
+  /** The person asked to learn a skill from a chat (/learn): its latest round is read now, whatever its size. */
+  async learnNow(chatId: string): Promise<SkillProposal | undefined> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const agents = Object.values(latest.state.agents)
+    const model = (agents.find((a) => a.info.role === 'lead') ?? agents[0])?.info.model
+    if (!model) throw new Error('this chat has no agents to learn from')
+    return this._reviewForSkill(latest.id, model, true)
+  }
+
+  /** Keeps (in Myrmidon's skills, for every chat) or discards a proposed skill, with any edits the person made. */
+  async decideSkill(
+    id: string,
+    keep: boolean,
+    edits: { description?: string; body?: string } = {},
+  ): Promise<void> {
+    const { skills, skillProposals } = this.options
+    if (!skills || !skillProposals) throw new Error('learning skills needs the skill library')
+    const proposal = skillProposals.get(id)
+    if (!proposal) throw new Error('no such skill proposal')
+    if (proposal.status !== 'proposed') throw new Error(`this proposal was already ${proposal.status}`)
+    if (keep)
+      skills.write(
+        proposal.name,
+        edits.description?.trim() || proposal.description,
+        edits.body?.trim() || proposal.body,
+      )
+    skillProposals.setStatus(id, keep ? 'kept' : 'discarded')
+    await this._appendTo(proposal.colonyId, {
+      type: 'skill/decided',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id, kept: keep },
+    })
+  }
 
   /**
    * A crew member who is one of the person's specialists works as they set it up now: its specialty, instructions and
@@ -531,6 +625,11 @@ export class ChatService {
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
+      // A finished round that took real work is read for a skill worth keeping, after the fact.
+      if (final.status === 'completed' && this.options.skillProposals && this.options.skills)
+        this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
+          console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
+        )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }

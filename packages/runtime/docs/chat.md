@@ -27,6 +27,10 @@ The person drives Myrmidon from a chat composer. When they ask what they can do,
 - **Steer or queue.** A message sent while a round runs either joins your next step (steer) or waits until you
   finish your current work (queue); `/steer` and `/queue` pick explicitly. You see it as a `[user]` item.
 - **@name.** Typing `@` offers the crew; a message to `@nova` goes to nova directly, who answers the person.
+- **Learned skills.** After a round that took real work (20+ tool calls), or when the person asks (`/learn`), a
+  reviewer reads what happened and proposes a skill: a new one, or an update to one Myrmidon learned before (marked
+  `source: learned`; skills the person wrote are never changed). The person keeps, edits or discards it, in the chat
+  or in Settings → Skills; kept skills reach every chat through `use_skill`.
 - **Specialists** (Settings → Specialists). Agents the person defines once: a fixed name, a specialty, their own
   instructions, a model and the tools they may use. The person puts one on a team from the composer, or saves a
   worker that did well from its sheet; a lead brings one in by name with `spawn_worker(specialist, focus)`.

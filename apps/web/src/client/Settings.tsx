@@ -42,6 +42,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ModelOption, send, type TeamConfig } from './api.ts'
+import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { windowLabel } from './chat/ModelPicker.tsx'
@@ -3046,10 +3047,15 @@ function PluginsSection() {
 function SkillsSection() {
   const toast = useToast()
   const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
-  const load = () =>
-    api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+  const [proposed, setProposed] = useState<SkillProposalView[]>([])
+  const load = () => {
+    api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
+      .then((r) => setProposed(r.proposals))
+      .catch(() => {})
+    return api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
       .then(setData)
       .catch((err: Error) => toast(err.message, 'error'))
+  }
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     void load()
@@ -3065,6 +3071,18 @@ function SkillsSection() {
         <code className="font-mono text-[12.5px]">.claude/skills</code>
         {copy.settings.skills.introAfterProjectDir}
       </Heading>
+      {proposed.length > 0 && (
+        <div className="mb-6 flex flex-col gap-3">
+          <h4 className="text-[13px] font-semibold text-fg-2">
+            {copy.settings.skills.proposed(proposed.length)}
+          </h4>
+          <AnimatePresence initial={false}>
+            {proposed.map((p) => (
+              <SkillProposalCard key={p.id} proposal={p} onDecided={() => void load()} />
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
       {!data ? (
         <div className="flex items-center gap-2 text-[13px] text-muted">
           <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}

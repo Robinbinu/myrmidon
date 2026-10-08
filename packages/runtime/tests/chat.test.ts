@@ -406,6 +406,70 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
   await chats.stopAll()
 })
 
+test('a round that took real work is reviewed for a skill; kept, it is learned, and /learn can improve it', async () => {
+  const { SkillLibrary } = await import('../src/skills.ts')
+  const { SkillProposalStore, parseReview } = await import('../src/skill-learning.ts')
+  expect(parseReview('{"skip": true}')).toBeUndefined()
+  expect(() => parseReview('{"name": "Bad Name", "description": "x", "body": "y"}')).toThrow('lowercase')
+  const skills = new SkillLibrary(home, join(home, 'no-claude-skills'))
+  const skillProposals = new SkillProposalStore(home)
+  const resolver = new ModelResolver()
+  let reviews = 0
+  const body =
+    '## Steps\n1. Read the CSV header first.\n2. Convert dates to ISO before grouping.\n## Pitfalls\n- Excel dates.'
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      if (ctx.systemPrompt?.join('\n').includes('You review a finished piece of work')) {
+        reviews++
+        // The second review (/learn) sees the skill it learned and improves it.
+        const asked = JSON.stringify(ctx.messages).includes('csv-date-report')
+        return {
+          content: [
+            JSON.stringify({
+              name: 'csv-date-report',
+              description:
+                'Build a report from a CSV with dates: read the header, normalise dates, then group.',
+              body: asked ? `${body}\n- Time zones: convert to UTC.` : body,
+              why: 'Dates broke the first two attempts.',
+            }),
+          ],
+        }
+      }
+      const calls = ctx.messages.filter((m) => m.role === 'toolResult').length
+      // A round with real work: 21 tool calls, then the answer.
+      if (calls < 21) return { content: [tool('update_todo', { items: [{ text: `step ${calls}` }] })] }
+      return { content: [tool('reply_user', { text: 'Report done.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), skills, skillProposals })
+  const { chatId, colonyId } = await chats.send('Make a report from sales.csv', {
+    ...solo('mock/lead'),
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId, (x) => Object.keys(x.skillProposals).length > 0)
+  const proposal = Object.values(s.skillProposals)[0]
+  expect(proposal).toMatchObject({ name: 'csv-date-report', why: 'Dates broke the first two attempts.' })
+  expect(skillProposals.list('proposed')).toHaveLength(1)
+
+  // Kept with the person's edit: it is written as a learned skill every chat can use.
+  await chats.decideSkill(proposal?.id ?? '', true, { body: `${body}\n- Keep the original column order.` })
+  expect(skills.learned().map((l) => l.name)).toEqual(['csv-date-report'])
+  expect(skills.read('csv-date-report')).toContain('Keep the original column order.')
+  expect(skillProposals.list('kept')).toHaveLength(1)
+  expect((await waitFor(colonyId, (x) => x.skillProposals[proposal?.id ?? '']?.kept === true)).status).toBe(
+    'completed',
+  )
+
+  // Asked (/learn): the reviewer proposes an update to the skill it learned, shown against what it says now.
+  const update = await chats.learnNow(chatId)
+  expect(update?.update?.body).toContain('Keep the original column order.')
+  expect(update?.body).toContain('Time zones')
+  expect(reviews).toBe(2)
+  await chats.stopAll()
+})
+
 test('orchestrated: an assigned task wakes only its assignee', async () => {
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>

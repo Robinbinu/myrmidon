@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -31,6 +32,8 @@ export interface Skill {
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
+/** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
+const LEARNED = /^source:\s*learned\s*$/m
 
 /** Parses a SKILL.md's front matter and body; undefined unless it names and describes the skill. */
 export function parseSkillFile(
@@ -132,6 +135,31 @@ export class SkillLibrary {
       parsed?.body ?? '',
       files.length ? prompts.toolResults.skillFiles(files) : '',
     ].join('\n')
+  }
+
+  /**
+   * Skills Myrmidon learned from finished work (`source: learned` in their front matter), with their instructions:
+   * the only skills a reviewer may propose changes to.
+   */
+  learned(): { name: string; description: string; body: string }[] {
+    if (!existsSync(this.dir)) return []
+    return readdirSync(this.dir).flatMap((entry) => {
+      const file = join(this.dir, entry, 'SKILL.md')
+      if (!existsSync(file)) return []
+      const text = readFileSync(file, 'utf8')
+      const parsed = parseSkillFile(text)
+      return parsed && LEARNED.test(text.split(/\r?\n---/)[0] ?? '') ? [parsed] : []
+    })
+  }
+
+  /** Saves a learned skill the person kept, in Myrmidon's own skills folder (every chat sees it). */
+  write(name: string, description: string, body: string) {
+    if (!NAME.test(name)) throw new Error(`not a skill name: ${name}`)
+    const dir = join(this.dir, name)
+    mkdirSync(dir, { recursive: true })
+    const front = `---\nname: ${name}\ndescription: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}\nsource: learned\n---\n\n`
+    writeFileSync(join(dir, 'SKILL.md.tmp'), `${front}${body.trim()}\n`)
+    renameSync(join(dir, 'SKILL.md.tmp'), join(dir, 'SKILL.md'))
   }
 
   setEnabled(name: string, enabled: boolean) {

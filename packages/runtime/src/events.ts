@@ -282,6 +282,25 @@ const defs: EventTypeDefinition[] = [
     }),
   },
   {
+    type: 'skill/proposed',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      id: str(),
+      name: str(),
+      description: str(),
+      body: str(),
+      why: Schema.string().default(''),
+      update: optional(Schema.object({ description: str(), body: str() })),
+    }),
+  },
+  {
+    type: 'skill/decided',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ id: str(), kept: Schema.boolean().required() }),
+  },
+  {
     type: 'review/done',
     version: 1,
     actors: ['system'],

@@ -1,5 +1,14 @@
 import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, KeyRound, MonitorSmartphone, PencilLine, ShieldQuestion, X } from 'lucide-react'
+import {
+  BookmarkPlus,
+  Check,
+  GraduationCap,
+  KeyRound,
+  MonitorSmartphone,
+  PencilLine,
+  ShieldQuestion,
+  X,
+} from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -8,6 +17,7 @@ import { type DiffLine, diffLines } from '../diff.ts'
 import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { spring } from '../ui-config.ts'
+import { Markdown } from './Markdown.tsx'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
@@ -373,6 +383,134 @@ export function MemoryCards({ state }: { state: ColonyState }) {
             </Button>
           </div>
         </motion.div>
+      ))}
+    </AnimatePresence>
+  )
+}
+
+/** A proposed skill as the page gets it: from a chat's log, or from the list in Settings. */
+export interface SkillProposalView {
+  id: string
+  name: string
+  description: string
+  body: string
+  why: string
+  update?: { description: string; body: string }
+}
+
+/**
+ * A skill a reviewer proposed from finished work: what it is for, why it is worth keeping, and its instructions in
+ * full (an update as a diff against what the skill says now). The person may rewrite it, then keep or discard it.
+ */
+export function SkillProposalCard(props: { proposal: SkillProposalView; onDecided?(kept: boolean): void }) {
+  const t = copy.approvals.skill
+  const p = props.proposal
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [description, setDescription] = useState(p.description)
+  const [body, setBody] = useState(p.body)
+  const lines = useMemo(() => (p.update ? diffLines(p.update.body, body) : undefined), [p.update, body])
+  const decide = async (keep: boolean) => {
+    setBusy(true)
+    try {
+      await send('POST', `/api/skill-proposals/${encodeURIComponent(p.id)}/decide`, {
+        keep,
+        ...(keep && description !== p.description ? { description } : {}),
+        ...(keep && body !== p.body ? { body } : {}),
+      })
+      toast(keep ? t.kept(p.name) : t.discarded, keep ? 'success' : 'info')
+      props.onDecided?.(keep)
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+      setBusy(false)
+    }
+  }
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={spring}
+      className="flex flex-col gap-2.5 rounded-2xl border border-accent/30 bg-accent-soft/40 px-4 py-3"
+    >
+      <div className="flex items-center gap-2 text-[13.5px]">
+        <GraduationCap className="size-4 shrink-0 text-accent-fg" />
+        <span className="min-w-0">
+          {p.update ? t.improve : t.learned} <span className="font-mono font-semibold">{p.name}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(!editing)}
+          aria-pressed={editing}
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+        >
+          <PencilLine className="size-3.5" />
+          {editing ? t.preview : t.edit}
+        </button>
+      </div>
+      {p.why && <p className="text-[12.5px] text-fg-2">{t.why(p.why)}</p>}
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <TextArea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            aria-label={t.description}
+            className="text-[13px]"
+          />
+          <TextArea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={Math.min(18, body.split('\n').length + 2)}
+            aria-label={t.instructions}
+            className="font-mono text-[12.5px]"
+          />
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+          <p className="border-b border-line px-3 py-2 text-[13px]">{description}</p>
+          {lines ? (
+            <DiffLines lines={lines} />
+          ) : (
+            <div className="max-h-72 overflow-auto px-3 py-2 text-[13px]">
+              <Markdown text={body} />
+            </div>
+          )}
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => void decide(false)}
+          icon={<X className="size-3.5" />}
+        >
+          {t.discard}
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={busy}
+          onClick={() => void decide(true)}
+          icon={<Check className="size-3.5" />}
+        >
+          {t.keep}
+        </Button>
+      </div>
+    </motion.div>
+  )
+}
+
+/** Skills proposed from this chat's work that the person has not decided on yet. */
+export function SkillCards({ state }: { state: ColonyState }) {
+  const pending = Object.values(state.skillProposals).filter((p) => p.kept === undefined)
+  return (
+    <AnimatePresence initial={false}>
+      {pending.map((p) => (
+        <SkillProposalCard key={p.id} proposal={p} />
       ))}
     </AnimatePresence>
   )

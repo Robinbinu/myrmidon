@@ -67,8 +67,12 @@ Open work, in the order it will be done:
 10. - [x] **Saved specialist agents** (OpenDots) — Settings → Specialists (name, specialty, instructions, model,
       tool groups); joined from the team picker, by the lead with spawn_worker(specialist), or saved from a worker's
       sheet; a kept specialist always works as currently saved.
-11. - [ ] **Learn skills from past chats** (OpenDots idea) — propose a SKILL.md from finished chats for the person to
-      keep or drop, like memory proposals.
+11. - [x] **Learn skills from past chats** (OpenDots idea; built after Qwen Code's skill review) — a reviewer reads a
+      finished round with 20+ tool calls (or any, with /learn or the round's button) and proposes a skill or an update
+      to a learned one (`source: learned`, never the person's own); kept or discarded in the chat card or Settings →
+      Skills; kept skills go to every chat.
+11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
+      archived after 90; needs use counts from use_skill.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).

@@ -20,6 +20,7 @@ import {
   ExternalLink,
   FileCode,
   FileText,
+  GraduationCap,
   LoaderCircle,
   MessageCircleQuestion,
   Network,
@@ -44,11 +45,11 @@ import {
   type Mood,
   PixelFace,
 } from '../ui/pixel.tsx'
-import { Button, cn, Pill, Skeleton } from '../ui/primitives.tsx'
+import { Button, cn, IconButton, Pill, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
-import { ApprovalCards, LoginCards, MemoryCards } from './ApprovalCards.tsx'
+import { ApprovalCards, LoginCards, MemoryCards, SkillCards } from './ApprovalCards.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
@@ -112,6 +113,8 @@ export function RoundView(props: {
   round?: number
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Asks for a skill to be learned from this chat's work. */
+  onLearn(): void
   /** Sends the person's answer to the questions the round is waiting on. */
   onAnswer(text: string): void
   /** Picks a stopped round back up where it left off, optionally on another model. */
@@ -212,6 +215,7 @@ export function RoundView(props: {
             metrics={slice.metrics}
             onOpenColony={() => props.onOpenColony(props.colonyId)}
             onInspect={setInspect}
+            {...(latest ? { onLearn: props.onLearn } : {})}
           />
         </motion.div>
       )}
@@ -221,6 +225,7 @@ export function RoundView(props: {
           <ApprovalCards colonyId={props.colonyId} state={state} />
           <LoginCards state={state} />
           <MemoryCards state={state} />
+          <SkillCards state={state} />
         </>
       )}
       <AnimatePresence initial={false}>{thread.slice(split).map(message)}</AnimatePresence>
@@ -246,6 +251,7 @@ export function RoundView(props: {
           events={events}
           metrics={slice.metrics}
           onOpenColony={() => props.onOpenColony(props.colonyId)}
+          {...(latest ? { onLearn: props.onLearn } : {})}
         />
       )}
       {state.status !== 'completed' && (
@@ -642,6 +648,8 @@ function LeadActivity(props: {
   events: readonly MyrEvent[]
   metrics: ColonyMetrics
   onOpenColony(): void
+  /** On the chat's latest round: learn a skill from how it was done. */
+  onLearn?(): void
 }) {
   const { state, events } = props
   const running = isRunning(state.status)
@@ -713,6 +721,17 @@ function LeadActivity(props: {
             className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
           >
             <Network className="size-3.5" />
+          </button>
+        )}
+        {!running && props.onLearn && state.status === 'completed' && (
+          <button
+            type="button"
+            onClick={props.onLearn}
+            title={copy.round.lead.learnTitle}
+            aria-label={copy.round.lead.learnTitle}
+            className="rounded-md p-1 transition-colors hover:bg-surface-2 hover:text-fg-2"
+          >
+            <GraduationCap className="size-3.5" />
           </button>
         )}
       </div>
@@ -812,6 +831,8 @@ function RunCard(props: {
   metrics: ColonyMetrics
   onOpenColony(): void
   onInspect(name: string): void
+  /** On the chat's latest round: learn a skill from how it was done. */
+  onLearn?(): void
 }) {
   const { state, events } = props
   const running = isRunning(state.status)
@@ -887,6 +908,11 @@ function RunCard(props: {
         >
           <span className="hidden sm:inline">{copy.round.run.crew}</span>
         </Button>
+        {!running && props.onLearn && state.status === 'completed' && (
+          <IconButton size="sm" label={copy.round.lead.learnTitle} onClick={props.onLearn}>
+            <GraduationCap className="size-3.5" />
+          </IconButton>
+        )}
       </div>
       {running && (
         <div className="relative h-0.5 overflow-hidden bg-surface-2">
