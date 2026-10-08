@@ -66,6 +66,25 @@ export interface MyrSettings {
     color: 'amber' | 'ice' | 'mint' | 'pink' | 'violet' | 'white'
     screen: 'face' | 'clock' | 'name' | 'crew' | 'rotate'
   }
+  /**
+   * Voice calls: the call model (the lead's when unset), speech to text and text to speech (on this machine by
+   * default, omp's cloud models, or any OpenAI-compatible endpoint, whose keys live in `voice/secrets.json`), and how
+   * loud speech must be to count.
+   */
+  voice: {
+    callModel?: string
+    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    tts: {
+      provider: 'kitten' | 'omp' | 'endpoint'
+      kittenModel: 'nano' | 'micro' | 'mini'
+      voice: string
+      speed: number
+      baseUrl?: string
+      model?: string
+      endpointVoice?: string
+    }
+    sensitivity: 'low' | 'normal' | 'high'
+  }
 }
 
 export const settingsSchema = Schema.object({
@@ -120,6 +139,24 @@ export const settingsSchema = Schema.object({
     color: Schema.union(['amber', 'ice', 'mint', 'pink', 'violet', 'white']).default('amber'),
     screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
   }).default({}),
+  voice: Schema.object({
+    callModel: Schema.string(),
+    stt: Schema.object({
+      provider: Schema.union(['phonon', 'omp', 'endpoint']).default('phonon'),
+      baseUrl: Schema.string().max(500),
+      model: Schema.string().max(200),
+    }).default({}),
+    tts: Schema.object({
+      provider: Schema.union(['kitten', 'omp', 'endpoint']).default('kitten'),
+      kittenModel: Schema.union(['nano', 'micro', 'mini']).default('nano'),
+      voice: Schema.string().max(60).default('Leo'),
+      speed: Schema.number().min(0.5).max(2).default(1),
+      baseUrl: Schema.string().max(500),
+      model: Schema.string().max(200),
+      endpointVoice: Schema.string().max(60),
+    }).default({}),
+    sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
+  }).default({}),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
@@ -144,6 +181,12 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
     },
     mascot: s.mascot,
+    voice: {
+      ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),
+      stt: s.voice.stt,
+      tts: s.voice.tts,
+      sensitivity: s.voice.sensitivity,
+    },
   }
 }
 
