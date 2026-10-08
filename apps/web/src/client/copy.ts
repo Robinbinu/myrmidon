@@ -918,6 +918,8 @@ export const copy = {
       failed: 'failed',
     },
     team: {
+      emptyTitle: 'No one on the crew yet',
+      emptyBody: 'The lead and any helpers it brings in appear here once the work starts.',
       workingOn: (subject: string) => `Working on ${subject}`,
       turns: 'turns',
       tokens: 'tokens',

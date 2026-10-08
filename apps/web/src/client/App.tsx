@@ -286,7 +286,6 @@ export function App() {
     { combo: 'mod+n', run: () => newTask(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
-    { combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true },
     { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
   ])
 
