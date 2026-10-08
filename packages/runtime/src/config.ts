@@ -184,3 +184,6 @@ export const VOICE_PRE_ROLL_MS = 300
 export const VOICE_THRESHOLDS = { low: 700, normal: 400, high: 200 } as const
 /** How long Phonon-2's server may take to answer after starting; the first start downloads its 164 MB model. */
 export const VOICE_PHONON_START_MS = 10 * 60_000
+/** Model calls the call agent may make for one turn (each tool call takes one), and how much of a round's answer it is told. */
+export const VOICE_STEPS = 4
+export const VOICE_ANSWER_CHARS = 2_000
