@@ -122,6 +122,8 @@ interface Utterance {
   readonly from: string
   readonly pieces: string[]
   done: boolean
+  /** Called with when its last piece finishes playing, once that piece is on its way. */
+  readonly said?: (until: number) => void
 }
 
 /** Whole answers that decide an approval; anything more ("okay, what does it want?") is not one. */
@@ -131,8 +133,6 @@ const YES = new Set([
   'yep',
   'yup',
   'sure',
-  'ok',
-  'okay',
   'allow',
   'allow it',
   'approve',
@@ -245,12 +245,20 @@ export class CallSession {
   private readonly _sent: Sent[] = []
   /** Approvals the crew is waiting on in this call's runs, in the order they were asked for. */
   private readonly _approvals = new Map<string, { colonyId: string; tool: string; summary: string }>()
-  /** The approval put to the person, the one their yes or no decides; the others wait their turn. */
-  private _asking?: string
-  /** The person's latest turn as a plain yes or no: only that lets the call assistant answer an approval. */
-  private _answer?: boolean
-  /** Crew updates for the call assistant, and how the transcript shows each to the person. */
-  private readonly _updates: { text: string; note: string }[] = []
+  /**
+   * The approval put to the person, the one their yes or no decides; the others wait their turn. `heard`: the turns
+   * begun before it was read out to the end (handed to the call assistant), none of which can answer it; `until`:
+   * when its reading finishes playing.
+   */
+  private _asking?: { id: string; heard?: number; until?: number }
+  /** The person's latest turn as a plain yes or no, and which turn it was. */
+  private _answer?: { approved: boolean; turn: number }
+  /** Turns the person has begun, so a yes can be placed before or after an approval was heard. */
+  private _begun = 0
+  /** The turn in progress (its number), carried to where it ends. */
+  private _turn = 0
+  /** Crew updates for the call assistant, how the transcript shows each to the person, and the approval it puts. */
+  private readonly _updates: { text: string; note: string; approval?: string }[] = []
   private _reply?: AbortController
   private _replying?: Promise<void>
   private _speech: Promise<void> = Promise.resolve()
@@ -388,12 +396,15 @@ export class CallSession {
     for (const event of this._detector.push(chunk, chance)) {
       if (event.type === 'start') {
         if (this._reply || this._playingUntil > Date.now()) this.interrupt()
+        this._begun += 1
+        this._turn = this._begun
         this._state('hearing')
-      } else if (event.type === 'pause') void this._pause(event.id, event.quietMs, event.audio)
+      } else if (event.type === 'pause') void this._pause(event.id, event.quietMs, event.audio, this._turn)
       else
         void this._heard(
           this.ports.stt.transcribe(event.audio, this.options.sampleRate),
           this.ports.judge ? VOICE_SMART_END_MS : VOICE_END_MS,
+          this._turn,
         )
     }
   }
@@ -403,7 +414,7 @@ export class CallSession {
    * transcribed (only then: a cloud speech-to-text is paid per request). Without the model, or while an approval is
    * put to them ("Yes… wait, no" must not end at "yes"), only a pause of VOICE_END_MS ends the turn.
    */
-  private async _pause(id: number, quietMs: number, audio: Int16Array) {
+  private async _pause(id: number, quietMs: number, audio: Int16Array, turn: number) {
     const judge = this._asking === undefined ? this._judge : undefined
     if (judge) {
       try {
@@ -422,8 +433,8 @@ export class CallSession {
       }
     } else if (quietMs < VOICE_END_MS) return
     if (this._ended) return
-    const turn = this._detector.end(id)
-    if (turn) void this._heard(this.ports.stt.transcribe(turn, this.options.sampleRate), quietMs)
+    const ended = this._detector.end(id)
+    if (ended) void this._heard(this.ports.stt.transcribe(ended, this.options.sampleRate), quietMs, turn)
   }
 
   /** The person talked over the call agent (found here or by their side): stop speaking and listen. */
@@ -433,6 +444,10 @@ export class CallSession {
     // What was still to be read is dropped; a reply still being written is followed to its end, unspoken.
     this._queue.length = 0
     this._playingUntil = 0
+    // An approval cut off before it was heard to the end is put again once the person's turn is over.
+    const asking = this._asking
+    if (this.direct && asking && (asking.until === undefined || asking.until > Date.now()))
+      this._asking = undefined
     this.emit({ type: 'stop-audio' })
   }
 
@@ -464,8 +479,8 @@ export class CallSession {
     this._turns.push({ at: new Date().toISOString(), who, text })
   }
 
-  /** A finished turn: its transcript (on its way) and how long the person had already been quiet. */
-  private async _heard(transcript: Promise<string>, quietMs: number) {
+  /** A finished turn (the `turn`th): its transcript (on its way) and how long the person had already been quiet. */
+  private async _heard(transcript: Promise<string>, quietMs: number, turn: number) {
     const stopped = Date.now() - quietMs
     let text: string
     try {
@@ -473,20 +488,33 @@ export class CallSession {
     } catch (err) {
       this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       this._state('listening')
-      return
+      return this._askNext()
     }
     if (this._ended) return
     if (!text) {
       this._state('listening')
-      return
+      return this._askNext()
     }
     this._clock = { stopped, heard: Date.now() }
     this._note('person', text)
     this.emit({ type: 'heard', text })
+    const answer = spokenAnswer(text)
+    this._answer = answer === undefined ? undefined : { approved: answer, turn }
     if (this.direct) return this._toCrew(text)
-    this._answer = spokenAnswer(text)
     this._messages.push({ role: 'user', content: text, timestamp: Date.now() })
     void this._respond()
+  }
+
+  /**
+   * The person's latest turn, if it was a plain yes or no to the approval put to them: begun after they had heard it
+   * (not a yes meant for something else, nor one said over it).
+   */
+  private _answers(id: string): boolean | undefined {
+    const asking = this._asking
+    const answer = this._answer
+    if (asking?.id !== id || asking.heard === undefined || !answer || answer.turn <= asking.heard)
+      return undefined
+    return answer.approved
   }
 
   /**
@@ -495,10 +523,12 @@ export class CallSession {
    * them.
    */
   private async _toCrew(text: string) {
-    const answer = spokenAnswer(text)
-    if (this._asking && answer !== undefined) {
+    const id = this._asking?.id
+    const answer = id === undefined ? undefined : this._answers(id)
+    if (id !== undefined && answer !== undefined) {
+      this._answer = undefined
       try {
-        this._speak(await this._decide(this._asking, answer), this._voice)
+        this._speak(await this._decide(id, answer), this._voice)
       } catch (err) {
         this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
         this._state('listening')
@@ -506,6 +536,8 @@ export class CallSession {
       this._askNext()
       return
     }
+    // Not an answer: the approval it was said over (if any) is put again after.
+    this._askNext()
     this._state('thinking')
     try {
       const message = this.direct === 'lead' ? text : `@${this.direct} ${text}`
@@ -538,7 +570,7 @@ export class CallSession {
 
   private _settled(id: string, approved: boolean) {
     this.emit({ type: 'approval-done', id, approved })
-    if (this._asking === id) this._asking = undefined
+    if (this._asking?.id === id) this._asking = undefined
   }
 
   /** Puts the next waiting approval to the person, one at a time, so their yes or no decides the one they heard. */
@@ -547,16 +579,26 @@ export class CallSession {
     const next = this._approvals.entries().next()
     if (next.done) return
     const [id, { tool, summary }] = next.value
-    this._asking = id
-    // A yes said before this was put to them is not an answer to it.
-    this._answer = undefined
+    const asking: { id: string; heard?: number; until?: number } = { id }
+    this._asking = asking
     this.emit({ type: 'approval', id, summary })
-    if (this.direct) this._speak(prompts.voice.direct.approval(tool, summary), this._voice)
+    if (this.direct)
+      this._queue.push({
+        from: this._voice,
+        pieces: speakable(prompts.voice.direct.approval(tool, summary)),
+        done: true,
+        said: (until) => {
+          asking.heard = this._begun
+          asking.until = until
+        },
+      })
     else
       this._updates.push({
         text: prompts.voice.updates.approval(id, tool, summary),
         note: prompts.voice.notes.approval(summary),
+        approval: id,
       })
+    this._feed()
   }
 
   private _track(
@@ -592,7 +634,11 @@ export class CallSession {
     this._reply ??= new AbortController()
     const reply = this._reply
     for (let head = this._queue[0]; head; head = this._queue[0]) {
-      for (const piece of head.pieces.splice(0)) void this._say(piece, reply.signal, head.from)
+      const pieces = head.pieces.splice(0)
+      pieces.forEach((piece, i) => {
+        const last = head.done && i === pieces.length - 1
+        void this._say(piece, reply.signal, head.from, last ? head.said : undefined)
+      })
       if (!head.done) return
       this._queue.shift()
     }
@@ -730,10 +776,11 @@ export class CallSession {
     if (call.name === 'crew_updates') return this._takeUpdates() || r.noUpdates
     if (call.name === 'answer_approval') {
       const id = String(args.id ?? '')
-      if (id !== this._asking) return r.noApproval(id)
+      if (id !== this._asking?.id) return r.noApproval(id)
       const approved = args.approve === true
-      // Only the person decides: their latest turn must have been that plain yes or no, whatever else was said.
-      if (this._answer !== approved) return r.notAnswered
+      // Only the person decides: their latest turn, begun after the assistant was told of it, must have been that
+      // plain yes or no, whatever else was said.
+      if (this._answers(id) !== approved) return r.notAnswered
       this._answer = undefined
       const line = await this._decide(id, approved)
       this._askNext()
@@ -746,8 +793,13 @@ export class CallSession {
     return `no tool called ${call.name}`
   }
 
-  /** Queues a sentence to be spoken after the ones before it. */
-  private _say(text: string, signal: AbortSignal, from: string): Promise<void> {
+  /** Queues a sentence to be spoken after the ones before it; `said` hears when it will have finished playing. */
+  private _say(
+    text: string,
+    signal: AbortSignal,
+    from: string,
+    said?: (until: number) => void,
+  ): Promise<void> {
     this._speech = this._speech.then(async () => {
       if (signal.aborted || this._ended) return
       try {
@@ -761,6 +813,7 @@ export class CallSession {
         this._note('voice', text)
         const ms = (pcm.length / speech.sampleRate) * 1000
         this._playingUntil = Math.max(Date.now(), this._playingUntil) + ms
+        said?.(this._playingUntil)
       } catch (err) {
         if (!signal.aborted)
           this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -773,6 +826,8 @@ export class CallSession {
   private _takeUpdates(): string {
     const updates = this._updates.splice(0)
     for (const u of updates) this._note('crew', u.note)
+    // The assistant now knows of the approval: a turn begun before this cannot answer it.
+    if (this._asking && updates.some((u) => u.approval === this._asking?.id)) this._asking.heard = this._begun
     return updates.map((u) => u.text).join('\n\n')
   }
 

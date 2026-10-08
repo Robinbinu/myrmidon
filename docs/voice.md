@@ -70,8 +70,9 @@ noise interrupts the call, raise it if quiet speech is missed.
   them they get the chat so far; in a running round they are already in it.
 
 On a direct call an approval the crew asks for is read out, one at a time. Only a plain "yes" or "no" (the whole of
-what you say: "okay, what does it want?" goes to the lead as a message) decides the one you heard, and the call reads
-back what was decided ("Allowed: …").
+what you say: "okay, what does it want?", or a bare "okay", goes to the lead as a message), begun after you heard it to
+the end, decides it, and the call reads back what was decided ("Allowed: …"). Talk over it and it is read again once
+you have finished.
 
 After a call with the call assistant, your next message in the chat carries the call's transcript to the crew (once),
 so you can ask the lead "how did the call go". A direct call needs no such hand-over: its words are already the chat's
@@ -83,7 +84,8 @@ messages.
   the last lines said, **Mute** and **Hang up**.
 - "Do X" for real work: the call model starts the crew on it and says so. Ask "how's it going?" any time.
 - When the crew wants approval for something (a command, a file change), the call model says what and asks, one at a
-  time. It can decide only when the last thing you said was a plain yes or no, and reads back what was decided. What
+  time. It can decide only when the last thing you said, after it was told of the approval, was a plain yes or no,
+  and reads back what was decided. What
   the crew reports reaches the call model as a crew update, never as your words.
 - Say goodbye (or press Hang up) to end the call. Its transcript is kept with the chat
   (`<home>/calls/<id>.json`) and shown as a card before the first round it started. Transcripts are kept for 30 days

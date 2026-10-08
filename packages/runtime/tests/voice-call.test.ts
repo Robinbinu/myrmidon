@@ -22,6 +22,8 @@ const until = async (check: () => boolean, ms = 3000) => {
     await Bun.sleep(5)
   }
 }
+/** Waits out what was just played: the test's speech lasts about a millisecond a character. */
+const listened = () => Bun.sleep(150)
 const tool = (name: string, args: Record<string, unknown>): MockContent => ({
   type: 'toolCall',
   name,
@@ -287,6 +289,7 @@ test('talking straight to the lead: words go to the chat as spoken messages, its
     { type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm -rf dist' } },
   ])
   await until(() => said().some((t) => t.includes('Say yes or no')))
+  await listened()
   say('yes go ahead')
   await until(() => decided.length === 1)
   expect(decided).toEqual([['col-run', 'a1', true]])
@@ -396,11 +399,14 @@ test("a direct call speaks the lead's reply while it is still being written, and
 })
 
 test('only a whole yes or no answers an approval', () => {
-  for (const yes of ['Yes.', 'yeah', 'Okay!', 'Yes, go ahead.', 'go ahead', 'Allow it.'])
+  for (const yes of ['Yes.', 'yeah', 'Okay, go ahead!', 'Yes, go ahead.', 'go ahead', 'Allow it.'])
     expect(spokenAnswer(yes)).toBe(true)
   for (const no of ['No.', 'nope', "Don't.", 'No, don’t.', 'Deny it']) expect(spokenAnswer(no)).toBe(false)
   for (const other of [
     'Okay, what does it want?',
+    // A bare okay is as often "I hear you" as "go ahead".
+    'Okay.',
+    'ok',
     'Yes… wait, no',
     'No idea, what is it?',
     'sure thing buddy',
@@ -421,6 +427,7 @@ test('a direct call puts approvals one at a time; a yes or no decides the one re
   await until(() => said().some((t) => t.includes('rm -rf dist')))
   expect(said().some((t) => t.includes('git push'))).toBe(false)
   expect(out).toContainEqual({ type: 'approval', id: 'a1', summary: 'rm -rf dist' })
+  await listened()
   // Not a plain answer: it goes to the lead as a message, and decides nothing.
   say('Okay, what does it want?')
   await until(() => sent.length === 2)
@@ -504,6 +511,7 @@ test('while an approval is put to the person, a short pause does not end their t
   await until(() => sent.length === 1)
   events('c', [{ type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm x' } }])
   await until(() => said().some((t) => t.includes('Say yes or no')))
+  await listened()
   heard.push('yes')
   for (let i = 0; i < 25; i++) call.audio(loud)
   // 0.3 s of quiet: enough for the turn model, but not while an approval waits.
@@ -645,5 +653,79 @@ test('the call says who answered, whose each line is, and shows muted until unmu
   expect(out.at(-1)).toEqual({ type: 'state', state: 'muted' })
   call.mute(false)
   expect(out.at(-1)).toEqual({ type: 'state', state: 'listening' })
+  call.hangUp()
+})
+
+test('an approval talked over before it was heard is not decided by the next yes, and is put again', async () => {
+  const summary = `delete the build folder and every cache under it, ${'then tidy up the rest of the workspace, '.repeat(4)}`
+  const { call, sent, say, said, events, decided } = setup(() => [], {
+    talkTo: 'lead',
+    colony: 'c',
+    slowVoiceMs: 20,
+  })
+  await call.start()
+  say('clean up')
+  await until(() => sent.length === 1)
+  events('c', [{ type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary } }])
+  await until(() => said().some((t) => t.includes('wants approval')))
+  // Cut in while it is still playing: what follows was not an answer to it.
+  say('yes')
+  await until(() => sent.length === 2)
+  expect(decided).toEqual([])
+  expect(sent[1]?.text).toBe('yes')
+  // Put again once the person's turn is over, and heard to the end this time.
+  await until(() => said().filter((t) => t.includes('wants approval')).length === 2)
+  await listened()
+  await listened()
+  say('yes')
+  await until(() => decided.length === 1)
+  expect(decided).toEqual([['c', 'a1', true]])
+  call.hangUp()
+})
+
+test('a yes that began before an approval was put does not answer it', async () => {
+  const { call, sent, said, events, decided, heard, loud } = setup(() => [], { talkTo: 'lead', colony: 'c' })
+  await call.start()
+  heard.push('go on')
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => sent.length === 1)
+  heard.push('yes')
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  await until(() => call.transcript().length > 0 && !said().some((t) => t.includes('wants approval')))
+  await Bun.sleep(50)
+  // Mid-turn, the crew asks.
+  events('c', [{ type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm x' } }])
+  await until(() => said().some((t) => t.includes('wants approval')))
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => sent.length === 2)
+  expect(decided).toEqual([])
+  call.hangUp()
+})
+
+test('the call assistant cannot answer an approval with a yes said before it was told of it', async () => {
+  const { call, say, said, events, decided, heard, loud } = setup((text) => {
+    if (text === 'clean the build') return [tool('start_task', { request: 'Clean the build folder' })]
+    if (text === 'tool:start_task') return ['Starting.']
+    // The yes was for something else; the assistant looks for news and finds an approval.
+    if (text === 'yes') return [tool('crew_updates', {})]
+    if (text.startsWith('crew:') && text.includes('waiting for approval a1'))
+      return [tool('answer_approval', { id: 'a1', approve: true })]
+    if (text === 'tool:answer_approval') return ['I need to ask you first.']
+    return []
+  })
+  await call.start()
+  say('clean the build')
+  await until(() => said().includes('Starting.'))
+  heard.push('yes')
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  await Bun.sleep(50)
+  // It arrives while the person is talking, so it is held for the assistant.
+  events('col-1', [
+    { type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm -rf build' } },
+  ])
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => said().includes('I need to ask you first.'))
+  expect(decided).toEqual([])
   call.hangUp()
 })
