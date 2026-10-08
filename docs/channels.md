@@ -1,7 +1,8 @@
-# Channels: talk to your agents from Telegram
+# Channels: talk to your agents from a messaging app
 
 A channel lets you start work, follow it and get the answer from a messaging app, which is most useful with a
-gateway on a server (see `remote.md`). Telegram is built in; plugins add more platforms. Design:
+gateway on a server (see `remote.md`). Telegram, Signal, iMessage and Matrix are built in; plugins add more
+platforms. Design:
 `superpowers/specs/2026-10-08-channels-design.md`. The behaviour is ported from Hermes Agent (Nous Research) and
 OpenClaw (OpenClaw Foundation), both MIT licensed; see `research/2026-10-08-channels.md`.
 
@@ -26,6 +27,76 @@ OpenClaw (OpenClaw Foundation), both MIT licensed; see `research/2026-10-08-chan
    The first person approved is the **owner**; anyone approved later is a **member**.
 
 Nothing needs to be reachable from the internet: Myrmidon asks Telegram for new messages (long polling).
+
+## Set up Signal
+
+Signal has no bot accounts, so Myrmidon talks through [signal-cli](https://github.com/AsamK/signal-cli) running as a
+daemon, on a phone number of its own (a second SIM or a VoIP number; using your own number makes the bot you).
+
+1. Register the number with signal-cli (`signal-cli -a +15551234567 register`, then `verify CODE`), or link it to a
+   phone that has it (`signal-cli link -n myrmidon`, then scan the code in Signal → Settings → Linked devices).
+2. Run its daemon with the HTTP API, on the same machine as Myrmidon or one it reaches:
+
+   ```bash
+   signal-cli -a +15551234567 daemon --http 127.0.0.1:8080
+   ```
+
+3. **Settings → Channels → Signal**: give the daemon's address (`http://127.0.0.1:8080`) and the number, or run
+   `myrmidon channels signal`. Myrmidon checks that the daemon has the number first.
+4. Message the number from your phone: it replies with a code to approve, as for Telegram.
+
+Messages arrive on the daemon's event stream, reconnected (2 s, doubling to a minute) if it drops. Markdown is sent
+as Signal's own bold, italic, strikethrough and monospace. In groups, mention the bot (@ and pick its number) or
+reply to one of its messages. Signal has no buttons, so approvals are answered by typing `/approve KEY` (shown
+with each request), and questions by the number of an option; and no status line is kept (signal-cli can edit, but
+neither Hermes nor OpenClaw relies on it), so the chat shows typing until the answer arrives. Photos, files and
+voice notes come in through the daemon (up to 100 MB on Signal's side, 10 MB into Myrmidon); files go out as
+attachments. Rate limits from Signal are waited out (attachments are paced the way Hermes does, a bucket of 50
+refilled one every few seconds). The bot's sends from its other linked devices (and Note to Self) are not read.
+
+## Set up iMessage
+
+iMessage only runs on a Mac, so Myrmidon talks to a [BlueBubbles](https://bluebubbles.app) server running on a Mac
+signed in to the Apple ID the bot should use (a separate Apple ID is best: messages to it are messages to the bot).
+
+1. Install the BlueBubbles server on that Mac, give it Full Disk Access as it asks, and set a **server password**.
+   For typing indicators, also enable its Private API (optional; it needs SIP changes, see BlueBubbles' guide).
+2. **Settings → Channels → iMessage**: give the server's address as this machine reaches it (e.g.
+   `http://192.168.1.20:1234`, or its Cloudflare/ngrok URL) and the password; optionally the **name** people use
+   for it in group chats (default `Myrmidon`). Or run `myrmidon channels imessage`.
+3. Send that Apple ID an iMessage: it replies with a code to approve.
+
+Without a public address, Myrmidon asks the server for new messages every 2 seconds, from the last one it saw (so a
+restart misses nothing). On a gateway with a public address it registers a webhook with the server instead, with a
+secret of its own in the URL (BlueBubbles cannot send headers), and removes one it registered before. iMessage has
+no bot identity, so in group chats a message is for the bot when it starts with its name (`Myrmidon, …`), @mentions
+it, or replies to one of its messages. Replies are plain text (iMessage shows no formatting); there are no buttons
+or edits, so approvals are typed (`/approve KEY`) and there is no status line. Photos, files and voice notes come
+in and go out as attachments; tapbacks are ignored.
+
+## Set up Matrix
+
+1. Make an account for the bot on any homeserver, and get its **access token**: log in to it in Element, then
+   Settings → Help & About → Advanced → Access Token (logging that Element session out ends the token), or log in
+   through the API (`POST /_matrix/client/v3/login`).
+2. **Settings → Channels → Matrix**: give the homeserver address (`https://matrix.org`) and the token, and
+   optionally the bot's user ID (`@myrbot:matrix.org`) to make sure the token is that account's. Or run
+   `myrmidon channels matrix`.
+3. Invite the bot to a room or start a chat with it: it joins every invite (who it answers is still the access
+   rules': strangers get a code), and replies with a code to approve.
+
+**Encrypted rooms are not supported**: reading them needs libolm or vodozemac, which Myrmidon does not ship. Element
+encrypts new direct chats by default, so create a room with encryption off (it cannot be turned off later) and
+invite the bot there. In an encrypted room the bot says once that it cannot read it.
+
+The bot follows the homeserver with `/sync` long polling, resuming where it stopped after a restart (its history
+from before the channel was set up is not answered, nor a newly joined room's older messages). A room is a direct
+chat when it is marked so (`m.direct`, or the invite) or has two members. In other rooms a message is for the bot
+when it mentions it (a pill, its user ID or name) or replies to it, including in a thread it has written in;
+threads are conversations of their own. Replies are Markdown with HTML formatting, the status line is edited in
+place (`m.replace`), typing shows while the crew works, and files go through the homeserver's media repository
+(authenticated media, with the older path for servers without it). Rate limits (`retry_after_ms`) are waited out.
+There are no buttons, so approvals are typed (`/approve KEY`).
 
 ## Using it
 
@@ -71,7 +142,9 @@ Nothing needs to be reachable from the internet: Myrmidon asks Telegram for new 
 
 On a gateway with a public HTTPS address (`--public-url`, see `remote.md`), Telegram pushes messages to
 `<public-url>/hooks/channels/telegram` instead of being polled, each carrying a secret only Telegram and the gateway
-know. Without a public address it polls, which needs nothing reachable from the internet.
+know. Without a public address it polls, which needs nothing reachable from the internet. iMessage does the same
+with BlueBubbles (`/hooks/channels/imessage`, the secret in the URL). Signal and Matrix always connect out (an event
+stream, `/sync`), so they need no public address.
 
 ## Troubleshooting
 
@@ -80,3 +153,9 @@ know. Without a public address it polls, which needs nothing reachable from the 
 - **"Telegram refused this token"**: copy it again from @BotFather (`/mybots` → the bot → API Token).
 - `MYR_TELEGRAM_API=http://host:port` points Myrmidon at a self-hosted Telegram Bot API server instead of
   api.telegram.org.
+- **"cannot reach signal-cli"**: start its daemon with `--http` (not `--socket` or `--dbus`), and give the address
+  it listens on. **"signal-cli has no account"**: the number is not registered or linked in that daemon's data.
+- **"BlueBubbles refused this password"**: copy the server password again (BlueBubbles → Settings → Connection).
+  Nothing arrives: check the address works from this machine (`curl <address>/api/v1/ping?password=…`).
+- **"Matrix refused this access token"**: the token was logged out; make a new one. The bot joins but stays
+  silent: the room is encrypted (see above).

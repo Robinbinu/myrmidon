@@ -143,3 +143,103 @@ export function telegramHtml(markdown: string): string {
   if (code) out.push(`<pre>${escapeHtml(code.lines.join('\n'))}</pre>`)
   return out.join('\n')
 }
+
+/**
+ * Markdown as Matrix's `org.matrix.custom.html`: the Telegram subset (which Matrix clients all render), with line
+ * breaks as `<br>` outside code blocks, since HTML folds newlines.
+ */
+export function matrixHtml(markdown: string): string {
+  return telegramHtml(markdown)
+    .split(/(<pre>[\s\S]*?<\/pre>)/)
+    .map((part, i) => (i % 2 ? part : part.replace(/\n/g, '<br>')))
+    .join('')
+}
+
+type TextStyle = 'BOLD' | 'ITALIC' | 'STRIKETHROUGH' | 'MONOSPACE'
+interface Styled {
+  text: string
+  ranges: { start: number; length: number; style: TextStyle }[]
+}
+
+const INLINE_MD =
+  /`([^`\n]+)`|\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*|__(?!\s)([^_\n]+?)(?<!\s)__|~~(?!\s)([^~\n]+?)(?<!\s)~~|(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])|(?<![\w_])_(?![\s_])([^_\n]+?)(?<![\s_])_(?![\w_])|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g
+
+/** Inline Markdown appended to `out` as plain text, its markers turned into style ranges (nested ones too). */
+function styledInline(line: string, out: Styled) {
+  let last = 0
+  for (const m of line.matchAll(INLINE_MD)) {
+    out.text += line.slice(last, m.index)
+    last = m.index + m[0].length
+    const [, code, bold, bold2, strike, italic, italic2, label, url] = m
+    const start = out.text.length
+    if (code !== undefined) {
+      out.text += code
+      out.ranges.push({ start, length: code.length, style: 'MONOSPACE' })
+    } else if (label !== undefined) out.text += label === url ? label : `${label} (${url})`
+    else {
+      styledInline(bold ?? bold2 ?? strike ?? italic ?? italic2 ?? '', out)
+      const style =
+        bold !== undefined || bold2 !== undefined ? 'BOLD' : strike !== undefined ? 'STRIKETHROUGH' : 'ITALIC'
+      out.ranges.push({ start, length: out.text.length - start, style })
+    }
+  }
+  out.text += line.slice(last)
+}
+
+/**
+ * Markdown as plain text with Signal's own text styles (Hermes's `markdown_to_signal`): `start:length:STYLE` ranges
+ * in UTF-16 units, which is how JavaScript counts string length. Code blocks are monospace, headings bold, bullets
+ * `•`, links `label (url)`.
+ */
+export function signalText(markdown: string): { text: string; styles: string[] } {
+  const out: Styled = { text: '', ranges: [] }
+  let lines = 0
+  const newLine = () => {
+    if (lines++) out.text += '\n'
+  }
+  let code: { start?: number } | undefined
+  const closeCode = () => {
+    if (code?.start !== undefined && out.text.length > code.start)
+      out.ranges.push({ start: code.start, length: out.text.length - code.start, style: 'MONOSPACE' })
+    code = undefined
+  }
+  for (const line of markdown
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .split('\n')) {
+    if (FENCE.test(line)) {
+      if (code) closeCode()
+      else code = {}
+      continue
+    }
+    newLine()
+    if (code) {
+      code.start ??= out.text.length
+      out.text += line
+      continue
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line)
+    if (heading) {
+      const start = out.text.length
+      styledInline(heading[1] ?? '', out)
+      out.ranges.push({ start, length: out.text.length - start, style: 'BOLD' })
+      continue
+    }
+    const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+    if (bullet) {
+      out.text += `${bullet[1] ?? ''}• `
+      styledInline(bullet[2] ?? '', out)
+      continue
+    }
+    styledInline(line, out)
+  }
+  closeCode()
+  const styles = out.ranges
+    .filter((r) => r.length > 0)
+    .sort((a, b) => a.start - b.start)
+    .map((r) => `${r.start}:${r.length}:${r.style}`)
+  return { text: out.text, styles }
+}
+
+/** Markdown as plain text, for platforms that show no formatting (iMessage): the text of `signalText`. */
+export const plainText = (markdown: string) => signalText(markdown).text
