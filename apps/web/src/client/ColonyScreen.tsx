@@ -28,7 +28,7 @@ import { ArtifactViewer } from './chat/ArtifactViewer.tsx'
 import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
-import { compact, duration } from './ui/hooks.ts'
+import { clock, compact, duration, money } from './ui/hooks.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { cn, Dot, Empty, Pill, Tabs, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
@@ -280,10 +280,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
         <div className="flex flex-wrap gap-4 text-[12.5px] tabular-nums text-muted">
           <Stat label={copy.colonyScreen.stats.time} value={duration(m.wallMs)} />
           <Stat label={copy.colonyScreen.stats.tokens} value={compact(m.tokens)} />
-          <Stat
-            label={copy.colonyScreen.stats.cost}
-            value={m.cost === undefined ? copy.colonyScreen.stats.noCost : `$${m.cost.toFixed(3)}`}
-          />
+          <Stat label={copy.colonyScreen.stats.cost} value={money(m.cost, m.tokens)} />
           <Stat label={copy.colonyScreen.stats.toolCalls} value={String(m.toolCalls)} />
           <Stat label={copy.colonyScreen.stats.files} value={String(Object.keys(state.artifacts).length)} />
           <Stat
@@ -492,7 +489,7 @@ function RowMeta({ agent, time }: { agent: string; time: string }) {
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted">
       <span className="font-medium">{agent}</span>
-      <time>{time.slice(11, 19)}</time>
+      <time>{clock(time, true)}</time>
     </span>
   )
 }

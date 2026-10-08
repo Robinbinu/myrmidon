@@ -43,6 +43,9 @@ export const copy = {
     },
   },
 
+  /** Shown for a cost when the model has no price, rather than a made-up $0. */
+  unknownCost: 'n/a',
+
   auth: {
     notAuthorized: 'Not authorized: open the link printed by the CLI.',
   },
@@ -1096,7 +1099,6 @@ export const copy = {
       time: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
-      noCost: 'n/a',
       toolCalls: 'Tool calls',
       files: 'Files',
       verdicts: 'Verdicts',

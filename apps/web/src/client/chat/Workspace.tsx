@@ -31,7 +31,7 @@ import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { clock, compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
@@ -611,7 +611,7 @@ function WorkspaceBody({
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
-                                      <span>{s.time.slice(11, 19)}</span>
+                                      <span>{clock(s.time, true)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
                                         <span className="text-work-ink">{copy.workspace.shell.running}</span>
@@ -685,7 +685,7 @@ function WorkspaceBody({
                                 {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
                                 {s.tail && <span className="text-muted">{s.tail}</span>}
                               </span>
-                              <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
+                              <time className="tabular-nums text-muted">{clock(s.time, true)}</time>
                             </li>
                           ))}
                         </ol>
@@ -832,7 +832,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
                     </span>
                   )}
                   <time className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
-                    {last?.time.slice(11, 16)}
+                    {clock(last?.time)}
                   </time>
                 </span>
                 <span className="flex items-center gap-2">
@@ -915,7 +915,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                   )}
                   <div className="whitespace-pre-wrap break-words">{m.text}</div>
                   <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
-                    {m.time.slice(11, 16)}
+                    {clock(m.time)}
                     {m.read !== undefined && (
                       <span
                         className={m.read ? 'text-ok-ink' : ''}
