@@ -9,6 +9,7 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  ArrowDown,
   ArrowUpRight,
   BadgeCheck,
   Brain,
@@ -35,7 +36,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { compact, duration, useCopy, useStickToBottom } from '../ui/hooks.ts'
+import { compact, duration, type FollowLatest, useCopy, useStickToBottom } from '../ui/hooks.ts'
 import {
   AgentAvatar,
   AgentChip,
@@ -118,6 +119,37 @@ export function PendingRound({ text }: { text: string }) {
         </span>
       </motion.div>
     </section>
+  )
+}
+
+/**
+ * Back to the newest content once the reader has scrolled up in a following view, as chat apps offer. It goes last
+ * inside the scrolling element and takes no room there.
+ */
+export function JumpToLatest({ follow }: { follow: Omit<FollowLatest<HTMLElement>, 'ref'> }) {
+  return (
+    <div className="pointer-events-none sticky bottom-0 h-0">
+      <AnimatePresence>
+        {follow.away && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={spring}
+            className="absolute inset-x-0 bottom-4 flex justify-center"
+          >
+            <button
+              type="button"
+              onClick={follow.jump}
+              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-[12.5px] font-medium text-fg-2 shadow-pop transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              {follow.fresh ? copy.round.jump.fresh : copy.round.jump.latest}
+              <ArrowDown className="size-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 

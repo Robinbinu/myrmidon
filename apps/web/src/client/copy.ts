@@ -741,6 +741,11 @@ export const copy = {
       thinking: 'Thinking',
       seconds: (s: string) => `${s}s`,
     },
+    /** The pill back to the bottom of the chat once the reader scrolled up. */
+    jump: {
+      fresh: 'New activity',
+      latest: 'Jump to latest',
+    },
     files: 'Files',
     fileTitle: (version: number | undefined, size: string, author: string | undefined) =>
       `v${version} · ${size}B · ${author}`,
