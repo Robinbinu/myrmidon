@@ -26,7 +26,8 @@ import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
-import { MAX_FILES, spring } from '../ui-config.ts'
+import { useToast } from '../ui/Toast.tsx'
+import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { ModelPicker } from './ModelPicker.tsx'
@@ -250,16 +251,15 @@ const MENTION_AT_END = /(^|\s)@([a-z0-9-]*)$/i
 
 /**
  * While an @name is being typed, the crew members it could be: picking one completes the name, and the message then
- * goes to them directly. Escape closes the list for that text.
+ * goes to them directly.
  */
 function mentionMenu(
   text: string,
   crew: readonly CrewMember[] | undefined,
-  closedFor: string | undefined,
   insert: (name: string) => void,
 ): MenuModel | undefined {
   const typed = MENTION_AT_END.exec(text)
-  if (!typed || !crew?.length || text === closedFor) return undefined
+  if (!typed || !crew?.length) return undefined
   const prefix = (typed[2] ?? '').toLowerCase()
   const items = crew
     .filter((c) => c.name.toLowerCase().startsWith(prefix))
@@ -294,10 +294,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const [files, setFiles] = useState<File[]>([])
   const [dragging, setDragging] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
+  const toast = useToast()
+  // Files that can't go are refused here, by name, rather than at send time or silently.
   const addFiles = (list: Iterable<File>) => {
-    const added = [...list].filter((f) => f.size > 0)
-    if (added.length === 0) return
-    setFiles((prev) => [...prev, ...added].slice(0, MAX_FILES))
+    const nonEmpty = [...list].filter((f) => f.size > 0)
+    const tooLarge = nonEmpty.filter((f) => f.size > MAX_FILE_BYTES)
+    for (const f of tooLarge) toast(copy.app.fileTooLarge(f.name), 'error')
+    const fitting = nonEmpty.filter((f) => f.size <= MAX_FILE_BYTES)
+    const room = Math.max(0, MAX_FILES - files.length)
+    if (fitting.length > room) toast(copy.composer.tooManyFiles(MAX_FILES, fitting.length - room), 'error')
+    const added = fitting.slice(0, room)
+    if (added.length > 0) setFiles((prev) => [...prev, ...added].slice(0, MAX_FILES))
   }
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
@@ -362,6 +369,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (command.name === 'help') return setShowHelp(true)
     try {
       await props.onCommand(command.name, arg)
+      // The download starts without any sign in the page; say it happened and where to look.
+      if (command.name === 'export') toast(copy.composer.exported, 'success')
     } catch {
       setText(`/${command.name}${arg ? ` ${arg}` : ''}`)
     }
@@ -384,11 +393,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  const [mentionClosed, setMentionClosed] = useState<string>()
-  const mention = mentionMenu(text, props.crew, mentionClosed, (name) =>
+  // Escape closes the menu for the text as it is, and keeps the text; typing on opens it again.
+  const [closedFor, setClosedFor] = useState<string>()
+  const mention = mentionMenu(text, props.crew, (name) =>
     fillCommand(text.replace(MENTION_AT_END, (_m, space: string) => `${space}@${name} `)),
   )
-  const menu =
+  const listed =
     mention ??
     buildMenu({
       text,
@@ -421,6 +431,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       pickOption: (c, value) => void runCommand(c, value),
       submit: () => void send(),
     })
+  const menu = !showHelp && text === closedFor ? undefined : listed
   const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
@@ -484,7 +495,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-1 pl-2 pr-1 text-[12px]"
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-[12px]"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{f.name}</span>
@@ -493,9 +504,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     type="button"
                     aria-label={copy.composer.removeFile(f.name)}
                     onClick={() => setFiles((prev) => prev.filter((_, n) => n !== i))}
-                    className="rounded p-0.5 text-muted hover:bg-surface-3 hover:text-fg"
+                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-3 hover:text-fg"
                   >
-                    <X className="size-3" />
+                    <X className="size-3.5" />
                   </button>
                 </span>
               ))}
@@ -524,10 +535,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 }
                 if (e.key === 'Escape') {
                   e.preventDefault()
-                  if (menu === mention) return setMentionClosed(text)
-                  setShowHelp(false)
-                  if (!showHelp) setText('')
-                  return
+                  if (showHelp) return setShowHelp(false)
+                  return setClosedFor(text)
                 }
                 if (e.key === 'Tab' && pick?.complete) {
                   e.preventDefault()
@@ -611,7 +620,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     transition={spring}
-                    onClick={() => setDelivery(delivery === 'steer' ? 'queue' : 'steer')}
+                    onClick={() => {
+                      setDelivery(delivery === 'steer' ? 'queue' : 'steer')
+                      // Back to the message, so Enter sends it instead of flipping the toggle again.
+                      area.current?.focus()
+                    }}
                     title={copy.composer.deliveryTitle(DELIVERIES.find((d) => d.value === delivery)?.hint)}
                     aria-label={copy.composer.deliveryLabel(
                       delivery,
@@ -630,8 +643,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   </motion.button>
                 )}
               </AnimatePresence>
+              {/* While a round runs, Stop stays put; Send joins it once there is something to send. */}
               <AnimatePresence mode="popLayout" initial={false}>
-                {props.running && !text.trim() ? (
+                {props.running && (
                   <motion.button
                     key="stop"
                     type="button"
@@ -646,7 +660,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   >
                     <Square className="size-3.5" fill="currentColor" />
                   </motion.button>
-                ) : (
+                )}
+                {(!props.running || canSend) && (
                   <motion.button
                     key="send"
                     type="button"

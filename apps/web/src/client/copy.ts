@@ -145,6 +145,9 @@ export const copy = {
     teamHeading: 'Lead & helpers',
     teamApplies: 'Applies to your next messages',
     removeFile: (name: string) => `Remove ${name}`,
+    tooManyFiles: (max: number, left: number) =>
+      `A message can carry ${max} files; ${left} ${left === 1 ? 'was' : 'were'} not attached`,
+    exported: 'Chat downloaded as Markdown; look in your downloads folder',
     message: 'Message',
     attach: 'Attach files',
     attachTitle: 'Attach files (or drop / paste them)',
