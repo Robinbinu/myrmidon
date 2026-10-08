@@ -243,3 +243,84 @@ export function signalText(markdown: string): { text: string; styles: string[] }
 
 /** Markdown as plain text, for platforms that show no formatting (iMessage): the text of `signalText`. */
 export const plainText = (markdown: string) => signalText(markdown).text
+
+/** Slack's three escapes, which it wants everywhere (inside code too). */
+const escapeSlack = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** Inline Markdown in Slack's mrkdwn: `*bold*`, `_italic_`, `~strike~`, `` `code` ``, `<url|label>`. */
+function slackInline(line: string): string {
+  const kept: string[] = []
+  // Code and links are set aside first (behind private-use markers), so nothing inside them is formatted.
+  const keep = (s: string) => `${kept.push(s) - 1}`
+  const out = escapeSlack(
+    line
+      .replace(/`([^`\n]+)`/g, (_m, code: string) => keep(`\`${escapeSlack(code)}\``))
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s|>]+)\)/g, (_m, label: string, url: string) =>
+        keep(`<${url.replace(/&/g, '&amp;')}|${escapeSlack(label)}>`),
+      ),
+  )
+    // Bold goes behind a marker so the italic pass does not take its `*` for italics.
+    .replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '$1')
+    .replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '$1')
+    .replace(/~~(?!\s)([^~\n]+?)(?<!\s)~~/g, '~$1~')
+    .replace(/(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])/g, '_$1_')
+    // Slack misses a closing `*` right after punctuation (and shows the rest raw): a zero-width space goes between.
+    .replace(/([^]+)/g, (_m, inner: string) => `*${inner}${/\w$/.test(inner) ? '' : '​'}*`)
+  return out.replace(/(\d+)/g, (_m, i: string) => kept[Number(i)] ?? '')
+}
+
+/**
+ * Markdown as Slack's mrkdwn (after Hermes's `format_message`): code blocks without their language (Slack would
+ * show it), headings as bold, bullets as `•`, quotes kept, and `&`, `<`, `>` escaped so no text can ping
+ * `@channel` or forge a link.
+ */
+export function slackMrkdwn(markdown: string): string {
+  const out: string[] = []
+  let code: string[] | undefined
+  const block = (lines: string[]) => `\`\`\`\n${escapeSlack(lines.join('\n'))}\n\`\`\``
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      if (code) {
+        out.push(block(code))
+        code = undefined
+      } else code = []
+      continue
+    }
+    if (code) {
+      code.push(line)
+      continue
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line)
+    if (heading) {
+      out.push(`*${slackInline((heading[1] ?? '').replace(/\*\*/g, ''))}*`)
+      continue
+    }
+    const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+    if (bullet) {
+      out.push(`${bullet[1] ?? ''}• ${slackInline(bullet[2] ?? '')}`)
+      continue
+    }
+    const quote = /^>\s?(.*)$/.exec(line)
+    out.push(quote ? `> ${slackInline(quote[1] ?? '')}` : slackInline(line))
+  }
+  // A block left open (a cut that missed its fence) is still closed.
+  if (code) out.push(block(code))
+  return out.join('\n')
+}
+
+/**
+ * Markdown for Discord, which renders nearly all of it itself: only headings deeper than `###` (which it would show
+ * as typed) become bold.
+ */
+export function discordMarkdown(markdown: string): string {
+  let inCode = false
+  return markdown
+    .split('\n')
+    .map((line) => {
+      if (FENCE.test(line)) inCode = !inCode
+      if (inCode) return line
+      const deep = /^#{4,6}\s+(.*)$/.exec(line)
+      return deep ? `**${deep[1]}**` : line
+    })
+    .join('\n')
+}

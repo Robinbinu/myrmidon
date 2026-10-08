@@ -10,8 +10,12 @@ export const channelCopy = {
       'iMessage goes through a BlueBubbles server on a Mac signed in to the Apple ID it should use. Install BlueBubbles there, set a server password, and give its address (e.g. http://192.168.1.20:1234) and the password here. Then send that Apple ID an iMessage: it replies with a code to approve here. In group chats it answers when its name is in the message.',
     matrix:
       'Make a Matrix account for the bot, copy its access token (log in to it in Element, then Settings → Help & About → Advanced → Access Token), and give the homeserver address and the token here. Invite it to a chat: it joins and replies with a code to approve here. Encrypted rooms are not supported yet: DMs started in Element are encrypted by default, so make a room with encryption off and invite the bot to it.',
+    discord:
+      'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent and copy the token (Reset Token). Invite the bot with OAuth2 → URL Generator (scope "bot"; View Channels, Send Messages, Send Messages in Threads, Read Message History, Attach Files). Then DM the bot: it replies with a code to approve here. The first person approved is the owner.',
+    slack:
+      'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…). Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
   },
-  /** The settings each platform asks for. */
+  /** The settings each platform asks for, and what they mean, in Settings → Channels. */
   fields: {
     signal: {
       url: { label: 'signal-cli address', hint: 'Where its daemon listens with --http' },
@@ -30,7 +34,10 @@ export const channelCopy = {
       token: { label: 'Access token' },
       userId: { label: 'Bot user ID', hint: 'Checked against the token when given, e.g. @myrbot:matrix.org' },
     },
+    slackBot: 'OAuth & Permissions → Bot User OAuth Token',
+    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope',
   },
+  /** Why a platform will not connect, shown as the channel's status (and other messages of its own). */
   signal: {
     refused: (account: string) =>
       `signal-cli has no account ${account}: register or link it with signal-cli first, then give the same number here`,
@@ -44,6 +51,20 @@ export const channelCopy = {
     otherUser: (expected: string, actual: string) => `This token belongs to ${actual}, not ${expected}`,
     encrypted:
       "This room is end-to-end encrypted, and I can't read encrypted Matrix messages yet. Make a room with encryption off and invite me there.",
+  },
+  discord: {
+    refused: 'Discord refused this token; copy it again from the Developer Portal (Bot → Reset Token)',
+    intents:
+      'Discord refused the Message Content intent: turn it on in the Developer Portal (Bot → Privileged Gateway Intents), then save again',
+    gateway: (code: number) => `Discord closed the connection for good (code ${code})`,
+  },
+  slack: {
+    refused: 'Slack refused the bot token; copy the Bot User OAuth Token (xoxb-…) again',
+    appRefused: 'Slack refused the app-level token; make one with connections:write (xapp-…)',
+    notAppToken: 'The app-level token starts with xapp- (Basic Information → App-Level Tokens)',
+    socketOff: 'Socket Mode is off for this Slack app: turn it on under Settings → Socket Mode',
+    notInChannel: 'The app is not in that channel: invite it there with /invite @your-app',
+    fileHtml: 'Slack sent a page instead of the file: give the app the files:read scope and reinstall it',
   },
   pairing: {
     code: (code: string, channel: string) =>

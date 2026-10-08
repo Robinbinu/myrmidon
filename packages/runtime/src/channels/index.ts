@@ -1,17 +1,21 @@
 import type { PluginToolDefinition } from '../plugin-host.ts'
 import { prompts } from '../prompts.ts'
 import { channelCopy } from './copy.ts'
+import { DiscordAdapter } from './discord.ts'
 import type { ChannelHub, ChannelKind } from './hub.ts'
 import { IMessageAdapter } from './imessage.ts'
 import { MatrixAdapter } from './matrix.ts'
 import { SignalAdapter } from './signal.ts'
+import { SlackAdapter } from './slack.ts'
 import { TELEGRAM_API, TelegramAdapter } from './telegram.ts'
 
+export * from './discord.ts'
 export * from './format.ts'
 export * from './hub.ts'
 export * from './imessage.ts'
 export * from './matrix.ts'
 export * from './signal.ts'
+export * from './slack.ts'
 export * from './store.ts'
 export * from './telegram.ts'
 export * from './types.ts'
@@ -58,6 +62,33 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
       },
     ],
     make: (values) => new MatrixAdapter(values.homeserver ?? '', values.token ?? '', values.userId),
+  },
+  discord: {
+    label: 'Discord',
+    setup: channelCopy.setup.discord,
+    fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: 'MTA…' }],
+    make: (values) => new DiscordAdapter(values.token ?? ''),
+  },
+  slack: {
+    label: 'Slack',
+    setup: channelCopy.setup.slack,
+    fields: [
+      {
+        key: 'botToken',
+        label: 'Bot token',
+        secret: true,
+        placeholder: 'xoxb-…',
+        hint: channelCopy.fields.slackBot,
+      },
+      {
+        key: 'appToken',
+        label: 'App-level token',
+        secret: true,
+        placeholder: 'xapp-…',
+        hint: channelCopy.fields.slackApp,
+      },
+    ],
+    make: (values) => new SlackAdapter(values.botToken ?? '', values.appToken ?? ''),
   },
 }
 
