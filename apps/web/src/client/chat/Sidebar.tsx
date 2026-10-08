@@ -13,7 +13,6 @@ import {
   Plus,
   Search,
   Settings,
-  ShieldCheck,
   SquarePen,
   Sun,
   Trash2,
@@ -29,6 +28,7 @@ import { useStatus } from '../status.tsx'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import type { ThemeChoice } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
 import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
@@ -438,7 +438,7 @@ export function Sidebar(props: {
                     title={copy.sidebar.projects.permissionsTitle}
                     className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 group-has-[[data-armed]]:invisible"
                   >
-                    <ShieldCheck className="size-3.5" />
+                    <FEATURE_ICONS.permissions className="size-3.5" />
                   </button>
                 )}
                 <button

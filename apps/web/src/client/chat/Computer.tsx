@@ -1,20 +1,11 @@
 import type { EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Globe,
-  Hand,
-  Maximize2,
-  Minimize2,
-  MonitorSmartphone,
-  Radio,
-  Undo2,
-} from 'lucide-react'
+import { ChevronLeft, ChevronRight, Globe, Hand, Maximize2, Minimize2, Radio, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, browserSocket, keyframeImage } from '../api.ts'
 import { copy } from '../copy.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
 import { clock } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
 import { Badge, Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
@@ -147,7 +138,7 @@ export function Computer({
   const current = known.find((t) => t.agent === agent) ?? known[0]
   if (!current)
     return (
-      <Empty icon={<MonitorSmartphone className="size-5" />} title={copy.computer.emptyTitle}>
+      <Empty icon={<FEATURE_ICONS.computer className="size-5" />} title={copy.computer.emptyTitle}>
         {copy.computer.emptyBody}
       </Empty>
     )

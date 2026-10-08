@@ -666,7 +666,7 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
       /** The armed remove button: the second click removes the project from the list. */
-      removeConfirm: 'Remove',
+      removeConfirm: 'Yes, remove',
     },
     empty: 'Your conversations will appear here.',
     noMatches: (query: string) => `No chats match “${query}”.`,

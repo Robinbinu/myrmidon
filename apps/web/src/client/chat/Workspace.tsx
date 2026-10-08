@@ -18,9 +18,7 @@ import {
   GitBranch,
   ListChecks,
   Mail,
-  MonitorSmartphone,
   Puzzle,
-  ShieldCheck,
   SquareTerminal,
   Terminal,
   Users,
@@ -33,6 +31,7 @@ import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
 import { Badge, CountBadge, cn, Dot, Empty, IconButton, Select, toneFor } from '../ui/primitives.tsx'
@@ -88,12 +87,18 @@ const VIEWS: ViewDef[] = [
   { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
   { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
   { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4', fullOnly: true },
-  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone, group: 1, key: '5' },
+  {
+    value: 'computer',
+    label: copy.workspace.views.computer,
+    icon: FEATURE_ICONS.computer,
+    group: 1,
+    key: '5',
+  },
   { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
   { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
   { value: 'mail', label: copy.workspace.views.mail, icon: Mail, group: 2, key: '8' },
   { value: 'activity', label: copy.workspace.views.activity, icon: Activity, group: 3, key: '9' },
-  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck, group: 3, key: '0' },
+  { value: 'audit', label: copy.workspace.views.audit, icon: FEATURE_ICONS.audit, group: 3, key: '0' },
 ]
 const PLUGIN_GROUP = 4
 const VIEW_COMBO = (key: string) => `mod+alt+${key}`

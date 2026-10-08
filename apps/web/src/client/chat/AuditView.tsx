@@ -1,8 +1,9 @@
 import { type AuditKind, auditOf, type MyrEvent } from '@myrmidon/protocol'
-import { Ban, FileCode, Globe, Search, ShieldCheck, SquareTerminal, Wrench } from 'lucide-react'
+import { Ban, FileCode, Globe, Search, SquareTerminal, Wrench } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Badge, cn, Empty, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
@@ -51,7 +52,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
 
   if (audit.entries.length === 0 && audit.stops.length === 0)
     return (
-      <Empty icon={<ShieldCheck className="size-5" />} title={copy.audit.empty.title}>
+      <Empty icon={<FEATURE_ICONS.audit className="size-5" />} title={copy.audit.empty.title}>
         {copy.audit.empty.body}
       </Empty>
     )

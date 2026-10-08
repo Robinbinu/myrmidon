@@ -1,24 +1,10 @@
-import {
-  Brain,
-  ChevronDown,
-  Gauge,
-  Minus,
-  Plus,
-  ShieldCheck,
-  ShieldOff,
-  ShieldQuestion,
-  Sparkles,
-  User,
-  Users,
-  UsersRound,
-  X,
-  Zap,
-} from 'lucide-react'
+import { ChevronDown, Gauge, Minus, Plus, Sparkles, User, Users, UsersRound, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useSpecialists } from '../specialists.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { MenuItem, MenuList, Popover } from '../ui/Popover.tsx'
 import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
@@ -166,7 +152,7 @@ const EFFORT = [
     key: 'low',
     title: copy.teamControls.effort.low.title,
     hint: copy.teamControls.effort.low.hint,
-    icon: Zap,
+    icon: FEATURE_ICONS.lightThinking,
     level: 0.2,
   },
   {
@@ -180,7 +166,7 @@ const EFFORT = [
     key: 'high',
     title: copy.teamControls.effort.high.title,
     hint: copy.teamControls.effort.high.hint,
-    icon: Brain,
+    icon: FEATURE_ICONS.thinking,
     level: 1,
   },
 ] as const
@@ -225,19 +211,19 @@ const REVIEW = [
     key: 'off',
     title: copy.teamControls.review.off.title,
     hint: copy.teamControls.review.off.hint,
-    icon: ShieldOff,
+    icon: FEATURE_ICONS.reviewOff,
   },
   {
     key: 'auto',
     title: copy.teamControls.review.auto.title,
     hint: copy.teamControls.review.auto.hint,
-    icon: ShieldQuestion,
+    icon: FEATURE_ICONS.reviewAuto,
   },
   {
     key: 'always',
     title: copy.teamControls.review.always.title,
     hint: copy.teamControls.review.always.hint,
-    icon: ShieldCheck,
+    icon: FEATURE_ICONS.verdict,
   },
 ] as const
 
@@ -250,7 +236,7 @@ export function ReviewChip(props: {
   onReview(mode: ReviewMode): void
 }) {
   const current = REVIEW.find((r) => r.key === props.review)
-  const Icon = current?.icon ?? ShieldCheck
+  const Icon = current?.icon ?? FEATURE_ICONS.verdict
   return (
     <ChipMenu
       label={copy.teamControls.reviewer.label}

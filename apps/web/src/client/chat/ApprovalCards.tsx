@@ -1,14 +1,5 @@
 import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import {
-  BookmarkPlus,
-  Check,
-  GraduationCap,
-  KeyRound,
-  MonitorSmartphone,
-  PencilLine,
-  ShieldQuestion,
-  X,
-} from 'lucide-react'
+import { BookmarkPlus, Check, GraduationCap, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -27,6 +18,7 @@ const action = (tool: string) =>
       ? copy.approvals.actions.file
       : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import type { Pending } from './approvals.ts'
 
 /**
@@ -113,7 +105,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
       className="flex flex-col gap-2.5 rounded-2xl border border-warn/40 bg-warn-soft/40 px-4 py-3"
     >
       <div className="flex items-center gap-2 text-reading">
-        <ShieldQuestion className="size-4 shrink-0 text-warn-ink" />
+        <FEATURE_ICONS.approvalAsk className="size-4 shrink-0 text-warn-ink" />
         <span className="min-w-0">
           <span className="font-semibold">{a.agent}</span>{' '}
           {a.review ? (
@@ -323,7 +315,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
           className="flex flex-col gap-2.5 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3"
         >
           <div className="flex items-center gap-2 text-reading">
-            <KeyRound className="size-4 shrink-0 text-accent-fg" />
+            <FEATURE_ICONS.siteSignIn className="size-4 shrink-0 text-accent-fg" />
             <span>
               <span className="font-semibold">{l.agent}</span> {copy.approvals.login.needsSignIn}{' '}
               <span className="font-semibold">{l.site}</span>
@@ -336,7 +328,7 @@ export function LoginCards({ state }: { state: ColonyState }) {
             <Button
               size="sm"
               variant="primary"
-              icon={<MonitorSmartphone className="size-3.5" />}
+              icon={<FEATURE_ICONS.computer className="size-3.5" />}
               onClick={() =>
                 window.dispatchEvent(
                   new CustomEvent('myr:open-view', { detail: { view: 'computer', agent: l.agent } }),

@@ -1,8 +1,9 @@
-import { ChevronDown, Laptop, Server, Settings2 } from 'lucide-react'
+import { ChevronDown, Laptop } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { activeGateway, GATEWAYS_CHANGED, type GatewayInfo, listGateways, switchGateway } from '../api.ts'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { MenuItem, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { isMac } from '../ui/platform.ts'
 import { cn, Dot } from '../ui/primitives.tsx'
@@ -48,7 +49,13 @@ export function GatewaySwitcher(props: { onManage(): void }) {
     setOpen(false)
     if (id !== active) switchGateway(id)
   }
-  const item = (props: { id?: string; name: string; detail: string; ok?: boolean; icon: typeof Server }) => (
+  const item = (props: {
+    id?: string
+    name: string
+    detail: string
+    ok?: boolean
+    icon: typeof FEATURE_ICONS.gateway
+  }) => (
     <MenuItem
       key={props.id ?? 'local'}
       checked={props.id === active}
@@ -78,7 +85,11 @@ export function GatewaySwitcher(props: { onManage(): void }) {
           open && 'bg-fill text-fg',
         )}
       >
-        {current ? <Server className="size-3.5 shrink-0" /> : <Laptop className="size-3.5 shrink-0" />}
+        {current ? (
+          <FEATURE_ICONS.gateway className="size-3.5 shrink-0" />
+        ) : (
+          <Laptop className="size-3.5 shrink-0" />
+        )}
         <span className="min-w-0 flex-1 truncate text-left">{current?.name ?? local}</span>
         {current && <Dot tone={current.health.ok ? 'ok' : 'bad'} />}
         <ChevronDown className="size-3 shrink-0 text-muted" />
@@ -99,12 +110,12 @@ export function GatewaySwitcher(props: { onManage(): void }) {
                 name: g.name,
                 detail: g.health.ok ? new URL(g.url).host : (g.health.error ?? t.unreachable),
                 ok: g.health.ok,
-                icon: Server,
+                icon: FEATURE_ICONS.gateway,
               }),
             )}
             <MenuSeparator />
             <MenuItem
-              icon={<Settings2 className="size-4 shrink-0 text-muted" />}
+              icon={<FEATURE_ICONS.gateways className="size-4 shrink-0 text-muted" />}
               title={t.manage}
               onSelect={() => {
                 setOpen(false)

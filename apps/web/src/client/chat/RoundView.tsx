@@ -12,8 +12,6 @@ import {
 import {
   ArrowDown,
   ArrowUpRight,
-  BadgeCheck,
-  Brain,
   Check,
   CheckCheck,
   ChevronDown,
@@ -29,7 +27,6 @@ import {
   Phone,
   Play,
   RotateCcw,
-  ShieldQuestion,
   TriangleAlert,
   Users,
 } from 'lucide-react'
@@ -39,6 +36,7 @@ import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, duration, type FollowLatest, useCopy, useStickToBottom } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import {
   AgentAvatar,
   AgentChip,
@@ -718,7 +716,7 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
         aria-expanded={open}
         className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
       >
-        <Brain className="size-3.5" />
+        <FEATURE_ICONS.thinking className="size-3.5" />
         <span className="tabular-nums">
           {props.running
             ? copy.round.thoughts.thinkingFor(duration(Math.max(1000, total)))
@@ -1102,7 +1100,7 @@ function RunCard(props: {
               )}
               {approving ? (
                 <div className="flex items-center gap-2 text-callout text-muted">
-                  <ShieldQuestion className="size-3.5" />
+                  <FEATURE_ICONS.approvalAsk className="size-3.5" />
                   <span>{copy.round.lead.approval}</span>
                 </div>
               ) : (
@@ -1396,7 +1394,7 @@ function Outcome({
     if (!judge) return null
     return (
       <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-reading text-ok-ink" role="status">
-        <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+        <FEATURE_ICONS.verdict className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
             {copy.outcome.reviewed}

@@ -4,7 +4,6 @@ import {
   AudioLines,
   BookMarked,
   Bot,
-  Brain,
   CalendarClock,
   Check,
   ChevronRight,
@@ -15,16 +14,12 @@ import {
   Eye,
   EyeOff,
   FishingHook,
-  Gavel,
   Globe,
   GraduationCap,
-  KeyRound,
   LoaderCircle,
   LogIn,
   MessageSquareText,
-  MessagesSquare,
   Monitor,
-  MonitorSmartphone,
   Moon,
   Palette,
   Pin,
@@ -33,9 +28,6 @@ import {
   Puzzle,
   RefreshCw,
   Search,
-  Server,
-  ServerCog,
-  ShieldCheck,
   SlidersHorizontal,
   Smile,
   Sun,
@@ -78,6 +70,7 @@ import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { ago, day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
@@ -221,7 +214,7 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     group: 'setup',
     label: copy.settings.sections.models.label,
     hint: copy.settings.sections.models.hint,
-    icon: Brain,
+    icon: FEATURE_ICONS.models,
   },
   {
     id: 'team',
@@ -235,7 +228,7 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     group: 'setup',
     label: copy.settings.sections.verification.label,
     hint: copy.settings.sections.verification.hint,
-    icon: Gavel,
+    icon: FEATURE_ICONS.reviewer,
   },
   {
     id: 'specialists',
@@ -312,21 +305,21 @@ const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string;
     group: 'you',
     label: copy.settings.sections.devices.label,
     hint: copy.settings.sections.devices.hint,
-    icon: MonitorSmartphone,
+    icon: FEATURE_ICONS.devices,
   },
   {
     id: 'gateways',
     group: 'you',
     label: copy.settings.sections.gateways.label,
     hint: copy.settings.sections.gateways.hint,
-    icon: ServerCog,
+    icon: FEATURE_ICONS.gateways,
   },
   {
     id: 'channels',
     group: 'you',
     label: copy.settings.sections.channels.label,
     hint: copy.settings.sections.channels.hint,
-    icon: MessagesSquare,
+    icon: FEATURE_ICONS.channels,
   },
   {
     id: 'voice',
@@ -666,7 +659,7 @@ export function Settings(props: {
                           value: 'models',
                           label: (
                             <>
-                              <Brain className="size-3.5" /> {copy.settings.page.modelsTab}
+                              <FEATURE_ICONS.models className="size-3.5" /> {copy.settings.page.modelsTab}
                             </>
                           ),
                         },
@@ -674,7 +667,8 @@ export function Settings(props: {
                           value: 'providers',
                           label: (
                             <>
-                              <KeyRound className="size-3.5" /> {copy.settings.page.providersTab}
+                              <FEATURE_ICONS.providers className="size-3.5" />{' '}
+                              {copy.settings.page.providersTab}
                             </>
                           ),
                         },
@@ -983,7 +977,7 @@ function ModelsSection(props: {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
-                            {m.reasoning && <Brain className="size-3.5 text-muted" />}
+                            {m.reasoning && <FEATURE_ICONS.thinking className="size-3.5 text-muted" />}
                           </div>
                           <div className="truncate font-mono text-caption text-muted">{m.id}</div>
                           {t && t !== 'running' && (
@@ -1431,7 +1425,7 @@ function Providers(props: {
 
       <div className="mb-2 flex items-center justify-between">
         <SectionHeader
-          icon={<KeyRound className="size-4 text-muted" />}
+          icon={<FEATURE_ICONS.providers className="size-4 text-muted" />}
           title={copy.settings.providers.heading}
           note={copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
         />
@@ -1469,7 +1463,10 @@ function Providers(props: {
       </AnimatePresence>
       <Card>
         {shown.length === 0 && (
-          <Empty icon={<Server className="size-5" />} title={copy.settings.providers.emptyTitle}>
+          <Empty
+            icon={<FEATURE_ICONS.providers className="size-5" />}
+            title={copy.settings.providers.emptyTitle}
+          >
             {copy.settings.providers.emptyBody}
           </Empty>
         )}
@@ -1998,7 +1995,7 @@ function ToolRules(props: {
     <>
       <SectionHeader
         className="mb-2 mt-8"
-        icon={<ShieldCheck className="size-4 text-muted" />}
+        icon={<FEATURE_ICONS.toolRules className="size-4 text-muted" />}
         title={copy.settings.tools.rulesTitle}
         note={copy.settings.tools.rulesSubtitle}
       />
@@ -2062,7 +2059,9 @@ function ToolsSection(props: {
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
-        <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
+        <FEATURE_ICONS.sandbox
+          className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')}
+        />
         <div>
           <div className="font-semibold">
             {sandboxed
@@ -2407,7 +2406,7 @@ function DevicesSection() {
           role="note"
           className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body"
         >
-          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
+          <FEATURE_ICONS.devices className="mt-0.5 size-4 shrink-0 text-muted" />
           <div>
             <div className="font-semibold">{t.pairNeedsRemoteTitle}</div>
             <div className="text-fg-2">{t.pairNeedsRemote}</div>
@@ -2459,12 +2458,12 @@ function DevicesSection() {
         </Card>
       )}
       {data && data.devices.length === 0 ? (
-        <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
+        <Empty icon={<FEATURE_ICONS.devices className="size-5" />} title={t.empty} />
       ) : (
         <Card>
           {data?.devices.map((d) => (
             <div key={d.id} className="flex items-center gap-3 px-4 py-3">
-              <MonitorSmartphone className="size-4 shrink-0 text-muted" />
+              <FEATURE_ICONS.devices className="size-4 shrink-0 text-muted" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="truncate text-reading font-semibold">{d.name}</span>
@@ -3790,7 +3789,7 @@ function GatewaysSection() {
         </CardRow>
       </Card>
       {list && list.length === 0 ? (
-        <Empty icon={<ServerCog className="size-5" />} title={t.empty} />
+        <Empty icon={<FEATURE_ICONS.gateways className="size-5" />} title={t.empty} />
       ) : (
         <Card>
           {list?.map((g) => (

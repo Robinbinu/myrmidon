@@ -1,6 +1,4 @@
 import {
-  BadgeCheck,
-  Brain,
   CircleAlert,
   FileCode,
   Globe,
@@ -13,6 +11,7 @@ import {
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { clock } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { cn } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
 import type { Step, StepKind } from './steps.ts'
@@ -23,12 +22,12 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   file: { icon: FileCode, color: 'text-accent-fg' },
   task: { icon: ListChecks, color: 'text-warn-ink' },
   team: { icon: UserPlus, color: 'text-work-ink' },
-  verdict: { icon: BadgeCheck, color: 'text-ok-ink' },
+  verdict: { icon: FEATURE_ICONS.verdict, color: 'text-ok-ink' },
   error: { icon: TriangleAlert, color: 'text-bad-ink' },
   shell: { icon: Terminal, color: 'text-fg-2' },
   talk: { icon: Megaphone, color: 'text-muted' },
   signal: { icon: CircleAlert, color: 'text-warn-ink' },
-  think: { icon: Brain, color: 'text-muted' },
+  think: { icon: FEATURE_ICONS.thinking, color: 'text-muted' },
 }
 
 /** One line of the activity feed: kind icon, who, what, when. `hideAgent` drops the name in a one-agent view. */

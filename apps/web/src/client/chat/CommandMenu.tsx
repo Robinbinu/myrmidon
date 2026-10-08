@@ -1,10 +1,8 @@
 import {
-  Brain,
   Check,
   CircleHelp,
   ClipboardList,
   CornerDownLeft,
-  Cpu,
   Download,
   ListEnd,
   type LucideIcon,
@@ -23,6 +21,7 @@ import {
 import { motion } from 'motion/react'
 import { Fragment, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar } from '../ui/pixel.tsx'
 import { cn, Kbd } from '../ui/primitives.tsx'
 import { spring } from '../ui-config.ts'
@@ -47,9 +46,9 @@ const ICONS: Record<string, LucideIcon> = {
   stop: Square,
   resume: Play,
   retry: RotateCcw,
-  model: Cpu,
+  model: FEATURE_ICONS.models,
   mode: Workflow,
-  thinking: Brain,
+  thinking: FEATURE_ICONS.thinking,
   team: Users,
   new: Plus,
   rename: Pencil,

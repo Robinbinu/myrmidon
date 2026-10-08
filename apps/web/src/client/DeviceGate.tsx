@@ -1,4 +1,4 @@
-import { KeyRound, Laptop, RefreshCw } from 'lucide-react'
+import { Laptop, RefreshCw } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import {
   activeGateway,
@@ -11,6 +11,7 @@ import {
   whoami,
 } from './api.ts'
 import { copy } from './copy.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
 import { Banner, Button, Field, TextInput } from './ui/primitives.tsx'
@@ -239,7 +240,7 @@ function PairScreen(props: { onPaired(): void }) {
           type="submit"
           variant="primary"
           disabled={busy || !code.trim()}
-          icon={<KeyRound className="size-4" />}
+          icon={<FEATURE_ICONS.devices className="size-4" />}
         >
           {t.pair}
         </Button>

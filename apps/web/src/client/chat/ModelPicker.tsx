@@ -1,4 +1,4 @@
-import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
+import { Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import {
   createContext,
@@ -12,6 +12,7 @@ import {
 } from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn } from '../ui/primitives.tsx'
@@ -292,7 +293,7 @@ export function ModelPicker(props: {
                         )}
                         {m.reasoning && (
                           <span title={copy.modelPicker.thinking} className="text-muted">
-                            <Brain className="size-3.5" />
+                            <FEATURE_ICONS.thinking className="size-3.5" />
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (

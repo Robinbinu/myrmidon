@@ -1,19 +1,11 @@
-import {
-  Check,
-  ChevronDown,
-  CircleAlert,
-  CircleCheck,
-  Copy,
-  RefreshCw,
-  Settings2,
-  WifiOff,
-} from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, CircleCheck, Copy, RefreshCw, WifiOff } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { send } from './api.ts'
 import { copy } from './copy.ts'
 import { type GatewayStatus, useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ago, day, useCopy } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Banner, Button, Card, cn, Dot, Skeleton } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
@@ -155,7 +147,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
               <Button
                 size="sm"
                 variant="borderless"
-                icon={<Settings2 className="size-3.5" />}
+                icon={<FEATURE_ICONS.channels className="size-3.5" />}
                 onClick={props.onManageChannels}
               >
                 {t.manage}

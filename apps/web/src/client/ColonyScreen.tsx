@@ -9,11 +9,9 @@ import {
 } from '@myrmidon/protocol'
 import {
   Activity,
-  BadgeCheck,
   ChevronRight,
   CircleDot,
   FileCode,
-  Gavel,
   ListChecks,
   Mail,
   Megaphone,
@@ -37,6 +35,7 @@ import { Markdown } from './chat/Markdown.tsx'
 import { copy } from './copy.ts'
 import { describeEvent } from './describe.ts'
 import { clock, compact, duration, money } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { Badge, Banner, cn, Dot, Empty, Tabs, tabPanel, toneFor } from './ui/primitives.tsx'
 import { agentPhase, runPhase } from './ui/status.ts'
@@ -216,7 +215,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
           ...base,
           agent: p.verifierId,
           kind: 'event',
-          icon: Gavel,
+          icon: FEATURE_ICONS.reviewer,
           tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
           text: `${copy.colonyScreen.activity.verdict(p.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail, copy.reviewTarget(p.target))}${p.score !== undefined ? ` · ${copy.colonyScreen.score(p.score.toFixed(2))}` : ''}`,
           body: p.evidence,
@@ -390,7 +389,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
                 value: 'verdicts',
                 label: (
                   <>
-                    <BadgeCheck className="size-3.5" /> {copy.colonyScreen.tabs.verdicts}
+                    <FEATURE_ICONS.verdict className="size-3.5" /> {copy.colonyScreen.tabs.verdicts}
                   </>
                 ),
                 count: reviewed.length,
@@ -756,7 +755,7 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
 function Verdicts({ state }: { state: ColonyState }) {
   const verdicts = reviewVerdicts(state)
   if (verdicts.length === 0)
-    return <Empty icon={<Gavel className="size-5" />} title={copy.colonyScreen.noVerdicts} />
+    return <Empty icon={<FEATURE_ICONS.reviewer className="size-5" />} title={copy.colonyScreen.noVerdicts} />
   return (
     <div className="h-full overflow-auto p-4">
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
