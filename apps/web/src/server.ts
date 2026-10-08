@@ -2015,15 +2015,14 @@ export function startServer(options: ServeOptions): WebServer {
         const access = authorized(req, url)
         // A refused upgrade reaches the page as a bare 1006 with no reason; a refusal is an upgrade closed at once
         // with a code and a reason the page can show.
+        // Any signed-in device may call, chats-only ones too.
         const refusal = !access
           ? { code: 4401, reason: 'not signed in' }
-          : access.scope !== 'full' && needsFull('GET', url.pathname)
-            ? { code: 4403, reason: 'this device cannot make calls; pair it with full access' }
-            : !voice || !chatsPort
-              ? { code: 4503, reason: 'voice needs the chat runtime' }
-              : !voice.enabled
-                ? { code: 4409, reason: VOICE_OFF }
-                : undefined
+          : !voice || !chatsPort
+            ? { code: 4503, reason: 'voice needs the chat runtime' }
+            : !voice.enabled
+              ? { code: 4409, reason: VOICE_OFF }
+              : undefined
         const rate = Number(url.searchParams.get('rate'))
         const data = {
           kind: 'call' as const,
