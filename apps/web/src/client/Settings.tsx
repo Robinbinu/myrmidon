@@ -2533,6 +2533,7 @@ interface ChannelView {
   perPerson: boolean
   allow: string[]
   allowExample?: string
+  allowInvalid: string[]
   status: ChannelConnection
   health: {
     connectedAt?: string
@@ -2542,7 +2543,7 @@ interface ChannelView {
     lastOut?: string
     owed: number
   }
-  people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
+  people: { id: string; name: string; handle?: string; role: 'owner' | 'member'; by?: 'code' | 'settings' }[]
   approvedGroups: { id: string; title: string }[]
   pending: {
     id: string
@@ -2806,6 +2807,8 @@ function ChannelSheet(props: {
       (err: Error) => toast(err.message, 'error'),
     )
   const hasOwner = c.people.some((p) => p.role === 'owner')
+  // An owner from before ownership was recorded may have become it only by being on the allowlist.
+  const unconfirmed = c.allow.length > 0 ? c.people.find((p) => p.role === 'owner' && !p.by) : undefined
   // Approving takes the code the bot sent the requester: the server checks it, so a stranger who wrote first (even
   // under the owner's name) cannot be approved by a click.
   const [codes, setCodes] = useState<Record<string, string>>({})
@@ -2978,6 +2981,25 @@ function ChannelSheet(props: {
 
         {tab === 'people' && (
           <div className="flex flex-col gap-4">
+            {unconfirmed && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-4 py-3">
+                <p className="min-w-0 flex-1 text-[12.5px] text-warn-ink">
+                  {t.confirmOwner(unconfirmed.name)}
+                </p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() =>
+                    void act(
+                      post(`/api/channels/${c.id}/owner`, { person: unconfirmed.id }),
+                      t.ownerConfirmed(unconfirmed.name),
+                    )
+                  }
+                >
+                  {t.confirmOwnerButton}
+                </Button>
+              </div>
+            )}
             {c.pending.length > 0 && (
               <Card>
                 <Row>
@@ -3158,7 +3180,10 @@ function ChannelSheet(props: {
                     {allowSaved && <span className="text-ok-ink"> {t.allowSaved}</span>}
                   </>
                 }
-                error={allowError}
+                error={
+                  allowError ??
+                  (c.allowInvalid.length ? t.allowStale(c.allowInvalid, c.allowExample) : undefined)
+                }
               >
                 <TextInput
                   value={allowDraft ?? c.allow.join(', ')}

@@ -104,6 +104,8 @@ export interface ChannelInfo {
   readonly allow: readonly string[]
   /** What an entry in `allow` looks like here. */
   readonly allowExample?: string
+  /** Saved entries that can never match (kept from before they were checked, such as a bare IRC nick). */
+  readonly allowInvalid: readonly string[]
   readonly status: AdapterStatus | { readonly state: 'off' }
   readonly health: ChannelHealth
   readonly people: readonly ChannelPerson[]
@@ -208,6 +210,10 @@ interface OpenQuestions {
   answeredBy?: string
 }
 
+/** An allowlist entry that can never match: two run together (a space), or not in the platform's form. */
+const unmatchable = (kind: ChannelKind, entry: string) =>
+  /\s/.test(entry) || (kind.allow !== undefined && !kind.allow.pattern.test(entry))
+
 const key = () => randomBytes(4).toString('base64url').slice(0, 6)
 
 /**
@@ -303,6 +309,7 @@ export class ChannelHub {
         perPerson: c.perPerson,
         allow: c.allow,
         ...(kind.allow ? { allowExample: kind.allow.example } : {}),
+        allowInvalid: c.allow.filter((a) => unmatchable(kind, a)),
         status: this._running.has(id) ? (this._status.get(id) ?? { state: 'connecting' }) : { state: 'off' },
         health: { reconnects: 0, ...this._health.get(id), owed: this._ledger.owed(id).length },
         people: c.people,
@@ -323,8 +330,9 @@ export class ChannelHub {
   async configure(id: string, patch: ChannelPatch) {
     const kind = this._kind(id)
     const allow = patch.allow?.map((a) => a.trim()).filter(Boolean)
-    // An entry with a space is two run together; one in the wrong form would never match anyone.
-    const wrong = allow?.filter((a) => /\s/.test(a) || (kind.allow && !kind.allow.pattern.test(a))) ?? []
+    // Entries already saved stay as they are (Settings flags them), so they never block editing the rest.
+    const saved = this.store.get(id).allow
+    const wrong = allow?.filter((a) => !saved.includes(a) && unmatchable(kind, a)) ?? []
     if (wrong.length) throw new Error(t.allowInvalid(kind.label, wrong, kind.allow?.example))
     // The first time a channel is configured it starts from its platform's own rules.
     if (kind.defaults && !this.store.exists(id))

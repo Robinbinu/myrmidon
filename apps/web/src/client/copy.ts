@@ -1886,6 +1886,10 @@ export const copy = {
         'They approve risky steps and can allow tools for good; the current owner becomes a member.',
       makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
       madeOwner: (name: string) => `${name} is now the owner`,
+      confirmOwner: (name: string) =>
+        `${name} is the owner, but may have become it just by being under "Let in without a code", which no longer gives ownership. Confirm them if they are you or someone you trust; otherwise make someone else the owner or revoke them.`,
+      confirmOwnerButton: 'Confirm owner',
+      ownerConfirmed: (name: string) => `Confirmed ${name} as the owner`,
       decline: 'Decline',
       declineName: (name: string) => `Decline ${name}`,
       declineConfirm: 'Yes, decline',
@@ -1934,6 +1938,8 @@ export const copy = {
         'IDs or @usernames, separated by commas. They come in as members; make someone the owner under People.',
       allowPlaceholder: '@alice, 123456789',
       allowSaved: 'Saved.',
+      allowStale: (entries: string[], example?: string) =>
+        `${entries.join(', ')} never ${entries.length === 1 ? 'matches' : 'match'} anyone here: ${example ? `write it like ${example}, or remove it` : 'remove it, or separate entries with commas'}.`,
       stream: 'While the crew works',
       streamHint: {
         progress: 'One message that updates with what each agent is doing, then the answer as a new message.',

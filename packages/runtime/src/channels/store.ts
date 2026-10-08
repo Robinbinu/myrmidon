@@ -20,6 +20,11 @@ export interface ChannelPerson {
   readonly handle?: string
   /** The first person approved by code, or whoever Settings makes it; only the owner approves risky steps. */
   readonly role: 'owner' | 'member'
+  /**
+   * How the owner became it: their own code, or Settings. Absent for an owner from before this was kept, who may have
+   * become it just by an allowlist match (Settings asks the person to confirm them).
+   */
+  readonly by?: 'code' | 'settings'
   readonly approvedAt: string
   /** Their direct chat with the bot, where approvals for rounds they cannot see are sent. */
   readonly dm?: string
@@ -238,7 +243,7 @@ export class ChannelStore {
         id: found.sender.id,
         name: found.sender.name,
         ...(found.sender.handle ? { handle: found.sender.handle } : {}),
-        role: c.people.some((p) => p.role === 'owner') ? 'member' : 'owner',
+        ...(c.people.some((p) => p.role === 'owner') ? { role: 'member' } : { role: 'owner', by: 'code' }),
         approvedAt: at,
         ...(found.chat.kind === 'dm' ? { dm: found.chat.id } : {}),
       }
@@ -251,10 +256,9 @@ export class ChannelStore {
   setOwner(channel: string, personId: string): boolean {
     return this.update(channel, (c) => {
       if (!c.people.some((p) => p.id === personId)) return false
-      c.people = c.people.map((p) => ({
-        ...p,
-        role: p.id === personId ? ('owner' as const) : ('member' as const),
-      }))
+      c.people = c.people.map(({ by: _by, ...p }) =>
+        p.id === personId ? { ...p, role: 'owner', by: 'settings' } : { ...p, role: 'member' },
+      )
       return true
     })
   }
