@@ -30,6 +30,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type CSSProperties, Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
@@ -74,6 +75,8 @@ interface ViewDef {
   /** The digit of its shortcut (see VIEW_COMBO). */
   key?: string
   projectOnly?: boolean
+  /** The person's own login shell: the server opens it only for full-access devices. */
+  fullOnly?: boolean
 }
 
 /**
@@ -84,7 +87,7 @@ const VIEWS: ViewDef[] = [
   { value: 'files', label: copy.workspace.views.files, icon: FileCode, group: 0, key: '1' },
   { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
   { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
-  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4' },
+  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4', fullOnly: true },
   { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone, group: 1, key: '5' },
   { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
   { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
@@ -212,8 +215,9 @@ function WorkspaceBody({
     [colony, round],
   )
   const pluginTabs = usePluginSlots('workspace.tab')
+  const fullAccess = useScope() === 'full'
   const views: ViewDef[] = [
-    ...VIEWS.filter((v) => !v.projectOnly || project),
+    ...VIEWS.filter((v) => (!v.projectOnly || project) && (!v.fullOnly || fullAccess)),
     ...pluginTabs.map(({ plugin, def }) => ({
       value: `plugin:${plugin}` as Tab,
       label: def.title ?? plugin,
@@ -227,7 +231,7 @@ function WorkspaceBody({
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return t === 'git' && !project ? 'files' : t
+    return (t === 'git' && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)
