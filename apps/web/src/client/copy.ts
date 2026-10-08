@@ -986,8 +986,9 @@ export const copy = {
     stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
     recorded: (n: number, agent: string) =>
       `${n} recorded step${n === 1 ? '' : 's'} · scrub back to replay what ${agent} did`,
-    controlHint: (agent: string) =>
-      `Click and type in the page as usual. ${agent} waits until you hand it back.`,
+    /** Under the page while the person drives it; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
+    controlHint: (agent: string, paste: string, leave: string) =>
+      `Click and type in the page as usual; ${paste} pastes. ${leave} leaves the page. ${agent} waits until you hand it back.`,
   },
 
   app: {
