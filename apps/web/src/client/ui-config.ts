@@ -14,6 +14,8 @@ export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as con
  * request is 9–12k tokens, a helper's up to 26k.
  */
 export const AGENT_MIN_WINDOW = 32_000
+/** The shortest a model picker's list gets before it opens the other way. */
+export const MODEL_LIST_MIN_PX = 160
 
 /* ------------------------------------------------------------------ composer */
 

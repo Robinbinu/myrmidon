@@ -24,7 +24,7 @@ import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
 import { type HelperMode, helperMode, helpersLabel, readSavedHelpers, saveHelpers } from './helpers.ts'
-import { ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
   'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
@@ -41,6 +41,7 @@ function ChipMenu(props: {
   // A menu that would run past the window's right edge opens leftward from the chip instead.
   const [alignRight, setAlignRight] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const outside = (e: MouseEvent) => {
@@ -78,6 +79,7 @@ function ChipMenu(props: {
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={pop}
             role="menu"
             initial={{ opacity: 0, y: 6, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -89,7 +91,7 @@ function ChipMenu(props: {
               alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
             )}
           >
-            {props.children(() => setOpen(false))}
+            <PickerHost.Provider value={pop}>{props.children(() => setOpen(false))}</PickerHost.Provider>
           </motion.div>
         )}
       </AnimatePresence>

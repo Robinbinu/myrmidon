@@ -1,11 +1,24 @@
 import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
 import { cn } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
+import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX, spring } from '../ui-config.ts'
+import { withoutDatedAliases } from './model-list.ts'
+
+/** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
+export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
 
 /** A context window the way people say it: 8K, 200K, 1M. */
 export function windowLabel(tokens: number): string {
@@ -45,9 +58,14 @@ export function ModelPicker(props: {
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const visible = useMemo(
-    () => props.models.filter((m) => !m.hidden || m.ref === props.value),
+    () =>
+      withoutDatedAliases(
+        props.models.filter((m) => !m.hidden || m.ref === props.value),
+        props.value,
+      ),
     [props.models, props.value],
   )
+  const host = useContext(PickerHost)
   const current = props.models.find((m) => m.ref === props.value)
 
   useEffect(() => {
@@ -86,7 +104,11 @@ export function ModelPicker(props: {
   })
 
   // The list opens the preferred way when it fits, otherwise toward the larger space, and never past the window.
-  const [fit, setFit] = useState({ up: (props.placement ?? 'up') === 'up', max: 400 })
+  // Inside a popover it opens above the whole popover (`lift` past it), so the row being changed stays in view.
+  const [fit, setFit] = useState<{ up: boolean; max: number; lift?: number }>({
+    up: (props.placement ?? 'up') === 'up',
+    max: 400,
+  })
   const up = fit.up
   return (
     // A chip never shrinks past its logo and chevron, so neighbouring chips can't slide over it.
@@ -95,12 +117,15 @@ export function ModelPicker(props: {
         type="button"
         onClick={() => {
           const rect = box.current?.getBoundingClientRect()
-          if (rect) {
+          const outer = host?.current?.getBoundingClientRect()
+          if (rect && outer && outer.top - 12 >= MODEL_LIST_MIN_PX) {
+            setFit({ up: true, max: Math.min(400, outer.top - 12), lift: rect.top - outer.top + 8 })
+          } else if (rect) {
             const above = rect.top - 12
             const below = window.innerHeight - rect.bottom - 12
             const preferUp = (props.placement ?? 'up') === 'up'
             const goUp = preferUp ? above >= Math.min(400, below) : below < Math.min(400, above)
-            setFit({ up: goUp, max: Math.max(160, Math.min(400, goUp ? above : below)) })
+            setFit({ up: goUp, max: Math.max(MODEL_LIST_MIN_PX, Math.min(400, goUp ? above : below)) })
           }
           setOpen(!open)
           setActive(
@@ -160,7 +185,7 @@ export function ModelPicker(props: {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
             transition={spring}
-            style={{ maxHeight: fit.max }}
+            style={{ maxHeight: fit.max, ...(fit.lift ? { bottom: `calc(100% + ${fit.lift}px)` } : {}) }}
             className={cn(
               'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
               variant === 'compact' ? 'right-0' : 'left-0',
@@ -230,7 +255,8 @@ export function ModelPicker(props: {
                         onMouseEnter={() => setActive(i)}
                         onClick={() => choose(m.ref)}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          // The margin keeps a row scrolled into view clear of the sticky provider heading.
+                          'flex w-full scroll-mt-8 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
                           i === active && !blocked && 'bg-surface-2',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',

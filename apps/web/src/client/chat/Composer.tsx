@@ -31,7 +31,8 @@ import { MAX_FILE_BYTES, MAX_FILES, spring } from '../ui-config.ts'
 import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { helpersHint, helpersLabel } from './helpers.ts'
-import { ModelPicker } from './ModelPicker.tsx'
+import { ModelPicker, PickerHost } from './ModelPicker.tsx'
+import { withoutDatedAliases } from './model-list.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './TeamControls.tsx'
 
 export const MODES = [
@@ -305,6 +306,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }
   const area = useRef<HTMLTextAreaElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
+  const teamPanel = useRef<HTMLDivElement>(null)
   const { config } = props
 
   useImperativeHandle(ref, () => ({
@@ -403,13 +405,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       ctx: { running: props.running, chat: !!props.chatState?.chat, resumable: !!props.chatState?.resumable },
       dynamicOptions: (c) =>
         c.name === 'model'
-          ? props.models
-              .filter((m) => !m.hidden)
-              .map((m) => ({
-                value: m.ref,
-                label: m.name,
-                description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
-              }))
+          ? withoutDatedAliases(
+              props.models.filter((m) => !m.hidden),
+              config.leadModel,
+            ).map((m) => ({
+              value: m.ref,
+              label: m.name,
+              description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
+            }))
           : undefined,
       current: (c) =>
         c.name === 'model'
@@ -445,6 +448,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           )}
           {showTeam && (
             <motion.div
+              ref={teamPanel}
               role="dialog"
               aria-label={copy.composer.teamDialog}
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -457,13 +461,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 <h3 className="text-[13px] font-semibold">{copy.composer.teamHeading}</h3>
                 <span className="text-[11.5px] text-muted">{copy.composer.teamApplies}</span>
               </div>
-              <TeamSettings
-                models={props.models}
-                config={config}
-                onConfig={props.onConfig}
-                {...(review ? { review } : {})}
-                onReview={changeReview}
-              />
+              <PickerHost.Provider value={teamPanel}>
+                <TeamSettings
+                  models={props.models}
+                  config={config}
+                  onConfig={props.onConfig}
+                  {...(review ? { review } : {})}
+                  onReview={changeReview}
+                />
+              </PickerHost.Provider>
             </motion.div>
           )}
         </AnimatePresence>
