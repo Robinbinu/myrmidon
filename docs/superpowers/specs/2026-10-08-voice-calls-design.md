@@ -78,3 +78,31 @@ Live) as another call mode; voice in channels (Discord voice).
 Unit: turn detector on synthetic audio (speech, pauses, barge-in); providers against fake servers; the call agent's
 tools against a fake chat (start a round, hear "done", approve). Integration: a scripted call over the WebSocket with
 recorded speech through the real Phonon-2 and Kitten when installed (skipped when not).
+
+## Spike results (2026-10-08)
+
+- **Kitten under Bun**: works with `onnxruntime-node` 1.30 (CPU): model load ~0.3 s, a sentence in 0.25–0.45 s. Two
+  problems with `kitten-tts-js` 0.1.2: `from_pretrained` asks the native runtime for the `wasm` provider (it tests
+  `ort.env.wasm`, which onnxruntime-node also has) and fails, so Myrmidon builds the session itself from the exported
+  `downloadModel`/`loadNpz`/`KittenTTS`; and its bundled eSpeak (Emscripten) installs
+  `process.on('unhandledRejection', e => { throw e })` on load, which would turn any stray rejection in the server into
+  a crash — so Kitten runs in **its own Bun worker process** (also keeps synthesis off the server's event loop). It
+  caches models in `~/.cache/kitten-tts` whatever `cacheDir` says; Myrmidon downloads the three files into
+  `<home>/voice/kitten/` itself.
+- **Phonon-2**: `fermion-research` 0.2.11 via uv. Kitten's sentence came back word for word. One-shot `transcribe`
+  is slow on first run (compiles its runtime, ~33 s) but decodes in 0.27 s; `fermion serve phonon-2 --host 127.0.0.1
+  --port N` is up in ~5 s and answers `POST /v1/audio/transcriptions` (multipart `file`, `model`) in ~0.3 s for 7 s of
+  speech (`/health`, `/v1/models` too). `FERMION_CACHE_DIR` puts the model under `<home>/voice/fermion`. Without the MLX
+  extras it uses its CPU engine; the install adds them (`--with mlx --with mlx-audio …`). `--hotwords` (up to 25 names)
+  helps it spell agent and project names.
+
+## Build steps
+
+1. Runtime `voice/`: turn detector; STT (Phonon server manager, omp, OpenAI-compatible); TTS (Kitten worker, omp,
+   OpenAI-compatible); the call session (call agent with streamed sentences, tools, crew updates, barge-in,
+   transcript); voice settings (secrets in `<home>/voice/secrets.json`, 0600). Unit tests with fakes.
+2. Server: the call WebSocket, voice settings and status, install/download endpoints, "try a voice", call transcripts
+   per chat.
+3. App: call button and call bar (mic worklet at 16 kHz, Web Audio playback, barge-in), Settings → Voice, call cards in
+   the chat.
+4. Live check with the real engines; docs/voice.md.
