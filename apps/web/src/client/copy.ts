@@ -289,7 +289,6 @@ export const copy = {
     windowGuess: (size: string) => `${size}, a guess: set the real size in Settings → Models`,
     windowTooSmall: (size: string) => `${size}: too small for agent work, fine for short chats`,
     buttonLabel: (label: string) => `${label} model`,
-    chipTitle: (label: string, model: string) => `${label}: ${model}`,
     choose: 'Choose a model',
     search: (count: number) => `Search ${count} models…`,
     searchLabel: (label: string) => `Search ${label} models`,
@@ -684,6 +683,8 @@ export const copy = {
       removeLabel: (name: string) => `Remove ${name} from projects`,
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
+      /** The armed remove button: the second click removes the project from the list. */
+      removeConfirm: 'Yes, remove',
     },
     /** `combo` is the New chat shortcut, written for this platform. */
     empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
@@ -1226,6 +1227,8 @@ export const copy = {
       read: 'Read',
       unread: 'Not read yet',
     },
+    /** A panel view's button with its count beside the icon, so the name holds the number shown. */
+    viewWithCount: (view: string, count: string) => `${view}, ${count}`,
   },
 
   computer: {
@@ -1381,6 +1384,8 @@ export const copy = {
     crewConsole: 'Crew',
     noCrews: 'No crews yet. Send a message in a chat and its crew shows here.',
     crewSelect: 'Crew',
+    /** The first stop on the page for keyboard users, shown only while focused. */
+    skipToComposer: 'Skip to message box',
   },
 
   colonyScreen: {
@@ -1653,7 +1658,7 @@ export const copy = {
       sectionPicker: 'Section',
       saveFailed: 'Couldn’t save your changes; they are still here',
       retry: 'Try again',
-      groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
+      groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You', connect: 'Connect' },
       unsaved: {
         title: 'Leave without saving?',
         body: 'Your hook changes are not saved yet. If you leave now, they are lost.',
@@ -2446,6 +2451,8 @@ export const copy = {
       close: 'Close dialogs and panels',
       muteCall: 'Mute or unmute a call',
       hangUp: 'Hang up a call',
+      /** ⌥⌘1 to ⌥⌘0 open the workspace panel's views in the order they sit down its rail. */
+      workspaceView: 'Show a workspace view, in rail order',
     },
     about: {
       title: 'About Myrmidon',

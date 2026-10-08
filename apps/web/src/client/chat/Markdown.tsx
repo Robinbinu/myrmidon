@@ -81,13 +81,13 @@ export function plainText(text: string): string {
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, copyCode] = useCopy()
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-line bg-code">
-      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-footnote text-muted">
+    <div className="my-3 overflow-hidden rounded-lg border border-line bg-code">
+      <div className="flex items-center justify-between border-b border-line bg-fill py-1 pl-3.5 pr-1.5 text-footnote text-muted">
         <span className="font-mono">{lang || copy.markdown.codeFallback}</span>
         <button
           type="button"
           onClick={() => copyCode(code)}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors hover:bg-surface-3 hover:text-fg"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors hover:bg-fill-strong hover:text-fg"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? copy.markdown.copied : copy.markdown.copy}
@@ -135,9 +135,9 @@ export function Markdown({ text }: { text: string }) {
       while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i] as string))
         rows.push(CELLS(lines[i++] as string))
       blocks.push(
-        <div key={key++} className="my-3 overflow-x-auto rounded-xl border border-line">
+        <div key={key++} className="my-3 overflow-x-auto rounded-lg border border-line">
           <table className="w-full border-collapse text-reading">
-            <thead className="bg-surface-2">
+            <thead className="bg-fill">
               <tr>
                 {head.map((h, n) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: table cells are positional
@@ -191,10 +191,10 @@ export function Markdown({ text }: { text: string }) {
           key={key++}
           className={
             level === 1
-              ? 'mb-2 mt-4 text-[18px] font-semibold tracking-tight'
+              ? 'mb-2 mt-4 text-heading font-semibold tracking-tight'
               : level === 2
-                ? 'mb-1.5 mt-4 text-[16px] font-semibold tracking-tight'
-                : 'mb-1 mt-3 text-[15px] font-semibold'
+                ? 'mb-1.5 mt-4 text-subheading font-semibold tracking-tight'
+                : 'mb-1 mt-3 text-headline font-semibold'
           }
         >
           {inline(heading[2] ?? '')}

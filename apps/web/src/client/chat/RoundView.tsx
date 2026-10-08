@@ -12,26 +12,20 @@ import {
 import {
   ArrowDown,
   ArrowUpRight,
-  BadgeCheck,
-  Brain,
   Check,
   CheckCheck,
   ChevronDown,
   CircleStop,
   Copy,
   ExternalLink,
-  FileCode,
   FileText,
-  GraduationCap,
   LoaderCircle,
   MessageCircleQuestion,
   Network,
   Phone,
   Play,
   RotateCcw,
-  ShieldQuestion,
   TriangleAlert,
-  Users,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
@@ -39,6 +33,7 @@ import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, duration, type FollowLatest, useCopy, useStickToBottom } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import {
   AgentAvatar,
   AgentChip,
@@ -49,7 +44,7 @@ import {
   type Mood,
   PixelFace,
 } from '../ui/pixel.tsx'
-import { Button, cn, IconButton, Pill, Skeleton } from '../ui/primitives.tsx'
+import { Badge, Banner, Button, cn, Dot, IconButton, Skeleton } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, softSpring, spring } from '../ui-config.ts'
 import type { ColonyView, LiveReply } from '../use-colony.ts'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -108,7 +103,7 @@ export function PendingRound({ text }: { text: string }) {
     <section className="flex flex-col gap-4" aria-busy="true">
       <UserMessage text={text} />
       <motion.div {...enter} className="flex items-center gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-screen">
+        <span className="grid size-9 shrink-0 place-items-center rounded-base bg-screen">
           <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
         </span>
         <span className="text-body font-medium text-fg-2">
@@ -142,7 +137,7 @@ export function JumpToLatest({ follow }: { follow: Omit<FollowLatest<HTMLElement
             <button
               type="button"
               onClick={follow.jump}
-              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-callout font-medium text-fg-2 shadow-pop transition-colors hover:bg-surface-2 hover:text-fg"
+              className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-callout font-medium text-fg-2 shadow-pop transition-colors hover:bg-fill hover:text-fg"
             >
               {follow.fresh ? copy.round.jump.fresh : copy.round.jump.latest}
               <ArrowDown className="size-3.5" />
@@ -184,8 +179,7 @@ export function RoundView(props: {
   const [file, setFile] = useState<string>()
   const [inspect, setInspect] = useState<string>()
 
-  if (colony.error)
-    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
+  if (colony.error) return <Banner tone="bad">{colony.error}</Banner>
   if (events.length === 0) {
     return (
       <section className="flex flex-col gap-3" aria-busy="true">
@@ -392,14 +386,14 @@ export function RoundView(props: {
             <span className="mr-1 text-callout text-muted">{copy.round.files}</span>
             {files.map(([name, versions]) => {
               const latest = versions.at(-1)
-              const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FileCode
+              const Icon = /\.(md|txt|csv|pdf|docx?)$/i.test(name) ? FileText : FEATURE_ICONS.files
               return (
                 <button
                   key={name}
                   type="button"
                   onClick={() => setFile(name)}
                   title={copy.round.fileTitle(latest?.version, compact(latest?.size ?? 0), latest?.author)}
-                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
+                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-xl border border-line bg-fill/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-fill"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{name}</span>
@@ -463,7 +457,7 @@ function UserMessage(props: {
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
+      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-3xl rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
         {props.text}
       </div>
       {props.attachments?.length ? (
@@ -473,7 +467,7 @@ function UserMessage(props: {
               key={name}
               type="button"
               onClick={() => props.onOpen?.(name)}
-              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
+              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-fill"
             >
               <FileText className="size-3.5 shrink-0 text-muted" />
               <span className="truncate">{name.replace(/^uploads\//, '')}</span>
@@ -521,7 +515,7 @@ function UserMessage(props: {
           type="button"
           onClick={() => copyText(props.text)}
           aria-label={copy.round.message.copyMessage}
-          className="grid size-6 shrink-0 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-surface-2 hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill hover:text-fg group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:opacity-100"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
@@ -556,8 +550,8 @@ function AgentMessage(props: {
           <div className="mb-1 flex items-center gap-2 text-callout">
             <span className="font-semibold text-fg">{props.from}</span>
             <span className="size-1.5 rounded-full" style={{ background: agentColor(props.from) }} />
-            {props.final && !props.plain && <Pill tone="ok">{copy.round.agent.finalAnswer}</Pill>}
-            {props.assumption && <Pill tone="accent">{copy.round.agent.checkIn}</Pill>}
+            {props.final && !props.plain && <Badge tone="ok">{copy.round.agent.finalAnswer}</Badge>}
+            {props.assumption && <Badge tone="accent">{copy.round.agent.checkIn}</Badge>}
           </div>
         )}
         <div
@@ -577,7 +571,7 @@ function AgentMessage(props: {
         </div>
         <div className="mt-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 focus-within:opacity-100">
           <Button
-            variant="ghost"
+            variant="borderless"
             size="sm"
             onClick={() => copyText(props.text)}
             icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -620,9 +614,9 @@ function Helpers(props: {
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-surface-2 hover:text-fg-2"
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-fill hover:text-fg-2"
         >
-          <Users className="size-3.5 shrink-0" />
+          <FEATURE_ICONS.helpers className="size-3.5 shrink-0" />
           <span className="truncate">
             {copy.round.helpers.broughtIn(
               helpers.map((a) => copy.round.helpers.helper(a.info.name, a.info.specialty)),
@@ -637,7 +631,7 @@ function Helpers(props: {
           onClick={props.onOpenColony}
           title={copy.round.helpers.crew}
           aria-label={copy.round.helpers.crew}
-          className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+          className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
         >
           <Network className="size-3.5" />
         </button>
@@ -717,9 +711,9 @@ function Thoughts(props: { events: readonly MyrEvent[]; running: boolean }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-surface-2 hover:text-fg-2"
+        className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 text-callout text-muted transition-colors hover:bg-fill hover:text-fg-2"
       >
-        <Brain className="size-3.5" />
+        <FEATURE_ICONS.thinking className="size-3.5" />
         <span className="tabular-nums">
           {props.running
             ? copy.round.thoughts.thinkingFor(duration(Math.max(1000, total)))
@@ -809,7 +803,7 @@ function LeadActivity(props: {
     <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
       <div className="flex items-center gap-2.5 text-callout text-muted">
         {running && (
-          <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-screen">
+          <span className="grid size-7 shrink-0 place-items-center rounded-base bg-screen">
             <PixelFace
               mood={approving ? 'waiting' : 'working'}
               color={LEAD_COLOR}
@@ -825,7 +819,7 @@ function LeadActivity(props: {
           onClick={() => setOpen(!open)}
           disabled={steps.length === 0}
           aria-expanded={open}
-          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors enabled:hover:bg-surface-2 enabled:hover:text-fg-2"
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors enabled:hover:bg-fill enabled:hover:text-fg-2"
         >
           <motion.span key={label} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="truncate">
             {running ? <span className="font-medium text-fg-2">{label}</span> : label}
@@ -846,7 +840,7 @@ function LeadActivity(props: {
             onClick={props.onOpenColony}
             title={copy.round.lead.detailsTitle}
             aria-label={copy.round.lead.detailsLabel}
-            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
           >
             <Network className="size-3.5" />
           </button>
@@ -857,9 +851,9 @@ function LeadActivity(props: {
             onClick={props.onLearn}
             title={copy.round.lead.learnTitle}
             aria-label={copy.round.lead.learnTitle}
-            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-surface-2 hover:text-fg-2"
+            className="grid size-6 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg-2"
           >
-            <GraduationCap className="size-3.5" />
+            <FEATURE_ICONS.skills className="size-3.5" />
           </button>
         )}
       </div>
@@ -918,10 +912,7 @@ function LiveServers({ state }: { state: ColonyState }) {
   if (live.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-body">
-      <span className="relative flex size-2">
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-ok opacity-60" />
-        <span className="relative inline-flex size-2 rounded-full bg-ok" />
-      </span>
+      <Dot tone="ok" pulse />
       {live.map((s) => (
         <a
           key={s.name}
@@ -929,7 +920,7 @@ function LiveServers({ state }: { state: ColonyState }) {
           target="_blank"
           rel="noreferrer"
           title={copy.round.serverTitle(s.command, s.agent)}
-          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 hover:bg-surface-2"
+          className="inline-flex items-center gap-1.5 rounded-xl px-1.5 py-0.5 hover:bg-fill"
         >
           <span className="font-medium">{s.name}</span>
           <span className="font-mono text-small text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
@@ -1011,9 +1002,9 @@ function RunCard(props: {
           type="button"
           onClick={() => setOpen(!expanded)}
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
         >
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-screen">
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-screen">
             <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
           </span>
           <span className="min-w-0 flex-1">
@@ -1031,7 +1022,7 @@ function RunCard(props: {
           </motion.span>
         </button>
         <Button
-          variant="ghost"
+          variant="borderless"
           size="sm"
           onClick={props.onOpenColony}
           icon={<Network className="size-3.5" />}
@@ -1041,12 +1032,12 @@ function RunCard(props: {
         </Button>
         {!running && props.onLearn && state.status === 'completed' && (
           <IconButton size="sm" label={copy.round.lead.learnTitle} onClick={props.onLearn}>
-            <GraduationCap className="size-3.5" />
+            <FEATURE_ICONS.skills className="size-3.5" />
           </IconButton>
         )}
       </div>
       {running && (
-        <div className="relative h-0.5 overflow-hidden bg-surface-2">
+        <div className="relative h-0.5 overflow-hidden bg-fill">
           {tasks.length ? (
             <motion.span
               className="absolute inset-y-0 left-0 bg-accent"
@@ -1106,7 +1097,7 @@ function RunCard(props: {
               )}
               {approving ? (
                 <div className="flex items-center gap-2 text-callout text-muted">
-                  <ShieldQuestion className="size-3.5" />
+                  <FEATURE_ICONS.approvalAsk className="size-3.5" />
                   <span>{copy.round.lead.approval}</span>
                 </div>
               ) : (
@@ -1202,7 +1193,7 @@ function ModelFailure(props: {
               <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
               {copy.modelFailure.providerMessage}
             </summary>
-            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
               {failed.message}
             </pre>
           </details>
@@ -1231,18 +1222,18 @@ function ModelFailure(props: {
             variant="primary"
             disabled={!pick || resuming !== undefined}
             onClick={() => go('other')}
-            icon={
-              resuming === 'other' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Play className="size-3.5" />
-              )
-            }
+            loading={resuming === 'other'}
+            icon={<Play className="size-3.5" />}
           >
             {resuming === 'other' ? copy.modelFailure.continuing : copy.modelFailure.continue}
           </Button>
           {canRetry && (
-            <Button size="sm" variant="ghost" disabled={resuming !== undefined} onClick={() => go('same')}>
+            <Button
+              size="sm"
+              variant="borderless"
+              disabled={resuming !== undefined}
+              onClick={() => go('same')}
+            >
               {resuming === 'same'
                 ? copy.modelFailure.retrying
                 : overflow
@@ -1351,8 +1342,9 @@ function Halted(props: {
             setResuming(true)
             void props.onResume().finally(() => setResuming(false))
           }}
-          disabled={resuming || retry === 'starting'}
-          icon={resuming ? <LoaderCircle className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+          disabled={retry === 'starting'}
+          loading={resuming}
+          icon={<Play className="size-3.5" />}
         >
           {resuming ? copy.outcome.resuming : copy.outcome.resume}
         </Button>
@@ -1361,14 +1353,8 @@ function Halted(props: {
         <Button
           size="sm"
           onClick={props.onRetry}
-          disabled={retry === 'starting'}
-          icon={
-            retry === 'starting' ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="size-3.5" />
-            )
-          }
+          loading={retry === 'starting'}
+          icon={<RotateCcw className="size-3.5" />}
         >
           {retry === 'starting' ? copy.outcome.starting : copy.outcome.retry}
         </Button>
@@ -1405,7 +1391,7 @@ function Outcome({
     if (!judge) return null
     return (
       <div className="flex items-start gap-3 bg-ok-soft px-4 py-3 text-reading text-ok-ink" role="status">
-        <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+        <FEATURE_ICONS.verdict className="mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">
             {copy.outcome.reviewed}

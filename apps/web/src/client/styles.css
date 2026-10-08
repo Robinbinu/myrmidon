@@ -32,8 +32,6 @@
   --font-mono: var(--mono);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
   --color-line: var(--border);
   --color-line-strong: var(--border-strong);
   --color-fg: var(--text);
@@ -79,12 +77,21 @@
 }
 
 @theme {
-  /* Corner radii. sm and lg replace Tailwind's 4px and 8px steps; md (6px), xl (12px) and 2xl (16px) keep its own. */
-  --radius-sm: 6px;
+  /* Corner radii, smallest to largest. xs to md and 2xl are Tailwind's own; base sits between md and lg for menu rows
+     and small tiles; 3xl to 5xl round the message bubble, the composer and the mascot's screen. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-base: 10px;
-  --radius-lg: 14px;
-  /* Type scale for UI text, 11 to 14px in half-pixel steps; the body is 13px. No line heights: text keeps the one
-     it inherits or its leading-* class. */
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 22px;
+  --radius-4xl: 26px;
+  --radius-5xl: 36px;
+  /* Type scale for UI text, 11 to 14px in half-pixel steps; the body is 13px. Display steps above it: headline for
+     dialog and pane titles, subheading and heading for the lower and top headings in written answers, page-title
+     for the title of a page. No line heights: text keeps the one it inherits or its leading-* class. */
   --text-caption: 11px;
   --text-footnote: 11.5px;
   --text-small: 12px;
@@ -92,6 +99,12 @@
   --text-body: 13px;
   --text-reading: 13.5px;
   --text-title: 14px;
+  --text-headline: 15px;
+  --text-subheading: 16px;
+  --text-heading: 18px;
+  --text-page-title: 20px;
+  /* The hairline drop under push buttons, pop-up buttons and other raised controls. */
+  --shadow-control: 0 0.5px 1px rgb(0 0 0 / 0.08);
 }
 
 @layer base {
@@ -156,10 +169,6 @@
   *:hover {
     scrollbar-color: var(--fill-strong) transparent;
   }
-  /* Title-bar contents fade when the window goes inactive; controls with their own transitions keep them. */
-  [data-toolbar] > * {
-    transition: opacity var(--fast) var(--ease);
-  }
   [data-window-active="false"] ::selection {
     background: color-mix(in srgb, var(--label-3) 25%, transparent);
   }
@@ -208,6 +217,14 @@
     transparent 0
   );
   background-size: 22px 22px;
+}
+
+/* The small capitals over a group of rows: settings groups, panel sections, table heads. Colour is the caller's. */
+@utility section-label {
+  font-family: var(--mono);
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
 }
 
 @utility display {
@@ -270,10 +287,15 @@
   -webkit-app-region: no-drag;
 }
 
-/* An inactive window greys its selection and dims its title bars, as macOS does. */
+/* An inactive window greys its selection and dims its title bars, as macOS does. Title-bar text dims to the tertiary
+   label rather than fading, so it keeps AA contrast while the window waits in the background. */
 :root[data-window-active="false"] {
   --row-selected: var(--row-selected-inactive);
 }
-:root[data-window-active="false"] [data-toolbar] > * {
-  opacity: 0.55;
+:root[data-window-active="false"] [data-toolbar] {
+  --label: var(--label-3);
+  --label-2: var(--label-3);
+  --text: var(--label-3);
+  --text-2: var(--label-3);
+  color: var(--label-3);
 }

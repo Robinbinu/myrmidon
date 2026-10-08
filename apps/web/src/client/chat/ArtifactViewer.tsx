@@ -1,12 +1,13 @@
 import type { ArtifactVersion } from '@myrmidon/protocol'
-import { BookOpen, Check, Copy, Download, ExternalLink, FileCode, GitCompare, Monitor } from 'lucide-react'
+import { BookOpen, Check, Copy, Download, ExternalLink, GitCompare, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { blobText, previewUrl } from '../api.ts'
 import { copy } from '../copy.ts'
 import { diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Modal } from '../ui/Modal.tsx'
-import { Button, cn, Select, Skeleton, Tabs } from '../ui/primitives.tsx'
+import { Button, cn, Select, Skeleton, Tabs, tabPanel } from '../ui/primitives.tsx'
 import { Markdown } from './Markdown.tsx'
 
 type View = 'code' | 'preview' | 'diff'
@@ -98,7 +99,7 @@ export function ArtifactViewer(props: {
       value: 'code' as const,
       label: (
         <>
-          <FileCode className="size-3.5" />{' '}
+          <FEATURE_ICONS.files className="size-3.5" />{' '}
           {isMarkdown ? copy.artifactViewer.tabs.source : copy.artifactViewer.tabs.code}
         </>
       ),
@@ -163,7 +164,7 @@ export function ArtifactViewer(props: {
               href={preview}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-callout font-medium transition-colors hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-callout font-medium transition-colors hover:bg-fill"
             >
               <ExternalLink className="size-3.5" /> {copy.artifactViewer.open}
             </a>
@@ -178,54 +179,56 @@ export function ArtifactViewer(props: {
           {selected?.author}
         </span>
       </div>
-      {error && <div className="bg-bad-soft px-4 py-2 text-body text-bad-ink">{error}</div>}
-      {view === 'preview' && noPreview && (
-        <div className="border-b border-line bg-fill px-4 py-2 text-callout text-fg-2">
-          {copy.artifactViewer.noPreview}
-        </div>
-      )}
-      {view === 'preview' && preview ? (
-        <iframe
-          className="min-h-[60vh] w-full flex-1 border-0 bg-white"
-          src={preview}
-          title={copy.artifactViewer.previewOf(props.name)}
-          sandbox="allow-scripts allow-forms allow-same-origin"
-        />
-      ) : text === undefined ? (
-        <div className="space-y-2 p-5">
-          <Skeleton className="h-3.5 w-3/5" />
-          <Skeleton className="h-3.5 w-4/5" />
-          <Skeleton className="h-3.5 w-2/5" />
-        </div>
-      ) : view === 'preview' && isMarkdown ? (
-        <div className="flex-1 overflow-auto">
-          <article className="mx-auto max-w-3xl px-8 py-6 text-[14.5px] leading-relaxed">
-            <Markdown text={text} />
-          </article>
-        </div>
-      ) : (
-        <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-callout leading-[1.65]">
-          {(view === 'diff' && prev !== undefined
-            ? diffLines(prev, text)
-            : text.split('\n').map((line) => ({ kind: 'same' as const, text: line }))
-          ).map((l, i) => (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-              key={i}
-              className={cn(
-                'flex px-0 hover:bg-surface-2/60',
-                l.kind === 'add' && 'bg-ok-soft',
-                l.kind === 'del' && 'bg-bad-soft',
-              )}
-            >
-              <span className="w-14 shrink-0 select-none pr-4 text-right text-muted/70">
-                {view === 'diff' ? (l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '') : i + 1}
-              </span>
-              <span className="whitespace-pre pr-6">{l.text}</span>
-            </div>
-          ))}
-        </pre>
-      )}
+      <div {...tabPanel('viewer', view)} className="flex min-h-0 flex-1 flex-col">
+        {error && <div className="bg-bad-soft px-4 py-2 text-body text-bad-ink">{error}</div>}
+        {view === 'preview' && noPreview && (
+          <div className="border-b border-line bg-fill px-4 py-2 text-callout text-fg-2">
+            {copy.artifactViewer.noPreview}
+          </div>
+        )}
+        {view === 'preview' && preview ? (
+          <iframe
+            className="min-h-[60vh] w-full flex-1 border-0 bg-white"
+            src={preview}
+            title={copy.artifactViewer.previewOf(props.name)}
+            sandbox="allow-scripts allow-forms allow-same-origin"
+          />
+        ) : text === undefined ? (
+          <div className="space-y-2 p-5">
+            <Skeleton className="h-3.5 w-3/5" />
+            <Skeleton className="h-3.5 w-4/5" />
+            <Skeleton className="h-3.5 w-2/5" />
+          </div>
+        ) : view === 'preview' && isMarkdown ? (
+          <div className="flex-1 overflow-auto">
+            <article className="mx-auto max-w-3xl px-8 py-6 text-title leading-relaxed">
+              <Markdown text={text} />
+            </article>
+          </div>
+        ) : (
+          <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-callout leading-[1.65]">
+            {(view === 'diff' && prev !== undefined
+              ? diffLines(prev, text)
+              : text.split('\n').map((line) => ({ kind: 'same' as const, text: line }))
+            ).map((l, i) => (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+                key={i}
+                className={cn(
+                  'flex px-0 hover:bg-fill/60',
+                  l.kind === 'add' && 'bg-ok-soft',
+                  l.kind === 'del' && 'bg-bad-soft',
+                )}
+              >
+                <span className="w-14 shrink-0 select-none pr-4 text-right text-muted/70">
+                  {view === 'diff' ? (l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '') : i + 1}
+                </span>
+                <span className="whitespace-pre pr-6">{l.text}</span>
+              </div>
+            ))}
+          </pre>
+        )}
+      </div>
     </Modal>
   )
 }

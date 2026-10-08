@@ -114,7 +114,7 @@ function Letter(props: { text: string; size: number; className?: string }) {
     <span
       aria-hidden
       className={cn(
-        'inline-grid shrink-0 place-items-center rounded-[5px] bg-fill-strong font-semibold leading-none text-fg-2',
+        'inline-grid shrink-0 place-items-center rounded-sm bg-fill-strong font-semibold leading-none text-fg-2',
         props.className,
       )}
       style={{ width: props.size, height: props.size, fontSize: Math.round(props.size * 0.55) }}

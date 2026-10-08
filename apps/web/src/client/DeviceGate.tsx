@@ -1,4 +1,4 @@
-import { KeyRound, Laptop, RefreshCw } from 'lucide-react'
+import { Laptop, RefreshCw } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import {
   activeGateway,
@@ -11,9 +11,10 @@ import {
   whoami,
 } from './api.ts'
 import { copy } from './copy.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, Field, TextInput } from './ui/primitives.tsx'
+import { Banner, Button, Field, TextInput } from './ui/primitives.tsx'
 import { SIGNED_OUT_RECHECK_MS } from './ui-config.ts'
 
 /** A name the person will recognise in Settings → Devices: what this is and which browser. */
@@ -130,7 +131,7 @@ function GatewayGate(props: { children: ReactNode }) {
         <div className="flex items-center gap-3">
           <Logo size={36} />
           <div className="min-w-0">
-            <h1 className="truncate text-[17px] font-semibold tracking-tight">
+            <h1 className="truncate text-page-title font-semibold tracking-tight">
               {gateway === 'checking' ? t.down.checking('…') : t.down.title(gateway.name)}
             </h1>
             {gateway !== 'checking' && (
@@ -140,9 +141,7 @@ function GatewayGate(props: { children: ReactNode }) {
         </div>
         {gateway !== 'checking' && (
           <>
-            <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">
-              {gateway.health.error ?? t.unreachable}
-            </p>
+            <Banner tone="bad">{gateway.health.error ?? t.unreachable}</Banner>
             <div className="flex gap-2">
               <Button
                 variant="primary"
@@ -152,7 +151,7 @@ function GatewayGate(props: { children: ReactNode }) {
                 {t.down.back(local)}
               </Button>
               <Button
-                variant="ghost"
+                variant="borderless"
                 icon={<RefreshCw className="size-4" />}
                 onClick={() => {
                   setGateway('checking')
@@ -209,13 +208,13 @@ function PairScreen(props: { onPaired(): void }) {
         <div className="flex items-center gap-3">
           <Logo size={36} />
           <div>
-            <h1 className="text-[17px] font-semibold tracking-tight">{t.title}</h1>
+            <h1 className="text-page-title font-semibold tracking-tight">{t.title}</h1>
             <p className="text-callout text-muted">{location.host}</p>
           </div>
         </div>
         <p className="text-reading leading-relaxed text-fg-2">
           {t.introBefore}
-          <code className="rounded bg-fill px-1 font-mono text-callout">myrmidon pair</code>
+          <code className="rounded-sm bg-fill px-1 font-mono text-callout">myrmidon pair</code>
           {t.introAfter}
         </p>
         <Field label={t.code} hint={t.codeHint}>
@@ -236,12 +235,12 @@ function PairScreen(props: { onPaired(): void }) {
             aria-label={t.name}
           />
         </Field>
-        {error && <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">{error}</p>}
+        {error && <Banner tone="bad">{error}</Banner>}
         <Button
           type="submit"
           variant="primary"
           disabled={busy || !code.trim()}
-          icon={<KeyRound className="size-4" />}
+          icon={<FEATURE_ICONS.devices className="size-4" />}
         >
           {t.pair}
         </Button>

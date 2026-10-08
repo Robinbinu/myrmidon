@@ -1,7 +1,7 @@
 import { ChevronRight, Columns2, Folder, Rows2 } from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { cn } from '../ui/primitives.tsx'
+import { CountBadge, cn } from '../ui/primitives.tsx'
 import { FOLDER_FOLD_AT } from '../ui-config.ts'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
 import { FoldChevron, type Folds, useFolds } from './Folds.tsx'
@@ -79,8 +79,8 @@ export function StatBar({ added = 0, removed = 0 }: { added?: number; removed?: 
           // biome-ignore lint/suspicious/noArrayIndexKey: five fixed blocks
           key={i}
           className={cn(
-            'size-[7px] rounded-[1px]',
-            i < green ? 'bg-ok' : i < green + red ? 'bg-bad' : 'bg-surface-3',
+            'size-[7px] rounded-xs',
+            i < green ? 'bg-ok' : i < green + red ? 'bg-bad' : 'bg-fill-strong',
           )}
         />
       ))}
@@ -92,7 +92,7 @@ export function DiffModeToggle({ mode, onMode }: { mode: DiffMode; onMode(m: Dif
   return (
     <fieldset
       aria-label={copy.diffView.layout}
-      className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
+      className="m-0 inline-flex min-w-0 rounded-xl border border-line p-0.5"
     >
       {(
         [
@@ -108,7 +108,7 @@ export function DiffModeToggle({ mode, onMode }: { mode: DiffMode; onMode(m: Dif
           onClick={() => onMode(value)}
           className={cn(
             'grid size-6 place-items-center rounded-md transition-colors',
-            mode === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+            mode === value ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
           )}
         >
           <Icon className="size-3.5" />
@@ -140,7 +140,7 @@ function Code({ line, wrap }: { line?: DiffLine; wrap?: boolean }) {
         'px-2 align-top',
         // Side by side, each half is fixed-width and long lines wrap, as GitLab does; unified scrolls instead.
         wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre',
-        line ? ROW[line.kind] : 'bg-surface-2/60',
+        line ? ROW[line.kind] : 'bg-fill/60',
       )}
     >
       {line && (
@@ -296,14 +296,12 @@ export function FolderGroups<T extends { path: string }>(props: {
               type="button"
               onClick={() => folds.toggle(g.folder)}
               aria-expanded={folds.isOpen(g.folder)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-callout text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-callout text-fg-2 hover:bg-fill"
             >
               <FoldChevron open={folds.isOpen(g.folder)} className="text-muted" />
               <Folder className="size-3.5 shrink-0 text-muted" />
               <span className="min-w-0 truncate font-mono">{g.folder}/</span>
-              <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums text-muted">
-                {g.items.length}
-              </span>
+              <CountBadge count={g.items.length} />
             </button>
             {folds.isOpen(g.folder) && (
               <div className={cn('flex flex-col pl-3', props.className)}>
@@ -333,12 +331,12 @@ export function FileDiff(props: {
 }) {
   const s = STATUS[props.file.status] ?? { label: props.file.status, className: 'text-fg-2', title: '' }
   return (
-    <div id={props.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+    <div id={props.id} className="overflow-hidden rounded-lg border border-line bg-surface">
       <button
         type="button"
         onClick={props.onToggle}
         aria-expanded={props.open}
-        className="flex w-full items-center gap-2 bg-surface-2/50 px-3 py-2 text-left hover:bg-surface-2"
+        className="flex w-full items-center gap-2 bg-fill/50 px-3 py-2 text-left hover:bg-fill"
       >
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted transition-transform', props.open && 'rotate-90')}
@@ -349,7 +347,7 @@ export function FileDiff(props: {
         <FilePath path={props.name ?? props.file.path} full={props.file.path} />
         <span className="flex-1" />
         {BINARY.test(props.text) && (
-          <span className="shrink-0 rounded bg-surface-3 px-1.5 font-mono text-caption text-muted">
+          <span className="shrink-0 rounded-sm bg-fill-strong px-1.5 font-mono text-caption text-muted">
             {copy.diffView.binaryTag}
           </span>
         )}
@@ -401,7 +399,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
         <span className="flex-1" />
         <button
           type="button"
-          className="rounded-md px-1.5 py-0.5 hover:bg-surface-2 hover:text-fg"
+          className="rounded-md px-1.5 py-0.5 hover:bg-fill hover:text-fg"
           onClick={() => setAllOpen(!allOpen)}
         >
           {allOpen ? copy.diffView.collapseAll : copy.diffView.expandAll}

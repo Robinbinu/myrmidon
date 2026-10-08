@@ -12,7 +12,6 @@ import {
   MessageCircleQuestion,
   Network,
   PanelLeft,
-  Plug,
   RefreshCw,
   SquarePen,
   Trash2,
@@ -59,9 +58,10 @@ import {
   useReduceMotion,
   useTheme,
 } from './ui/hooks.ts'
+import { FEATURE_ICONS } from './ui/icons.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
@@ -217,11 +217,6 @@ export function App() {
   const [collapsed, setCollapsed] = usePersistentFlag('myr-sidebar-collapsed', false)
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
   const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
-  // Below the docking width the panel covers the chat, so it never reopens on its own there.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once, on load
-  useEffect(() => {
-    if (window.innerWidth < 1280) setWorkspaceOpen(false)
-  }, [])
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
@@ -814,6 +809,16 @@ export function App() {
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
       {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
       <div className="flex h-dvh overflow-hidden bg-bg text-fg">
+        {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
+        {!settingsOpen && view === 'chat' && config && (
+          <button
+            type="button"
+            onClick={() => composer.current?.focus()}
+            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+          >
+            {copy.app.skipToComposer}
+          </button>
+        )}
         <AnimatePresence initial={false}>
           {!collapsed && (
             <motion.div
@@ -878,7 +883,7 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
+                    <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                   )}
                 </ToolbarTitle>
                 {view === 'chat' && voiceOn && !call && (
@@ -886,7 +891,7 @@ export function App() {
                 )}
                 {view === 'chat' && chat && (
                   <Button
-                    variant="toolbar"
+                    variant="borderless"
                     size="sm"
                     icon={<Network className="size-4" />}
                     onClick={() => {
@@ -921,14 +926,18 @@ export function App() {
                     lines={call.lines}
                     muted={call.muted}
                     onMute={muteCall}
-                    onHangUp={() => callRef.current?.hangUp()}
+                    onHangUp={() => {
+                      callRef.current?.hangUp()
+                      // The bar and its button go; the message box is where the conversation carries on.
+                      composer.current?.focus()
+                    }}
                   />
                 )}
               </AnimatePresence>
               {!online ? (
                 <div
                   role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
                 >
                   <LoaderCircle className="size-3.5 animate-spin text-muted" />
                   {copy.app.reconnecting}
@@ -1087,13 +1096,9 @@ export function App() {
                 </span>
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
-              {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
-                  {copy.app.deleteChat.stillRunning}
-                </p>
-              )}
+              {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+                <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
                   {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
@@ -1160,8 +1165,8 @@ function SetupCard(props: { onConnect?(): void }) {
   const t = copy.app.setup
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
-        <Plug className="size-4" />
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+        <FEATURE_ICONS.providers className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-reading font-semibold">{t.title}</p>
@@ -1183,7 +1188,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />
@@ -1192,7 +1197,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
         )}
         <span className="flex-1">{props.error ? t.failed : t.loading}</span>
         {props.error && (
-          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+          <Button variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
             {t.retry}
           </Button>
         )}
@@ -1212,7 +1217,7 @@ function PaneNotice(props: {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
       {props.icon}
       <div>
-        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-headline font-semibold tracking-tight">{props.title}</p>
         <p className="text-body text-muted">{props.body}</p>
       </div>
       {props.action && (

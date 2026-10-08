@@ -9,37 +9,32 @@ import {
   roundSlice,
   type TaskSnapshot,
 } from '@myrmidon/protocol'
-import {
-  Activity,
-  ChevronRight,
-  Crown,
-  FileCode,
-  FileText,
-  GitBranch,
-  ListChecks,
-  Mail,
-  MonitorSmartphone,
-  Puzzle,
-  ShieldCheck,
-  SquareTerminal,
-  Terminal,
-  Users,
-  X,
-} from 'lucide-react'
+import { ChevronRight, Crown, FileText, type LucideIcon, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type CSSProperties, Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { clock, compact, useHotkeys, useMinWidth, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
+import {
+  Badge,
+  CountBadge,
+  cn,
+  countText,
+  Dot,
+  Empty,
+  IconButton,
+  Select,
+  toneFor,
+} from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { agentPhase } from '../ui/status.ts'
-import { softSpring } from '../ui-config.ts'
+import { softSpring, WORKSPACE_DOCK_PX } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -69,7 +64,7 @@ type Tab =
 interface ViewDef {
   value: Tab
   label: string
-  icon: typeof FileCode
+  icon: LucideIcon
   /** Views that sit together on the rail, between dividers. */
   group: number
   /** The digit of its shortcut (see VIEW_COMBO). */
@@ -83,17 +78,49 @@ interface ViewDef {
  * The panel's views, listed down its activity bar like an IDE's, in groups: the work, the machines agents use, the
  * crew, and the record. `terminal` is the agents' sandboxed commands; `shell` is the person's own.
  */
-const VIEWS: ViewDef[] = [
-  { value: 'files', label: copy.workspace.views.files, icon: FileCode, group: 0, key: '1' },
-  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
-  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
-  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4', fullOnly: true },
-  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone, group: 1, key: '5' },
-  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
-  { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
-  { value: 'mail', label: copy.workspace.views.mail, icon: Mail, group: 2, key: '8' },
-  { value: 'activity', label: copy.workspace.views.activity, icon: Activity, group: 3, key: '9' },
-  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck, group: 3, key: '0' },
+export const VIEWS: ViewDef[] = [
+  { value: 'files', label: copy.workspace.views.files, icon: FEATURE_ICONS.files, group: 0, key: '1' },
+  {
+    value: 'git',
+    label: copy.workspace.views.git,
+    icon: FEATURE_ICONS.git,
+    group: 0,
+    key: '2',
+    projectOnly: true,
+  },
+  { value: 'tasks', label: copy.workspace.views.tasks, icon: FEATURE_ICONS.tasks, group: 0, key: '3' },
+  {
+    value: 'shell',
+    label: copy.workspace.views.shell,
+    icon: FEATURE_ICONS.personalShell,
+    group: 1,
+    key: '4',
+    fullOnly: true,
+  },
+  {
+    value: 'computer',
+    label: copy.workspace.views.computer,
+    icon: FEATURE_ICONS.computer,
+    group: 1,
+    key: '5',
+  },
+  {
+    value: 'terminal',
+    label: copy.workspace.views.terminal,
+    icon: FEATURE_ICONS.agentShell,
+    group: 1,
+    key: '6',
+  },
+  { value: 'team', label: copy.workspace.views.team, icon: FEATURE_ICONS.crew, group: 2, key: '7' },
+  { value: 'mail', label: copy.workspace.views.mail, icon: FEATURE_ICONS.mail, group: 2, key: '8' },
+  {
+    value: 'activity',
+    label: copy.workspace.views.activity,
+    icon: FEATURE_ICONS.activity,
+    group: 3,
+    key: '9',
+  },
+  { value: 'audit', label: copy.workspace.views.audit, icon: FEATURE_ICONS.audit, group: 3, key: '0' },
 ]
 const PLUGIN_GROUP = 4
 const VIEW_COMBO = (key: string) => `mod+alt+${key}`
@@ -221,7 +248,7 @@ function WorkspaceBody({
     ...pluginTabs.map(({ plugin, def }) => ({
       value: `plugin:${plugin}` as Tab,
       label: def.title ?? plugin,
-      icon: Puzzle,
+      icon: FEATURE_ICONS.plugins,
       group: PLUGIN_GROUP,
     })),
   ]
@@ -241,7 +268,7 @@ function WorkspaceBody({
       // The last view is a convenience; private mode simply forgets it.
     }
   }
-  const View = views.find((v) => v.value === tab)?.icon ?? FileCode
+  const View = views.find((v) => v.value === tab)?.icon ?? FEATURE_ICONS.files
   // Cards in the chat (a sign-in request) can open a view here, e.g. one agent's browser.
   const [focus, setFocus] = useState<string>()
   // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and show are stable enough for a listener
@@ -295,8 +322,10 @@ function WorkspaceBody({
   const worth = CONTENT_VIEWS.find((t) => has[t])
   // The panel the person keeps open shows itself only in chats with something in it (a one-line question has
   // nothing); opening it in this chat (the rail, ⌘J, a card in the chat) shows it anyway. Closing it is remembered.
+  // Where the panel would cover the chat (a narrow or zoomed window) it never shows itself.
   const [asked, setAsked] = useState(false)
-  const shown = open && (asked || worth !== undefined)
+  const docks = useMinWidth(WORKSPACE_DOCK_PX)
+  const shown = open && (asked || (docks && worth !== undefined))
   const show = (next: boolean) => {
     setAsked(next)
     onOpenChange(next)
@@ -409,7 +438,7 @@ function WorkspaceBody({
                       (files.length === 0 ? (
                         Object.keys(state.madeTools).length > 0 ? null : (
                           <Empty
-                            icon={<FileCode className="size-5" />}
+                            icon={<FEATURE_ICONS.files className="size-5" />}
                             title={copy.workspace.files.emptyTitle}
                           >
                             {copy.workspace.files.emptyBody}
@@ -419,15 +448,15 @@ function WorkspaceBody({
                         <div className="p-2">
                           {files.map(([name, versions]) => {
                             const latest = versions.at(-1)
-                            const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FileCode
+                            const Icon = /\.(md|txt|csv)$/i.test(name) ? FileText : FEATURE_ICONS.files
                             return (
                               <button
                                 key={name}
                                 type="button"
                                 onClick={() => setFile(name)}
-                                className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+                                className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
                               >
-                                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+                                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
                                   <Icon className="size-4" />
                                 </span>
                                 <span className="min-w-0 flex-1">
@@ -446,7 +475,7 @@ function WorkspaceBody({
                     {tab === 'tasks' &&
                       (tasks.length === 0 ? (
                         <Empty
-                          icon={<ListChecks className="size-5" />}
+                          icon={<FEATURE_ICONS.tasks className="size-5" />}
                           title={copy.workspace.tasks.emptyTitle}
                         >
                           {copy.workspace.tasks.emptyBody}
@@ -455,7 +484,7 @@ function WorkspaceBody({
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex list-none items-center justify-between font-mono text-caption uppercase tracking-[0.14em] text-muted">
+                              <summary className="flex list-none items-center justify-between section-label text-muted">
                                 {copy.workspace.tasks.plan(plan.agent)}
                               </summary>
                               <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-callout leading-relaxed text-fg-2">
@@ -476,7 +505,7 @@ function WorkspaceBody({
                                 )}
                               </span>
                             </div>
-                            <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
+                            <div className="flex h-1.5 overflow-hidden rounded-full bg-fill">
                               <motion.span
                                 className="bg-ok"
                                 animate={{ width: pct(by('verified')) }}
@@ -497,7 +526,7 @@ function WorkspaceBody({
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <fieldset
                               aria-label={copy.workspace.tasks.layout}
-                              className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
+                              className="m-0 inline-flex min-w-0 rounded-xl border border-line p-0.5"
                             >
                               {(
                                 [
@@ -512,7 +541,7 @@ function WorkspaceBody({
                                   onClick={() => setBoard(value)}
                                   className={cn(
                                     'rounded-md px-2 py-0.5 text-small transition-colors',
-                                    board === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
+                                    board === value ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
                                   )}
                                 >
                                   {label}
@@ -542,15 +571,15 @@ function WorkspaceBody({
                                       onClick={() => taskFolds.toggle(t.id)}
                                       aria-expanded={details ? open : undefined}
                                       disabled={!details}
-                                      className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-surface-2"
+                                      className="-mx-1 flex items-center gap-2 rounded-md px-1 text-left enabled:hover:bg-fill"
                                     >
                                       <FoldChevron
                                         open={open && details}
                                         className={details ? 'text-muted' : 'invisible'}
                                       />
-                                      <Pill tone={toneFor(t.status)}>
+                                      <Badge tone={toneFor(t.status)}>
                                         {copy.workspace.taskStatus[t.status]}
-                                      </Pill>
+                                      </Badge>
                                       <span className="font-mono text-caption text-muted">{t.id}</span>
                                       {t.owner && <span className="text-small text-muted">· {t.owner}</span>}
                                     </button>
@@ -588,7 +617,10 @@ function WorkspaceBody({
                         </>
                       ))}
                     {tab === 'team' && agents.length === 0 && (
-                      <Empty icon={<Users className="size-5" />} title={copy.workspace.team.emptyTitle}>
+                      <Empty
+                        icon={<FEATURE_ICONS.crew className="size-5" />}
+                        title={copy.workspace.team.emptyTitle}
+                      >
                         {copy.workspace.team.emptyBody}
                       </Empty>
                     )}
@@ -605,7 +637,7 @@ function WorkspaceBody({
                               <button
                                 type="button"
                                 onClick={() => setInspect(a.info.name)}
-                                className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
+                                className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-fill"
                               >
                                 <AgentAvatar name={a.info.name} status={phase} size={40} />
                                 <div className="grid min-w-0 flex-1 gap-1">
@@ -617,9 +649,9 @@ function WorkspaceBody({
                                         {a.info.specialty}
                                       </span>
                                     )}
-                                    <Pill tone={toneFor(phase)}>
+                                    <Badge tone={toneFor(phase)}>
                                       <Dot status={phase} /> {copy.status.agent[phase]}
-                                    </Pill>
+                                    </Badge>
                                   </div>
                                   <div className="truncate font-mono text-footnote text-muted">
                                     {a.info.model}
@@ -637,9 +669,7 @@ function WorkspaceBody({
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                        <span className="font-mono text-caption uppercase tracking-[0.14em] text-muted">
-                                          {label}
-                                        </span>
+                                        <span className="section-label text-muted">{label}</span>
                                       </span>
                                     ))}
                                     {a.costKnown && a.cost > 0 && (
@@ -657,7 +687,10 @@ function WorkspaceBody({
                     )}
                     {tab === 'terminal' &&
                       (shells.length === 0 ? (
-                        <Empty icon={<Terminal className="size-5" />} title={copy.workspace.shell.emptyTitle}>
+                        <Empty
+                          icon={<FEATURE_ICONS.personalShell className="size-5" />}
+                          title={copy.workspace.shell.emptyTitle}
+                        >
                           {copy.workspace.shell.emptyBody}
                         </Empty>
                       ) : (
@@ -665,7 +698,7 @@ function WorkspaceBody({
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-lg border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-[color:var(--terminal-text)]">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -676,20 +709,20 @@ function WorkspaceBody({
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
-                                    <span className="flex items-center gap-2 text-caption text-slate-400">
+                                    <span className="flex items-center gap-2 text-caption text-[color:var(--terminal-muted)]">
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
                                       <span>{clock(s.time, true)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
-                                        <span className="text-work-ink">{copy.workspace.shell.running}</span>
+                                        <span className="text-signal">{copy.workspace.shell.running}</span>
                                       ) : (
                                         <span
                                           className={
                                             s.ok && /^exit 0/.test(s.output ?? '')
-                                              ? 'text-emerald-400'
-                                              : 'text-amber-400'
+                                              ? 'text-[color:var(--terminal-command)]'
+                                              : 'text-[color:var(--terminal-error)]'
                                           }
                                         >
                                           {(s.output ?? '').split('\n')[0]}
@@ -702,12 +735,14 @@ function WorkspaceBody({
                                         open ? 'whitespace-pre-wrap' : 'truncate',
                                       )}
                                     >
-                                      <span className="select-none text-emerald-400">$ </span>
+                                      <span className="select-none text-[color:var(--terminal-command)]">
+                                        ${' '}
+                                      </span>
                                       {s.command}
                                     </span>
                                   </button>
                                   {open && s.output && (
-                                    <pre className="mx-3.5 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-slate-400">
+                                    <pre className="mx-3.5 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all text-[color:var(--terminal-muted)]">
                                       {s.output
                                         .split('\n')
                                         .slice(1)
@@ -740,7 +775,10 @@ function WorkspaceBody({
                     )}
                     {tab === 'activity' &&
                       (steps.length === 0 ? (
-                        <Empty icon={<Activity className="size-5" />} title={copy.workspace.activityEmpty} />
+                        <Empty
+                          icon={<FEATURE_ICONS.activity className="size-5" />}
+                          title={copy.workspace.activityEmpty}
+                        />
                       ) : (
                         <ol className="flex flex-col px-4 py-2">
                           {[...steps].reverse().map((s) => (
@@ -798,12 +836,12 @@ function WorkspaceBody({
                     onFocus={(e) => point(e.currentTarget)}
                     onMouseLeave={() => setHint(undefined)}
                     onBlur={() => setHint(undefined)}
-                    aria-label={v.label}
+                    aria-label={count ? copy.workspace.viewWithCount(v.label, countText(count)) : v.label}
                     aria-pressed={on}
                     aria-keyshortcuts={v.key ? `${isMac ? 'Meta' : 'Control'}+Alt+${v.key}` : undefined}
                     className={cn(
                       'relative grid size-8 shrink-0 place-items-center rounded-md transition-colors',
-                      on ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                      on ? 'bg-fill text-fg' : 'text-muted hover:bg-fill/60 hover:text-fg',
                     )}
                   >
                     {on && (
@@ -814,11 +852,7 @@ function WorkspaceBody({
                       />
                     )}
                     <v.icon className="size-[18px]" />
-                    {!!count && (
-                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-caption font-medium leading-4 tabular-nums text-fg-2">
-                        {count > 99 ? '99+' : count}
-                      </span>
-                    )}
+                    {!!count && <CountBadge count={count} corner />}
                   </button>
                 </Fragment>
               )
@@ -861,7 +895,7 @@ function WorkspaceBody({
   )
 }
 
-/** A conversation in the Mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
+/** A conversation in the FEATURE_ICONS.mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
 interface Thread extends ConversationInfo {
   readonly messages: readonly ConversationLine[]
 }
@@ -885,7 +919,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
   const thread = threads.find((t) => t.id === open)
   if (threads.length === 0)
     return (
-      <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
+      <Empty icon={<FEATURE_ICONS.mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
         {copy.workspace.mail.emptyBody}
       </Empty>
     )
@@ -901,18 +935,18 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
             <button
               type="button"
               onClick={() => setOpen(t.id)}
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-fill"
             >
               {t.kind === 'team' ? (
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
-                  <Users className="size-4" />
+                  <FEATURE_ICONS.crew className="size-4" />
                 </span>
               ) : (
                 <span className="relative h-9 w-11 shrink-0">
                   <span className="absolute left-0 top-0">
                     <AgentAvatar name={t.members[0] ?? ''} status="idle" size={26} awake />
                   </span>
-                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
+                  <span className="absolute bottom-0 right-0 rounded-base ring-2 ring-surface">
                     <AgentAvatar name={t.members[1] ?? ''} status="idle" size={26} awake />
                   </span>
                 </span>
@@ -985,7 +1019,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                       type="button"
                       onClick={() => props.onInspect(m.from)}
                       aria-label={copy.workspace.mail.open(m.from)}
-                      className="rounded-lg transition-transform hover:scale-105"
+                      className="rounded-xl transition-transform hover:scale-105"
                     >
                       <AgentAvatar name={m.from} status="idle" size={26} awake />
                     </button>
@@ -994,7 +1028,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                 <div
                   className={cn(
                     'max-w-[80%] rounded-2xl px-3 py-1.5 text-callout leading-relaxed',
-                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
+                    mine ? 'rounded-tr-md bg-accent-soft text-fg' : 'rounded-tl-md bg-fill text-fg-2',
                   )}
                 >
                   {first && (
@@ -1008,7 +1042,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                     </div>
                   )}
                   <div className="whitespace-pre-wrap break-words">{m.text}</div>
-                  <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
+                  <div className="mt-0.5 flex justify-end gap-1 text-caption tabular-nums text-muted">
                     {clock(m.time)}
                     {m.read !== undefined && (
                       <span

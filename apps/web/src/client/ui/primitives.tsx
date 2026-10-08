@@ -1,3 +1,4 @@
+import { LoaderCircle } from 'lucide-react'
 import { motion } from 'motion/react'
 import {
   type ButtonHTMLAttributes,
@@ -5,6 +6,7 @@ import {
   forwardRef,
   type InputHTMLAttributes,
   isValidElement,
+  type KeyboardEvent,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -17,56 +19,46 @@ export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
 }
 
-type Variant =
-  | 'primary'
-  | 'push'
-  | 'borderless'
-  | 'toolbar'
-  | 'destructive'
-  | 'danger'
-  // Older names, kept until every screen uses the ones above.
-  | 'secondary'
-  | 'ghost'
-  | 'soft'
+type Variant = 'primary' | 'push' | 'borderless' | 'destructive' | 'danger'
 type Size = 'sm' | 'md'
-
-const PUSH =
-  'border border-line-strong/70 bg-control text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] hover:bg-control-hover active:bg-control-active'
-const BORDERLESS = 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong'
 
 const VARIANTS: Record<Variant, string> = {
   primary:
     'bg-accent text-on-accent shadow-[inset_0_0.5px_0_rgb(255_255_255/0.4),0_0.5px_1px_rgb(0_0_0/0.2)] hover:bg-accent-hover active:brightness-95',
-  push: PUSH,
-  borderless: BORDERLESS,
-  toolbar: BORDERLESS,
+  push: 'border border-line-strong/70 bg-control text-fg shadow-control hover:bg-control-hover active:bg-control-active',
+  borderless: 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong',
   destructive: 'bg-bad-fill text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
   danger: 'border border-bad/35 text-bad-ink hover:bg-bad-soft',
-  secondary: PUSH,
-  ghost: BORDERLESS,
-  soft: 'bg-accent-soft text-accent-fg hover:brightness-105',
 }
 
 export const Button = forwardRef<
   HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: Size; icon?: ReactNode }
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: Variant
+    size?: Size
+    icon?: ReactNode
+    /** Work under way: a spinner takes the icon's place and the button waits. */
+    loading?: boolean
+  }
 >(function Button(
-  { variant = 'push', size = 'md', icon, className, children, type = 'button', ...rest },
+  { variant = 'push', size = 'md', icon, loading, disabled, className, children, type = 'button', ...rest },
   ref,
 ) {
   return (
     <button
       ref={ref}
       type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45',
-        size === 'sm' ? 'h-[22px] rounded-[5px] px-2 text-small' : 'h-7 rounded-md px-3 text-body',
+        size === 'sm' ? 'h-6 rounded-sm px-2 text-small' : 'h-7 rounded-md px-3 text-body',
         VARIANTS[variant],
         className,
       )}
       {...rest}
     >
-      {icon}
+      {loading ? <LoaderCircle className="size-3.5 animate-spin" /> : icon}
       {children}
     </button>
   )
@@ -83,7 +75,7 @@ export const IconButton = forwardRef<
       aria-label={label}
       title={rest.title ?? label}
       className={cn(
-        'inline-grid shrink-0 place-items-center rounded-md transition-colors duration-100 disabled:opacity-40',
+        'inline-grid shrink-0 place-items-center rounded-md transition-colors duration-100 disabled:pointer-events-none disabled:opacity-40',
         size === 'sm' ? 'size-6' : 'size-7',
         active ? 'bg-fill-strong text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg active:bg-fill-strong',
         className,
@@ -129,22 +121,25 @@ export function Badge({
   )
 }
 
-/** The older name for Badge, kept until every screen uses Badge. */
-export const Pill = Badge
+const DOT: Record<Tone, string> = {
+  ok: 'bg-ok',
+  bad: 'bg-bad',
+  warn: 'bg-warn',
+  work: 'bg-work',
+  accent: 'bg-accent',
+  neutral: 'bg-muted/60',
+}
 
-export function Dot({ status }: { status: string }) {
-  const tone = toneFor(status)
-  const color = {
-    ok: 'bg-ok',
-    bad: 'bg-bad',
-    warn: 'bg-warn',
-    work: 'bg-work',
-    accent: 'bg-accent',
-    neutral: 'bg-muted/60',
-  }[tone]
+/**
+ * A status dot. `status` picks its colour as everywhere else (toneFor); `tone` sets it directly, as for a health
+ * check. Work in motion pings unless `pulse` is false, as in a lane heading that would otherwise never stop.
+ */
+export function Dot(props: ({ status: string } | { tone: Tone }) & { pulse?: boolean }) {
+  const tone = 'tone' in props ? props.tone : toneFor(props.status)
+  const color = DOT[tone]
   return (
     <span className="relative inline-flex size-2 shrink-0">
-      {tone === 'work' && (
+      {(props.pulse ?? tone === 'work') && (
         <span className={cn('absolute inset-0 animate-ping rounded-full opacity-60', color)} />
       )}
       <span className={cn('relative inline-flex size-2 rounded-full', color)} />
@@ -152,9 +147,38 @@ export function Dot({ status }: { status: string }) {
   )
 }
 
+/** A count as a badge shows it: past 99 it stops growing. */
+export const countText = (n: number) => (n > 99 ? '99+' : String(n))
+
+/**
+ * A number on a capsule: items in a tab, requests waiting. Accent asks for the person; `corner` pins it to the
+ * corner of the icon it counts for. With `label` it is read as that sentence instead of a bare number.
+ */
+export function CountBadge(props: {
+  count: number
+  tone?: 'neutral' | 'accent'
+  corner?: boolean
+  label?: string
+  className?: string
+}) {
+  return (
+    <span
+      {...(props.label ? { role: 'img', 'aria-label': props.label, title: props.label } : {})}
+      className={cn(
+        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 font-sans text-caption font-semibold leading-none tracking-normal tabular-nums',
+        props.tone === 'accent' ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
+        props.corner && 'absolute -right-1 -top-1',
+        props.className,
+      )}
+    >
+      {countText(props.count)}
+    </span>
+  )
+}
+
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line bg-fill px-1 font-sans text-caption text-muted">
+    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm border border-line bg-fill px-1 font-sans text-caption text-muted">
       {children}
     </kbd>
   )
@@ -213,7 +237,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   return (
     <select
       className={cn(
-        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-control outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
         className,
       )}
       {...rest}
@@ -301,7 +325,7 @@ export function Segmented<T extends string>(props: {
           aria-pressed={props.value === o.value}
           onClick={() => props.onChange(o.value)}
           className={cn(
-            'relative inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-2.5 text-small font-medium transition-colors',
+            'relative inline-flex h-[22px] items-center gap-1.5 rounded-sm px-2.5 text-small font-medium transition-colors',
             props.value === o.value ? 'text-fg' : 'text-fg-2 hover:text-fg',
           )}
         >
@@ -309,7 +333,7 @@ export function Segmented<T extends string>(props: {
             <motion.span
               layoutId={`seg-${props.id}`}
               transition={spring}
-              className="absolute inset-0 rounded-[5px] bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
+              className="absolute inset-0 rounded-sm bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
             />
           )}
           <span className="relative inline-flex items-center gap-1.5">{o.label}</span>
@@ -319,7 +343,10 @@ export function Segmented<T extends string>(props: {
   )
 }
 
-/** Underline tabs whose amber indicator glides between items. */
+/**
+ * Underline tabs whose amber indicator glides between items. One Tab stop: the arrow keys, Home and End move between
+ * tabs and show each one. The content they switch spreads `tabPanel(id, value)` so the two are linked.
+ */
 export function Tabs<T extends string>(props: {
   value: T
   tabs: { value: NoInfer<T>; label: ReactNode; count?: number }[]
@@ -327,17 +354,44 @@ export function Tabs<T extends string>(props: {
   id: string
   className?: string
 }) {
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = props.tabs.findIndex((t) => t.value === props.value)
+    const last = props.tabs.length - 1
+    const next =
+      e.key === 'ArrowRight'
+        ? at === last
+          ? 0
+          : at + 1
+        : e.key === 'ArrowLeft'
+          ? at <= 0
+            ? last
+            : at - 1
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? last
+              : undefined
+    const tab = next === undefined ? undefined : props.tabs[next]
+    if (!tab) return
+    e.preventDefault()
+    props.onChange(tab.value)
+    e.currentTarget.querySelector<HTMLElement>(`#${CSS.escape(tabId(props.id, tab.value))}`)?.focus()
+  }
   return (
     <div
       role="tablist"
+      onKeyDown={onKeyDown}
       className={cn('flex gap-1 overflow-x-auto border-b border-line px-3', props.className)}
     >
       {props.tabs.map((t) => (
         <button
           key={t.value}
+          id={tabId(props.id, t.value)}
           type="button"
           role="tab"
           aria-selected={props.value === t.value}
+          aria-controls={`${props.id}-panel`}
+          tabIndex={props.value === t.value ? 0 : -1}
           onClick={() => props.onChange(t.value)}
           className={cn(
             'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-callout font-medium transition-colors',
@@ -345,11 +399,7 @@ export function Tabs<T extends string>(props: {
           )}
         >
           {t.label}
-          {!!t.count && (
-            <span className="rounded-full bg-fill-strong px-1.5 text-caption tabular-nums text-fg-2">
-              {t.count}
-            </span>
-          )}
+          {!!t.count && <CountBadge count={t.count} />}
           {props.value === t.value && (
             <motion.span
               layoutId={`tab-${props.id}`}
@@ -363,15 +413,98 @@ export function Tabs<T extends string>(props: {
   )
 }
 
+const tabId = (id: string, value: string) => `${id}-tab-${value}`
+
+/** What the content under a Tabs spreads, so the tab and the panel it shows name each other. */
+export function tabPanel(id: string, value: string) {
+  return { role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': tabId(id, value) } as const
+}
+
+/** A page's title and what the page is for, at the top of a Settings section. */
+export function PageHeader(props: { title: string; children?: ReactNode }) {
+  return (
+    <div className="mb-6">
+      <h3 className="text-page-title font-semibold tracking-tight">{props.title}</h3>
+      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
+    </div>
+  )
+}
+
+/** The heading over one part of a page: an optional icon, its name, and a quieter note after it. */
+export function SectionHeader(props: {
+  as?: 'h2' | 'h3' | 'h4'
+  icon?: ReactNode
+  title: ReactNode
+  note?: ReactNode
+  className?: string
+}) {
+  const Heading = props.as ?? 'h4'
+  return (
+    <Heading className={cn('flex items-center gap-2 text-body font-semibold', props.className)}>
+      {props.icon}
+      {props.title}
+      {props.note && <span className="font-normal text-muted">{props.note}</span>}
+    </Heading>
+  )
+}
+
+/**
+ * Rows on a rounded panel, separated by hairlines. With a `title` the panel is a section with that heading (and an
+ * `action` beside it) across its top.
+ */
+export function Card(props: { children: ReactNode; className?: string; title?: string; action?: ReactNode }) {
+  const panel = 'rounded-2xl border border-line bg-surface'
+  if (props.title === undefined)
+    return <div className={cn('divide-y divide-line', panel, props.className)}>{props.children}</div>
+  return (
+    <section className={cn(panel, props.className)}>
+      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
+        <SectionHeader as="h2" title={props.title} />
+        {props.action}
+      </header>
+      <div className="divide-y divide-line">{props.children}</div>
+    </section>
+  )
+}
+
+/** One row of a Card. */
+export function CardRow(props: { children: ReactNode }) {
+  return <div className="px-4 py-3.5">{props.children}</div>
+}
+
+const BANNER: Record<'bad' | 'warn' | 'ok' | 'info', string> = {
+  bad: 'bg-bad-soft text-bad-ink',
+  warn: 'bg-warn-soft text-warn-ink',
+  ok: 'bg-ok-soft text-ok-ink',
+  info: 'bg-fill text-fg-2',
+}
+
+/** A notice in the flow of a page: something failed, needs a look, or worked. An `alert` is read out when it appears. */
+export function Banner(props: {
+  tone: keyof typeof BANNER
+  role?: 'alert' | 'status' | 'note'
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={props.role}
+      className={cn('rounded-lg px-4 py-3 text-callout', BANNER[props.tone], props.className)}
+    >
+      {props.children}
+    </div>
+  )
+}
+
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-md bg-surface-2', className)} />
+  return <div className={cn('animate-pulse rounded-md bg-fill', className)} />
 }
 
 export function Empty(props: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       {props.icon && (
-        <div className="grid size-10 place-items-center rounded-xl bg-fill text-muted">{props.icon}</div>
+        <div className="grid size-10 place-items-center rounded-lg bg-fill text-muted">{props.icon}</div>
       )}
       <p className="text-body font-semibold text-fg">{props.title}</p>
       {props.children && <div className="max-w-sm text-callout text-muted">{props.children}</div>}

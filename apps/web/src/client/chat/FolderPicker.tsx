@@ -1,4 +1,4 @@
-import { ArrowUp, Folder, FolderPlus, LoaderCircle } from 'lucide-react'
+import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
@@ -57,11 +57,10 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
         <Button
           size="sm"
           variant="primary"
-          disabled={busy || !typed.trim()}
+          disabled={!typed.trim()}
           onClick={() => add(typed)}
-          icon={
-            busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <FolderPlus className="size-3.5" />
-          }
+          loading={busy}
+          icon={<FolderPlus className="size-3.5" />}
         >
           {copy.folderPicker.useFolder}
         </Button>
@@ -87,12 +86,12 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             {copy.folderPicker.go}
           </Button>
         </form>
-        <div className="max-h-[50vh] overflow-auto rounded-xl border border-line">
+        <div className="max-h-[50vh] overflow-auto rounded-lg border border-line">
           {listing?.parent && (
             <button
               type="button"
               onClick={() => open(listing.parent ?? '/')}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-fill"
             >
               <ArrowUp className="size-4 text-muted" /> ..
             </button>
@@ -102,7 +101,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
               key={f}
               type="button"
               onClick={() => open(`${listing.path}/${f}`)}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-fill"
             >
               <Folder className="size-4 shrink-0 text-muted" />
               <span className="truncate">{f}</span>
@@ -130,7 +129,7 @@ export function ProjectPill(props: {
   onAdd?(): void
 }) {
   const pill =
-    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted'
+    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted'
   if (props.fixed) {
     const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (
@@ -147,7 +146,7 @@ export function ProjectPill(props: {
   const current = props.projects.find((p) => p.id === props.value)
   return (
     <label
-      className={`${pill} relative transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
+      className={`${pill} relative transition-colors duration-150 hover:bg-fill hover:text-fg`}
       title={current ? current.path : copy.folderPicker.pill.title}
     >
       <Folder className="size-3.5 shrink-0" />

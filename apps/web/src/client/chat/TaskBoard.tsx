@@ -4,15 +4,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { duration } from '../ui/hooks.ts'
 import { AgentAvatar } from '../ui/pixel.tsx'
-import { cn } from '../ui/primitives.tsx'
+import { cn, Dot } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
 
-const LANES: { status: TaskSnapshot['status']; label: string; dot: string }[] = [
-  { status: 'in_progress', label: copy.taskBoard.lanes.inProgress, dot: 'bg-work' },
-  { status: 'submitted', label: copy.taskBoard.lanes.submitted, dot: 'bg-warn' },
-  { status: 'rejected', label: copy.taskBoard.lanes.rejected, dot: 'bg-bad' },
-  { status: 'pending', label: copy.taskBoard.lanes.pending, dot: 'bg-surface-3' },
-  { status: 'verified', label: copy.taskBoard.lanes.verified, dot: 'bg-ok' },
+const LANES: { status: TaskSnapshot['status']; label: string }[] = [
+  { status: 'in_progress', label: copy.taskBoard.lanes.inProgress },
+  { status: 'submitted', label: copy.taskBoard.lanes.submitted },
+  { status: 'rejected', label: copy.taskBoard.lanes.rejected },
+  { status: 'pending', label: copy.taskBoard.lanes.pending },
+  { status: 'verified', label: copy.taskBoard.lanes.verified },
 ]
 
 /**
@@ -53,8 +53,8 @@ export function TaskBoard(props: {
                 aria-label={lane.label}
                 className={cn('flex min-w-0 flex-col gap-2', cards.length === 0 && 'opacity-60')}
               >
-                <h3 className="flex items-center gap-2 px-1 font-mono text-caption uppercase tracking-[0.14em] text-muted">
-                  <span className={cn('size-2 rounded-full', lane.dot)} />
+                <h3 className="flex items-center gap-2 px-1 section-label text-muted">
+                  <Dot status={lane.status} pulse={false} />
                   {lane.label}
                   <span className="tabular-nums">{cards.length}</span>
                 </h3>
@@ -69,7 +69,7 @@ export function TaskBoard(props: {
                         layout
                         transition={softSpring}
                         className={cn(
-                          'flex flex-col gap-1.5 rounded-xl border border-line bg-surface px-3 py-2.5',
+                          'flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5',
                           lane.status === 'verified' && 'opacity-70',
                         )}
                       >

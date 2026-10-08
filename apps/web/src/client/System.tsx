@@ -1,20 +1,12 @@
-import {
-  Check,
-  ChevronDown,
-  CircleAlert,
-  CircleCheck,
-  Copy,
-  RefreshCw,
-  Settings2,
-  WifiOff,
-} from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, CircleCheck, Copy, RefreshCw, WifiOff } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { send } from './api.ts'
 import { copy } from './copy.ts'
 import { type GatewayStatus, useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ago, day, useCopy } from './ui/hooks.ts'
-import { Button, cn, Dot, Skeleton } from './ui/primitives.tsx'
+import { FEATURE_ICONS } from './ui/icons.ts'
+import { Banner, Button, Card, cn, Dot, Skeleton } from './ui/primitives.tsx'
 import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 
@@ -28,22 +20,8 @@ export function setUpChannels<T extends { enabled: boolean; configured?: boolean
   return channels.filter((c) => c.enabled || c.configured !== false)
 }
 
-function Section(props: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-line bg-surface">
-      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <h2 className="text-[13px] font-semibold">{props.title}</h2>
-        {props.action}
-      </header>
-      <div className="divide-y divide-line">{props.children}</div>
-    </section>
-  )
-}
-
 const Line = (props: { children: ReactNode; className?: string }) => (
-  <div className={cn('flex items-center gap-3 px-4 py-2.5 text-[13px]', props.className)}>
-    {props.children}
-  </div>
+  <div className={cn('flex items-center gap-3 px-4 py-2.5 text-body', props.className)}>{props.children}</div>
 )
 
 /**
@@ -58,8 +36,8 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
     return (
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex max-w-3xl flex-col items-start gap-3 px-6 py-8" role="alert">
-          <h1 className="text-[20px] font-semibold tracking-tight">{t.title}</h1>
-          <p className="text-[13px] text-muted">{error}</p>
+          <h1 className="text-page-title font-semibold tracking-tight">{t.title}</h1>
+          <p className="text-body text-muted">{error}</p>
           <Button size="sm" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
             {t.tryAgain}
           </Button>
@@ -70,7 +48,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
     return (
       <div className="min-h-0 flex-1 overflow-auto" aria-busy="true">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-8">
-          <p className="text-[13px] text-muted">{t.loading}</p>
+          <p className="text-body text-muted">{t.loading}</p>
           <Skeleton className="h-28" />
           <Skeleton className="h-20" />
         </div>
@@ -90,26 +68,26 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             )}
           />
           <div className="min-w-0 flex-1">
-            <h1 className="text-[20px] font-semibold tracking-tight">{t.title}</h1>
-            <p className="text-[13px] text-muted">{headline}</p>
+            <h1 className="text-page-title font-semibold tracking-tight">{t.title}</h1>
+            <p className="text-body text-muted">{headline}</p>
           </div>
-          <Button size="sm" variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
+          <Button size="sm" variant="borderless" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
             {t.refresh}
           </Button>
         </div>
 
         {!!status?.problems.length && (
-          <div className="flex flex-col gap-1.5 rounded-xl bg-warn-soft px-4 py-3 text-[13px] text-warn-ink">
+          <Banner tone="warn" className="flex flex-col gap-1.5">
             {status.problems.map((p) => (
               <div key={p.kind === 'channel' ? p.channel : p.kind}>
                 {p.kind === 'no-models' ? t.problems.noModels : t.problems.channel(p.label)}
               </div>
             ))}
-          </div>
+          </Banner>
         )}
 
         {status?.startedAt && (
-          <Section title={t.gateway}>
+          <Card title={t.gateway}>
             <Line>
               <span className="flex-1">{status.remote ? t.remote(status.publicUrl) : t.local}</span>
               {ping !== undefined && !offline && <span className="text-muted">{t.ping(ping)}</span>}
@@ -120,12 +98,12 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             {status.home && (
               <Line>
                 <span className="text-muted">{t.home}</span>
-                <code className="min-w-0 flex-1 truncate font-mono text-[12px]" title={status.home}>
+                <code className="min-w-0 flex-1 truncate font-mono text-small" title={status.home}>
                   {shortPath(status.home)}
                 </code>
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="borderless"
                   icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                   onClick={() => status.home && copyText(status.home)}
                 >
@@ -139,11 +117,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             <Line>
               <span className="flex-1">{t.sandbox(status.sandbox)}</span>
             </Line>
-          </Section>
+          </Card>
         )}
 
         {status?.running && (
-          <Section title={t.running}>
+          <Card title={t.running}>
             {status.running.length === 0 ? (
               <Line className="text-muted">{t.nothingRunning}</Line>
             ) : (
@@ -152,24 +130,24 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                   key={r.chatId}
                   type="button"
                   onClick={() => props.onOpenChat(r.chatId)}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-fill"
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-body transition-colors hover:bg-fill"
                 >
                   <Dot status={runPhase({ status: 'running' })} />
                   <span className="min-w-0 flex-1 truncate">{r.title}</span>
                 </button>
               ))
             )}
-          </Section>
+          </Card>
         )}
 
         {channels && (
-          <Section
+          <Card
             title={t.channels}
             action={
               <Button
                 size="sm"
-                variant="ghost"
-                icon={<Settings2 className="size-3.5" />}
+                variant="borderless"
+                icon={<FEATURE_ICONS.channels className="size-3.5" />}
                 onClick={props.onManageChannels}
               >
                 {t.manage}
@@ -181,11 +159,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
             ) : (
               channels.map((c) => <ChannelRow key={c.id} channel={c} onRestarted={refresh} />)
             )}
-          </Section>
+          </Card>
         )}
 
         {status?.activity && (
-          <Section title={t.activity}>
+          <Card title={t.activity}>
             {status.activity.length === 0 ? (
               <Line className="text-muted">{t.noActivity}</Line>
             ) : (
@@ -200,11 +178,11 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                   >
                     {e.text}
                   </span>
-                  <span className="shrink-0 text-[12px] text-muted">{ago(e.at)}</span>
+                  <span className="shrink-0 text-small text-muted">{ago(e.at)}</span>
                 </Line>
               ))
             )}
-          </Section>
+          </Card>
         )}
       </div>
     </div>
@@ -275,7 +253,7 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
     else leftOff(result.error)
   }
   return (
-    <div className="flex items-start gap-3 px-4 py-3 text-[13px]">
+    <div className="flex items-start gap-3 px-4 py-3 text-body">
       <ChannelLogo id={c.id} size={28} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -283,7 +261,7 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
           <Dot status={state} />
           <span className={cn('truncate text-muted', state === 'error' && 'text-bad-ink')}>{words}</span>
         </div>
-        <div className="mt-0.5 flex flex-wrap gap-x-3 text-[12px] text-muted">
+        <div className="mt-0.5 flex flex-wrap gap-x-3 text-small text-muted">
           <span>{h.lastIn(c.health.lastIn ? ago(c.health.lastIn) : h.never)}</span>
           <span>{h.lastOut(c.health.lastOut ? ago(c.health.lastOut) : h.never)}</span>
           {c.health.reconnects > 0 && <span>{h.reconnects(c.health.reconnects)}</span>}
@@ -291,18 +269,18 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
         </div>
         {details && (
           <details className="group mt-1">
-            <summary className="cursor-default list-none text-[12px] text-muted hover:text-fg-2">
+            <summary className="cursor-default list-none text-small text-muted hover:text-fg-2">
               <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
               {t.showDetails}
             </summary>
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] text-muted">
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-small text-muted">
               {details}
             </pre>
           </details>
         )}
       </div>
       {c.enabled && (
-        <Button size="sm" variant="ghost" disabled={restarting} onClick={() => void restart()}>
+        <Button size="sm" variant="borderless" disabled={restarting} onClick={() => void restart()}>
           {restarting ? t.restarting : t.restart}
         </Button>
       )}
