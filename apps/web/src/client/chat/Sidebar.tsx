@@ -164,6 +164,7 @@ export function Sidebar(props: {
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
               <Dot status={runPhase(c)} />
               <span className="truncate">{c.title}</span>
+              <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
               {c.rounds.length > 1 && (
                 <span className="ml-auto text-[11px] tabular-nums text-muted">{c.rounds.length}</span>
               )}

@@ -33,6 +33,8 @@ export const copy = {
       stopped: 'Stopped',
       failed: 'Failed',
     },
+    /** Read after a chat's title by screen readers, which cannot see its status dot. */
+    spoken: (label: string) => `, ${label}`,
     /** A chat or crew run, beside its title. */
     run: {
       working: 'working',
