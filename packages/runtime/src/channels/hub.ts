@@ -49,7 +49,9 @@ export interface ChannelChats {
   /** Every event as it is appended to any colony. */
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void
   /** Replies as they are written (`text` is the reply so far). */
-  onStream?(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void
+  onStream?(
+    listener: (colonyId: string, agent: string, text: string, done: boolean, plain: boolean) => void,
+  ): () => void
   read(colonyId: string): Promise<readonly MyrEvent[]>
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
   /** Lets a tool run without asking from now on (the person's per-tool rule in Settings). */
