@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -9,6 +10,8 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
+import { SKILL_MAX_FILE_CHARS, SKILL_MAX_FILES } from './config.ts'
+import { prompts } from './prompts.ts'
 
 /**
  * Skills in the Agent Skills format (agentskills.io), as Claude Code, Codex and others use them: a folder with a
@@ -17,7 +20,7 @@ import { join, relative, resolve, sep } from 'node:path'
  * instructions, then a bundled file only when they ask for it.
  */
 
-export type SkillSource = 'myrmidon' | 'claude' | 'project'
+export type SkillSource = 'myrmidon' | 'claude' | 'plugin' | 'project'
 
 export interface Skill {
   readonly name: string
@@ -29,9 +32,8 @@ export interface Skill {
 }
 
 const NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
-const MAX_FILE_CHARS = 40_000
-/** Bundled files listed per skill, so a big skill does not flood the agent. */
-const MAX_FILES = 60
+/** Marks a skill Myrmidon learned itself (in its front matter), as opposed to one the person wrote. */
+const LEARNED = /^source:\s*learned\s*$/m
 
 /** Parses a SKILL.md's front matter and body; undefined unless it names and describes the skill. */
 export function parseSkillFile(
@@ -66,17 +68,20 @@ export class SkillLibrary {
     home: string,
     /** Where the person's Claude Code skills live; read in place, never written. */
     private readonly claudeDir = join(homedir(), '.claude', 'skills'),
+    /** The skills folders of the person's enabled plugins. */
+    private readonly pluginRoots: () => readonly string[] = () => [],
   ) {
     this.dir = join(home, 'skills')
     this._state = join(home, 'skills.json')
   }
 
-  /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, and the project's. */
+  /** Every skill a chat can use: Myrmidon's own, the person's Claude Code skills, their plugins', and the project's. */
   list(project?: string): Skill[] {
     const disabled = new Set(this._disabled())
     const sources: [string, SkillSource][] = [
       [this.dir, 'myrmidon'],
       [this.claudeDir, 'claude'],
+      ...this.pluginRoots().map((root): [string, SkillSource] => [root, 'plugin']),
       ...(project
         ? ([
             [join(project, '.myrmidon', 'skills'), 'project'],
@@ -117,21 +122,44 @@ export class SkillLibrary {
       if (!existsSync(real) || !statSync(real).isFile())
         throw new Error(`the ${name} skill has no file ${file}`)
       const text = readFileSync(real, 'utf8')
-      return text.length > MAX_FILE_CHARS
-        ? `${text.slice(0, MAX_FILE_CHARS)}\n… (cut at ${MAX_FILE_CHARS} chars)`
+      return text.length > SKILL_MAX_FILE_CHARS
+        ? `${text.slice(0, SKILL_MAX_FILE_CHARS)}\n… (cut at ${SKILL_MAX_FILE_CHARS} chars)`
         : text
     }
     const parsed = parseSkillFile(readFileSync(join(skill.dir, 'SKILL.md'), 'utf8'))
     const files = bundled(skill.dir)
     return [
       `# Skill: ${name}`,
-      `Folder: ${skill.dir} (scripts run from here with your shell; paths below are relative to it)`,
+      prompts.toolResults.skillFolder(skill.dir),
       '',
       parsed?.body ?? '',
-      files.length
-        ? `\nBundled files (read one with use_skill and file):\n${files.map((f) => `- ${f}`).join('\n')}`
-        : '',
+      files.length ? prompts.toolResults.skillFiles(files) : '',
     ].join('\n')
+  }
+
+  /**
+   * Skills Myrmidon learned from finished work (`source: learned` in their front matter), with their instructions:
+   * the only skills a reviewer may propose changes to.
+   */
+  learned(): { name: string; description: string; body: string }[] {
+    if (!existsSync(this.dir)) return []
+    return readdirSync(this.dir).flatMap((entry) => {
+      const file = join(this.dir, entry, 'SKILL.md')
+      if (!existsSync(file)) return []
+      const text = readFileSync(file, 'utf8')
+      const parsed = parseSkillFile(text)
+      return parsed && LEARNED.test(text.split(/\r?\n---/)[0] ?? '') ? [parsed] : []
+    })
+  }
+
+  /** Saves a learned skill the person kept, in Myrmidon's own skills folder (every chat sees it). */
+  write(name: string, description: string, body: string) {
+    if (!NAME.test(name)) throw new Error(`not a skill name: ${name}`)
+    const dir = join(this.dir, name)
+    mkdirSync(dir, { recursive: true })
+    const front = `---\nname: ${name}\ndescription: ${JSON.stringify(description.replace(/\s+/g, ' ').trim())}\nsource: learned\n---\n\n`
+    writeFileSync(join(dir, 'SKILL.md.tmp'), `${front}${body.trim()}\n`)
+    renameSync(join(dir, 'SKILL.md.tmp'), join(dir, 'SKILL.md'))
   }
 
   setEnabled(name: string, enabled: boolean) {
@@ -157,7 +185,7 @@ function bundled(dir: string): string[] {
   const out: string[] = []
   const walk = (at: string, depth: number) => {
     for (const e of readdirSync(at, { withFileTypes: true })) {
-      if (out.length >= MAX_FILES || e.name.startsWith('.')) continue
+      if (out.length >= SKILL_MAX_FILES || e.name.startsWith('.')) continue
       const path = join(at, e.name)
       if (e.isDirectory() && depth < 3) walk(path, depth + 1)
       else if (e.isFile() && !(depth === 0 && e.name === 'SKILL.md')) out.push(relative(dir, path))

@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
+import { copy } from '../copy.ts'
 import { cn } from '../ui/primitives.tsx'
 
 export interface Folds {
@@ -29,10 +30,10 @@ export function FoldAll(props: { ids: readonly string[]; folds: Folds }) {
   return (
     <button
       type="button"
-      className="rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-fg"
+      className="rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-surface-2 hover:text-fg"
       onClick={() => props.folds.setAll(props.ids, !allOpen)}
     >
-      {allOpen ? 'Collapse all' : 'Expand all'}
+      {allOpen ? copy.folds.collapseAll : copy.folds.expandAll}
     </button>
   )
 }

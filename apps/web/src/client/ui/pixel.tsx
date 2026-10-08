@@ -1,6 +1,8 @@
 import { identityOf } from '@myrmidon/protocol'
-import { motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
+import { AGENT_DOZE_MS } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -17,7 +19,7 @@ export function agentColor(name: string): string {
 export function inkOn(hex: string): string {
   const n = Number.parseInt(hex.slice(1), 16)
   const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-  return lum > 0.6 ? '#0b0b0d' : '#ffffff'
+  return lum > 0.6 ? 'var(--on-bright)' : 'var(--on-deep)'
 }
 
 /* ------------------------------------------------------------------ pixel face */
@@ -54,6 +56,8 @@ export function moodFor(status: string): Mood {
     case 'rejected':
       return 'error'
     case 'stopped':
+    case 'done':
+    case 'resting':
       return 'sleep'
     case 'waiting':
       return 'waiting'
@@ -61,9 +65,6 @@ export function moodFor(status: string): Mood {
       return 'idle'
   }
 }
-
-/** How long an agent sits idle before its face dozes off. */
-export const DOZE_MS = 15_000
 
 /**
  * The mood an agent's face shows: its status, except that an agent left idle for a while falls asleep.
@@ -76,31 +77,38 @@ export function useAgentMood(status: string, awake = false): Mood {
   useEffect(() => {
     setDozing(false)
     if (!resting) return
-    const t = setTimeout(() => setDozing(true), DOZE_MS)
+    const t = setTimeout(() => setDozing(true), AGENT_DOZE_MS)
     return () => clearTimeout(t)
   }, [resting])
   return resting && dozing ? 'sleep' : mood
 }
 
-/** A small "z" drifting up from a sleeping face. */
+/**
+ * A small "z" drifting up from a sleeping face. The glyph is drawn by CSS, not text, so it stays out of the text
+ * (and any name computed from text) of the row or button the avatar sits in.
+ */
 export function Snore(props: { size: number }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const font = Math.max(8, Math.round(props.size * 0.26))
   return (
     <motion.span
-      className="pointer-events-none absolute select-none font-semibold leading-none text-muted"
+      className="pointer-events-none absolute select-none font-semibold leading-none text-muted after:content-['z']"
       style={{ right: -font * 0.35, top: -font * 0.55, fontSize: font }}
       initial={reduce ? { opacity: 0.6 } : { opacity: 0, x: 0, y: 2 }}
       animate={reduce ? { opacity: 0.6 } : { opacity: [0, 0.7, 0], x: [0, 2, 4], y: [2, -3, -8] }}
       transition={reduce ? undefined : { duration: 2.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeOut' }}
       aria-hidden
-    >
-      z
-    </motion.span>
+    />
   )
 }
 
 type Cell = readonly [number, number]
+
+/**
+ * The resting shape of the mascot's eyes, chosen in Settings: `happy` rests as arcs, `tall` as narrow ovals, `sleepy`
+ * half-lidded, `lashes` round with a lash at each outer corner. Moods still change them.
+ */
+export type EyeStyle = 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
 
 const HEART = ['.#.#.', '#####', '.###.', '..#..']
 
@@ -114,6 +122,7 @@ function eyeCells(
   frame: number,
   blinking: boolean,
   look: readonly [number, number],
+  style: EyeStyle = 'round',
 ): Cell[] {
   const ew = Math.max(1, Math.round(cols * 0.24))
   const eh = Math.max(2, Math.round(rows * 0.46))
@@ -140,20 +149,27 @@ function eyeCells(
   const line = (x0: number, y: number) => {
     for (let i = 0; i < ew; i++) out.push([x0 + i, y])
   }
-  const blob = (x0: number, yStart: number, yEnd: number) => {
-    for (let y = yStart; y < yEnd; y++) {
-      for (let x = x0; x < x0 + ew; x++) {
+  // Narrow eyes stand a cell taller, so they read as ovals rather than slits.
+  const narrow = style === 'tall' && ew >= 3
+  const blob = (x0: number, yStart: number, yEnd: number, eye?: number) => {
+    const xs = narrow ? x0 + 1 : x0
+    const xe = narrow ? x0 + ew - 1 : x0 + ew
+    const ys = narrow ? yStart - 1 : yStart
+    for (let y = ys; y < yEnd; y++) {
+      for (let x = xs; x < xe; x++) {
         const corner =
-          ew >= 4 && yEnd - yStart >= 4 && (x === x0 || x === x0 + ew - 1) && (y === yStart || y === yEnd - 1)
+          xe - xs >= 4 && yEnd - ys >= 4 && (x === xs || x === xe - 1) && (y === ys || y === yEnd - 1)
         if (!corner) out.push([x, y])
       }
     }
+    if (style === 'lashes' && eye !== undefined) out.push(eye === 0 ? [xs - 1, ys - 1] : [xe, ys - 1])
   }
   for (const [eye, base] of [left, left + ew + between].entries()) {
     const x0 = base + dx
     const y0 = top + dy
     const mid = y0 + Math.floor(eh / 2)
-    if (mood === 'happy' || (mood === 'love' && ew < 4)) {
+    const resting = mood === 'idle' || mood === 'listening'
+    if (mood === 'happy' || (mood === 'love' && ew < 4) || (style === 'happy' && resting && !blinking)) {
       // ^ ^ : each eye becomes an upturned arc.
       const aw = Math.max(3, ew)
       for (let i = 0; i < aw; i++) out.push([x0 + i, mid - Math.min(i, aw - 1 - i)])
@@ -181,20 +197,20 @@ function eyeCells(
       continue
     }
     if (mood === 'surprised') {
-      blob(x0, y0 - 1, y0 + eh + 1)
+      blob(x0, y0 - 1, y0 + eh + 1, eye)
       continue
     }
     if (mood === 'working') {
       const h = Math.max(2, Math.round(eh * 0.62))
       const ys = y0 + Math.floor((eh - h) / 2)
-      blob(x0, ys, ys + h)
+      blob(x0, ys, ys + h, eye)
       continue
     }
-    if (mood === 'waiting') {
-      blob(x0, mid, y0 + eh)
+    if (mood === 'waiting' || (style === 'sleepy' && mood === 'idle')) {
+      blob(x0, mid, y0 + eh, eye)
       continue
     }
-    blob(x0, y0, y0 + eh)
+    blob(x0, y0, y0 + eh, eye)
   }
   return out
 }
@@ -229,12 +245,13 @@ export function PixelFace(props: {
   glow?: boolean
   /** Where the eyes look, in cells (x, y). Omit to let an idle face glance around on its own. */
   look?: readonly [number, number]
+  eyes?: EyeStyle
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
   const cell = props.cell ?? 4
   const gap = props.gap ?? Math.max(1, Math.round(cell * 0.28))
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const [frame, setFrame] = useState(0)
   const [blinking, setBlinking] = useState(false)
   const [glance, setGlance] = useState<readonly [number, number]>([0, 0])
@@ -299,10 +316,10 @@ export function PixelFace(props: {
   const lookY = props.look?.[1] ?? glance[1]
   const lit = useMemo(() => {
     const set = new Set<string>()
-    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY]))
+    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes))
       if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
     return set
-  }, [props.mood, cols, rows, frame, blinking, lookX, lookY])
+  }, [props.mood, cols, rows, frame, blinking, lookX, lookY, props.eyes])
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap
@@ -396,6 +413,57 @@ function ScreenAvatar(props: {
   )
 }
 
+/* ------------------------------------------------------------------ pixel sprites */
+
+/** Small pictures drawn in the screen's own dots: each letter names a colour in the sprite's palette, `.` is empty. */
+export interface Sprite {
+  readonly rows: readonly string[]
+  readonly palette: Readonly<Record<string, string>>
+}
+
+/** A blossom of four petals around a yellow heart, for the mascot's top-right corner. */
+export const FLOWER: Sprite = {
+  rows: ['.pp.pp.', 'ppppppp', 'pppyppp', '.pyyyp.', 'pppyppp', 'ppppppp', '.pp.pp.'],
+  palette: { p: '#ff8fc0', y: '#ffd34d' },
+}
+
+/** A bow tie, worn under the screen. */
+export const BOW: Sprite = {
+  rows: ['##.....##', '###.k.###', '####k####', '###.k.###', '##.....##'],
+  palette: { '#': '#4f7df0', k: '#2f55b8' },
+}
+
+export function PixelSprite(props: { sprite: Sprite; cell: number; gap?: number; className?: string }) {
+  const { sprite, cell } = props
+  const gap = props.gap ?? Math.max(1, Math.round(cell * 0.28))
+  const cols = Math.max(...sprite.rows.map((r) => r.length))
+  const w = cols * cell + (cols - 1) * gap
+  const h = sprite.rows.length * cell + (sprite.rows.length - 1) * gap
+  const cells = []
+  for (let y = 0; y < sprite.rows.length; y++) {
+    for (let x = 0; x < cols; x++) {
+      const fill = sprite.palette[sprite.rows[y]?.[x] ?? '.']
+      if (fill)
+        cells.push(
+          <rect
+            key={`${x},${y}`}
+            x={x * (cell + gap)}
+            y={y * (cell + gap)}
+            width={cell}
+            height={cell}
+            rx={cell * 0.3}
+            fill={fill}
+          />,
+        )
+    }
+  }
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={props.className} aria-hidden>
+      {cells}
+    </svg>
+  )
+}
+
 /* ------------------------------------------------------------------ dot-matrix type */
 
 const GLYPHS: Record<string, string[]> = {
@@ -420,6 +488,28 @@ const GLYPHS: Record<string, string[]> = {
   S: [' ####', '#    ', '#    ', ' ### ', '    #', '    #', '#### '],
   H: ['#   #', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'],
   B: ['#### ', '#   #', '#   #', '#### ', '#   #', '#   #', '#### '],
+  A: [' ### ', '#   #', '#   #', '#####', '#   #', '#   #', '#   #'],
+  C: [' ### ', '#   #', '#    ', '#    ', '#    ', '#   #', ' ### '],
+  D: ['#### ', '#   #', '#   #', '#   #', '#   #', '#   #', '#### '],
+  E: ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#####'],
+  F: ['#####', '#    ', '#    ', '#### ', '#    ', '#    ', '#    '],
+  G: [' ### ', '#   #', '#    ', '# ###', '#   #', '#   #', ' ####'],
+  I: ['###', ' # ', ' # ', ' # ', ' # ', ' # ', '###'],
+  J: ['  ###', '   # ', '   # ', '   # ', '   # ', '#  # ', ' ##  '],
+  L: ['#    ', '#    ', '#    ', '#    ', '#    ', '#    ', '#####'],
+  N: ['#   #', '#   #', '##  #', '# # #', '#  ##', '#   #', '#   #'],
+  O: [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
+  P: ['#### ', '#   #', '#   #', '#### ', '#    ', '#    ', '#    '],
+  Q: [' ### ', '#   #', '#   #', '#   #', '# # #', '#  # ', ' ## #'],
+  R: ['#### ', '#   #', '#   #', '#### ', '# #  ', '#  # ', '#   #'],
+  T: ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
+  U: ['#   #', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
+  V: ['#   #', '#   #', '#   #', '#   #', '#   #', ' # # ', '  #  '],
+  W: ['#   #', '#   #', '#   #', '# # #', '# # #', '# # #', ' # # '],
+  X: ['#   #', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '#   #'],
+  Y: ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '],
+  Z: ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
+  "'": ['#', '#', ' ', ' ', ' ', ' ', ' '],
 }
 
 /** Numbers and short labels set in a 5×7 dot-matrix face, like an LED readout. */
@@ -487,12 +577,12 @@ export function AgentChip(props: {
     <motion.button
       type="button"
       onClick={props.onClick}
-      aria-label={`What ${props.name} is doing`}
+      aria-label={copy.agentChip.label(props.name)}
       layout
       initial={{ opacity: 0, scale: 0.3 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ type: 'spring', stiffness: 520, damping: 17 }}
-      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-[12px] transition-colors hover:border-line-strong hover:bg-surface-2"
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-surface py-0.5 pl-0.5 pr-3 text-small transition-colors hover:border-line-strong hover:bg-surface-2"
       style={props.active ? { borderColor: `${color}88`, boxShadow: `0 0 0 3px ${color}22` } : undefined}
       title={props.detail}
     >

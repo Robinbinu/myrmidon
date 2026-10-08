@@ -1,16 +1,18 @@
 import { type AuditKind, auditOf, type MyrEvent } from '@myrmidon/protocol'
 import { Ban, FileCode, Globe, Search, ShieldCheck, SquareTerminal, Wrench } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
+import { clock } from '../ui/hooks.ts'
 import { cn, Empty, Pill, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
 const KINDS: { value: AuditKind | 'all'; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'file', label: 'Files' },
-  { value: 'url', label: 'URLs' },
-  { value: 'command', label: 'Commands' },
-  { value: 'search', label: 'Searches' },
-  { value: 'other', label: 'Other' },
+  { value: 'all', label: copy.audit.kinds.all },
+  { value: 'file', label: copy.audit.kinds.file },
+  { value: 'url', label: copy.audit.kinds.url },
+  { value: 'command', label: copy.audit.kinds.command },
+  { value: 'search', label: copy.audit.kinds.search },
+  { value: 'other', label: copy.audit.kinds.other },
 ]
 
 const ICONS: Record<AuditKind, typeof FileCode> = {
@@ -22,10 +24,10 @@ const ICONS: Record<AuditKind, typeof FileCode> = {
 }
 
 const STOPPED_BY = {
-  person: 'you declined',
-  timeout: 'no answer in time',
-  hook: 'a hook blocked it',
-  safety: 'flagged',
+  person: copy.audit.stoppedBy.person,
+  timeout: copy.audit.stoppedBy.timeout,
+  hook: copy.audit.stoppedBy.hook,
+  safety: copy.audit.stoppedBy.safety,
 }
 
 /** Every file, URL and command the round's agents touched, and what was stopped, from the event log. */
@@ -49,8 +51,8 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
 
   if (audit.entries.length === 0 && audit.stops.length === 0)
     return (
-      <Empty icon={<ShieldCheck className="size-5" />} title="Nothing touched yet">
-        Every file, URL and command the agents use is listed here, with who used it and whether it worked.
+      <Empty icon={<ShieldCheck className="size-5" />} title={copy.audit.empty.title}>
+        {copy.audit.empty.body}
       </Empty>
     )
 
@@ -58,14 +60,14 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
     <div className="flex flex-col gap-3 p-3">
       {audit.stops.length > 0 && (
         <section className="rounded-xl border border-warn/30 bg-warn-soft p-3">
-          <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-warn-ink">
-            <Ban className="size-3.5" /> Stopped ({audit.stops.length})
+          <h3 className="mb-1.5 flex items-center gap-1.5 text-callout font-semibold text-warn-ink">
+            <Ban className="size-3.5" /> {copy.audit.stopped(audit.stops.length)}
           </h3>
           <ul className="flex flex-col gap-1">
             {audit.stops.map((s) => (
-              <li key={`${s.time}-${s.tool}-${s.why}`} className="text-[12.5px] text-fg-2">
+              <li key={`${s.time}-${s.tool}-${s.why}`} className="text-callout text-fg-2">
                 <span className="text-muted">
-                  {s.time.slice(11, 19)} · {s.agent || 'agent'} · {s.tool} ·{' '}
+                  {clock(s.time, true)} · {s.agent || copy.audit.agentFallback} · {s.tool} ·{' '}
                 </span>
                 <span className="break-all">{s.why}</span>{' '}
                 <span className="text-muted">({STOPPED_BY[s.by]})</span>
@@ -74,7 +76,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
           </ul>
         </section>
       )}
-      <fieldset className="flex min-w-0 flex-wrap gap-1" aria-label="What to show">
+      <fieldset className="flex min-w-0 flex-wrap gap-1" aria-label={copy.audit.kindsLabel}>
         {KINDS.filter((k) => k.value === 'all' || count(k.value) > 0).map((k) => (
           <button
             key={k.value}
@@ -82,7 +84,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
             aria-pressed={kind === k.value}
             onClick={() => setKind(k.value)}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-[12px] transition-colors',
+              'rounded-full border px-2.5 py-1 text-small transition-colors',
               kind === k.value
                 ? 'border-accent/40 bg-accent-soft text-accent-fg'
                 : 'border-line text-muted hover:bg-surface-2 hover:text-fg',
@@ -97,13 +99,17 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
           <TextInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by path, URL or command"
-            aria-label="Filter"
+            placeholder={copy.audit.filter.placeholder}
+            aria-label={copy.audit.filter.label}
           />
         </div>
         {agents.length > 1 && (
-          <Select value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="Agent">
-            <option value="">All agents</option>
+          <Select
+            value={agent}
+            onChange={(e) => setAgent(e.target.value)}
+            aria-label={copy.audit.agentFilter.label}
+          >
+            <option value="">{copy.audit.agentFilter.all}</option>
             {agents.map((a) => (
               <option key={a} value={a}>
                 {a}
@@ -112,14 +118,12 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
           </Select>
         )}
       </div>
-      <div className="flex items-center justify-between px-1 text-[12px] text-muted">
-        <span>
-          {targets.length} of {audit.targets.length} · {audit.entries.length} calls
-        </span>
+      <div className="flex items-center justify-between px-1 text-small text-muted">
+        <span>{copy.audit.summary(targets.length, audit.targets.length, audit.entries.length)}</span>
         <FoldAll ids={targets.map(keyOf)} folds={folds} />
       </div>
       {targets.length === 0 ? (
-        <p className="px-1 py-6 text-center text-[13px] text-muted">Nothing matches.</p>
+        <p className="px-1 py-6 text-center text-body text-muted">{copy.audit.noMatches}</p>
       ) : (
         <ul className="flex flex-col">
           {targets.map((t) => {
@@ -145,30 +149,30 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                     <span
                       title={t.target}
                       className={cn(
-                        'block font-mono text-[12.5px] text-fg',
+                        'block font-mono text-callout text-fg',
                         open ? 'whitespace-pre-wrap break-all' : 'truncate',
                       )}
                     >
                       {t.target}
                     </span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1 text-[11.5px] text-muted">
+                    <span className="mt-1 flex flex-wrap items-center gap-1 text-footnote text-muted">
                       {t.actions.map((a) => (
                         <Pill key={a}>{a}</Pill>
                       ))}
                       <span>{t.agents.join(', ')}</span>
-                      {t.failed > 0 && <Pill tone="bad">{t.failed} failed</Pill>}
+                      {t.failed > 0 && <Pill tone="bad">{copy.audit.failed(t.failed)}</Pill>}
                     </span>
                   </span>
-                  <span className="shrink-0 text-right text-[11.5px] tabular-nums text-muted">
+                  <span className="shrink-0 text-right text-footnote tabular-nums text-muted">
                     {t.count > 1 && <span className="block">×{t.count}</span>}
-                    <time>{t.last.slice(11, 19)}</time>
+                    <time>{clock(t.last, true)}</time>
                   </span>
                 </button>
                 {open && (
-                  <ol className="mb-2 ml-9 flex flex-col gap-0.5 text-[12px]">
+                  <ol className="mb-2 ml-9 flex flex-col gap-0.5 text-small">
                     {calls.map((e) => (
                       <li key={e.id} className="flex gap-2 text-fg-2">
-                        <time className="tabular-nums text-muted">{e.time.slice(11, 19)}</time>
+                        <time className="tabular-nums text-muted">{clock(e.time, true)}</time>
                         <span className="min-w-0 flex-1 truncate">
                           {e.agent} · {e.tool}
                         </span>
@@ -177,7 +181,11 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                             e.ok === undefined ? 'text-work-ink' : e.ok ? 'text-ok-ink' : 'text-bad-ink'
                           }
                         >
-                          {e.ok === undefined ? 'running' : e.ok ? 'ok' : 'failed'}
+                          {e.ok === undefined
+                            ? copy.audit.call.running
+                            : e.ok
+                              ? copy.audit.call.ok
+                              : copy.audit.call.failed}
                         </span>
                       </li>
                     ))}
@@ -189,7 +197,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                           rel="noopener noreferrer"
                           className="text-accent-fg hover:underline"
                         >
-                          Open link
+                          {copy.audit.openLink}
                         </a>
                       </li>
                     )}

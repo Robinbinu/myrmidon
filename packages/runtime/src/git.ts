@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { MAX_PATCH, MAX_UNTRACKED_BYTES, MAX_UNTRACKED_SHOWN } from './config.ts'
 
 /**
  * A project's own git repository for the workspace's Git tab: branch and status, working changes, history, one
@@ -32,10 +33,6 @@ export interface GitStatus {
   readonly files: { path: string; index: string; worktree: string }[]
   readonly log: { hash: string; short: string; subject: string; author: string; date: string }[]
 }
-
-export const MAX_PATCH = 512 * 1024
-const MAX_UNTRACKED_SHOWN = 50
-const MAX_UNTRACKED_BYTES = 256 * 1024
 
 /** Runs git in `cwd` and returns stdout; throws with git's message on failure. */
 export async function git(cwd: string, args: string[], env: Record<string, string> = {}): Promise<string> {

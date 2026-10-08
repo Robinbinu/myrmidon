@@ -1,8 +1,9 @@
 import type { ColonyState } from '@myrmidon/protocol'
-import { FolderGit2, History, LoaderCircle, Undo2 } from 'lucide-react'
+import { FolderGit2, History, RotateCcw, Undo2 } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -31,40 +32,71 @@ export function RoundChanges(props: {
   const { state, checkpoints } = props
   const project = state.chat?.project
   const [changes, setChanges] = useState<Changes>()
+  const [failed, setFailed] = useState(false)
+  /** Bumped by Retry to fetch again. */
+  const [attempt, setAttempt] = useState(0)
   const [open, setOpen] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Files the last rewind kept because they were edited again after the round. */
+  const [skipped, setSkipped] = useState<string[]>([])
   const restored = state.checkpoints.restored
   const rewound = restored !== undefined && restored.commit === checkpoints.start
   const key = `${checkpoints.end ?? ''}:${restored?.time ?? ''}`
   const query = props.round === undefined ? '' : `?round=${props.round}`
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the round ends or is rewound (`key`), or on Retry
   useEffect(() => {
     if (!project || !checkpoints.start || props.running) return
+    setFailed(false)
     api<Changes>(`/api/colonies/${props.colonyId}/changes${query}`)
       .then(setChanges)
-      .catch(() => setChanges(undefined))
-  }, [props.colonyId, key, props.running, query])
+      .catch(() => {
+        setChanges(undefined)
+        setFailed(true)
+      })
+  }, [props.colonyId, key, props.running, query, attempt])
 
   if (!project || !checkpoints.start || props.running) return null
-  const added = changes?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
-  const removed = changes?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
+  if (failed)
+    return (
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-body" role="alert">
+        <FolderGit2 className="size-4 shrink-0 text-muted" />
+        <span className="text-bad-ink">{copy.roundChanges.failed(project.name)}</span>
+        <span className="flex-1" />
+        <Button size="sm" onClick={() => setAttempt((n) => n + 1)} icon={<RotateCcw className="size-3.5" />}>
+          {copy.roundChanges.retry}
+        </Button>
+      </div>
+    )
+  // A round that changed nothing in the folder has nothing to say about it (and nothing until that is known).
+  if (!changes || (changes.files.length === 0 && !rewound)) return null
+  const added = changes.files.reduce((n, f) => n + (f.added ?? 0), 0)
+  const removed = changes.files.reduce((n, f) => n + (f.removed ?? 0), 0)
 
-  const rewind = async (undo: boolean) => {
+  const rewind = async (undo: boolean, force = false) => {
     setBusy(true)
     try {
-      const r = await send<{ changed: number }>('POST', `/api/colonies/${props.colonyId}/rewind`, {
-        ...(undo ? { undo } : {}),
-        ...(props.round === undefined ? {} : { round: props.round }),
-      })
+      const r = await send<{ changed: number; skipped: string[] }>(
+        'POST',
+        `/api/colonies/${props.colonyId}/rewind`,
+        {
+          ...(undo ? { undo } : {}),
+          ...(force ? { force } : {}),
+          ...(props.round === undefined ? {} : { round: props.round }),
+        },
+      )
       toast(
         undo
-          ? `Undid the rewind in ${project.name}`
-          : `Rewound ${r.changed} file${r.changed === 1 ? '' : 's'} in ${project.name}`,
+          ? copy.roundChanges.toast.undid(project.name)
+          : copy.roundChanges.toast.rewound(r.changed, project.name),
         'success',
       )
-      setConfirm(false)
+      // Kept files stay listed in the sheet so the person can still choose to rewind them.
+      setSkipped(r.skipped ?? [])
+      if (!r.skipped?.length) setConfirm(false)
+      // The Git panel shows the same folder; without this it would show the old state until its next poll.
+      window.dispatchEvent(new CustomEvent('myr:folder-changed', { detail: { project: project.id } }))
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -74,38 +106,26 @@ export function RoundChanges(props: {
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-[13px]">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-body">
         <FolderGit2 className="size-4 shrink-0 text-muted" />
-        {!changes ? (
-          <span className="flex items-center gap-1.5 text-muted">
-            <LoaderCircle className="size-3.5 animate-spin" /> Checking changes in {project.name}…
-          </span>
-        ) : rewound ? (
+        {rewound ? (
           <span className="text-fg-2">
-            Rewound <span className="font-medium text-fg">{project.name}</span> to before this round
+            {copy.roundChanges.rewound.before} <span className="font-medium text-fg">{project.name}</span>{' '}
+            {copy.roundChanges.rewound.after}
           </span>
         ) : (
           <span className="text-fg-2">
-            {changes.files.length === 0 ? (
-              <>No changes in {project.name}</>
-            ) : (
-              <>
-                <span className="font-medium text-fg">
-                  {changes.files.length} file{changes.files.length === 1 ? '' : 's'}
-                </span>{' '}
-                changed in {project.name}{' '}
-                <span className="font-mono text-[12px] tabular-nums">
-                  <span className="text-ok-ink">+{added}</span>{' '}
-                  <span className="text-bad-ink">−{removed}</span>
-                </span>
-              </>
-            )}
+            <span className="font-medium text-fg">{copy.roundChanges.files(changes.files.length)}</span>{' '}
+            {copy.roundChanges.changedIn(project.name)}{' '}
+            <span className="font-mono text-small tabular-nums">
+              <span className="text-ok-ink">+{added}</span> <span className="text-bad-ink">−{removed}</span>
+            </span>
           </span>
         )}
         <span className="flex-1" />
-        {changes && changes.files.length > 0 && !rewound && (
+        {!rewound && (
           <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? 'Hide diff' : 'View diff'}
+            {open ? copy.roundChanges.hideDiff : copy.roundChanges.viewDiff}
           </Button>
         )}
         {rewound ? (
@@ -115,50 +135,80 @@ export function RoundChanges(props: {
             onClick={() => rewind(true)}
             icon={<Undo2 className="size-3.5" />}
           >
-            Undo rewind
+            {copy.roundChanges.undoRewind}
           </Button>
         ) : (
-          changes &&
-          changes.files.length > 0 && (
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => setConfirm(true)}
-              icon={<History className="size-3.5" />}
-            >
-              Rewind
-            </Button>
-          )
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => setConfirm(true)}
+            icon={<History className="size-3.5" />}
+          >
+            {copy.roundChanges.rewind}
+          </Button>
         )}
       </div>
-      {open && changes && !rewound && (
+      {open && !rewound && (
         <div className="px-3 pb-3">
           <DiffView files={changes.files} patch={changes.patch} truncated={changes.truncated} />
         </div>
       )}
       <AnimatePresence>
         {confirm && changes && (
-          <Modal title="Rewind this round’s changes?" onClose={() => !busy && setConfirm(false)} size="sm">
+          <Modal title={copy.roundChanges.confirm.title} onClose={() => !busy && setConfirm(false)} size="sm">
             <div className="flex flex-col gap-4">
-              <p className="text-[13.5px] leading-relaxed text-fg-2">
-                {project.name} goes back to how it was before this round: {changes.files.length} changed file
-                {changes.files.length === 1 ? ' is' : 's are'} restored and files the round added are removed.
-                Later edits to those files are rewound too. The current state is saved first, so you can undo
-                this.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => rewind(false)}
-                  disabled={busy}
-                  icon={<History className="size-3.5" />}
-                >
-                  {busy ? 'Rewinding…' : 'Rewind files'}
-                </Button>
-              </div>
+              {skipped.length === 0 ? (
+                <p className="text-reading leading-relaxed text-fg-2">
+                  {copy.roundChanges.confirm.body(project.name, changes.files.length)}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2 text-reading text-fg-2">
+                  <p>{copy.roundChanges.confirm.skippedTitle(skipped.length)}</p>
+                  <ul className="max-h-40 overflow-auto rounded-lg bg-fill/60 px-3 py-2 font-mono text-small">
+                    {skipped.map((f) => (
+                      <li key={f} className="truncate">
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {skipped.length > 0 ? (
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSkipped([])
+                      setConfirm(false)
+                    }}
+                    disabled={busy}
+                  >
+                    {copy.roundChanges.confirm.keep}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => rewind(false, true)}
+                    disabled={busy}
+                    icon={<History className="size-3.5" />}
+                  >
+                    {busy ? copy.roundChanges.confirm.rewinding : copy.roundChanges.confirm.rewindThemToo}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
+                    {copy.roundChanges.confirm.cancel}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => rewind(false)}
+                    disabled={busy}
+                    icon={<History className="size-3.5" />}
+                  >
+                    {busy ? copy.roundChanges.confirm.rewinding : copy.roundChanges.confirm.rewindFiles}
+                  </Button>
+                </div>
+              )}
             </div>
           </Modal>
         )}

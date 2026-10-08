@@ -20,6 +20,31 @@ export interface ApprovalRequest {
   tool: string
   /** What the call would do, in one line (a command, or "edit src/app.ts"). */
   summary: string
+  /** The full change to look over before it happens, when there is one to show. */
+  review?: Review
+  /** The call's receipt key: once approved and done, the same call returns its result instead of running again. */
+  key?: string
+}
+
+/**
+ * A change shown in full for the person to look over (and, where `editable`, rewrite) before it happens: a file's
+ * new content against its current one, a commit's message and patch, a command, or a call's arguments.
+ */
+export interface Review {
+  readonly kind: 'file' | 'commit' | 'command' | 'call'
+  readonly title: string
+  readonly fields: readonly ReviewField[]
+}
+
+export interface ReviewField {
+  readonly key: string
+  readonly label: string
+  readonly value: string
+  /** `code`: monospace; `text`: prose; `patch`: a unified diff, shown as one. */
+  readonly format: 'text' | 'code' | 'patch'
+  /** The content this replaces, shown as a diff against `value`. */
+  readonly before?: string
+  readonly editable: boolean
 }
 
 export interface MadeToolInput {
@@ -96,6 +121,8 @@ export interface EventPayloads {
       escalate?: ('solo' | 'team')[]
       /** What the person keeps across chats (memory), as prompt lines, when the round started. */
       memory?: string[]
+      /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
+      addressed?: string[]
     }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
@@ -107,6 +134,7 @@ export interface EventPayloads {
     disabledTools?: string[]
     /** Tools whose every call waits for the person's approval. */
     askTools?: string[]
+    allowTools?: string[]
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
   }
@@ -138,6 +166,16 @@ export interface EventPayloads {
     why: string
   }
   'memory/decided': { id: string; kept: boolean }
+  /** A reviewer read the round and proposes a skill (or, with `update`, a change to one it learned before). */
+  'skill/proposed': {
+    id: string
+    name: string
+    description: string
+    body: string
+    why: string
+    update?: { description: string; body: string }
+  }
+  'skill/decided': { id: string; kept: boolean }
   /**
    * One of the person's hooks ran. `outcome`: `blocked` stopped the tool, `asked` sent it to the person,
    * `feedback` told the agent something after the tool, `failed` means the hook itself errored.
@@ -204,12 +242,35 @@ export interface EventPayloads {
   'worktree/conflict': { agent: string; files: string[] }
   /** The round ended: the worktree is removed, or `kept` (with its branch) because it holds unmerged changes. */
   'worktree/closed': { agent: string; kept: boolean }
-  'approval/decided': { id: string; approved: boolean; by: 'person' | 'timeout' | 'stopped' }
+  /** `edits`: review fields the person rewrote before approving, by key; `note`: what they said with their answer. */
+  'approval/decided': {
+    id: string
+    approved: boolean
+    by: 'person' | 'timeout' | 'stopped'
+    edits?: Record<string, string>
+    note?: string
+  }
+  /** A call the person approved has run: its result, kept so the same call is not run twice. */
+  'review/done': { key: string; agent: string; tool: string; output: string }
   /** A snapshot of the chat's project folder (shadow git commit) when the round started or ended. */
   /** `round`: the chat round it belongs to (an end snapshot can land after the next round started). */
   'checkpoint/created': { commit: string; phase: 'start' | 'end'; round?: number }
   /** The person rewound the project folder to `commit`; `undo` is the snapshot taken just before. */
-  'checkpoint/restored': { commit: string; undo: string; changed: number }
+  /** `files`: the paths the rewind put back, so undoing it restores exactly those. */
+  'checkpoint/restored': { commit: string; undo: string; changed: number; files?: string[] }
+  /**
+   * The person changed tool rules or a project's permissions during the round. `interrupted`: agents whose turn in
+   * progress was stopped because the rules got stricter.
+   */
+  'permissions/changed': {
+    off: string[]
+    ask: string[]
+    allow: string[]
+    project?: string
+    interrupted: string[]
+  }
+  /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
+  'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */
   'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */
@@ -232,13 +293,24 @@ export interface EventPayloads {
    * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
    * doing. Only meaningful for messages sent while a round is running.
    */
-  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[] }
+  /** `to`: crew members the person wrote to directly (@name); they hear it first and may answer the person. */
+  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[]; to?: string[] }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
    * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the
    * work goes on; until they do, the agent proceeds on this assumption (check_in).
    */
-  'chat/reply': { agent: string; text: string; final: boolean; question?: boolean; assumption?: string }
+  'chat/reply': {
+    agent: string
+    text: string
+    final: boolean
+    question?: boolean
+    assumption?: string
+    /** Questions with options the person can click (ask_user); they may also type an answer or skip one. */
+    choices?: QuestionChoice[]
+    /** The plan the question asks the person to approve, in markdown (ask_user in plan mode). */
+    plan?: string
+  }
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   'chat/renamed': { title: string }
   'colony/failed': { reason: string }
@@ -255,11 +327,28 @@ export interface EventPayloads {
     stopReason: string
     error?: string
   }
-  'tool/call': { agent: string; callId: string; tool: string; args: unknown }
+  /** `readOnly`: an MCP tool its server marks read-only, so the call changes nothing. */
+  'tool/call': { agent: string; callId: string; tool: string; args: unknown; readOnly?: boolean }
   'tool/result': { agent: string; callId: string; tool: string; ok: boolean; output: string }
-  'board/posted': { agent: string; text: string; mentions: string[] }
+  /** A message in the team chat, which everyone on the crew is in; `replyTo` is the number (seq) it answers. */
+  'board/posted': { agent: string; text: string; mentions: string[]; replyTo?: number }
   'note/appended': { agent: string; text: string; corrects?: EventId; section?: NoteSection }
-  'mail/sent': { from: string; to: string; subject: string; body: string }
+  /**
+   * A message to one agent, or to a group (`to` is then the group's name and `members` who it reached).
+   * `replyTo`: the number (log seq) of the message this answers, so conversations read as threads.
+   */
+  'mail/sent': {
+    from: string
+    to: string
+    subject: string
+    body: string
+    replyTo?: number
+    members?: string[]
+  }
+  /** A group chat: a name and who is in it (its creator included). */
+  'group/created': { name: string; members: string[]; by: string }
+  /** People added to or taken out of a group; a member who removes themselves has left. */
+  'group/changed': { name: string; add: string[]; remove: string[]; by: string }
   /** `mail` is a mail/sent event, or a chat/user message the agent has now read. */
   'mail/delivered': { mail: EventId; to: string }
   /** `reason` says why, when an agent sent the task back (reject_task). */
@@ -290,3 +379,20 @@ export interface EventPayloads {
 }
 
 export type EventType = keyof EventPayloads
+
+/** One option of a question an agent asks. */
+export interface QuestionOption {
+  readonly label: string
+  /** What picking it means, in a line. */
+  readonly description?: string
+}
+
+/** A question an agent asks with options to click, as Claude Code's AskUserQuestion does. */
+export interface QuestionChoice {
+  readonly question: string
+  /** A short tag, e.g. "Audience". */
+  readonly header?: string
+  readonly options: readonly QuestionOption[]
+  /** Several options can be picked. */
+  readonly multiSelect?: boolean
+}

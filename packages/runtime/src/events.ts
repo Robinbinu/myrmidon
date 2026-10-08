@@ -58,6 +58,7 @@ const colonySpec = Schema.object({
       history: Schema.string(),
       escalate: Schema.array(oneOf('solo', 'team')).default([]),
       memory: strs(),
+      addressed: optional(Schema.array(str())),
       project: optional(
         Schema.object({
           id: str(),
@@ -86,6 +87,7 @@ const colonySpec = Schema.object({
   taskJudge: Schema.string(),
   disabledTools: Schema.array(str()),
   askTools: Schema.array(str()),
+  allowTools: Schema.array(str()),
   review: Schema.union(['off', 'auto', 'always']),
 })
 
@@ -243,7 +245,29 @@ const defs: EventTypeDefinition[] = [
     type: 'approval/requested',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ id: str(), agent: str(), tool: str(), summary: str() }),
+    schema: Schema.object({
+      id: str(),
+      agent: str(),
+      tool: str(),
+      summary: str(),
+      review: optional(
+        Schema.object({
+          kind: oneOf('file', 'commit', 'command', 'call'),
+          title: str(),
+          fields: Schema.array(
+            Schema.object({
+              key: str(),
+              label: str(),
+              value: Schema.string().default(''),
+              format: oneOf('text', 'code', 'patch'),
+              before: Schema.string(),
+              editable: Schema.boolean().default(false),
+            }),
+          ).default([]),
+        }),
+      ),
+      key: Schema.string(),
+    }),
   },
   {
     type: 'approval/decided',
@@ -253,7 +277,34 @@ const defs: EventTypeDefinition[] = [
       id: str(),
       approved: Schema.boolean().required(),
       by: oneOf('person', 'timeout', 'stopped'),
+      edits: optional(Schema.dict(Schema.string())),
+      note: Schema.string(),
     }),
+  },
+  {
+    type: 'skill/proposed',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({
+      id: str(),
+      name: str(),
+      description: str(),
+      body: str(),
+      why: Schema.string().default(''),
+      update: optional(Schema.object({ description: str(), body: str() })),
+    }),
+  },
+  {
+    type: 'skill/decided',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ id: str(), kept: Schema.boolean().required() }),
+  },
+  {
+    type: 'review/done',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ key: str(), agent: str(), tool: str(), output: Schema.string().default('') }),
   },
   {
     type: 'checkpoint/created',
@@ -265,7 +316,30 @@ const defs: EventTypeDefinition[] = [
     type: 'checkpoint/restored',
     version: 1,
     actors: ['user'],
-    schema: Schema.object({ commit: str(), undo: str(), changed: Schema.natural().required() }),
+    schema: Schema.object({
+      commit: str(),
+      undo: str(),
+      changed: Schema.natural().required(),
+      files: Schema.array(Schema.string()),
+    }),
+  },
+  {
+    type: 'permissions/changed',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({
+      off: strs(),
+      ask: strs(),
+      allow: strs(),
+      project: Schema.string(),
+      interrupted: strs(),
+    }),
+  },
+  {
+    type: 'plugin/event',
+    version: 1,
+    actors: ['system'],
+    schema: Schema.object({ plugin: str(), type: str(), data: Schema.dict(Schema.any()).default({}) }),
   },
   {
     type: 'agent/compacted',
@@ -313,6 +387,7 @@ const defs: EventTypeDefinition[] = [
       text: str(),
       mode: Schema.union(['steer', 'queue']),
       attachments: Schema.array(str()).max(20),
+      to: optional(Schema.array(str()).max(20)),
     }),
   },
   {
@@ -325,6 +400,15 @@ const defs: EventTypeDefinition[] = [
       final: Schema.boolean().default(false),
       question: Schema.boolean(),
       assumption: Schema.string(),
+      choices: Schema.array(
+        Schema.object({
+          question: str(),
+          header: Schema.string(),
+          options: Schema.array(Schema.object({ label: str(), description: Schema.string() })).required(),
+          multiSelect: Schema.boolean(),
+        }),
+      ),
+      plan: Schema.string(),
     }),
   },
   { type: 'chat/renamed', version: 1, actors: ['user'], schema: Schema.object({ title: str() }) },
@@ -381,7 +465,13 @@ const defs: EventTypeDefinition[] = [
     type: 'tool/call',
     version: 1,
     actors: ['agent'],
-    schema: Schema.object({ agent: str(), callId: str(), tool: str(), args: Schema.any() }),
+    schema: Schema.object({
+      agent: str(),
+      callId: str(),
+      tool: str(),
+      args: Schema.any(),
+      readOnly: Schema.boolean(),
+    }),
   },
   {
     type: 'browser/keyframe',
@@ -423,7 +513,7 @@ const defs: EventTypeDefinition[] = [
     type: 'board/posted',
     version: 1,
     actors: ['agent', 'user'],
-    schema: Schema.object({ agent: str(), text: str(), mentions: strs() }),
+    schema: Schema.object({ agent: str(), text: str(), mentions: strs(), replyTo: Schema.natural() }),
   },
   {
     type: 'note/appended',
@@ -440,7 +530,26 @@ const defs: EventTypeDefinition[] = [
     type: 'mail/sent',
     version: 1,
     actors: ['agent', 'user'],
-    schema: Schema.object({ from: str(), to: str(), subject: Schema.string().default(''), body: str() }),
+    schema: Schema.object({
+      from: str(),
+      to: str(),
+      subject: Schema.string().default(''),
+      body: str(),
+      replyTo: Schema.natural(),
+      members: optional(Schema.array(Schema.string())),
+    }),
+  },
+  {
+    type: 'group/created',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ name: str(), members: strs(), by: str() }),
+  },
+  {
+    type: 'group/changed',
+    version: 1,
+    actors: ['agent', 'user'],
+    schema: Schema.object({ name: str(), add: strs(), remove: strs(), by: str() }),
   },
   {
     type: 'mail/delivered',

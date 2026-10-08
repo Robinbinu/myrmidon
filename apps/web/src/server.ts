@@ -1,15 +1,19 @@
-import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
+import { createHmac, timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
-import { type ColonyId, colonyMetrics, foldColony, runDiff } from '@myrmidon/protocol'
+import { type ColonyId, colonyMetrics, foldColony, runDiff, stopCause } from '@myrmidon/protocol'
 import {
+  accountName,
   type BrowserHub,
+  BUILT_IN_CHANNELS,
   buildCatalog,
+  ChannelHub,
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  GreetingWriter,
   gitCommit,
   gitCommitChanges,
   gitDiscard,
@@ -28,22 +32,62 @@ import {
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
+  type PluginHost,
+  type PluginStore,
   type ProjectStore,
+  ruleGreeting,
   type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
+  type SkillProposalStore,
+  type SpecialistInput,
+  type SpecialistStore,
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
+import { AuthAudit, type Device, type DeviceScope, DeviceStore, needsFull, PairingCodes } from './devices.ts'
+import {
+  asDevice,
+  checkHealth,
+  FORWARD_MS,
+  forwardHeaders,
+  forwardTarget,
+  type Gateway,
+  type GatewayHealth,
+  GatewayStore,
+  pairWith,
+  passableCode,
+  responseHeaders,
+  shown,
+  socketUrl,
+  unpair,
+} from './gateways.ts'
 import { Logins } from './logins.ts'
+import { buildPluginUI, uiStamp } from './plugin-ui.ts'
 
 export interface ServeOptions {
   readonly home: string
   /** 0 picks a free port. */
   readonly port?: number
+  /**
+   * Where to listen; loopback by default. Anything else (a tailnet address, `0.0.0.0`) makes this a remote gateway:
+   * devices must be paired, and `noAuth` is refused.
+   */
+  readonly host?: string
+  /** The address clients use for a remote gateway, e.g. `https://box.tail1234.ts.net`; also makes it remote. */
+  readonly publicUrl?: string
+  /** More Host values to accept (`name:port`), exactly as clients send them. */
+  readonly allowHosts?: readonly string[]
+  /** A fixed port for agent-built pages (random by default), so a tunnel or Tailscale Serve can forward it. */
+  readonly previewPort?: number
+  /**
+   * The address clients open agent-built pages at on a remote gateway, e.g. `https://box.tail1234.ts.net:8443`. It
+   * must be its own origin (another port or host, never a path), so a page cannot act as the dashboard.
+   */
+  readonly previewUrl?: string
   readonly token?: string
   /**
    * Development only: skip the bearer token. The server still binds to 127.0.0.1 and still rejects
@@ -67,6 +111,8 @@ export interface ServeOptions {
   readonly browser?: BrowserHub
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
+  readonly specialists?: SpecialistStore
+  readonly skillProposals?: SkillProposalStore
   /** Tools agents made that the person chose to keep. */
   readonly library?: ToolLibrary
   /** What the person keeps across chats (memory). */
@@ -75,6 +121,8 @@ export interface ServeOptions {
   readonly skills?: SkillLibrary
   /** The person's hooks (Claude Code format). */
   readonly hooks?: HookStore
+  readonly plugins?: PluginStore
+  readonly pluginHost?: PluginHost
   /** Rounds that start on a schedule; the server starts the due ones. */
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
@@ -83,19 +131,75 @@ export interface ServeOptions {
 
 export interface WebServer {
   readonly url: string
+  /** A remote gateway's address for clients, when it has one. */
+  readonly publicUrl?: string
+  /** Where clients open agent-built pages, when the gateway names it. */
+  readonly previewUrl?: string
+  /** Whether devices must pair (the gateway is reachable beyond this machine). */
+  readonly remote: boolean
   readonly token: string
+  /** Makes a single-use pairing link for a new device. */
+  pairingLink(scope: DeviceScope): { code: string; link: string }
   stop(): Promise<void>
 }
 
-type StreamData =
-  | { kind: 'events'; colony: ColonyId; cursor: number }
-  | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
-  | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+/** Which paired device opened a socket, so revoking it closes them. */
+type Opened = { device?: string }
+type StreamData = Opened &
+  (
+    | { kind: 'events'; colony: ColonyId; cursor: number }
+    /** A health check from a hub: answered once, then closed. */
+    | { kind: 'ping' }
+    /** A socket of the page's, carried through to another gateway (this server is the hub). */
+    | {
+        kind: 'bridge'
+        target: string
+        gateway: Gateway
+        upstream?: WebSocket
+        /** What the page sent before the gateway's end opened. */
+        pending: (string | Uint8Array<ArrayBuffer>)[]
+      }
+    | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
+    | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+  )
+
+/** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
+interface Access {
+  readonly scope: DeviceScope
+  readonly device?: Device
+}
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+/** A bind address (no port) on this machine only. */
+const isLoopbackName = (name: string) => LOOPBACK.has(name)
+/** A Host header (`name:port`, `[v6]:port`) naming this machine only. */
+const isLoopback = (host: string) =>
+  isLoopbackName(host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.replace(/:\d+$/, ''))
+const DEVICE_COOKIE = 'myr_device'
+/** Over HTTPS the cookie carries the `__Host-` prefix: only this exact origin, over TLS, can set or overwrite it. */
+const SECURE_DEVICE_COOKIE = `__Host-${DEVICE_COOKIE}`
+/** The pairing call comes before sign-in, so its body is capped. */
+const PAIR_BODY_MAX = 4096
+/**
+ * Seconds a request may wait for its answer before Bun closes the connection. Bun's default of 10 cut off slow GETs
+ * (seen on Bun 1.3.14), such as one forwarded to another gateway, which may take up to FORWARD_MS; 255 is Bun's most.
+ */
+const REQUEST_IDLE_S = 255
+
+function cookie(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.get('cookie') ?? '').split(';')) {
+    const [k, ...v] = part.trim().split('=')
+    if (k === name) return decodeURIComponent(v.join('='))
+  }
+  return undefined
+}
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
 
 const POLL_MS = 400
+/** How long stopping waits for Bun to report the server stopped (see `stop`). */
+const STOP_WAIT_MS = 500
 
 const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -157,12 +261,55 @@ function mcpConfig(raw: Record<string, unknown>): McpServerConfig {
     : { type, ...(url ? { url } : {}), ...(headers ? { headers } : {}) }
 }
 
+/** A specialist as the page sends it; the store checks the values themselves. */
+function specialistInput(body: unknown): SpecialistInput {
+  const b = (body ?? {}) as Record<string, unknown>
+  const text = (v: unknown) => (typeof v === 'string' ? v : '')
+  return {
+    name: text(b.name),
+    specialty: text(b.specialty),
+    instructions: text(b.instructions),
+    ...(typeof b.model === 'string' && b.model ? { model: b.model } : {}),
+    off: Array.isArray(b.off) ? (b.off.filter((g) => typeof g === 'string') as SpecialistInput['off']) : [],
+  }
+}
+
 export function startServer(options: ServeOptions): WebServer {
+  const bindHost = options.host ?? '127.0.0.1'
+  // Reachable beyond this machine: devices pair, and nothing runs without auth (as Hermes and OpenClaw do).
+  const remote = !isLoopbackName(bindHost) || Boolean(options.publicUrl)
+  if (remote && options.noAuth)
+    throw new Error(
+      '--dev turns off auth, so it only works on this machine: drop --host/--public-url, or --dev',
+    )
+  const publicUrl = options.publicUrl ? new URL(options.publicUrl) : undefined
+  const previewUrl = options.previewUrl ? new URL(options.previewUrl) : undefined
+  // A preview URL names what a proxy or tunnel forwards to; a random port would leave it pointing nowhere.
+  if (previewUrl && options.previewPort === undefined)
+    throw new Error('--preview-url needs --preview-port, the port it forwards to')
+  if (previewUrl && publicUrl && previewUrl.origin === publicUrl.origin)
+    throw new Error('--preview-url must be its own origin (another port or host than --public-url)')
+  const devices = new DeviceStore(options.home)
+  const pairing = new PairingCodes()
+  const audit = new AuthAudit(options.home)
   const token = options.noAuth
     ? ''
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
   const store = new SqliteLogStore(options.home)
   const sockets = new Set<ServerWebSocket<StreamData>>()
+  /** Every open socket of every kind, so revoking a device closes its terminals and live views too. */
+  const opened = new Set<ServerWebSocket<StreamData>>()
+  const gateways = new GatewayStore(options.home)
+  const health = new Map<string, GatewayHealth>()
+  /** How long a gateway's health stands before it is checked again. */
+  const HEALTH_FRESH_MS = 15_000
+  const gatewayHealth = async (g: Gateway) => {
+    const last = health.get(g.id)
+    if (last && Date.now() - Date.parse(last.checkedAt) < HEALTH_FRESH_MS) return last
+    const next = await checkHealth(g)
+    health.set(g.id, next)
+    return next
+  }
   /** The team a request gets when it brings none: the person's defaults from Settings. */
   const defaultTeam = () => {
     const team = options.settings?.get().team
@@ -171,6 +318,8 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  const account = accountName()
+  const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   const stopScheduler =
     options.schedules && chats
       ? startScheduler(options.schedules, async (s) => {
@@ -185,6 +334,38 @@ export function startServer(options: ServeOptions): WebServer {
         })
       : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
+  // Messaging channels (Telegram…) reach the same chats, with the person's default team.
+  const channels = chats
+    ? new ChannelHub({
+        dir: join(options.home, 'channels'),
+        kinds: BUILT_IN_CHANNELS,
+        log: (message) => console.error(`channels: ${message}`),
+        chats: {
+          send: (text, chatId, project) =>
+            chats.send(text, defaultTeam(), chatId, project ? { project } : {}),
+          rename: (chatId, title) => chats.rename(chatId, title),
+          stop: (chatId) => chats.stop(chatId),
+          onEvents: (listener) => chats.onEvents(listener),
+          read: (colonyId) => chats.events(colonyId),
+        },
+      })
+    : undefined
+  void channels
+    ?.start()
+    .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
+  /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
+  const pluginList = () =>
+    (options.plugins?.list() ?? []).map((p) => {
+      const values = options.plugins?.settings(p.name) ?? {}
+      return {
+        ...p,
+        ...(p.server && options.pluginHost ? { status: options.pluginHost.status(p.name) } : {}),
+        ...(p.ui ? { uiStamp: uiStamp(p) } : {}),
+        values: Object.fromEntries(
+          Object.entries(values).map(([k, v]) => [k, p.settings[k]?.secret ? (v ? '••••' : '') : v]),
+        ),
+      }
+    })
 
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
@@ -193,26 +374,72 @@ export function startServer(options: ServeOptions): WebServer {
     })
 
   let terminals = 0
-  const authorized = (req: Request, url: URL) => {
+  /** Host values the server answers to, exactly: its loopback names, the public URL's host, and any added ones. */
+  const allowedHosts = () =>
+    new Set([
+      `127.0.0.1:${server.port}`,
+      `localhost:${server.port}`,
+      `[::1]:${server.port}`,
+      // A server bound to one address answers on it; bound to every interface, only named hosts are accepted.
+      ...(isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::'
+        ? []
+        : [bindHost.includes(':') ? `[${bindHost}]:${server.port}` : `${bindHost}:${server.port}`]),
+      ...(publicUrl ? [publicUrl.host] : []),
+      ...(options.allowHosts ?? []),
+    ])
+  /** Pages the API accepts requests from: the server's own origins, never another site (DNS-rebinding defence). */
+  const allowedOrigin = (origin: string, host: string) =>
+    origin === `http://${host}` ||
+    (publicUrl !== undefined && origin === publicUrl.origin) ||
+    origin === `https://${host}`
+  const sameOrigin = (req: Request) => {
     const host = req.headers.get('host') ?? ''
-    if (host !== `127.0.0.1:${server.port}` && host !== `localhost:${server.port}`) return false
+    if (!allowedHosts().has(host)) return false
     const origin = req.headers.get('origin')
-    if (origin && origin !== `http://${host}`) return false
-    if (options.noAuth) return true
-    const header = req.headers.get('authorization')
-    const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
-    return given !== null && given !== undefined && tokenEquals(given, token)
+    return !origin || allowedOrigin(origin, host)
   }
+  const authorized = (req: Request, url: URL): Access | undefined => {
+    if (!sameOrigin(req)) return undefined
+    if (options.noAuth) return { scope: 'full' }
+    const host = req.headers.get('host') ?? ''
+    // The token the CLI prints works on this machine only (an SSH tunnel arrives as loopback too); remotely a paired
+    // device's cookie is the only way in, so no token ever travels in a URL there.
+    if (isLoopback(host)) {
+      const header = req.headers.get('authorization')
+      const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
+      if (given && tokenEquals(given, token)) return { scope: 'full' }
+    }
+    const header = req.headers.get('authorization')
+    const presented =
+      cookie(req, SECURE_DEVICE_COOKIE) ??
+      cookie(req, DEVICE_COOKIE) ??
+      (header?.startsWith('Device ') ? header.slice(7) : undefined)
+    const device = presented ? devices.find(presented) : undefined
+    if (presented && !device) audit.record('rejected', { host })
+    return device ? { scope: device.scope, device } : undefined
+  }
+  /** A revoked device is out at once: every socket it has open closes. */
+  const closeDevice = (id: string) => {
+    for (const ws of opened) if (ws.data.device === id) ws.close(4401, 'device revoked')
+  }
+  const forbidden = () =>
+    json({ error: 'this device can use chats only; pair it with full access for this' }, 403)
 
   const guard =
     (
-      handler: (req: Request & { params: Record<string, string> }, url: URL) => Promise<Response> | Response,
+      handler: (
+        req: Request & { params: Record<string, string> },
+        url: URL,
+        access: Access,
+      ) => Promise<Response> | Response,
     ) =>
     async (req: Request & { params: Record<string, string> }) => {
       const url = new URL(req.url)
-      if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+      const access = authorized(req, url)
+      if (!access) return json({ error: 'unauthorized' }, 401)
+      if (access.scope !== 'full' && needsFull(req.method, url.pathname)) return forbidden()
       try {
-        return await handler(req, url)
+        return await handler(req, url, access)
       } catch (err) {
         if (
           err instanceof MyrError &&
@@ -227,44 +454,398 @@ export function startServer(options: ServeOptions): WebServer {
     }
 
   // Agent-built pages run on their own port: a separate origin cannot read the dashboard's token or call its API.
-  const previewToken = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
+  // Each device gets its own preview key, so revoking a device ends its previews too.
+  const previewSecret = crypto.getRandomValues(new Uint8Array(32))
+  const previewSig = (subject: string) =>
+    createHmac('sha256', previewSecret).update(subject).digest('base64url').slice(0, 32)
+  const previewKey = (access: Access) => {
+    const subject = access.device?.id ?? 'local'
+    return `${subject}.${previewSig(subject)}`
+  }
+  const previewKeyValid = (key: string) => {
+    const dot = key.indexOf('.')
+    if (dot < 1) return false
+    const subject = key.slice(0, dot)
+    if (!tokenEquals(key.slice(dot + 1), previewSig(subject))) return false
+    return subject === 'local' || devices.list().some((d) => d.id === subject)
+  }
+  /** Host values the preview server answers to, as for the dashboard: no foreign name that only resolves here. */
+  const previewHosts = () =>
+    new Set([
+      `127.0.0.1:${preview.port}`,
+      `localhost:${preview.port}`,
+      `[::1]:${preview.port}`,
+      ...(isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::'
+        ? []
+        : [bindHost.includes(':') ? `[${bindHost}]:${preview.port}` : `${bindHost}:${preview.port}`]),
+      ...(previewUrl ? [previewUrl.host] : []),
+      ...(options.allowHosts ?? []),
+    ])
+  /** Where this request's page opens previews: the named preview URL, else the address it reached us on. */
+  const previewOrigin = (req: Request): string | undefined => {
+    if (previewUrl) return previewUrl.origin
+    const host = req.headers.get('host') ?? ''
+    // On this machine (an SSH tunnel included, when it forwards the preview port too).
+    if (isLoopback(host)) return `http://127.0.0.1:${preview.port}`
+    // Opened straight at the address the gateway is bound to (a tailnet address): the preview port is beside it.
+    const name = bindHost.includes(':') ? `[${bindHost}]` : bindHost
+    if (host === `${name}:${server.port}`) return `http://${name}:${preview.port}`
+    return undefined
+  }
+  /** The latest version of an artifact by name, or why there is none. */
+  const latestArtifact = async (
+    rawId: string,
+    name: string,
+  ): Promise<{ body: Buffer<ArrayBuffer>; mediaType: string } | { missing: string }> => {
+    try {
+      const id = colonyId(rawId)
+      const state = foldColony(id, await store.read(id))
+      const latest = state.artifacts[name]?.at(-1)
+      if (!latest) return { missing: `no artifact ${name}` }
+      const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
+      return { body: Buffer.from(await blobs.get(latest.blob)), mediaType: latest.mediaType }
+    } catch (err) {
+      if (err instanceof MyrError) return { missing: err.message }
+      throw err
+    }
+  }
+  /** An agent-built page as the preview origin serves it: its own type, confined to its own origin. */
+  const previewResponse = (body: BodyInit, mediaType: string) =>
+    new Response(body, {
+      headers: {
+        'content-type': `${mediaType}; charset=utf-8`,
+        'content-security-policy':
+          "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'; form-action 'self'",
+        'cache-control': 'no-store',
+      },
+    })
   const preview = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
+    hostname: bindHost,
+    port: options.previewPort ?? 0,
     async fetch(req) {
+      if (!previewHosts().has(req.headers.get('host') ?? ''))
+        return new Response('unauthorized', { status: 401 })
       const url = new URL(req.url)
+      // Another gateway's pages, fetched through its API: they open here even when it has no preview address.
+      const viaGateway = /^\/gw\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
+      if (viaGateway) {
+        const [, gatewayId, rawId, given, rawPath] = viaGateway as unknown as [
+          string,
+          string,
+          string,
+          string,
+          string,
+        ]
+        if (!previewKeyValid(given)) return new Response('unauthorized', { status: 401 })
+        const gw = gateways.get(gatewayId)
+        const target = gw && forwardTarget(gw, `/api/colonies/${rawId}/artifacts/${rawPath}`, '')
+        if (!gw || !target) return new Response('not found', { status: 404 })
+        try {
+          const res = await fetch(target, { headers: asDevice(gw), signal: AbortSignal.timeout(FORWARD_MS) })
+          if (!res.ok) return new Response(await res.text(), { status: res.status })
+          return previewResponse(res.body ?? '', res.headers.get('x-myr-media-type') ?? 'text/plain')
+        } catch {
+          return new Response(`${gw.name} is unreachable`, { status: 502 })
+        }
+      }
       const match = /^\/([^/]+)\/([^/]+)\/(.+)$/.exec(url.pathname)
       if (!match) return new Response('not found', { status: 404 })
       const [, rawId, given, rawPath] = match as unknown as [string, string, string, string]
-      if (!tokenEquals(given, previewToken)) return new Response('unauthorized', { status: 401 })
-      try {
-        const id = colonyId(rawId)
-        const state = foldColony(id, await store.read(id))
-        const name = decodeURIComponent(rawPath)
-        const latest = state.artifacts[name]?.at(-1)
-        if (!latest) return new Response(`no artifact ${name}`, { status: 404 })
-        const blobs = new BlobStore(join(store.colonyDir(id), 'blobs'))
-        return new Response(Buffer.from(await blobs.get(latest.blob)), {
-          headers: {
-            'content-type': `${latest.mediaType}; charset=utf-8`,
-            'content-security-policy': "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self'",
-            'cache-control': 'no-store',
-          },
-        })
-      } catch (err) {
-        if (err instanceof MyrError) return new Response(err.message, { status: 404 })
-        throw err
-      }
+      if (!previewKeyValid(given)) return new Response('unauthorized', { status: 401 })
+      const found = await latestArtifact(rawId, decodeURIComponent(rawPath))
+      if ('missing' in found) return new Response(found.missing, { status: 404 })
+      return previewResponse(found.body, found.mediaType)
     },
   })
 
   const server = Bun.serve<StreamData>({
-    hostname: '127.0.0.1',
+    hostname: bindHost,
     port: options.port ?? 0,
+    idleTimeout: REQUEST_IDLE_S,
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
       '/': index,
-      '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
+      // The entry page's line. The rules' greeting comes back at once; with the model writing it, `pending` asks the
+      // page to come back shortly for the model's own.
+      '/api/greeting': guard(async (req) => {
+        const profile = options.settings?.get().profile
+        const name = profile?.name ?? account
+        const lastSeen = new URL(req.url).searchParams.get('lastSeen')
+        const seen = lastSeen ? new Date(lastSeen) : undefined
+        const facts = {
+          name,
+          now: new Date(),
+          ...(seen && !Number.isNaN(seen.getTime()) ? { lastSeen: seen } : {}),
+          chats: options.chats ? await options.chats.list() : [],
+        }
+        let model: string | undefined
+        try {
+          model = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+        } catch {
+          model = undefined
+        }
+        const written = model ? greetings?.written(facts, model) : undefined
+        return json({
+          name,
+          greeting: written ?? ruleGreeting(facts),
+          pending: !written && Boolean(model && greetings),
+        })
+      }),
+      // Pairing a device: no sign-in yet (the code is the proof), but still only from the server's own origins.
+      '/api/pair': {
+        POST: async (req: Request) => {
+          if (!sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+          const raw = await req.text()
+          if (raw.length > PAIR_BODY_MAX) return json({ error: 'request too large' }, 413)
+          let body: { code?: unknown; name?: unknown; hub?: unknown } = {}
+          try {
+            body = JSON.parse(raw) as typeof body
+          } catch {
+            body = {}
+          }
+          const host = req.headers.get('host') ?? ''
+          const scope = typeof body.code === 'string' ? pairing.take(body.code) : undefined
+          if (!scope) {
+            audit.record('pair-failed', { host })
+            // A wrong code costs a moment, so guessing is slow as well as capped.
+            await Bun.sleep(500)
+            return json({ error: 'that pairing code is wrong, used or expired; make a new one' }, 401)
+          }
+          const hub = body.hub === true
+          const { device, token: deviceToken } = devices.add(
+            typeof body.name === 'string' ? body.name : 'Device',
+            scope,
+            hub,
+          )
+          audit.record('paired', {
+            device: device.id,
+            name: device.name,
+            scope,
+            host,
+            ...(hub ? { hub: 'yes' } : {}),
+          })
+          const shown = { id: device.id, name: device.name, scope: device.scope }
+          // A hub keeps the token itself; a browser gets it as a cookie its page can never read.
+          if (hub) return json({ device: shown, token: deviceToken })
+          // Over HTTPS (a Tailscale or TLS address) the cookie is Secure and `__Host-` prefixed; on plain HTTP (an SSH
+          // tunnel to loopback) it cannot be.
+          const secure = publicUrl?.protocol === 'https:' && host === publicUrl.host
+          const name = secure ? SECURE_DEVICE_COOKIE : DEVICE_COOKIE
+          return new Response(JSON.stringify({ device: shown }), {
+            headers: {
+              'content-type': 'application/json',
+              'cache-control': 'no-store',
+              'set-cookie': `${name}=${encodeURIComponent(deviceToken)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${secure ? '; Secure' : ''}`,
+            },
+          })
+        },
+      },
+      /** Who this is: lets the page show what this device may do, and whether the gateway is remote. */
+      '/api/whoami': (req: Request) => {
+        const access = authorized(req, new URL(req.url))
+        if (!access) return json({ error: 'unauthorized', remote }, 401)
+        return json({
+          scope: access.scope,
+          remote,
+          ...(access.device ? { device: { id: access.device.id, name: access.device.name } } : {}),
+        })
+      },
+      '/api/devices': {
+        GET: guard((req) => {
+          const me = authorized(req, new URL(req.url))?.device?.id
+          return json({
+            remote,
+            devices: devices.list().map((d) => ({
+              id: d.id,
+              name: d.name,
+              scope: d.scope,
+              createdAt: d.createdAt,
+              ...(d.lastSeenAt ? { lastSeenAt: d.lastSeenAt } : {}),
+              ...(d.hub ? { hub: true } : {}),
+              ...(d.id === me ? { current: true } : {}),
+            })),
+          })
+        }),
+      },
+      '/api/devices/pair-code': {
+        POST: guard(async (req) => {
+          const body = (await req.json().catch(() => ({}))) as { scope?: unknown }
+          return json(pairingLink(body.scope === 'chat' ? 'chat' : 'full'))
+        }),
+      },
+      // A device (a hub) unpairing itself, e.g. when the person removes this gateway from their hub.
+      '/api/pair/self': {
+        DELETE: async (req: Request) => {
+          const access = authorized(req, new URL(req.url))
+          if (!access?.device) return json({ error: 'only a paired device can unpair itself' }, 401)
+          devices.revoke(access.device.id)
+          audit.record('revoked', { device: access.device.id, by: 'itself' })
+          closeDevice(access.device.id)
+          return json({ ok: true })
+        },
+      },
+      '/api/channels': {
+        GET: guard(() => json({ channels: channels?.list() ?? [] })),
+      },
+      '/api/channels/:id': {
+        PUT: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          try {
+            const channel = await channels.configure(req.params.id ?? '', {
+              ...(typeof body.token === 'string' ? { token: body.token } : {}),
+              ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+              ...(typeof body.project === 'string' || body.project === null
+                ? { project: body.project as string | null }
+                : {}),
+            })
+            return json({ channel })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/channels/:id/approve': {
+        POST: guard(async (req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { code?: unknown; request?: unknown }
+          const by =
+            typeof body.code === 'string'
+              ? { code: body.code }
+              : typeof body.request === 'string'
+                ? { request: body.request }
+                : undefined
+          if (!by) return json({ error: 'code or request is required' }, 400)
+          try {
+            const approved = await channels.approve(req.params.id ?? '', by)
+            if (!approved)
+              return json({ error: 'no waiting request has that code; it may have expired' }, 404)
+            return json({ person: approved.person, group: approved.group })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/channels/:id/:kind/:target': {
+        DELETE: guard((req) => {
+          if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
+          const kind = req.params.kind
+          if (kind !== 'person' && kind !== 'group' && kind !== 'request')
+            return json({ error: 'not found' }, 404)
+          try {
+            return channels.revoke(req.params.id ?? '', kind, req.params.target ?? '')
+              ? json({ ok: true })
+              : json({ error: 'not found' }, 404)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/gateways': {
+        GET: guard(async () =>
+          json({
+            gateways: await Promise.all(
+              gateways.list().map(async (g) => ({ ...shown(g), health: await gatewayHealth(g) })),
+            ),
+          }),
+        ),
+        POST: guard(async (req) => {
+          const body = (await req.json().catch(() => ({}))) as {
+            link?: unknown
+            code?: unknown
+            name?: unknown
+          }
+          if (typeof body.link !== 'string') return json({ error: 'link is required' }, 400)
+          try {
+            const paired = await pairWith(body.link, {
+              ...(typeof body.code === 'string' ? { code: body.code } : {}),
+              ...(typeof body.name === 'string' ? { name: body.name } : {}),
+            })
+            if (gateways.list().some((g) => g.url === paired.url)) {
+              await unpair({ ...paired, id: '', addedAt: '' })
+              return json({ error: `${paired.url} is already added` }, 409)
+            }
+            const added = gateways.add(paired)
+            return json({ gateway: { ...shown(added), health: await gatewayHealth(added) } })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/gateways/:id': {
+        DELETE: guard(async (req) => {
+          const gw = gateways.get(req.params.id ?? '')
+          if (!gw) return json({ error: 'no such gateway' }, 404)
+          gateways.remove(gw.id)
+          health.delete(gw.id)
+          for (const ws of opened)
+            if (ws.data.kind === 'bridge' && ws.data.gateway.id === gw.id) ws.close(1001, 'gateway removed')
+          await unpair(gw)
+          return json({ ok: true })
+        }),
+      },
+      // Everything for another gateway: the page's requests and sockets, sent on with this hub's token there.
+      '/gw/:id/*': async (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        const access = authorized(req, url)
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (access.scope !== 'full') return forbidden()
+        const gw = gateways.get(req.params.id ?? '')
+        if (!gw) return json({ error: 'no such gateway' }, 404)
+        const target = forwardTarget(gw, url.pathname.slice(`/gw/${gw.id}`.length), url.search)
+        if (!target) return json({ error: 'not found' }, 404)
+        if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+          // As for this server's own terminal: a socket that may carry a shell must come from a page with an Origin.
+          if (!req.headers.get('origin')) return json({ error: 'unauthorized' }, 401)
+          const data = {
+            kind: 'bridge' as const,
+            target: socketUrl(gw, `${target.pathname}${target.search}`),
+            gateway: gw,
+            pending: [],
+            ...(access.device ? { device: access.device.id } : {}),
+          }
+          if (server.upgrade(req, { data })) return undefined as unknown as Response
+          return json({ error: 'websocket upgrade failed' }, 400)
+        }
+        // Its pages open on this hub's preview origin, fetched from it by name.
+        if (target.pathname === '/api/config') {
+          const origin = previewOrigin(req)
+          return json(
+            origin
+              ? { previewOrigin: `${origin}/gw/${gw.id}`, previewToken: previewKey(access) }
+              : { previewOrigin: null },
+          )
+        }
+        try {
+          const res = await fetch(target, {
+            method: req.method,
+            headers: forwardHeaders(req, gw),
+            ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: await req.arrayBuffer() }),
+            redirect: 'manual',
+            signal: AbortSignal.timeout(FORWARD_MS),
+          })
+          return new Response(res.body, { status: res.status, headers: responseHeaders(res) })
+        } catch (err) {
+          const why = err instanceof Error && err.name === 'TimeoutError' ? 'no answer' : 'unreachable'
+          return json({ error: `${gw.name} is ${why}` }, 502)
+        }
+      },
+      '/api/devices/:id': {
+        DELETE: guard((req) => {
+          const id = req.params.id ?? ''
+          if (!devices.revoke(id)) return json({ error: 'no such device' }, 404)
+          audit.record('revoked', { device: id })
+          closeDevice(id)
+          return json({ ok: true })
+        }),
+      },
+      // Without a preview address this device can reach, the page says how to add one instead of a broken frame.
+      '/api/config': guard((req, _url, access) => {
+        const origin = previewOrigin(req)
+        return json(
+          origin ? { previewOrigin: origin, previewToken: previewKey(access) } : { previewOrigin: null },
+        )
+      }),
       '/api/models': guard(async (_req, url) => {
         const omp = options.omp
         if (!omp) return json({ models: [], defaults: options.settings?.get().team })
@@ -306,6 +887,7 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
+            account,
             agentDir: options.omp?.agentDir,
             ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
             // What per-tool rules can name: every built-in tool, and `mcp` for all MCP tools.
@@ -314,14 +896,22 @@ export function startServer(options: ServeOptions): WebServer {
                 name: d.name,
                 description: d.description.split(/(?<=\.)\s/)[0] ?? '',
               })),
-              { name: 'mcp', description: 'Every tool of the connected MCP servers.' },
+              { name: 'mcp', description: 'Every tool of the connected MCP servers.', mcp: true },
+              ...(options.mcp?.toolList() ?? []).map((t) => ({
+                name: t.name,
+                description: t.description.split(/(?<=\.)\s/)[0] ?? '',
+                mcp: true,
+                readOnly: t.readOnly,
+              })),
             ],
           })
         }),
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            return json({ settings: options.settings.set(await req.json()) })
+            const settings = options.settings.set(await req.json())
+            await options.chats?.permissionsChanged()
+            return json({ settings })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
@@ -343,6 +933,13 @@ export function startServer(options: ServeOptions): WebServer {
           if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
           await options.omp.removeCredentials(req.params.provider ?? '')
           return json({ ok: true, providers: options.omp.providers() })
+        }),
+      },
+      '/api/credentials/:provider/oauth': {
+        DELETE: guard(async (req) => {
+          if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
+          await options.omp.signOut(req.params.provider ?? '')
+          return json({ ok: true, providers: options.omp.providers(), logins: options.omp.logins() })
         }),
       },
       '/api/providers': {
@@ -447,6 +1044,38 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/specialists': {
+        GET: guard(() => json({ specialists: options.specialists?.list() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          try {
+            const specialist = options.specialists.save(specialistInput(await req.json()))
+            return json({ specialist, specialists: options.specialists.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/specialists/:id': {
+        PUT: guard(async (req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          try {
+            const specialist = options.specialists.save(
+              specialistInput(await req.json()),
+              req.params.id ?? '',
+            )
+            return json({ specialist, specialists: options.specialists.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          if (!options.specialists.remove(req.params.id ?? ''))
+            return json({ error: 'no such specialist' }, 404)
+          return json({ specialists: options.specialists.list() })
+        }),
+      },
       '/api/projects/:id/permissions': {
         PUT: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
@@ -459,6 +1088,7 @@ export function startServer(options: ServeOptions): WebServer {
               mode: body.mode as 'auto' | 'ask' | 'read-only',
               allow,
             })
+            await options.chats?.permissionsChanged()
             return json({ project, projects: options.projects.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
@@ -534,6 +1164,69 @@ export function startServer(options: ServeOptions): WebServer {
           return json(options.hooks.write(await req.json().catch(() => ({}))))
         }),
       },
+      '/api/plugins': {
+        GET: guard(() => json({ plugins: pluginList(), dir: options.plugins?.dir })),
+        POST: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const { source } = (await req.json().catch(() => ({}))) as { source?: unknown }
+          if (typeof source !== 'string') return json({ error: 'give a folder or a git URL' }, 400)
+          try {
+            const plugin = await options.plugins.install(source)
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugin, plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name/ui.js': guard(async (req) => {
+        const plugin = options.plugins?.list().find((p) => p.name === req.params.name && p.enabled)
+        if (!plugin?.ui) return json({ error: 'no such plugin UI' }, 404)
+        try {
+          return new Response(await buildPluginUI(plugin), {
+            headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' },
+          })
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+        }
+      }),
+      '/api/plugins/:name/settings': {
+        PUT: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            options.plugins.setSettings(req.params.name ?? '', (await req.json().catch(() => ({}))) as never)
+            return json({ plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/plugins/:name': {
+        PUT: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          const { enabled } = (await req.json().catch(() => ({}))) as { enabled?: unknown }
+          if (typeof enabled !== 'boolean') return json({ error: 'enabled must be true or false' }, 400)
+          try {
+            options.plugins.setEnabled(req.params.name ?? '', enabled)
+            // Its MCP servers and code load or unload now; skills, commands and hooks apply from the next round.
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+        DELETE: guard(async (req) => {
+          if (!options.plugins) return json({ error: 'plugins need the chat runtime' }, 503)
+          try {
+            await options.pluginHost?.unload(req.params.name ?? '')
+            options.plugins.remove(req.params.name ?? '')
+            await Promise.all([options.mcp?.start(), options.pluginHost?.sync()])
+            return json({ plugins: pluginList() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
       '/api/skills': guard((_req, url) => {
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : undefined
@@ -598,6 +1291,41 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ memories: options.memory.list() })
         }),
       },
+      // Skills a reviewer proposed from finished work: listed for Settings, kept or discarded by the person.
+      '/api/skill-proposals': {
+        GET: guard(() => json({ proposals: options.skillProposals?.list('proposed') ?? [] })),
+      },
+      '/api/skill-proposals/:id/decide': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as {
+            keep?: unknown
+            description?: unknown
+            body?: unknown
+          }
+          if (typeof body.keep !== 'boolean') return json({ error: 'keep must be true or false' }, 400)
+          try {
+            await options.chats.decideSkill(req.params.id ?? '', body.keep, {
+              ...(typeof body.description === 'string' ? { description: body.description } : {}),
+              ...(typeof body.body === 'string' ? { body: body.body } : {}),
+            })
+            return json({ ok: true })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+        }),
+      },
+      '/api/chats/:chatId/learn': {
+        POST: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            const proposal = await options.chats.learnNow(req.params.chatId ?? '')
+            return json({ proposal: proposal ?? null })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
       '/api/memory/:id/decide': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
@@ -614,10 +1342,26 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/approvals/:approval': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { approved } = (await req.json().catch(() => ({}))) as { approved?: unknown }
+          const body = (await req.json().catch(() => ({}))) as {
+            approved?: unknown
+            edits?: unknown
+            note?: unknown
+          }
+          const { approved, edits, note } = body
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
+          // The person may rewrite a review's text fields before approving; only strings, by field key.
+          const fields =
+            edits && typeof edits === 'object' && !Array.isArray(edits)
+              ? Object.entries(edits as Record<string, unknown>)
+              : []
+          if (fields.some(([, v]) => typeof v !== 'string')) return json({ error: 'edits must be text' }, 400)
+          if (note !== undefined && (typeof note !== 'string' || note.length > 2000))
+            return json({ error: 'note must be text, at most 2000 characters' }, 400)
           try {
-            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved)
+            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved, {
+              ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
+              ...(typeof note === 'string' && note.trim() ? { note } : {}),
+            })
             return json({ ok: true })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)
@@ -837,6 +1581,12 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // Chats by what was said in them; the chat list already matches titles itself.
+      '/api/chats/search': {
+        GET: guard(async (_req, url) =>
+          json(options.chats ? await options.chats.search(url.searchParams.get('q') ?? '') : []),
+        ),
+      },
       '/api/chats/:chatId': {
         PATCH: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
@@ -908,6 +1658,7 @@ export function startServer(options: ServeOptions): WebServer {
             name: state.name,
             status: state.status,
             statusReason: state.statusReason,
+            ...stopCause(state),
             pattern: state.pattern,
             createdAt: state.createdAt,
             agents: Object.values(state.agents).map((a) => ({
@@ -944,19 +1695,47 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/colonies/:id/rewind': {
         POST: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { undo, round } = (await req.json().catch(() => ({}))) as { undo?: unknown; round?: unknown }
+          const { undo, round, force } = (await req.json().catch(() => ({}))) as {
+            undo?: unknown
+            round?: unknown
+            force?: unknown
+          }
           try {
             return json(
               await options.chats.rewind(
                 req.params.id ?? '',
                 undo === true,
                 typeof round === 'number' ? round : undefined,
+                force === true,
               ),
             )
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
         }),
+      },
+      // An artifact by name, for a hub showing this gateway's pages on its own preview origin. Never rendered here: it
+      // is inert text to a browser on this origin, with its real type in a header for the hub.
+      '/api/colonies/:id/artifacts/*': guard(async (req, url) => {
+        const name = decodeURIComponent(url.pathname.split('/artifacts/')[1] ?? '')
+        const found = await latestArtifact(req.params.id ?? '', name)
+        if ('missing' in found) return json({ error: found.missing }, 404)
+        return new Response(found.body, {
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'x-content-type-options': 'nosniff',
+            'content-security-policy': "sandbox; default-src 'none'",
+            'x-myr-media-type': found.mediaType,
+            'cache-control': 'no-store',
+          },
+        })
+      }),
+      '/api/health/socket': (req: Request) => {
+        const access = authorized(req, new URL(req.url))
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        const data = { kind: 'ping' as const, ...(access.device ? { device: access.device.id } : {}) }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
       },
       '/api/colonies/:id/blobs/:hash': guard(async (req) => {
         const id = colonyId(req.params.id ?? '')
@@ -973,10 +1752,12 @@ export function startServer(options: ServeOptions): WebServer {
       }),
       '/api/colonies/:id/stream': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
-        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        if (!access) return json({ error: 'unauthorized' }, 401)
         const id = colonyId(req.params.id ?? '')
         const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
-        if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor } }))
+        const device = access.device ? { device: access.device.id } : {}
+        if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor, ...device } }))
           return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
@@ -989,26 +1770,36 @@ export function startServer(options: ServeOptions): WebServer {
         const url = new URL(req.url)
         // A shell over a WebSocket must never be reachable from another site: browsers always send Origin, and
         // authorized() already rejects a foreign one, so require it to be present too.
-        if (!req.headers.get('origin') || !authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = req.headers.get('origin') ? authorized(req, url) : undefined
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (access.scope !== 'full') return forbidden()
         if (terminals >= MAX_TERMINALS) return json({ error: 'too many terminals open' }, 429)
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : homedir()
         if (!path) return json({ error: 'no such project' }, 404)
         const size = (key: string, fallback: number) =>
           Math.min(500, Math.max(10, Number(url.searchParams.get(key)) || fallback))
-        const data = { kind: 'terminal' as const, cwd: path, cols: size('cols', 100), rows: size('rows', 30) }
+        const data = {
+          kind: 'terminal' as const,
+          cwd: path,
+          cols: size('cols', 100),
+          rows: size('rows', 30),
+          ...(access.device ? { device: access.device.id } : {}),
+        }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
       // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
       '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
-        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        if (!access) return json({ error: 'unauthorized' }, 401)
         if (!options.browser) return json({ error: 'no browser on this server' }, 404)
         const data = {
           kind: 'browser' as const,
           colony: colonyId(req.params.id ?? ''),
           agent: req.params.agent ?? '',
+          ...(access.device ? { device: access.device.id } : {}),
         }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
@@ -1017,18 +1808,46 @@ export function startServer(options: ServeOptions): WebServer {
     fetch: () => json({ error: 'not found' }, 404),
     websocket: {
       open(ws) {
+        opened.add(ws)
+        // The hub closes it once it has its answer.
+        if (ws.data.kind === 'ping') {
+          ws.send('ok')
+          return
+        }
+        if (ws.data.kind === 'bridge') {
+          const data = ws.data
+          const upstream = new WebSocket(data.target, {
+            // The gateway checks the Origin of sockets (its terminal requires one): this is its own.
+            headers: { ...asDevice(data.gateway), origin: data.gateway.url },
+          } as never)
+          upstream.binaryType = 'arraybuffer'
+          data.upstream = upstream
+          upstream.onopen = () => {
+            for (const m of data.pending.splice(0)) upstream.send(m)
+          }
+          upstream.onmessage = (e) => ws.send(e.data as string | ArrayBuffer)
+          upstream.onclose = (e) => ws.close(passableCode(e.code), e.reason.slice(0, 120))
+          upstream.onerror = () => ws.close(1011, `${data.gateway.name} is unreachable`)
+          return
+        }
         if (ws.data.kind === 'terminal') {
           const data = ws.data
           terminals += 1
-          data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
-            cwd: data.cwd,
-            env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
-            terminal: {
-              cols: data.cols,
-              rows: data.rows,
-              data: (_t, chunk) => ws.send(chunk),
-            },
-          })
+          try {
+            data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
+              cwd: data.cwd,
+              env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+              terminal: {
+                cols: data.cols,
+                rows: data.rows,
+                data: (_t, chunk) => ws.send(chunk),
+              },
+            })
+          } catch {
+            // A project folder that was moved or deleted: say so instead of an empty terminal.
+            ws.close(1011, 'Could not start a shell in this folder. Was it moved or deleted?')
+            return
+          }
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
           return
         }
@@ -1046,6 +1865,13 @@ export function startServer(options: ServeOptions): WebServer {
         void pump(ws)
       },
       close(ws) {
+        opened.delete(ws)
+        if (ws.data.kind === 'bridge') {
+          const up = ws.data.upstream
+          if (up && up.readyState <= WebSocket.OPEN) up.close()
+          return
+        }
+        if (ws.data.kind === 'ping') return
         if (ws.data.kind === 'terminal') {
           terminals -= 1
           ws.data.proc?.terminal?.close()
@@ -1056,6 +1882,13 @@ export function startServer(options: ServeOptions): WebServer {
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'bridge') {
+          const up = ws.data.upstream
+          const frame = typeof raw === 'string' ? raw : new Uint8Array(raw)
+          if (up?.readyState === WebSocket.OPEN) up.send(frame)
+          else ws.data.pending.push(frame)
+          return
+        }
         if (ws.data.kind === 'terminal') {
           const msg = JSON.parse(String(raw)) as {
             type?: string
@@ -1102,17 +1935,41 @@ export function startServer(options: ServeOptions): WebServer {
     for (const ws of sockets) void pump(ws).catch(() => ws.close(1011, 'stream error'))
   }, POLL_MS)
 
+  // A reply as it is written goes straight to whoever watches that round; it is never logged.
+  const stopStreaming = options.chats?.onStream((colony, agent, text, done) => {
+    const message = JSON.stringify({ type: 'stream', agent, text, done })
+    for (const ws of sockets) if (ws.data.kind === 'events' && ws.data.colony === colony) ws.send(message)
+  })
+
+  /** A single-use pairing link for a new device, on the address clients use. */
+  function pairingLink(scope: DeviceScope): { code: string; link: string } {
+    const code = pairing.create(scope)
+    const base: string = publicUrl?.origin ?? `http://127.0.0.1:${server.port}`
+    return { code, link: `${base}/#pair=${code}` }
+  }
+
+  // What this machine's CLI uses to reach the server; a server bound to one address is reached on that address.
+  const localHost =
+    isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::' ? '127.0.0.1' : bindHost
   return {
     url: options.noAuth
-      ? `http://127.0.0.1:${server.port}/`
-      : `http://127.0.0.1:${server.port}/#token=${token}`,
+      ? `http://${localHost}:${server.port}/`
+      : `http://${localHost}:${server.port}/#token=${token}`,
+    ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+    ...(previewUrl ? { previewUrl: previewUrl.origin } : {}),
+    remote,
+    pairingLink,
     token,
     async stop() {
       stopScheduler?.()
       clearInterval(poll)
+      stopStreaming?.()
       for (const ws of sockets) ws.close(1001, 'server stopping')
-      await server.stop(true)
+      // Bun 1.3 never settles stop() once the server has closed a socket itself (revoking a device, the loop
+      // above), though the port is already released; waiting on it would hang shutdown.
+      await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
       await preview.stop(true)
+      await channels?.stop()
       store.close()
     },
   }

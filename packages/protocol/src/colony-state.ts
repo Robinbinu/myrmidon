@@ -5,6 +5,7 @@ import type {
   ColonyStatus,
   EventPayloads,
   NoteSection,
+  QuestionChoice,
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
@@ -53,6 +54,7 @@ export interface BoardEntry extends Entry {
   readonly agent: string
   readonly text: string
   readonly mentions: string[]
+  readonly replyTo?: number
 }
 
 export interface NoteEntry extends Entry {
@@ -67,7 +69,18 @@ export interface MailEntry extends Entry {
   readonly to: string
   readonly subject: string
   readonly body: string
+  /** The number (seq) of the mail this answers. */
+  readonly replyTo?: number
+  /** Set on a group message: who it reached (`to` is the group's name). */
+  readonly members?: readonly string[]
   delivered: boolean
+}
+
+export interface GroupView {
+  readonly name: string
+  members: string[]
+  readonly by: string
+  readonly seq: number
 }
 
 export interface ArtifactVersion extends Entry {
@@ -77,6 +90,17 @@ export interface ArtifactVersion extends Entry {
   readonly author: string
   readonly mediaType: string
   readonly parentVersion?: number
+}
+
+/**
+ * The verifier of a round nobody reviews: completion must cite a passing verdict, so its final answer records that it
+ * was delivered. It checks nothing, so it is never shown as a review, an approval, or a judge's pass.
+ */
+export const DELIVERED_VERIFIER = 'delivered'
+
+/** The verdicts of checks that actually ran, leaving out an unreviewed round's record of delivery. */
+export function reviewVerdicts(state: Pick<ColonyState, 'verdicts'>): VerdictEntry[] {
+  return state.verdicts.filter((v) => v.verifierId !== DELIVERED_VERIFIER)
 }
 
 export interface VerdictEntry extends Entry {
@@ -96,8 +120,14 @@ export interface ChatEntry extends Entry {
   readonly question?: boolean
   /** A check-in: the work goes on assuming this until the user answers. */
   readonly assumption?: string
+  /** Options the user can click to answer (ask_user). */
+  readonly choices?: readonly QuestionChoice[]
+  /** The plan the question asks the user to approve, in markdown. */
+  readonly plan?: string
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
+  /** The person's message was addressed to these crew members (@name). */
+  readonly to?: readonly string[]
   /** Agents that have read this message (mid-run user messages only). */
   readBy?: string[]
   /** Artifact names of files the person attached. */
@@ -128,6 +158,8 @@ export interface ColonyState {
   board: BoardEntry[]
   notes: NoteEntry[]
   mail: MailEntry[]
+  /** Group chats by name; the team chat (the board) is not one of them. */
+  groups: Record<string, GroupView>
   tasks: Record<string, TaskSnapshot>
   artifacts: Record<string, ArtifactVersion[]>
   /** Sign-ins agents asked the person for, by agent; `finished` is set once handed back or given up. */
@@ -149,6 +181,10 @@ export interface ColonyState {
     string,
     EventPayloads['approval/requested'] & { time: string; decided?: EventPayloads['approval/decided'] }
   >
+  /** Results of approved calls that ran, by receipt key. */
+  receipts: Record<string, string>
+  /** Skills proposed from this colony's work, and whether the person kept them (unset while undecided). */
+  skillProposals: Record<string, EventPayloads['skill/proposed'] & { seq: number; kept?: boolean }>
   /** Project folder snapshots of this round, and the latest rewind (if any). */
   checkpoints: {
     start?: string
@@ -211,11 +247,14 @@ export function emptyColonyState(id: string): ColonyState {
     board: [],
     notes: [],
     mail: [],
+    groups: {},
     tasks: {},
     artifacts: {},
     madeTools: {},
     checkpoints: {},
     approvals: {},
+    receipts: {},
+    skillProposals: {},
     servers: {},
     worktrees: {},
     memories: {},
@@ -355,6 +394,22 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       if (request) request.decided = p
       break
     }
+    case 'skill/proposed': {
+      const p = event.payload as EventPayloads['skill/proposed']
+      state.skillProposals[p.id] = { ...p, seq: event.seq }
+      break
+    }
+    case 'skill/decided': {
+      const p = event.payload as EventPayloads['skill/decided']
+      const proposal = state.skillProposals[p.id]
+      if (proposal) proposal.kept = p.kept
+      break
+    }
+    case 'review/done': {
+      const p = event.payload as EventPayloads['review/done']
+      state.receipts[p.key] = p.output
+      break
+    }
     case 'checkpoint/created': {
       const p = event.payload as EventPayloads['checkpoint/created']
       const round =
@@ -399,6 +454,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: false,
         ...(p.mode ? { mode: p.mode } : {}),
         ...(p.attachments?.length ? { attachments: p.attachments } : {}),
+        ...(p.to?.length ? { to: p.to } : {}),
       })
       break
     }
@@ -411,6 +467,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: p.final,
         ...(p.question ? { question: true } : {}),
         ...(p.assumption ? { assumption: p.assumption } : {}),
+        ...(p.choices?.length ? { choices: p.choices } : {}),
+        ...(p.plan ? { plan: p.plan } : {}),
       })
       touch(state, p.agent, event.seq)
       break
@@ -538,7 +596,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'board/posted': {
       const p = event.payload as EventPayloads['board/posted']
-      state.board.push({ ...base, agent: p.agent, text: p.text, mentions: p.mentions })
+      state.board.push({
+        ...base,
+        agent: p.agent,
+        text: p.text,
+        mentions: p.mentions,
+        ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+      })
       const targets =
         p.mentions.length > 0 ? p.mentions : Object.keys(state.agents).filter((a) => a !== p.agent)
       for (const to of targets) link(state, p.agent, to)
@@ -553,9 +617,31 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'mail/sent': {
       const p = event.payload as EventPayloads['mail/sent']
-      state.mail.push({ ...base, from: p.from, to: p.to, subject: p.subject, body: p.body, delivered: false })
-      link(state, p.from, p.to)
+      state.mail.push({
+        ...base,
+        from: p.from,
+        to: p.to,
+        subject: p.subject,
+        body: p.body,
+        ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
+        // The log's schema fills a missing list with [], so a group message is one that names its members.
+        ...(p.members?.length ? { members: p.members } : {}),
+        delivered: false,
+      })
+      for (const to of p.members?.length ? p.members : [p.to]) if (to !== p.from) link(state, p.from, to)
       touch(state, p.from, event.seq)
+      break
+    }
+    case 'group/created': {
+      const p = event.payload as EventPayloads['group/created']
+      state.groups[p.name] = { name: p.name, members: [...new Set(p.members)], by: p.by, seq: event.seq }
+      break
+    }
+    case 'group/changed': {
+      const p = event.payload as EventPayloads['group/changed']
+      const group = state.groups[p.name]
+      if (group)
+        group.members = [...new Set([...group.members, ...p.add])].filter((m) => !p.remove.includes(m))
       break
     }
     case 'mail/delivered': {
@@ -632,6 +718,25 @@ export interface ColonyMetrics {
   artifactVersions: number
   rejections: number
   bestScore?: number
+}
+
+/** Stop reason for a chat round that ended with a question or update for the human. */
+export const AWAITING_USER = 'awaiting your reply'
+
+/** Stop reason for a chat round the person stopped themselves. */
+export const STOPPED_BY_USER = 'stopped by user'
+
+/**
+ * What a stopped run is waiting on, beyond its status: the person's answer, or a model that failed. A model failure
+ * stops the run rather than failing it so it can be resumed, so the status alone reads like any other stop.
+ */
+export function stopCause(state: Pick<ColonyState, 'status' | 'statusReason' | 'modelError'>): {
+  awaiting?: true
+  failed?: true
+} {
+  if (state.status !== 'stopped') return {}
+  if (state.modelError) return { failed: true }
+  return state.statusReason === AWAITING_USER ? { awaiting: true } : {}
 }
 
 export function colonyMetrics(state: ColonyState, now = Date.now()): ColonyMetrics {

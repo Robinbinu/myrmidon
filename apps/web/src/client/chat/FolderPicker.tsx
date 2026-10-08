@@ -1,6 +1,7 @@
 import { ArrowUp, Folder, FolderPlus, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Project, send } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -40,7 +41,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
     try {
       const r = await send<{ project: Project; projects: Project[] }>('POST', '/api/projects', { path })
       props.onAdded(r.project, r.projects)
-      toast(`Added ${r.project.name}`, 'success')
+      toast(copy.folderPicker.added(r.project.name), 'success')
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -50,7 +51,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
 
   return (
     <Modal
-      title="Open a project folder"
+      title={copy.folderPicker.title}
       onClose={props.onClose}
       size="md"
       actions={
@@ -63,15 +64,12 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <FolderPlus className="size-3.5" />
           }
         >
-          Use this folder
+          {copy.folderPicker.useFolder}
         </Button>
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-[12.5px] text-muted">
-          Agents in this project's chats work in the folder: they read and edit its files and run commands
-          there.
-        </p>
+        <p className="text-callout text-muted">{copy.folderPicker.intro}</p>
         <form
           className="flex gap-2"
           onSubmit={(e) => {
@@ -82,12 +80,12 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
           <TextInput
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            placeholder="~/code/my-app"
-            aria-label="Folder path"
-            className="font-mono text-[12.5px]"
+            placeholder={copy.folderPicker.path.placeholder}
+            aria-label={copy.folderPicker.path.label}
+            className="font-mono"
           />
           <Button size="sm" type="submit">
-            Go
+            {copy.folderPicker.go}
           </Button>
         </form>
         <div className="max-h-[50vh] overflow-auto rounded-xl border border-line">
@@ -95,7 +93,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
             <button
               type="button"
               onClick={() => open(listing.parent ?? '/')}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[13px] text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body text-fg-2 hover:bg-surface-2"
             >
               <ArrowUp className="size-4 text-muted" /> ..
             </button>
@@ -105,14 +103,14 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
               key={f}
               type="button"
               onClick={() => open(`${listing.path}/${f}`)}
-              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[13px] last:border-0 hover:bg-surface-2"
+              className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-body last:border-0 hover:bg-surface-2"
             >
               <Folder className="size-4 shrink-0 text-muted" />
               <span className="truncate">{f}</span>
             </button>
           ))}
           {listing && listing.folders.length === 0 && (
-            <p className="px-3 py-4 text-[12.5px] text-muted">No sub-folders here.</p>
+            <p className="px-3 py-4 text-callout text-muted">{copy.folderPicker.empty}</p>
           )}
         </div>
       </div>
@@ -129,16 +127,17 @@ export function ProjectPill(props: {
   fixed?: { id: string; name: string }
   value?: string
   onChange(id: string | undefined): void
-  onAdd(): void
+  /** Opens the folder picker; without it (a chats-only device) the list offers no new folder. */
+  onAdd?(): void
 }) {
   const pill =
-    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium text-muted'
+    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted'
   if (props.fixed) {
     const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (
       <span
         className={pill}
-        title={`Works in ${props.fixed.name}${mode && mode !== 'auto' ? ` (${mode})` : ''}`}
+        title={copy.folderPicker.pill.worksIn(props.fixed.name, mode && mode !== 'auto' ? mode : '')}
       >
         <Folder className="size-3.5 shrink-0" />
         <span className="truncate">{props.fixed.name}</span>
@@ -150,27 +149,27 @@ export function ProjectPill(props: {
   return (
     <label
       className={`${pill} relative transition-colors duration-150 hover:bg-surface-2 hover:text-fg`}
-      title={current ? current.path : 'Work in a project folder'}
+      title={current ? current.path : copy.folderPicker.pill.title}
     >
       <Folder className="size-3.5 shrink-0" />
-      <span className="truncate">{current?.name ?? 'No project'}</span>
+      <span className="truncate">{current?.name ?? copy.folderPicker.pill.none}</span>
       <PermissionMark {...(current?.permissions ? { mode: current.permissions.mode } : {})} />
       <select
-        aria-label="Project folder"
+        aria-label={copy.folderPicker.pill.label}
         value={current?.id ?? ''}
         onChange={(e) => {
-          if (e.target.value === ADD) props.onAdd()
+          if (e.target.value === ADD) props.onAdd?.()
           else props.onChange(e.target.value || undefined)
         }}
         className="absolute inset-0 opacity-0"
       >
-        <option value="">No project (scratch only)</option>
+        <option value="">{copy.folderPicker.pill.noneOption}</option>
         {props.projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
           </option>
         ))}
-        <option value={ADD}>Open a folder…</option>
+        {props.onAdd && <option value={ADD}>{copy.folderPicker.pill.open}</option>}
       </select>
     </label>
   )

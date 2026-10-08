@@ -19,30 +19,59 @@ import {
   LoaderCircle,
   LogIn,
   MessageSquareText,
+  MessagesSquare,
   Monitor,
+  MonitorSmartphone,
   Moon,
+  Network,
   Palette,
   Plug,
   Plus,
+  Puzzle,
   RefreshCw,
   Search,
   Server,
   ShieldCheck,
   SlidersHorizontal,
+  Smile,
   Sun,
   Terminal,
   Trash2,
+  TriangleAlert,
+  UserCog,
   Users,
   Webhook,
   Wrench,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ModelOption, send, type TeamConfig } from './api.ts'
+import { type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  activeGateway,
+  api,
+  GATEWAYS_CHANGED,
+  type GatewayInfo,
+  hubSend,
+  listGateways,
+  type ModelOption,
+  post,
+  send,
+  switchGateway,
+  type TeamConfig,
+} from './api.ts'
+import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
-import { AGENT_MIN_WINDOW, windowLabel } from './chat/ModelPicker.tsx'
-import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
+import { windowLabel } from './chat/ModelPicker.tsx'
+import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
+import { copy } from './copy.ts'
+import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
+import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import { baseUrlError, clampNumber, cronError, providerNameError } from './settings-forms.ts'
+import { removeSpecialist, useSpecialists } from './specialists.ts'
+import { ConfirmButton } from './ui/ConfirmButton.tsx'
+import { day, NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
+import { Modal } from './ui/Modal.tsx'
+import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
   cn,
@@ -55,12 +84,11 @@ import {
   Segmented,
   Select,
   Switch,
-  softSpring,
-  spring,
   TextArea,
   TextInput,
 } from './ui/primitives.tsx'
 import { useToast } from './ui/Toast.tsx'
+import { AGENT_MIN_WINDOW, MASCOT_COLORS, SETTINGS_NAV_COLLAPSE_PX, softSpring, spring } from './ui-config.ts'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -105,8 +133,10 @@ export interface ServerSettings {
   observer: { intervalSeconds: number }
   search: { provider: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
-  /** Per-tool rules: `ask` before every call, or `off`; unlisted tools are allowed. */
-  permissions: Record<string, 'ask' | 'off'>
+  /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
+  permissions: Record<string, 'allow' | 'ask' | 'off'>
+  profile?: { name?: string; greeting: 'model' | 'rules' }
+  mascot?: MascotLook
 }
 
 interface SettingsResponse {
@@ -116,41 +146,154 @@ interface SettingsResponse {
   customApis: Api[]
   sandbox: string
   home: string
+  /** The computer account's name, used when the person has not set one. */
+  account?: string
   agentDir?: string
   ompSetup: boolean
-  toolCatalog: { name: string; description: string }[]
+  toolCatalog: { name: string; description: string; mcp?: boolean; readOnly?: boolean }[]
 }
 
 export type Section =
   | 'general'
+  | 'mascot'
+  | 'specialists'
+  | 'devices'
+  | 'gateways'
+  | 'channels'
   | 'models'
   | 'team'
   | 'tools'
   | 'skills'
+  | 'plugins'
   | 'hooks'
   | 'schedules'
   | 'verification'
   | 'instructions'
   | 'memory'
 
-const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette }[] = [
-  { id: 'general', label: 'General', hint: 'Theme, motion, shortcuts', icon: Palette },
-  { id: 'models', label: 'Models & providers', hint: 'Models, API keys, endpoints', icon: Brain },
-  { id: 'team', label: 'Team & budget', hint: 'Defaults and limits', icon: Users },
-  { id: 'tools', label: 'Tools', hint: 'Shell, web, files', icon: Wrench },
-  { id: 'skills', label: 'Skills', hint: 'Playbooks agents load', icon: GraduationCap },
-  { id: 'hooks', label: 'Hooks', hint: 'Commands around every tool', icon: Webhook },
-  { id: 'schedules', label: 'Schedules', hint: 'Requests that run on their own', icon: CalendarClock },
-  { id: 'verification', label: 'Reviewer', hint: 'Off, auto or always', icon: Gavel },
-  { id: 'instructions', label: 'Instructions', hint: 'House rules for agents', icon: MessageSquareText },
-  { id: 'memory', label: 'Memory', hint: 'What agents keep across chats', icon: BookMarked },
+type SectionGroup = keyof typeof copy.settings.page.groups
+
+/** The sections in the order the list shows them, each under its group's heading. */
+const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: string; icon: typeof Palette }[] = [
+  {
+    id: 'models',
+    group: 'setup',
+    label: copy.settings.sections.models.label,
+    hint: copy.settings.sections.models.hint,
+    icon: Brain,
+  },
+  {
+    id: 'team',
+    group: 'setup',
+    label: copy.settings.sections.team.label,
+    hint: copy.settings.sections.team.hint,
+    icon: Users,
+  },
+  {
+    id: 'verification',
+    group: 'setup',
+    label: copy.settings.sections.verification.label,
+    hint: copy.settings.sections.verification.hint,
+    icon: Gavel,
+  },
+  {
+    id: 'specialists',
+    group: 'agents',
+    label: copy.settings.sections.specialists.label,
+    hint: copy.settings.sections.specialists.hint,
+    icon: UserCog,
+  },
+  {
+    id: 'instructions',
+    group: 'agents',
+    label: copy.settings.sections.instructions.label,
+    hint: copy.settings.sections.instructions.hint,
+    icon: MessageSquareText,
+  },
+  {
+    id: 'memory',
+    group: 'agents',
+    label: copy.settings.sections.memory.label,
+    hint: copy.settings.sections.memory.hint,
+    icon: BookMarked,
+  },
+  {
+    id: 'skills',
+    group: 'agents',
+    label: copy.settings.sections.skills.label,
+    hint: copy.settings.sections.skills.hint,
+    icon: GraduationCap,
+  },
+  {
+    id: 'tools',
+    group: 'extend',
+    label: copy.settings.sections.tools.label,
+    hint: copy.settings.sections.tools.hint,
+    icon: Wrench,
+  },
+  {
+    id: 'plugins',
+    group: 'extend',
+    label: copy.settings.sections.plugins.label,
+    hint: copy.settings.sections.plugins.hint,
+    icon: Puzzle,
+  },
+  {
+    id: 'hooks',
+    group: 'extend',
+    label: copy.settings.sections.hooks.label,
+    hint: copy.settings.sections.hooks.hint,
+    icon: Webhook,
+  },
+  {
+    id: 'schedules',
+    group: 'extend',
+    label: copy.settings.sections.schedules.label,
+    hint: copy.settings.sections.schedules.hint,
+    icon: CalendarClock,
+  },
+  {
+    id: 'general',
+    group: 'you',
+    label: copy.settings.sections.general.label,
+    hint: copy.settings.sections.general.hint,
+    icon: Palette,
+  },
+  {
+    id: 'mascot',
+    group: 'you',
+    label: copy.settings.sections.mascot.label,
+    hint: copy.settings.sections.mascot.hint,
+    icon: Smile,
+  },
+  {
+    id: 'devices',
+    group: 'you',
+    label: copy.settings.sections.devices.label,
+    hint: copy.settings.sections.devices.hint,
+    icon: MonitorSmartphone,
+  },
+  {
+    id: 'gateways',
+    group: 'you',
+    label: copy.settings.sections.gateways.label,
+    hint: copy.settings.sections.gateways.hint,
+    icon: Network,
+  },
+  {
+    id: 'channels',
+    group: 'you',
+    label: copy.settings.sections.channels.label,
+    hint: copy.settings.sections.channels.hint,
+    icon: MessagesSquare,
+  },
 ]
 
 const API_LABELS: Record<Api, string> = {
-  'openai-completions': 'OpenAI-compatible (chat completions)',
-  'openai-responses': 'OpenAI Responses API',
-  'anthropic-messages': 'Anthropic Messages API',
-  'google-generative-ai': 'Google Gemini API',
+  'openai-completions': copy.settings.providerForm.apiLabels['openai-completions'],
+  'openai-responses': copy.settings.providerForm.apiLabels['openai-responses'],
+  'anthropic-messages': copy.settings.providerForm.apiLabels['anthropic-messages'],
+  'google-generative-ai': copy.settings.providerForm.apiLabels['google-generative-ai'],
 }
 
 const API_HINT_URL: Record<Api, string> = {
@@ -160,7 +303,21 @@ const API_HINT_URL: Record<Api, string> = {
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
 }
 
-/** Full-page settings, shown in place of the chat. Every change autosaves. */
+/** Whether the window is at least `px` wide, following it as it resizes. */
+function useMinWidth(px: number): boolean {
+  const query = `(min-width: ${px}px)`
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const change = () => setMatch(media.matches)
+    change()
+    media.addEventListener('change', change)
+    return () => media.removeEventListener('change', change)
+  }, [query])
+  return match
+}
+
+/** Full-page settings, shown in place of the chat. Every change autosaves, except hooks (see HooksSection). */
 export function Settings(props: {
   onClose(): void
   theme: ThemeChoice
@@ -172,16 +329,49 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /**
+   * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
+   * edits are unsaved), for the ways out of Settings that the app itself offers.
+   */
+  guard?: { current?: (go: () => void) => void }
 }) {
   const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
   const [data, setData] = useState<SettingsResponse>()
   const [error, setError] = useState<string>()
-  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [saveError, setSaveError] = useState<string>()
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const onClose = useRef(props.onClose)
-  onClose.current = props.onClose
+  // The settings last sent, so a failed save can be retried as it was.
+  const unsaved = useRef<ServerSettings>(undefined)
+  const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
+  // Hooks are the one section with an explicit Save; leaving it with edits asks first.
+  const [hooksDirty, setHooksDirty] = useState(false)
+  const [leaving, setLeaving] = useState<() => void>()
+  const leave = (go: () => void) => (hooksDirty ? setLeaving(() => go) : go())
+  const onClose = useRef(() => leave(props.onClose))
+  onClose.current = () => leave(props.onClose)
+  const { guard } = props
+  // Every render, since leave changes with hooksDirty; a Settings that remounts clears only its own.
+  useEffect(() => {
+    if (!guard) return
+    guard.current = leave
+    return () => {
+      if (guard.current === leave) guard.current = undefined
+    }
+  })
+  // Reloading or closing the window would drop unsaved hook edits too.
+  useEffect(() => {
+    if (!hooksDirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Safari before 17 asks only when returnValue is set.
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hooksDirty])
 
   useEffect(() => {
     api<SettingsResponse>('/api/settings')
@@ -198,28 +388,33 @@ export function Settings(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const persist = (next: ServerSettings) => {
+    unsaved.current = next
+    setSaving('saving')
+    send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
+      .then((r) => {
+        setData((d) => (d ? { ...d, settings: r.settings } : d))
+        setSaving('saved')
+        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
+        props.onModelsChanged()
+        window.dispatchEvent(new Event(SETTINGS_SAVED))
+      })
+      .catch((err) => {
+        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
+        setSaving('failed')
+        setSaveError(String(err.message ?? err))
+        toast(String(err.message ?? err), 'error')
+      })
+  }
+
   /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
   const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
     if (!data) return
     const next = patch(structuredClone(data.settings))
     setData({ ...data, settings: next })
     clearTimeout(timer.current)
-    const save = () => {
-      setSaving('saving')
-      send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
-        .then((r) => {
-          setData((d) => (d ? { ...d, settings: r.settings } : d))
-          setSaving('saved')
-          setTimeout(() => setSaving('idle'), 1200)
-          props.onModelsChanged()
-        })
-        .catch((err) => {
-          setSaving('idle')
-          toast(String(err.message ?? err), 'error')
-        })
-    }
-    if (immediate) save()
-    else timer.current = setTimeout(save, 450)
+    if (immediate) persist(next)
+    else timer.current = setTimeout(() => persist(next), 450)
   }
 
   const providersChanged = (providers: ProviderInfo[]) => {
@@ -235,86 +430,152 @@ export function Settings(props: {
         data-toolbar
         className="drag-region material-toolbar flex h-[52px] shrink-0 items-center gap-2 border-b border-line px-3"
       >
-        <Button variant="ghost" size="sm" onClick={props.onClose} icon={<ArrowLeft className="size-4" />}>
-          Back
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => leave(props.onClose)}
+          icon={<ArrowLeft className="size-4" />}
+        >
+          {copy.settings.page.back}
         </Button>
-        <span className="text-[13px] font-semibold">Settings</span>
+        <span className="text-body font-semibold">{copy.settings.page.title}</span>
         <span className="text-muted">/</span>
-        <span className="truncate text-[13px] text-fg-2">{current?.label}</span>
+        <span className="truncate text-body text-fg-2">{current?.label}</span>
         <span className="flex-1" />
         <AnimatePresence>
-          {saving !== 'idle' && (
+          {saving === 'failed' ? (
             <motion.span
+              key="failed"
+              role="alert"
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="inline-flex items-center gap-1.5 text-[12px] text-muted"
+              title={saveError}
+              className="inline-flex items-center gap-1.5 text-small text-bad-ink"
             >
-              {saving === 'saving' ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Check className="size-3.5 text-ok-ink" />
-              )}
-              {saving === 'saving' ? 'Saving…' : 'All changes saved'}
+              <CircleX className="size-3.5" />
+              {copy.settings.page.saveFailed}
+              <span aria-hidden>·</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => unsaved.current && persist(unsaved.current)}
+                icon={<RefreshCw className="size-3" />}
+              >
+                {copy.settings.page.retry}
+              </Button>
             </motion.span>
+          ) : (
+            saving !== 'idle' && (
+              <motion.span
+                key="saving"
+                role="status"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="inline-flex items-center gap-1.5 text-small text-muted"
+              >
+                {saving === 'saving' ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Check className="size-3.5 text-ok-ink" />
+                )}
+                {saving === 'saving' ? copy.settings.page.saving : copy.settings.page.saved}
+              </motion.span>
+            )
           )}
         </AnimatePresence>
-        <span className="hidden text-[11.5px] text-muted md:inline">
-          <Kbd>Esc</Kbd> to close
+        <span className="hidden text-footnote text-muted md:inline">
+          <Kbd>Esc</Kbd>
+          {copy.settings.page.escToClose}
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
-        <nav className="hidden w-64 shrink-0 flex-col gap-1 overflow-auto border-r border-line p-3 md:flex">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              aria-current={section === s.id ? 'page' : undefined}
-              className={cn(
-                'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
-                section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+        <nav
+          aria-label={copy.settings.page.title}
+          className={cn(
+            'hidden shrink-0 flex-col overflow-auto border-r border-line p-3 md:flex',
+            wideNav ? 'w-64' : 'w-[68px] items-center',
+          )}
+        >
+          {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
+            <div key={group} className="flex w-full flex-col gap-1">
+              {wideNav ? (
+                <div
+                  className={cn(
+                    'px-3 pb-1 font-mono text-caption uppercase tracking-[0.14em] text-muted',
+                    i > 0 && 'pt-4',
+                  )}
+                >
+                  {copy.settings.page.groups[group]}
+                </div>
+              ) : (
+                i > 0 && <div aria-hidden className="mx-2 my-2 border-t border-line" />
               )}
-            >
-              {section === s.id && (
-                <motion.span
-                  layoutId="settings-nav"
-                  transition={spring}
-                  className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
-                />
-              )}
-              <span
-                className={cn(
-                  'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
-                  section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
-                )}
-              >
-                <s.icon className="size-4" />
-              </span>
-              <span className="relative min-w-0">
-                <span className="block text-[13.5px] font-medium">{s.label}</span>
-                <span className="block truncate text-[11.5px] text-muted">{s.hint}</span>
-              </span>
-            </button>
+              {SECTIONS.filter((s) => s.group === group).map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => leave(() => setSection(s.id))}
+                  aria-current={section === s.id ? 'page' : undefined}
+                  aria-label={wideNav ? undefined : s.label}
+                  title={wideNav ? undefined : s.label}
+                  className={cn(
+                    'relative flex items-center gap-3 rounded-xl text-left transition-colors',
+                    wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
+                  )}
+                >
+                  {section === s.id && (
+                    <motion.span
+                      layoutId="settings-nav"
+                      transition={spring}
+                      className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
+                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
+                    )}
+                  >
+                    <s.icon className="size-4" />
+                  </span>
+                  {wideNav && (
+                    <span className="relative min-w-0">
+                      <span className="block text-reading font-medium">{s.label}</span>
+                      <span className="block truncate text-footnote text-muted">{s.hint}</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="border-b border-line p-3 md:hidden">
             <Select
               value={section}
-              onChange={(e) => setSection(e.target.value as Section)}
+              onChange={(e) => {
+                const next = e.target.value as Section
+                leave(() => setSection(next))
+              }}
               className="w-full"
-              aria-label="Section"
+              aria-label={copy.settings.page.sectionPicker}
             >
-              {SECTIONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
+              {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group) => (
+                <optgroup key={group} label={copy.settings.page.groups[group]}>
+                  {SECTIONS.filter((s) => s.group === group).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-[13.5px] text-bad-ink">{error}</div>
+            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -349,7 +610,7 @@ export function Settings(props: {
                           value: 'models',
                           label: (
                             <>
-                              <Brain className="size-3.5" /> Your models
+                              <Brain className="size-3.5" /> {copy.settings.page.modelsTab}
                             </>
                           ),
                         },
@@ -357,7 +618,7 @@ export function Settings(props: {
                           value: 'providers',
                           label: (
                             <>
-                              <KeyRound className="size-3.5" /> Keys &amp; providers
+                              <KeyRound className="size-3.5" /> {copy.settings.page.providersTab}
                             </>
                           ),
                         },
@@ -386,6 +647,11 @@ export function Settings(props: {
                   onConfig={props.onConfig}
                 />
               )}
+              {section === 'mascot' && data && <MascotSection data={data} update={update} />}
+              {section === 'specialists' && <SpecialistsSection models={props.models} />}
+              {section === 'devices' && <DevicesSection />}
+              {section === 'gateways' && <GatewaysSection />}
+              {section === 'channels' && <ChannelsSection />}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -395,17 +661,40 @@ export function Settings(props: {
               )}
               {section === 'memory' && <MemorySection />}
               {section === 'skills' && <SkillsSection />}
-              {section === 'hooks' && <HooksSection />}
+              {section === 'plugins' && <PluginsSection />}
+              {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
               {!data && !error && section !== 'general' && (
-                <div className="flex items-center gap-2 text-[13px] text-muted">
-                  <LoaderCircle className="size-4 animate-spin" /> Loading settings…
+                <div className="flex items-center gap-2 text-body text-muted">
+                  <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
                 </div>
               )}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
+      <AnimatePresence>
+        {leaving && (
+          <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
+            <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setLeaving(undefined)}>
+                {copy.settings.page.unsaved.keep}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setLeaving(undefined)
+                  setHooksDirty(false)
+                  leaving()
+                }}
+              >
+                {copy.settings.page.unsaved.discard}
+              </Button>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -414,7 +703,7 @@ function Heading(props: { title: string; children?: ReactNode }) {
   return (
     <div className="mb-6">
       <h3 className="text-[17px] font-semibold tracking-tight">{props.title}</h3>
-      {props.children && <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{props.children}</p>}
+      {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
     </div>
   )
 }
@@ -439,24 +728,19 @@ function NotifyToggle() {
   const granted = supported && Notification.permission === 'granted'
   return (
     <Field
-      label="Notify me when a round finishes"
-      hint={
-        supported
-          ? 'A desktop notification when a round is done (or stops) while Myrmidon is in the background, including scheduled ones.'
-          : 'This browser does not support notifications.'
-      }
+      label={copy.settings.notify.label}
+      hint={supported ? copy.settings.notify.hint : copy.settings.notify.unsupported}
       inline
     >
       <Switch
         checked={on && granted}
         disabled={!supported}
-        label="Notify me when a round finishes"
+        label={copy.settings.notify.label}
         onChange={(v) => {
           if (!v) return setOn(false)
           void Notification.requestPermission().then((p) => {
             setOn(p === 'granted')
-            if (p !== 'granted')
-              toast('Notifications are blocked for this site in your browser settings', 'error')
+            if (p !== 'granted') toast(copy.settings.notify.blocked, 'error')
           })
         }}
       />
@@ -472,10 +756,10 @@ function General(props: {
 }) {
   return (
     <>
-      <Heading title="General">How Myrmidon looks and feels on this device.</Heading>
+      <Heading title={copy.settings.general.title}>{copy.settings.general.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Theme" hint="System follows your operating system." inline>
+          <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
             <Segmented
               id="theme"
               value={props.theme}
@@ -485,7 +769,7 @@ function General(props: {
                   value: 'system',
                   label: (
                     <>
-                      <Monitor className="size-3.5" /> System
+                      <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
                     </>
                   ),
                 },
@@ -493,7 +777,7 @@ function General(props: {
                   value: 'light',
                   label: (
                     <>
-                      <Sun className="size-3.5" /> Light
+                      <Sun className="size-3.5" /> {copy.settings.general.themeLight}
                     </>
                   ),
                 },
@@ -501,7 +785,7 @@ function General(props: {
                   value: 'dark',
                   label: (
                     <>
-                      <Moon className="size-3.5" /> Dark
+                      <Moon className="size-3.5" /> {copy.settings.general.themeDark}
                     </>
                   ),
                 },
@@ -510,8 +794,16 @@ function General(props: {
           </Field>
         </Row>
         <Row>
-          <Field label="Reduce motion" hint="Turn off animations and transitions." inline>
-            <Switch checked={props.reduceMotion} onChange={props.onReduceMotion} label="Reduce motion" />
+          <Field
+            label={copy.settings.general.reduceMotion}
+            hint={copy.settings.general.reduceMotionHint}
+            inline
+          >
+            <Switch
+              checked={props.reduceMotion}
+              onChange={props.onReduceMotion}
+              label={copy.settings.general.reduceMotion}
+            />
           </Field>
         </Row>
         <Row>
@@ -551,7 +843,13 @@ function ModelsSection(props: {
     setTests((t) => ({ ...t, [ref]: 'running' }))
     try {
       const r = await send<{ ok: boolean; ms?: number; error?: string }>('POST', '/api/models/test', { ref })
-      setTests((t) => ({ ...t, [ref]: { ok: r.ok, text: r.ok ? `${r.ms} ms` : (r.error ?? 'failed') } }))
+      setTests((t) => ({
+        ...t,
+        [ref]: {
+          ok: r.ok,
+          text: r.ok ? copy.settings.models.testMs(r.ms) : (r.error ?? copy.settings.models.testFailed),
+        },
+      }))
     } catch (err) {
       setTests((t) => ({ ...t, [ref]: { ok: false, text: String((err as Error).message) } }))
     }
@@ -567,19 +865,18 @@ function ModelsSection(props: {
 
   return (
     <>
-      <Heading title="Models">
-        {props.models.length} models you can call right now, {shown} shown in pickers. Switch off whole
-        providers you don’t use, hide single models, and test any model with a one-line request.
+      <Heading title={copy.settings.models.title}>
+        {copy.settings.models.intro(props.models.length, shown)}
       </Heading>
       <div className="mb-3 flex gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
           <TextInput
-            placeholder="Search models"
+            placeholder={copy.settings.models.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
-            aria-label="Search models"
+            aria-label={copy.settings.models.search}
           />
         </div>
         <Button
@@ -588,23 +885,23 @@ function ModelsSection(props: {
             api('/api/models?refresh=1')
               .then(() => {
                 props.onRefresh()
-                toast('Model lists refreshed from providers', 'success')
+                toast(copy.settings.models.refreshed, 'success')
               })
               .catch((err) => toast(String(err.message ?? err), 'error'))
               .finally(() => setRefreshing(false))
           }}
           icon={<RefreshCw className={cn('size-3.5', refreshing && 'animate-spin')} />}
         >
-          Refresh
+          {copy.settings.models.refresh}
         </Button>
         <Button variant="soft" onClick={props.onAddProvider} icon={<Plus className="size-3.5" />}>
-          Add models
+          {copy.settings.models.addModels}
         </Button>
       </div>
       <div className="flex flex-col gap-2">
         {groups.length === 0 && (
           <Card>
-            <Empty title={q ? 'No models match' : 'No models yet'} />
+            <Empty title={q ? copy.settings.models.noMatch : copy.settings.models.none} />
           </Card>
         )}
         {groups.map(([provider, models]) => {
@@ -622,13 +919,15 @@ function ModelsSection(props: {
                   <motion.span animate={{ rotate: expanded ? 90 : 0 }} transition={spring}>
                     <ChevronRight className="size-4 text-muted" />
                   </motion.span>
-                  <span className="font-mono text-[13px] font-medium">{provider}</span>
-                  <span className="text-[12px] tabular-nums text-muted">{models.length}</span>
+                  <span className="font-mono text-body font-medium">{provider}</span>
+                  <span className="text-small tabular-nums text-muted">{models.length}</span>
                 </button>
-                <span className="text-[12px] text-muted">{off ? 'Off' : 'In pickers'}</span>
+                <span className="text-small text-muted">
+                  {off ? copy.settings.shared.off : copy.settings.models.inPickers}
+                </span>
                 <Switch
                   checked={!off}
-                  label={`Show ${provider} models in pickers`}
+                  label={copy.settings.models.showProvider(provider)}
                   onChange={() => toggleSet('hiddenProviders', provider)}
                 />
               </div>
@@ -644,19 +943,21 @@ function ModelsSection(props: {
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-[13px] font-medium">{m.name}</span>
+                            <span className="truncate text-body font-medium">{m.name}</span>
                             {m.reasoning && <Brain className="size-3.5 text-muted" />}
                           </div>
-                          <div className="truncate font-mono text-[11px] text-muted">{m.id}</div>
+                          <div className="truncate font-mono text-caption text-muted">{m.id}</div>
                           {t && t !== 'running' && (
                             <div
                               className={cn(
-                                'mt-0.5 flex items-center gap-1 text-[12px]',
+                                'mt-0.5 flex items-center gap-1 text-small',
                                 t.ok ? 'text-ok-ink' : 'text-bad-ink',
                               )}
                             >
                               {t.ok ? <CircleCheck className="size-3.5" /> : <CircleX className="size-3.5" />}
-                              <span className="truncate">{t.ok ? `Responded in ${t.text}` : t.text}</span>
+                              <span className="truncate">
+                                {t.ok ? copy.settings.models.respondedIn(t.text) : t.text}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -681,11 +982,15 @@ function ModelsSection(props: {
                             t === 'running' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined
                           }
                         >
-                          Test
+                          {copy.settings.models.test}
                         </Button>
                         <IconButton
                           size="sm"
-                          label={isHidden ? `Show ${m.name}` : `Hide ${m.name}`}
+                          label={
+                            isHidden
+                              ? copy.settings.models.showModel(m.name)
+                              : copy.settings.models.hideModel(m.name)
+                          }
                           onClick={() => toggleSet('hidden', m.ref)}
                         >
                           {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -704,10 +1009,10 @@ function ModelsSection(props: {
 }
 
 const WINDOW_SOURCES = {
-  set: 'set by you',
-  provider: 'from the provider',
-  catalog: 'from models.dev',
-  name: "from the model's name",
+  set: copy.settings.models.windowSources.set,
+  provider: copy.settings.models.windowSources.provider,
+  catalog: copy.settings.models.windowSources.catalog,
+  name: copy.settings.models.windowSources.name,
 } as const
 
 /**
@@ -740,15 +1045,15 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
       <input
         ref={field}
         value={draft}
-        placeholder="e.g. 32k"
-        aria-label={`Context window of ${props.model.name}`}
+        placeholder={copy.settings.models.windowPlaceholder}
+        aria-label={copy.settings.models.windowLabel(props.model.name)}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') setEditing(false)
         }}
-        className="h-7 w-20 rounded-md border border-line-strong bg-control px-2 text-right font-mono text-[12px] outline-none focus:ring-2 focus:ring-accent-soft"
+        className="h-7 w-20 rounded-md border border-line-strong bg-control px-2 text-right font-mono text-small outline-none focus:ring-2 focus:ring-accent-soft"
       />
     )
   return (
@@ -760,11 +1065,14 @@ function WindowField(props: { model: ModelOption; set?: number; onSet(tokens?: n
       }}
       title={
         tokens
-          ? `${tokens.toLocaleString()} tokens of context, ${source ? WINDOW_SOURCES[source] : 'a guess'}. Click to change; clear it to go back to automatic.`
-          : 'Context window unknown. Click to set it.'
+          ? copy.settings.models.windowTitle(
+              tokens.toLocaleString(),
+              source ? WINDOW_SOURCES[source] : copy.settings.models.windowGuess,
+            )
+          : copy.settings.models.windowUnknown
       }
       className={cn(
-        'h-7 min-w-14 rounded-md px-2 text-right font-mono text-[12px] tabular-nums transition-colors hover:bg-fill',
+        'h-7 min-w-14 rounded-md px-2 text-right font-mono text-small tabular-nums transition-colors hover:bg-fill',
         tokens && tokens < AGENT_MIN_WINDOW ? 'text-warn-ink' : 'text-fg-2',
         source === 'set' && 'font-semibold',
       )}
@@ -780,6 +1088,8 @@ interface LoginOption {
   name: string
   provider: string
   ready: boolean
+  /** Myrmidon holds an OAuth sign-in for the provider, not only an API key. */
+  signedIn: boolean
 }
 
 interface LoginState {
@@ -831,15 +1141,30 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
       setSession(next)
       if (next.status === 'done') {
         const who = next.result?.email ?? next.result?.orgName
-        toast(`Signed in${who ? ` as ${who}` : ''}`, 'success')
+        toast(copy.settings.signIns.signedInToast(who), 'success')
         void load()
         api<{ providers: ProviderInfo[] }>('/api/settings')
           .then((r) => props.onProviders(r.providers))
           .catch(() => {})
-      } else if (next.status === 'failed') toast(next.error ?? 'Sign-in failed', 'error')
+      } else if (next.status === 'failed') toast(next.error ?? copy.settings.signIns.failed, 'error')
     }, 1500)
     return () => clearInterval(t)
   }, [waiting, sessionId])
+
+  // Only the sign-in goes: an API key stored for the same provider stays.
+  const signOut = async (l: LoginOption) => {
+    try {
+      const r = await send<{ providers: ProviderInfo[]; logins: LoginOption[] }>(
+        'DELETE',
+        `/api/credentials/${encodeURIComponent(l.provider)}/oauth`,
+      )
+      props.onProviders(r.providers)
+      setLogins(r.logins)
+      toast(copy.settings.signIns.signedOut(l.name), 'success')
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
 
   const start = async (login: string) => {
     setAnswer('')
@@ -862,11 +1187,9 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
 
   return (
     <div className="mb-8">
-      <h4 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
-        <LogIn className="size-4 text-muted" /> Sign in with a subscription
-        <span className="font-normal text-muted">
-          use Claude, ChatGPT or Gemini plans instead of API keys
-        </span>
+      <h4 className="mb-2 flex items-center gap-2 text-body font-semibold">
+        <LogIn className="size-4 text-muted" /> {copy.settings.signIns.title}
+        <span className="font-normal text-muted">{copy.settings.signIns.subtitle}</span>
       </h4>
       <Card>
         {shown.map((l) => {
@@ -875,11 +1198,11 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
             <div key={l.id} className="border-b border-line px-4 py-3 last:border-0">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                  <div className="flex items-center gap-2 text-reading font-medium">
                     {l.name}
-                    {l.ready ? <Pill tone="ok">signed in</Pill> : null}
+                    {l.ready ? <Pill tone="ok">{copy.settings.signIns.signedIn}</Pill> : null}
                   </div>
-                  <div className="font-mono text-[11.5px] text-muted">{l.provider}</div>
+                  <div className="font-mono text-footnote text-muted">{l.provider}</div>
                 </div>
                 {active ? (
                   <Button
@@ -889,24 +1212,34 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                       send('DELETE', `/api/logins/${active.id}`).then(() => setSession(undefined))
                     }
                   >
-                    Cancel
+                    {copy.settings.shared.cancel}
                   </Button>
                 ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => start(l.id)}
-                    disabled={waiting}
-                    icon={<LogIn className="size-3.5" />}
-                  >
-                    {l.ready ? 'Sign in again' : 'Sign in'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {l.signedIn && (
+                      <ConfirmButton
+                        label={copy.settings.signIns.signOut}
+                        confirm={copy.settings.signIns.confirmSignOut}
+                        disabled={waiting}
+                        onConfirm={() => void signOut(l)}
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={() => start(l.id)}
+                      disabled={waiting}
+                      icon={<LogIn className="size-3.5" />}
+                    >
+                      {l.ready ? copy.settings.signIns.signInAgain : copy.settings.signIns.signIn}
+                    </Button>
+                  </div>
                 )}
               </div>
               {active && (
-                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-[12.5px]">
+                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-callout">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
-                    {active.progress ?? 'Finish signing in in the browser tab; this updates by itself.'}
+                    {active.progress ?? copy.settings.signIns.finishInBrowser}
                   </div>
                   {active.instructions && <div className="text-muted">{active.instructions}</div>}
                   {active.url && (
@@ -916,7 +1249,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                       rel="noreferrer"
                       className="inline-flex items-center gap-1.5 font-medium text-accent-fg hover:underline"
                     >
-                      <ExternalLink className="size-3.5" /> Open the sign-in page
+                      <ExternalLink className="size-3.5" /> {copy.settings.signIns.openPage}
                     </a>
                   )}
                   {active.prompt && (
@@ -934,10 +1267,10 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                         placeholder={active.prompt.placeholder ?? active.prompt.message}
                         value={answer}
                         onChange={(e) => setAnswer(e.target.value)}
-                        className="font-mono text-[12px]"
+                        className="font-mono"
                       />
                       <Button size="sm" type="submit" disabled={!answer.trim()}>
-                        Submit
+                        {copy.settings.signIns.submit}
                       </Button>
                     </form>
                   )}
@@ -952,9 +1285,9 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
         <button
           type="button"
           onClick={() => setMore(true)}
-          className="mt-2 text-[12.5px] font-medium text-muted hover:text-fg"
+          className="mt-2 text-callout font-medium text-muted hover:text-fg"
         >
-          Show {sorted.length - shown.length} more sign-ins
+          {copy.settings.signIns.showMore(sorted.length - shown.length)}
         </button>
       )}
     </div>
@@ -1003,11 +1336,12 @@ function Providers(props: {
 
   return (
     <>
-      <Heading title="Providers & keys">
-        Myrmidon runs omp’s provider stack in-process: every built-in provider, OAuth logins, and custom
-        endpoints from <span className="font-mono">models.yml</span>. Keys stay in owner-only files under{' '}
-        <span className="font-mono">{props.data.agentDir ?? 'agent/'}</span> and never reach the browser.
-      </Heading>
+      <Heading title={copy.settings.providers.title}>{copy.settings.providers.intro}</Heading>
+      {props.data.agentDir && (
+        <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
+          {copy.settings.providers.storedIn(props.data.agentDir)}
+        </p>
+      )}
 
       {props.data.ompSetup && (
         <Card className="mb-8">
@@ -1016,17 +1350,17 @@ function Providers(props: {
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-[13.5px] font-medium">Import your omp setup</div>
-              <div className="text-[12.5px] text-muted">
+              <div className="text-reading font-medium">{copy.settings.providers.importTitle}</div>
+              <div className="text-callout text-muted">
                 {importing === 'confirm'
-                  ? 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.'
-                  : 'Copy keys, OAuth logins, and custom providers from ~/.omp/agent. The omp CLI is not needed.'}
+                  ? copy.settings.providers.importConfirm
+                  : copy.settings.providers.importHint}
               </div>
             </div>
             {importing === 'confirm' ? (
               <div className="flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setImporting('idle')}>
-                  Cancel
+                  {copy.settings.shared.cancel}
                 </Button>
                 <Button
                   size="sm"
@@ -1039,11 +1373,11 @@ function Providers(props: {
                         '/api/import-omp',
                       )
                       return r
-                    }, 'Imported your omp setup')
+                    }, copy.settings.providers.imported)
                     setImporting('idle')
                   }}
                 >
-                  Replace and import
+                  {copy.settings.providers.replaceAndImport}
                 </Button>
               </div>
             ) : (
@@ -1053,7 +1387,7 @@ function Providers(props: {
                 disabled={importing === 'busy'}
                 icon={importing === 'busy' ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
               >
-                Import
+                {copy.settings.providers.import}
               </Button>
             )}
           </div>
@@ -1063,15 +1397,15 @@ function Providers(props: {
       <SignIns onProviders={props.onProviders} />
 
       <div className="mb-2 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-[13px] font-semibold">
-          <KeyRound className="size-4 text-muted" /> Providers
+        <h4 className="flex items-center gap-2 text-body font-semibold">
+          <KeyRound className="size-4 text-muted" /> {copy.settings.providers.heading}
           <span className="font-normal text-muted">
-            {providers.filter((p) => p.ready).length} ready of {providers.length}
+            {copy.settings.providers.readyCount(providers.filter((p) => p.ready).length, providers.length)}
           </span>
         </h4>
         {!adding && (
           <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-            Custom endpoint
+            {copy.settings.providers.customEndpoint}
           </Button>
         )}
       </div>
@@ -1092,7 +1426,7 @@ function Providers(props: {
                 if (
                   await act(
                     () => send<{ providers: ProviderInfo[] }>('POST', '/api/providers', body),
-                    `Connected ${body.name}`,
+                    copy.settings.providers.connected(body.name),
                   )
                 )
                   setAdding(false)
@@ -1103,9 +1437,8 @@ function Providers(props: {
       </AnimatePresence>
       <Card>
         {shown.length === 0 && (
-          <Empty icon={<Server className="size-5" />} title="No providers ready yet">
-            Import your omp setup, add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any
-            OpenAI, Anthropic, or Gemini-compatible endpoint.
+          <Empty icon={<Server className="size-5" />} title={copy.settings.providers.emptyTitle}>
+            {copy.settings.providers.emptyBody}
           </Empty>
         )}
         {shown.map((p) => (
@@ -1114,61 +1447,62 @@ function Providers(props: {
               <Dot status={p.ready ? 'ready' : 'idle'} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px]">{p.id}</span>
-                  {p.custom && <Pill tone="accent">custom</Pill>}
-                  <span className="text-[12px] text-muted">
-                    {p.models} model{p.models === 1 ? '' : 's'}
+                  <span className="font-mono text-body">{p.id}</span>
+                  {p.custom && <Pill tone="accent">{copy.settings.providers.custom}</Pill>}
+                  <span className="text-small text-muted">
+                    {copy.settings.providers.modelCount(p.models)}
                   </span>
                 </div>
-                {p.baseUrl && <div className="truncate font-mono text-[11.5px] text-muted">{p.baseUrl}</div>}
+                {p.baseUrl && <div className="truncate font-mono text-footnote text-muted">{p.baseUrl}</div>}
               </div>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => setEditing(editing === p.id ? undefined : p.id)}
               >
-                {p.custom ? 'Edit' : p.ready ? 'Replace key' : 'Add key'}
+                {p.custom
+                  ? copy.settings.providers.edit
+                  : p.ready
+                    ? copy.settings.providers.replaceKey
+                    : copy.settings.providers.addKey}
               </Button>
               {p.ready && !p.custom && !p.stored && (
-                <span
-                  className="flex items-center gap-2"
-                  title="Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models."
-                >
-                  <span className="text-[11.5px] text-muted">{off.has(p.id) ? 'Off' : 'On'}</span>
+                <span className="flex items-center gap-2" title={copy.settings.providers.externalCredentials}>
+                  <span className="text-footnote text-muted">
+                    {off.has(p.id) ? copy.settings.shared.off : copy.settings.shared.on}
+                  </span>
                   <Switch
                     checked={!off.has(p.id)}
                     onChange={(on) => setOff(p.id, !on)}
-                    label={`Use ${p.id}`}
+                    label={copy.settings.providers.use(p.id)}
                   />
                 </span>
               )}
               {p.stored && !p.custom && (
-                <IconButton
-                  size="sm"
-                  label={`Remove ${p.id} credentials`}
-                  onClick={() =>
+                <ConfirmButton
+                  icon
+                  label={copy.settings.providers.removeCredentials(p.id)}
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
-                      `Removed ${p.id} credentials`,
+                      copy.settings.providers.removedCredentials(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
               {p.custom && (
-                <IconButton
-                  size="sm"
-                  label={`Remove ${p.id}`}
-                  onClick={() =>
+                <ConfirmButton
+                  icon
+                  label={copy.settings.providers.remove(p.id)}
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
-                      `Removed ${p.id}`,
+                      copy.settings.providers.removed(p.id),
                     )
                   }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                />
               )}
             </div>
             {editing === p.id && p.custom && (
@@ -1182,7 +1516,7 @@ function Providers(props: {
                     if (
                       await act(
                         () => send<{ providers: ProviderInfo[] }>('PUT', `/api/providers/${p.id}`, body),
-                        `Updated ${p.id}`,
+                        copy.settings.providers.updated(p.id),
                       )
                     )
                       setEditing(undefined)
@@ -1198,7 +1532,7 @@ function Providers(props: {
                     await act(
                       () =>
                         send<{ providers: ProviderInfo[] }>('PUT', `/api/credentials/${p.id}`, { apiKey }),
-                      `Saved the ${p.id} key`,
+                      copy.settings.providers.savedKey(p.id),
                     )
                   )
                     setEditing(undefined)
@@ -1211,14 +1545,16 @@ function Providers(props: {
           <button
             type="button"
             onClick={() => setShowAll(true)}
-            className="w-full px-4 py-2.5 text-left text-[12.5px] text-muted hover:text-fg"
+            className="w-full px-4 py-2.5 text-left text-callout text-muted hover:text-fg"
           >
-            Show {hiddenCount} more built-in providers
+            {copy.settings.providers.showMore(hiddenCount)}
           </button>
         )}
       </Card>
-      <p className="mt-2 text-[12px] text-muted">
-        Environment variables such as <span className="font-mono">ANTHROPIC_API_KEY</span> also work.
+      <p className="mt-2 text-small text-muted">
+        {copy.settings.providers.envBefore}
+        <span className="font-mono">ANTHROPIC_API_KEY</span>
+        {copy.settings.providers.envAfter}
       </p>
     </>
   )
@@ -1238,14 +1574,14 @@ function KeyForm(props: { provider: string; onSave(key: string): Promise<void> }
         type="password"
         autoComplete="off"
         autoFocus
-        placeholder={`${props.provider} API key`}
+        placeholder={copy.settings.providers.apiKeyFor(props.provider)}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         className="flex-1"
-        aria-label={`${props.provider} API key`}
+        aria-label={copy.settings.providers.apiKeyFor(props.provider)}
       />
       <Button type="submit" variant="primary" disabled={!value.trim()}>
-        Save
+        {copy.settings.shared.save}
       </Button>
     </form>
   )
@@ -1267,32 +1603,42 @@ function ProviderForm(props: {
   const [key, setKey] = useState('')
   const [manual, setManual] = useState((init?.modelIds ?? []).join(', '))
   const [busy, setBusy] = useState(false)
-  const nameOk = editing || (/^[a-z][a-z0-9-]{1,40}$/.test(name) && !props.existing.includes(name))
-  const urlOk = /^https?:\/\//.test(baseUrl)
+  // A field's reason shows once the person has left it filled in, and every reason once Connect is pressed too early.
+  const [tried, setTried] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const touch = (field: string) => (e: { target: { value: string } }) =>
+    e.target.value && setTouched((t) => ({ ...t, [field]: true }))
+  const formId = useId()
   const models = [...new Set(manual.split(/[\s,]+/).filter(Boolean))]
   const discovers = apiType === 'openai-completions' || apiType === 'openai-responses'
-  const keyOk = auth === 'none' || !!key.trim() || (editing && !!init?.hasKey)
+  const errors = {
+    name: editing ? undefined : providerNameError(name, props.existing),
+    baseUrl: baseUrlError(baseUrl),
+    key:
+      auth === 'none' || key.trim() || (editing && init?.hasKey)
+        ? undefined
+        : copy.settings.validation.keyRequired,
+    models: discovers || models.length > 0 ? undefined : copy.settings.validation.modelsRequired,
+  }
+  const shown = (field: keyof typeof errors) => (tried || touched[field] ? errors[field] : undefined)
   return (
     <Card className={cn(!editing && 'mb-3', 'border-accent/30')}>
       <div className="grid gap-4 p-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="Name"
-            hint={
-              editing
-                ? 'The model prefix; fixed once created.'
-                : 'Lowercase. Becomes the model prefix, e.g. lmstudio/qwen3'
-            }
+            label={copy.settings.providerForm.name}
+            hint={editing ? copy.settings.providerForm.nameFixed : copy.settings.providerForm.nameHint}
+            error={shown('name')}
           >
             <TextInput
               value={name}
               disabled={editing}
+              onBlur={touch('name')}
               onChange={(e) => setName(e.target.value.toLowerCase())}
               placeholder="lmstudio"
-              aria-invalid={!!name && !nameOk}
             />
           </Field>
-          <Field label="API type">
+          <Field label={copy.settings.providerForm.apiType}>
             <Select value={apiType} onChange={(e) => setApiType(e.target.value as Api)} className="w-full">
               {props.apis.map((a) => (
                 <option key={a} value={a}>
@@ -1302,22 +1648,24 @@ function ProviderForm(props: {
             </Select>
           </Field>
         </div>
-        <Field label="Base URL">
+        <Field label={copy.settings.providerForm.baseUrl} error={shown('baseUrl')}>
           <TextInput
+            type="url"
             value={baseUrl}
+            onBlur={touch('baseUrl')}
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder={API_HINT_URL[apiType]}
           />
         </Field>
         <div className="flex flex-wrap items-end gap-4">
-          <Field label="Authentication">
+          <Field label={copy.settings.providerForm.authentication}>
             <Segmented
               id={`auth-${init?.id ?? 'new'}`}
               value={auth}
               onChange={setAuth}
               options={[
-                { value: 'key', label: 'API key' },
-                { value: 'none', label: 'None (local)' },
+                { value: 'key', label: copy.settings.providerForm.apiKey },
+                { value: 'none', label: copy.settings.providerForm.keyless },
               ]}
             />
           </Field>
@@ -1328,37 +1676,47 @@ function ProviderForm(props: {
                 autoComplete="off"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                placeholder={editing && init?.hasKey ? 'Key saved · type to replace' : 'API key'}
-                aria-label="API key"
+                placeholder={
+                  editing && init?.hasKey
+                    ? copy.settings.providerForm.keySaved
+                    : copy.settings.providerForm.apiKey
+                }
+                aria-label={copy.settings.providerForm.apiKey}
+                aria-invalid={tried && !!errors.key}
+                aria-describedby={tried && errors.key ? `${formId}key-error` : undefined}
               />
             </div>
           )}
         </div>
+        {tried && errors.key && (
+          <p id={`${formId}key-error`} className="-mt-2 text-small leading-snug text-bad-ink">
+            {errors.key}
+          </p>
+        )}
         <Field
-          label="Models"
+          label={copy.settings.providerForm.models}
           hint={
-            discovers
-              ? 'Model ids, separated by commas. Leave empty to discover them from the endpoint’s model list.'
-              : 'Model ids, separated by commas.'
+            discovers ? copy.settings.providerForm.modelsDiscoverHint : copy.settings.providerForm.modelsHint
           }
+          error={tried ? errors.models : undefined}
         >
           <TextArea
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             placeholder="qwen3-8b, llama-3.3-70b"
-            aria-label="Model ids"
-            className="min-h-16 font-mono text-[12.5px]"
+            className="min-h-16 font-mono"
           />
         </Field>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={props.onCancel}>
-            Cancel
+            {copy.settings.shared.cancel}
           </Button>
           <Button
             variant="primary"
-            disabled={!nameOk || !urlOk || busy || !keyOk || (!discovers && models.length === 0)}
+            disabled={busy}
             icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             onClick={async () => {
+              if (Object.values(errors).some(Boolean)) return setTried(true)
               setBusy(true)
               await props.onSave({
                 name,
@@ -1371,8 +1729,8 @@ function ProviderForm(props: {
               setBusy(false)
             }}
           >
-            {editing ? 'Save changes' : 'Connect'}
-            {models.length ? ` · ${models.length} model${models.length === 1 ? '' : 's'}` : ''}
+            {editing ? copy.settings.providerForm.saveChanges : copy.settings.providerForm.connect}
+            {models.length ? copy.settings.providerForm.modelCount(models.length) : ''}
           </Button>
         </div>
       </div>
@@ -1390,9 +1748,7 @@ function TeamSection(props: {
   const t = props.data.settings.team
   return (
     <>
-      <Heading title="Team & budget">
-        Defaults for every new task. You can still change the team per message.
-      </Heading>
+      <Heading title={copy.settings.team.title}>{copy.settings.team.intro}</Heading>
       {props.config && (
         <Card className="mb-6">
           <div className="p-4">
@@ -1420,55 +1776,47 @@ function TeamSection(props: {
       )}
       <Card>
         <Row>
-          <Field
-            label="Time limit per round"
-            hint="The crew stops when this runs out, verified or not."
-            inline
-          >
+          <Field label={copy.settings.team.timeLimit} hint={copy.settings.team.timeLimitHint} inline>
             <NumberField
+              label={copy.settings.team.timeLimit}
               value={t.wallMinutes}
               min={1}
               max={240}
-              suffix="min"
+              suffix={copy.settings.team.units.minutes}
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, wallMinutes: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Spend limit per round"
-            hint="The round stops at this cost; at 80% agents are told to wrap up. 0 means no limit."
-            inline
-          >
+          <Field label={copy.settings.team.spendLimit} hint={copy.settings.team.spendLimitHint} inline>
             <NumberField
+              label={copy.settings.team.spendLimit}
               value={t.costUsd}
               min={0}
               max={1000}
               step={0.1}
-              suffix="$"
+              suffix={copy.settings.team.units.dollars}
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Token limit per round"
-            hint="Counts every token the models process, cached input included. 0 means no limit."
-            inline
-          >
+          <Field label={copy.settings.team.tokenLimit} hint={copy.settings.team.tokenLimitHint} inline>
             <NumberField
+              label={copy.settings.team.tokenLimit}
               value={t.tokens}
               min={0}
               max={1_000_000_000}
-              suffix="tok"
+              suffix={copy.settings.team.units.tokens}
               wide
               onChange={(v) => props.update((s) => ({ ...s, team: { ...s.team, tokens: v } }))}
             />
           </Field>
         </Row>
         <Row>
-          <Field label="Turns per agent" hint="Each agent stops after this many turns." inline>
+          <Field label={copy.settings.team.turns} hint={copy.settings.team.turnsHint} inline>
             <NumberField
+              label={copy.settings.team.turns}
               value={t.maxTurns}
               min={1}
               max={200}
@@ -1477,16 +1825,13 @@ function TeamSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Observer interval"
-            hint="How often the observer checks time, idle agents, and stalls."
-            inline
-          >
+          <Field label={copy.settings.team.observer} hint={copy.settings.team.observerHint} inline>
             <NumberField
+              label={copy.settings.team.observer}
               value={props.data.settings.observer.intervalSeconds}
               min={10}
               max={600}
-              suffix="s"
+              suffix={copy.settings.team.units.seconds}
               onChange={(v) => props.update((s) => ({ ...s, observer: { intervalSeconds: v } }))}
             />
           </Field>
@@ -1496,7 +1841,12 @@ function TeamSection(props: {
   )
 }
 
+/**
+ * A number with limits. Typing applies each value inside the limits at once; leaving the box keeps an out-of-range
+ * value at the nearest limit and an empty one at what it was, and while the value is outside them the box says so.
+ */
 function NumberField(props: {
+  label: string
   value: number
   min: number
   max: number
@@ -1506,21 +1856,50 @@ function NumberField(props: {
   wide?: boolean
   onChange(v: number): void
 }) {
+  const id = useId()
+  const [draft, setDraft] = useState<string>()
+  const text = draft ?? String(props.value)
+  const n = Number(text)
+  const ok = !!text.trim() && Number.isFinite(n) && n >= props.min && n <= props.max
+  const range = copy.settings.validation.range(props.min.toLocaleString(), props.max.toLocaleString())
+  const commit = () => {
+    if (draft === undefined) return
+    const next = clampNumber(draft, props.min, props.max, props.value)
+    setDraft(undefined)
+    if (next !== props.value) props.onChange(next)
+  }
   return (
-    <div className="flex items-center gap-2">
-      <TextInput
-        type="number"
-        min={props.min}
-        max={props.max}
-        step={props.step ?? 1}
-        value={props.value}
-        onChange={(e) => {
-          const v = Number(e.target.value)
-          if (Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
-        }}
-        className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
-      />
-      {props.suffix && <span className="w-7 text-[12.5px] text-muted">{props.suffix}</span>}
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-2">
+        <TextInput
+          type="number"
+          min={props.min}
+          max={props.max}
+          step={props.step ?? 1}
+          value={text}
+          aria-label={props.label}
+          aria-invalid={!ok}
+          aria-describedby={ok ? undefined : id}
+          title={range}
+          onChange={(e) => {
+            const value = e.target.value
+            setDraft(value)
+            const v = Number(value)
+            if (value.trim() && Number.isFinite(v) && v >= props.min && v <= props.max) props.onChange(v)
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+          }}
+          className={`${props.wide ? 'w-32' : 'w-24'} text-right tabular-nums`}
+        />
+        {props.suffix && <span className="w-7 text-callout text-muted">{props.suffix}</span>}
+      </div>
+      {!ok && (
+        <p id={id} className="text-small text-warn-ink">
+          {range}
+        </p>
+      )}
     </div>
   )
 }
@@ -1533,32 +1912,32 @@ const TOOL_INFO: {
 }[] = [
   {
     key: 'shell',
-    label: 'Shell',
-    hint: 'Run commands in a sandbox that can only write to the agent’s scratch folder.',
+    label: copy.settings.tools.groups.shell.label,
+    hint: copy.settings.tools.groups.shell.hint,
     icon: Terminal,
   },
   {
     key: 'web',
-    label: 'Web search & fetch',
-    hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
+    label: copy.settings.tools.groups.web.label,
+    hint: copy.settings.tools.groups.web.hint,
     icon: Globe,
   },
   {
     key: 'files',
-    label: 'Scratch files',
-    hint: 'Private working files for drafts before publishing artifacts.',
+    label: copy.settings.tools.groups.files.label,
+    hint: copy.settings.tools.groups.files.hint,
     icon: SlidersHorizontal,
   },
   {
     key: 'messaging',
-    label: 'Messaging',
-    hint: 'Board posts, direct mail between agents, and shared notes.',
+    label: copy.settings.tools.groups.messaging.label,
+    hint: copy.settings.tools.groups.messaging.hint,
     icon: MessageSquareText,
   },
   {
     key: 'mcp',
-    label: 'MCP servers',
-    hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
+    label: copy.settings.tools.groups.mcp.label,
+    hint: copy.settings.tools.groups.mcp.hint,
     icon: Plug,
   },
 ]
@@ -1575,28 +1954,28 @@ function ToolRules(props: {
     .filter((t) => !q || t.name.includes(q) || t.description.toLowerCase().includes(q))
     // Tools with a rule first, so what you set is easy to find again.
     .sort((a, b) => Number(!!rules[b.name]) - Number(!!rules[a.name]) || a.name.localeCompare(b.name))
-  const set = (name: string, rule: string) =>
+  // Built-in tools are allowed unless a rule says otherwise; MCP tools have a default of their own (read-only ones
+  // run, others ask), so allowing one is a rule worth keeping.
+  const set = (name: string, rule: string, mcp: boolean) =>
     props.update((s) => {
       const next = { ...(s.permissions ?? {}) }
-      if (rule === 'ask' || rule === 'off') next[name] = rule
+      if (rule === 'ask' || rule === 'off' || (rule === 'allow' && mcp)) next[name] = rule
       else delete next[name]
       return { ...s, permissions: next }
     }, true)
   return (
     <>
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <ShieldCheck className="size-4 text-muted" /> Per-tool rules
-        <span className="font-normal text-muted">
-          ask before each call, or turn one tool off; applies to new rounds
-        </span>
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
+        <ShieldCheck className="size-4 text-muted" /> {copy.settings.tools.rulesTitle}
+        <span className="font-normal text-muted">{copy.settings.tools.rulesSubtitle}</span>
       </h4>
       <Card>
         <Row>
           <TextInput
-            aria-label="Find a tool"
+            aria-label={copy.settings.tools.findTool}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a tool, e.g. browser, shell, mcp"
+            placeholder={copy.settings.tools.findToolPlaceholder}
           />
         </Row>
         <div className="max-h-80 overflow-y-auto">
@@ -1604,19 +1983,28 @@ function ToolRules(props: {
             <Row key={t.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono text-[12.5px] font-medium">{t.name}</div>
-                  <div className="truncate text-[12px] text-muted" title={t.description}>
+                  <div className="font-mono text-callout font-medium">{t.name}</div>
+                  <div className="truncate text-small text-muted" title={t.description}>
                     {t.description}
                   </div>
                 </div>
                 <Select
-                  aria-label={`Rule for ${t.name}`}
-                  value={rules[t.name] ?? 'allow'}
-                  onChange={(e) => set(t.name, e.target.value)}
+                  aria-label={copy.settings.tools.ruleFor(t.name)}
+                  value={rules[t.name] ?? (t.mcp ? 'default' : 'allow')}
+                  onChange={(e) => set(t.name, e.target.value, !!t.mcp)}
                 >
-                  <option value="allow">Allow</option>
-                  <option value="ask">Ask first</option>
-                  <option value="off">Off</option>
+                  {t.mcp && (
+                    <option value="default">
+                      {t.name === 'mcp'
+                        ? copy.settings.tools.mcpDefault
+                        : t.readOnly
+                          ? copy.settings.tools.readOnlyDefault
+                          : copy.settings.tools.changesDefault}
+                    </option>
+                  )}
+                  <option value="allow">{copy.settings.tools.allow}</option>
+                  <option value="ask">{copy.settings.tools.askFirst}</option>
+                  <option value="off">{copy.settings.shared.off}</option>
                 </Select>
               </div>
             </Row>
@@ -1634,24 +2022,22 @@ function ToolsSection(props: {
   const sandboxed = props.data.sandbox !== 'none'
   return (
     <>
-      <Heading title="Tools">
-        Capabilities agents get in new tasks. Publishing, tasks, and verification are always on.
-      </Heading>
+      <Heading title={copy.settings.tools.title}>{copy.settings.tools.intro}</Heading>
       <div
         className={cn(
-          'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-[13px]',
+          'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-body',
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
         <ShieldCheck className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
         <div>
           <div className="font-semibold">
-            {sandboxed ? `Sandbox active: ${props.data.sandbox}` : 'No OS sandbox found'}
+            {sandboxed
+              ? copy.settings.tools.sandboxActive(props.data.sandbox)
+              : copy.settings.tools.noSandbox}
           </div>
           <div className="text-fg-2">
-            {sandboxed
-              ? 'Shell commands and command checks cannot write outside the agent’s scratch folder.'
-              : 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.'}
+            {sandboxed ? copy.settings.tools.sandboxedHint : copy.settings.tools.unsandboxedHint}
           </div>
         </div>
       </div>
@@ -1663,8 +2049,8 @@ function ToolsSection(props: {
                 <t.icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">{t.label}</div>
-                <div className="text-[12.5px] text-muted">{t.hint}</div>
+                <div className="text-reading font-medium">{t.label}</div>
+                <div className="text-callout text-muted">{t.hint}</div>
               </div>
               <Switch
                 checked={props.data.settings.tools[t.key]}
@@ -1677,30 +2063,28 @@ function ToolsSection(props: {
       </Card>
       <ToolRules data={props.data} update={props.update} />
       <McpServers />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <Wrench className="size-4 text-muted" /> Your tool library
-        <span className="font-normal text-muted">
-          tools agents made that you kept; every new round starts with them
-        </span>
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
+        <Wrench className="size-4 text-muted" /> {copy.settings.tools.libraryTitle}
+        <span className="font-normal text-muted">{copy.settings.tools.librarySubtitle}</span>
       </h4>
       <ToolLibraryList />
-      <h4 className="mb-2 mt-8 flex items-center gap-2 text-[13px] font-semibold">
-        <Search className="size-4 text-muted" /> Web search
+      <h4 className="mb-2 mt-8 flex items-center gap-2 text-body font-semibold">
+        <Search className="size-4 text-muted" /> {copy.settings.tools.webSearch}
       </h4>
       <Card>
         <Row>
           <Field
-            label="Search provider"
-            hint="Auto tries omp’s chain: providers you have keys for first, then keyless ones like DuckDuckGo."
+            label={copy.settings.tools.searchProvider}
+            hint={copy.settings.tools.searchProviderHint}
             inline
           >
             <Select
               value={props.data.settings.search.provider}
               onChange={(e) => props.update((s) => ({ ...s, search: { provider: e.target.value } }), true)}
-              aria-label="Search provider"
+              aria-label={copy.settings.tools.searchProvider}
               className="min-w-44"
             >
-              <option value="auto">Auto</option>
+              <option value="auto">{copy.settings.tools.searchAuto}</option>
               {props.data.searchProviders.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -1775,7 +2159,7 @@ function McpServers() {
         : { type: form.transport, url: form.url.trim() }
     const ok = await act(
       () => send<{ servers: McpServer[] }>('POST', '/api/mcp', { name: form.name.trim(), config }),
-      `Added ${form.name.trim()}`,
+      copy.settings.mcp.added(form.name.trim()),
     )
     if (ok) {
       setAdding(false)
@@ -1786,23 +2170,23 @@ function McpServers() {
   return (
     <>
       <div className="mb-2 mt-8 flex items-center justify-between">
-        <h4 className="flex items-center gap-2 text-[13px] font-semibold">
-          <Plug className="size-4 text-muted" /> MCP servers
-          <span className="font-normal text-muted">from mcp.json; imported with your omp setup</span>
+        <h4 className="flex items-center gap-2 text-body font-semibold">
+          <Plug className="size-4 text-muted" /> {copy.settings.mcp.title}
+          <span className="font-normal text-muted">{copy.settings.mcp.subtitle}</span>
         </h4>
         <div className="flex gap-2">
           <Button
             size="sm"
             variant="ghost"
             disabled={busy}
-            onClick={() => act(() => send('POST', '/api/mcp-reload'), 'Reconnected MCP servers')}
+            onClick={() => act(() => send('POST', '/api/mcp-reload'), copy.settings.mcp.reconnected)}
             icon={<RefreshCw className="size-3.5" />}
           >
-            Reconnect
+            {copy.settings.mcp.reconnect}
           </Button>
           {!adding && (
             <Button size="sm" onClick={() => setAdding(true)} icon={<Plus className="size-3.5" />}>
-              Add server
+              {copy.settings.mcp.addServer}
             </Button>
           )}
         </div>
@@ -1810,59 +2194,56 @@ function McpServers() {
       {adding && (
         <Card className="mb-3">
           <div className="grid gap-3 p-4 sm:grid-cols-2">
-            <Field label="Name">
+            <Field label={copy.settings.mcp.name}>
               <TextInput
                 value={form.name}
                 placeholder="github"
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </Field>
-            <Field label="Transport">
+            <Field label={copy.settings.mcp.transport}>
               <Select
                 value={form.transport}
                 onChange={(e) => setForm({ ...form, transport: e.target.value })}
               >
-                <option value="stdio">Local command (stdio)</option>
-                <option value="http">Remote (HTTP)</option>
-                <option value="sse">Remote (SSE, legacy)</option>
+                <option value="stdio">{copy.settings.mcp.transportStdio}</option>
+                <option value="http">{copy.settings.mcp.transportHttp}</option>
+                <option value="sse">{copy.settings.mcp.transportSse}</option>
               </Select>
             </Field>
             {form.transport === 'stdio' ? (
               <>
-                <Field label="Command" hint="The program and its arguments.">
+                <Field label={copy.settings.mcp.command} hint={copy.settings.mcp.commandHint}>
                   <TextInput
                     value={form.command}
                     placeholder="npx -y @modelcontextprotocol/server-filesystem /path"
                     onChange={(e) => setForm({ ...form, command: e.target.value })}
-                    className="font-mono text-[12px]"
+                    className="font-mono"
                   />
                 </Field>
-                <Field
-                  label="Environment"
-                  hint="KEY=value per line. Your own API keys are not passed on otherwise."
-                >
+                <Field label={copy.settings.mcp.environment} hint={copy.settings.mcp.environmentHint}>
                   <TextArea
                     rows={2}
                     value={form.env}
                     onChange={(e) => setForm({ ...form, env: e.target.value })}
-                    className="font-mono text-[12px]"
+                    className="font-mono"
                   />
                 </Field>
               </>
             ) : (
-              <Field label="URL">
+              <Field label={copy.settings.mcp.url}>
                 <TextInput
                   value={form.url}
                   placeholder="https://example.com/mcp"
                   onChange={(e) => setForm({ ...form, url: e.target.value })}
-                  className="font-mono text-[12px]"
+                  className="font-mono"
                 />
               </Field>
             )}
           </div>
           <div className="flex justify-end gap-2 border-t border-line px-4 py-3">
             <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-              Cancel
+              {copy.settings.shared.cancel}
             </Button>
             <Button
               size="sm"
@@ -1875,7 +2256,7 @@ function McpServers() {
               onClick={add}
               icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : undefined}
             >
-              Add and connect
+              {copy.settings.mcp.addAndConnect}
             </Button>
           </div>
         </Card>
@@ -1883,50 +2264,52 @@ function McpServers() {
       <Card>
         {servers === undefined ? (
           <Row>
-            <span className="text-[13px] text-muted">Loading…</span>
+            <span className="text-body text-muted">{copy.settings.shared.loading}</span>
           </Row>
         ) : servers.length === 0 ? (
           <Row>
-            <span className="text-[13px] text-muted">
-              No MCP servers yet. Add one, or import your omp setup under Models &amp; providers.
-            </span>
+            <span className="text-body text-muted">{copy.settings.mcp.empty}</span>
           </Row>
         ) : (
           servers.map((m) => (
             <Row key={m.name}>
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                  <div className="flex items-center gap-2 text-reading font-medium">
                     {m.name}
-                    <Pill tone={MCP_TONE[m.status]}>{m.status}</Pill>
+                    <Pill tone={MCP_TONE[m.status]}>{copy.settings.mcp.statuses[m.status]}</Pill>
                     {m.tools.length > 0 && (
-                      <span className="text-[12px] text-muted">{m.tools.length} tools</span>
+                      <span className="text-small text-muted">
+                        {copy.settings.mcp.toolCount(m.tools.length)}
+                      </span>
                     )}
                   </div>
-                  <div className="truncate font-mono text-[11.5px] text-muted" title={m.target}>
+                  <div className="truncate font-mono text-footnote text-muted" title={m.target}>
                     {m.transport} · {m.target}
                   </div>
-                  {m.error && <div className="mt-0.5 text-[12px] text-bad-ink">{m.error}</div>}
+                  {m.error && <div className="mt-0.5 text-small text-bad-ink">{m.error}</div>}
                 </div>
                 <Switch
                   checked={m.enabled}
-                  label={`Enable ${m.name}`}
+                  label={copy.settings.mcp.enable(m.name)}
                   onChange={(v) =>
                     act(
                       () => send('PUT', `/api/mcp/${encodeURIComponent(m.name)}`, { enabled: v }),
-                      v ? `Enabled ${m.name}` : `Disabled ${m.name}`,
+                      v ? copy.settings.mcp.enabled(m.name) : copy.settings.mcp.disabled(m.name),
                     )
                   }
                 />
-                <IconButton
-                  label={`Remove ${m.name}`}
-                  size="sm"
-                  onClick={() =>
-                    act(() => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`), `Removed ${m.name}`)
+                <ConfirmButton
+                  icon
+                  label={copy.settings.mcp.remove(m.name)}
+                  confirm={copy.settings.shared.confirmRemove}
+                  onConfirm={() =>
+                    void act(
+                      () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
+                      copy.settings.mcp.removed(m.name),
+                    )
                   }
-                >
-                  <Trash2 className="size-3.5" />
-                </IconButton>
+                />
               </div>
             </Row>
           ))
@@ -1937,10 +2320,754 @@ function McpServers() {
 }
 
 const REVIEWER_HINT = {
-  off: "Never. The lead's final answer completes the task.",
-  auto: 'When the lead decides the work deserves it: code, files, research with sources.',
-  always: 'Every final answer, before the task completes; findings go back to the lead to fix.',
+  off: copy.settings.reviewer.hints.off,
+  auto: copy.settings.reviewer.hints.auto,
+  always: copy.settings.reviewer.hints.always,
 } as const
+
+interface DeviceRow {
+  id: string
+  name: string
+  scope: 'full' | 'chat'
+  createdAt: string
+  lastSeenAt?: string
+  hub?: boolean
+  current?: boolean
+}
+
+/** Devices paired with this gateway, with Revoke, and a single-use pairing link for a new one. */
+function DevicesSection() {
+  const t = copy.settings.devices
+  const toast = useToast()
+  const [data, setData] = useState<{ remote: boolean; devices: DeviceRow[] }>()
+  const [scope, setScope] = useState<'full' | 'chat'>('full')
+  const [link, setLink] = useState<{ code: string; link: string }>()
+  const [copied, copyText] = useCopy()
+  const load = () =>
+    api<{ remote: boolean; devices: DeviceRow[] }>('/api/devices')
+      .then(setData)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  const makeLink = () =>
+    post<{ code: string; link: string }>('/api/devices/pair-code', { scope }).then(setLink, (err: Error) =>
+      toast(err.message, 'error'),
+    )
+  const revoke = (d: DeviceRow) =>
+    send('DELETE', `/api/devices/${encodeURIComponent(d.id)}`).then(
+      () => {
+        toast(t.revoked(d.name), 'info')
+        void load()
+      },
+      (err: Error) => toast(err.message, 'error'),
+    )
+  return (
+    <>
+      <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
+      {data?.remote === false ? (
+        <div
+          role="note"
+          className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body"
+        >
+          <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-muted" />
+          <div>
+            <div className="font-semibold">{t.pairNeedsRemoteTitle}</div>
+            <div className="text-fg-2">{t.pairNeedsRemote}</div>
+          </div>
+        </div>
+      ) : (
+        <Card className="mb-6">
+          <Row>
+            <Field label={t.scope} hint={t.scopeHints[scope]} inline>
+              <Segmented
+                id="pair-scope"
+                value={scope}
+                options={[
+                  { value: 'full', label: t.scopes.full },
+                  { value: 'chat', label: t.scopes.chat },
+                ]}
+                onChange={(s) => {
+                  setScope(s)
+                  setLink(undefined)
+                }}
+              />
+            </Field>
+          </Row>
+          <Row>
+            {link ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-body text-fg-2">{t.link}</p>
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-callout">
+                    {link.link}
+                  </code>
+                  <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                    {copied ? t.copied : t.copy}
+                  </Button>
+                </div>
+                <p className="text-callout text-muted">{t.code(link.code)}</p>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="size-3.5" />}
+                onClick={() => void makeLink()}
+              >
+                {t.pair}
+              </Button>
+            )}
+          </Row>
+        </Card>
+      )}
+      {data && data.devices.length === 0 ? (
+        <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
+      ) : (
+        <Card>
+          {data?.devices.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+              <MonitorSmartphone className="size-4 shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-reading font-semibold">{d.name}</span>
+                  {d.current && <Pill tone="accent">{t.thisDevice}</Pill>}
+                </div>
+                <div className="truncate text-small text-muted">
+                  {t.scopeNames[d.scope]}
+                  {d.hub ? ` · ${t.viaHub}` : ''} ·{' '}
+                  {d.lastSeenAt ? t.lastSeen(new Date(d.lastSeenAt).toLocaleString()) : t.never}
+                </div>
+              </div>
+              <ConfirmButton
+                label={t.revoke}
+                confirm={d.current ? t.confirmRevokeSelf : t.confirmRevoke}
+                warning={d.current ? t.revokeSelfWarning : undefined}
+                onConfirm={() => void revoke(d)}
+              />
+            </div>
+          ))}
+        </Card>
+      )}
+    </>
+  )
+}
+
+interface ChannelView {
+  id: string
+  label: string
+  configured: boolean
+  enabled: boolean
+  project?: string
+  status:
+    | { state: 'off' | 'connecting' }
+    | { state: 'on'; account: string }
+    | { state: 'retrying' | 'error'; error: string }
+  people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
+  groups: { id: string; title: string }[]
+  pending: {
+    id: string
+    kind: 'person' | 'group'
+    sender: { name: string; handle?: string }
+    chat: { title?: string }
+    expires: string
+  }[]
+}
+
+/** How often Settings → Channels looks again, so a code someone just asked for shows up. */
+const CHANNELS_POLL_MS = 3000
+
+/**
+ * Messaging channels: the bot token, whether it runs and its project, who is waiting for approval, and who is
+ * approved. Telegram is built in; more come as plugins.
+ */
+function ChannelsSection() {
+  const t = copy.settings.channels
+  const toast = useToast()
+  const [list, setList] = useState<ChannelView[]>()
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [tokens, setTokens] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState<string>()
+  const load = () =>
+    api<{ channels: ChannelView[] }>('/api/channels')
+      .then((r) => setList(r.channels))
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
+  useEffect(() => {
+    void load()
+    void api<{ projects: { id: string; name: string }[] }>('/api/projects').then((r) =>
+      setProjects(r.projects),
+    )
+    const timer = setInterval(() => void load(), CHANNELS_POLL_MS)
+    return () => clearInterval(timer)
+  }, [])
+  const configure = async (c: ChannelView, patch: Record<string, unknown>) => {
+    setBusy(c.id)
+    try {
+      const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, patch)
+      if (typeof patch.token === 'string') {
+        setTokens((all) => ({ ...all, [c.id]: '' }))
+        if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
+      }
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setBusy(undefined)
+    }
+  }
+  const act = (promise: Promise<unknown>, done?: string) =>
+    promise.then(
+      () => {
+        if (done) toast(done, 'success')
+        void load()
+      },
+      (err: Error) => toast(err.message, 'error'),
+    )
+  const statusText = (s: ChannelView['status']) =>
+    s.state === 'on'
+      ? t.status.on(s.account)
+      : s.state === 'retrying'
+        ? t.status.retrying(s.error)
+        : s.state === 'error'
+          ? t.status.error(s.error)
+          : t.status[s.state]
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      {list?.map((c) => (
+        <div key={c.id} className="mb-6 flex flex-col gap-4">
+          <Card>
+            <Row>
+              <div className="flex items-center gap-3">
+                <MessagesSquare className="size-4 shrink-0 text-muted" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-semibold">{c.label}</div>
+                  <div
+                    className={cn(
+                      'truncate text-[12px]',
+                      c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
+                    )}
+                  >
+                    {statusText(c.status)}
+                  </div>
+                </div>
+                {c.configured && (
+                  <Switch
+                    checked={c.enabled}
+                    onChange={(enabled) => void configure(c, { enabled })}
+                    label={t.on}
+                  />
+                )}
+              </div>
+            </Row>
+            <Row>
+              <Field label={t.token} hint={c.configured ? t.tokenSet : t.telegramSteps}>
+                <div className="flex gap-2">
+                  <TextInput
+                    type="password"
+                    autoComplete="off"
+                    value={tokens[c.id] ?? ''}
+                    onChange={(e) => setTokens((all) => ({ ...all, [c.id]: e.target.value }))}
+                    placeholder="123456:ABC-…"
+                    aria-label={t.token}
+                    className="font-mono"
+                  />
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={busy === c.id || !tokens[c.id]?.trim()}
+                    onClick={() => void configure(c, { token: tokens[c.id] ?? '' })}
+                  >
+                    {busy === c.id ? t.saving : t.save}
+                  </Button>
+                </div>
+              </Field>
+            </Row>
+            {c.configured && (
+              <Row>
+                <Field label={t.project} hint={t.projectHint} inline>
+                  <Select
+                    value={c.project ?? ''}
+                    onChange={(e) => void configure(c, { project: e.target.value || null })}
+                    aria-label={t.project}
+                  >
+                    <option value="">{t.noProject}</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </Row>
+            )}
+          </Card>
+          {c.pending.length > 0 && (
+            <Card>
+              <Row>
+                <div className="text-[13px] font-semibold">{t.waiting}</div>
+                <div className="text-[12px] text-muted">{t.waitingHint}</div>
+              </Row>
+              {c.pending.map((p) => (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13.5px] font-semibold">
+                      {p.sender.name}
+                      {p.sender.handle ? ` (@${p.sender.handle})` : ''}
+                      {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                    </div>
+                    <div className="text-[12px] text-muted">
+                      {t.expires(new Date(p.expires).toLocaleTimeString())}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() =>
+                      void act(
+                        post(`/api/channels/${c.id}/approve`, { request: p.id }),
+                        t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
+                      )
+                    }
+                  >
+                    {t.approve}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
+                  >
+                    {t.dismiss}
+                  </Button>
+                </div>
+              ))}
+            </Card>
+          )}
+          {c.configured && (
+            <Card>
+              <Row>
+                <div className="text-[13px] font-semibold">{t.people}</div>
+              </Row>
+              {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
+              {c.people.map((p) => (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1 truncate text-[13.5px]">
+                    {p.name}
+                    {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
+                  </div>
+                  <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                    {p.role === 'owner' ? t.owner : t.member}
+                  </Pill>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                  >
+                    {t.revoke}
+                  </Button>
+                </div>
+              ))}
+              {c.groups.length > 0 && (
+                <Row>
+                  <div className="text-[13px] font-semibold">{t.groups}</div>
+                </Row>
+              )}
+              {c.groups.map((g) => (
+                <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                  >
+                    {t.revoke}
+                  </Button>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      ))}
+    </>
+  )
+}
+
+/**
+ * Other gateways this machine shows (it is their hub): add one with its pairing link, see whether it answers, show it
+ * in this window, or remove it. Always this machine's list, whichever gateway the window shows.
+ */
+function GatewaysSection() {
+  const t = copy.settings.gateways
+  const toast = useToast()
+  const [list, setList] = useState<GatewayInfo[]>()
+  const [link, setLink] = useState('')
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const active = activeGateway()
+  const load = () =>
+    listGateways()
+      .then(setList)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  const add = async () => {
+    setBusy(true)
+    try {
+      const { gateway } = await hubSend<{ gateway: GatewayInfo }>('POST', '/api/gateways', {
+        link: link.trim(),
+        ...(name.trim() ? { name: name.trim() } : {}),
+      })
+      toast(t.added(gateway.name), 'success')
+      window.dispatchEvent(new Event(GATEWAYS_CHANGED))
+      setLink('')
+      setName('')
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = (g: GatewayInfo) =>
+    hubSend('DELETE', `/api/gateways/${encodeURIComponent(g.id)}`).then(
+      () => {
+        toast(t.removed(g.name), 'info')
+        // The window cannot keep showing a gateway that is gone.
+        if (g.id === active) switchGateway(undefined)
+        else {
+          window.dispatchEvent(new Event(GATEWAYS_CHANGED))
+          void load()
+        }
+      },
+      (err: Error) => toast(err.message, 'error'),
+    )
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.link} hint={t.linkHint}>
+            <TextInput
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://box.tail1234.ts.net/#pair=…"
+              aria-label={t.link}
+              className="font-mono"
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.name} hint={t.nameHint}>
+            <TextInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={40}
+              aria-label={t.name}
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy || !link.trim()}
+            icon={busy ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+            onClick={() => void add()}
+          >
+            {busy ? t.adding : t.add}
+          </Button>
+        </Row>
+      </Card>
+      {list && list.length === 0 ? (
+        <Empty icon={<Network className="size-5" />} title={t.empty} />
+      ) : (
+        <Card>
+          {list?.map((g) => (
+            <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+              <span
+                className={cn('inline-flex size-2 shrink-0 rounded-full', g.health.ok ? 'bg-ok' : 'bg-bad')}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-reading font-semibold">{g.name}</span>
+                  {g.id === active && <Pill tone="accent">{t.shown}</Pill>}
+                </div>
+                <div className="truncate text-small text-muted">
+                  {new URL(g.url).host} · {copy.settings.devices.scopeNames[g.scope]} ·{' '}
+                  {g.health.ok ? t.reachable : g.health.error} ·{' '}
+                  {t.checked(new Date(g.health.checkedAt).toLocaleTimeString())}
+                </div>
+              </div>
+              {g.id !== active && (
+                <Button size="sm" variant="ghost" onClick={() => switchGateway(g.id)}>
+                  {t.show}
+                </Button>
+              )}
+              <ConfirmButton
+                label={t.remove}
+                confirm={copy.settings.shared.confirmRemove}
+                onConfirm={() => void remove(g)}
+              />
+            </div>
+          ))}
+        </Card>
+      )}
+    </>
+  )
+}
+
+/** The person's saved specialists: each as a row, opened into its editor; a new one starts empty. */
+function SpecialistsSection(props: { models: ModelOption[] }) {
+  const t = copy.settings.specialists
+  const toast = useToast()
+  const list = useSpecialists()
+  const [open, setOpen] = useState<string>()
+  const modelName = (ref?: string) =>
+    ref ? (props.models.find((m) => m.ref === ref)?.name ?? ref) : t.teamModel
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <div className="mb-4 flex justify-end">
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Plus className="size-3.5" />}
+          onClick={() => setOpen('new')}
+        >
+          {t.add}
+        </Button>
+      </div>
+      {open === 'new' && (
+        <Card className="mb-4 p-4">
+          <SpecialistEditor
+            models={props.models}
+            onSaved={() => setOpen(undefined)}
+            onCancel={() => setOpen(undefined)}
+          />
+        </Card>
+      )}
+      {list.length === 0 && open !== 'new' ? (
+        <Empty icon={<UserCog className="size-5" />} title={t.empty}>
+          {t.emptyHint}
+        </Empty>
+      ) : (
+        <Card>
+          {list.map((s) =>
+            open === s.id ? (
+              <div key={s.id} className="p-4">
+                <SpecialistEditor
+                  models={props.models}
+                  initial={s}
+                  onSaved={() => setOpen(undefined)}
+                  onCancel={() => setOpen(undefined)}
+                />
+              </div>
+            ) : (
+              <div key={s.id} className="group flex items-center gap-3 px-4 py-3">
+                <AgentAvatar name={s.name} status="idle" size={32} awake />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-reading font-semibold">{s.name}</span>
+                    <span className="truncate text-callout text-fg-2">{s.specialty}</span>
+                  </div>
+                  <div className="truncate text-small text-muted">
+                    {modelName(s.model)}
+                    {s.off.length > 0 && ` · ${t.toolsOff(s.off.map((g) => t.groups[g]).join(', '))}`}
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
+                  {t.edit}
+                </Button>
+                <ConfirmButton
+                  label={t.remove}
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() =>
+                    void removeSpecialist(s.id).then(
+                      () => toast(t.removed(s.name), 'info'),
+                      (err: Error) => toast(err.message, 'error'),
+                    )
+                  }
+                />
+              </div>
+            ),
+          )}
+        </Card>
+      )}
+    </>
+  )
+}
+
+/** A choice shown as a small picture with its name under it, like macOS's appearance pickers. */
+function Tile(props: { selected: boolean; label: string; onClick(): void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      aria-pressed={props.selected}
+      className="flex flex-col items-center gap-1.5 text-small text-fg-2"
+    >
+      <span
+        className={cn(
+          'grid place-items-center rounded-xl p-0.5 ring-2 transition-shadow',
+          props.selected ? 'ring-accent' : 'ring-transparent hover:ring-line-strong',
+        )}
+      >
+        {props.children}
+      </span>
+      <span className={props.selected ? 'font-medium text-fg' : ''}>{props.label}</span>
+    </button>
+  )
+}
+
+/** The mascot's screen at a size for pickers: its eyes in the chosen style and colour, with its accessory. */
+function MiniMascot(props: { look: MascotLook; cell?: number }) {
+  const cell = props.cell ?? 4
+  return (
+    <span className="relative inline-block rounded-lg bg-screen p-2.5">
+      <PixelFace
+        mood="idle"
+        color={MASCOT_COLORS[props.look.color]}
+        cols={15}
+        rows={8}
+        cell={cell}
+        gap={cell * 0.3}
+        eyes={props.look.eyes}
+        look={[0, 0]}
+      />
+      {props.look.look === 'flower' && (
+        <PixelSprite sprite={FLOWER} cell={cell * 0.85} className="absolute -right-2.5 -top-2.5" />
+      )}
+      {props.look.look === 'bow' && (
+        <PixelSprite
+          sprite={BOW}
+          cell={cell * 0.75}
+          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2"
+        />
+      )}
+    </span>
+  )
+}
+
+function MascotSection(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.mascot
+  const profile = props.data.settings.profile ?? { greeting: 'model' as const }
+  const look = { ...DEFAULT_MASCOT, ...props.data.settings.mascot }
+  const set = (patch: Partial<MascotLook>) =>
+    props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
+            <TextInput
+              value={profile.name ?? ''}
+              placeholder={props.data.account}
+              maxLength={40}
+              aria-label={t.name}
+              onChange={(e) =>
+                props.update((s) => ({
+                  ...s,
+                  profile: { greeting: 'model', ...s.profile, name: e.target.value },
+                }))
+              }
+              className="w-48"
+            />
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
+            <Segmented
+              id="greeting"
+              value={profile.greeting}
+              options={[
+                { value: 'model', label: t.greetingModel },
+                { value: 'rules', label: t.greetingRules },
+              ]}
+              onChange={(greeting) =>
+                props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+              }
+            />
+          </Field>
+        </Row>
+      </Card>
+      <Card>
+        <Row>
+          <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
+            <MiniMascot look={look} cell={9} />
+          </figure>
+        </Row>
+        <Row>
+          <Field label={t.eyes}>
+            <div className="flex flex-wrap gap-3">
+              {(['round', 'happy', 'tall', 'sleepy', 'lashes'] as const).map((eyes) => (
+                <Tile
+                  key={eyes}
+                  selected={look.eyes === eyes}
+                  label={t.eyeStyles[eyes]}
+                  onClick={() => set({ eyes })}
+                >
+                  <MiniMascot look={{ ...look, eyes, look: 'neutral' }} />
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.look}>
+            <div className="flex flex-wrap gap-4">
+              {(['neutral', 'flower', 'bow'] as const).map((l) => (
+                <Tile key={l} selected={look.look === l} label={t.looks[l]} onClick={() => set({ look: l })}>
+                  <span className="px-1.5 pb-2 pt-1.5">
+                    <MiniMascot look={{ ...look, look: l }} />
+                  </span>
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.color}>
+            <div className="flex flex-wrap gap-3">
+              {(Object.keys(MASCOT_COLORS) as (keyof typeof MASCOT_COLORS)[]).map((color) => (
+                <Tile
+                  key={color}
+                  selected={look.color === color}
+                  label={t.colors[color]}
+                  onClick={() => set({ color })}
+                >
+                  <span className="grid size-10 place-items-center rounded-base bg-screen">
+                    <span className="size-4 rounded-[5px]" style={{ background: MASCOT_COLORS[color] }} />
+                  </span>
+                </Tile>
+              ))}
+            </div>
+          </Field>
+        </Row>
+        <Row>
+          <Field label={t.screen} inline>
+            <Segmented
+              id="mascot-screen"
+              value={look.screen}
+              options={(['rotate', 'clock', 'name', 'crew', 'face'] as const).map((screen) => ({
+                value: screen,
+                label: t.screens[screen],
+              }))}
+              onChange={(screen) => set({ screen })}
+            />
+          </Field>
+        </Row>
+      </Card>
+    </>
+  )
+}
 
 function VerificationSection(props: {
   settings: ServerSettings
@@ -1950,20 +3077,17 @@ function VerificationSection(props: {
   const off = v.reviewer === 'off'
   return (
     <>
-      <Heading title="Reviewer">
-        An independent model checks the work against your request. Choose its model under Team &amp; budget;
-        one from another provider than the team catches more.
-      </Heading>
+      <Heading title={copy.settings.reviewer.title}>{copy.settings.reviewer.intro}</Heading>
       <Card>
         <Row>
-          <Field label="When to review" hint={REVIEWER_HINT[v.reviewer]} inline>
+          <Field label={copy.settings.reviewer.when} hint={REVIEWER_HINT[v.reviewer]} inline>
             <Segmented
               id="reviewer"
               value={v.reviewer}
               options={[
-                { value: 'off', label: 'Off' },
-                { value: 'auto', label: 'Auto' },
-                { value: 'always', label: 'Always' },
+                { value: 'off', label: copy.settings.shared.off },
+                { value: 'auto', label: copy.settings.reviewer.auto },
+                { value: 'always', label: copy.settings.reviewer.always },
               ]}
               onChange={(reviewer) =>
                 props.update((s) => ({ ...s, verification: { ...s.verification, reviewer } }))
@@ -1972,7 +3096,7 @@ function VerificationSection(props: {
           </Field>
         </Row>
         <Row>
-          <Field label="Pass threshold" hint="Reviewer score from 0 to 1 needed for the work to pass." inline>
+          <Field label={copy.settings.reviewer.threshold} hint={copy.settings.reviewer.thresholdHint} inline>
             <div className="flex items-center gap-3">
               <input
                 type="range"
@@ -1987,26 +3111,23 @@ function VerificationSection(props: {
                   }))
                 }
                 className="w-40 accent-[var(--accent)]"
-                aria-label="Pass threshold"
+                aria-label={copy.settings.reviewer.threshold}
                 disabled={off}
               />
-              <span className="w-10 text-right font-mono text-[13px] tabular-nums">
+              <span className="w-10 text-right font-mono text-body tabular-nums">
                 {v.threshold.toFixed(2)}
               </span>
             </div>
           </Field>
         </Row>
         <Row>
-          <Field
-            label="Custom rubric"
-            hint="Optional. Replaces the default rubric the reviewer scores against."
-          >
+          <Field label={copy.settings.reviewer.rubric} hint={copy.settings.reviewer.rubricHint}>
             <TextArea
               value={v.rubric ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, verification: { ...s.verification, rubric: e.target.value } }))
               }
-              placeholder="e.g. Code must include tests that pass; reports must cite a primary source for every number."
+              placeholder={copy.settings.reviewer.rubricPlaceholder}
               rows={5}
               disabled={off}
             />
@@ -2024,30 +3145,28 @@ function InstructionsSection(props: {
   const i = props.settings.instructions
   return (
     <>
-      <Heading title="Agent instructions">
-        Added to the system prompt of every agent in new tasks. Use it for your house rules.
-      </Heading>
+      <Heading title={copy.settings.instructions.title}>{copy.settings.instructions.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Lead" hint="Planning, delegation, and how to talk to you.">
+          <Field label={copy.settings.instructions.lead} hint={copy.settings.instructions.leadHint}>
             <TextArea
               value={i.lead ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, instructions: { ...s.instructions, lead: e.target.value } }))
               }
-              placeholder="e.g. Prefer TypeScript. Keep plans to three bullets. Always cite sources."
+              placeholder={copy.settings.instructions.leadPlaceholder}
               rows={5}
             />
           </Field>
         </Row>
         <Row>
-          <Field label="Workers" hint="How workers should do and report their part.">
+          <Field label={copy.settings.instructions.workers} hint={copy.settings.instructions.workersHint}>
             <TextArea
               value={i.worker ?? ''}
               onChange={(e) =>
                 props.update((s) => ({ ...s, instructions: { ...s.instructions, worker: e.target.value } }))
               }
-              placeholder="e.g. Write tests first. Report blockers immediately."
+              placeholder={copy.settings.instructions.workersPlaceholder}
               rows={5}
             />
           </Field>
@@ -2069,10 +3188,10 @@ interface ScheduleEntry {
 }
 
 const CRON_PRESETS: { cron: string; label: string }[] = [
-  { cron: '0 * * * *', label: 'Every hour' },
-  { cron: '0 9 * * *', label: 'Every day at 9:00' },
-  { cron: '0 9 * * 1-5', label: 'Weekdays at 9:00' },
-  { cron: '0 9 * * 1', label: 'Mondays at 9:00' },
+  { cron: '0 * * * *', label: copy.settings.schedules.presets.hourly },
+  { cron: '0 9 * * *', label: copy.settings.schedules.presets.daily },
+  { cron: '0 9 * * 1-5', label: copy.settings.schedules.presets.weekdays },
+  { cron: '0 9 * * 1', label: copy.settings.schedules.presets.mondays },
 ]
 
 const when = (iso?: string) =>
@@ -2111,26 +3230,24 @@ function SchedulesSection() {
       })
       .catch((err: Error) => toast(err.message, 'error'))
   const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
+  const cronId = useId()
+  const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
-      <Heading title="Schedules">
-        Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new
-        chat with your default team, verified like any other; turn on notifications in General to hear when
-        one finishes. The server has to be running for a schedule to fire.
-      </Heading>
+      <Heading title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</Heading>
       <Card className="mb-6">
         <Row>
-          <Field label="Request">
+          <Field label={copy.settings.schedules.request}>
             <TextArea
               rows={2}
               value={draft.request}
               onChange={(e) => setDraft({ ...draft, request: e.target.value })}
-              placeholder="e.g. Summarize what changed in this repo since yesterday and flag anything risky."
+              placeholder={copy.settings.schedules.requestPlaceholder}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label="When"
+              aria-label={copy.settings.schedules.when}
               value={draft.custom ? 'custom' : draft.cron}
               onChange={(e) =>
                 setDraft(
@@ -2145,25 +3262,27 @@ function SchedulesSection() {
                   {p.label}
                 </option>
               ))}
-              <option value="custom">Custom (cron)</option>
+              <option value="custom">{copy.settings.schedules.custom}</option>
             </Select>
             {draft.custom && (
               <div className="w-40">
                 <TextInput
-                  aria-label="Cron expression"
+                  aria-label={copy.settings.schedules.cronExpression}
+                  aria-invalid={!!badCron}
+                  aria-describedby={badCron ? cronId : undefined}
                   value={draft.cron}
                   onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
-                  placeholder="m h dom mon dow"
-                  className="font-mono text-[12.5px]"
+                  placeholder={copy.settings.schedules.cronPlaceholder}
+                  className="font-mono"
                 />
               </div>
             )}
             <Select
-              aria-label="Project"
+              aria-label={copy.settings.schedules.project}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">No project</option>
+              <option value="">{copy.settings.schedules.noProject}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -2175,7 +3294,7 @@ function SchedulesSection() {
               size="sm"
               variant="primary"
               icon={<Plus className="size-3.5" />}
-              disabled={!draft.request.trim()}
+              disabled={!draft.request.trim() || !!badCron}
               onClick={() =>
                 act(async () => {
                   await send('POST', '/api/schedules', {
@@ -2184,21 +3303,26 @@ function SchedulesSection() {
                     ...(draft.project ? { project: draft.project } : {}),
                   })
                   setDraft({ ...draft, request: '' })
-                }, 'Scheduled')
+                }, copy.settings.schedules.scheduled)
               }
             >
-              Schedule
+              {copy.settings.schedules.schedule}
             </Button>
           </div>
+          {badCron && (
+            <p id={cronId} className="mt-1.5 text-small leading-snug text-bad-ink">
+              {badCron}
+            </p>
+          )}
         </Row>
       </Card>
       {!list ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading schedules…
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.schedules.loading}
         </div>
       ) : list.length === 0 ? (
-        <Empty icon={<CalendarClock className="size-5" />} title="Nothing scheduled">
-          Add a request above and it runs on its own at the times you pick.
+        <Empty icon={<CalendarClock className="size-5" />} title={copy.settings.schedules.emptyTitle}>
+          {copy.settings.schedules.emptyBody}
         </Empty>
       ) : (
         <Card>
@@ -2206,16 +3330,24 @@ function SchedulesSection() {
             <Row key={s.id}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] leading-relaxed">{s.request}</p>
-                  <p className="mt-1 flex flex-wrap gap-x-3 text-[12px] text-muted">
+                  <p className="text-reading leading-relaxed">{s.request}</p>
+                  <p className="mt-1 flex flex-wrap gap-x-3 text-small text-muted">
                     <span>{label(s.cron)}</span>
                     {s.project && (
-                      <span>in {projects.find((p) => p.id === s.project)?.name ?? s.project}</span>
+                      <span>
+                        {copy.settings.schedules.inProject(
+                          projects.find((p) => p.id === s.project)?.name ?? s.project,
+                        )}
+                      </span>
                     )}
-                    <span>{s.enabled ? `next ${when(s.nextRun)}` : 'paused'}</span>
+                    <span>
+                      {s.enabled
+                        ? copy.settings.schedules.next(when(s.nextRun))
+                        : copy.settings.schedules.paused}
+                    </span>
                     {s.lastRun && (
                       <span className={s.lastRun.error ? 'text-bad-ink' : ''}>
-                        last {when(s.lastRun.at)}
+                        {copy.settings.schedules.last(when(s.lastRun.at))}
                         {s.lastRun.error ? `: ${s.lastRun.error}` : ''}
                       </span>
                     )}
@@ -2224,21 +3356,23 @@ function SchedulesSection() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => act(() => send('POST', `/api/schedules/${s.id}/run`), 'Started a run')}
+                  onClick={() =>
+                    act(() => send('POST', `/api/schedules/${s.id}/run`), copy.settings.schedules.started)
+                  }
                 >
-                  Run now
+                  {copy.settings.schedules.runNow}
                 </Button>
                 <Switch
                   checked={s.enabled}
-                  label={`Run ${s.name} on schedule`}
+                  label={copy.settings.schedules.runOnSchedule(s.name)}
                   onChange={(enabled) => act(() => send('PATCH', `/api/schedules/${s.id}`, { enabled }))}
                 />
-                <IconButton
-                  label="Delete this schedule"
-                  onClick={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
+                <ConfirmButton
+                  icon
+                  label={copy.settings.schedules.delete}
+                  confirm={copy.settings.shared.confirmDelete}
+                  onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
+                />
               </div>
             </Row>
           ))}
@@ -2262,9 +3396,9 @@ type HooksFile = {
 }
 
 const HOOK_EVENTS: { value: HookEvent; label: string }[] = [
-  { value: 'PreToolUse', label: 'Before a tool' },
-  { value: 'PostToolUse', label: 'After a tool' },
-  { value: 'Stop', label: 'When a round ends' },
+  { value: 'PreToolUse', label: copy.settings.hooks.events.PreToolUse },
+  { value: 'PostToolUse', label: copy.settings.hooks.events.PostToolUse },
+  { value: 'Stop', label: copy.settings.hooks.events.Stop },
 ]
 
 function rowsOf(file: HooksFile): HookRow[] {
@@ -2297,12 +3431,17 @@ function fileOf(rows: HookRow[]): HooksFile {
 
 /**
  * The person's hooks, in Claude Code's format: commands Myrmidon runs before or after matching tools, or when a
- * round ends. They run as the person, outside the sandbox.
+ * round ends. They run as the person, outside the sandbox, which is why they save only on Save rather than as each
+ * character is typed: a half-written command would already run on the next tool call.
  */
-function HooksSection() {
+function HooksSection(props: { onDirty(dirty: boolean): void }) {
   const toast = useToast()
   const [rows, setRows] = useState<HookRow[]>()
   const [dirty, setDirty] = useState(false)
+  const { onDirty } = props
+  useEffect(() => {
+    onDirty(dirty)
+  }, [dirty, onDirty])
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     api<HooksFile>('/api/hooks')
@@ -2318,32 +3457,43 @@ function HooksSection() {
       const saved = await send<HooksFile>('PUT', '/api/hooks', fileOf(rows ?? []))
       setRows(rowsOf(saved))
       setDirty(false)
-      toast('Hooks saved: they apply to every tool call from now on', 'success')
+      toast(copy.settings.hooks.saved, 'success')
     } catch (err) {
       toast((err as Error).message, 'error')
     }
   }
   return (
     <>
-      <Heading title="Hooks">
-        Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent:
-        format after every edit, refuse commands that touch secrets, notify you when a round ends. Same format
-        as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool
-        tells the agent. Tool names match Myrmidon's (<code className="font-mono text-[12.5px]">fs_edit</code>
-        , <code className="font-mono text-[12.5px]">shell</code>) or Claude Code's (
-        <code className="font-mono text-[12.5px]">Edit|Write</code>,{' '}
-        <code className="font-mono text-[12.5px]">Bash</code>
-        ). Hooks run as you, outside the sandbox.
+      <Heading title={copy.settings.hooks.title}>
+        {copy.settings.hooks.introBeforeFsEdit}
+        <code className="font-mono text-callout">fs_edit</code>
+        {copy.settings.hooks.introBeforeShell}
+        <code className="font-mono text-callout">shell</code>
+        {copy.settings.hooks.introBeforeEditWrite}
+        <code className="font-mono text-callout">Edit|Write</code>
+        {copy.settings.hooks.introBeforeBash}
+        <code className="font-mono text-callout">Bash</code>
+        {copy.settings.hooks.introAfterBash}
       </Heading>
+      <div
+        role="note"
+        className="mb-4 flex items-start gap-3 rounded-2xl border border-warn/25 bg-warn-soft px-4 py-3 text-body"
+      >
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warn-ink" />
+        <div>
+          <div className="font-semibold">{copy.settings.hooks.warningTitle}</div>
+          <div className="text-fg-2">{copy.settings.hooks.warning}</div>
+        </div>
+      </div>
       {!rows ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading hooks…
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.hooks.loading}
         </div>
       ) : (
         <Card>
           {rows.length === 0 && (
             <Row>
-              <p className="text-[13px] text-muted">No hooks yet.</p>
+              <p className="text-body text-muted">{copy.settings.hooks.empty}</p>
             </Row>
           )}
           {rows.map((r, i) => (
@@ -2352,7 +3502,7 @@ function HooksSection() {
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Select
-                    aria-label="When"
+                    aria-label={copy.settings.hooks.when}
                     value={r.event}
                     onChange={(e) => change(i, { event: e.target.value as HookEvent })}
                   >
@@ -2365,24 +3515,24 @@ function HooksSection() {
                   {r.event !== 'Stop' && (
                     <div className="w-56">
                       <TextInput
-                        aria-label="Tools"
+                        aria-label={copy.settings.hooks.tools}
                         value={r.matcher}
                         onChange={(e) => change(i, { matcher: e.target.value })}
-                        placeholder="Tools, e.g. Edit|Write (empty: all)"
+                        placeholder={copy.settings.hooks.toolsPlaceholder}
                       />
                     </div>
                   )}
                   <div className="w-20">
                     <TextInput
-                      aria-label="Timeout in seconds"
+                      aria-label={copy.settings.hooks.timeout}
                       value={r.timeout}
                       onChange={(e) => change(i, { timeout: e.target.value.replace(/[^\d.]/g, '') })}
-                      placeholder="60s"
+                      placeholder={copy.settings.hooks.timeoutPlaceholder}
                     />
                   </div>
                   <span className="flex-1" />
                   <IconButton
-                    label="Remove this hook"
+                    label={copy.settings.hooks.remove}
                     onClick={() => {
                       setRows((rs) => rs?.filter((_, j) => j !== i))
                       setDirty(true)
@@ -2392,11 +3542,11 @@ function HooksSection() {
                   </IconButton>
                 </div>
                 <TextInput
-                  aria-label="Command"
+                  aria-label={copy.settings.hooks.command}
                   value={r.command}
                   onChange={(e) => change(i, { command: e.target.value })}
-                  placeholder={`e.g. jq -r .tool_input.file_path | xargs npx prettier --write`}
-                  className="font-mono text-[12.5px]"
+                  placeholder={copy.settings.hooks.commandPlaceholder}
+                  className="font-mono"
                 />
               </div>
             </Row>
@@ -2415,11 +3565,11 @@ function HooksSection() {
                   setDirty(true)
                 }}
               >
-                Add hook
+                {copy.settings.hooks.add}
               </Button>
               <span className="flex-1" />
               <Button size="sm" variant="primary" disabled={!dirty} onClick={() => void save()}>
-                Save
+                {copy.settings.shared.save}
               </Button>
             </div>
           </Row>
@@ -2433,44 +3583,344 @@ interface SkillEntry {
   name: string
   description: string
   dir: string
-  source: 'myrmidon' | 'claude' | 'project'
+  source: 'myrmidon' | 'claude' | 'plugin' | 'project'
   enabled: boolean
 }
 
 const SKILL_SOURCES: Record<SkillEntry['source'], string> = {
-  myrmidon: 'Myrmidon',
-  claude: 'Claude Code',
-  project: 'project',
+  myrmidon: copy.settings.skills.sources.myrmidon,
+  claude: copy.settings.skills.sources.claude,
+  plugin: copy.settings.skills.sources.plugin,
+  project: copy.settings.skills.sources.project,
 }
 
-/** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
-function SkillsSection() {
+interface PluginEntry {
+  name: string
+  version?: string
+  description?: string
+  author?: string
+  dir: string
+  enabled: boolean
+  skills: string[]
+  commands: { name: string }[]
+  hooks: number
+  mcpServers: string[]
+  error?: string
+  /** Its code's entry point, when it has code. */
+  server?: string
+  settings: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; secret?: boolean }>
+  values: Record<string, string | number | boolean>
+  status?: { loaded: boolean; error?: string; tools: string[]; log: string[] }
+}
+
+/** A plugin's settings, saved one field at a time when it loses focus (or a switch flips). */
+function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
   const toast = useToast()
-  const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
+  const save = (key: string, value: string | number | boolean) =>
+    void send('PUT', `/api/plugins/${props.plugin.name}/settings`, { [key]: value })
+      .then(props.onSaved)
+      .catch((err: Error) => toast(err.message, 'error'))
+  return (
+    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-line bg-surface-2/40 p-3">
+      {Object.entries(props.plugin.settings).map(([key, spec]) => {
+        const value = props.plugin.values[key]
+        return (
+          <div key={key} className="flex flex-col gap-1">
+            <span className="flex items-center justify-between gap-2">
+              <span className="font-mono text-callout font-medium">{key}</span>
+              {spec.type === 'boolean' && (
+                <Switch checked={value === true} label={key} onChange={(on) => save(key, on)} />
+              )}
+            </span>
+            {spec.description && <span className="text-small text-muted">{spec.description}</span>}
+            {spec.type !== 'boolean' && (
+              <TextInput
+                type={spec.secret ? 'password' : spec.type === 'number' ? 'number' : 'text'}
+                defaultValue={spec.secret ? '' : String(value ?? '')}
+                placeholder={spec.secret && value ? copy.settings.plugins.secretSet : ''}
+                onBlur={(e) => {
+                  const text = e.target.value
+                  if (spec.secret && !text) return
+                  if (!spec.secret && text === String(value ?? '')) return
+                  save(key, spec.type === 'number' ? Number(text) : text)
+                }}
+                aria-label={key}
+                className="font-mono"
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The person's plugins: add one from a folder or git URL, switch each on or off, remove it. */
+function PluginsSection() {
+  const toast = useToast()
+  const [data, setData] = useState<{ plugins: PluginEntry[]; dir?: string }>()
+  const [source, setSource] = useState('')
+  const [adding, setAdding] = useState(false)
   const load = () =>
-    api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+    api<{ plugins: PluginEntry[]; dir?: string }>('/api/plugins')
       .then(setData)
       .catch((err: Error) => toast(err.message, 'error'))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     void load()
   }, [])
+  const add = async () => {
+    setAdding(true)
+    try {
+      const r = await send<{ plugin: PluginEntry }>('POST', '/api/plugins', { source })
+      toast(copy.settings.plugins.added(r.plugin.name), 'success')
+      setSource('')
+      await load()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+  const [logOpen, setLogOpen] = useState<string>()
+  const pages = usePluginSlots('settings.page')
+  const parts = (p: PluginEntry) =>
+    [
+      p.skills.length ? copy.settings.plugins.skills(p.skills.length) : '',
+      p.commands.length ? copy.settings.plugins.commands(p.commands.length) : '',
+      p.hooks ? copy.settings.plugins.hooks(p.hooks) : '',
+      p.mcpServers.length ? copy.settings.plugins.servers(p.mcpServers.length) : '',
+      p.status?.tools.length ? copy.settings.plugins.tools(p.status.tools.length) : '',
+    ].filter(Boolean)
   return (
     <>
-      <Heading title="Skills">
-        Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents
-        see each skill's name and description, and load the full skill when a task matches. Add one by putting
-        its folder in <code className="font-mono text-[12.5px]">{data?.dir ?? 'skills/'}</code> or{' '}
-        <code className="font-mono text-[12.5px]">~/.claude/skills</code>; a project's{' '}
-        <code className="font-mono text-[12.5px]">.claude/skills</code> apply to its chats.
-      </Heading>
+      <Heading title={copy.settings.plugins.title}>{copy.settings.plugins.intro}</Heading>
+      <form
+        className="mb-4 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (source.trim() && !adding) void add()
+        }}
+      >
+        <TextInput
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          placeholder={copy.settings.plugins.sourcePlaceholder}
+          aria-label={copy.settings.plugins.sourceLabel}
+          className="flex-1 font-mono"
+        />
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!source.trim() || adding}
+          icon={adding ? <LoaderCircle className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+        >
+          {adding ? copy.settings.plugins.adding : copy.settings.plugins.add}
+        </Button>
+      </form>
       {!data ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading skills…
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.plugins.loading}
+        </div>
+      ) : data.plugins.length === 0 ? (
+        <Empty icon={<Puzzle className="size-5" />} title={copy.settings.plugins.emptyTitle}>
+          {copy.settings.plugins.emptyBody}
+        </Empty>
+      ) : (
+        <>
+          <Card>
+            {data.plugins.map((p) => (
+              <Row key={p.name}>
+                <div className={cn('flex items-start gap-3', !p.enabled && 'opacity-60')}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-reading font-medium">{p.name}</span>
+                      {p.version && <span className="text-small text-muted">v{p.version}</span>}
+                      {p.author && (
+                        <span className="text-small text-muted">{copy.settings.plugins.by(p.author)}</span>
+                      )}
+                    </div>
+                    {p.description && (
+                      <p className="mt-1 text-body leading-relaxed text-fg-2">{p.description}</p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {parts(p).map((part) => (
+                        <Pill key={part} tone="neutral">
+                          {part}
+                        </Pill>
+                      ))}
+                    </div>
+                    {p.error && <p className="mt-1.5 text-callout text-bad-ink">{p.error}</p>}
+                    {p.server && p.enabled && (
+                      <p
+                        className={cn(
+                          'mt-1.5 text-callout',
+                          p.status?.error ? 'text-bad-ink' : p.status?.loaded ? 'text-ok-ink' : 'text-muted',
+                        )}
+                      >
+                        {p.status?.error
+                          ? copy.settings.plugins.codeFailed(p.status.error)
+                          : p.status?.loaded
+                            ? copy.settings.plugins.codeRunning
+                            : copy.settings.plugins.codeStarting}
+                      </p>
+                    )}
+                    {Object.keys(p.settings).length > 0 && p.enabled && (
+                      <PluginSettings plugin={p} onSaved={() => void load()} />
+                    )}
+                    {pages
+                      .filter((page) => page.plugin === p.name && p.enabled)
+                      .map(({ plugin, def }) => (
+                        <div key={plugin} className="mt-2">
+                          <PluginSlot
+                            plugin={plugin}
+                            def={def}
+                            props={{
+                              values: p.values,
+                              save: async (values) => {
+                                await send('PUT', `/api/plugins/${plugin}/settings`, values)
+                                await load()
+                              },
+                            }}
+                          />
+                        </div>
+                      ))}
+                    {p.status?.log.length ? (
+                      <div className="mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setLogOpen(logOpen === p.name ? undefined : p.name)}
+                          className="text-small text-muted hover:text-fg-2"
+                        >
+                          {logOpen === p.name ? copy.settings.plugins.hideLog : copy.settings.plugins.showLog}
+                        </button>
+                        {logOpen === p.name && (
+                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+                            {p.status.log.join('\n')}
+                          </pre>
+                        )}
+                      </div>
+                    ) : null}
+                    <p className="mt-1 truncate font-mono text-footnote text-muted" title={p.dir}>
+                      {p.dir}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <ConfirmButton
+                      label={copy.settings.plugins.remove}
+                      confirm={copy.settings.plugins.confirmRemove}
+                      onConfirm={() =>
+                        void send('DELETE', `/api/plugins/${p.name}`)
+                          .then(() => toast(copy.settings.plugins.removed(p.name), 'success'))
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                    <Switch
+                      checked={p.enabled}
+                      label={copy.settings.plugins.canUse(p.name)}
+                      onChange={(enabled) =>
+                        void send('PUT', `/api/plugins/${p.name}`, { enabled })
+                          .then(load)
+                          .catch((err: Error) => toast(err.message, 'error'))
+                      }
+                    />
+                  </div>
+                </div>
+              </Row>
+            ))}
+          </Card>
+          <p className="mt-2 text-small text-muted">{copy.settings.plugins.applies}</p>
+        </>
+      )}
+    </>
+  )
+}
+
+/**
+ * A skill's description, two lines at most until expanded: some are paragraphs written for the model. Its folder
+ * shows only when expanded (and as the name's tooltip), since a path says little at a glance.
+ */
+function SkillDescription(props: { text: string; dir: string }) {
+  const [open, setOpen] = useState(false)
+  const [long, setLong] = useState(false)
+  const box = useRef<HTMLParagraphElement>(null)
+  // Whether the text overflows two lines can only be measured once it is laid out.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1)
+  }, [open])
+  return (
+    <>
+      <p ref={box} className={cn('mt-1 text-body leading-relaxed text-fg-2', !open && 'line-clamp-2')}>
+        {props.text}
+      </p>
+      {open && (
+        <p className="mt-1 break-all font-mono text-footnote text-muted" title={props.dir}>
+          {props.dir}
+        </p>
+      )}
+      {(long || open) && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="mt-0.5 text-small font-medium text-muted hover:text-fg"
+        >
+          {open ? copy.settings.skills.showLess : copy.settings.skills.showMore}
+        </button>
+      )}
+    </>
+  )
+}
+
+/** Skills agents can load: from Myrmidon's skills folder and the person's Claude Code skills, each switchable. */
+function SkillsSection() {
+  const toast = useToast()
+  const [data, setData] = useState<{ skills: SkillEntry[]; dir?: string }>()
+  const [proposed, setProposed] = useState<SkillProposalView[]>([])
+  const load = () => {
+    api<{ proposals: SkillProposalView[] }>('/api/skill-proposals')
+      .then((r) => setProposed(r.proposals))
+      .catch(() => {})
+    return api<{ skills: SkillEntry[]; dir?: string }>('/api/skills')
+      .then(setData)
+      .catch((err: Error) => toast(err.message, 'error'))
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  return (
+    <>
+      <Heading title={copy.settings.skills.title}>
+        {copy.settings.skills.introBeforeDir}
+        <code className="font-mono text-callout">{data?.dir ?? 'skills/'}</code>
+        {copy.settings.skills.introBeforeUserDir}
+        <code className="font-mono text-callout">~/.claude/skills</code>
+        {copy.settings.skills.introBeforeProjectDir}
+        <code className="font-mono text-callout">.claude/skills</code>
+        {copy.settings.skills.introAfterProjectDir}
+      </Heading>
+      {proposed.length > 0 && (
+        <div className="mb-6 flex flex-col gap-3">
+          <h4 className="text-body font-semibold text-fg-2">
+            {copy.settings.skills.proposed(proposed.length)}
+          </h4>
+          <AnimatePresence initial={false}>
+            {proposed.map((p) => (
+              <SkillProposalCard key={p.id} proposal={p} onDecided={() => void load()} />
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+      {!data ? (
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.skills.loading}
         </div>
       ) : data.skills.length === 0 ? (
-        <Empty icon={<GraduationCap className="size-5" />} title="No skills yet">
-          Put a skill folder in one of the places above and it appears here.
+        <Empty icon={<GraduationCap className="size-5" />} title={copy.settings.skills.emptyTitle}>
+          {copy.settings.skills.emptyBody}
         </Empty>
       ) : (
         <Card>
@@ -2479,19 +3929,18 @@ function SkillsSection() {
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[13.5px] font-medium">{s.name}</span>
+                    <span className="font-mono text-reading font-medium" title={s.dir}>
+                      {s.name}
+                    </span>
                     <Pill tone={s.source === 'myrmidon' ? 'accent' : 'neutral'}>
                       {SKILL_SOURCES[s.source]}
                     </Pill>
                   </div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-fg-2">{s.description}</p>
-                  <p className="mt-1 truncate font-mono text-[11.5px] text-muted" title={s.dir}>
-                    {s.dir}
-                  </p>
+                  <SkillDescription text={s.description} dir={s.dir} />
                 </div>
                 <Switch
                   checked={s.enabled}
-                  label={`Agents can use ${s.name}`}
+                  label={copy.settings.skills.canUse(s.name)}
                   onChange={(enabled) =>
                     void send('PUT', `/api/skills/${s.name}`, { enabled })
                       .then(load)
@@ -2546,47 +3995,44 @@ function MemorySection() {
     }
   }
   const scopeName = (project?: string) =>
-    project ? (projects.find((p) => p.id === project)?.name ?? project) : 'Every chat'
+    project ? (projects.find((p) => p.id === project)?.name ?? project) : copy.settings.memory.everyChat
   const groups = [...new Set((memories ?? []).map((m) => m.project ?? ''))].sort((a, b) =>
     a === '' ? -1 : b === '' ? 1 : scopeName(a).localeCompare(scopeName(b)),
   )
   return (
     <>
-      <Heading title="Memory">
-        What every new chat starts knowing: your preferences and decisions, and lessons about each project.
-        Agents propose memories during a chat; nothing is kept until you keep it.
-      </Heading>
+      <Heading title={copy.settings.memory.title}>{copy.settings.memory.intro}</Heading>
       <Card className="mb-6">
         <Row>
-          <Field label="Remember something" hint="One fact per memory, in a sentence.">
+          <Field label={copy.settings.memory.remember} hint={copy.settings.memory.rememberHint}>
             <TextArea
               value={draft.text}
               onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder="e.g. I prefer pnpm over npm. Reports go in docs/reports/."
+              placeholder={copy.settings.memory.rememberPlaceholder}
               rows={2}
             />
           </Field>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Select
-              aria-label="Kind"
+              aria-label={copy.settings.memory.kind}
               value={draft.kind}
               onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
             >
               {MEMORY_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {copy.settings.memory.kinds[k]}
                 </option>
               ))}
             </Select>
             <Select
-              aria-label="Applies to"
+              aria-label={copy.settings.memory.appliesTo}
               value={draft.project}
               onChange={(e) => setDraft({ ...draft, project: e.target.value })}
             >
-              <option value="">Every chat</option>
+              <option value="">{copy.settings.memory.everyChat}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  Only {p.name}
+                  {copy.settings.memory.onlyProject(p.name)}
                 </option>
               ))}
             </Select>
@@ -2603,23 +4049,23 @@ function MemorySection() {
                 })
               }
             >
-              Remember
+              {copy.settings.memory.rememberButton}
             </Button>
           </div>
         </Row>
       </Card>
       {!memories ? (
-        <div className="flex items-center gap-2 text-[13px] text-muted">
-          <LoaderCircle className="size-4 animate-spin" /> Loading memory…
+        <div className="flex items-center gap-2 text-body text-muted">
+          <LoaderCircle className="size-4 animate-spin" /> {copy.settings.memory.loading}
         </div>
       ) : memories.length === 0 ? (
-        <Empty icon={<BookMarked className="size-5" />} title="Nothing remembered yet">
-          Add something above, or keep a memory an agent proposes in a chat.
+        <Empty icon={<BookMarked className="size-5" />} title={copy.settings.memory.emptyTitle}>
+          {copy.settings.memory.emptyBody}
         </Empty>
       ) : (
         groups.map((g) => (
           <section key={g || 'all'} className="mb-6">
-            <h4 className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+            <h4 className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
               {scopeName(g || undefined)}
             </h4>
             <Card>
@@ -2639,16 +4085,16 @@ function MemorySection() {
                         ) : (
                           <button
                             type="button"
-                            title="Edit"
+                            title={copy.settings.memory.edit}
                             onClick={() => setEditing({ id: m.id, text: m.text })}
-                            className="w-full text-left text-[13.5px] leading-relaxed hover:text-fg-2"
+                            className="w-full text-left text-reading leading-relaxed hover:text-fg-2"
                           >
                             {m.text}
                           </button>
                         )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-small text-muted">
                           <Select
-                            aria-label="Kind"
+                            aria-label={copy.settings.memory.kind}
                             value={m.kind}
                             onChange={(e) =>
                               void act(() => send('PATCH', `/api/memory/${m.id}`, { kind: e.target.value }))
@@ -2656,12 +4102,12 @@ function MemorySection() {
                           >
                             {MEMORY_KINDS.map((k) => (
                               <option key={k} value={k}>
-                                {k}
+                                {copy.settings.memory.kinds[k]}
                               </option>
                             ))}
                           </Select>
                           <Select
-                            aria-label="Applies to"
+                            aria-label={copy.settings.memory.appliesTo}
                             value={m.project ?? ''}
                             onChange={(e) =>
                               void act(() =>
@@ -2669,22 +4115,26 @@ function MemorySection() {
                               )
                             }
                           >
-                            <option value="">Every chat</option>
+                            <option value="">{copy.settings.memory.everyChat}</option>
                             {projects.map((p) => (
                               <option key={p.id} value={p.id}>
-                                Only {p.name}
+                                {copy.settings.memory.onlyProject(p.name)}
                               </option>
                             ))}
                           </Select>
                           <span>
                             {m.source.by === 'agent'
-                              ? `from ${m.source.agent ?? 'an agent'}`
-                              : 'added by you'}{' '}
-                            · {m.updatedAt.slice(0, 10)}
+                              ? copy.settings.memory.fromAgent(m.source.agent ?? copy.settings.memory.anAgent)
+                              : copy.settings.memory.addedByYou}{' '}
+                            · {day(m.updatedAt)}
                           </span>
-                          {m.status === 'proposed' && <Pill tone="warn">waiting for you</Pill>}
+                          {m.status === 'proposed' && <Pill tone="warn">{copy.settings.memory.waiting}</Pill>}
                         </div>
-                        {m.source.why && <p className="mt-1 text-[12px] text-muted">Why: {m.source.why}</p>}
+                        {m.source.why && (
+                          <p className="mt-1 text-small text-muted">
+                            {copy.settings.memory.why(m.source.why)}
+                          </p>
+                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {editing?.id === m.id ? (
@@ -2698,7 +4148,7 @@ function MemorySection() {
                               })
                             }
                           >
-                            Save
+                            {copy.settings.shared.save}
                           </Button>
                         ) : m.status === 'proposed' ? (
                           <Button
@@ -2709,21 +4159,27 @@ function MemorySection() {
                               void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: true }))
                             }
                           >
-                            Keep
+                            {copy.settings.memory.keep}
                           </Button>
                         ) : null}
-                        <IconButton
-                          label="Forget this"
-                          onClick={() =>
-                            void act(() =>
-                              m.status === 'proposed'
-                                ? send('POST', `/api/memory/${m.id}/decide`, { keep: false })
-                                : send('DELETE', `/api/memory/${m.id}`),
-                            )
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </IconButton>
+                        {m.status === 'proposed' ? (
+                          <IconButton
+                            size="sm"
+                            label={copy.settings.memory.forget}
+                            onClick={() =>
+                              void act(() => send('POST', `/api/memory/${m.id}/decide`, { keep: false }))
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </IconButton>
+                        ) : (
+                          <ConfirmButton
+                            icon
+                            label={copy.settings.memory.forget}
+                            confirm={copy.settings.memory.confirmForget}
+                            onConfirm={() => void act(() => send('DELETE', `/api/memory/${m.id}`))}
+                          />
+                        )}
                       </div>
                     </div>
                   </Row>
@@ -2737,23 +4193,23 @@ function MemorySection() {
 }
 
 const SHORTCUTS: [string, string[]][] = [
-  ['New task', ['⌘', 'K']],
-  ['Focus the message box', ['/']],
-  ['Toggle sidebar', ['⌘', 'B']],
-  ['Toggle workspace', ['⌘', 'J']],
-  ['Open settings', ['⌘', ',']],
-  ['Send message', ['Enter']],
-  ['New line', ['Shift', 'Enter']],
-  ['Close dialogs and panels', ['Esc']],
+  [copy.settings.shortcuts.newTask, ['⌘', 'K']],
+  [copy.settings.shortcuts.focusComposer, ['/']],
+  [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
+  [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
+  [copy.settings.shortcuts.openSettings, ['⌘', ',']],
+  [copy.settings.shortcuts.send, ['Enter']],
+  [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
+  [copy.settings.shortcuts.close, ['Esc']],
 ]
 
 function Shortcuts() {
   return (
     <>
-      <Heading title="Keyboard shortcuts" />
+      <Heading title={copy.settings.shortcuts.title} />
       <Card>
         {SHORTCUTS.map(([label, keys]) => (
-          <div key={label} className="flex items-center justify-between px-4 py-3 text-[13.5px]">
+          <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
             <span>{label}</span>
             <span className="flex gap-1">
               {keys.map((k) => (
@@ -2770,37 +4226,35 @@ function Shortcuts() {
 function About({ data }: { data?: SettingsResponse }) {
   return (
     <>
-      <Heading title="About Myrmidon">
-        Crews of agents that plan, research, build, and verify on your machine.
-      </Heading>
+      <Heading title={copy.settings.about.title}>{copy.settings.about.intro}</Heading>
       <Card>
         <Row>
-          <Field label="Data directory" inline>
-            <span className="font-mono text-[12.5px] text-muted">{data?.home ?? '…'}</span>
+          <Field label={copy.settings.about.dataDirectory} inline>
+            <span className="font-mono text-callout text-muted">{data?.home ?? '…'}</span>
           </Field>
         </Row>
         <Row>
-          <Field label="Providers ready" hint="Through the embedded omp provider stack." inline>
-            <span className="font-mono text-[12.5px] text-muted">
+          <Field
+            label={copy.settings.about.providersReady}
+            hint={copy.settings.about.providersReadyHint}
+            inline
+          >
+            <span className="font-mono text-callout text-muted">
               {data ? data.providers.filter((p) => p.ready).length : '…'}
             </span>
           </Field>
         </Row>
         <Row>
-          <Field label="Sandbox" inline>
-            <span className="font-mono text-[12.5px] text-muted">{data?.sandbox ?? '…'}</span>
+          <Field label={copy.settings.about.sandbox} inline>
+            <span className="font-mono text-callout text-muted">{data?.sandbox ?? '…'}</span>
           </Field>
         </Row>
         <Row>
-          <p className="text-[12.5px] text-muted">
-            Every crew's work is an append-only event log; agents never edit your files directly. Licensed
-            under Apache-2.0.
-          </p>
+          <p className="text-callout text-muted">{copy.settings.about.eventLog}</p>
         </Row>
       </Card>
-      <div className="mt-4 flex items-center gap-2 text-[12px] text-muted">
-        <Bot className="size-3.5" /> Built on oh-my-pi (providers, search, readers), pi-agent-core, and
-        Cordis.
+      <div className="mt-4 flex items-center gap-2 text-small text-muted">
+        <Bot className="size-3.5" /> {copy.settings.about.builtOn}
       </div>
     </>
   )

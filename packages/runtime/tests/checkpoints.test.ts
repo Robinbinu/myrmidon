@@ -50,7 +50,9 @@ test('a round is snapshotted, diffed and rewound without touching the project’
   expect(changes.files.find((f) => f.path === 'src/main.ts')).toMatchObject({ added: 2, removed: 1 })
   expect(changes.patch).toContain('+export const b = 3')
 
-  const { undo, changed } = await checkpoints.restore(project, start)
+  const files = await checkpoints.files(project, start, end)
+  expect(files.sort()).toEqual(['README.md', 'src/main.ts', 'src/new.ts'])
+  const { undo, changed } = await checkpoints.restore(project, start, files)
   expect(changed).toBe(3)
   expect(readFileSync(join(project.path, 'src', 'main.ts'), 'utf8')).toBe('export const a = 1\n')
   expect(existsSync(join(project.path, 'README.md'))).toBe(true)
@@ -63,7 +65,7 @@ test('a round is snapshotted, diffed and rewound without touching the project’
   expect(sh(['git', 'stash', 'list'])).toBe('')
 
   // Undoing the rewind brings the round's work back.
-  await checkpoints.restore(project, undo)
+  await checkpoints.restore(project, undo, files)
   expect(readFileSync(join(project.path, 'src', 'main.ts'), 'utf8')).toContain('b = 3')
   expect(existsSync(join(project.path, 'src', 'new.ts'))).toBe(true)
   expect(existsSync(join(project.path, 'README.md'))).toBe(false)
@@ -74,4 +76,14 @@ test('changes against the folder as it is now', async () => {
   writeFileSync(join(project.path, 'src', 'main.ts'), 'export const a = 9\n')
   const now = await checkpoints.changes(project, start)
   expect(now.files).toEqual([{ path: 'src/main.ts', status: 'M', added: 1, removed: 1 }])
+})
+
+test('a restore touches only the files it is given', async () => {
+  const start = await checkpoints.snapshot(project, 'before')
+  writeFileSync(join(project.path, 'src', 'main.ts'), 'export const a = 2\n')
+  writeFileSync(join(project.path, 'README.md'), '# app, edited by someone else\n')
+  const { changed } = await checkpoints.restore(project, start, ['src/main.ts'])
+  expect(changed).toBe(1)
+  expect(readFileSync(join(project.path, 'src', 'main.ts'), 'utf8')).toBe('export const a = 1\n')
+  expect(readFileSync(join(project.path, 'README.md'), 'utf8')).toBe('# app, edited by someone else\n')
 })

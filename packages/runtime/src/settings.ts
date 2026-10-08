@@ -6,7 +6,7 @@ export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
   files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list'],
-  messaging: ['send_mail', 'post', 'append_note'],
+  messaging: ['message', 'create_group', 'update_group', 'append_note'],
   browser: [
     'browser_open',
     'browser_snapshot',
@@ -56,7 +56,16 @@ export interface MyrSettings {
    * Per-tool rules on top of the groups above, by tool name (`mcp` for every MCP tool): `ask` needs the person's
    * approval for each call, `off` removes the tool. Tools not listed are allowed.
    */
-  permissions: Record<string, 'ask' | 'off'>
+  permissions: Record<string, 'allow' | 'ask' | 'off'>
+  /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
+  profile: { name?: string; greeting: 'model' | 'rules' }
+  /** How the entry page's mascot looks, and what its screen shows beside its mood. */
+  mascot: {
+    eyes: 'round' | 'happy' | 'tall' | 'sleepy' | 'lashes'
+    look: 'neutral' | 'flower' | 'bow'
+    color: 'amber' | 'ice' | 'mint' | 'pink' | 'violet' | 'white'
+    screen: 'face' | 'clock' | 'name' | 'crew' | 'rotate'
+  }
 }
 
 export const settingsSchema = Schema.object({
@@ -100,7 +109,17 @@ export const settingsSchema = Schema.object({
     hiddenProviders: Schema.array(Schema.string()).default([]),
     windows: Schema.dict(Schema.natural().min(1024).max(100_000_000)).default({}),
   }).default({}),
-  permissions: Schema.dict(Schema.union(['ask', 'off'])).default({}),
+  permissions: Schema.dict(Schema.union(['allow', 'ask', 'off'])).default({}),
+  profile: Schema.object({
+    name: Schema.string().max(40),
+    greeting: Schema.union(['model', 'rules']).default('model'),
+  }).default({}),
+  mascot: Schema.object({
+    eyes: Schema.union(['round', 'happy', 'tall', 'sleepy', 'lashes']).default('round'),
+    look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
+    color: Schema.union(['amber', 'ice', 'mint', 'pink', 'violet', 'white']).default('amber'),
+    screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
+  }).default({}),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
@@ -120,6 +139,11 @@ function parse(input: unknown): MyrSettings {
     observer: s.observer,
     models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders, windows: s.models.windows },
     permissions: s.permissions,
+    profile: {
+      ...(s.profile.name?.trim() ? { name: s.profile.name.trim() } : {}),
+      greeting: s.profile.greeting,
+    },
+    mascot: s.mascot,
   }
 }
 

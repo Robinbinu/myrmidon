@@ -1,49 +1,94 @@
-import { type ColonyState, foldColony, type MyrEvent, roundSlice } from '@myrmidon/protocol'
-import { Network, PanelLeft, PanelRight, SquarePen, Trash2 } from 'lucide-react'
+import {
+  type ColonyState,
+  expandCommand,
+  foldColony,
+  type MyrEvent,
+  type PluginCommand,
+  roundSlice,
+} from '@myrmidon/protocol'
+import {
+  CircleAlert,
+  LoaderCircle,
+  MessageCircleQuestion,
+  Network,
+  PanelLeft,
+  Plug,
+  RefreshCw,
+  SquarePen,
+  Trash2,
+} from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   type ChatRound,
   type ChatSummary,
+  CONNECTION_CHANGED,
   type ColonySummary,
   type ModelOption,
   normalizeConfig,
   type Project,
   post,
+  reachable,
   send as request,
   type TeamConfig,
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
+import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
-import { isRunning, PendingRound, RoundView } from './chat/RoundView.tsx'
+import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
-import { Settings } from './Settings.tsx'
-import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useTheme } from './ui/hooks.ts'
+import { copy } from './copy.ts'
+import { useScope } from './DeviceGate.tsx'
+import { syncPluginUI } from './plugins.tsx'
+import { type Section, Settings } from './Settings.tsx'
+import {
+  day,
+  NOTIFY_KEY,
+  useFollowLatest,
+  useHotkeys,
+  usePersistentFlag,
+  useReduceMotion,
+  useTheme,
+} from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
-import { Button, cn, IconButton, Pill, Select, softSpring, toneFor } from './ui/primitives.tsx'
+import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
+import { runPhase } from './ui/status.ts'
 import { useToast } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
+import { AGENT_MIN_WINDOW, MAX_FILE_BYTES, softSpring } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 
 const CONFIG_KEY = 'myr-team-config'
 
-function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined] {
+/** What the page needs to know about a plugin. */
+interface PluginSummary {
+  name: string
+  enabled: boolean
+  commands: PluginCommand[]
+  ui?: string
+  uiStamp?: string
+}
+
+/** `loaded` turns true with the first answer, so an empty list is not shown as "none yet" before anything came. */
+function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, string | undefined, boolean] {
   const [data, setData] = useState<T>(initial)
   const [error, setError] = useState<string>()
+  const [loaded, setLoaded] = useState(false)
   const load = useCallback(() => {
     api<T>(path)
       .then((d) => {
         setData(d)
         setError(undefined)
+        setLoaded(true)
       })
       .catch((err) => setError(String(err.message ?? err)))
   }, [path])
@@ -52,8 +97,22 @@ function usePoll<T>(path: string, initial: T, ms: number): [T, () => void, strin
     const t = setInterval(load, ms)
     return () => clearInterval(t)
   }, [load, ms])
-  return [data, load, error]
+  return [data, load, error, loaded]
 }
+
+/** Whether the server is answering, kept current as requests succeed or fail. */
+function useReachable(): boolean {
+  const [on, setOn] = useState(reachable)
+  useEffect(() => {
+    const update = () => setOn(reachable())
+    window.addEventListener(CONNECTION_CHANGED, update)
+    return () => window.removeEventListener(CONNECTION_CHANGED, update)
+  }, [])
+  return on
+}
+
+/** A model that can lead a crew: any the person has not hidden whose window, when known, holds an agent. */
+const canLead = (m: ModelOption) => !m.hidden && (m.contextWindow ?? AGENT_MIN_WINDOW) >= AGENT_MIN_WINDOW
 
 function readLocalConfig(): Record<string, unknown> {
   try {
@@ -63,11 +122,9 @@ function readLocalConfig(): Record<string, unknown> {
   }
 }
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024
-
 /** Reads a file for the send request, which carries attachments as base64. */
 async function encodeFile(file: File): Promise<{ name: string; data: string }> {
-  if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is larger than 10 MB`)
+  if (file.size > MAX_FILE_BYTES) throw new Error(copy.app.fileTooLarge(file.name))
   const bytes = new Uint8Array(await file.arrayBuffer())
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000)
@@ -87,14 +144,14 @@ async function exportChat(chat: ChatSummary) {
       loaded.set(round.colonyId, colony)
     }
     const { state, info } = roundSlice(colony.state, colony.events, round.round)
-    lines.push(`## Round ${round.round}`, '')
+    lines.push(`## ${copy.app.export.round(round.round)}`, '')
     for (const m of state.chatMessages)
-      lines.push(`**${m.from === 'user' ? 'You' : m.from}:**`, '', m.text, '')
+      lines.push(`**${m.from === 'user' ? copy.app.export.you : m.from}:**`, '', m.text, '')
     const from = info?.startSeq ?? 0
     const files = Object.entries(state.artifacts)
       .filter(([, v]) => v.some((x) => x.seq >= from && x.author !== 'user'))
       .map(([name]) => name)
-    if (files.length) lines.push(`Files: ${files.join(', ')}`, '')
+    if (files.length) lines.push(copy.app.export.files(files.join(', ')), '')
   }
   const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
   const a = document.createElement('a')
@@ -103,7 +160,7 @@ async function exportChat(chat: ChatSummary) {
     chat.title
       .replace(/[^\w -]+/g, '')
       .trim()
-      .slice(0, 60) || 'chat'
+      .slice(0, 60) || copy.app.export.fallbackName
   }.md`
   a.click()
   URL.revokeObjectURL(url)
@@ -114,7 +171,7 @@ function notify(text: string, chatId: string) {
   try {
     if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted' || !document.hidden) return
-    const n = new Notification('Myrmidon', { body: text, tag: chatId })
+    const n = new Notification(copy.brand.name, { body: text, tag: chatId })
     n.onclick = () => {
       window.focus()
       const url = new URL(location.href)
@@ -129,9 +186,12 @@ function notify(text: string, chatId: string) {
 export function App() {
   const toast = useToast()
   const [theme, setTheme] = useTheme()
-  const [reduceMotion, setReduceMotion] = usePersistentFlag('myr-reduce-motion', false)
-  const [chats, refreshChats, chatsError] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
+  const [reduceMotion, setReduceMotion] = useReduceMotion()
+  const [chats, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
+  const online = useReachable()
+  const fullAccess = useScope() === 'full'
   const [models, setModels] = useState<ModelOption[]>([])
+  const [modelsError, setModelsError] = useState<string>()
   const [config, setConfig] = useState<TeamConfig>()
   const [view, setView] = useState<View>('chat')
   const [activeChat, setActiveChatState] = useState<string | undefined>(
@@ -145,10 +205,21 @@ export function App() {
   useEffect(() => {
     if (window.innerWidth < 1280) setWorkspaceOpen(false)
   }, [])
-  const [mobileNav, setMobileNav] = useState(false)
   const [colonyModal, setColonyModal] = useState<string>()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<'general' | 'tools'>('general')
+  // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
+  const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
+  useEffect(() => {
+    setPluginCommands(pluginList.plugins.filter((p) => p.enabled).flatMap((p) => p.commands))
+    void syncPluginUI(pluginList.plugins)
+  }, [pluginList])
+  const [settingsSection, setSettingsSection] = useState<Section>('general')
+  // Ways out of Settings go through its guard, which asks first when hook edits are unsaved.
+  const settingsGuard = useRef<(go: () => void) => void>(undefined)
+  const leaveSettings = useCallback(
+    (go: () => void) => (settingsGuard.current ? settingsGuard.current(go) : go()),
+    [],
+  )
   const [deleting, setDeleting] = useState<ChatSummary>()
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -182,6 +253,7 @@ export function App() {
     )
       .then((r) => {
         setModels(r.models)
+        setModelsError(undefined)
         setConfig((current) => {
           if (current) return current
           const fallback = r.default ?? r.models[0]?.ref ?? ''
@@ -191,16 +263,31 @@ export function App() {
           return normalizeConfig({ ...server, ...readLocalConfig() }, fallback)
         })
       })
-      .catch((err) => toast(String(err.message ?? err), 'error'))
-  }, [toast])
+      // The message box's stand-in says so and offers to try again.
+      .catch((err) => setModelsError(String(err.message ?? err)))
+  }, [])
 
   useEffect(loadModels, [loadModels])
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
     api<{ projects: Project[] }>('/api/projects')
       .then((r) => setProjects(r.projects))
-      .catch((err) => toast(String(err.message ?? err), 'error'))
+      // With the server away the banner says so, and the list loads again once it is back.
+      .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
   }, [toast])
+
+  useEffect(loadProjects, [loadProjects])
+
+  // What failed to load while the server was away loads once it answers again; the polls catch up by themselves.
+  useEffect(() => {
+    const back = () => {
+      if (!reachable()) return
+      loadProjects()
+      if (!config) loadModels()
+    }
+    window.addEventListener(CONNECTION_CHANGED, back)
+    return () => window.removeEventListener(CONNECTION_CHANGED, back)
+  }, [config, loadModels, loadProjects])
 
   // Announce rounds that finish while the user is elsewhere.
   useEffect(() => {
@@ -209,8 +296,8 @@ export function App() {
       if (before && isRunning(before) && !isRunning(c.status)) {
         const text =
           c.status === 'completed'
-            ? `“${c.title}” is done`
-            : `“${c.title}” ${c.status === 'stopped' ? 'paused' : c.status}`
+            ? copy.app.toasts.roundDone(c.title)
+            : copy.app.toasts.roundEnded(c.title, c.status === 'stopped' ? copy.app.toasts.paused : c.status)
         toast(text, c.status === 'completed' ? 'success' : 'info')
         notify(text, c.chatId)
       }
@@ -229,6 +316,15 @@ export function App() {
 
   const chat = chats.find((c) => c.chatId === activeChat)
   const running = !!chat && isRunning(chat.status)
+  const waiting = !!pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
+  /** A chat link (`?chat=`) whose chat is not in the list once it has loaded. */
+  const missing = !!activeChat && chatsLoaded && !chat && !waiting
+
+  const openSettings = (section: Section) => {
+    if (!fullAccess) return toast(copy.app.chatsOnly, 'info')
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
 
   // The pending card gives way once the chat list shows the round it started.
   useEffect(() => {
@@ -246,15 +342,15 @@ export function App() {
   }, [chats, pending])
 
   const newTask = useCallback(
-    (project?: string) => {
-      setNewProject(project)
-      setActiveChat(undefined)
-      setView('chat')
-      setSettingsOpen(false)
-      setMobileNav(false)
-      requestAnimationFrame(() => composer.current?.focus())
-    },
-    [setActiveChat],
+    (project?: string) =>
+      leaveSettings(() => {
+        setNewProject(project)
+        setActiveChat(undefined)
+        setView('chat')
+        setSettingsOpen(false)
+        requestAnimationFrame(() => composer.current?.focus())
+      }),
+    [setActiveChat, leaveSettings],
   )
 
   useHotkeys([
@@ -262,8 +358,15 @@ export function App() {
     { combo: 'mod+n', run: () => newTask(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
-    { combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true },
-    { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
+    {
+      combo: 'mod+,',
+      run: () => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info')),
+      inInputs: true,
+    },
+    // With a chat's workspace on screen, it takes ⌘J itself (it knows whether its panel is showing).
+    ...(!settingsOpen && view === 'chat' && chat
+      ? []
+      : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
   ])
 
   const send = async (
@@ -275,7 +378,7 @@ export function App() {
   ) => {
     if (!config) return
     if (!config.leadModel) {
-      toast('Choose a lead model first', 'error')
+      toast(copy.app.toasts.chooseLeadModel, 'error')
       throw new Error('no model')
     }
     setBusy(true)
@@ -300,7 +403,7 @@ export function App() {
         setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
       else {
         setPending(undefined)
-        toast(delivery === 'queue' ? 'Queued until the current work is done' : 'Steering the crew', 'info')
+        toast(delivery === 'queue' ? copy.app.toasts.queued : copy.app.toasts.steering, 'info')
       }
       refreshChats()
     } catch (err) {
@@ -316,7 +419,7 @@ export function App() {
     if (!activeChat) return
     try {
       await post(`/api/chats/${activeChat}/resume`, model ? { model } : {})
-      toast(model ? 'Continuing on the new model' : 'Resuming where it left off', 'info')
+      toast(model ? copy.app.toasts.continuingOnNewModel : copy.app.toasts.resuming, 'info')
       refreshChats()
     } catch (err) {
       toast(String((err as Error).message ?? err), 'error')
@@ -324,40 +427,58 @@ export function App() {
   }
 
   /** Slash commands from the composer (the ones it does not handle itself). */
+  /** Asks a reviewer to read the open chat for a skill worth keeping; the proposal appears as a card in the chat. */
+  const learn = async () => {
+    if (!activeChat) return toast(copy.app.toasts.openChatToLearn, 'info')
+    toast(copy.app.toasts.learning, 'info')
+    try {
+      const r = await post<{ proposal: { name: string } | null }>(`/api/chats/${activeChat}/learn`, {})
+      toast(
+        r.proposal ? copy.app.toasts.learned(r.proposal.name) : copy.app.toasts.nothingToLearn,
+        r.proposal ? 'success' : 'info',
+      )
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+
   const command = async (name: string, arg: string) => {
     const last = chat?.rounds.at(-1)
     switch (name) {
+      case 'learn':
+        return learn()
       case 'plan':
         return send(arg, activeChat, 'steer', [], true)
       case 'steer':
       case 'queue':
         if (!running) {
-          toast('Nothing is running; send it as a normal message', 'info')
+          toast(copy.app.toasts.notRunningSendNormally, 'info')
           throw new Error('not running')
         }
         return send(arg, activeChat, name)
       case 'stop':
-        return running ? stop() : toast('Nothing is running', 'info')
+        return running ? stop() : toast(copy.app.toasts.notRunning, 'info')
       case 'resume':
         return resume()
       case 'retry':
-        if (!last || running) return toast(running ? 'Still running' : 'Nothing to retry yet', 'info')
+        if (!last || running)
+          return toast(running ? copy.app.toasts.stillRunning : copy.app.toasts.nothingToRetry, 'info')
         return send(last.request).catch(() => {})
       case 'new':
         return newTask()
       case 'rename':
-        if (!activeChat) return toast('Open a chat to rename it', 'info')
+        if (!activeChat) return toast(copy.app.toasts.openChatToRename, 'info')
         await request('PATCH', `/api/chats/${activeChat}`, { title: arg })
         refreshChats()
-        return toast('Renamed', 'success')
+        return toast(copy.app.toasts.renamed, 'success')
       case 'mode':
         if (!config || (arg !== 'orchestrated' && arg !== 'swarm')) {
-          toast('Use /mode orchestrated or /mode swarm', 'error')
+          toast(copy.app.toasts.modeUsage, 'error')
           throw new Error('bad mode')
         }
         updateConfig(normalizeConfig({ ...config, mode: arg }, config.leadModel))
         return toast(
-          arg === 'swarm' ? 'Swarm: equal peers' : 'Orchestrated: a lead with specialists',
+          arg === 'swarm' ? copy.app.toasts.modeSwarm : copy.app.toasts.modeOrchestrated,
           'success',
         )
       case 'model': {
@@ -366,7 +487,7 @@ export function App() {
           models.find((m) => m.ref.toLowerCase() === q) ??
           models.find((m) => m.name.toLowerCase().includes(q) || m.ref.toLowerCase().includes(q))
         if (!config || !found) {
-          toast(`No model matches “${arg}”`, 'error')
+          toast(copy.app.toasts.noModelMatches(arg), 'error')
           throw new Error('no model')
         }
         updateConfig({ ...config, leadModel: found.ref })
@@ -375,28 +496,31 @@ export function App() {
           const r = await request<{ switched: string[] }>('POST', `/api/chats/${chat.chatId}/model`, {
             model: found.ref,
           })
-          return toast(`${r.switched.join(', ')} now on ${found.name}, from the next step`, 'success')
+          return toast(copy.app.toasts.modelSwitched(r.switched.join(', '), found.name), 'success')
         }
-        return toast(`Lead model: ${found.name}`, 'success')
+        return toast(copy.app.toasts.leadModel(found.name), 'success')
       }
       case 'thinking': {
         if (!config || !['low', 'medium', 'high', 'auto'].includes(arg)) {
-          toast('Use /thinking low, medium, high, or auto', 'error')
+          toast(copy.app.toasts.thinkingUsage, 'error')
           throw new Error('bad thinking')
         }
         const { thinking: _old, ...rest } = config
         updateConfig(arg === 'auto' ? rest : { ...rest, thinking: arg as 'low' | 'medium' | 'high' })
         return toast(
-          arg === 'auto' ? 'Thinking: each role decides' : `Thinking: ${arg} for work rounds`,
+          arg === 'auto' ? copy.app.toasts.thinkingAuto : copy.app.toasts.thinkingLevel(arg),
           'success',
         )
       }
       case 'export':
-        return chat ? exportChat(chat) : toast('Open a chat to export it', 'info')
+        return chat ? exportChat(chat) : toast(copy.app.toasts.openChatToExport, 'info')
       case 'mcp':
       case 'settings':
-        setSettingsSection(name === 'mcp' ? 'tools' : 'general')
-        return setSettingsOpen(true)
+        return leaveSettings(() => openSettings(name === 'mcp' ? 'tools' : 'general'))
+      default: {
+        const fromPlugin = allCommands().find((c) => c.name === name && c.prompt !== undefined)
+        if (fromPlugin?.prompt !== undefined) return send(expandCommand({ prompt: fromPlugin.prompt }, arg))
+      }
     }
   }
 
@@ -404,7 +528,7 @@ export function App() {
     if (!activeChat) return
     post(`/api/chats/${activeChat}/stop`, {})
       .then(() => {
-        toast('Stopping the crew…', 'info')
+        toast(copy.app.toasts.stopping, 'info')
         refreshChats()
       })
       .catch((err) => toast(String(err.message ?? err), 'error'))
@@ -415,7 +539,7 @@ export function App() {
     setDeleteBusy(true)
     try {
       await request('DELETE', `/api/chats/${deleting.chatId}`)
-      toast(`Deleted “${deleting.title}”`, 'success')
+      toast(copy.app.toasts.deleted(deleting.title), 'success')
       if (deleting.chatId === activeChat) newTask()
       setDeleting(undefined)
       refreshChats()
@@ -438,45 +562,56 @@ export function App() {
         }
       }}
       chats={chats}
+      loaded={chatsLoaded}
       activeChat={activeChat}
       view={view}
       theme={theme}
       onTheme={setTheme}
-      onSelect={(id) => {
-        setActiveChat(id)
-        setView('chat')
-        setSettingsOpen(false)
-        setMobileNav(false)
-      }}
+      onSelect={(id) =>
+        leaveSettings(() => {
+          setActiveChat(id)
+          setView('chat')
+          setSettingsOpen(false)
+        })
+      }
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
-      onAddProject={() => setPicking(true)}
-      onProjectPermissions={setPermissionsFor}
-      onRemoveProject={async (p) => {
-        try {
-          const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
-          setProjects(r.projects)
-          if (newProject === p.id) setNewProject(undefined)
-          toast(`Removed ${p.name} from projects; its folder and chats are untouched`, 'info')
-        } catch (err) {
-          toast(String((err as Error).message ?? err), 'error')
-        }
-      }}
-      onView={(v) => {
-        setView(v)
-        setSettingsOpen(false)
-        setMobileNav(false)
-      }}
-      onSettings={() => {
-        setSettingsOpen(true)
-        setMobileNav(false)
-      }}
-      onCollapse={() => (window.innerWidth < 768 ? setMobileNav(false) : setCollapsed(true))}
+      // A chats-only device works in the projects there are; adding, changing or removing them is not for it.
+      {...(fullAccess
+        ? {
+            onAddProject: () => setPicking(true),
+            onProjectPermissions: setPermissionsFor,
+            onRemoveProject: async (p: Project) => {
+              try {
+                const r = await request<{ projects: Project[] }>('DELETE', `/api/projects/${p.id}`)
+                setProjects(r.projects)
+                if (newProject === p.id) setNewProject(undefined)
+                toast(copy.app.toasts.projectRemoved(p.name), 'info')
+              } catch (err) {
+                toast(String((err as Error).message ?? err), 'error')
+              }
+            },
+          }
+        : {})}
+      onView={(v) =>
+        leaveSettings(() => {
+          setView(v)
+          setSettingsOpen(false)
+        })
+      }
+      onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
+      onGateways={() => leaveSettings(() => openSettings('gateways'))}
+      onCollapse={() => setCollapsed(true)}
     />
   )
 
-  const title = view === 'chat' ? (chat?.title ?? 'New task') : view === 'colonies' ? 'Crews' : 'Compare runs'
+  const title =
+    view === 'chat'
+      ? (chat?.title ?? (missing ? copy.app.chatNotFound.title : copy.app.titles.newTask))
+      : view === 'colonies'
+        ? copy.app.titles.crews
+        : copy.app.titles.compare
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -490,47 +625,20 @@ export function App() {
               animate={{ width: sidebarSplit.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={sidebarSplit.dragging ? { duration: 0 } : softSpring}
-              className="hidden shrink-0 overflow-hidden md:block"
+              className="shrink-0 overflow-hidden"
             >
               {sidebar}
             </motion.div>
           )}
         </AnimatePresence>
-        {!collapsed && (
-          <SplitDivider split={sidebarSplit} side="left" label="Resize sidebar" className="hidden md:block" />
-        )}
-        <AnimatePresence>
-          {mobileNav && (
-            <motion.div
-              className="fixed inset-0 z-50 md:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <button
-                type="button"
-                aria-label="Close menu"
-                className="absolute inset-0 bg-black/40"
-                onClick={() => setMobileNav(false)}
-              />
-              <motion.div
-                className="absolute inset-y-0 left-0 bg-bg shadow-pop"
-                initial={{ x: -280 }}
-                animate={{ x: 0 }}
-                exit={{ x: -280 }}
-                transition={softSpring}
-              >
-                {sidebar}
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
 
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
           {settingsOpen ? (
             <Settings
               key={settingsSection}
               initialSection={settingsSection}
+              guard={settingsGuard}
               onClose={() => setSettingsOpen(false)}
               theme={theme}
               onTheme={setTheme}
@@ -544,18 +652,19 @@ export function App() {
           ) : (
             <>
               <Toolbar inset={collapsed}>
-                <IconButton
-                  label="Show sidebar"
-                  title={`Show sidebar (${comboLabel('mod+b', isMac)})`}
-                  onClick={() => (window.innerWidth < 768 ? setMobileNav(true) : setCollapsed(!collapsed))}
-                  className={cn(!collapsed && 'md:hidden')}
-                >
-                  <PanelLeft className="size-4" />
-                </IconButton>
                 {collapsed && (
                   <IconButton
-                    label="New task"
-                    title={`New task (${comboLabel('mod+n', isMac)})`}
+                    label={copy.app.showSidebar}
+                    title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
+                    onClick={() => setCollapsed(false)}
+                  >
+                    <PanelLeft className="size-4" />
+                  </IconButton>
+                )}
+                {collapsed && (
+                  <IconButton
+                    label={copy.app.newTask}
+                    title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}
                     onClick={() => newTask()}
                   >
                     <SquarePen className="size-4" />
@@ -571,22 +680,9 @@ export function App() {
                     {title}
                   </motion.span>
                   {view === 'chat' && chat && (
-                    <Pill tone={toneFor(running ? 'running' : chat.status)}>
-                      {running ? 'working' : chat.status}
-                    </Pill>
+                    <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
                   )}
                 </ToolbarTitle>
-                {view === 'chat' && chat && (
-                  <IconButton
-                    label="Workspace"
-                    title="Workspace (⌘J)"
-                    active={workspaceOpen}
-                    onClick={() => setWorkspaceOpen(!workspaceOpen)}
-                    className="md:hidden"
-                  >
-                    <PanelRight className="size-4" />
-                  </IconButton>
-                )}
                 {view === 'chat' && chat && (
                   <Button
                     variant="toolbar"
@@ -596,19 +692,58 @@ export function App() {
                       const latest = chat.rounds.at(-1)
                       if (latest) setColonyModal(latest.colonyId)
                     }}
-                    title="Crew console: agents, tool calls, tasks, replay"
+                    title={copy.app.crewButtonTitle}
                   >
-                    <span className="hidden sm:inline">Crew</span>
+                    {copy.app.crewButton}
                   </Button>
                 )}
               </Toolbar>
-              {chatsError && (
-                <div className="shrink-0 bg-bad-soft px-4 py-2 text-[13px] text-bad-ink">{chatsError}</div>
+              {!online ? (
+                <div
+                  role="status"
+                  className="flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-body text-fg-2"
+                >
+                  <LoaderCircle className="size-3.5 animate-spin text-muted" />
+                  {copy.app.reconnecting}
+                </div>
+              ) : (
+                chatsError && (
+                  <div className="shrink-0 bg-bad-soft px-4 py-2 text-body text-bad-ink">{chatsError}</div>
+                )
               )}
 
               {view === 'chat' &&
                 (() => {
-                  const box = config && (
+                  if (missing)
+                    return (
+                      <PaneNotice
+                        icon={<MessageCircleQuestion className="size-6 text-muted" />}
+                        title={copy.app.chatNotFound.title}
+                        body={copy.app.chatNotFound.body}
+                        action={{
+                          label: copy.app.chatNotFound.action,
+                          icon: <SquarePen className="size-3.5" />,
+                          run: () => newTask(),
+                        }}
+                      />
+                    )
+                  // A chat link waits for the chat list rather than showing the entry page meanwhile.
+                  if (activeChat && !chat && !waiting)
+                    return chatsError ? (
+                      <PaneNotice
+                        icon={<CircleAlert className="size-6 text-bad-ink" />}
+                        title={copy.app.chatFailed}
+                        body={chatsError}
+                        action={{
+                          label: copy.app.composer.retry,
+                          icon: <RefreshCw className="size-3.5" />,
+                          run: refreshChats,
+                        }}
+                      />
+                    ) : (
+                      <div className="flex-1" />
+                    )
+                  const box = config ? (
                     <Composer
                       ref={composer}
                       models={models}
@@ -618,17 +753,20 @@ export function App() {
                       busy={busy}
                       centered={!chat}
                       onTextChange={setDraft}
-                      status={running ? 'Crew is working…' : undefined}
+                      status={running ? copy.app.composer.status : undefined}
                       placeholder={
                         chat
-                          ? running
-                            ? chat.rounds.at(-1)?.swarm
-                              ? 'Message the peers while they work…'
-                              : 'Message the lead while it works…'
-                            : 'Ask a follow-up or request changes…'
-                          : 'Describe what you want done…'
+                          ? `${
+                              running
+                                ? chat.rounds.at(-1)?.swarm
+                                  ? copy.app.composer.messagePeers
+                                  : copy.app.composer.messageLead
+                                : copy.app.composer.followUp
+                            }${chat.crew?.length ? copy.app.composer.mentionHint : ''}`
+                          : copy.app.composer.newTask
                       }
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
+                      {...(chat?.crew ? { crew: chat.crew } : {})}
                       onCommand={command}
                       onStop={stop}
                       chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
@@ -640,20 +778,26 @@ export function App() {
                             {...(chat?.project ? { fixed: chat.project } : {})}
                             {...(newProject ? { value: newProject } : {})}
                             onChange={setNewProject}
-                            onAdd={() => setPicking(true)}
+                            {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
                           />
                         )
                       }
                     />
+                  ) : (
+                    <ComposerPending
+                      centered={!chat}
+                      {...(modelsError ? { error: modelsError } : {})}
+                      onRetry={loadModels}
+                    />
                   )
-                  const waiting =
-                    pending && (pending.chatId ?? undefined) === (chat?.chatId ?? pending.chatId)
                   return chat || waiting ? (
                     <>
                       <Transcript
                         {...(chat ? { chat } : {})}
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
+                        onLearn={() => void learn()}
+                        onAnswer={(t) => send(t)}
                         onResume={resume}
                         models={models}
                         sending={busy}
@@ -668,8 +812,12 @@ export function App() {
                       {...(chats[0]
                         ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
                         : {})}
+                      news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
                       onPick={(t) => composer.current?.fill(t)}
                     >
+                      {config && !models.some(canLead) && (
+                        <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
+                      )}
                       {box}
                     </Hero>
                   )
@@ -691,25 +839,25 @@ export function App() {
         {deleting && (
           <Modal
             key="delete"
-            title="Delete chat?"
+            title={copy.app.deleteChat.title}
             onClose={() => !deleteBusy && setDeleting(undefined)}
             size="sm"
           >
             <div className="flex flex-col gap-4">
-              <p className="text-[14px] leading-relaxed text-fg-2">
-                <span className="font-semibold text-fg">“{deleting.title}”</span> and its{' '}
-                {deleting.rounds.length === 1 ? 'round' : `${deleting.rounds.length} rounds`} will be
-                permanently removed from this machine: messages, files, logs, and agent transcripts. This
-                can’t be undone.
+              <p className="text-title leading-relaxed text-fg-2">
+                <span className="font-semibold text-fg">
+                  {copy.app.deleteChat.quotedTitle(deleting.title)}
+                </span>
+                {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
               {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-[13px] text-warn-ink">
-                  This chat is still running. It will be stopped first.
+                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
+                  {copy.app.deleteChat.stillRunning}
                 </p>
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
-                  Cancel
+                  {copy.app.deleteChat.cancel}
                 </Button>
                 <Button
                   variant="destructive"
@@ -717,7 +865,7 @@ export function App() {
                   disabled={deleteBusy}
                   icon={<Trash2 className="size-3.5" />}
                 >
-                  {deleteBusy ? 'Deleting…' : 'Delete chat'}
+                  {deleteBusy ? copy.app.deleteChat.deleting : copy.app.deleteChat.confirm}
                 </Button>
               </div>
             </div>
@@ -738,14 +886,15 @@ export function App() {
             onAdded={(p, all) => {
               setProjects(all)
               setPicking(false)
-              newTask(p.id)
+              // The open chat stays open; a new task about to start works in the folder just added.
+              if (!activeChat) setNewProject(p.id)
             }}
           />
         )}
         {colonyModal && (
           <Modal
             key="colony"
-            title="Crew console"
+            title={copy.app.crewConsole}
             onClose={() => setColonyModal(undefined)}
             size="full"
             flush
@@ -758,10 +907,85 @@ export function App() {
   )
 }
 
+/**
+ * On the entry page while no model can lead: where to connect one, instead of a picker with nothing in it. Without
+ * `onConnect` (a chats-only device, which cannot open Settings) it says who can.
+ */
+function SetupCard(props: { onConnect?(): void }) {
+  const t = copy.app.setup
+  return (
+    <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
+      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+        <Plug className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-reading font-semibold">{t.title}</p>
+        <p className="text-callout leading-snug text-muted">{props.onConnect ? t.body : t.askOwner}</p>
+      </div>
+      {props.onConnect && (
+        <Button variant="primary" onClick={props.onConnect}>
+          {t.action}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** The message box's place while the models it offers load, or why they did not, with a way to try again. */
+function ComposerPending(props: { centered: boolean; error?: string; onRetry(): void }) {
+  const t = copy.app.composer
+  return (
+    <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
+      <div
+        aria-busy={!props.error}
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+      >
+        {props.error ? (
+          <CircleAlert className="size-4 shrink-0 text-bad-ink" />
+        ) : (
+          <LoaderCircle className="size-4 shrink-0 animate-spin" />
+        )}
+        <span className="flex-1">{props.error ? t.failed : t.loading}</span>
+        {props.error && (
+          <Button variant="ghost" icon={<RefreshCw className="size-3.5" />} onClick={props.onRetry}>
+            {t.retry}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** In place of a pane that cannot show: a chat link to a chat this gateway lacks, or a list that would not load. */
+function PaneNotice(props: {
+  icon: ReactNode
+  title: string
+  body: string
+  action?: { label: string; icon: ReactNode; run(): void }
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
+      {props.icon}
+      <div>
+        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-body text-muted">{props.body}</p>
+      </div>
+      {props.action && (
+        <Button variant="primary" icon={props.action.icon} onClick={props.action.run}>
+          {props.action.label}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function Transcript(props: {
   chat?: ChatSummary
   onOpenColony(id: string): void
   onRetry(text: string): void
+  /** Asks for a skill to be learned from this chat. */
+  onLearn(): void
+  onAnswer(text: string): Promise<unknown>
   onResume(model?: string): Promise<void>
   models: ModelOption[]
   /** A message is on its way to the server; retry stays disabled until it lands. */
@@ -771,23 +995,10 @@ function Transcript(props: {
 }) {
   const running = !!props.chat && isRunning(props.chat.status)
   const rounds = props.chat?.rounds ?? []
-  const pane = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  // Follow new activity only while the reader is already at the bottom of the conversation.
-  useEffect(() => {
-    const el = pane.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
-  })
+  const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
-    <div
-      ref={pane}
-      className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
-      onScroll={(e) => {
-        const el = e.currentTarget
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-      }}
-    >
-      <div className="mx-auto flex max-w-[820px] flex-col gap-8 px-4 py-6 sm:px-6">
+    <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
         {colonies(rounds).map((group, g) => (
           <ColonyRounds
             key={group.colonyId}
@@ -801,6 +1012,8 @@ function Transcript(props: {
                 round={r.round}
                 onOpenColony={props.onOpenColony}
                 onRetry={props.onRetry}
+                onLearn={props.onLearn}
+                onAnswer={props.onAnswer}
                 onResume={props.onResume}
                 models={props.models}
                 retry={
@@ -820,6 +1033,7 @@ function Transcript(props: {
           </div>
         )}
       </div>
+      <JumpToLatest follow={pane} />
     </div>
   )
 }
@@ -854,22 +1068,32 @@ function ColonyRounds(props: {
 }
 
 function ColoniesPane() {
-  const [colonies] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
+  const [colonies, , error, loaded] = usePoll<ColonySummary[]>('/api/colonies', [], 4000)
   const [selected, setSelected] = useState<string>()
   const active = selected ?? colonies[0]?.id
-  if (!active) return <div className="flex-1 p-10 text-center text-muted">No crews yet.</div>
+  if (!loaded)
+    return error ? (
+      <PaneNotice
+        icon={<CircleAlert className="size-6 text-bad-ink" />}
+        title={copy.app.crewsFailed}
+        body={error}
+      />
+    ) : (
+      <div className="flex-1" />
+    )
+  if (!active) return <div className="flex-1 p-10 text-center text-muted">{copy.app.noCrews}</div>
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
         <Select
           value={active}
           onChange={(e) => setSelected(e.target.value)}
-          aria-label="Crew"
+          aria-label={copy.app.crewSelect}
           className="max-w-full"
         >
           {colonies.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} · {c.status} · {c.createdAt?.slice(0, 16).replace('T', ' ')}
+              {c.name} · {copy.status.run[runPhase(c)]} · {day(c.createdAt, true)}
             </option>
           ))}
         </Select>

@@ -9,6 +9,8 @@ import {
   shouldCompact,
 } from '@oh-my-pi/pi-agent-core'
 import type { Model, Usage } from '@oh-my-pi/pi-ai'
+import { KEEP_MIN, KEEP_SHARE } from './config.ts'
+import { prompts } from './prompts.ts'
 
 /**
  * Keeps an agent's context inside its model's window, like omp's and Claude Code's auto-compaction. Before each
@@ -39,13 +41,6 @@ export interface Compacted {
   readonly summaryChars: number
 }
 
-const SUMMARY_HEADER =
-  '[Summary of your earlier work in this round. The full conversation is kept in the log; this replaces it to fit ' +
-  'your context window.]'
-
-/** The recent part kept word for word: this share of the usable window, at least `KEEP_MIN` tokens. */
-const KEEP_SHARE = 0.25
-const KEEP_MIN = 2_000
 const keepTokens = (window: number, settings: CompactionSettings) =>
   Math.min(
     settings.keepRecentTokens,
@@ -126,9 +121,18 @@ export class ContextCompactor {
       ? async (m: Model, context: Parameters<StreamFn>[1], options: Parameters<StreamFn>[2]) =>
           (await stream(m, context, options)).result()
       : undefined
-    return generateSummary(messages, model, reserve, apiKey as never, signal, undefined, previous, {
-      ...(completeImpl ? { completeImpl: completeImpl as never } : {}),
-    })
+    return generateSummary(
+      messages,
+      model,
+      reserve,
+      apiKey as never,
+      signal,
+      prompts.compaction.focus,
+      previous,
+      {
+        ...(completeImpl ? { completeImpl: completeImpl as never } : {}),
+      },
+    )
   }
 
   /** The estimated size of the context the next call would send, in tokens. */
@@ -177,7 +181,7 @@ export class ContextCompactor {
     if (!this._summary) return messages
     const summary = {
       role: 'user',
-      content: [{ type: 'text', text: `${SUMMARY_HEADER}\n\n${this._summary.text}` }],
+      content: [{ type: 'text', text: `${prompts.compaction.summaryHeader}\n\n${this._summary.text}` }],
       timestamp: 0,
     } as AgentMessage
     return [summary, ...messages.slice(this._summary.upTo)]

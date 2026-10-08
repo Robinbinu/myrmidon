@@ -1,16 +1,18 @@
 import type { ColonyState, EventPayloads, MyrEvent, TaskSnapshot } from '@myrmidon/protocol'
 import { LayoutGroup, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
+import { copy } from '../copy.ts'
 import { duration } from '../ui/hooks.ts'
 import { AgentAvatar } from '../ui/pixel.tsx'
-import { cn, softSpring } from '../ui/primitives.tsx'
+import { cn } from '../ui/primitives.tsx'
+import { softSpring } from '../ui-config.ts'
 
 const LANES: { status: TaskSnapshot['status']; label: string; dot: string }[] = [
-  { status: 'in_progress', label: 'Working', dot: 'bg-work' },
-  { status: 'submitted', label: 'In review', dot: 'bg-warn' },
-  { status: 'rejected', label: 'Needs rework', dot: 'bg-bad' },
-  { status: 'pending', label: 'Waiting', dot: 'bg-surface-3' },
-  { status: 'verified', label: 'Done', dot: 'bg-ok' },
+  { status: 'in_progress', label: copy.taskBoard.lanes.inProgress, dot: 'bg-work' },
+  { status: 'submitted', label: copy.taskBoard.lanes.submitted, dot: 'bg-warn' },
+  { status: 'rejected', label: copy.taskBoard.lanes.rejected, dot: 'bg-bad' },
+  { status: 'pending', label: copy.taskBoard.lanes.pending, dot: 'bg-surface-3' },
+  { status: 'verified', label: copy.taskBoard.lanes.verified, dot: 'bg-ok' },
 ]
 
 /**
@@ -51,7 +53,7 @@ export function TaskBoard(props: {
                 aria-label={lane.label}
                 className={cn('flex min-w-0 flex-col gap-2', cards.length === 0 && 'opacity-60')}
               >
-                <h3 className="flex items-center gap-2 px-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                <h3 className="flex items-center gap-2 px-1 font-mono text-caption uppercase tracking-[0.14em] text-muted">
                   <span className={cn('size-2 rounded-full', lane.dot)} />
                   {lane.label}
                   <span className="tabular-nums">{cards.length}</span>
@@ -71,17 +73,17 @@ export function TaskBoard(props: {
                           lane.status === 'verified' && 'opacity-70',
                         )}
                       >
-                        <div className="flex items-center gap-2 text-[11px] text-muted">
+                        <div className="flex items-center gap-2 text-caption text-muted">
                           <span className="font-mono">{t.id}</span>
                           <span className="flex-1" />
                           {at && lane.status !== 'verified' && (
                             <span className="tabular-nums">
-                              for {duration(Math.max(0, now - Date.parse(at)))}
+                              {copy.taskBoard.inLaneFor(duration(Math.max(0, now - Date.parse(at))))}
                             </span>
                           )}
                         </div>
-                        <p className="line-clamp-2 text-[13px] leading-snug">{t.subject}</p>
-                        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
+                        <p className="line-clamp-2 text-body leading-snug">{t.subject}</p>
+                        <div className="flex flex-wrap items-center gap-2 text-footnote text-muted">
                           {owner && (
                             <button
                               type="button"
@@ -97,7 +99,7 @@ export function TaskBoard(props: {
                             </button>
                           )}
                           {lane.status === 'pending' && t.blockedBy.length > 0 && (
-                            <span>after {t.blockedBy.join(', ')}</span>
+                            <span>{copy.taskBoard.after(t.blockedBy.join(', '))}</span>
                           )}
                         </div>
                       </motion.li>

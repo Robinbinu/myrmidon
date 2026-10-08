@@ -1,4 +1,4 @@
-# Coordination: tasks, notes, board, mail
+# Coordination: tasks, notes, conversations
 
 ## Tasks
 
@@ -32,10 +32,22 @@ Shared, append-only notes with a `section`:
   correct it by appending a note with `corrects` set to its id.
 - `decision`, `finding`, `status` — what was decided, learned, or done.
 
-## Board and mail
+## Conversations
 
-- `post` puts a short message on the shared board; `@name` wakes that agent. Use it for announcements,
-  blockers, and decisions others need.
-- `send_mail` sends one agent a direct message and wakes it: handoffs, questions about its output, corrections.
+The crew talks the way people use WhatsApp at work. `message(to, text, reply_to?)` reaches every conversation:
+
+- **One teammate** (`to: "kai"`): wakes them. For detail only they need: handoffs, questions about their part,
+  corrections.
+- **A group** (`to: "api"`): wakes every member. Start one with `create_group(name, members, text?)` for a few
+  people working on the same thing; `update_group` adds or removes people, and removing yourself leaves it. A
+  teammate who leaves the crew leaves its groups too.
+- **The team chat** (`to: "team"`): everyone on the crew is in it. Only people you `@mention` are woken; the rest
+  read it with their next turn. For decisions, blockers and changes of plan everyone should know.
+
+`read_messages()` lists your conversations with their latest message; `read_messages(with: …)` shows one with each
+message's number. Answer a message with `reply_to` set to its number so the conversation threads.
+
+- A question or request sent to you (directly, or @mentioning you in a group) that you leave unanswered gets one
+  reminder. Acks, thanks and FYIs are never chased, so do not reply just to close a thread.
 - Do not ask anyone for status: task changes and verdicts are announced automatically, and waking an agent
   costs a turn.

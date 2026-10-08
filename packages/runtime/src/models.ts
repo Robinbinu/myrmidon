@@ -1,7 +1,9 @@
 import type { StreamFn } from '@oh-my-pi/pi-agent-core'
 import { completeSimple, getEnvApiKey, type Model } from '@oh-my-pi/pi-ai'
 import { getBundledModel, getBundledProviders } from '@oh-my-pi/pi-catalog'
+import { PROBE_FRESH_MS } from './config.ts'
 import type { OmpRuntime } from './omp/runtime.ts'
+import { prompts } from './prompts.ts'
 import type { ContextWindows } from './windows.ts'
 
 export interface ResolvedModel {
@@ -15,8 +17,6 @@ export interface ResolvedModel {
  * Resolves `provider/model-id` references through omp's model registry (built-in providers, custom
  * providers from `models.yml`, discovered models). Without omp (tests) only bundled models resolve.
  */
-const PROBE_FRESH_MS = 15 * 60_000
-
 export class ModelResolver {
   private readonly _custom = new Map<string, ResolvedModel>()
 
@@ -75,8 +75,8 @@ export class ModelResolver {
     const reply = await completeSimple(
       resolved.model,
       {
-        systemPrompt: ['Reply with OK.'],
-        messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }],
+        systemPrompt: [prompts.probe.system],
+        messages: [{ role: 'user', content: prompts.probe.message, timestamp: Date.now() }],
       },
       { apiKey },
     )

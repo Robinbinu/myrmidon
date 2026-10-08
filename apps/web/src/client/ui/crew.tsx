@@ -1,5 +1,5 @@
 import { type Form, identityOf } from '@myrmidon/protocol'
-import { motion, useReducedMotion } from 'motion/react'
+import { motion, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { type Mood, Snore, useAgentMood } from './pixel.tsx'
 
@@ -89,7 +89,7 @@ const BODIES: Record<Form, Body> = {
   },
 }
 
-const INK = '#16161a'
+const INK = 'var(--character-ink)'
 
 /** Plain ink eyes: rounded capsules that blink and look about, or a simple expression. */
 function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, number] }) {
@@ -98,7 +98,7 @@ function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, nu
   const y = body.eyeY
   if (mood === 'happy' || mood === 'love') {
     return (
-      <g fill="none" stroke={INK} strokeWidth="4" strokeLinecap="round">
+      <g fill="none" style={{ stroke: INK }} strokeWidth="4" strokeLinecap="round">
         {xs.map((x) => (
           <path key={x} d={`M${x - 5} ${y + 2}Q${x} ${y - 5} ${x + 5} ${y + 2}`} />
         ))}
@@ -107,7 +107,7 @@ function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, nu
   }
   if (mood === 'error') {
     return (
-      <g stroke={INK} strokeWidth="4" strokeLinecap="round">
+      <g style={{ stroke: INK }} strokeWidth="4" strokeLinecap="round">
         {xs.map((x) => (
           <path key={x} d={`M${x - 4} ${y - 4}L${x + 4} ${y + 4}M${x + 4} ${y - 4}L${x - 4} ${y + 4}`} />
         ))}
@@ -116,7 +116,7 @@ function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, nu
   }
   if (mood === 'sleep') {
     return (
-      <g stroke={INK} strokeWidth="4" strokeLinecap="round">
+      <g style={{ stroke: INK }} strokeWidth="4" strokeLinecap="round">
         {xs.map((x) => (
           <path key={x} d={`M${x - 4.5} ${y + 1}H${x + 4.5}`} />
         ))}
@@ -125,7 +125,7 @@ function Eyes(props: { body: Body; mood: Mood; blink: boolean; look: [number, nu
   }
   const h = props.blink ? 2 : mood === 'waiting' ? 6 : 12
   return (
-    <g fill={INK}>
+    <g style={{ fill: INK }}>
       {xs.map((x) => (
         <motion.rect
           key={x}
@@ -175,7 +175,7 @@ export function AgentCharacter(props: {
   awake?: boolean
 }) {
   const size = props.size ?? 32
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const { color, form } = identityOf(props.name)
   const body = BODIES[form]
   const mood = useAgentMood(props.status, props.awake)

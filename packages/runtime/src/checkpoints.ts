@@ -6,8 +6,8 @@ import { type Changes, capPatch, changedFiles, git as runGit } from './git.ts'
  * Checkpoints of project folders, kept in a shadow git repository per project at `<home>/checkpoints/<id>.git`
  * (Cline's approach). The project's own `.git`, branch, index, and stash are never touched, folders that are not
  * git repos work too, and changes made through the shell are captured as well as the file tools' edits. Rounds
- * snapshot their project when they start and when they end; rewinding restores a snapshot after first saving the
- * current state, so a rewind can itself be undone.
+ * snapshot their project when they start and when they end; rewinding restores a round's own files after first
+ * saving the current state, so a rewind can itself be undone.
  */
 
 /** Never worth snapshotting, even without a .gitignore saying so. */
@@ -52,29 +52,39 @@ export class Checkpoints {
     })
   }
 
+  /** The files that differ between two checkpoints, by path. */
+  async files(project: { id: string; path: string }, from: string, to: string): Promise<string[]> {
+    return this._serial(project.id, async () => {
+      const git = await this._repo(project)
+      return (await git(['diff', '--name-only', '--no-renames', from, to])).split('\n').filter(Boolean)
+    })
+  }
+
   /**
-   * Puts the folder back the way it was at `commit`: changed and deleted files are restored, files added since are
-   * removed. Returns the checkpoint of the state just before the rewind, which undoes it.
+   * Puts `files` back the way they were at `commit`: restored, or removed if they did not exist then. Nothing else in
+   * the folder is touched, so work done since by anyone else stays. Returns the checkpoint of the state just before,
+   * which undoes it.
    */
   async restore(
     project: { id: string; path: string },
     commit: string,
+    files: readonly string[],
   ): Promise<{ undo: string; changed: number }> {
     const undo = await this.snapshot(project, `before rewinding to ${commit.slice(0, 10)}`)
     return this._serial(project.id, async () => {
       const git = await this._repo(project)
       const root = resolve(project.path)
-      const added = (await git(['diff', '--name-only', '--diff-filter=A', '--no-renames', commit, undo]))
-        .split('\n')
-        .filter(Boolean)
-      for (const path of added) {
+      const existed = new Set(
+        (await git(['ls-tree', '-r', '--name-only', commit])).split('\n').filter(Boolean),
+      )
+      const back = files.filter((f) => existed.has(f))
+      for (const path of files) {
         const full = resolve(root, path)
-        if (full.startsWith(root + sep)) rmSync(full, { force: true })
+        if (!existed.has(path) && full.startsWith(root + sep)) rmSync(full, { force: true })
       }
-      const changed = (await git(['diff', '--name-only', '--no-renames', commit, undo]))
-        .split('\n')
-        .filter(Boolean)
-      if (changed.length > added.length) await git(['checkout', commit, '--', '.'])
+      // In batches, so a round that touched thousands of files stays under the argument limit.
+      for (let i = 0; i < back.length; i += 200)
+        await git(['checkout', commit, '--', ...back.slice(i, i + 200)])
       await git(['add', '--all', '--', '.'])
       await git([
         'commit',
@@ -82,9 +92,9 @@ export class Checkpoints {
         '--allow-empty',
         '--no-verify',
         '-m',
-        `rewound to ${commit.slice(0, 10)}`,
+        `rewound ${files.length} file(s) to ${commit.slice(0, 10)}`,
       ])
-      return { undo, changed: changed.length }
+      return { undo, changed: files.length }
     })
   }
 

@@ -1,4 +1,4 @@
-import { type ColonyMetrics, colonyMetrics, foldColony } from './colony-state.ts'
+import { type ColonyMetrics, colonyMetrics, foldColony, reviewVerdicts, stopCause } from './colony-state.ts'
 import type { MyrEvent } from './event.ts'
 import type { EventPayloads } from './payloads.ts'
 
@@ -7,7 +7,14 @@ export interface RunSide {
   id: string
   name: string
   status: string
+  /** It stopped to wait for the person's answer. */
+  awaiting?: true
+  /** It stopped because a model failed. */
+  failed?: true
+  /** What the run was asked to do; a comparison means most when both had the same task. */
+  task: string
   tier?: string
+  /** The team's mode, only when the run used a team: a solo round carries the chat's team settings unused. */
   mode?: string
   models: string[]
   metrics: ColonyMetrics
@@ -36,13 +43,17 @@ function side(id: string, events: readonly MyrEvent[]) {
   const state = foldColony(id, events)
   const replies = state.chatMessages.filter((m) => m.from !== 'user')
   const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-  const verdict = state.verdicts.filter((v) => v.target === 'colony').at(-1)
+  const verdict = reviewVerdicts(state)
+    .filter((v) => v.target === 'colony')
+    .at(-1)
   const run: RunSide = {
     id,
     name: state.name,
     status: state.status,
+    ...stopCause(state),
+    task: state.chat?.request ?? state.mission,
     ...(state.tier ? { tier: state.tier } : {}),
-    ...(state.team?.mode ? { mode: state.team.mode } : {}),
+    ...(state.team?.mode && (state.tier ?? 'team') === 'team' ? { mode: state.team.mode } : {}),
     models: [...new Set(Object.values(state.agents).map((a) => a.info.model))],
     metrics: colonyMetrics(state),
     ...(verdict

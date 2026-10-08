@@ -1,15 +1,18 @@
 #!/usr/bin/env bun
 import './home.ts'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { colonyId, SqliteLogStore } from '@myrmidon/core'
 import {
   type ColonyState,
   colonyMetrics,
+  DELIVERED_VERIFIER,
   type EventPayloads,
   foldColony,
   type MyrEvent,
+  reviewVerdicts,
   roundSlice,
 } from '@myrmidon/protocol'
 import {
@@ -28,21 +31,41 @@ import {
   MemoryStore,
   ModelResolver,
   ompWebTools,
+  PluginHost,
+  PluginStore,
   ProjectStore,
   type Runtime,
   recoverOrphans,
   ScheduleStore,
   SettingsStore,
   SkillLibrary,
+  SkillProposalStore,
+  SpecialistStore,
   ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
+import { channels } from './channels.ts'
+import { setupCopy } from './copy.ts'
+import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
+import { style, terminal } from './terminal.ts'
 
 const HELP = `myrmidon — run and watch colonies of collaborating agents
 
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
-  myrmidon serve [--port N] [--dev] [--debug]
+  myrmidon serve [--port N] [--dev] [--debug] [--host ADDR] [--public-url URL] [--allow-host HOST:PORT]
+               [--preview-port N] [--preview-url URL]
+               --host / --public-url make a remote gateway: devices pair, see docs/remote.md
+               --preview-port / --preview-url: where devices open agent-built pages from a remote gateway
+  myrmidon pair [--scope full|chat]
+               Print a single-use link that pairs a device with the running server (10 minutes)
+  myrmidon setup               Walk through sign-in or keys, the default model and a first device, in the terminal
+  myrmidon login [ID]          Sign in with a subscription; works on a server with no browser (paste the link back)
+  myrmidon key [PROVIDER]      Add an API key (typed hidden, or piped: myrmidon key openai < key.txt)
+  myrmidon model [REF]         Show or set the default model (provider/model); it is tested before it is saved
+  myrmidon doctor              Check the server, models, sandbox, browser tools, previews, devices and channels
+  myrmidon channels [telegram [on|off] | approve <channel> <code> | revoke <channel> <who>]
+               Talk to your agents from Telegram: give the bot its token (hidden or piped), approve people
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -67,6 +90,12 @@ const { values, positionals } = parseArgs({
     out: { type: 'string' },
     'unsafe-no-sandbox': { type: 'boolean', default: false },
     dev: { type: 'boolean', default: false },
+    host: { type: 'string' },
+    'public-url': { type: 'string' },
+    'allow-host': { type: 'string', multiple: true },
+    'preview-port': { type: 'string' },
+    'preview-url': { type: 'string' },
+    scope: { type: 'string' },
     debug: { type: 'boolean', default: false },
     chat: { type: 'string' },
     project: { type: 'string' },
@@ -78,16 +107,13 @@ const { values, positionals } = parseArgs({
 const home = process.env.MYRMIDON_HOME as string
 const [command, arg] = positionals
 
-const c = {
-  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
-  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
-  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
-}
+const c = style
 
-function line(e: MyrEvent): string | undefined {
+/**
+ * One event as a terminal line, or nothing for events not worth a line. `delivered` collects the ids of the delivery
+ * records an unreviewed round's completion cites, so that completion is not announced as checked.
+ */
+function line(e: MyrEvent, delivered: Set<string>): string | undefined {
   const p = e.payload as never
   const t = c.dim(e.time.slice(11, 19))
   const cut = (s: string, n = 110) => (s.length > n ? `${s.slice(0, n)}…` : s).replace(/\s+/g, ' ')
@@ -132,12 +158,20 @@ function line(e: MyrEvent): string | undefined {
     }
     case 'verifier/verdict': {
       const x = p as EventPayloads['verifier/verdict']
+      if (x.verifierId === DELIVERED_VERIFIER) {
+        delivered.add(e.id)
+        return `${t} ${c.dim('final answer delivered, not reviewed')}`
+      }
       return `${t} ${x.pass ? c.green('PASS') : c.red('FAIL')} ${x.verifierId} on ${x.target}: ${cut(x.evidence, 100)}`
     }
     case 'colony/started':
       return `${t} ${c.bold('colony started')}`
-    case 'colony/completed':
-      return `${t} ${c.green(c.bold('colony COMPLETED — all acceptance checks passed'))}`
+    case 'colony/completed': {
+      const x = p as EventPayloads['colony/completed']
+      return x.verdicts.every((id) => delivered.has(id))
+        ? `${t} ${c.green(c.bold('colony completed (not reviewed)'))}`
+        : `${t} ${c.green(c.bold('colony COMPLETED — all acceptance checks passed'))}`
+    }
     case 'colony/stopped': {
       const x = p as EventPayloads['colony/stopped']
       return `${t} ${c.yellow(c.bold(`colony stopped: ${x.reason}`))}`
@@ -149,7 +183,7 @@ function line(e: MyrEvent): string | undefined {
 
 function summary(state: ColonyState) {
   const m = colonyMetrics(state)
-  const verdicts = state.verdicts.filter((v) => v.target === 'colony')
+  const verdicts = reviewVerdicts(state).filter((v) => v.target === 'colony')
   console.log(
     `\n${c.bold(state.name)} — ${state.status}${state.statusReason ? ` (${state.statusReason})` : ''}`,
   )
@@ -204,10 +238,11 @@ async function run(path: string) {
     resolver: new ModelResolver(omp, contextWindows(settings)),
     web: ompWebTools(omp, () => settings.get().search.provider),
   })
+  const delivered = new Set<string>()
   runtime.ctx.on('log/appended', (id, events) => {
     if (id !== colony.id) return
     for (const e of events) {
-      const out = line(e)
+      const out = line(e, delivered)
       if (out) console.log(out)
     }
   })
@@ -270,13 +305,29 @@ async function main() {
       const omp = await bootOmp(home)
       const resolver = new ModelResolver(omp, contextWindows(settings))
       const sandbox = detectSandbox()
-      const mcp = new McpHub(omp.agentDir)
+      const plugins = new PluginStore(home)
+      const pluginHost = new PluginHost(plugins)
+      // Plugin code sees every event as it lands, and adds its own to a colony's log.
+      runtime.ctx.on('log/appended', (id, events) => pluginHost.dispatch(id, events))
+      pluginHost.attach(async (colonyId, type, data, plugin) => {
+        await runtime.ctx.log.appendOne(colonyId as never, {
+          type: 'plugin/event',
+          actor: { kind: 'system', id: `plugin:${plugin}` },
+          payload: { plugin, type, data },
+        })
+      })
+      void pluginHost
+        .start()
+        .catch((err) => console.error(c.yellow(`plugins: ${err instanceof Error ? err.message : err}`)))
+      const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
+      const specialists = new SpecialistStore(home)
+      const skillProposals = new SkillProposalStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
-      const skills = new SkillLibrary(home)
-      const hooks = new HookStore(home)
+      const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
+      const hooks = new HookStore(home, () => plugins.hooks())
       const checkpoints = new Checkpoints(join(home, 'checkpoints'))
       // A server that fails to start is reported in Settings; it must not keep Myrmidon from starting.
       void mcp
@@ -290,11 +341,14 @@ async function main() {
         mcp,
         browser,
         projects,
+        specialists,
+        skillProposals,
         library,
         checkpoints,
         memory,
         skills,
         hooks,
+        plugins: pluginHost,
       })
       const server = startServer({
         home,
@@ -306,16 +360,35 @@ async function main() {
         mcp,
         browser,
         projects,
+        specialists,
+        skillProposals,
         library,
         memory,
         skills,
         hooks,
+        plugins,
+        pluginHost,
         schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
+        ...(values.host ? { host: values.host } : {}),
+        ...(values['public-url'] ? { publicUrl: values['public-url'] } : {}),
+        ...(values['allow-host']?.length ? { allowHosts: values['allow-host'] } : {}),
+        ...(values['preview-port'] ? { previewPort: Number(values['preview-port']) } : {}),
+        ...(values['preview-url'] ? { previewUrl: values['preview-url'] } : {}),
         debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      if (server.remote)
+        console.log(
+          `${c.green('remote gateway')}${server.publicUrl ? ` at ${server.publicUrl}` : ''}: pair a device with ${c.bold('myrmidon pair')} (see docs/remote.md)`,
+        )
+      if (server.remote && !server.previewUrl)
+        console.log(
+          c.dim(
+            'previews of agent-built pages open only over an SSH tunnel or the bound address; add --preview-port and --preview-url for others (docs/remote.md)',
+          ),
+        )
       if (values.dev)
         console.log(c.yellow('dev mode: no access token. Any program on this machine can use the API.'))
       if (values.debug)
@@ -329,12 +402,19 @@ async function main() {
       const serverFile = join(home, 'server.json')
       writeFileSync(
         serverFile,
-        JSON.stringify({ url: server.url.replace(/#.*$/, ''), token: server.token, pid: process.pid }),
+        JSON.stringify({
+          url: server.url.replace(/#.*$/, ''),
+          token: server.token,
+          pid: process.pid,
+          remote: server.remote,
+          ...(server.publicUrl ? { publicUrl: server.publicUrl } : {}),
+          ...(server.previewUrl ? { previewUrl: server.previewUrl } : {}),
+        }),
         {
           mode: 0o600,
         },
       )
-      process.on('SIGINT', async () => {
+      const shutdown = async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         rmSync(serverFile, { force: true })
         await chats.stopAll()
@@ -343,11 +423,38 @@ async function main() {
         await server.stop()
         await runtime.dispose()
         process.exit(0)
-      })
+      }
+      process.on('SIGINT', shutdown)
+      // systemd stops a service with SIGTERM.
+      process.on('SIGTERM', shutdown)
       return
     }
     case 'ask':
       return ask(arg)
+    case 'pair':
+      return pair()
+    case 'setup': {
+      const { call, info } = await runningServer()
+      return withScratch((scratch) =>
+        setup(call, terminal(), { sandbox: detectSandbox(), scratch, server: info }, pair),
+      )
+    }
+    case 'login':
+      return login((await runningServer()).call, terminal(), arg)
+    case 'key':
+      return key((await runningServer()).call, terminal(), arg)
+    case 'model':
+      return model((await runningServer()).call, terminal(), arg)
+    case 'channels':
+      return channels((await runningServer()).call, terminal(), positionals.slice(1))
+    case 'doctor': {
+      const server = await runningServer().catch(() => undefined)
+      const problems = await withScratch((scratch) =>
+        doctor(server?.call, terminal(), { sandbox: detectSandbox(), scratch, server: server?.info }),
+      )
+      process.exitCode = problems ? 1 : 0
+      return
+    }
     case 'import-omp': {
       const report = importFromOmp(home)
       console.log(`${c.green('imported')} ${report.copied.join(', ') || 'nothing'} into ${home}/agent`)
@@ -380,8 +487,11 @@ async function main() {
         } else process.stdout.write(text)
         return
       }
+      const delivered = new Set<string>()
       for (const e of events)
-        console.log(`#${String(e.seq).padStart(4)} ${line(e) ?? `${c.dim(e.time.slice(11, 19))} ${e.type}`}`)
+        console.log(
+          `#${String(e.seq).padStart(4)} ${line(e, delivered) ?? `${c.dim(e.time.slice(11, 19))} ${e.type}`}`,
+        )
       return
     }
     default:
@@ -395,22 +505,60 @@ main().catch((err) => {
   process.exit(1)
 })
 
-/** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
-async function ask(request: string | undefined) {
-  if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
+/** Calls the API of the server running on this machine for this home, with the token it wrote down. */
+/** The server `myrmidon serve` started for this home, checked to be answering (server.json outlives a crash). */
+async function runningServer(): Promise<{ call: Call; info: ServerInfo }> {
   const file = join(home, 'server.json')
-  if (!existsSync(file)) throw new Error(`no running server for ${home}: start one with \`myrmidon serve\``)
-  const { url, token } = JSON.parse(readFileSync(file, 'utf8')) as { url: string; token: string }
-  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const res = await fetch(new URL(path, url), {
+  if (!existsSync(file)) throw new Error(setupCopy.noServer(home))
+  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string }
+  const call: Call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(new URL(path, info.url), {
       method,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(info.token ? { authorization: `Bearer ${info.token}` } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
     const data = (await res.json().catch(() => ({}))) as T & { error?: string }
     if (!res.ok) throw new Error(data.error ?? `${method} ${path}: ${res.status}`)
     return data
   }
+  await call('GET', '/api/whoami').catch((err: Error) => {
+    throw new Error(err.message.includes('Unable to connect') ? setupCopy.noServer(home) : err.message)
+  })
+  const { token: _token, ...rest } = info
+  return { call, info: rest }
+}
+
+/** A throwaway directory for checks that run something (the sandbox), removed afterwards. */
+async function withScratch<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-check-'))
+  try {
+    return await fn(dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Prints a single-use link that pairs a device (a phone, a laptop) with the running remote gateway. */
+async function pair() {
+  const scope = values.scope === 'chat' ? 'chat' : 'full'
+  const { call } = await runningServer()
+  const { code, link } = await call<{ code: string; link: string }>('POST', '/api/devices/pair-code', {
+    scope,
+  })
+  console.log(
+    `${c.bold('Pair a device')} (${scope === 'chat' ? 'chats only' : 'full access'}, one use, 10 minutes):`,
+  )
+  console.log(`  ${c.green(link)}`)
+  console.log(c.dim(`  or enter the code ${code} on the gateway's page`))
+}
+
+/** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
+async function ask(request: string | undefined) {
+  if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
+  const { call } = await runningServer()
   const sent = await call<{ chatId: string; colonyId: string; round?: number }>('POST', '/api/chats', {
     text: request,
     ...(values.chat ? { chatId: values.chat } : {}),

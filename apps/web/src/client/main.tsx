@@ -2,6 +2,7 @@ import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import { createRoot } from 'react-dom/client'
 import { App } from './App.tsx'
+import { DeviceGate } from './DeviceGate.tsx'
 import { installNativeBehavior } from './ui/platform.ts'
 import { ToastProvider } from './ui/Toast.tsx'
 
@@ -14,6 +15,8 @@ createRoot(root, {
   onUncaughtError: (error, info) => console.error('React crashed:', error, info.componentStack),
 }).render(
   <ToastProvider>
-    <App />
+    <DeviceGate>
+      <App />
+    </DeviceGate>
   </ToastProvider>,
 )

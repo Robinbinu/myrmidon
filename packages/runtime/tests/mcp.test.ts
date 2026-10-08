@@ -23,7 +23,7 @@ test('an MCP server in mcp.json becomes agent tools, without inheriting our secr
   await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
   const [server] = hub.servers()
   expect(server?.status).toBe('connected')
-  expect(server?.tools.length).toBe(2)
+  expect(server?.tools.length).toBe(3)
 
   const tools = new Map(hub.tools().map((t) => [t.name, t]))
   const echo = [...tools.values()].find((t) => t.name.endsWith('echo'))

@@ -76,3 +76,20 @@ test('a request that plainly needs the browser or a dev server starts with those
   ])
   expect(preloaded('Summarize this text for me', names)).toEqual([])
 })
+
+test('MCP tools ask first unless their server marks them read-only; the person can allow, ask or turn off each', async () => {
+  const { needsApproval } = await import('../src/tools.ts')
+  const none = {}
+  expect(needsApproval(none, 'mcp__notes_list', true)).toBe(false)
+  expect(needsApproval(none, 'mcp__notes_delete', false)).toBe(true)
+  expect(needsApproval(none, 'web_search', false)).toBe(false)
+  // A rule for one tool beats the rule for every MCP tool, which beats the read-only default.
+  expect(needsApproval({ allowTools: ['mcp__notes_delete'] }, 'mcp__notes_delete', false)).toBe(false)
+  expect(needsApproval({ askTools: ['mcp__notes_list'] }, 'mcp__notes_list', true)).toBe(true)
+  expect(needsApproval({ askTools: ['mcp'] }, 'mcp__notes_list', true)).toBe(true)
+  expect(needsApproval({ allowTools: ['mcp'] }, 'mcp__notes_delete', false)).toBe(false)
+  expect(needsApproval({ askTools: ['mcp'], allowTools: ['mcp__notes_list'] }, 'mcp__notes_list', true)).toBe(
+    false,
+  )
+  expect(needsApproval({ askTools: ['shell'] }, 'shell', false)).toBe(true)
+})

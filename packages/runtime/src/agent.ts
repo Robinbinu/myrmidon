@@ -10,10 +10,22 @@ import {
 } from '@oh-my-pi/pi-agent-core'
 import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai'
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
+import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
+import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
-import { kickoff, onDemand, preloaded, startsAwake, systemPrompt, thinkingFor, toolsFor } from './patterns.ts'
+import {
+  kickoff,
+  onDemand,
+  preloaded,
+  speaksForColony,
+  startsAwake,
+  systemPrompt,
+  thinkingFor,
+  toolsFor,
+} from './patterns.ts'
+import { prompts } from './prompts.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
 import { buildAgentTools, matchTools } from './tools.ts'
@@ -25,14 +37,13 @@ export interface InboxItem {
   readonly mail?: EventId
   /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
   readonly queue?: boolean
+  /** Seen, not a reason to wake: it waits for whatever wakes the agent next (team chat it was not @mentioned in). */
+  readonly quiet?: boolean
 }
 
-// A safety net only: one turn can include many model calls and large file writes.
-const TURN_TIMEOUT_MS = 15 * 60_000
-/** Retries for a transient model failure (rate limit, overload, timeout) before the person is asked. */
-const MODEL_RETRIES = 2
-
 const SYS = { kind: 'system', id: 'scheduler' } as const
+/** Tools that put something in front of the person; a turn that used one has already spoken. */
+const REPLY_TOOLS = new Set(['reply_user', 'reply_person', 'ask_user'])
 
 /**
  * One colony member: a pi-agent-core Agent plus an inbox. Idle agents sleep until something is
@@ -44,10 +55,14 @@ export class ColonyAgent {
   working = false
   private _wake?: () => void
   private _stopped = false
+  /** A note for the start of the next turn, from an interrupt that cut this one short. */
+  private _afterTurn?: InboxItem
   private _failed = false
   private readonly _agent: Agent
   /** The current model's own stream function, if it has one (test models); otherwise pi's default. */
   private _stream?: StreamFn
+  /** The model the latest call streamed with: a reply is priced by it, even if the agent switched model meanwhile. */
+  private _streamedWith?: Model
   private readonly _compactor = new ContextCompactor({
     model: () => this._agent.state.model,
     summarizers: () => this._earlierModels(),
@@ -97,6 +112,7 @@ export class ColonyAgent {
           ...(host.project ? { project: host.project } : {}),
           ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
           skills: host.skills(),
+          plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
         }),
         model: resolved.model,
         tools,
@@ -111,12 +127,14 @@ export class ColonyAgent {
       // a mid-round model switch reach models that bring their own stream too.
       // On-demand tools stay callable but are left out of the request until loaded (find_tools), so their
       // definitions do not ride along in every model call.
-      streamFn: (model, context, options) =>
-        (this._stream ?? streamSimple)(
+      streamFn: (model, context, options) => {
+        this._streamedWith = model
+        return (this._stream ?? streamSimple)(
           model,
           context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
           withOllamaContext(model, options),
-        ),
+        )
+      },
     })
     this._agent.subscribe((e) => this._onEvent(e))
   }
@@ -156,21 +174,27 @@ export class ColonyAgent {
     const found = matchTools(waiting, query)
     if (found.length === 0) {
       const names = waiting.map((t) => t.name)
-      return names.length
-        ? `nothing matches "${query}". Tools you can load: ${names.join(', ')}`
-        : 'every tool you have is already loaded'
+      return names.length ? prompts.agent.noMatch(query, names) : prompts.agent.allLoaded
     }
     for (const t of found) this._loaded.add(t.name)
     const first = (d: string) => d.split(/(?<=\.)\s/)[0] ?? d
-    return `Loaded, callable from your next step:\n${found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n')}`
+    return prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))
   }
 
   get idle() {
     return !this.working && this.inbox.length === 0
   }
 
+  /** Quiet items waiting for the next turn. */
+  private readonly _quiet: InboxItem[] = []
+
   notify(item: InboxItem) {
     if (this._stopped) return
+    if (item.quiet) {
+      this._quiet.push(item)
+      this._quiet.splice(0, Math.max(0, this._quiet.length - QUIET_KEPT))
+      return
+    }
     if (this.working) {
       this._stamp = Math.max(Date.now(), this._stamp + 1)
       const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
@@ -189,13 +213,26 @@ export class ColonyAgent {
     this._wake?.()
   }
 
+  /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
+  interrupt(reason: string, note: string) {
+    if (this._stopped) return
+    if (!this.working) return this.notify({ text: note, trigger: 'permissions' })
+    // The abort drops whatever was steered into this turn, so the note waits and opens the next turn instead.
+    this._afterTurn = { text: note, trigger: 'permissions' }
+    this._agent.abort(reason)
+  }
+
   /**
    * Runs until the colony ends. Agents that do not start awake sleep until a task, mail, or mention wakes them.
    * A resumed colony wakes its agents itself, so `kickoffFirst` is false there.
    */
   async run(kickoffFirst = true): Promise<void> {
+    const opening = () => kickoff(this.host.spec, this.host.state(), this.restored > 0, this.name)
     if (kickoffFirst && startsAwake(this.host.spec, this.spec))
-      this.notify({ text: kickoff(this.host.spec, this.host.state(), this.restored > 0), trigger: 'kickoff' })
+      this.notify({ text: opening(), trigger: 'kickoff' })
+    // The person opened this round by writing to someone else: the rest hear of it when something wakes them.
+    else if (kickoffFirst && this.host.spec.chat?.addressed?.length)
+      this.notify({ text: opening(), trigger: 'kickoff', quiet: true })
     while (!this._stopped && this.host.state().status === 'running') {
       if (this.inbox.length === 0) {
         await this._status('idle')
@@ -209,7 +246,7 @@ export class ColonyAgent {
         await this._status('stopped', `turn limit ${this.host.spec.budget.maxTurns} reached`)
         return
       }
-      const items = this.inbox.splice(0)
+      const items = [...this._quiet.splice(0), ...this.inbox.splice(0)]
       await this._turn(items)
       if (this._failed) return
     }
@@ -244,6 +281,8 @@ export class ColonyAgent {
     } finally {
       clearTimeout(timer)
       this._requeueUnread()
+      if (this._afterTurn) this.inbox.unshift(this._afterTurn)
+      this._afterTurn = undefined
       this.working = false
     }
     await this.host.append({
@@ -309,31 +348,44 @@ export class ColonyAgent {
   }
 
   /**
-   * A one-agent chat round whose turn ends in plain text, without reply_user or ask_user, has written its
-   * answer where the person cannot see it. Deliver that text as the final answer.
+   * A one-agent chat round, or one the person opened by writing to this agent (@name), whose turn ends in plain
+   * text without a reply tool has written its answer where the person cannot see it, and nothing else would end
+   * the round. Deliver that text as the final answer.
    */
   private async _deliverUnsentAnswer(from: number) {
     const spec = this.host.spec
-    if (!spec.chat || spec.agents.length !== 1 || this._stopped) return
-    const turn = this._agent.state.messages
-      .slice(from)
-      .filter((m) => m.role === 'assistant') as AssistantMessage[]
-    const spoke = turn.some((m) =>
-      m.content.some((c) => c.type === 'toolCall' && (c.name === 'reply_user' || c.name === 'ask_user')),
-    )
+    const addressed = spec.chat?.addressed?.includes(this.name) ?? false
+    if (!spec.chat || (spec.agents.length !== 1 && !addressed) || this._stopped) return
+    const all = this._agent.state.messages.slice(from)
+    const turn = all.filter((m) => m.role === 'assistant') as AssistantMessage[]
+    const callsIn = (ms: readonly AgentMessage[]) =>
+      (ms.filter((m) => m.role === 'assistant') as AssistantMessage[]).flatMap((m) =>
+        m.content.flatMap((c) => (c.type === 'toolCall' ? [c.name] : [])),
+      )
+    const calls = callsIn(all)
+    const spoke = calls.some((name) => REPLY_TOOLS.has(name))
+    // Text written while it waits on a teammate ("I've asked the lead, will reply then") is not its answer: it
+    // messaged someone after the last thing it heard, or mail has come in since, and that reply starts the turn
+    // that answers.
+    const heard = all.findLastIndex((m) => m.role === 'user')
+    const waiting =
+      callsIn(all.slice(heard + 1)).includes('message') ||
+      this.inbox.length > 0 ||
+      this._agent.hasQueuedMessages()
     // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
     // answer (a review sent it back, say), a short remark is filler, not another answer.
     const state = this.host.state()
     const since = state.rounds.at(-1)?.startSeq ?? 0
     const answered = state.chatMessages.some((m) => m.from === this.name && m.final && m.seq >= since)
-    const worked = answered || turn.some((m) => m.content.some((c) => c.type === 'toolCall'))
+    const worked = answered || calls.length > 0
     const last = turn.at(-1)
     const text =
       last?.content
         .flatMap((c) => (c.type === 'text' ? [c.text] : []))
         .join('\n')
         .trim() ?? ''
-    if (spoke || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20)) return
+    if (spoke || waiting || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20))
+      return
     await this.host.append({
       type: 'chat/reply',
       actor: agentActor(this.name),
@@ -391,7 +443,40 @@ export class ColonyAgent {
     })
   }
 
+  /** When the last piece of a reply was streamed, and what it said, so updates go out at most every 100ms. */
+  private _streamedAt = 0
+  private _streamedText = ''
+
+  /**
+   * The reply as it is written, for the person watching: the text of reply_user (read from the tool call's
+   * arguments, which the model streams) or the plain text of a direct answer. Only the agent that speaks streams.
+   */
+  private _streamReply(m: AssistantMessage, done: boolean) {
+    // The speaker streams its replies and plain answers; a crew member, only what it writes to the person directly.
+    const speaks = speaksForColony(this.host.spec, this.spec)
+    const tool = speaks ? 'reply_user' : 'reply_person'
+    const reply = m.content.flatMap((c) =>
+      c.type === 'toolCall' && c.name === tool && typeof c.arguments?.text === 'string'
+        ? [c.arguments.text]
+        : [],
+    )
+    if (!speaks && reply.length === 0 && !this._streamedText) return
+    const text = (
+      reply.length || !speaks ? reply : m.content.flatMap((c) => (c.type === 'text' ? [c.text] : []))
+    ).join('\n')
+    const now = Date.now()
+    if (!done && (text === this._streamedText || now - this._streamedAt < 100)) return
+    if (!text && !this._streamedText) return
+    this._streamedAt = now
+    this._streamedText = done ? '' : text
+    this.host.streamed(this.name, text, done)
+  }
+
   private _onEvent(e: AgentEvent) {
+    if (e.type === 'message_update' && e.message.role === 'assistant')
+      return this._streamReply(e.message as AssistantMessage, false)
+    if (e.type === 'message_end' && e.message.role === 'assistant')
+      this._streamReply(e.message as AssistantMessage, true)
     if (e.type === 'message_end') this._record(e.message)
     if (e.type === 'message_end' && e.message.role === 'user') {
       const item = this._unread.get(e.message.timestamp)
@@ -414,7 +499,12 @@ export class ColonyAgent {
     const toolCalls = m.content.flatMap((c) =>
       c.type === 'toolCall' ? [{ id: c.id, name: c.name, arguments: c.arguments ?? {} }] : [],
     )
-    const cost = (m.usage as { cost?: { total?: number } } | undefined)?.cost?.total
+    // pi prices a reply from the rate card of the model the call went to, so a model without one reports $0: that
+    // cost is unknown, not free, and is left out so totals say n/a instead of undercounting. The reply's own model
+    // name can differ (a provider's fallback), and a /model switch can land mid-reply, so neither decides.
+    const model = this._streamedWith ?? this._agent.state.model
+    const priced = ['fixed', 'free', 'included'].includes(getModelPricingStatus(model))
+    const cost = priced ? (m.usage as { cost?: { total?: number } } | undefined)?.cost?.total : undefined
     void this.host
       .append({
         type: 'llm/response',
@@ -481,9 +571,6 @@ export function readTranscript(path: string): AgentMessage[] {
   return messages
 }
 
-/** Turns kept word for word when a new round of the chat starts; older tool output is elided. */
-const KEEP_TURNS = 4
-
 /**
  * Compacts a transcript at turn boundaries (a turn is a user message and everything after it until the next):
  * the latest turns stay verbatim, while older turns keep their messages but drop tool output and reasoning,
@@ -499,7 +586,7 @@ export function compactTranscript(messages: readonly AgentMessage[], keepTurns =
       const size = JSON.stringify(msg.content).length
       return {
         ...msg,
-        content: [{ type: 'text', text: `[output from an earlier round elided, ${size} chars]` }],
+        content: [{ type: 'text', text: prompts.agent.elided(size) }],
       } as AgentMessage
     }
     if (msg.role === 'assistant' && Array.isArray(msg.content))
@@ -523,8 +610,6 @@ export interface ModelError {
   readonly tokens?: number
   readonly window?: number
 }
-
-const TRANSIENT_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529])
 
 export function classifyModelError(m: AssistantMessage): ModelError {
   const message = m.errorMessage?.trim() || 'the model returned an error with no message'

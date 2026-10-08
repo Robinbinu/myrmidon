@@ -1,9 +1,14 @@
 import { Check, Copy } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
+import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
 
+// A link's label stops at the next `[`, and its address at a `(` that does not open a balanced pair, which every
+// later link's `](` is: each attempt then scans only up to the next link instead of rescanning the rest of the line
+// from every bracket, so long lines stay linear. Addresses keep `[`, `]` and one level of parentheses
+// (`http://[::1]:5173`, `?f[x]=1`, `wiki/Foo_(bar)`).
 const INLINE =
-  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^\]\n]+\]\([^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
+  /(`[^`\n]+`|\*\*[^*\n]+\*\*|(?<![\w*])[*_][^*_\s][^*_\n]*(?<!\s)[*_](?![\w*])|\[[^[\]\n]+\]\((?:[^\s()]|\([^\s()]*\))+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/g
 
 const LINK =
   'font-medium text-accent-fg underline decoration-accent/30 underline-offset-2 hover:decoration-accent break-words'
@@ -22,15 +27,16 @@ function inline(text: string): ReactNode[] {
         </code>,
       )
     } else if (token.startsWith('**'))
+      // Emphasis carries its own markup (`**`calc.py`**`); its inside is strictly shorter, so this ends.
       out.push(
         <strong key={at} className="font-semibold text-fg">
-          {token.slice(2, -2)}
+          {inline(token.slice(2, -2))}
         </strong>,
       )
     else if (token.startsWith('*') || token.startsWith('_'))
       out.push(
         <em key={at} className="italic">
-          {token.slice(1, -1)}
+          {inline(token.slice(1, -1))}
         </em>,
       )
     else if (token.startsWith('[') && !/\]\(https?:\/\//.test(token))
@@ -41,7 +47,7 @@ function inline(text: string): ReactNode[] {
         <a
           key={at}
           className={LINK}
-          href={token.slice(token.indexOf('(') + 1, -1)}
+          href={token.slice(token.indexOf('](') + 2, -1)}
           target="_blank"
           rel="noreferrer"
         >
@@ -61,22 +67,33 @@ function inline(text: string): ReactNode[] {
   return out
 }
 
+/** The words of Markdown without its markup, for reading out (a screen reader would say every `*` and `#`). */
+export function plainText(text: string): string {
+  return text
+    .replace(/^```.*$/gm, '')
+    .replace(/^[ \t]{0,3}(#{1,6}|>|[-*]|\d+\.)[ \t]+/gm, '')
+    .replace(/\[([^[\]\n]+)\]\((?:[^\s()]|\([^\s()]*\))+\)/g, '$1')
+    .replace(/(\*\*|`)/g, '')
+    .replace(/(?<![\w*])[*_]([^*_\s][^*_\n]*?)[*_](?![\w*])/g, '$1')
+    .trim()
+}
+
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
-  const [copied, copy] = useCopy()
+  const [copied, copyCode] = useCopy()
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-line bg-code">
-      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-[11.5px] text-muted">
-        <span className="font-mono">{lang || 'code'}</span>
+      <div className="flex items-center justify-between border-b border-line bg-surface-2 py-1 pl-3.5 pr-1.5 text-footnote text-muted">
+        <span className="font-mono">{lang || copy.markdown.codeFallback}</span>
         <button
           type="button"
-          onClick={() => copy(code)}
+          onClick={() => copyCode(code)}
           className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors hover:bg-surface-3 hover:text-fg"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? copy.markdown.copied : copy.markdown.copy}
         </button>
       </div>
-      <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-[12.5px] leading-relaxed">
+      <pre className="max-h-[480px] overflow-auto p-3.5 font-mono text-callout leading-relaxed">
         <code>{code}</code>
       </pre>
     </div>
@@ -119,7 +136,7 @@ export function Markdown({ text }: { text: string }) {
         rows.push(CELLS(lines[i++] as string))
       blocks.push(
         <div key={key++} className="my-3 overflow-x-auto rounded-xl border border-line">
-          <table className="w-full border-collapse text-[13.5px]">
+          <table className="w-full border-collapse text-reading">
             <thead className="bg-surface-2">
               <tr>
                 {head.map((h, n) => (
@@ -167,8 +184,10 @@ export function Markdown({ text }: { text: string }) {
     const heading = /^(#{1,4})\s+(.*)$/.exec(line)
     if (heading) {
       const level = heading[1]?.length ?? 1
+      // A reply sits under the page's own headings, so its `#` starts at h3.
+      const Heading = level === 1 ? 'h3' : level === 2 ? 'h4' : 'h5'
       blocks.push(
-        <p
+        <Heading
           key={key++}
           className={
             level === 1
@@ -179,7 +198,7 @@ export function Markdown({ text }: { text: string }) {
           }
         >
           {inline(heading[2] ?? '')}
-        </p>,
+        </Heading>,
       )
       i++
       continue
@@ -240,7 +259,7 @@ export function Markdown({ text }: { text: string }) {
     )
   }
   return (
-    <div className="select-text break-words text-[14px] leading-[1.65] text-fg [&>*:first-child]:mt-0">
+    <div className="select-text break-words text-title leading-[1.65] text-fg [&>*:first-child]:mt-0">
       {blocks}
     </div>
   )

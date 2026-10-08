@@ -20,6 +20,8 @@ export interface AuditEntry {
   readonly target: string
   /** Undefined while the call is still running. */
   readonly ok?: boolean
+  /** An MCP tool its server marks read-only. */
+  readonly readOnly?: boolean
 }
 
 export interface AuditTarget {
@@ -107,6 +109,7 @@ export function auditOf(events: readonly MyrEvent[]): Audit {
         agent: p.agent,
         tool: p.tool,
         ...auditCall(p.tool, p.args),
+        ...(p.readOnly ? { readOnly: true } : {}),
       })
     } else if (e.type === 'tool/result') {
       const p = e.payload as EventPayloads['tool/result']
@@ -166,4 +169,42 @@ export function auditOf(events: readonly MyrEvent[]): Audit {
   }
   const targets = [...grouped.values()].sort((a, b) => b.last.localeCompare(a.last))
   return { entries: list, targets, stops }
+}
+
+/** Browser actions that act on a page (a click can submit a form, typing can fill one), unlike reading it. */
+const BROWSER_ACTS = new Set([
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_upload',
+  'browser_eval',
+])
+
+/**
+ * Calls that may have changed something outside Myrmidon and cannot be rewound: commands, MCP tools, and actions
+ * on web pages. A round that stopped part way shows them before it resumes, and its agents are told about them, so
+ * nothing is done twice by accident. Edits to project files are not listed: the round's changes and rewind cover
+ * those. Calls that failed outright are left out; ones still running when it stopped are kept.
+ */
+export function outsideEffects(events: readonly MyrEvent[]): AuditEntry[] {
+  return auditOf(events).entries.filter(
+    (e) =>
+      e.ok !== false &&
+      !e.readOnly &&
+      (e.kind === 'command' ||
+        e.tool.startsWith('mcp__') ||
+        BROWSER_ACTS.has(e.tool) ||
+        e.tool === 'request_login'),
+  )
+}
+
+/** One line per effect, for agents and the person: "ran `npm publish`", "called mcp__github_create_issue {…}". */
+export function describeEffect(e: AuditEntry): string {
+  const what =
+    e.kind === 'command'
+      ? `${e.action === 'serve' ? 'started' : 'ran'} \`${e.target}\``
+      : e.tool.startsWith('browser_') || e.tool === 'request_login'
+        ? `${e.tool.replace(/^browser_/, '')} on a web page ${e.target.replace(/^\S+\s*/, '')}`.trim()
+        : `called ${e.target}`
+  return `${what}${e.ok === undefined ? ' (still running when it stopped)' : ''}`
 }

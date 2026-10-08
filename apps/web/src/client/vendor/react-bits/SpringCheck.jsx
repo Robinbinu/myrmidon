@@ -5,7 +5,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { animate, useMotionValue, useMotionValueEvent, useReducedMotion } from 'motion/react';
+import { animate, useMotionValue, useMotionValueEvent, useReducedMotionConfig } from 'motion/react';
 
 import './SpringCheck.css';
 
@@ -51,7 +51,7 @@ export default function SpringCheck({
   const controlled = checked !== undefined;
   const [inner, setInner] = useState(defaultChecked);
   const on = controlled ? checked : inner;
-  const reduce = useReducedMotion();
+  const reduce = useReducedMotionConfig();
 
   const t = useMotionValue(on ? 1 : 0);
   const viaPointer = useRef(false);

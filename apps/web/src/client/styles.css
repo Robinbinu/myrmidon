@@ -6,6 +6,26 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 /* In a plain browser there are no window buttons in the title bar, so the app shows its own mark there. */
 @custom-variant browser (&:where([data-shell="browser"], [data-shell="browser"] *));
+/* Less motion: asked for in the operating system, or with Reduce motion in Settings → General. */
+@custom-variant less-motion {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where([data-reduce-motion] *) {
+    @slot;
+  }
+}
+/* Where the dark tokens apply: the person chose Dark, or chose System (no data-theme) on a dark system. */
+@custom-variant dark-tokens {
+  @media (prefers-color-scheme: dark) {
+    &:not([data-theme="light"]) {
+      @slot;
+    }
+  }
+  &[data-theme="dark"] {
+    @slot;
+  }
+}
 
 @theme inline {
   --font-sans: var(--font);
@@ -37,6 +57,7 @@
   --color-warn-soft: var(--warn-soft);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --color-bad-fill: var(--bad-fill);
   --color-work: var(--work);
   --color-ok-ink: var(--ok-ink);
   --color-warn-ink: var(--warn-ink);
@@ -50,10 +71,27 @@
   --color-signal: var(--signal);
   --color-lime: var(--lime);
   --color-screen: var(--screen);
+  --color-scrim: var(--scrim);
   --shadow-soft: var(--shadow-sm);
   --shadow-card: var(--shadow-md);
   --shadow-pop: var(--shadow-lg);
   --ease-fluid: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@theme {
+  /* Corner radii. sm and lg replace Tailwind's 4px and 8px steps; md (6px), xl (12px) and 2xl (16px) keep its own. */
+  --radius-sm: 6px;
+  --radius-base: 10px;
+  --radius-lg: 14px;
+  /* Type scale for UI text, 11 to 14px in half-pixel steps; the body is 13px. No line heights: text keeps the one
+     it inherits or its leading-* class. */
+  --text-caption: 11px;
+  --text-footnote: 11.5px;
+  --text-small: 12px;
+  --text-callout: 12.5px;
+  --text-body: 13px;
+  --text-reading: 13.5px;
+  --text-title: 14px;
 }
 
 @layer base {
@@ -106,17 +144,6 @@
   :focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
-  }
-  /* Motion that loops or pulses stops for people who asked for less motion; spinners still turn slowly. */
-  @media (prefers-reduced-motion: reduce) {
-    .animate-ping,
-    .animate-pulse,
-    .animate-bounce {
-      animation: none;
-    }
-    .animate-spin {
-      animation-duration: 2.4s;
-    }
   }
   ::selection {
     background: color-mix(in srgb, var(--signal) 32%, transparent);
@@ -207,6 +234,24 @@
 
 @utility caret {
   animation: blink-caret 1.1s steps(1) infinite;
+}
+
+/* Motion that loops or pulses stops for people who asked for less; spinners still turn, slowly. These sit in the
+   utilities layer after Tailwind's own, so they win over the animate-* utilities they quiet. */
+@layer utilities {
+  .animate-ping,
+  .animate-pulse,
+  .animate-bounce,
+  .caret {
+    @variant less-motion {
+      animation: none;
+    }
+  }
+  .animate-spin {
+    @variant less-motion {
+      animation-duration: 2.4s;
+    }
+  }
 }
 
 /* A SpringCheck whose label stays on one line, so the strike-through crosses the words. */

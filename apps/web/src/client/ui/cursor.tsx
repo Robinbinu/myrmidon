@@ -4,34 +4,17 @@ import {
   motion,
   useAnimationFrame,
   useMotionValue,
-  useReducedMotion,
+  useReducedMotionConfig,
   useSpring,
   useTransform,
 } from 'motion/react'
 import { useEffect, useRef } from 'react'
+import { CURSOR } from '../ui-config.ts'
 import { inkOn } from './pixel.tsx'
 
-/*
- * Cursor physics, tuned against React Bits Pro's User Cursor:
- * - the arrow rides a stiff spring, the name tag a softer one, so the tag trails behind;
- * - while moving, the arrow turns its tip toward the direction of travel, weighted by speed, on its own
- *   softer spring, and keeps whatever heading it had when it stops;
- * - the tag swings by how far it lags behind; the arrow pops in on arrival and dips when it clicks.
- */
-const ARROW_SPRING = { stiffness: 380, damping: 32, mass: 0.6 }
-const LABEL_SPRING = { stiffness: 220, damping: 26, mass: 0.7 }
-const TURN_SPRING = { stiffness: 170, damping: 20, mass: 0.8 }
-const SIZE = 22
-/** The tilt a cursor starts with before it has ever moved. */
-const START_TILT = -14
-const PRESS_SCALE = 0.92
-/** Speed (px/s) at which the arrow points fully along its path. */
-const FULL_TURN_SPEED = 1400
-const LABEL_TILT_MAX = 8
-const LABEL_TILT_PER_PX = 0.11
 /** The glyph's tip points up-left, at -135° in screen angles. */
 const TIP_HEADING = -135
-const LABEL_OFFSET = { x: SIZE * 0.9, y: SIZE * 0.2 + 6 }
+const LABEL_OFFSET = { x: CURSOR.size * 0.9, y: CURSOR.size * 0.2 + 6 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Signed difference between two angles in degrees, in (-180, 180]. */
@@ -43,7 +26,7 @@ const lastAngle = new Map<string, number>()
 /** A symmetric arrowhead, tip at the top-left; rotates about its tip. */
 function Arrowhead({ color }: { color: string }) {
   return (
-    <svg width={SIZE} height={SIZE} viewBox="0 0 24 24" aria-hidden className="block">
+    <svg width={CURSOR.size} height={CURSOR.size} viewBox="0 0 24 24" aria-hidden className="block">
       <path
         d="M3.6 2.4c-.8-.3-1.5.4-1.2 1.2l6.5 16.6c.3.8 1.4.8 1.7 0l2.6-6.6 6.6-2.6c.8-.3.8-1.4 0-1.7L3.6 2.4Z"
         fill={color}
@@ -65,17 +48,17 @@ export function tripMs(dist: number): number {
  * path; the arrow and its tag follow on springs.
  */
 export function CrewCursor(props: { name: string; color: string; x: number; y: number; clicking: boolean }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
   const px = useMotionValue(props.x)
   const py = useMotionValue(props.y)
-  const ax = useSpring(px, ARROW_SPRING)
-  const ay = useSpring(py, ARROW_SPRING)
-  const lx = useSpring(px, LABEL_SPRING)
-  const ly = useSpring(py, LABEL_SPRING)
+  const ax = useSpring(px, CURSOR.arrowSpring)
+  const ay = useSpring(py, CURSOR.arrowSpring)
+  const lx = useSpring(px, CURSOR.labelSpring)
+  const ly = useSpring(py, CURSOR.labelSpring)
   const labelX = useTransform(lx, (v) => v + LABEL_OFFSET.x)
   const labelY = useTransform(ly, (v) => v + LABEL_OFFSET.y)
-  const aim = useMotionValue(lastAngle.get(props.name) ?? START_TILT)
-  const rotate = useSpring(aim, TURN_SPRING)
+  const aim = useMotionValue(lastAngle.get(props.name) ?? CURSOR.startTilt)
+  const rotate = useSpring(aim, CURSOR.turnSpring)
   const swing = useMotionValue(0)
   const bend = useRef(1)
 
@@ -109,13 +92,15 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
     if (reduce) return
     const vx = ax.getVelocity()
     const vy = ay.getVelocity()
-    const weight = clamp(Math.hypot(vx, vy) / FULL_TURN_SPEED, 0, 1)
+    const weight = clamp(Math.hypot(vx, vy) / CURSOR.fullTurnSpeed, 0, 1)
     const pointing = (Math.atan2(vy, vx) * 180) / Math.PI - TIP_HEADING
     // Aim relative to where the arrow is now, so it never spins the long way round; at rest it holds still.
     const current = rotate.get()
     aim.set(current + turn(current, pointing) * weight)
     lastAngle.set(props.name, current)
-    swing.set(clamp(-(lx.get() - ax.get()) * LABEL_TILT_PER_PX, -LABEL_TILT_MAX, LABEL_TILT_MAX))
+    swing.set(
+      clamp(-(lx.get() - ax.get()) * CURSOR.labelTiltPerPx, -CURSOR.labelTiltMax, CURSOR.labelTiltMax),
+    )
   })
 
   return (
@@ -137,14 +122,14 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
           className="-ml-[3px] -mt-[2.5px]"
           style={{ rotate, originX: 3 / 24, originY: 2.5 / 24 }}
           initial={{ scale: 0.6, opacity: 0 }}
-          animate={{ scale: props.clicking ? PRESS_SCALE : 1, opacity: 1 }}
+          animate={{ scale: props.clicking ? CURSOR.pressScale : 1, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 600, damping: 24 }}
         >
           <Arrowhead color={props.color} />
         </motion.div>
       </motion.div>
       <motion.span
-        className="absolute left-0 top-0 inline-flex items-center whitespace-nowrap rounded-full px-3 py-[5px] text-[12.5px] font-medium leading-none shadow-[0_2px_10px_rgb(0_0_0/0.15)]"
+        className="absolute left-0 top-0 inline-flex items-center whitespace-nowrap rounded-full px-3 py-[5px] text-callout font-medium leading-none shadow-[0_2px_10px_rgb(0_0_0/0.15)]"
         style={{
           x: labelX,
           y: labelY,

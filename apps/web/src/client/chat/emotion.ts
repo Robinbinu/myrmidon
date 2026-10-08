@@ -1,7 +1,8 @@
 import { LEAD_COLOR } from '@myrmidon/protocol'
+import { copy } from '../copy.ts'
 import type { Mood } from '../ui/pixel.tsx'
 
-/** What the mascot shows: an eye shape, an eye colour, and a word on its status line. */
+/** What the mascot shows: an eye shape, an eye colour (hex, or a `var(--mood-…)` token), and a word on its status line. */
 export interface Emotion {
   readonly mood: Mood
   readonly color: string
@@ -9,21 +10,21 @@ export interface Emotion {
 }
 
 export const EMOTIONS = {
-  ready: { mood: 'idle', color: LEAD_COLOR, label: 'ready' },
-  listening: { mood: 'listening', color: '#ffe2a8', label: 'listening' },
-  curious: { mood: 'thinking', color: '#7fdcff', label: 'curious' },
-  focused: { mood: 'working', color: '#f4f4f6', label: 'focused' },
-  concerned: { mood: 'waiting', color: '#ff8a4c', label: 'on it' },
-  love: { mood: 'love', color: '#ff7eb6', label: 'love' },
-  happy: { mood: 'happy', color: '#c6f432', label: 'hehe' },
-  proud: { mood: 'happy', color: '#c6f432', label: 'done!' },
-  wink: { mood: 'wink', color: '#ffcf5c', label: 'wink' },
-  surprised: { mood: 'surprised', color: '#7fdcff', label: 'oh!' },
-  dizzy: { mood: 'surprised', color: '#ff7eb6', label: 'whoa' },
-  sad: { mood: 'error', color: '#ff6369', label: 'oh no' },
-  sleepy: { mood: 'sleep', color: '#6f7fb8', label: 'zzz' },
-  night: { mood: 'idle', color: '#8fa0d8', label: 'late night' },
-  busy: { mood: 'working', color: LEAD_COLOR, label: 'working' },
+  ready: { mood: 'idle', color: LEAD_COLOR, label: copy.mascot.ready },
+  listening: { mood: 'listening', color: 'var(--mood-listening)', label: copy.mascot.listening },
+  curious: { mood: 'thinking', color: 'var(--mood-curious)', label: copy.mascot.curious },
+  focused: { mood: 'working', color: 'var(--mood-focused)', label: copy.mascot.focused },
+  concerned: { mood: 'waiting', color: 'var(--mood-concerned)', label: copy.mascot.concerned },
+  love: { mood: 'love', color: 'var(--mood-love)', label: copy.mascot.love },
+  happy: { mood: 'happy', color: 'var(--mood-happy)', label: copy.mascot.happy },
+  proud: { mood: 'happy', color: 'var(--mood-happy)', label: copy.mascot.proud },
+  wink: { mood: 'wink', color: 'var(--mood-wink)', label: copy.mascot.wink },
+  surprised: { mood: 'surprised', color: 'var(--mood-curious)', label: copy.mascot.surprised },
+  dizzy: { mood: 'surprised', color: 'var(--mood-love)', label: copy.mascot.dizzy },
+  sad: { mood: 'error', color: 'var(--mood-sad)', label: copy.mascot.sad },
+  sleepy: { mood: 'sleep', color: 'var(--mood-sleepy)', label: copy.mascot.sleepy },
+  night: { mood: 'idle', color: 'var(--mood-night)', label: copy.mascot.night },
+  busy: { mood: 'working', color: LEAD_COLOR, label: copy.mascot.busy },
 } as const satisfies Record<string, Emotion>
 
 const WARM = /\b(thanks?|thank you|thx|love|awesome|amazing|great|nice|cool|brilliant|perfect)\b|❤|♥|🙏|😊/
@@ -52,7 +53,7 @@ export interface Surroundings {
 /** The resting mood, from what the colony is doing and the time of day. */
 export function ambient(s: Surroundings): Emotion {
   if (s.working > 0) {
-    return { ...EMOTIONS.busy, label: s.working === 1 ? '1 crew working' : `${s.working} crews working` }
+    return { ...EMOTIONS.busy, label: copy.mascot.crewsWorking(s.working) }
   }
   if (s.latest && s.latest.agoMs < 120_000) {
     if (s.latest.status === 'completed') return EMOTIONS.proud

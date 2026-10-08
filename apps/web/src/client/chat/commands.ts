@@ -3,8 +3,11 @@
  * can offer completions for its argument (`/model ` lists models, `/mode ` the two modes).
  */
 
-export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App'
-export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App']
+import type { PluginCommand } from '@myrmidon/protocol'
+import { copy } from '../copy.ts'
+
+export type CommandGroup = 'Round' | 'Team & model' | 'Chat' | 'App' | 'Plugins'
+export const GROUPS: readonly CommandGroup[] = ['Round', 'Team & model', 'Chat', 'App', 'Plugins']
 
 export interface ArgOption {
   readonly value: string
@@ -24,94 +27,113 @@ export interface SlashCommand {
   readonly when?: 'running' | 'idle' | 'chat' | 'resumable'
   /** Fixed choices for the argument; commands with dynamic ones (models) get them from the composer. */
   readonly options?: readonly ArgOption[]
+  /** A plugin's command: sends this prompt, with the argument in place, instead of running app code. */
+  readonly prompt?: string
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: 'plan',
-    args: '<request>',
-    description: 'Plan first: see the plan and approve it before any work',
+    args: copy.commands.list.plan.args,
+    description: copy.commands.list.plan.description,
     needsArg: true,
     group: 'Round',
   },
   {
     name: 'steer',
-    args: '<message>',
-    description: 'Send to the running round, read at its next step',
+    args: copy.commands.list.steer.args,
+    description: copy.commands.list.steer.description,
     needsArg: true,
     group: 'Round',
     when: 'running',
   },
   {
     name: 'queue',
-    args: '<message>',
-    description: 'Send to the running round, read when it finishes its current work',
+    args: copy.commands.list.queue.args,
+    description: copy.commands.list.queue.description,
     needsArg: true,
     group: 'Round',
     when: 'running',
   },
-  { name: 'stop', description: 'Stop the running round', group: 'Round', when: 'running' },
+  { name: 'stop', description: copy.commands.list.stop.description, group: 'Round', when: 'running' },
   {
     name: 'resume',
-    description: 'Pick a stopped round back up where it left off',
+    description: copy.commands.list.resume.description,
     group: 'Round',
     when: 'resumable',
   },
-  { name: 'retry', description: 'Run the last request again as a new round', group: 'Round', when: 'idle' },
+  { name: 'retry', description: copy.commands.list.retry.description, group: 'Round', when: 'idle' },
   {
     name: 'model',
-    args: '<name>',
-    description: 'Switch the lead model, right away if a round is running',
+    args: copy.commands.list.model.args,
+    description: copy.commands.list.model.description,
     needsArg: true,
     group: 'Team & model',
   },
   {
     name: 'mode',
     args: 'orchestrated | swarm',
-    description: 'Lead with specialists, or equal peers',
+    description: copy.commands.list.mode.description,
     needsArg: true,
     group: 'Team & model',
     options: [
       {
         value: 'orchestrated',
-        label: 'Orchestrated',
-        description: 'A lead plans and assigns work to specialists',
+        label: copy.commands.list.mode.options.orchestrated.label,
+        description: copy.commands.list.mode.options.orchestrated.description,
       },
-      { value: 'swarm', label: 'Swarm', description: 'Equal peers agree a plan and claim the work' },
+      {
+        value: 'swarm',
+        label: copy.commands.list.mode.options.swarm.label,
+        description: copy.commands.list.mode.options.swarm.description,
+      },
     ],
   },
   {
     name: 'thinking',
     args: 'low | medium | high | auto',
-    description: 'How hard reasoning models think in work rounds',
+    description: copy.commands.list.thinking.description,
     needsArg: true,
     group: 'Team & model',
     options: [
       {
         value: 'auto',
-        label: 'Auto',
-        description: 'Each role decides: leads think hard, quick answers think less',
+        label: copy.commands.list.thinking.options.auto.label,
+        description: copy.commands.list.thinking.options.auto.description,
       },
-      { value: 'low', label: 'Low', description: 'Fastest and cheapest' },
-      { value: 'medium', label: 'Medium', description: 'Balanced' },
-      { value: 'high', label: 'High', description: 'Most careful; slower' },
+      {
+        value: 'low',
+        label: copy.commands.list.thinking.options.low.label,
+        description: copy.commands.list.thinking.options.low.description,
+      },
+      {
+        value: 'medium',
+        label: copy.commands.list.thinking.options.medium.label,
+        description: copy.commands.list.thinking.options.medium.description,
+      },
+      {
+        value: 'high',
+        label: copy.commands.list.thinking.options.high.label,
+        description: copy.commands.list.thinking.options.high.description,
+      },
     ],
   },
-  { name: 'team', description: 'Open the team and model picker', group: 'Team & model' },
-  { name: 'new', description: 'Start a new chat', group: 'Chat' },
+  { name: 'team', description: copy.commands.list.team.description, group: 'Team & model' },
+  { name: 'new', description: copy.commands.list.new.description, group: 'Chat' },
   {
     name: 'rename',
-    args: '<title>',
-    description: 'Rename this chat',
+    args: copy.commands.list.rename.args,
+    description: copy.commands.list.rename.description,
     needsArg: true,
     group: 'Chat',
     when: 'chat',
   },
-  { name: 'attach', description: 'Attach files to your next message', group: 'Chat' },
-  { name: 'export', description: 'Download this chat as Markdown', group: 'Chat', when: 'chat' },
-  { name: 'mcp', description: 'Manage MCP servers', group: 'App' },
-  { name: 'settings', description: 'Open settings', group: 'App' },
-  { name: 'help', description: 'Show every command', group: 'App' },
+  { name: 'attach', description: copy.commands.list.attach.description, group: 'Chat' },
+  { name: 'export', description: copy.commands.list.export.description, group: 'Chat', when: 'chat' },
+  { name: 'learn', description: copy.commands.list.learn.description, group: 'Chat', when: 'chat' },
+  { name: 'mcp', description: copy.commands.list.mcp.description, group: 'App' },
+  { name: 'settings', description: copy.commands.list.settings.description, group: 'App' },
+  { name: 'help', description: copy.commands.list.help.description, group: 'App' },
 ]
 
 export interface SlashContext {
@@ -121,17 +143,42 @@ export interface SlashContext {
   readonly resumable: boolean
 }
 
+let fromPlugins: SlashCommand[] = []
+
+/** The enabled plugins' commands join the menu; a built-in command keeps its name. */
+export function setPluginCommands(commands: readonly PluginCommand[]) {
+  const taken = new Set(SLASH_COMMANDS.map((c) => c.name))
+  fromPlugins = commands
+    .filter((c) => !taken.has(c.name))
+    .map((c) => ({
+      name: c.name,
+      description: c.description || copy.commands.fromPlugin(c.plugin),
+      ...(c.argumentHint ? { args: c.argumentHint, needsArg: true } : {}),
+      group: 'Plugins' as const,
+      prompt: c.prompt,
+    }))
+}
+
+/** Every command the menu offers: the app's own, then the plugins'. */
+export function allCommands(): readonly SlashCommand[] {
+  return [...SLASH_COMMANDS, ...fromPlugins]
+}
+
 /** Why a command can't run now, or undefined when it can. */
 export function unavailable(command: SlashCommand, ctx: SlashContext): string | undefined {
   switch (command.when) {
     case 'running':
-      return ctx.running ? undefined : 'Nothing is running'
+      return ctx.running ? undefined : copy.commands.unavailable.notRunning
     case 'idle':
-      return !ctx.chat ? 'Open a chat first' : ctx.running ? 'Wait for the round to finish' : undefined
+      return !ctx.chat
+        ? copy.commands.unavailable.noChat
+        : ctx.running
+          ? copy.commands.unavailable.waitForRound
+          : undefined
     case 'chat':
-      return ctx.chat ? undefined : 'Open a chat first'
+      return ctx.chat ? undefined : copy.commands.unavailable.noChat
     case 'resumable':
-      return ctx.resumable && !ctx.running ? undefined : 'No stopped round to resume'
+      return ctx.resumable && !ctx.running ? undefined : copy.commands.unavailable.nothingToResume
     default:
       return undefined
   }
@@ -139,8 +186,8 @@ export function unavailable(command: SlashCommand, ctx: SlashContext): string | 
 
 /** `/name rest` → the command and its argument; undefined for ordinary text or an unknown name. */
 export function parseSlash(text: string): { command: SlashCommand; arg: string } | undefined {
-  const m = /^\/([a-z]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
-  const command = m && SLASH_COMMANDS.find((c) => c.name === m[1])
+  const m = /^\/([a-z][a-z0-9-]*)(?:\s+([\s\S]*))?$/.exec(text.trim())
+  const command = m && allCommands().find((c) => c.name === m[1])
   return command ? { command, arg: (m?.[2] ?? '').trim() } : undefined
 }
 
@@ -151,10 +198,10 @@ export function parseSlash(text: string): { command: SlashCommand; arg: string }
 export function slashStage(
   text: string,
 ): { stage: 'name'; query: string } | { stage: 'arg'; command: SlashCommand; query: string } | undefined {
-  const name = /^\/([a-z]*)$/.exec(text)
+  const name = /^\/([a-z0-9-]*)$/.exec(text)
   if (name) return { stage: 'name', query: name[1] ?? '' }
-  const arg = /^\/([a-z]+) ([^\n]*)$/.exec(text)
-  const command = arg && SLASH_COMMANDS.find((c) => c.name === arg[1])
+  const arg = /^\/([a-z][a-z0-9-]*) ([^\n]*)$/.exec(text)
+  const command = arg && allCommands().find((c) => c.name === arg[1])
   return command?.needsArg ? { stage: 'arg', command, query: arg?.[2] ?? '' } : undefined
 }
 
@@ -182,12 +229,13 @@ export interface RankedCommand {
 }
 
 /**
- * Commands for what was typed after the slash: name prefixes first, then other names containing the letters in
- * order, then commands whose description mentions the word. Commands that can't run now sink below the rest.
+ * Commands for what was typed after the slash: the command of exactly that name first (so `/mode` never runs
+ * `/model`), then name prefixes, then other names containing the letters in order, then commands whose description
+ * mentions the word. Commands that can't run now sink below the rest, except an exact name.
  */
 export function rankCommands(query: string, ctx: SlashContext): RankedCommand[] {
   const scored: { ranked: RankedCommand; score: number }[] = []
-  for (const command of SLASH_COMMANDS) {
+  for (const command of allCommands()) {
     const reason = unavailable(command, ctx)
     const prefix = command.name.startsWith(query)
     const inName = prefix ? undefined : fuzzy(query, command.name)
@@ -195,10 +243,34 @@ export function rankCommands(query: string, ctx: SlashContext): RankedCommand[] 
       !prefix && !inName && query.length >= 3 && command.description.toLowerCase().includes(query)
     if (!prefix && !inName && !inText) continue
     const matches = prefix ? [...query].map((_, i) => i) : (inName ?? [])
-    const score = (prefix ? 0 : inName ? 1 : 2) + (reason ? 10 : 0)
+    const score = command.name === query ? -1 : (prefix ? 0 : inName ? 1 : 2) + (reason ? 10 : 0)
     scored.push({ ranked: { command, matches, ...(reason ? { unavailable: reason } : {}) }, score })
   }
   return scored.sort((a, b) => a.score - b.score).map((s) => s.ranked)
+}
+
+export type MenuSection = 'recent' | CommandGroup | 'unavailable'
+
+/**
+ * Every command, for the menu before anything is typed: the recent ones that can run, then each group's other
+ * commands that can run, then all that can't run now. Each command appears once.
+ */
+export function menuSections(
+  ctx: SlashContext,
+  recent: readonly string[],
+): { section: MenuSection; commands: SlashCommand[] }[] {
+  const all = allCommands()
+  const ready = all.filter((c) => !unavailable(c, ctx))
+  const recentReady = recent.flatMap((n) => ready.filter((c) => c.name === n))
+  const sections: { section: MenuSection; commands: SlashCommand[] }[] = [
+    { section: 'recent', commands: recentReady },
+    ...GROUPS.map((group) => ({
+      section: group,
+      commands: ready.filter((c) => c.group === group && !recentReady.includes(c)),
+    })),
+    { section: 'unavailable', commands: all.filter((c) => !ready.includes(c)) },
+  ]
+  return sections.filter((s) => s.commands.length > 0)
 }
 
 /**

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
+import { MCP_STARTUP_MS } from './config.ts'
 
 /**
  * MCP servers as colony tools. omp's own MCP client does the work (stdio, streamable HTTP, SSE, OAuth, tool
@@ -38,11 +39,11 @@ export interface McpServerInfo {
   readonly status: 'connected' | 'connecting' | 'disconnected' | 'disabled' | 'error'
   readonly tools: string[]
   readonly error?: string
+  /** Set for a server an enabled plugin adds; it is switched with its plugin, not on its own. */
+  readonly plugin?: boolean
 }
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/
-/** How long a (re)start waits for servers to list their tools; slower ones are picked up when they finish. */
-const STARTUP_MS = 10_000
 /** Environment variables that look like credentials; MCP server processes do not inherit them. */
 const SECRET = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)/i
 
@@ -63,10 +64,19 @@ export class McpHub {
   private readonly _file: string
   private _manager?: Manager
   private _adapters = new Map<string, AgentTool>()
+  /** Tools their server marks read-only (`annotations.readOnlyHint`). */
+  private _readOnly = new Set<string>()
   private readonly _errors = new Map<string, string>()
   private _starting?: Promise<void>
 
-  constructor(readonly agentDir: string) {
+  /** Servers connected by the last start, so ones that went away (a plugin switched off) can be dropped. */
+  private _connected = new Set<string>()
+
+  constructor(
+    readonly agentDir: string,
+    /** Servers the person's enabled plugins add, already named apart from their own. */
+    private readonly plugins: () => Record<string, McpServerConfig> = () => ({}),
+  ) {
     this._file = join(agentDir, 'mcp.json')
   }
 
@@ -134,11 +144,24 @@ export class McpHub {
       configs[name] = this._launchConfig(config)
       sources[name] = { provider: 'myrmidon', providerName: 'Myrmidon', path: this._file, level: 'user' }
     }
+    for (const [name, config] of Object.entries(this.plugins())) {
+      if (name in configs || config.enabled === false) continue
+      configs[name] = this._launchConfig(config)
+      sources[name] = {
+        provider: 'myrmidon',
+        providerName: 'Myrmidon plugin',
+        path: this._file,
+        level: 'user',
+      }
+    }
+    for (const gone of [...this._connected].filter((n) => !(n in configs)))
+      await this._manager.disconnectServer(gone)
+    this._connected = new Set(Object.keys(configs))
     this._errors.clear()
     if (Object.keys(configs).length > 0) {
       const result = await this._manager.connectServers(configs, sources)
       for (const [name, error] of result.errors) this._errors.set(name, error)
-      await this._manager.waitForStartup(STARTUP_MS)
+      await this._manager.waitForStartup(MCP_STARTUP_MS)
     }
     this._rebuild(CustomToolAdapter)
   }
@@ -154,8 +177,18 @@ export class McpHub {
         hasQueuedMessages: () => false,
         abort: () => {},
       }) as never
+    const tools = this._manager.getTools()
     this._adapters = new Map(
-      this._manager.getTools().map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
+      tools.map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
+    )
+    // omp keeps the server's definition on its tool object, annotations included.
+    this._readOnly = new Set(
+      tools
+        .filter(
+          (t) =>
+            (t as { tool?: { annotations?: { readOnlyHint?: boolean } } }).tool?.annotations?.readOnlyHint,
+        )
+        .map((t) => t.name),
     )
   }
 
@@ -164,12 +197,29 @@ export class McpHub {
     return [...this._adapters.values()]
   }
 
+  /** Whether a tool's server marks it read-only. */
+  readOnly(name: string): boolean {
+    return this._readOnly.has(name)
+  }
+
+  /** Every connected tool, for the per-tool rules in Settings. */
+  toolList(): { name: string; description: string; readOnly: boolean }[] {
+    return [...this._adapters.values()].map((t) => ({
+      name: t.name,
+      description: t.description ?? '',
+      readOnly: this._readOnly.has(t.name),
+    }))
+  }
+
   servers(): McpServerInfo[] {
     const doc = this._read()
     const toolNames = [...this._adapters.keys()]
-    return Object.entries(doc.mcpServers ?? {}).map(([name, config]) => {
+    const fromPlugins = Object.entries(this.plugins()).filter(([name]) => !doc.mcpServers?.[name])
+    const all = [...Object.entries(doc.mcpServers ?? {}), ...fromPlugins]
+    const plugin = new Set(fromPlugins.map(([name]) => name))
+    return all.map(([name, config]) => {
       const transport = config.type ?? 'stdio'
-      const enabled = this._enabled(doc, name)
+      const enabled = plugin.has(name) ? config.enabled !== false : this._enabled(doc, name)
       const error = this._errors.get(name)
       const live = this._manager?.getConnectionStatus(name) ?? 'disconnected'
       const prefix = `mcp__${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
@@ -182,6 +232,7 @@ export class McpHub {
         status: !enabled ? 'disabled' : error ? 'error' : live,
         tools: toolNames.filter((t) => t.startsWith(prefix)),
         ...(error ? { error } : {}),
+        ...(plugin.has(name) ? { plugin: true } : {}),
       }
     })
   }

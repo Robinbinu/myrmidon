@@ -18,11 +18,16 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
-import { Button, cn, Segmented, Select, spring } from '../ui/primitives.tsx'
-import { AGENT_MIN_WINDOW, ModelPicker, windowLabel } from './ModelPicker.tsx'
+import { copy } from '../copy.ts'
+import { useSpecialists } from '../specialists.ts'
+import { agentColor } from '../ui/pixel.tsx'
+import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
+import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
+import { type HelperMode, helperMode, helpersLabel, withHelperMode } from './helpers.ts'
+import { ModelPicker, PickerHost, windowLabel } from './ModelPicker.tsx'
 
 const PILL =
-  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
+  'inline-flex h-8 min-w-0 items-center gap-1.5 rounded-full border border-line bg-fill/40 px-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg'
 
 /** A glass pill in the composer toolbar that opens its own menu above it. */
 function ChipMenu(props: {
@@ -36,6 +41,7 @@ function ChipMenu(props: {
   // A menu that would run past the window's right edge opens leftward from the chip instead.
   const [alignRight, setAlignRight] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const pop = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
     const outside = (e: MouseEvent) => {
@@ -73,6 +79,7 @@ function ChipMenu(props: {
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={pop}
             role="menu"
             initial={{ opacity: 0, y: 6, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -80,11 +87,11 @@ function ChipMenu(props: {
             transition={spring}
             style={{ width: props.width ?? 300 }}
             className={cn(
-              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-[14px] border border-line p-1.5',
+              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-lg border border-line p-1.5',
               alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
             )}
           >
-            {props.children(() => setOpen(false))}
+            <PickerHost.Provider value={pop}>{props.children(() => setOpen(false))}</PickerHost.Provider>
           </motion.div>
         )}
       </AnimatePresence>
@@ -117,8 +124,8 @@ function Option(props: {
         {props.icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-fg">{props.title}</span>
-        <span className="block text-[11.5px] leading-snug text-muted">{props.hint}</span>
+        <span className="block text-body font-medium text-fg">{props.title}</span>
+        <span className="block text-footnote leading-snug text-muted">{props.hint}</span>
       </span>
       {props.selected && <Check className="size-4 shrink-0 text-accent-fg" />}
     </button>
@@ -129,8 +136,8 @@ function Option(props: {
 function MenuHead(props: { title: string; note?: string }) {
   return (
     <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted">{props.title}</span>
-      {props.note && <span className="text-[11px] text-muted">{props.note}</span>}
+      <span className="text-caption font-medium uppercase tracking-[0.12em] text-muted">{props.title}</span>
+      {props.note && <span className="text-caption text-muted">{props.note}</span>}
     </div>
   )
 }
@@ -165,14 +172,32 @@ function EffortRuler(props: { level: number }) {
 const EFFORT = [
   {
     key: 'auto',
-    title: 'Auto',
-    hint: 'Quick for questions, deeper for real work',
+    title: copy.teamControls.effort.auto.title,
+    hint: copy.teamControls.effort.auto.hint,
     icon: Sparkles,
     level: 0.5,
   },
-  { key: 'low', title: 'Fast', hint: 'Answers right away', icon: Zap, level: 0.2 },
-  { key: 'medium', title: 'Balanced', hint: 'Thinks before it acts', icon: Gauge, level: 0.6 },
-  { key: 'high', title: 'Deep', hint: 'Thinks hard at every step; slower', icon: Brain, level: 1 },
+  {
+    key: 'low',
+    title: copy.teamControls.effort.low.title,
+    hint: copy.teamControls.effort.low.hint,
+    icon: Zap,
+    level: 0.2,
+  },
+  {
+    key: 'medium',
+    title: copy.teamControls.effort.medium.title,
+    hint: copy.teamControls.effort.medium.hint,
+    icon: Gauge,
+    level: 0.6,
+  },
+  {
+    key: 'high',
+    title: copy.teamControls.effort.high.title,
+    hint: copy.teamControls.effort.high.hint,
+    icon: Brain,
+    level: 1,
+  },
 ] as const
 
 /** How hard the lead thinks per step. */
@@ -180,13 +205,13 @@ export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig
   const current = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
   return (
     <ChipMenu
-      label="Thinking"
+      label={copy.teamControls.thinking.label}
       icon={<current.icon className="size-3.5 shrink-0" />}
-      value={current.key === 'auto' ? 'Thinking' : current.title}
+      value={current.key === 'auto' ? copy.teamControls.thinking.label : current.title}
     >
       {(close) => (
         <>
-          <MenuHead title="Thinking" note={current.title} />
+          <MenuHead title={copy.teamControls.thinking.label} note={current.title} />
           <EffortRuler level={current.level} />
           {EFFORT.map((e) => (
             <Option
@@ -209,17 +234,22 @@ export function ThinkingChip(props: { config: TeamConfig; onConfig(c: TeamConfig
 }
 
 const REVIEW = [
-  { key: 'off', title: 'Off', hint: 'The lead’s answer completes the task', icon: ShieldOff },
+  {
+    key: 'off',
+    title: copy.teamControls.review.off.title,
+    hint: copy.teamControls.review.off.hint,
+    icon: ShieldOff,
+  },
   {
     key: 'auto',
-    title: 'Auto',
-    hint: 'The lead asks for a check when the work deserves it',
+    title: copy.teamControls.review.auto.title,
+    hint: copy.teamControls.review.auto.hint,
     icon: ShieldQuestion,
   },
   {
     key: 'always',
-    title: 'Always',
-    hint: 'Every final answer is checked before it is done',
+    title: copy.teamControls.review.always.title,
+    hint: copy.teamControls.review.always.hint,
     icon: ShieldCheck,
   },
 ] as const
@@ -236,13 +266,19 @@ export function ReviewChip(props: {
   const Icon = current?.icon ?? ShieldCheck
   return (
     <ChipMenu
-      label="Reviewer"
+      label={copy.teamControls.reviewer.label}
       icon={<Icon className="size-3.5 shrink-0" />}
-      value={props.review === 'off' ? 'No review' : props.review === 'always' ? 'Always review' : 'Review'}
+      value={
+        props.review === 'off'
+          ? copy.teamControls.reviewer.valueOff
+          : props.review === 'always'
+            ? copy.teamControls.reviewer.valueAlways
+            : copy.teamControls.reviewer.valueAuto
+      }
     >
       {() => (
         <>
-          <MenuHead title="Reviewer" />
+          <MenuHead title={copy.teamControls.reviewer.label} />
           {REVIEW.map((r) => (
             <Option
               key={r.key}
@@ -255,11 +291,13 @@ export function ReviewChip(props: {
           ))}
           {props.review !== 'off' && (
             <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-2 pb-1 pt-2.5">
-              <span className="whitespace-nowrap text-[12.5px] text-fg-2">Reviewer model</span>
+              <span className="whitespace-nowrap text-callout text-fg-2">
+                {copy.teamControls.reviewer.model}
+              </span>
               <ModelPicker
                 variant="compact"
                 placement="up"
-                label="Reviewer"
+                label={copy.teamControls.reviewer.label}
                 value={props.config.judgeModel}
                 models={props.models}
                 onChange={(judgeModel) => props.onConfig({ ...props.config, judgeModel })}
@@ -272,6 +310,36 @@ export function ReviewChip(props: {
   )
 }
 
+/**
+ * Thinking, reviewer and helpers folded into one chip, for a toolbar too narrow for all three: it opens the team panel,
+ * and its tooltip reads out the three settings.
+ */
+export function TeamChip(props: { config: TeamConfig; review?: ReviewMode; open: boolean; onClick(): void }) {
+  const thinking = EFFORT.find((e) => e.key === (props.config.thinking ?? 'auto')) ?? EFFORT[0]
+  const reviewer =
+    props.review === 'off'
+      ? copy.teamControls.reviewer.valueOff
+      : props.review === 'always'
+        ? copy.teamControls.reviewer.valueAlways
+        : copy.teamControls.reviewer.valueAuto
+  const summary = copy.teamControls.team.summary(thinking.title, reviewer, helpersLabel(props.config))
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={props.open}
+      aria-label={summary}
+      title={summary}
+      onClick={props.onClick}
+      className={cn(PILL, 'shrink-0', props.open && 'bg-fill text-fg')}
+    >
+      <Users className="size-3.5 shrink-0" />
+      {copy.teamControls.team.label}
+      <ChevronDown className="size-3 shrink-0 text-muted" />
+    </button>
+  )
+}
+
 /** Whether the lead may bring in helpers for big jobs, and who they are. */
 export function HelpersChip(props: {
   models: ModelOption[]
@@ -279,44 +347,19 @@ export function HelpersChip(props: {
   onConfig(c: TeamConfig): void
 }) {
   const { config } = props
-  const n = config.roster.length
-  const on = n > 0 || config.extraWorkers > 0
-  const mode: 'never' | 'auto' | 'always' = !on ? 'never' : config.helpers === 'always' ? 'always' : 'auto'
-  // Turning helpers off keeps the list, so turning them back on restores it.
-  const saved = useRef<Pick<TeamConfig, 'roster' | 'extraWorkers' | 'mode'>>(undefined)
-  const choose = (next: typeof mode) => {
-    const { helpers: _, ...rest } = config
-    if (next === 'never') {
-      if (on) saved.current = { roster: config.roster, extraWorkers: config.extraWorkers, mode: config.mode }
-      return props.onConfig({ ...rest, mode: 'orchestrated', roster: [], extraWorkers: 0 })
-    }
-    props.onConfig({
-      ...rest,
-      ...(on
-        ? {}
-        : (saved.current ?? {
-            mode: 'orchestrated',
-            roster: [
-              { role: 'researcher', model: config.leadModel },
-              { role: 'coder', model: config.leadModel },
-            ],
-            extraWorkers: 2,
-          })),
-      ...(next === 'always' ? { helpers: 'always' as const } : {}),
-    })
-  }
-  const size = n || config.extraWorkers
-  const who = config.mode === 'swarm' ? 'peers' : 'helpers'
+  const mode = helperMode(config)
+  const on = mode !== 'never'
+  const choose = (next: HelperMode) => props.onConfig(withHelperMode(config, next, props.models))
   return (
     <ChipMenu
-      label="Helpers"
+      label={copy.teamControls.helpers.label}
       icon={<Users className="size-3.5 shrink-0" />}
-      value={mode === 'never' ? 'Solo' : mode === 'always' ? `Team of ${size + 1}` : `${size} ${who}`}
+      value={helpersLabel(config)}
       width={380}
     >
       {() => (
         <>
-          <MenuHead title="Helpers" />
+          <MenuHead title={copy.teamControls.helpers.label} />
           {HELPER_MODES.map((h) => (
             <Option
               key={h.key}
@@ -328,7 +371,7 @@ export function HelpersChip(props: {
             />
           ))}
           {on && (
-            <div className="mt-1.5 rounded-[10px] border border-line bg-surface/60">
+            <div className="mt-1.5 rounded-base border border-line bg-surface/60">
               <HelpersEditor models={props.models} config={config} onConfig={props.onConfig} placement="up" />
             </div>
           )}
@@ -339,9 +382,24 @@ export function HelpersChip(props: {
 }
 
 const HELPER_MODES = [
-  { key: 'never', title: 'Never', hint: 'The lead works alone, like a chat', icon: User },
-  { key: 'auto', title: 'Auto', hint: 'The lead brings helpers in when a job needs them', icon: Users },
-  { key: 'always', title: 'Always', hint: 'Every message starts with the whole team', icon: UsersRound },
+  {
+    key: 'never',
+    title: copy.teamControls.helperModes.never.title,
+    hint: copy.teamControls.helperModes.never.hint,
+    icon: User,
+  },
+  {
+    key: 'auto',
+    title: copy.teamControls.helperModes.auto.title,
+    hint: copy.teamControls.helperModes.auto.hint,
+    icon: Users,
+  },
+  {
+    key: 'always',
+    title: copy.teamControls.helperModes.always.title,
+    hint: copy.teamControls.helperModes.always.hint,
+    icon: UsersRound,
+  },
 ] as const
 
 function Stepper(props: {
@@ -359,19 +417,19 @@ function Stepper(props: {
         type="button"
         disabled={props.value <= props.min}
         onClick={() => props.onChange(props.value - 1)}
-        aria-label={`Fewer ${props.label}`}
+        aria-label={copy.teamControls.stepper.fewer(props.label)}
         className={step}
       >
         <Minus className="size-3" />
       </button>
-      <output className="w-6 text-center text-[13px] tabular-nums" aria-live="polite">
+      <output className="w-6 text-center text-body tabular-nums" aria-live="polite">
         {props.value}
       </output>
       <button
         type="button"
         disabled={props.value >= props.max}
         onClick={() => props.onChange(props.value + 1)}
-        aria-label={`More ${props.label}`}
+        aria-label={copy.teamControls.stepper.more(props.label)}
         className={step}
       >
         <Plus className="size-3" />
@@ -385,8 +443,8 @@ export function Row(props: { label: string; hint?: string; children: ReactNode }
   return (
     <div className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5">
       <div className="min-w-0">
-        <div className="text-[13px]">{props.label}</div>
-        {props.hint && <div className="text-[11.5px] leading-snug text-muted">{props.hint}</div>}
+        <div className="text-body">{props.label}</div>
+        {props.hint && <div className="text-footnote leading-snug text-muted">{props.hint}</div>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">{props.children}</div>
     </div>
@@ -405,9 +463,21 @@ export function HelpersEditor(props: {
   const swarm = config.mode === 'swarm'
   const setRow = (i: number, patch: Partial<RosterEntry>) =>
     set({ roster: config.roster.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
-  const addRow = (role: string) =>
-    config.roster.length < 8 &&
-    set({ roster: [...config.roster, { role, model: config.roster.at(-1)?.model ?? config.leadModel }] })
+  const saved = useSpecialists()
+  const addRow = (role: string) => {
+    if (config.roster.length >= 8) return
+    const model = config.roster.at(-1)?.model ?? config.leadModel
+    // `@name` picks one of the person's saved specialists: its role and model come with it.
+    const specialist = role.startsWith('@') ? saved.find((s) => s.name === role.slice(1)) : undefined
+    set({
+      roster: [
+        ...config.roster,
+        specialist
+          ? { role: specialist.specialty, model: specialist.model ?? model, specialist: specialist.name }
+          : { role, model },
+      ],
+    })
+  }
   // Rows have no identity of their own; keep stable keys so removing one animates the right row.
   const ids = useRef<number[]>([])
   const nextId = useRef(0)
@@ -431,13 +501,13 @@ export function HelpersEditor(props: {
   const unused = SPECIALISTS.filter((r) => !config.roster.some((x) => x.role === r))
   return (
     <div className="divide-y divide-line">
-      <Row label="Style">
+      <Row label={copy.teamControls.editor.style}>
         <Segmented
           id="composer-mode"
           value={config.mode}
           options={[
-            { value: 'orchestrated', label: 'Lead + helpers' },
-            { value: 'swarm', label: 'Equal peers' },
+            { value: 'orchestrated', label: copy.teamControls.editor.orchestrated },
+            { value: 'swarm', label: copy.teamControls.editor.swarm },
           ]}
           onChange={switchMode}
         />
@@ -451,32 +521,44 @@ export function HelpersEditor(props: {
             exit={{ opacity: 0, height: 0 }}
             className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
           >
-            {swarm ? (
-              <span className="flex-1 text-[13px] text-fg-2">Peer {i + 1}</span>
+            {r.specialist ? (
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-body">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: agentColor(r.specialist) }}
+                />
+                <span className="truncate">
+                  {copy.teamControls.editor.specialistOf(r.specialist, r.role)}
+                </span>
+              </span>
+            ) : swarm ? (
+              <span className="flex-1 text-body text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
             ) : (
               <input
                 value={r.role}
                 maxLength={40}
-                aria-label={`Role of helper ${i + 1}`}
+                aria-label={copy.teamControls.editor.roleOf(i + 1)}
                 onChange={(e) => setRow(i, { role: e.target.value.toLowerCase() })}
-                className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-[13px] capitalize outline-none hover:bg-fill focus:bg-fill"
+                className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-1 text-body capitalize outline-none hover:bg-fill focus:bg-fill"
               />
             )}
             <ModelPicker
               variant="compact"
               placement={props.placement}
-              label={swarm ? `Peer ${i + 1}` : r.role || 'Helper'}
+              label={swarm ? copy.teamControls.editor.peer(i + 1) : r.role || copy.teamControls.editor.helper}
               value={r.model}
               models={props.models}
               minWindow={AGENT_MIN_WINDOW}
-              minReason={`Under ${windowLabel(AGENT_MIN_WINDOW)}: too small for a helper's tools`}
+              minReason={copy.teamControls.editor.minReason(windowLabel(AGENT_MIN_WINDOW))}
               onChange={(model) => setRow(i, { model })}
             />
             <button
               type="button"
               onClick={() => removeRow(i)}
               disabled={swarm && config.roster.length <= 2}
-              aria-label={`Remove ${swarm ? `peer ${i + 1}` : r.role}`}
+              aria-label={copy.teamControls.editor.remove(
+                swarm ? copy.teamControls.editor.peerLower(i + 1) : r.role,
+              )}
               className="grid size-6 place-items-center rounded-md text-muted opacity-0 transition-opacity hover:bg-fill hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 disabled:hidden"
             >
               <X className="size-3.5" />
@@ -493,35 +575,49 @@ export function HelpersEditor(props: {
               icon={<Plus className="size-3" />}
               onClick={() => addRow('peer')}
             >
-              Add peer
+              {copy.teamControls.editor.addPeer}
             </Button>
           ) : (
             <Select
               value=""
-              aria-label="Add a helper"
+              aria-label={copy.teamControls.editor.addHelperLabel}
               onChange={(e) => e.target.value && addRow(e.target.value)}
-              className="h-[26px] text-[12.5px]"
+              className="h-[26px]"
             >
-              <option value="">Add helper…</option>
+              <option value="">{copy.teamControls.editor.addHelper}</option>
               {unused.map((role) => (
                 <option key={role} value={role}>
                   {role[0]?.toUpperCase()}
                   {role.slice(1)}
                 </option>
               ))}
-              <option value="specialist">Custom</option>
+              <option value="specialist">{copy.teamControls.editor.custom}</option>
+              {saved.some((s) => !config.roster.some((r) => r.specialist === s.name)) && (
+                <optgroup label={copy.teamControls.editor.yourSpecialists}>
+                  {saved
+                    .filter((s) => !config.roster.some((r) => r.specialist === s.name))
+                    .map((s) => (
+                      <option key={s.id} value={`@${s.name}`}>
+                        {copy.teamControls.editor.specialistOf(s.name, s.specialty)}
+                      </option>
+                    ))}
+                </optgroup>
+              )}
             </Select>
           )}
         </div>
       )}
       {!swarm && (
-        <Row label="More on demand" hint="Extra helpers the lead may add when the job needs them">
+        <Row
+          label={copy.teamControls.editor.moreOnDemand.label}
+          hint={copy.teamControls.editor.moreOnDemand.hint}
+        >
           <Stepper
             value={config.extraWorkers}
             min={0}
             max={Math.max(0, 8 - config.roster.length)}
             onChange={(extraWorkers) => set({ extraWorkers })}
-            label="extra helpers"
+            label={copy.teamControls.editor.moreOnDemand.stepper}
           />
         </Row>
       )}

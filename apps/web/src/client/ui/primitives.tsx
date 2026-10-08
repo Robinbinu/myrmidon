@@ -1,19 +1,21 @@
 import { motion } from 'motion/react'
 import {
   type ButtonHTMLAttributes,
+  cloneElement,
   forwardRef,
   type InputHTMLAttributes,
+  isValidElement,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
+  useId,
 } from 'react'
+import { spring } from '../ui-config.ts'
+import { type Tone, toneFor } from './status.ts'
 
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
 }
-
-export const spring = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
-export const softSpring = { type: 'spring', stiffness: 260, damping: 30 } as const
 
 type Variant =
   | 'primary'
@@ -38,7 +40,7 @@ const VARIANTS: Record<Variant, string> = {
   push: PUSH,
   borderless: BORDERLESS,
   toolbar: BORDERLESS,
-  destructive: 'bg-bad text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
+  destructive: 'bg-bad-fill text-white shadow-[0_0.5px_1px_rgb(0_0_0/0.2)] hover:brightness-110',
   danger: 'border border-bad/35 text-bad-ink hover:bg-bad-soft',
   secondary: PUSH,
   ghost: BORDERLESS,
@@ -58,7 +60,7 @@ export const Button = forwardRef<
       type={type}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45',
-        size === 'sm' ? 'h-[22px] rounded-[5px] px-2 text-[12px]' : 'h-7 rounded-md px-3 text-[13px]',
+        size === 'sm' ? 'h-[22px] rounded-[5px] px-2 text-small' : 'h-7 rounded-md px-3 text-body',
         VARIANTS[variant],
         className,
       )}
@@ -93,24 +95,16 @@ export const IconButton = forwardRef<
   )
 })
 
-const TONES = {
+const TONES: Record<Tone, string> = {
   neutral: 'bg-fill-strong text-fg-2',
   ok: 'bg-ok-soft text-ok-ink',
   bad: 'bg-bad-soft text-bad-ink',
   warn: 'bg-warn-soft text-warn-ink',
   work: 'bg-work/10 text-work-ink',
   accent: 'bg-accent-soft text-accent-fg',
-} as const
-export type Tone = keyof typeof TONES
-
-export function toneFor(status: string): Tone {
-  if (['completed', 'verified', 'ready'].includes(status)) return 'ok'
-  if (['failed', 'rejected', 'stopped'].includes(status)) return 'bad'
-  if (['submitted'].includes(status)) return 'warn'
-  if (['running', 'created', 'working', 'in_progress'].includes(status)) return 'work'
-  if (['waiting'].includes(status)) return 'accent'
-  return 'neutral'
 }
+
+export { type Tone, toneFor }
 
 /** A small status capsule. */
 export function Badge({
@@ -125,7 +119,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex h-[18px] items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-[11px] font-medium',
+        'inline-flex h-[18px] items-center gap-1 whitespace-nowrap rounded-full px-1.5 text-caption font-medium',
         TONES[tone],
         className,
       )}
@@ -160,7 +154,7 @@ export function Dot({ status }: { status: string }) {
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-line bg-fill px-1 font-sans text-[11px] text-muted">
+    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line bg-fill px-1 font-sans text-caption text-muted">
       {children}
     </kbd>
   )
@@ -198,7 +192,7 @@ export function Switch(props: {
 }
 
 const FIELD =
-  'w-full rounded-md border border-line-strong/70 bg-control px-2.5 py-1.5 text-[13px] text-fg shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.06)] outline-none transition-[border,box-shadow] duration-100 placeholder:text-muted focus:border-focus focus:ring-3 focus:ring-focus/30 disabled:opacity-50'
+  'w-full rounded-md border border-line-strong/70 bg-control px-2.5 py-1.5 text-body text-fg shadow-[inset_0_0.5px_1px_rgb(0_0_0/0.06)] outline-none transition-[border,box-shadow] duration-100 placeholder:text-muted focus:border-focus focus:ring-3 focus:ring-focus/30 disabled:opacity-50'
 
 export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function TextInput({ className, ...rest }, ref) {
@@ -219,7 +213,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   return (
     <select
       className={cn(
-        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-[13px] text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
         className,
       )}
       {...rest}
@@ -229,22 +223,64 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   )
 }
 
+/** Controls a label can point at; Field gives them its id. Anything else is labelled as a group instead. */
+const LABELABLE = new Set<unknown>(['input', 'select', 'textarea', TextInput, TextArea, Select])
+
+type ControlProps = { id?: string; 'aria-describedby'?: string }
+
 export function Field(props: {
   label: string
   hint?: ReactNode
+  /** Why the value is not accepted: shown with the field, and the control is marked invalid. */
+  error?: string
   children: ReactNode
   htmlFor?: string
   inline?: boolean
 }) {
+  const id = useId()
+  const control =
+    isValidElement<ControlProps>(props.children) && LABELABLE.has(props.children.type)
+      ? props.children
+      : undefined
+  const controlId = props.htmlFor ?? control?.props.id ?? `${id}control`
+  const linked = !!props.htmlFor || !!control
+  const hintId = props.hint ? `${id}hint` : undefined
+  const errorId = props.error ? `${id}error` : undefined
+  const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined
+  const error = props.error && (
+    <p id={errorId} className="mt-0.5 text-small leading-snug text-bad-ink">
+      {props.error}
+    </p>
+  )
   return (
-    <div className={cn('flex gap-2', props.inline ? 'items-center justify-between' : 'flex-col')}>
+    <div
+      className={cn('flex gap-2', props.inline ? 'items-center justify-between' : 'flex-col')}
+      {...(linked ? {} : { role: 'group', 'aria-labelledby': `${id}label`, 'aria-describedby': describedBy })}
+    >
       <div className="min-w-0">
-        <label htmlFor={props.htmlFor} className="block text-[13px] font-medium text-fg">
+        <label
+          id={`${id}label`}
+          htmlFor={linked ? controlId : undefined}
+          className="block text-body font-medium text-fg"
+        >
           {props.label}
         </label>
-        {props.hint && <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{props.hint}</p>}
+        {props.hint && (
+          <p id={hintId} className="mt-0.5 text-callout leading-snug text-muted">
+            {props.hint}
+          </p>
+        )}
+        {props.inline && error}
       </div>
-      {props.children}
+      {control
+        ? cloneElement(control, {
+            id: controlId,
+            'aria-describedby':
+              [control.props['aria-describedby'], describedBy].filter(Boolean).join(' ') || undefined,
+            ...(props.error ? { 'aria-invalid': true } : {}),
+          } as ControlProps)
+        : props.children}
+      {!props.inline && error}
     </div>
   )
 }
@@ -265,7 +301,7 @@ export function Segmented<T extends string>(props: {
           aria-pressed={props.value === o.value}
           onClick={() => props.onChange(o.value)}
           className={cn(
-            'relative inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-2.5 text-[12px] font-medium transition-colors',
+            'relative inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-2.5 text-small font-medium transition-colors',
             props.value === o.value ? 'text-fg' : 'text-fg-2 hover:text-fg',
           )}
         >
@@ -304,13 +340,13 @@ export function Tabs<T extends string>(props: {
           aria-selected={props.value === t.value}
           onClick={() => props.onChange(t.value)}
           className={cn(
-            'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-[12.5px] font-medium transition-colors',
+            'relative inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-callout font-medium transition-colors',
             props.value === t.value ? 'text-fg' : 'text-muted hover:text-fg',
           )}
         >
           {t.label}
           {!!t.count && (
-            <span className="rounded-full bg-fill-strong px-1.5 text-[11px] tabular-nums text-fg-2">
+            <span className="rounded-full bg-fill-strong px-1.5 text-caption tabular-nums text-fg-2">
               {t.count}
             </span>
           )}
@@ -337,8 +373,8 @@ export function Empty(props: { icon?: ReactNode; title: string; children?: React
       {props.icon && (
         <div className="grid size-10 place-items-center rounded-xl bg-fill text-muted">{props.icon}</div>
       )}
-      <p className="text-[13px] font-semibold text-fg">{props.title}</p>
-      {props.children && <div className="max-w-sm text-[12.5px] text-muted">{props.children}</div>}
+      <p className="text-body font-semibold text-fg">{props.title}</p>
+      {props.children && <div className="max-w-sm text-callout text-muted">{props.children}</div>}
     </div>
   )
 }

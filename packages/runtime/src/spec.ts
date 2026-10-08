@@ -29,6 +29,8 @@ export interface AgentSpec {
   specialty?: string
   /** A spawned worker's brief from the lead. */
   focus?: string
+  /** Tools this agent may not use, whatever its role gives it (a saved specialist's switched-off groups). */
+  withoutTools?: string[]
 }
 
 export interface ColonySpec {
@@ -53,6 +55,8 @@ export interface ColonySpec {
     escalate?: ('solo' | 'team')[]
     /** What the person keeps across chats, as prompt lines. */
     memory?: string[]
+    /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
+    addressed?: string[]
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy
@@ -60,6 +64,11 @@ export interface ColonySpec {
   disabledTools?: string[]
   /** Tools whose every call needs the person's approval (`mcp` for every MCP tool). */
   askTools?: string[]
+  /**
+   * Tools the person allowed outright. An MCP tool asks first unless its server marks it read-only; allowing it (or
+   * `mcp`) lets it run without asking.
+   */
+  allowTools?: string[]
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */
@@ -82,6 +91,8 @@ export interface TeamPolicy {
   maxWorkers: number
   /** Models the lead may assign to spawned workers; the first is the default. */
   workerModels: string[]
+  /** The person's saved specialists the lead may bring in by name (spawn_worker), as they would join. */
+  specialists?: AgentSpec[]
 }
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/

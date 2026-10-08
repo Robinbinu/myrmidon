@@ -1,39 +1,31 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
-import { AnimatePresence, motion, useAnimate, useReducedMotion } from 'motion/react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'motion/react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { copy } from '../copy.ts'
+import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
-import { agentColor, DotMatrix, PixelFace } from '../ui/pixel.tsx'
-import { softSpring } from '../ui/primitives.tsx'
+import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import {
+  HERO_MASCOT_MIN_HEIGHT,
+  MASCOT_COLORS,
+  MASCOT_DOZE_MS,
+  MASCOT_PAT_MS,
+  MASCOT_SCREEN_MS,
+  MASCOT_USER_FOCUS_MS,
+  softSpring,
+} from '../ui-config.ts'
 import TechText from '../vendor/react-bits/TechText'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
 const SUGGESTIONS = [
-  {
-    icon: Search,
-    label: 'Research',
-    text: 'Compare the three most popular Rust web frameworks this year and write a report with a source for every claim.',
-  },
-  {
-    icon: Gamepad2,
-    label: 'Build an app',
-    text: 'Build a single-file HTML snake game with keyboard and touch controls, levels, and a saved high score.',
-  },
-  {
-    icon: Code2,
-    label: 'Tested code',
-    text: 'Write a Python CLI that converts CSV files to Parquet, with type hints, error handling, and pytest tests.',
-  },
-  {
-    icon: BookOpen,
-    label: 'Explain',
-    text: 'Explain how transformers handle long context today, with a short glossary and further reading.',
-  },
+  { icon: Search, ...copy.hero.suggestions.research },
+  { icon: Gamepad2, ...copy.hero.suggestions.app },
+  { icon: Code2, ...copy.hero.suggestions.code },
+  { icon: BookOpen, ...copy.hero.suggestions.explain },
 ]
 
 const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
 const IDLE_TRICKS: Emotion[] = [EMOTIONS.wink, EMOTIONS.happy]
-/** Resting the pointer on the screen this long counts as a pat. */
-const PAT_MS = 700
 
 /** The crew that hangs around the mascot. Positions are relative to the face's center. */
 const CREW = [
@@ -66,10 +58,25 @@ function useToken(name: string): string {
   return value
 }
 
-/** Sleeps after this long without the pointer moving. */
-const DOZE_MS = 45_000
-/** The user's own pointer outranks the crew's for this long after it moves. */
-const USER_FOCUS_MS = 2500
+/** Whether the window is at least `px` tall, kept current as it is resized. */
+function useTallerThan(px: number): boolean {
+  const query = `(min-height: ${px}px)`
+  const [tall, setTall] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = () => setTall(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return tall
+}
+
+/** A colour canvas can draw with: a `var(--token)` resolves to the token's value, anything else passes through. */
+const resolveColor = (color: string) => {
+  const token = /^var\((--[\w-]+)\)$/.exec(color)?.[1]
+  return token ? readToken(token) : color
+}
 
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)] as T
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
@@ -79,14 +86,52 @@ const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dy / 90), -1, 1),
 ]
 
-function Clock() {
+/**
+ * The readout in the screen's corner, as the person chose: the clock, a hello with their name, how many crews are at
+ * work (the clock when none are), all of these in turn, or nothing.
+ */
+function Readout(props: { mode: MascotLook['screen']; name?: string; working: number }) {
   const [now, setNow] = useState(() => new Date())
+  const [turn, setTurn] = useState(0)
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 15_000)
     return () => clearInterval(t)
   }, [])
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return <DotMatrix text={hhmm} dot={2.4} ghost className="text-[color:var(--screen-ink)]" />
+  useEffect(() => {
+    if (props.mode !== 'rotate') return
+    const t = setInterval(() => setTurn((n) => n + 1), MASCOT_SCREEN_MS)
+    return () => clearInterval(t)
+  }, [props.mode])
+  const clock = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const hello = props.name ? copy.hero.screen.hello(props.name.split(/\s+/)[0]?.slice(0, 8) ?? '') : undefined
+  const crew = props.working > 0 ? copy.hero.screen.atWork(props.working) : undefined
+  const shown =
+    props.mode === 'face'
+      ? undefined
+      : props.mode === 'name'
+        ? (hello ?? clock)
+        : props.mode === 'crew'
+          ? (crew ?? clock)
+          : props.mode === 'clock'
+            ? clock
+            : (() => {
+                const all = [clock, hello, crew].filter((x): x is string => Boolean(x))
+                return all[turn % all.length]
+              })()
+  if (!shown) return null
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={shown === clock ? 'clock' : shown}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.25 }}
+      >
+        <DotMatrix text={shown} dot={2.4} ghost className="text-[color:var(--screen-ink)]" />
+      </motion.span>
+    </AnimatePresence>
+  )
 }
 
 interface CrewState {
@@ -109,10 +154,16 @@ export function Hero(props: {
   working: number
   /** The most recent chat's status and when it last changed. */
   latest?: { status: string; updatedAt: string }
+  /** What the chats are doing, as a key: when it changes, the greeting is written again. */
+  news: string
   onPick(text: string): void
   children: ReactNode
 }) {
-  const reduce = useReducedMotion()
+  const reduce = useReducedMotionConfig()
+  const roomy = useTallerThan(HERO_MASCOT_MIN_HEIGHT)
+  const mascot = useMascotLook()
+  const { greeting, name } = useGreeting(props.news)
+  const headline = greeting?.headline ?? copy.hero.headline
   const [scope, animate] = useAnimate<HTMLButtonElement>()
   const [reaction, setReaction] = useState<Emotion>()
   const [petted, setPetted] = useState(false)
@@ -199,9 +250,9 @@ export function Hero(props: {
     if (reduce) return
     const t = setInterval(() => {
       const quiet = Date.now() - lastUser.current
-      if (quiet > USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
+      if (quiet > MASCOT_USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
       if (typingRef.current || busy.current || asleepRef.current) return
-      if (quiet > DOZE_MS) {
+      if (quiet > MASCOT_DOZE_MS) {
         asleepRef.current = true
         setAsleep(true)
       } else if (Math.random() < 0.12) {
@@ -229,7 +280,7 @@ export function Hero(props: {
       setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
     }
     const follow = (x: number, y: number) => {
-      if (Date.now() - lastUser.current > USER_FOCUS_MS) setLook(gaze(x, y))
+      if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
     }
     const size = () => {
       const r = scope.current?.getBoundingClientRect()
@@ -310,78 +361,108 @@ export function Hero(props: {
                 hour: new Date(now).getHours(),
               }))
   const label = emotion.label
+  // The colour the person chose is the mascot's own; its moods still bring theirs.
+  const eyes = useMemo(
+    () => (emotion.color === LEAD_COLOR ? MASCOT_COLORS[mascot.color] : resolveColor(emotion.color)),
+    [emotion.color, mascot.color],
+  )
 
   return (
     <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-4 py-8 sm:px-6">
-        <div className="relative">
-          <motion.div
-            initial={{ opacity: 0, y: 12, scale: 0.94 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={softSpring}
-          >
-            <button
-              ref={scope}
-              type="button"
-              onClick={() => react(pick(POKED))}
-              onPointerEnter={() => {
-                clearTimeout(patTimer.current)
-                patTimer.current = setTimeout(() => setPetted(true), PAT_MS)
-              }}
-              onPointerLeave={() => {
-                clearTimeout(patTimer.current)
-                setPetted(false)
-              }}
-              aria-label="Poke the crew"
-              className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-6 py-8">
+        {roomy && (
+          <div className="relative">
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={softSpring}
+              className="relative"
             >
-              <PixelFace
-                mood={emotion.mood}
-                color={emotion.color}
-                cols={15}
-                rows={8}
-                cell={20}
-                gap={6}
-                glow
-                {...(look ? { look } : {})}
-                className="h-auto w-[min(400px,calc(100vw-96px))]"
-              />
-              <div className="mt-5 flex items-center justify-between px-1">
-                <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
-                  <span
-                    className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[#3ddc84]'}`}
-                  />
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={label}
-                      initial={{ opacity: 0, y: 3 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -3 }}
-                      transition={{ duration: 0.14 }}
-                    >
-                      {label}
-                    </motion.span>
-                  </AnimatePresence>
-                </span>
-                <Clock />
-              </div>
-            </button>
-          </motion.div>
+              <button
+                ref={scope}
+                type="button"
+                onClick={() => react(pick(POKED))}
+                onPointerEnter={() => {
+                  clearTimeout(patTimer.current)
+                  patTimer.current = setTimeout(() => setPetted(true), MASCOT_PAT_MS)
+                }}
+                onPointerLeave={() => {
+                  clearTimeout(patTimer.current)
+                  setPetted(false)
+                }}
+                aria-label={copy.hero.poke}
+                className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+              >
+                <PixelFace
+                  mood={emotion.mood}
+                  color={eyes}
+                  cols={15}
+                  rows={8}
+                  cell={20}
+                  gap={6}
+                  glow
+                  eyes={mascot.eyes}
+                  {...(look ? { look } : {})}
+                  className="h-auto w-[min(400px,calc(100vw-96px))]"
+                />
+                <div className="mt-5 flex items-center justify-between px-1">
+                  <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
+                    <span
+                      className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
+                    />
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.span
+                        key={label}
+                        initial={{ opacity: 0, y: 3 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -3 }}
+                        transition={{ duration: 0.14 }}
+                      >
+                        {label}
+                      </motion.span>
+                    </AnimatePresence>
+                  </span>
+                  <Readout mode={mascot.screen} {...(name ? { name } : {})} working={props.working} />
+                </div>
+              </button>
+              {mascot.look === 'flower' && (
+                <PixelSprite
+                  sprite={FLOWER}
+                  cell={9}
+                  className="pointer-events-none absolute -right-5 -top-5"
+                />
+              )}
+              {mascot.look === 'bow' && (
+                <PixelSprite
+                  sprite={BOW}
+                  cell={4.5}
+                  className="pointer-events-none absolute left-1/2 top-full -mt-2.5 -translate-x-1/2"
+                />
+              )}
+            </motion.div>
 
-          <motion.div
-            className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
-            aria-hidden
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4, duration: 0.3 }}
-          >
-            {crew.map((c) => (
-              <CrewCursor key={c.name} name={c.name} color={c.color} x={c.x} y={c.y} clicking={c.clicking} />
-            ))}
-          </motion.div>
-        </div>
+            <motion.div
+              className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
+              aria-hidden
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4, duration: 0.3 }}
+            >
+              {crew.map((c) => (
+                <CrewCursor
+                  key={c.name}
+                  name={c.name}
+                  color={c.color}
+                  x={c.x}
+                  y={c.y}
+                  clicking={c.clicking}
+                />
+              ))}
+            </motion.div>
+          </div>
+        )}
 
-        <h1 className="sr-only">What should the crew build?</h1>
+        <h1 className="sr-only">{headline}</h1>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -390,16 +471,19 @@ export function Hero(props: {
           aria-hidden
         >
           <TechText
-            text="What should the crew build?"
+            key={headline}
+            text={headline}
             fontSize={40}
             fontWeight={600}
             letterSpacing={-0.03}
             color={ink}
-            accentColor={emotion.color}
+            accentColor={eyes}
             reveal="letter"
             dashLength={4}
             dashGap={2}
             specks={0}
+            // Its measuring box follows the pointer only; sweeping by itself it looked like a stray selection.
+            sweep={false}
             speed={0.6}
           />
         </motion.div>
@@ -420,7 +504,7 @@ export function Hero(props: {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...softSpring, delay: 0.15 + i * 0.04 }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-[12.5px] font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-callout font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
             >
               <s.icon className="size-3.5" />
               {s.label}

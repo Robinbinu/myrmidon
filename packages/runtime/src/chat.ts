@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
@@ -7,13 +9,16 @@ import {
   type EventPayloads,
   foldColony,
   type MyrEvent,
+  mentionsIn,
   type ProjectPermissions,
   type RoundInfo,
+  STOPPED_BY_USER,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { ChatIndex, type IndexedRound } from './chat-index.ts'
+import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -21,13 +26,21 @@ import { type MemoryStore, memoryLines } from './memory.ts'
 import type { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { speaksForColony } from './patterns.ts'
+import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
-import { type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import { prompts } from './prompts.ts'
+import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import {
+  reviewRound,
+  roundDigest,
+  type SkillProposal,
+  type SkillProposalStore,
+  toolCallsSince,
+} from './skill-learning.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
+import { type SpecialistStore, specialistAgent } from './specialists.ts'
 import type { WebTools } from './web.ts'
-
-const MAX_WORKERS = 8
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
 interface RoundRef {
@@ -48,6 +61,17 @@ function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): Agen
     .map((a) => a.info)
 }
 
+/**
+ * The crew members a message is written to (@name), among those still on the crew; @lead is just a message to the
+ * lead, which the lead hears anyway.
+ */
+function addressedIn(message: string, state: ColonyState): string[] {
+  const crew = Object.values(state.agents)
+    .filter((a) => !a.dismissed && a.status !== 'failed' && a.info.role !== 'lead')
+    .map((a) => a.info.name)
+  return mentionsIn(message, crew)
+}
+
 /** A round's messages: those logged from its start up to its end. */
 function messagesOf(r: RoundRef) {
   const end = r.round.endSeq ?? Number.POSITIVE_INFINITY
@@ -58,6 +82,8 @@ export interface RosterEntry {
   /** What this teammate is for, e.g. `researcher`, `coder`, `writer`; `peer` for an unspecialised swarm peer. */
   readonly role: string
   readonly model: string
+  /** One of the person's saved specialists, by name: it joins as they set it up. */
+  readonly specialist?: string
 }
 
 export interface TeamConfig {
@@ -95,6 +121,27 @@ export interface SendOptions {
   readonly tier?: Tier
 }
 
+/** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
+export function toolRules(s: MyrSettings | undefined): {
+  disabledTools: string[]
+  askTools: string[]
+  allowTools: string[]
+} {
+  const rules = Object.entries(s?.permissions ?? {})
+  return {
+    disabledTools: [
+      ...(s
+        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
+            .filter((g) => !s.tools[g])
+            .flatMap((g) => [...TOOL_GROUPS[g]])
+        : []),
+      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
+    ],
+    askTools: rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool),
+    allowTools: rules.filter(([, rule]) => rule === 'allow').map(([tool]) => tool),
+  }
+}
+
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
 export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
   const str = (v: unknown, fallback = '') => (typeof v === 'string' && v ? v : fallback)
@@ -114,7 +161,11 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
         (r): r is RosterEntry => typeof r?.role === 'string' && typeof r?.model === 'string' && !!r.model,
       )
       .slice(0, MAX_WORKERS)
-      .map((r) => ({ role: r.role.trim().slice(0, 40) || 'worker', model: r.model }))
+      .map((r) => ({
+        role: r.role.trim().slice(0, 40) || 'worker',
+        model: r.model,
+        ...(typeof r.specialist === 'string' && r.specialist ? { specialist: r.specialist } : {}),
+      }))
     const extra = typeof raw.extraWorkers === 'number' ? Math.max(0, Math.floor(raw.extraWorkers)) : 0
     return { mode: raw.mode, leadModel, roster, extraWorkers: extra, judgeModel, ...wall }
   }
@@ -152,18 +203,16 @@ export interface ChatSummary {
   readonly title: string
   readonly updatedAt: string
   readonly status: ColonyStatus
+  /** The latest round stopped to wait for the person's answer. */
+  readonly awaiting?: boolean
+  /** The latest round stopped because a model failed. */
+  readonly failed?: boolean
   readonly rounds: ChatRound[]
   /** The project folder the chat works in, if any. */
   readonly project?: { readonly id: string; readonly name: string }
+  /** Crew members the person can write to directly (@name): everyone on the chat's crew but the lead. */
+  readonly crew?: readonly CrewMember[]
 }
-
-const RUBRIC = `Judge whether the colony did what the person asked, completely and correctly.
-- Every part of the request is addressed; nothing is silently skipped.
-- Claims are accurate; when the request asks for research or sources, they are cited. Code is correct and complete
-  (no placeholders).
-- The final answer and any delivered files are consistent with each other and usable as described.
-- The response fits the request: a simple question deserves a direct answer, not a report.
-Score 1.0 only for work you would hand to the person as-is.`
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
 function conversation(previous: readonly RoundRef[]): string {
@@ -174,7 +223,8 @@ function conversation(previous: readonly RoundRef[]): string {
       .map((r) => {
         const replies = messagesOf(r).filter((m) => m.from !== 'user')
         const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-        return `User: ${r.round.request}\nColony (${r.round.status}): ${final?.text ?? '(no reply)'}`
+        const plan = final?.plan ? `\n\n${final.plan}` : ''
+        return `User: ${r.round.request}\nColony (${r.round.status}): ${final?.text ?? '(no reply)'}${plan}`
       })
       .join('\n\n')
   )
@@ -205,6 +255,8 @@ export class ChatService {
       classify?: Classify
       /** MCP servers whose tools colonies may use. */
       mcp?: McpHub
+      /** The person's plugins with code, whose tools and prompt sections reach agents. */
+      plugins?: PluginHost
       /** Snapshots of project folders, for each round's changes and rewinding. */
       checkpoints?: Checkpoints
       /** The person's kept tools (made by agents), loaded into every round. */
@@ -219,8 +271,121 @@ export class ChatService {
       hooks?: HookStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
+      /** Agents the person defined once and brings back. */
+      specialists?: SpecialistStore
+      /** Skills a reviewer proposed from finished work, waiting for the person or decided. */
+      skillProposals?: SkillProposalStore
     },
   ) {}
+
+  /**
+   * Reads a colony's latest round for a skill worth keeping and proposes it. Unless the person asked (/learn), only a
+   * round that took real work is read. Returns the proposal, or undefined when there is nothing worth keeping.
+   */
+  private async _reviewForSkill(
+    colonyId: string,
+    model: string,
+    asked: boolean,
+  ): Promise<SkillProposal | undefined> {
+    const { skills, skillProposals } = this.options
+    if (!skills || !skillProposals) throw new Error('learning skills needs the skill library')
+    const events = await this.store.read(colonyId as never)
+    const state = foldColony(colonyId, events)
+    const from = state.rounds.at(-1)?.startSeq ?? 0
+    if (!asked && toolCallsSince(events, from) < SKILL_REVIEW_CALLS) return undefined
+    const review = await reviewRound({
+      resolver: this.options.resolver,
+      model,
+      skills,
+      digest: roundDigest(events, from),
+      asked,
+    })
+    if (!review) return undefined
+    const proposal = skillProposals.add({
+      ...review,
+      colonyId,
+      ...(state.chat ? { chatId: state.chat.chatId } : {}),
+    })
+    await this._appendTo(colonyId, {
+      type: 'skill/proposed',
+      actor: { kind: 'system', id: 'myrmidon' },
+      payload: {
+        id: proposal.id,
+        name: proposal.name,
+        description: proposal.description,
+        body: proposal.body,
+        why: proposal.why,
+        ...(proposal.update ? { update: proposal.update } : {}),
+      },
+    })
+    return proposal
+  }
+
+  /** Logs to a colony whether or not one of its rounds is running. */
+  private async _appendTo(colonyId: string, draft: Parameters<ColonyRun['append']>[0]) {
+    const live = [...this._live.values()].find((r) => r.id === colonyId)
+    if (live && live.state().status === 'running') await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(colonyId as never, draft)
+  }
+
+  /** The person asked to learn a skill from a chat (/learn): its latest round is read now, whatever its size. */
+  async learnNow(chatId: string): Promise<SkillProposal | undefined> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const agents = Object.values(latest.state.agents)
+    const model = (agents.find((a) => a.info.role === 'lead') ?? agents[0])?.info.model
+    if (!model) throw new Error('this chat has no agents to learn from')
+    return this._reviewForSkill(latest.id, model, true)
+  }
+
+  /** Keeps (in Myrmidon's skills, for every chat) or discards a proposed skill, with any edits the person made. */
+  async decideSkill(
+    id: string,
+    keep: boolean,
+    edits: { description?: string; body?: string } = {},
+  ): Promise<void> {
+    const { skills, skillProposals } = this.options
+    if (!skills || !skillProposals) throw new Error('learning skills needs the skill library')
+    const proposal = skillProposals.get(id)
+    if (!proposal) throw new Error('no such skill proposal')
+    if (proposal.status !== 'proposed') throw new Error(`this proposal was already ${proposal.status}`)
+    if (keep)
+      skills.write(
+        proposal.name,
+        edits.description?.trim() || proposal.description,
+        edits.body?.trim() || proposal.body,
+      )
+    skillProposals.setStatus(id, keep ? 'kept' : 'discarded')
+    await this._appendTo(proposal.colonyId, {
+      type: 'skill/decided',
+      actor: { kind: 'user', id: 'user' },
+      payload: { id, kept: keep },
+    })
+  }
+
+  /**
+   * A crew member who is one of the person's specialists works as they set it up now: its specialty, instructions and
+   * tools (its model and its memory of the chat stay as they are).
+   */
+  private _asSpecialist(agent: AgentSpec): AgentSpec {
+    const saved = agent.role === 'lead' ? undefined : this.options.specialists?.byName(agent.name)
+    if (!saved) return agent
+    const as = specialistAgent(saved, agent.role === 'peer' ? 'peer' : 'worker', agent.model)
+    return {
+      ...agent,
+      ...(as.specialty ? { specialty: as.specialty } : {}),
+      ...(as.instructions ? { instructions: as.instructions } : {}),
+      ...(as.withoutTools ? { withoutTools: as.withoutTools } : {}),
+    }
+  }
+
+  /** The person's specialists a lead may still bring in: those not already on the team. */
+  private _bringable(agents: readonly AgentSpec[], workerModel: string): AgentSpec[] {
+    const here = new Set(agents.map((a) => a.name))
+    return (this.options.specialists?.list() ?? [])
+      .filter((s) => !here.has(s.name))
+      .map((s) => specialistAgent(s, 'worker', workerModel))
+  }
 
   private get store() {
     return this.runtime.ctx.logStore as SqliteLogStore
@@ -257,7 +422,50 @@ export class ChatService {
     return out
   }
 
+  /**
+   * A running round notes which process runs it, so that after a restart or crash a round the log still calls running
+   * can be told apart from one another Myrmidon process (a second server on the same home) is running right now.
+   */
+  private _ownerFile(colonyId: string) {
+    return join(this.store.home, 'runs', colonyId)
+  }
+
+  private _own(run: ColonyRun) {
+    mkdirSync(join(this.store.home, 'runs'), { recursive: true })
+    writeFileSync(this._ownerFile(run.id), String(process.pid))
+  }
+
+  private _release(run: ColonyRun) {
+    rmSync(this._ownerFile(run.id), { force: true })
+  }
+
+  private _settling?: Promise<void>
+
+  /**
+   * Ends rounds left running by a Myrmidon that is gone (restarted, quit or crashed): logged as stopped, they offer
+   * Resume, and the chat takes new messages again. Runs once, before this process first reads or starts a round.
+   */
+  private _settle(): Promise<void> {
+    this._settling ??= (async () => {
+      for (const r of await this.index.rounds(this._liveState)) {
+        if (r.status !== 'running' && r.status !== 'created') continue
+        if (this._liveState(r.colonyId)) continue
+        const file = this._ownerFile(r.colonyId)
+        const pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : undefined
+        if (pid && pid !== process.pid && alive(pid)) continue
+        await this.runtime.ctx.log.appendOne(r.colonyId as never, {
+          type: 'colony/stopped',
+          actor: { kind: 'system', id: 'myrmidon' },
+          payload: { reason: prompts.chat.interrupted },
+        })
+        rmSync(file, { force: true })
+      }
+    })()
+    return this._settling
+  }
+
   async list(): Promise<ChatSummary[]> {
+    await this._settle()
     const byChat = new Map<string, IndexedRound[]>()
     for (const r of await this.index.rounds(this._liveState))
       byChat.set(r.chatId, [...(byChat.get(r.chatId) ?? []), r])
@@ -278,6 +486,11 @@ export class ChatService {
         ...(first.project ? { project: first.project } : {}),
         updatedAt: last.endedAt ?? last.createdAt ?? '',
         status: last.status,
+        ...(last.crew?.some((c) => c.role !== 'lead')
+          ? { crew: last.crew.filter((c) => c.role !== 'lead') }
+          : {}),
+        ...(last.awaiting ? { awaiting: true } : {}),
+        ...(last.failed ? { failed: true } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -288,6 +501,15 @@ export class ChatService {
       })
     }
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
+  async search(text: string): Promise<MessageHit[]> {
+    await this._settle()
+    return this.index.search(
+      text,
+      [...this._live.values()].map((r) => r.state()),
+    )
   }
 
   /**
@@ -322,18 +544,23 @@ export class ChatService {
     options: SendOptions,
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }> {
     const { delivery = 'steer', attachments = [], planFirst = false } = options
+    await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message, delivery, attachments)
+      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()))
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = await this.rounds(id)
     const history = conversation(previous)
+    // Written to crew members directly (@name): the round starts with them, and they answer.
+    const latestState = previous.at(-1)?.state
+    const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier =
-      options.tier ??
-      (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history))
-    const spec = this.buildSpec(id, message, config, previous, history, tier)
+    const tier = to.length
+      ? 'team'
+      : (options.tier ??
+        (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
@@ -348,6 +575,8 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
+      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
@@ -367,7 +596,7 @@ export class ChatService {
           actor: { kind: 'system', id: 'myrmidon' },
           payload: {
             agent: 'myrmidon',
-            text: `This request started in a smaller round; ${escalated.by} moved it here because: ${escalated.reason.replace(/[.\s]+$/, '')}. Its files and notes are here.`,
+            text: prompts.chat.escalated(escalated.by, escalated.reason.replace(/[.\s]+$/, '')),
             section: 'decision',
           },
         })
@@ -377,7 +606,11 @@ export class ChatService {
       await run.append({
         type: 'chat/user',
         actor: { kind: 'user', id: 'user' },
-        payload: { text: message, ...(names.length ? { attachments: names } : {}) },
+        payload: {
+          text: message,
+          ...(names.length ? { attachments: names } : {}),
+          ...(to.length ? { to } : {}),
+        },
       })
       for (const later of said.slice(1))
         await run.append({
@@ -390,19 +623,28 @@ export class ChatService {
         })
     })
     this._live.set(id, run)
+    this._own(run)
     try {
       await (latest ? run.continueRound() : run.start())
     } catch (err) {
       this._live.delete(id)
+      this._release(run)
       throw err
     }
     void run.done.finally(() => {
+      this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(id) === run) this._live.delete(id)
       void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
     })
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
+      // A finished round that took real work is read for a skill worth keeping, after the fact.
+      if (final.status === 'completed' && this.options.skillProposals && this.options.skills)
+        this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
+          console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
+        )
     })
     return { chatId: id, colonyId: run.id, started: true, ...(spec.chat ? { round: spec.chat.round } : {}) }
   }
@@ -492,14 +734,11 @@ export class ChatService {
     const run = [...this._live.values()].find((r) => r.id === colonyId)
     if (!run) return
     if (await run.finishLogin(agent, 'handed-back')) return
-    run.nudge(
-      agent,
-      'The person handed your browser back. They may have navigated or filled things in: take a fresh browser_snapshot and continue.',
-    )
+    run.nudge(agent, prompts.chat.handedBack)
   }
 
   async stop(chatId: string): Promise<void> {
-    await this._live.get(chatId)?.stop('stopped by user')
+    await this._live.get(chatId)?.stop(STOPPED_BY_USER)
   }
 
   /** Snapshots a project round's folder; a failure is reported but never stops the round. */
@@ -526,10 +765,15 @@ export class ChatService {
   }
 
   /** The person's answer to a tool call waiting for approval in a running round. */
-  async decideApproval(colonyId: string, id: string, approved: boolean): Promise<void> {
+  async decideApproval(
+    colonyId: string,
+    id: string,
+    approved: boolean,
+    answer: { edits?: Record<string, string>; note?: string } = {},
+  ): Promise<void> {
     const run = [...this._live.values()].find((r) => r.id === colonyId)
     if (!run) throw new Error('that round is not running')
-    await run.decideApproval(id, approved)
+    await run.decideApproval(id, approved, 'person', answer)
   }
 
   /** The round's changes to its project since its start checkpoint, for the judge. */
@@ -558,23 +802,47 @@ export class ChatService {
   }
 
   /**
-   * Puts a round's project folder back as it was when the round started (`undo`: reverts the latest rewind).
+   * Puts the files a round changed back as they were when it started (`undo`: reverts the latest rewind). Only the
+   * round's own files are touched: anything changed by anyone else since stays. A file the round changed that was
+   * edited again after it ended is left alone and listed in `skipped`, unless `force`.
    * Refused while the chat has a round running, since its agents would be editing the same files.
    */
-  async rewind(colonyId: string, undo = false, round?: number): Promise<{ changed: number }> {
-    const { state, project, checkpoints, start } = await this._projectRound(colonyId, round)
+  async rewind(
+    colonyId: string,
+    undo = false,
+    round?: number,
+    force = false,
+  ): Promise<{ changed: number; skipped: string[] }> {
+    const { state, info, project, checkpoints, start } = await this._projectRound(colonyId, round)
     const chatId = state.chat?.chatId ?? ''
     if (this._live.get(chatId)?.state().status === 'running')
       throw new Error('stop the running round before rewinding its files')
-    const target = undo ? state.checkpoints.restored?.undo : start
-    if (!target) throw new Error('there is no rewind to undo')
-    const { undo: before, changed } = await checkpoints.restore(project, target)
+    const now = await checkpoints.snapshot(project, 'before rewinding')
+    let target: string
+    let files: string[]
+    let skipped: string[] = []
+    if (undo) {
+      const restored = state.checkpoints.restored
+      if (!restored) throw new Error('there is no rewind to undo')
+      target = restored.undo
+      // Rewinds recorded before their files were listed undo whatever differs from the state they saved.
+      files = restored.files ? [...restored.files] : await checkpoints.files(project, target, now)
+    } else {
+      target = start
+      const ours = await checkpoints.files(project, start, info.checkpoints.end ?? now)
+      const since = info.checkpoints.end
+        ? new Set(await checkpoints.files(project, info.checkpoints.end, now))
+        : new Set()
+      skipped = force ? [] : ours.filter((f) => since.has(f))
+      files = ours.filter((f) => !skipped.includes(f))
+    }
+    const { undo: before, changed } = await checkpoints.restore(project, target, files)
     await this.runtime.ctx.log.appendOne(colonyId as never, {
       type: 'checkpoint/restored',
       actor: { kind: 'user', id: 'user' },
-      payload: { commit: target, undo: before, changed },
+      payload: { commit: target, undo: before, changed, files },
     })
-    return { changed }
+    return { changed, skipped }
   }
 
   /**
@@ -607,6 +875,7 @@ export class ChatService {
    * switches to it. Without a failure, it switches the lead (or the one agent).
    */
   async resume(chatId: string, model?: string): Promise<{ chatId: string; colonyId: string }> {
+    await this._settle()
     if (this._live.get(chatId)?.state().status === 'running') throw new Error('this chat is already running')
     const last = (await this.rounds(chatId)).at(-1)
     if (!last) throw new Error('no such chat')
@@ -635,12 +904,15 @@ export class ChatService {
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
+      ...(this.options.plugins ? { plugins: this.options.plugins } : {}),
+      onStream: (agent: string, text: string, done: boolean) => this._streamed(run.id, agent, text, done),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
     })
     this._live.set(chatId, run)
+    this._own(run)
     try {
       await run.resume(
         model
@@ -650,9 +922,12 @@ export class ChatService {
       )
     } catch (err) {
       this._live.delete(chatId)
+      this._release(run)
       throw err
     }
     void run.done.finally(() => {
+      this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(chatId) === run) this._live.delete(chatId)
       void this._checkpoint(
         run.id,
@@ -679,13 +954,13 @@ export class ChatService {
     const notes = this.options.settings?.get().instructions
     const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
-      return {
+      return this._asSpecialist({
         name: info.name,
         role: info.role,
         model: info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(note ? { instructions: note } : {}),
-      }
+      })
     })
     return {
       name: created.name,
@@ -704,11 +979,15 @@ export class ChatService {
               mode: created.team.mode === 'swarm' ? 'swarm' : 'orchestrated',
               maxWorkers: created.team.maxWorkers,
               workerModels: created.team.workerModels,
+              ...(created.team.mode !== 'swarm'
+                ? { specialists: this._bringable(agents, created.team.workerModels[0] ?? '') }
+                : {}),
             },
           }
         : {}),
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
       ...(created.askTools?.length ? { askTools: created.askTools } : {}),
+      ...(created.allowTools?.length ? { allowTools: created.allowTools } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
     }
@@ -730,6 +1009,44 @@ export class ChatService {
     return ids
   }
 
+  /**
+   * The person changed tool settings or a project's permissions: running rounds take the new rules at once, and an
+   * agent mid-turn under rules that got stricter is stopped and told what changed (see ColonyRun.applyRules).
+   */
+  async permissionsChanged(): Promise<void> {
+    const rules = toolRules(this.options.settings?.get())
+    for (const run of this._live.values()) {
+      if (run.state().status !== 'running') continue
+      const project = run.spec.chat?.project
+      const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
+      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}) })
+    }
+  }
+
+  private readonly _streams = new Set<
+    (colonyId: string, agent: string, text: string, done: boolean) => void
+  >()
+
+  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
+  /** Every event as it is appended to any colony, e.g. for a channel following a round it started. */
+  onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void {
+    return this.runtime.ctx.on('log/appended', listener)
+  }
+
+  /** A colony's whole log. */
+  events(colonyId: string): Promise<MyrEvent[]> {
+    return this.store.read(colonyId as never)
+  }
+
+  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
+    this._streams.add(listener)
+    return () => this._streams.delete(listener)
+  }
+
+  private _streamed(colonyId: string, agent: string, text: string, done: boolean) {
+    for (const listener of this._streams) listener(colonyId, agent, text, done)
+  }
+
   async stopAll(): Promise<void> {
     await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
   }
@@ -741,6 +1058,7 @@ export class ChatService {
     previous: readonly RoundRef[],
     history: string,
     requested: Tier,
+    addressed: readonly string[] = [],
   ): ColonySpec {
     const s = this.options.settings?.get()
     const leadNote = s?.instructions.lead?.trim()
@@ -750,17 +1068,19 @@ export class ChatService {
     // A team with nobody to delegate to is one agent working alone. A swarm the person set up works together
     // on anything bigger than a direct answer.
     const tier: Tier =
-      requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
-        ? 'solo'
-        : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
-          ? 'team'
-          : requested
+      addressed.length > 0
+        ? 'team'
+        : requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
+          ? 'solo'
+          : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
+            ? 'team'
+            : requested
     const taken = new Set(['lead'])
     // A chat keeps its team: the workers (or peers) of its latest team round come back, minus any the lead
     // dismissed, with their memory. The team picker shapes only a chat's first team.
     const kept = keptTeam(previous, config.mode).map((info): AgentSpec => {
       taken.add(info.name)
-      const note = info.focus ? `Your focus: ${info.focus}` : workerNote
+      const note = info.focus ? prompts.chat.keptFocus(info.focus) : workerNote
       return {
         name: info.name,
         role: info.role,
@@ -770,19 +1090,42 @@ export class ChatService {
         ...(note ? { instructions: note } : {}),
       }
     })
+    // Someone the person wrote to directly comes back even if the latest team round did not have them.
+    const known = previous.at(-1)?.state.agents ?? {}
+    for (const name of addressed) {
+      const info = known[name]?.info
+      if (!info || kept.some((k) => k.name === name) || info.role === 'lead') continue
+      taken.add(name)
+      kept.push({
+        name,
+        role: info.role,
+        model: info.model,
+        ...(info.specialty ? { specialty: info.specialty } : {}),
+        ...(info.focus ? { focus: info.focus } : {}),
+      })
+    }
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
       kept.length > 0
         ? kept
-        : roster.map((r) => {
+        : roster.flatMap((r) => {
+            // A roster place taken by a saved specialist: it joins under its own name, once.
+            const saved = r.specialist ? this.options.specialists?.byName(r.specialist) : undefined
+            if (saved) {
+              if (taken.has(saved.name)) return []
+              taken.add(saved.name)
+              return [specialistAgent({ ...saved, model: r.model || saved.model }, role, r.model)]
+            }
             const name = pickName(taken)
             taken.add(name)
-            return {
-              name,
-              role,
-              model: r.model,
-              ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
-              ...(workerNote ? { instructions: workerNote } : {}),
-            }
+            return [
+              {
+                name,
+                role,
+                model: r.model,
+                ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
+                ...(workerNote ? { instructions: workerNote } : {}),
+              },
+            ]
           })
     const lead: AgentSpec = {
       name: 'lead',
@@ -808,7 +1151,7 @@ export class ChatService {
             ...(workerNote ? { instructions: workerNote } : {}),
           })
         : lead
-    const agents: AgentSpec[] =
+    const agents: AgentSpec[] = (
       tier !== 'team'
         ? [alone]
         : swarm
@@ -820,16 +1163,8 @@ export class ChatService {
                 return { name, role: 'peer', model: config.leadModel }
               })
           : [lead, ...crew('worker')]
-    const rules = Object.entries(s?.permissions ?? {})
-    const disabledTools = [
-      ...(s
-        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
-            .filter((g) => !s.tools[g])
-            .flatMap((g) => [...TOOL_GROUPS[g]])
-        : []),
-      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
-    ]
-    const askTools = rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool)
+    ).map((a) => this._asSpecialist(a))
+    const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer
@@ -841,19 +1176,18 @@ export class ChatService {
     const models = [...new Set([...roster.map((r) => r.model), config.leadModel])]
     return {
       name: title(request),
-      mission: history
-        ? `${request}\n\n(Context from earlier rounds of this conversation)\n${history}`
-        : request,
+      mission: history ? prompts.chat.mission(request, history) : request,
       pattern: swarm ? 'blackboard' : 'lead-workers',
       agents,
+      // A direct exchange with a crew member is not reviewed, like a direct answer.
       acceptance:
-        review === 'off' || (tier === 'answer' && review !== 'always')
+        review === 'off' || addressed.length > 0 || (tier === 'answer' && review !== 'always')
           ? []
           : [
               {
                 verifier: 'llm-judge',
                 model: config.judgeModel,
-                rubric: s?.verification.rubric?.trim() || RUBRIC,
+                rubric: s?.verification.rubric?.trim() || prompts.chat.rubric,
                 threshold: s?.verification.threshold ?? 0.7,
               },
             ],
@@ -864,6 +1198,7 @@ export class ChatService {
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
       ...(disabledTools.length ? { disabledTools } : {}),
       ...(askTools.length ? { askTools } : {}),
+      ...(allowTools.length ? { allowTools } : {}),
       ...(review ? { review } : {}),
       chat: {
         chatId,
@@ -871,6 +1206,7 @@ export class ChatService {
         request,
         history,
         ...(escalate.length ? { escalate } : {}),
+        ...(addressed.length ? { addressed: [...addressed] } : {}),
       },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),
@@ -878,7 +1214,20 @@ export class ChatService {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
         workerModels: models,
+        ...(tier === 'team' && !swarm
+          ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
+          : {}),
       },
     }
+  }
+}
+
+/** Whether a process is still running (signal 0 checks without sending anything). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
 }

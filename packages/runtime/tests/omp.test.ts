@@ -56,3 +56,16 @@ test('search providers come from omp', async () => {
   expect(ids).toContain('duckduckgo')
   expect(ids.length).toBeGreaterThan(10)
 })
+
+test('signing out keeps an API key stored for the same provider', async () => {
+  const omp = await bootOmp(home)
+  await omp.setApiKey('anthropic', 'sk-ant-test-123456')
+  expect(omp.providers().find((p) => p.id === 'anthropic')?.stored).toBe(true)
+  expect(omp.logins().find((l) => l.provider === 'anthropic')?.signedIn).toBe(false)
+
+  await omp.signOut('anthropic')
+  expect(omp.providers().find((p) => p.id === 'anthropic')?.stored).toBe(true)
+
+  await omp.removeCredentials('anthropic')
+  expect(omp.providers().find((p) => p.id === 'anthropic')?.stored).toBe(false)
+})

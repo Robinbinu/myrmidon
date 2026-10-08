@@ -18,24 +18,54 @@ import {
   X,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useMemo, useRef, useState } from 'react'
-import type { ChatSummary, Project } from '../api.ts'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { api, type ChatSummary, type Project } from '../api.ts'
+import { copy } from '../copy.ts'
 import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
-import { cn, Dot, IconButton, spring } from '../ui/primitives.tsx'
+import { cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
+import { runPhase } from '../ui/status.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
+import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
+import { GatewaySwitcher } from './GatewaySwitcher.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
 export type View = 'chat' | 'colonies' | 'compare'
 
 const GROUPS: { label: string; maxAgeDays: number }[] = [
-  { label: 'Today', maxAgeDays: 1 },
-  { label: 'Yesterday', maxAgeDays: 2 },
-  { label: 'Previous 7 days', maxAgeDays: 7 },
-  { label: 'Older', maxAgeDays: Number.POSITIVE_INFINITY },
+  { label: copy.sidebar.groups.today, maxAgeDays: 1 },
+  { label: copy.sidebar.groups.yesterday, maxAgeDays: 2 },
+  { label: copy.sidebar.groups.previous7Days, maxAgeDays: 7 },
+  { label: copy.sidebar.groups.older, maxAgeDays: Number.POSITIVE_INFINITY },
 ]
+
+/** A chat whose messages matched the search (GET /api/chats/search). */
+interface MessageHit {
+  chatId: string
+  from: string
+  snippet: string
+  /** Where the match is in the snippet; the server folds case, which can change lengths (İ), so it says. */
+  match?: { start: number; end: number }
+}
+
+/** The snippet with the match in bold. */
+function marked(hit: MessageHit): ReactNode {
+  const m = hit.match
+  if (!m) return hit.snippet
+  return (
+    <>
+      {hit.snippet.slice(0, m.start)}
+      <b className="font-semibold text-fg-2">{hit.snippet.slice(m.start, m.end)}</b>
+      {hit.snippet.slice(m.end)}
+    </>
+  )
+}
+
+/** The chat's title or one of its requests contains `q` (lower case). */
+const titled = (c: ChatSummary, q: string) =>
+  c.title.toLowerCase().includes(q) || c.rounds.some((r) => r.request.toLowerCase().includes(q))
 
 function ageDays(iso: string) {
   const start = new Date()
@@ -46,6 +76,8 @@ function ageDays(iso: string) {
 
 export function Sidebar(props: {
   chats: ChatSummary[]
+  /** The chat list has answered at least once; until then an empty list is not "no conversations". */
+  loaded: boolean
   activeChat?: string
   view: View
   theme: ThemeChoice
@@ -56,11 +88,13 @@ export function Sidebar(props: {
   onNew(): void
   projects: Project[]
   onNewInProject(project: Project): void
-  onAddProject(): void
-  onRemoveProject(project: Project): void
-  onProjectPermissions(project: Project): void
+  /** The project actions; each left out (a chats-only device) hides its control. */
+  onAddProject?(): void
+  onRemoveProject?(project: Project): void
+  onProjectPermissions?(project: Project): void
   onView(v: View): void
   onSettings(): void
+  onGateways(): void
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
@@ -78,13 +112,33 @@ export function Sidebar(props: {
     const next = draft.trim()
     if (save && next && next !== c.title) void props.onRename(c, next)
   }
+  // Titles and requests match as the person types; what was said in a chat comes from the server a moment later.
+  const [found, setFound] = useState<{ query: string; hits: ReadonlyMap<string, MessageHit> }>()
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) return setFound(undefined)
+    // A newer query cancels the request for an older one.
+    const abort = new AbortController()
+    const timer = setTimeout(() => {
+      api<MessageHit[]>(`/api/chats/search?q=${encodeURIComponent(q)}`, abort.signal)
+        .then((list) => setFound({ query: q, hits: new Map(list.map((h) => [h.chatId, h])) }))
+        .catch(() => {
+          // Without the server's answer the list still matches titles and requests.
+          if (!abort.signal.aborted) setFound({ query: q, hits: new Map() })
+        })
+    }, MESSAGE_SEARCH_DELAY_MS)
+    return () => {
+      abort.abort()
+      clearTimeout(timer)
+    }
+  }, [query])
+  // Matches for an earlier query are not shown while the current one is on its way.
+  const said = found?.query === query.trim() ? found.hits : undefined
+  const searching = !!query.trim() && !said
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return props.chats.filter(
-      (c) =>
-        !q || c.title.toLowerCase().includes(q) || c.rounds.some((r) => r.request.toLowerCase().includes(q)),
-    )
-  }, [props.chats, query])
+    return props.chats.filter((c) => !q || titled(c, q) || said?.has(c.chatId))
+  }, [props.chats, query, said])
   // A chat whose project was removed from the list falls back to the date groups.
   const known = useMemo(() => new Set(props.projects.map((p) => p.id)), [props.projects])
   const byProject = useMemo(() => {
@@ -100,7 +154,8 @@ export function Sidebar(props: {
     for (const c of hits) {
       if (c.project && known.has(c.project.id)) continue
       const label =
-        GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ?? 'Older'
+        GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ??
+        copy.sidebar.groups.older
       const group = out.find((g) => g.label === label)
       if (group) group.chats.push(c)
       else out.push({ label, chats: [c] })
@@ -117,6 +172,9 @@ export function Sidebar(props: {
 
   const row = (c: ChatSummary) => {
     const on = c.chatId === props.activeChat && props.view === 'chat'
+    // A chat found only by its messages shows the line that matched.
+    const q = query.trim()
+    const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
     return (
       <div key={c.chatId} className="group relative">
         {editing === c.chatId ? (
@@ -125,7 +183,7 @@ export function Sidebar(props: {
             autoFocus
             value={draft}
             maxLength={120}
-            aria-label="Chat title"
+            aria-label={copy.sidebar.chat.titleField}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={() => finishRename(c, !cancelled.current)}
@@ -134,7 +192,7 @@ export function Sidebar(props: {
               if (e.key === 'Escape') cancelled.current = true
               if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
             }}
-            className="h-7 w-full rounded-md border border-focus bg-control px-2 text-[13px] outline-none ring-3 ring-focus/30"
+            className="h-7 w-full rounded-md border border-focus bg-control px-2 text-body outline-none ring-3 ring-focus/30"
           />
         ) : (
           <button
@@ -144,7 +202,8 @@ export function Sidebar(props: {
             title={c.title}
             aria-current={on ? 'page' : undefined}
             className={cn(
-              'relative flex h-7 w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-[13px] transition-colors',
+              'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-body transition-colors',
+              line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
               on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
           >
@@ -156,21 +215,34 @@ export function Sidebar(props: {
               />
             )}
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
-              <Dot status={c.status === 'running' || c.status === 'created' ? 'working' : c.status} />
+              <Dot status={runPhase(c)} />
               <span className="truncate">{c.title}</span>
+              <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
               {c.rounds.length > 1 && (
-                <span className="ml-auto text-[11px] tabular-nums text-muted">{c.rounds.length}</span>
+                <span
+                  className="ml-auto text-caption tabular-nums text-muted"
+                  title={copy.sidebar.chat.rounds(c.rounds.length)}
+                >
+                  <span aria-hidden="true">{c.rounds.length}</span>
+                  <span className="sr-only">{copy.sidebar.chat.rounds(c.rounds.length)}</span>
+                </span>
               )}
             </span>
+            {line && (
+              <span className="relative basis-full truncate pl-4 text-footnote text-muted">
+                {copy.sidebar.chat.matchFrom(line.from)}
+                {marked(line)}
+              </span>
+            )}
           </button>
         )}
         {editing !== c.chatId && (
           <button
             type="button"
             onClick={() => startRename(c)}
-            aria-label={`Rename “${c.title}”`}
-            title="Rename chat"
-            className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={copy.sidebar.chat.renameLabel(c.title)}
+            title={copy.sidebar.chat.rename}
+            className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
           >
             <Pencil className="size-3.5" />
           </button>
@@ -179,9 +251,9 @@ export function Sidebar(props: {
           type="button"
           hidden={editing === c.chatId}
           onClick={() => props.onDelete(c)}
-          aria-label={`Delete “${c.title}”`}
-          title="Delete chat"
-          className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+          aria-label={copy.sidebar.chat.deleteLabel(c.title)}
+          title={copy.sidebar.chat.delete}
+          className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-bad-soft hover:text-bad-ink focus-visible:opacity-100 group-hover:opacity-100"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -194,65 +266,76 @@ export function Sidebar(props: {
     props.theme === 'system' ? 'light' : props.theme === 'light' ? 'dark' : 'system'
   const navItem = (on: boolean) =>
     cn(
-      'flex h-7 w-full items-center gap-2 rounded-md px-2 text-[13px] transition-colors',
+      'flex h-7 w-full items-center gap-2 rounded-md px-2 text-body transition-colors',
       on ? 'bg-row-selected text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
     )
 
   return (
     <aside
       className="material-sidebar flex h-full w-full flex-col border-r border-line"
-      aria-label="Conversations"
+      aria-label={copy.sidebar.label}
     >
       <Toolbar inset material={false} className="border-b-0">
-        <span className="hidden items-center gap-2 pl-1 text-[13px] font-semibold tracking-[-0.01em] browser:flex">
+        <span className="hidden items-center gap-2 pl-1 text-body font-semibold tracking-[-0.01em] browser:flex">
           <Logo size={20} />
-          Myrmidon
+          {copy.brand.name}
         </span>
         <span className="flex-1" />
         <IconButton
-          label="Hide sidebar"
-          title={`Hide sidebar (${comboLabel('mod+b', isMac)})`}
+          label={copy.sidebar.hide}
+          title={copy.sidebar.withShortcut(copy.sidebar.hide, comboLabel('mod+b', isMac))}
           onClick={props.onCollapse}
         >
           <PanelLeft className="size-4" />
         </IconButton>
-        <IconButton label="New task" title={`New task (${comboLabel('mod+n', isMac)})`} onClick={props.onNew}>
+        <IconButton
+          label={copy.sidebar.newTask}
+          title={copy.sidebar.withShortcut(copy.sidebar.newTask, comboLabel('mod+n', isMac))}
+          onClick={props.onNew}
+        >
           <SquarePen className="size-4" />
         </IconButton>
       </Toolbar>
+      <GatewaySwitcher onManage={props.onGateways} />
       <div className="px-2.5 pb-1">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <input
             type="search"
-            placeholder="Search"
+            placeholder={copy.sidebar.search.placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search chats"
-            className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-[13px] outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
+            aria-label={copy.sidebar.search.label}
+            className="h-7 w-full rounded-md bg-fill-strong/60 pl-7 pr-2 text-body outline-none placeholder:text-muted focus:ring-3 focus:ring-focus/30"
           />
         </div>
       </div>
       <nav className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
-        <div className="group/projects flex items-center px-2 pb-1 pt-3">
-          <span className="flex-1 text-[11px] font-semibold text-muted">Projects</span>
+        {(props.projects.length > 0 || props.onAddProject) && (
+          <div className="group/projects flex items-center px-2 pb-1 pt-3">
+            <span className="flex-1 text-caption font-semibold text-muted">
+              {copy.sidebar.projects.heading}
+            </span>
+            {props.onAddProject && (
+              <button
+                type="button"
+                onClick={props.onAddProject}
+                aria-label={copy.sidebar.projects.add}
+                title={copy.sidebar.projects.add}
+                className="grid size-6 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
+              >
+                <FolderPlus className="size-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+        {props.projects.length === 0 && props.onAddProject && (
           <button
             type="button"
             onClick={props.onAddProject}
-            aria-label="Add a project folder"
-            title="Add a project folder"
-            className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
+            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-callout text-muted hover:bg-fill/70 hover:text-fg"
           >
-            <FolderPlus className="size-3.5" />
-          </button>
-        </div>
-        {props.projects.length === 0 && (
-          <button
-            type="button"
-            onClick={props.onAddProject}
-            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] text-muted hover:bg-fill/70 hover:text-fg"
-          >
-            <Folder className="size-4" /> Open a folder to work in
+            <Folder className="size-4" /> {copy.sidebar.projects.empty}
           </button>
         )}
         {props.projects.map((p) => {
@@ -266,7 +349,7 @@ export function Sidebar(props: {
                   onClick={() => toggle(p.id)}
                   aria-expanded={open}
                   title={p.path}
-                  className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-[13px] text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-body text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
                 >
                   <ChevronRight
                     className={cn('size-3.5 shrink-0 text-muted transition-transform', open && 'rotate-90')}
@@ -275,52 +358,60 @@ export function Sidebar(props: {
                   <span className="truncate">{p.name}</span>
                   <PermissionMark {...(p.permissions ? { mode: p.permissions.mode } : {})} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => props.onProjectPermissions(p)}
-                  aria-label={`Permissions for ${p.name}`}
-                  title="What agents may do in this folder"
-                  className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                >
-                  <ShieldCheck className="size-3.5" />
-                </button>
+                {props.onProjectPermissions && (
+                  <button
+                    type="button"
+                    onClick={() => props.onProjectPermissions?.(p)}
+                    aria-label={copy.sidebar.projects.permissionsLabel(p.name)}
+                    title={copy.sidebar.projects.permissionsTitle}
+                    className="absolute right-[3.25rem] top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <ShieldCheck className="size-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => props.onNewInProject(p)}
-                  aria-label={`New chat in ${p.name}`}
-                  title={`New chat in ${p.name}`}
-                  className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                  aria-label={copy.sidebar.projects.newChatIn(p.name)}
+                  title={copy.sidebar.projects.newChatIn(p.name)}
+                  className="absolute right-7 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   <Plus className="size-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => props.onRemoveProject(p)}
-                  aria-label={`Remove ${p.name} from projects`}
-                  title="Remove from projects (the folder and its chats stay)"
-                  className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-                >
-                  <X className="size-3.5" />
-                </button>
+                {props.onRemoveProject && (
+                  <button
+                    type="button"
+                    onClick={() => props.onRemoveProject?.(p)}
+                    aria-label={copy.sidebar.projects.removeLabel(p.name)}
+                    title={copy.sidebar.projects.removeTitle}
+                    className="absolute right-1 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted opacity-0 transition-all hover:bg-fill-strong hover:text-fg focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
               </div>
               {open && (
                 <div className="pl-5">
                   {chats.map(row)}
-                  {chats.length === 0 && <p className="px-2 py-1 text-[12px] text-muted">No chats yet</p>}
+                  {chats.length === 0 && (
+                    <p className="px-2 py-1 text-small text-muted">{copy.sidebar.projects.noChats}</p>
+                  )}
                 </div>
               )}
             </div>
           )
         })}
-        {props.chats.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">Your conversations will appear here.</p>
+        {props.loaded && props.chats.length === 0 && (
+          <p className="px-2 py-4 text-callout text-muted">{copy.sidebar.empty}</p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
-          <p className="px-2 py-4 text-[12.5px] text-muted">No chats match “{query}”.</p>
+          <p className="px-2 py-4 text-callout text-muted">
+            {searching ? copy.sidebar.searchingMessages : copy.sidebar.noMatches(query)}
+          </p>
         )}
         {grouped.map((g) => (
           <div key={g.label}>
-            <div className="px-2 pb-1 pt-4 text-[11px] font-semibold text-muted">{g.label}</div>
+            <div className="px-2 pb-1 pt-4 text-caption font-semibold text-muted">{g.label}</div>
             {g.chats.map(row)}
           </div>
         ))}
@@ -331,21 +422,21 @@ export function Sidebar(props: {
           className={navItem(props.view === 'colonies')}
           onClick={() => props.onView('colonies')}
         >
-          <Network className="size-4" /> Crews
+          <Network className="size-4" /> {copy.sidebar.nav.crews}
         </button>
         <button
           type="button"
           className={navItem(props.view === 'compare')}
           onClick={() => props.onView('compare')}
         >
-          <BarChart3 className="size-4" /> Compare runs
+          <BarChart3 className="size-4" /> {copy.sidebar.nav.compare}
         </button>
         <div className="flex items-center gap-1">
           <button type="button" className={navItem(false)} onClick={props.onSettings}>
-            <Settings className="size-4" /> Settings
+            <Settings className="size-4" /> {copy.sidebar.nav.settings}
           </button>
           <IconButton
-            label={`Theme: ${props.theme}. Switch to ${nextTheme}`}
+            label={copy.sidebar.theme(props.theme, nextTheme)}
             onClick={() => props.onTheme(nextTheme)}
           >
             <motion.span

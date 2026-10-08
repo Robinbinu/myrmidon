@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { terminalSocket } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Button } from '../ui/primitives.tsx'
 
 /**
@@ -20,21 +21,32 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
     const el = box.current
     if (!el) return
     setEnded(undefined)
-    const style = getComputedStyle(el)
+    // xterm draws on a canvas, so it takes the panel's colours as values and is given them again on a theme change.
+    const colours = () => {
+      const style = getComputedStyle(el)
+      return { background: style.backgroundColor, foreground: style.color, cursor: style.color }
+    }
     const term = new Terminal({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       fontSize: 12.5,
       cursorBlink: true,
       scrollback: 5000,
-      theme: { background: style.backgroundColor, foreground: style.color, cursor: style.color },
+      theme: colours(),
     })
+    const retheme = () => {
+      term.options.theme = colours()
+    }
+    const themed = new MutationObserver(retheme)
+    themed.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    const system = matchMedia('(prefers-color-scheme: dark)')
+    system.addEventListener('change', retheme)
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)
     fit.fit()
     const ws = terminalSocket(props.project, term.cols, term.rows)
     ws.onmessage = (e) => term.write(new Uint8Array(e.data as ArrayBuffer))
-    ws.onclose = (e) => setEnded(e.reason || 'The shell closed.')
+    ws.onclose = (e) => setEnded(e.reason || copy.shellTerminal.closed)
     const input = term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
     })
@@ -46,6 +58,8 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
     resized.observe(el)
     term.focus()
     return () => {
+      themed.disconnect()
+      system.removeEventListener('change', retheme)
       resized.disconnect()
       input.dispose()
       ws.close()
@@ -55,8 +69,13 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-[11.5px] text-muted">
+      <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-footnote text-muted">
         <span className="min-w-0 flex-1 truncate font-mono">{props.cwdLabel}</span>
+        {ended && (
+          <span role="status" className="min-w-0 shrink truncate" title={ended}>
+            {ended}
+          </span>
+        )}
         {ended && (
           <Button
             size="sm"
@@ -64,7 +83,7 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
             onClick={() => setSession(session + 1)}
             icon={<RotateCcw className="size-3.5" />}
           >
-            New shell
+            {copy.shellTerminal.newShell}
           </Button>
         )}
       </div>

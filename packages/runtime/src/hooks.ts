@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
+import { HOOK_MAX_OUTPUT, HOOK_MAX_TIMEOUT_S, HOOK_TIMEOUT_S } from './config.ts'
 
 /**
  * The person's hooks: commands Myrmidon runs at fixed points (before a tool, after it, when a round ends), so a
@@ -63,10 +64,6 @@ const CLAUDE_NAMES: Record<string, string> = {
   update_todo: 'TodoWrite',
 }
 
-const DEFAULT_TIMEOUT_S = 60
-const MAX_TIMEOUT_S = 600
-const MAX_OUTPUT = 20_000
-
 export function matches(matcher: string | undefined, tool: string): boolean {
   const m = (matcher ?? '').trim()
   if (!m || m === '*') return true
@@ -81,7 +78,8 @@ export function matches(matcher: string | undefined, tool: string): boolean {
   return re.test(tool) || (CLAUDE_NAMES[tool] !== undefined && re.test(CLAUDE_NAMES[tool]))
 }
 
-function checked(raw: unknown): HooksConfig {
+/** Keeps only well-formed hooks from a hooks file in Claude Code's format. */
+export function checkedHooks(raw: unknown): HooksConfig {
   const hooks = (raw as { hooks?: unknown })?.hooks
   if (!hooks || typeof hooks !== 'object') return { hooks: {} }
   const out: Record<string, HookGroup[]> = {}
@@ -99,7 +97,7 @@ function checked(raw: unknown): HooksConfig {
                 type: 'command',
                 command: c.command,
                 ...(typeof c.timeout === 'number' && c.timeout > 0
-                  ? { timeout: Math.min(c.timeout, MAX_TIMEOUT_S) }
+                  ? { timeout: Math.min(c.timeout, HOOK_MAX_TIMEOUT_S) }
                   : {}),
               },
             ]
@@ -115,14 +113,18 @@ function checked(raw: unknown): HooksConfig {
 export class HookStore {
   private readonly _file: string
 
-  constructor(home: string) {
+  constructor(
+    home: string,
+    /** Hooks the person's enabled plugins add, run after their own. */
+    private readonly plugins: () => HooksConfig = () => ({ hooks: {} }),
+  ) {
     this._file = join(home, 'hooks.json')
   }
 
   read(): HooksConfig {
     if (!existsSync(this._file)) return { hooks: {} }
     try {
-      return checked(JSON.parse(readFileSync(this._file, 'utf8')))
+      return checkedHooks(JSON.parse(readFileSync(this._file, 'utf8')))
     } catch {
       return { hooks: {} }
     }
@@ -130,15 +132,27 @@ export class HookStore {
 
   /** Saves a config, keeping only well-formed hooks; returns what was saved. */
   write(raw: unknown): HooksConfig {
-    const config = checked(raw)
+    const config = checkedHooks(raw)
     writeFileSync(`${this._file}.tmp`, `${JSON.stringify(config, null, 2)}\n`)
     renameSync(`${this._file}.tmp`, this._file)
     return config
   }
 
+  /** The hooks that run: the person's own file, then their enabled plugins'. */
+  active(): HooksConfig {
+    const own = this.read().hooks
+    const added = this.plugins().hooks
+    const hooks: { [E in HookEvent]?: HookGroup[] } = {}
+    for (const e of HOOK_EVENTS) {
+      const groups = [...(own[e] ?? []), ...(added[e] ?? [])]
+      if (groups.length) hooks[e] = groups
+    }
+    return { hooks }
+  }
+
   /** Whether any hook listens for this event (so callers can skip building its input). */
   has(event: HookEvent): boolean {
-    return (this.read().hooks[event]?.length ?? 0) > 0
+    return (this.active().hooks[event]?.length ?? 0) > 0
   }
 }
 
@@ -162,7 +176,7 @@ async function runCommand(
       timedOut = true
       proc.kill()
     },
-    (hook.timeout ?? DEFAULT_TIMEOUT_S) * 1000,
+    (hook.timeout ?? HOOK_TIMEOUT_S) * 1000,
   )
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -174,10 +188,10 @@ async function runCommand(
     command: hook.command,
     code: timedOut ? -1 : code,
     ms: Date.now() - started,
-    stdout: stdout.slice(0, MAX_OUTPUT),
-    stderr: (timedOut ? `timed out after ${hook.timeout ?? DEFAULT_TIMEOUT_S}s\n${stderr}` : stderr).slice(
+    stdout: stdout.slice(0, HOOK_MAX_OUTPUT),
+    stderr: (timedOut ? `timed out after ${hook.timeout ?? HOOK_TIMEOUT_S}s\n${stderr}` : stderr).slice(
       0,
-      MAX_OUTPUT,
+      HOOK_MAX_OUTPUT,
     ),
     timedOut,
   }

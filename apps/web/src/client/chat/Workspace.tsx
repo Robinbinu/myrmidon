@@ -1,6 +1,10 @@
 import {
   type ColonyState,
+  type Conversation as ConversationInfo,
+  type ConversationLine,
+  conversationsOf,
   type EventPayloads,
+  linesOf,
   type MyrEvent,
   roundSlice,
   type TaskSnapshot,
@@ -15,6 +19,7 @@ import {
   ListChecks,
   Mail,
   MonitorSmartphone,
+  Puzzle,
   ShieldCheck,
   SquareTerminal,
   Terminal,
@@ -22,12 +27,19 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
-import { compact, usePersistentFlag } from '../ui/hooks.ts'
-import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
-import { cn, Dot, Empty, IconButton, Pill, Select, softSpring, toneFor } from '../ui/primitives.tsx'
+import { copy } from '../copy.ts'
+import { useScope } from '../DeviceGate.tsx'
+import { PluginSlot, usePluginSlots } from '../plugins.tsx'
+import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
+import { isMac } from '../ui/platform.ts'
+import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
+import { comboLabel } from '../ui/shortcuts.ts'
+import { agentPhase } from '../ui/status.ts'
+import { softSpring } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
 import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
@@ -42,6 +54,7 @@ import { deriveSteps } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
 
 type Tab =
+  | `plugin:${string}`
   | 'files'
   | 'git'
   | 'shell'
@@ -53,19 +66,40 @@ type Tab =
   | 'activity'
   | 'audit'
 
-/** The panel's views, listed down its activity bar like an IDE's. `terminal` is the agents' sandboxed commands. */
-const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: boolean }[] = [
-  { value: 'files', label: 'Files', icon: FileCode },
-  { value: 'git', label: 'Git', icon: GitBranch, projectOnly: true },
-  { value: 'shell', label: 'Terminal', icon: Terminal },
-  { value: 'computer', label: 'Computer', icon: MonitorSmartphone },
-  { value: 'tasks', label: 'Tasks', icon: ListChecks },
-  { value: 'team', label: 'Team', icon: Users },
-  { value: 'mail', label: 'Mail', icon: Mail },
-  { value: 'terminal', label: 'Agent commands', icon: SquareTerminal },
-  { value: 'activity', label: 'Activity', icon: Activity },
-  { value: 'audit', label: 'Audit', icon: ShieldCheck },
+interface ViewDef {
+  value: Tab
+  label: string
+  icon: typeof FileCode
+  /** Views that sit together on the rail, between dividers. */
+  group: number
+  /** The digit of its shortcut (see VIEW_COMBO). */
+  key?: string
+  projectOnly?: boolean
+  /** The person's own login shell: the server opens it only for full-access devices. */
+  fullOnly?: boolean
+}
+
+/**
+ * The panel's views, listed down its activity bar like an IDE's, in groups: the work, the machines agents use, the
+ * crew, and the record. `terminal` is the agents' sandboxed commands; `shell` is the person's own.
+ */
+const VIEWS: ViewDef[] = [
+  { value: 'files', label: copy.workspace.views.files, icon: FileCode, group: 0, key: '1' },
+  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
+  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
+  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4', fullOnly: true },
+  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone, group: 1, key: '5' },
+  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
+  { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
+  { value: 'mail', label: copy.workspace.views.mail, icon: Mail, group: 2, key: '8' },
+  { value: 'activity', label: copy.workspace.views.activity, icon: Activity, group: 3, key: '9' },
+  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck, group: 3, key: '0' },
 ]
+const PLUGIN_GROUP = 4
+const VIEW_COMBO = (key: string) => `mod+alt+${key}`
+/** The views the panel opens by itself for, in the order it prefers when several have something. */
+const CONTENT_VIEWS: Tab[] = ['computer', 'files', 'git', 'tasks']
+const EDITS = new Set(['fs_write', 'fs_edit'])
 
 const ORDER: TaskSnapshot['status'][] = [
   'in_progress',
@@ -121,17 +155,17 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
       <Select
         value={current ? keyOf(current) : ''}
         onChange={(e) => setPicked(e.target.value)}
-        aria-label="Round"
+        aria-label={copy.workspace.roundLabel}
       >
         {rounds.map((r) => (
           <option key={keyOf(r)} value={keyOf(r)}>
-            Round {r.round}
+            {copy.workspace.roundOption(r.round)}
           </option>
         ))}
       </Select>
     ) : null
   return (
-    <aside aria-label="Workspace" className="flex h-full shrink-0">
+    <aside aria-label={copy.workspace.label} className="flex h-full shrink-0">
       {colonyId && (
         <WorkspaceBody
           key={colonyId}
@@ -180,19 +214,24 @@ function WorkspaceBody({
     () => (round === undefined ? colony : roundSlice(colony.state, colony.events, round)),
     [colony, round],
   )
-  const views = VIEWS.filter((v) => !v.projectOnly || project)
-  // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
-  const [mounted, setMounted] = useState(open)
-  useEffect(() => {
-    if (open) setMounted(true)
-  }, [open])
+  const pluginTabs = usePluginSlots('workspace.tab')
+  const fullAccess = useScope() === 'full'
+  const views: ViewDef[] = [
+    ...VIEWS.filter((v) => (!v.projectOnly || project) && (!v.fullOnly || fullAccess)),
+    ...pluginTabs.map(({ plugin, def }) => ({
+      value: `plugin:${plugin}` as Tab,
+      label: def.title ?? plugin,
+      icon: Puzzle,
+      group: PLUGIN_GROUP,
+    })),
+  ]
   // The shell keeps running while you look at other views; it starts the first time you open it.
   const [shellOpened, setShellOpened] = useState(false)
   const [inspect, setInspect] = useState<string>()
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return t === 'git' && !project ? 'files' : t
+    return (t === 'git' && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)
@@ -205,21 +244,19 @@ function WorkspaceBody({
   const View = views.find((v) => v.value === tab)?.icon ?? FileCode
   // Cards in the chat (a sign-in request) can open a view here, e.g. one agent's browser.
   const [focus, setFocus] = useState<string>()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and onOpenChange are stable enough for a listener
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and show are stable enough for a listener
   useEffect(() => {
     const open = (e: Event) => {
       const { view, agent } = (e as CustomEvent<{ view: Tab; agent?: string }>).detail
       setTab(view)
       if (agent) setFocus(agent)
-      onOpenChange(true)
+      show(true)
     }
     window.addEventListener('myr:open-view', open)
     return () => window.removeEventListener('myr:open-view', open)
   }, [])
-  useEffect(() => {
-    if (open && tab === 'shell') setShellOpened(true)
-  }, [open, tab])
   const [file, setFile] = useState<string>()
+  const [hint, setHint] = useState<{ label: string; combo?: string; top: number; right: number }>()
   const steps = useMemo(() => deriveSteps(events), [events])
   const shells = useMemo(() => shellRuns(events), [events])
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
@@ -227,7 +264,7 @@ function WorkspaceBody({
     .filter((t) => t.status !== 'deleted')
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
   const agents = Object.values(state.agents)
-  const messages = useMemo(() => conversation(state), [state])
+  const threads = useMemo(() => threadsOf(state), [state])
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
   const newestShell = shells.at(-1)?.id
@@ -241,15 +278,65 @@ function WorkspaceBody({
     files: files.length + Object.keys(state.madeTools).length,
     tasks: tasks.length,
     team: agents.length,
-    mail: messages.length,
+    mail: threads.reduce((n, t) => n + t.messages.length, 0),
     terminal: shells.length,
   }
+  const edited = useMemo(
+    () =>
+      events.some((e) => e.type === 'tool/call' && EDITS.has((e.payload as EventPayloads['tool/call']).tool)),
+    [events],
+  )
+  const has: Partial<Record<Tab, boolean>> = {
+    computer: Object.values(state.logins).some((l) => !l.finished),
+    files: !!counts.files,
+    git: !!project && edited,
+    tasks: tasks.length > 0,
+  }
+  const worth = CONTENT_VIEWS.find((t) => has[t])
+  // The panel the person keeps open shows itself only in chats with something in it (a one-line question has
+  // nothing); opening it in this chat (the rail, ⌘J, a card in the chat) shows it anyway. Closing it is remembered.
+  const [asked, setAsked] = useState(false)
+  const shown = open && (asked || worth !== undefined)
+  const show = (next: boolean) => {
+    setAsked(next)
+    onOpenChange(next)
+  }
+  const auto = shown && !asked
+  // Opening by itself, it starts on what it opened for unless the last view has something to show too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when it opens by itself
+  useEffect(() => {
+    if (auto && worth && !has[tab]) setTabState(worth)
+  }, [auto])
+  // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
+  const [mounted, setMounted] = useState(shown)
+  useEffect(() => {
+    if (shown) setMounted(true)
+  }, [shown])
+  useEffect(() => {
+    if (shown && tab === 'shell') setShellOpened(true)
+  }, [shown, tab])
+  const pick = (t: Tab) => {
+    // The open view's icon (or shortcut) closes the panel; any other opens its view.
+    if (shown && tab === t) return show(false)
+    setTab(t)
+    if (t === 'shell') setShellOpened(true)
+    show(true)
+  }
+  useHotkeys([
+    { combo: 'mod+j', run: () => show(!shown), inInputs: true },
+    ...views.flatMap((v) => (v.key ? [{ combo: VIEW_COMBO(v.key), run: () => pick(v.value) }] : [])),
+  ])
 
   return (
     <>
       <div className="flex h-full min-h-0">
-        {open && (
-          <SplitDivider split={split} side="right" label="Resize workspace" className="hidden xl:block" />
+        {shown && (
+          <SplitDivider
+            split={split}
+            side="right"
+            label={copy.workspace.resize}
+            className="hidden xl:block"
+          />
         )}
         <div
           style={{ '--inspector-w': `${split.width}px` } as CSSProperties}
@@ -258,7 +345,7 @@ function WorkspaceBody({
             // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail;
             // phones have no rail and give the panel the whole width.
             'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(440px,calc(100vw-3rem))] xl:static xl:z-auto xl:w-[min(var(--inspector-w),calc(100vw-820px))] xl:shadow-none',
-            open ? 'flex' : 'hidden',
+            shown ? 'flex' : 'hidden',
           )}
         >
           {mounted && (
@@ -268,7 +355,7 @@ function WorkspaceBody({
                 className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-line pl-4 pr-2"
               >
                 <View className="size-4 text-muted" />
-                <span className="hidden min-w-0 flex-1 truncate text-[14px] font-semibold md:block">
+                <span className="hidden min-w-0 flex-1 truncate text-title font-semibold md:block">
                   {views.find((v) => v.value === tab)?.label}
                 </span>
                 {/* Phones have no rail; the views are picked here instead. */}
@@ -279,7 +366,7 @@ function WorkspaceBody({
                     setTab(next)
                     if (next === 'shell') setShellOpened(true)
                   }}
-                  aria-label="Workspace view"
+                  aria-label={copy.workspace.viewLabel}
                   className="min-w-0 flex-1 md:hidden"
                 >
                   {views.map((v) => (
@@ -289,7 +376,11 @@ function WorkspaceBody({
                   ))}
                 </Select>
                 {roundPicker}
-                <IconButton label="Close panel" title="Close panel (⌘J)" onClick={() => onOpenChange(false)}>
+                <IconButton
+                  label={copy.workspace.close}
+                  title={copy.workspace.closeTitle}
+                  onClick={() => show(false)}
+                >
                   <X className="size-4" />
                 </IconButton>
               </div>
@@ -297,7 +388,7 @@ function WorkspaceBody({
                 <div className={tab === 'shell' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
                   <ShellTerminal
                     {...(project ? { project: project.id } : {})}
-                    cwdLabel={project ? `${project.name} · your shell` : '~ · your shell'}
+                    cwdLabel={project ? copy.workspace.shellCwd(project.name) : copy.workspace.shellCwd('~')}
                   />
                 </div>
               )}
@@ -309,14 +400,19 @@ function WorkspaceBody({
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
+                    // An open conversation fills the panel and scrolls on its own, opening at its newest message.
+                    className={tab === 'mail' ? 'h-full' : undefined}
                   >
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
                     {tab === 'files' &&
                       (files.length === 0 ? (
                         Object.keys(state.madeTools).length > 0 ? null : (
-                          <Empty icon={<FileCode className="size-5" />} title="No files yet">
-                            Everything the crew publishes appears here, with every version kept.
+                          <Empty
+                            icon={<FileCode className="size-5" />}
+                            title={copy.workspace.files.emptyTitle}
+                          >
+                            {copy.workspace.files.emptyBody}
                           </Empty>
                         )
                       ) : (
@@ -335,10 +431,10 @@ function WorkspaceBody({
                                   <Icon className="size-4" />
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-[13.5px] font-medium">{name}</span>
-                                  <span className="text-[11.5px] text-muted">
-                                    {versions.length} version{versions.length === 1 ? '' : 's'} ·{' '}
-                                    {compact(latest?.size ?? 0)}B · {latest?.author}
+                                  <span className="block truncate text-reading font-medium">{name}</span>
+                                  <span className="text-footnote text-muted">
+                                    {copy.workspace.files.meta(versions.length, compact(latest?.size ?? 0))} ·{' '}
+                                    {latest?.author}
                                   </span>
                                 </span>
                                 <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
@@ -349,29 +445,35 @@ function WorkspaceBody({
                       ))}
                     {tab === 'tasks' &&
                       (tasks.length === 0 ? (
-                        <Empty icon={<ListChecks className="size-5" />} title="No tasks">
-                          Tasks appear when a team splits the work into parts.
+                        <Empty
+                          icon={<ListChecks className="size-5" />}
+                          title={copy.workspace.tasks.emptyTitle}
+                        >
+                          {copy.workspace.tasks.emptyBody}
                         </Empty>
                       ) : (
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex list-none items-center justify-between font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
-                                Plan · {plan.agent}
+                              <summary className="flex list-none items-center justify-between font-mono text-caption uppercase tracking-[0.14em] text-muted">
+                                {copy.workspace.tasks.plan(plan.agent)}
                               </summary>
-                              <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-[12.5px] leading-relaxed text-fg-2">
+                              <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-callout leading-relaxed text-fg-2">
                                 {plan.text}
                               </p>
                             </details>
                           )}
                           <div className="border-b border-line px-4 py-3.5">
-                            <div className="mb-2 flex items-baseline justify-between text-[12.5px]">
+                            <div className="mb-2 flex items-baseline justify-between text-callout">
                               <span className="font-semibold">
-                                {by('verified')} of {tasks.length} done
+                                {copy.workspace.tasks.done(by('verified'), tasks.length)}
                               </span>
                               <span className="text-muted">
-                                {by('in_progress')} active · {by('submitted')} in review · {by('pending')}{' '}
-                                waiting
+                                {copy.workspace.tasks.progress(
+                                  by('in_progress'),
+                                  by('submitted'),
+                                  by('pending'),
+                                )}
                               </span>
                             </div>
                             <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-2">
@@ -394,13 +496,13 @@ function WorkspaceBody({
                           </div>
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <fieldset
-                              aria-label="Task layout"
+                              aria-label={copy.workspace.tasks.layout}
                               className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
                             >
                               {(
                                 [
-                                  [false, 'List'],
-                                  [true, 'Board'],
+                                  [false, copy.workspace.tasks.list],
+                                  [true, copy.workspace.tasks.board],
                                 ] as const
                               ).map(([value, label]) => (
                                 <button
@@ -409,7 +511,7 @@ function WorkspaceBody({
                                   aria-pressed={board === value}
                                   onClick={() => setBoard(value)}
                                   className={cn(
-                                    'rounded-md px-2 py-0.5 text-[12px] transition-colors',
+                                    'rounded-md px-2 py-0.5 text-small transition-colors',
                                     board === value ? 'bg-surface-3 text-fg' : 'text-muted hover:text-fg',
                                   )}
                                 >
@@ -446,9 +548,11 @@ function WorkspaceBody({
                                         open={open && details}
                                         className={details ? 'text-muted' : 'invisible'}
                                       />
-                                      <Pill tone={toneFor(t.status)}>{t.status.replace('_', ' ')}</Pill>
-                                      <span className="font-mono text-[11px] text-muted">{t.id}</span>
-                                      {t.owner && <span className="text-[12px] text-muted">· {t.owner}</span>}
+                                      <Pill tone={toneFor(t.status)}>
+                                        {copy.workspace.taskStatus[t.status]}
+                                      </Pill>
+                                      <span className="font-mono text-caption text-muted">{t.id}</span>
+                                      {t.owner && <span className="text-small text-muted">· {t.owner}</span>}
                                     </button>
                                     <span className="sr-only">{t.subject}</span>
                                     {/* Agents complete tasks, so the check is a live readout, not a control. */}
@@ -467,13 +571,13 @@ function WorkspaceBody({
                                       />
                                     </div>
                                     {open && t.description && (
-                                      <div className="whitespace-pre-wrap text-[12.5px] text-muted">
+                                      <div className="whitespace-pre-wrap text-callout text-muted">
                                         {t.description}
                                       </div>
                                     )}
                                     {open && t.blockedBy.length > 0 && (
-                                      <div className="text-[11.5px] text-muted">
-                                        after {t.blockedBy.join(', ')}
+                                      <div className="text-footnote text-muted">
+                                        {copy.workspace.tasks.after(t.blockedBy.join(', '))}
                                       </div>
                                     )}
                                   </motion.li>
@@ -483,13 +587,19 @@ function WorkspaceBody({
                           )}
                         </>
                       ))}
-                    {tab === 'team' && (
+                    {tab === 'team' && agents.length === 0 && (
+                      <Empty icon={<Users className="size-5" />} title={copy.workspace.team.emptyTitle}>
+                        {copy.workspace.team.emptyBody}
+                      </Empty>
+                    )}
+                    {tab === 'team' && agents.length > 0 && (
                       <ul className="divide-y divide-line">
                         {agents.map((a) => {
                           const task = tasks.find(
                             (t) => t.owner === a.info.name && t.status === 'in_progress',
                           )
                           const lead = a.info.role === 'lead'
+                          const { phase, detail } = agentPhase(a, state)
                           return (
                             <li key={a.info.name}>
                               <button
@@ -497,43 +607,43 @@ function WorkspaceBody({
                                 onClick={() => setInspect(a.info.name)}
                                 className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
                               >
-                                <AgentAvatar name={a.info.name} status={a.status} size={40} />
+                                <AgentAvatar name={a.info.name} status={phase} size={40} />
                                 <div className="grid min-w-0 flex-1 gap-1">
                                   <div className="flex items-center gap-2">
                                     <span className="font-semibold">{a.info.name}</span>
                                     {lead && <Crown className="size-3.5 text-signal" />}
                                     {a.info.specialty && (
-                                      <span className="rounded-full border border-line px-2 py-px text-[11px] text-muted">
+                                      <span className="rounded-full border border-line px-2 py-px text-caption text-muted">
                                         {a.info.specialty}
                                       </span>
                                     )}
-                                    <Pill tone={toneFor(a.status)}>
-                                      <Dot status={a.status} /> {a.status}
+                                    <Pill tone={toneFor(phase)}>
+                                      <Dot status={phase} /> {copy.status.agent[phase]}
                                     </Pill>
                                   </div>
-                                  <div className="truncate font-mono text-[11.5px] text-muted">
+                                  <div className="truncate font-mono text-footnote text-muted">
                                     {a.info.model}
                                   </div>
-                                  {(task || a.detail) && (
-                                    <div className="text-[12.5px]">
-                                      {task ? `Working on ${task.subject}` : a.detail}
+                                  {(task || detail) && (
+                                    <div className="text-callout">
+                                      {task ? copy.workspace.team.workingOn(task.subject) : detail}
                                     </div>
                                   )}
                                   <div className="mt-1 flex flex-wrap gap-4">
                                     {[
-                                      ['turns', String(a.turns)],
-                                      ['tokens', compact(a.tokens)],
-                                      ['tools', String(a.toolCalls)],
+                                      [copy.workspace.team.turns, String(a.turns)],
+                                      [copy.workspace.team.tokens, compact(a.tokens)],
+                                      [copy.workspace.team.tools, String(a.toolCalls)],
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+                                        <span className="font-mono text-caption uppercase tracking-[0.14em] text-muted">
                                           {label}
                                         </span>
                                       </span>
                                     ))}
                                     {a.costKnown && a.cost > 0 && (
-                                      <span className="self-end text-[11.5px] tabular-nums text-muted">
+                                      <span className="self-end text-footnote tabular-nums text-muted">
                                         ${a.cost.toFixed(3)}
                                       </span>
                                     )}
@@ -547,15 +657,15 @@ function WorkspaceBody({
                     )}
                     {tab === 'terminal' &&
                       (shells.length === 0 ? (
-                        <Empty icon={<Terminal className="size-5" />} title="No shell commands yet">
-                          Agents run commands in a sandbox that can only write to their own scratch folder.
+                        <Empty icon={<Terminal className="size-5" />} title={copy.workspace.shell.emptyTitle}>
+                          {copy.workspace.shell.emptyBody}
                         </Empty>
                       ) : (
                         <>
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[#0b0f17] font-mono text-[12px] text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -566,14 +676,14 @@ function WorkspaceBody({
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
-                                    <span className="flex items-center gap-2 text-[11px] text-slate-400">
+                                    <span className="flex items-center gap-2 text-caption text-slate-400">
                                       <FoldChevron open={open} />
                                       <span>{s.agent}</span>
                                       <span>·</span>
-                                      <span>{s.time.slice(11, 19)}</span>
+                                      <span>{clock(s.time, true)}</span>
                                       <span className="flex-1" />
                                       {s.ok === undefined ? (
-                                        <span className="text-work-ink">running…</span>
+                                        <span className="text-work-ink">{copy.workspace.shell.running}</span>
                                       ) : (
                                         <span
                                           className={
@@ -603,7 +713,7 @@ function WorkspaceBody({
                                         .slice(1)
                                         .join('\n')
                                         .replace(/--- (stdout|stderr)\n?/g, '')
-                                        .trim() || '(no output)'}
+                                        .trim() || copy.workspace.shell.noOutput}
                                     </pre>
                                   )}
                                 </div>
@@ -613,7 +723,13 @@ function WorkspaceBody({
                         </>
                       ))}
                     {tab === 'audit' && <AuditView events={events} />}
-                    {tab === 'mail' && <MailTab messages={messages} onInspect={setInspect} />}
+                    {pluginTabs.map(
+                      ({ plugin, def }) =>
+                        tab === `plugin:${plugin}` && (
+                          <PluginSlot key={plugin} plugin={plugin} def={def} props={{ colonyId, state }} />
+                        ),
+                    )}
+                    {tab === 'mail' && <MailTab threads={threads} onInspect={setInspect} />}
                     {tab === 'computer' && (
                       <Computer
                         colonyId={colonyId}
@@ -624,13 +740,13 @@ function WorkspaceBody({
                     )}
                     {tab === 'activity' &&
                       (steps.length === 0 ? (
-                        <Empty icon={<Activity className="size-5" />} title="Nothing yet" />
+                        <Empty icon={<Activity className="size-5" />} title={copy.workspace.activityEmpty} />
                       ) : (
                         <ol className="flex flex-col px-4 py-2">
                           {[...steps].reverse().map((s) => (
                             <li
                               key={s.id}
-                              className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-[12.5px] last:border-0"
+                              className="grid grid-cols-[1fr_auto] gap-3 border-b border-line py-2 text-callout last:border-0"
                             >
                               <span className="min-w-0 break-words text-fg-2">
                                 <span className="text-muted">{s.agent} · </span>
@@ -638,7 +754,7 @@ function WorkspaceBody({
                                 {s.strong && <span className="font-semibold text-fg">{s.strong}</span>}{' '}
                                 {s.tail && <span className="text-muted">{s.tail}</span>}
                               </span>
-                              <time className="tabular-nums text-muted">{s.time.slice(11, 19)}</time>
+                              <time className="tabular-nums text-muted">{clock(s.time, true)}</time>
                             </li>
                           ))}
                         </ol>
@@ -650,50 +766,75 @@ function WorkspaceBody({
           )}
         </div>
         <nav
-          aria-label="Workspace views"
-          className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface pb-2 md:flex"
+          aria-label={copy.workspace.viewsLabel}
+          className="hidden w-12 shrink-0 flex-col border-l border-line bg-surface md:flex"
         >
-          <div data-toolbar className="drag-region mb-1 h-[52px] w-full shrink-0 border-b border-line" />
-          {views.map((v) => {
-            const count = counts[v.value]
-            return (
-              <button
-                key={v.value}
-                type="button"
-                onClick={() => {
-                  // The open view's icon closes the panel; any other icon opens its view.
-                  if (open && tab === v.value) return onOpenChange(false)
-                  setTab(v.value)
-                  if (v.value === 'shell') setShellOpened(true)
-                  onOpenChange(true)
-                }}
-                aria-label={v.label}
-                aria-pressed={open && tab === v.value}
-                title={v.label}
-                className={cn(
-                  'relative grid size-8 place-items-center rounded-md transition-colors',
-                  open && tab === v.value
-                    ? 'bg-surface-2 text-fg'
-                    : 'text-muted hover:bg-surface-2/60 hover:text-fg',
-                )}
-              >
-                {open && tab === v.value && (
-                  <motion.span
-                    layoutId="workspace-view"
-                    transition={softSpring}
-                    className="absolute -left-[7px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-fg"
-                  />
-                )}
-                <v.icon className="size-[18px]" />
-                {!!count && (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[11px] font-medium leading-4 tabular-nums text-fg-2">
-                    {count > 99 ? '99+' : count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+          <div data-toolbar className="drag-region h-[52px] w-full shrink-0 border-b border-line" />
+          {/* Short windows and plugin views make the rail taller than the window, so it scrolls. */}
+          <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pb-2 pt-1.5">
+            {views.map((v, i) => {
+              const count = counts[v.value]
+              const on = shown && tab === v.value
+              const combo = v.key ? VIEW_COMBO(v.key) : undefined
+              // The rail scrolls, which would clip a tooltip inside it, so the tooltip is placed on the window.
+              const point = (el: HTMLElement) => {
+                const r = el.getBoundingClientRect()
+                setHint({
+                  label: v.label,
+                  ...(combo ? { combo: comboLabel(combo, isMac) } : {}),
+                  top: r.top + r.height / 2,
+                  right: window.innerWidth - r.left + 6,
+                })
+              }
+              return (
+                <Fragment key={v.value}>
+                  {views[i - 1] && views[i - 1]?.group !== v.group && (
+                    <span aria-hidden="true" className="my-0.5 h-px w-5 shrink-0 bg-line" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => pick(v.value)}
+                    onMouseEnter={(e) => point(e.currentTarget)}
+                    onFocus={(e) => point(e.currentTarget)}
+                    onMouseLeave={() => setHint(undefined)}
+                    onBlur={() => setHint(undefined)}
+                    aria-label={v.label}
+                    aria-pressed={on}
+                    aria-keyshortcuts={v.key ? `${isMac ? 'Meta' : 'Control'}+Alt+${v.key}` : undefined}
+                    className={cn(
+                      'relative grid size-8 shrink-0 place-items-center rounded-md transition-colors',
+                      on ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                    )}
+                  >
+                    {on && (
+                      <motion.span
+                        layoutId="workspace-view"
+                        transition={softSpring}
+                        className="absolute -left-[7px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-fg"
+                      />
+                    )}
+                    <v.icon className="size-[18px]" />
+                    {!!count && (
+                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-caption font-medium leading-4 tabular-nums text-fg-2">
+                        {count > 99 ? '99+' : count}
+                      </span>
+                    )}
+                  </button>
+                </Fragment>
+              )
+            })}
+          </div>
         </nav>
+        {hint && (
+          <div
+            role="tooltip"
+            style={{ top: hint.top, right: hint.right }}
+            className="material-menu pointer-events-none fixed z-50 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-md border border-line px-2 py-1 text-small text-fg"
+          >
+            {hint.label}
+            {hint.combo && <kbd className="font-sans text-footnote text-muted">{hint.combo}</kbd>}
+          </div>
+        )}
       </div>
       <AnimatePresence>
         {file && state.artifacts[file] && (
@@ -720,96 +861,170 @@ function WorkspaceBody({
   )
 }
 
-interface Message {
-  readonly id: string
-  readonly seq: number
-  readonly time: string
-  readonly from: string
-  /** An agent's name, or `board` for a post everyone can read. */
-  readonly to: string
-  readonly subject?: string
-  readonly text: string
-  readonly read?: boolean
+/** A conversation in the Mail tab, with its lines: the team chat, a group, or two agents' one-to-one chat. */
+interface Thread extends ConversationInfo {
+  readonly messages: readonly ConversationLine[]
 }
 
-/** Everything the agents said to each other: board posts and direct mail, oldest first. */
-function conversation(state: ColonyState): Message[] {
-  return [
-    ...state.board.map((b) => ({
-      id: b.id,
-      seq: b.seq,
-      time: b.time,
-      from: b.agent,
-      to: 'board',
-      text: b.text,
-    })),
-    ...state.mail.map((m) => ({
-      id: m.id,
-      seq: m.seq,
-      time: m.time,
-      from: m.from,
-      to: m.to,
-      ...(m.subject ? { subject: m.subject } : {}),
-      text: m.body,
-      read: m.delivered,
-    })),
-  ].sort((a, b) => a.seq - b.seq)
+function threadsOf(state: ColonyState): Thread[] {
+  return conversationsOf(state)
+    .map((c) => ({ ...c, messages: linesOf(state, c.id) }))
+    .filter((t) => t.messages.length > 0)
 }
 
-/** The agents' conversation, filterable to the messages one agent sent or received. */
-function MailTab(props: { messages: readonly Message[]; onInspect(name: string): void }) {
-  const [who, setWho] = useState('')
-  const names = [...new Set(props.messages.flatMap((m) => [m.from, m.to]))]
-    .filter((n) => n !== 'board')
-    .sort()
-  const shown = who ? props.messages.filter((m) => m.from === who || m.to === who) : props.messages
-  if (props.messages.length === 0)
+const threadTitle = (t: Thread) =>
+  t.kind === 'team' ? copy.workspace.mail.team : t.kind === 'group' ? t.name : t.members.join(' · ')
+
+/**
+ * The agents' messages, laid out like a messaging app: a list of conversations (the team's group chat and each pair
+ * of agents who wrote to each other), newest first, and a conversation open as bubbles with replies quoted.
+ */
+function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): void }) {
+  const [open, setOpen] = useState<string>()
+  const threads = props.threads
+  const thread = threads.find((t) => t.id === open)
+  if (threads.length === 0)
     return (
-      <Empty icon={<Mail className="size-5" />} title="No messages yet">
-        Board posts and mail between agents show up here.
+      <Empty icon={<Mail className="size-5" />} title={copy.workspace.mail.emptyTitle}>
+        {copy.workspace.mail.emptyBody}
       </Empty>
     )
+  if (thread)
+    return <Conversation thread={thread} onBack={() => setOpen(undefined)} onInspect={props.onInspect} />
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2">
-        <span className="text-[12px] text-muted">
-          {shown.length} message{shown.length === 1 ? '' : 's'}
-        </span>
-        <Select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Show messages for">
-          <option value="">Everyone</option>
-          {names.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <ol className="flex flex-col gap-3 px-4 py-3">
-        {shown.map((m) => (
-          <li key={m.id} className="flex gap-2.5">
+    <ul className="flex flex-col py-1">
+      {threads.map((t) => {
+        const last = t.messages.at(-1)
+        const unread = t.messages.filter((m) => m.read === false).length
+        return (
+          <li key={t.id}>
             <button
               type="button"
-              onClick={() => props.onInspect(m.from)}
-              aria-label={`Open ${m.from}`}
-              className="h-fit rounded-lg transition-transform hover:scale-105"
+              onClick={() => setOpen(t.id)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-2"
             >
-              <AgentAvatar name={m.from} status="idle" size={26} awake />
+              {t.kind === 'team' ? (
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-fg-2">
+                  <Users className="size-4" />
+                </span>
+              ) : (
+                <span className="relative h-9 w-11 shrink-0">
+                  <span className="absolute left-0 top-0">
+                    <AgentAvatar name={t.members[0] ?? ''} status="idle" size={26} awake />
+                  </span>
+                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
+                    <AgentAvatar name={t.members[1] ?? ''} status="idle" size={26} awake />
+                  </span>
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2">
+                  <span className="truncate text-body font-semibold text-fg">{threadTitle(t)}</span>
+                  {t.kind === 'group' && (
+                    <span className="shrink-0 text-footnote text-muted">
+                      {copy.workspace.mail.members(t.members.length)}
+                    </span>
+                  )}
+                  <time className="ml-auto shrink-0 text-footnote tabular-nums text-muted">
+                    {clock(last?.time)}
+                  </time>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-callout text-muted">
+                    {last ? `${last.from}: ${last.text}` : ''}
+                  </span>
+                  {unread > 0 && (
+                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright">
+                      {unread}
+                    </span>
+                  )}
+                </span>
+              </span>
             </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-1.5 text-[12px]">
-                <span className="font-semibold text-fg">{m.from}</span>
-                <span className="text-muted">→ {m.to === 'board' ? 'everyone' : m.to}</span>
-                {m.to !== 'board' && m.read === false && <Pill tone="warn">unread</Pill>}
-                <time className="ml-auto shrink-0 tabular-nums text-muted">{m.time.slice(11, 16)}</time>
-              </div>
-              <div className="mt-1 rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-[12.5px] leading-relaxed text-fg-2">
-                {m.subject && <div className="mb-0.5 font-medium text-fg">{m.subject}</div>}
-                <div className="whitespace-pre-wrap break-words">{m.text}</div>
-              </div>
-            </div>
           </li>
-        ))}
-      </ol>
+        )
+      })}
+    </ul>
+  )
+}
+
+/**
+ * One conversation as chat bubbles. One-to-one, the second agent writes on the right, like your own messages; in the
+ * team chat and groups everyone writes on the left, as in a group chat.
+ */
+function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: string): void }) {
+  const { thread } = props
+  const right = thread.kind === 'direct' ? thread.members[1] : undefined
+  const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
+  const list = useStickToBottom<HTMLDivElement>(thread.id)
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-1.5">
+        <IconButton size="sm" label={copy.workspace.mail.back} onClick={props.onBack}>
+          <ChevronRight className="size-4 rotate-180" />
+        </IconButton>
+        <span className="truncate text-body font-semibold">{threadTitle(thread)}</span>
+        {thread.kind === 'group' && (
+          <span className="truncate text-small text-muted">{thread.members.join(', ')}</span>
+        )}
+        <span className="ml-auto pr-2 text-small text-muted">
+          {copy.workspace.mail.count(thread.messages.length)}
+        </span>
+      </div>
+      <div ref={list} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <ol className="flex flex-col gap-1.5 px-3 py-3">
+          {thread.messages.map((m, i) => {
+            const mine = m.from === right
+            const quoted = m.replyTo !== undefined ? bySeq.get(m.replyTo) : undefined
+            const first = thread.messages[i - 1]?.from !== m.from
+            return (
+              <li key={m.id} className={cn('flex gap-2', mine && 'flex-row-reverse', first && 'mt-1.5')}>
+                <span className="w-[26px] shrink-0">
+                  {first && (
+                    <button
+                      type="button"
+                      onClick={() => props.onInspect(m.from)}
+                      aria-label={copy.workspace.mail.open(m.from)}
+                      className="rounded-lg transition-transform hover:scale-105"
+                    >
+                      <AgentAvatar name={m.from} status="idle" size={26} awake />
+                    </button>
+                  )}
+                </span>
+                <div
+                  className={cn(
+                    'max-w-[80%] rounded-2xl px-3 py-1.5 text-callout leading-relaxed',
+                    mine ? 'rounded-tr-sm bg-accent-soft text-fg' : 'rounded-tl-sm bg-surface-2 text-fg-2',
+                  )}
+                >
+                  {first && (
+                    <div className="text-footnote font-semibold" style={{ color: agentColor(m.from) }}>
+                      {m.from}
+                    </div>
+                  )}
+                  {quoted && (
+                    <div className="mb-1 truncate border-l-2 border-line-strong pl-2 text-footnote text-muted">
+                      {quoted.from}: {quoted.text}
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                  <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
+                    {clock(m.time)}
+                    {m.read !== undefined && (
+                      <span
+                        className={m.read ? 'text-ok-ink' : ''}
+                        title={m.read ? copy.workspace.mail.read : copy.workspace.mail.unread}
+                      >
+                        {m.read ? '✓✓' : '✓'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
     </div>
   )
 }

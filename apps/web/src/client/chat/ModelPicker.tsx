@@ -1,15 +1,34 @@
 import { Brain, Check, ChevronDown, ChevronsUpDown, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ModelOption } from '../api.ts'
+import { copy } from '../copy.ts'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
-import { cn, spring } from '../ui/primitives.tsx'
+import { cn } from '../ui/primitives.tsx'
+import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX, spring } from '../ui-config.ts'
+import { withoutDatedAliases } from './model-list.ts'
 
-/**
- * Below this many tokens a model cannot hold an agent's instructions and tools with room left to work: a lead's first
- * request is 9–12k tokens, a helper's up to 26k.
- */
-export const AGENT_MIN_WINDOW = 32_000
+/** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
+export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
+
+/** Where a list opened from `el` can show: inside the nearest ancestor that clips (the chat's scroll area), not the window. */
+function visibleBounds(el: HTMLElement): { top: number; bottom: number } {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (getComputedStyle(p).overflowY === 'visible') continue
+    const r = p.getBoundingClientRect()
+    return { top: Math.max(0, r.top), bottom: Math.min(window.innerHeight, r.bottom) }
+  }
+  return { top: 0, bottom: window.innerHeight }
+}
 
 /** A context window the way people say it: 8K, 200K, 1M. */
 export function windowLabel(tokens: number): string {
@@ -17,10 +36,10 @@ export function windowLabel(tokens: number): string {
 }
 
 function windowHint(m: ModelOption): string {
-  if (!m.contextWindow) return 'Context window unknown'
-  const size = `${m.contextWindow.toLocaleString()} tokens of context`
-  if (!m.windowSource) return `${size}, a guess: set the real size in Settings → Models`
-  if (m.contextWindow < AGENT_MIN_WINDOW) return `${size}: too small for agent work, fine for short chats`
+  if (!m.contextWindow) return copy.modelPicker.windowUnknown
+  const size = copy.modelPicker.windowSize(m.contextWindow.toLocaleString())
+  if (!m.windowSource) return copy.modelPicker.windowGuess(size)
+  if (m.contextWindow < AGENT_MIN_WINDOW) return copy.modelPicker.windowTooSmall(size)
   return size
 }
 
@@ -49,9 +68,14 @@ export function ModelPicker(props: {
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const visible = useMemo(
-    () => props.models.filter((m) => !m.hidden || m.ref === props.value),
+    () =>
+      withoutDatedAliases(
+        props.models.filter((m) => !m.hidden || m.ref === props.value),
+        props.value,
+      ),
     [props.models, props.value],
   )
+  const host = useContext(PickerHost)
   const current = props.models.find((m) => m.ref === props.value)
 
   useEffect(() => {
@@ -90,7 +114,11 @@ export function ModelPicker(props: {
   })
 
   // The list opens the preferred way when it fits, otherwise toward the larger space, and never past the window.
-  const [fit, setFit] = useState({ up: (props.placement ?? 'up') === 'up', max: 400 })
+  // Inside a popover it opens above the whole popover (`lift` past it), so the row being changed stays in view.
+  const [fit, setFit] = useState<{ up: boolean; max: number; lift?: number }>({
+    up: (props.placement ?? 'up') === 'up',
+    max: 400,
+  })
   const up = fit.up
   return (
     // A chip never shrinks past its logo and chevron, so neighbouring chips can't slide over it.
@@ -99,12 +127,20 @@ export function ModelPicker(props: {
         type="button"
         onClick={() => {
           const rect = box.current?.getBoundingClientRect()
-          if (rect) {
-            const above = rect.top - 12
-            const below = window.innerHeight - rect.bottom - 12
+          const bounds = box.current ? visibleBounds(box.current) : { top: 0, bottom: window.innerHeight }
+          const outer = host?.current?.getBoundingClientRect()
+          if (rect && outer && outer.top - bounds.top - 12 >= MODEL_LIST_MIN_PX) {
+            setFit({
+              up: true,
+              max: Math.min(400, outer.top - bounds.top - 12),
+              lift: rect.top - outer.top + 8,
+            })
+          } else if (rect) {
+            const above = rect.top - bounds.top - 12
+            const below = bounds.bottom - rect.bottom - 12
             const preferUp = (props.placement ?? 'up') === 'up'
             const goUp = preferUp ? above >= Math.min(400, below) : below < Math.min(400, above)
-            setFit({ up: goUp, max: Math.max(160, Math.min(400, goUp ? above : below)) })
+            setFit({ up: goUp, max: Math.max(MODEL_LIST_MIN_PX, Math.min(400, goUp ? above : below)) })
           }
           setOpen(!open)
           setActive(
@@ -116,38 +152,42 @@ export function ModelPicker(props: {
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={variant === 'field' ? undefined : `${props.label} model`}
-        title={variant === 'chip' ? `${props.label}: ${current?.name ?? props.value}` : undefined}
+        aria-label={variant === 'field' ? undefined : copy.modelPicker.buttonLabel(props.label)}
+        title={
+          variant === 'chip'
+            ? copy.modelPicker.chipTitle(props.label, current?.name ?? props.value)
+            : undefined
+        }
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-[12.5px] font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
+                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
                 open && 'bg-fill text-fg',
               )
             : variant === 'compact'
-              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-[13px] shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
+              ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
               : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >
         {variant === 'chip' ? (
           <>
             <ProviderGlyph model={`${props.value} ${current?.name ?? ''}`} />
-            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
             <ChevronDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : variant === 'compact' ? (
           <>
-            <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : (
           <>
-            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            <span className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted">
               {props.icon}
               {props.label}
             </span>
-            <span className="flex w-full items-center justify-between gap-2 text-[13px] font-medium">
-              <span className="truncate">{current?.name ?? (props.value || 'Choose a model')}</span>
+            <span className="flex w-full items-center justify-between gap-2 text-body font-medium">
+              <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
               <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
             </span>
           </>
@@ -160,7 +200,7 @@ export function ModelPicker(props: {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: up ? 4 : -4, scale: 0.98, transition: { duration: 0.12 } }}
             transition={spring}
-            style={{ maxHeight: fit.max }}
+            style={{ maxHeight: fit.max, ...(fit.lift ? { bottom: `calc(100% + ${fit.lift}px)` } : {}) }}
             className={cn(
               'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
               variant === 'compact' ? 'right-0' : 'left-0',
@@ -174,15 +214,18 @@ export function ModelPicker(props: {
                 type="search"
                 // biome-ignore lint/a11y/noAutofocus: the popover exists to search
                 autoFocus
-                placeholder={`Search ${visible.length} models…`}
+                placeholder={copy.modelPicker.search(visible.length)}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value)
                   setActive(0)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setOpen(false)
-                  else if (e.key === 'ArrowDown') {
+                  // Escape closes the list only, not a dialog or popover the picker sits in.
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    setOpen(false)
+                  } else if (e.key === 'ArrowDown') {
                     e.preventDefault()
                     setActive((a) => Math.min(hits.length - 1, a + 1))
                   } else if (e.key === 'ArrowUp') {
@@ -194,22 +237,24 @@ export function ModelPicker(props: {
                     if (hit) choose(hit.ref)
                   }
                 }}
-                aria-label={`Search ${props.label} models`}
-                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-[13px] outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+                aria-label={copy.modelPicker.searchLabel(props.label)}
+                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div
               className="overflow-auto p-1.5"
               role="listbox"
               ref={list}
-              aria-label={`${props.label} model`}
+              aria-label={copy.modelPicker.buttonLabel(props.label)}
             >
               {groups.length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-muted">No models match “{query}”.</div>
+                <div className="px-3 py-6 text-center text-body text-muted">
+                  {copy.modelPicker.noMatch(query)}
+                </div>
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-caption font-semibold uppercase tracking-wider text-muted">
                     <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>
@@ -228,7 +273,8 @@ export function ModelPicker(props: {
                         onMouseEnter={() => setActive(i)}
                         onClick={() => choose(m.ref)}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          // The margin keeps a row scrolled into view clear of the sticky provider heading.
+                          'flex w-full scroll-mt-9 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
                           i === active && !blocked && 'bg-surface-2',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',
@@ -237,16 +283,16 @@ export function ModelPicker(props: {
                       >
                         <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
                         <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-[13px] font-medium">{m.name}</span>
-                          <span className="truncate font-mono text-[11px] text-muted">
-                            {blocked ? props.minReason : small ? 'Too small for agent work' : m.id}
+                          <span className="truncate text-body font-medium">{m.name}</span>
+                          <span className="truncate font-mono text-caption text-muted">
+                            {blocked ? props.minReason : small ? copy.modelPicker.tooSmall : m.id}
                           </span>
                         </span>
                         {m.contextWindow !== undefined && (
                           <span
                             title={windowHint(m)}
                             className={cn(
-                              'shrink-0 font-mono text-[11px] tabular-nums',
+                              'shrink-0 font-mono text-caption tabular-nums',
                               small ? 'text-warn-ink' : 'text-muted',
                             )}
                           >
@@ -255,13 +301,13 @@ export function ModelPicker(props: {
                           </span>
                         )}
                         {m.reasoning && (
-                          <span title="Supports extended thinking" className="text-muted">
+                          <span title={copy.modelPicker.thinking} className="text-muted">
                             <Brain className="size-3.5" />
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (
-                          <span className="rounded bg-accent-soft px-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-fg">
-                            {m.source === 'custom' ? 'custom' : 'key'}
+                          <span className="rounded bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
+                            {m.source === 'custom' ? copy.modelPicker.custom : copy.modelPicker.key}
                           </span>
                         )}
                         {m.ref === props.value && <Check className="size-4 shrink-0" />}

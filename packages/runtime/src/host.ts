@@ -1,8 +1,9 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
-import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent } from '@myrmidon/protocol'
+import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent, Review } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
 import type { ColonySpec } from './spec.ts'
@@ -31,7 +32,8 @@ export interface ColonyHost {
   /** Auto review: runs the reviewer on the work so far and returns its verdict, without ending the round. */
   requestReview(by: string, summary: string): Promise<string>
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
-  spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
+  /** Adds a worker: a new one for `label`, or (with `specialist`) one of the person's saved specialists by name. */
+  spawnWorker(by: string, label: string, focus: string, model?: string, specialist?: string): Promise<string>
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number
@@ -47,6 +49,19 @@ export interface ColonyHost {
   readonly web: WebTools
   /** Tools of the connected MCP servers, offered to agents allowed `mcp`. */
   mcpTools(): AgentTool[]
+  /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
+  mcpReadOnly(tool: string): boolean
+  /** Tools of the person's plugins, for one agent; offered, like MCP tools, to agents allowed `mcp`. */
+  pluginTools(agent: string): AgentTool[]
+  /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */
+  pluginPrompts(role: 'lead' | 'worker'): string[]
+  /**
+   * The speaking agent's reply as it is being written (`done` when the model message ends). Live only: shown to
+   * whoever is watching, never logged; the finished reply arrives as chat/reply.
+   */
+  streamed(agent: string, text: string, done: boolean): void
+  /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
+  readonly plugins?: PluginHost
   /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
   toolsChanged(): void
   /** A real browser for agents; absent when no Chrome is installed. */
@@ -73,6 +88,16 @@ export interface ColonyHost {
    * it, it times out, or the round stops first.
    */
   requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
+  /**
+   * Like requestApproval, with the full change shown for the person to look over and, where a field is editable,
+   * rewrite. `key` is the call's receipt key, so its result is kept once it has run.
+   */
+  reviewChange(
+    agent: string,
+    tool: string,
+    summary: string,
+    options: { review?: Review; key?: string },
+  ): Promise<ReviewDecision>
   /**
    * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if
    * given, else at the first local URL it prints. Returns that URL.
@@ -114,4 +139,11 @@ export const agentActor = (name: string): ActorRef => ({ kind: 'agent', id: name
 export interface TodoItem {
   readonly text: string
   readonly done: boolean
+}
+
+/** The person's answer to a review: whether to go ahead, the fields they rewrote (by key), and anything they said. */
+export interface ReviewDecision {
+  readonly approved: boolean
+  readonly edits?: Readonly<Record<string, string>>
+  readonly note?: string
 }

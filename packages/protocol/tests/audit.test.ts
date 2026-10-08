@@ -90,3 +90,29 @@ test('the audit keeps what the person, a hook or the safety check stopped', () =
     ['safety', 'worker', 'web_fetch', 'followed page text'],
   ])
 })
+
+test("a stopped round's outside effects: commands, changing MCP calls and page actions, not reads or failures", async () => {
+  const { outsideEffects, describeEffect } = await import('../src/index.ts')
+  const effects = outsideEffects([
+    ...call('lead', 'e1', 'fs_write', { path: 'notes.md', content: 'x' }, true),
+    ...call('lead', 'e2', 'shell', { command: 'npm publish' }, true),
+    ...call('lead', 'e3', 'shell', { command: 'bad' }, false),
+    ...call('lead', 'e4', 'web_fetch', { url: 'https://example.com' }, true),
+    ...call('lead', 'e5', 'mcp__github_create_issue', { title: 'Bug' }, true),
+    ev('tool/call', {
+      agent: 'lead',
+      callId: 'e6',
+      tool: 'mcp__github_list_issues',
+      args: {},
+      readOnly: true,
+    }),
+    ...call('lead', 'e7', 'browser_click', { target: 'text=Submit order' }, true),
+    ...call('lead', 'e8', 'shell', { command: 'deploy.sh' }),
+  ])
+  expect(effects.map(describeEffect)).toEqual([
+    'ran `npm publish`',
+    'called mcp__github_create_issue {"title":"Bug"}',
+    'click on a web page {"target":"text=Submit order"}',
+    'ran `deploy.sh` (still running when it stopped)',
+  ])
+})

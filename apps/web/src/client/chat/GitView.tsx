@@ -16,6 +16,7 @@ import {
 import { AnimatePresence } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { api, send } from '../api.ts'
+import { copy } from '../copy.ts'
 import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -25,6 +26,8 @@ import {
   FileDiff,
   FilePatch,
   FilePath,
+  FolderGroups,
+  groupByFolder,
   STATUS,
   StatBar,
   useDiffMode,
@@ -62,10 +65,10 @@ type Target = { kind: 'working' } | { kind: 'commit'; commit: Commit }
 
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000)
-  if (s < 90) return 'just now'
-  if (s < 5400) return `${Math.round(s / 60)}m ago`
-  if (s < 129600) return `${Math.round(s / 3600)}h ago`
-  return `${Math.round(s / 86400)}d ago`
+  if (s < 90) return copy.time.justNow
+  if (s < 5400) return copy.time.minutesAgo(Math.round(s / 60))
+  if (s < 129600) return copy.time.hoursAgo(Math.round(s / 3600))
+  return copy.time.daysAgo(Math.round(s / 86400))
 }
 
 const initials = (name: string) =>
@@ -122,13 +125,13 @@ function Section(props: {
           type="button"
           onClick={props.onToggle}
           aria-expanded={!props.closed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-[11px] uppercase tracking-[0.14em] text-muted hover:text-fg"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-caption uppercase tracking-[0.14em] text-muted hover:text-fg"
         >
           <ChevronRight
             className={cn('size-3.5 shrink-0 transition-transform', !props.closed && 'rotate-90')}
           />
           {props.title}
-          <span className="rounded-full bg-surface-2 px-1.5 text-[11px] tabular-nums tracking-normal">
+          <span className="rounded-full bg-surface-2 px-1.5 text-caption tabular-nums tracking-normal">
             {props.count}
           </span>
         </button>
@@ -169,6 +172,8 @@ function ChangeRow(props: {
   kind: Kind
   actions: ReactNode
   version: number
+  /** The path as shown, within its folder's group. */
+  name: string
 }) {
   const [open, setOpen] = useState(false)
   const [patch, setPatch] = useState<string>()
@@ -194,14 +199,14 @@ function ChangeRow(props: {
           <ChevronRight
             className={cn('size-3 shrink-0 text-muted transition-transform', open && 'rotate-90')}
           />
-          <FilePath path={props.path} />
+          <FilePath path={props.name} full={props.path} />
         </button>
         <span className="flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           {props.actions}
         </span>
         <span
           title={s.title}
-          className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}
+          className={cn('w-3 shrink-0 text-center font-mono text-caption font-bold', s.className)}
         >
           {s.label}
         </span>
@@ -244,12 +249,19 @@ export function GitView({ project }: { project: string }) {
       .catch((err) => setError(String((err as Error).message)))
   }, [project])
 
-  // Agents edit the folder while you watch, so status refreshes on its own.
+  // Agents edit the folder while you watch, so status refreshes on its own, and at once when a round is rewound.
   useEffect(() => {
     load()
     const timer = setInterval(load, 5000)
-    return () => clearInterval(timer)
-  }, [load])
+    const changed = (e: Event) => {
+      if ((e as CustomEvent<{ project: string }>).detail?.project === project) load()
+    }
+    window.addEventListener('myr:folder-changed', changed)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('myr:folder-changed', changed)
+    }
+  }, [load, project])
 
   const act = async (action: string, body: object, done?: string) => {
     setBusy(true)
@@ -266,7 +278,7 @@ export function GitView({ project }: { project: string }) {
     }
   }
 
-  if (error) return <p className="p-4 text-[13px] text-bad-ink">{error}</p>
+  if (error) return <p className="p-4 text-body text-bad-ink">{error}</p>
   if (!status)
     return (
       <div className="p-4">
@@ -275,9 +287,8 @@ export function GitView({ project }: { project: string }) {
     )
   if (!status.repo)
     return (
-      <Empty icon={<GitBranch className="size-5" />} title="Not a git repository">
-        This project folder has no git repository. Each round’s changes are still checkpointed and can be
-        rewound from the chat.
+      <Empty icon={<GitBranch className="size-5" />} title={copy.git.notRepo}>
+        {copy.git.notRepoHint}
       </Empty>
     )
 
@@ -286,19 +297,19 @@ export function GitView({ project }: { project: string }) {
   const untracked = status.files.filter((f) => f.index === '?')
   const paths = (list: { path: string }[]) => list.map((f) => f.path)
   const commit = async () => {
-    if (await act('commit', { message, all: staged.length === 0 }, 'Committed')) setMessage('')
+    if (await act('commit', { message, all: staged.length === 0 }, copy.git.committed)) setMessage('')
   }
   const nothing = status.files.length === 0
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center gap-1.5">
-        <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-[12.5px]">
+        <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-callout">
           <GitBranch className="size-3.5 shrink-0 text-muted" />
-          <span className="truncate font-medium">{status.branch ?? 'detached HEAD'}</span>
+          <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
             <span
-              className="flex shrink-0 items-center gap-1 font-mono text-[11px] text-muted"
+              className="flex shrink-0 items-center gap-1 font-mono text-caption text-muted"
               title={status.upstream}
             >
               <ArrowUp className="size-3" />
@@ -309,14 +320,10 @@ export function GitView({ project }: { project: string }) {
           )}
         </span>
         <span className="flex-1" />
-        <IconButton label="Refresh" size="sm" onClick={load}>
+        <IconButton label={copy.git.refresh} size="sm" onClick={load}>
           <RefreshCw className="size-3.5" />
         </IconButton>
-        <IconButton
-          label="Open all changes in the full view"
-          size="sm"
-          onClick={() => setFull({ kind: 'working' })}
-        >
+        <IconButton label={copy.git.openAll} size="sm" onClick={() => setFull({ kind: 'working' })}>
           <Maximize2 className="size-3.5" />
         </IconButton>
       </div>
@@ -332,9 +339,9 @@ export function GitView({ project }: { project: string }) {
             }
           }}
           rows={2}
-          placeholder={`Message (⌘↵ to commit on “${status.branch ?? 'HEAD'}”)`}
-          aria-label="Commit message"
-          className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-muted focus:border-line-strong"
+          placeholder={copy.git.messagePlaceholder(status.branch ?? 'HEAD')}
+          aria-label={copy.git.messageLabel}
+          className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-callout outline-none placeholder:text-muted focus:border-line-strong"
         />
         <Button
           size="sm"
@@ -342,61 +349,70 @@ export function GitView({ project }: { project: string }) {
           disabled={busy || nothing || !message.trim()}
           onClick={() => void commit()}
           icon={<Check className="size-3.5" />}
-          title={staged.length ? 'Commit the staged changes' : 'Stage every change and commit'}
+          title={staged.length ? copy.git.commitStagedTitle : copy.git.commitAllTitle}
         >
-          {staged.length ? `Commit ${staged.length} staged` : 'Commit all'}
+          {staged.length ? copy.git.commitStaged(staged.length) : copy.git.commitAll}
         </Button>
       </div>
 
-      {nothing && <p className="px-1 text-[12.5px] text-muted">No uncommitted changes.</p>}
+      {nothing && <p className="px-1 text-callout text-muted">{copy.git.noChanges}</p>}
       {staged.length > 0 && (
         <Section
           id="staged"
-          title="Staged"
+          title={copy.git.sections.staged}
           count={staged.length}
           closed={closed.has('staged')}
           onToggle={() => toggle('staged')}
           actions={
-            <RowAction label="Unstage all" onClick={() => void act('unstage', { paths: paths(staged) })}>
+            <RowAction
+              label={copy.git.unstageAll}
+              onClick={() => void act('unstage', { paths: paths(staged) })}
+            >
               <Minus className="size-3.5" />
             </RowAction>
           }
         >
-          {staged.map((f) => (
-            <ChangeRow
-              key={`s:${f.path}`}
-              project={project}
-              path={f.path}
-              status={f.index}
-              kind="staged"
-              version={version}
-              actions={
-                <RowAction label="Unstage" onClick={() => void act('unstage', { paths: [f.path] })}>
-                  <Minus className="size-3.5" />
-                </RowAction>
-              }
-            />
-          ))}
+          <FolderGroups items={staged}>
+            {(f, name) => (
+              <ChangeRow
+                key={`s:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status={f.index}
+                kind="staged"
+                version={version}
+                actions={
+                  <RowAction
+                    label={copy.git.unstage}
+                    onClick={() => void act('unstage', { paths: [f.path] })}
+                  >
+                    <Minus className="size-3.5" />
+                  </RowAction>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
       {unstaged.length > 0 && (
         <Section
           id="changes"
-          title="Changes"
+          title={copy.git.sections.changes}
           count={unstaged.length}
           closed={closed.has('changes')}
           onToggle={() => toggle('changes')}
           actions={
             <>
               <RowAction
-                label="Discard all changes"
+                label={copy.git.discardAll}
                 danger
                 onClick={() => setDiscard({ paths: paths(unstaged), untracked: 0 })}
               >
                 <Undo2 className="size-3.5" />
               </RowAction>
               <RowAction
-                label="Stage all changes"
+                label={copy.git.stageAll}
                 onClick={() => void act('stage', { paths: paths(unstaged) })}
               >
                 <Plus className="size-3.5" />
@@ -404,84 +420,90 @@ export function GitView({ project }: { project: string }) {
             </>
           }
         >
-          {unstaged.map((f) => (
-            <ChangeRow
-              key={`u:${f.path}`}
-              project={project}
-              path={f.path}
-              status={f.worktree}
-              kind="unstaged"
-              version={version}
-              actions={
-                <>
-                  <RowAction
-                    label="Discard changes"
-                    danger
-                    onClick={() => setDiscard({ paths: [f.path], untracked: 0 })}
-                  >
-                    <Undo2 className="size-3.5" />
-                  </RowAction>
-                  <RowAction label="Stage" onClick={() => void act('stage', { paths: [f.path] })}>
-                    <Plus className="size-3.5" />
-                  </RowAction>
-                </>
-              }
-            />
-          ))}
+          <FolderGroups items={unstaged}>
+            {(f, name) => (
+              <ChangeRow
+                key={`u:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status={f.worktree}
+                kind="unstaged"
+                version={version}
+                actions={
+                  <>
+                    <RowAction
+                      label={copy.git.discardChanges}
+                      danger
+                      onClick={() => setDiscard({ paths: [f.path], untracked: 0 })}
+                    >
+                      <Undo2 className="size-3.5" />
+                    </RowAction>
+                    <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
+                      <Plus className="size-3.5" />
+                    </RowAction>
+                  </>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
       {untracked.length > 0 && (
         <Section
           id="untracked"
-          title="Untracked"
+          title={copy.git.sections.untracked}
           count={untracked.length}
           closed={closed.has('untracked')}
           onToggle={() => toggle('untracked')}
           actions={
             <RowAction
-              label="Stage all untracked"
+              label={copy.git.stageAllUntracked}
               onClick={() => void act('stage', { paths: paths(untracked) })}
             >
               <Plus className="size-3.5" />
             </RowAction>
           }
         >
-          {untracked.map((f) => (
-            <ChangeRow
-              key={`n:${f.path}`}
-              project={project}
-              path={f.path}
-              status="?"
-              kind="untracked"
-              version={version}
-              actions={
-                <>
-                  <RowAction
-                    label="Delete file"
-                    danger
-                    onClick={() => setDiscard({ paths: [f.path], untracked: 1 })}
-                  >
-                    <Undo2 className="size-3.5" />
-                  </RowAction>
-                  <RowAction label="Stage" onClick={() => void act('stage', { paths: [f.path] })}>
-                    <Plus className="size-3.5" />
-                  </RowAction>
-                </>
-              }
-            />
-          ))}
+          <FolderGroups items={untracked}>
+            {(f, name) => (
+              <ChangeRow
+                key={`n:${f.path}`}
+                project={project}
+                path={f.path}
+                name={name}
+                status="?"
+                kind="untracked"
+                version={version}
+                actions={
+                  <>
+                    <RowAction
+                      label={copy.git.deleteFile}
+                      danger
+                      onClick={() => setDiscard({ paths: [f.path], untracked: 1 })}
+                    >
+                      <Undo2 className="size-3.5" />
+                    </RowAction>
+                    <RowAction label={copy.git.stage} onClick={() => void act('stage', { paths: [f.path] })}>
+                      <Plus className="size-3.5" />
+                    </RowAction>
+                  </>
+                }
+              />
+            )}
+          </FolderGroups>
         </Section>
       )}
 
       <Section
         id="history"
-        title="History"
+        title={copy.git.sections.history}
         count={status.log.length}
         closed={closed.has('history')}
         onToggle={() => toggle('history')}
       >
         {status.log.length === 0 ? (
-          <p className="px-2 text-[12.5px] text-muted">No commits yet.</p>
+          <p className="px-2 text-callout text-muted">{copy.git.noCommits}</p>
         ) : (
           <ol className="relative ml-[15px] border-l border-line">
             {status.log.map((c, i) => (
@@ -498,8 +520,8 @@ export function GitView({ project }: { project: string }) {
                   className="flex w-full items-start gap-2 rounded-lg py-1.5 pl-3 pr-2 text-left hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px]">{c.subject}</span>
-                    <span className="flex items-center gap-1.5 text-[11.5px] text-muted">
+                    <span className="block truncate text-body">{c.subject}</span>
+                    <span className="flex items-center gap-1.5 text-footnote text-muted">
                       <span
                         className="grid size-4 place-items-center rounded-full text-[8px] font-bold text-white"
                         style={{ background: `hsl(${hue(c.author)} 45% 45%)` }}
@@ -509,7 +531,7 @@ export function GitView({ project }: { project: string }) {
                       {c.author} · {ago(c.date)}
                     </span>
                   </span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted">{c.short}</span>
+                  <span className="shrink-0 font-mono text-caption text-muted">{c.short}</span>
                 </button>
               </li>
             ))}
@@ -519,27 +541,36 @@ export function GitView({ project }: { project: string }) {
 
       <AnimatePresence>
         {discard && (
-          <Modal title="Discard changes?" onClose={() => !busy && setDiscard(undefined)} size="sm">
+          <Modal
+            title={copy.git.discardDialog.title}
+            onClose={() => !busy && setDiscard(undefined)}
+            size="sm"
+          >
             <div className="flex flex-col gap-4">
-              <p className="text-[13.5px] leading-relaxed text-fg-2">
+              <p className="text-reading leading-relaxed text-fg-2">
                 {discard.untracked
-                  ? `${discard.paths[0]} is not tracked by git, so it will be deleted.`
-                  : `${discard.paths.length === 1 ? discard.paths[0] : `${discard.paths.length} files`} go back to their last staged or committed content.`}{' '}
-                Git cannot bring this work back.
+                  ? copy.git.discardDialog.untracked(discard.paths[0])
+                  : copy.git.discardDialog.tracked(
+                      discard.paths.length === 1
+                        ? discard.paths[0]
+                        : copy.git.discardDialog.fileCount(discard.paths.length),
+                    )}{' '}
+                {copy.git.discardDialog.cannotUndo}
               </p>
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setDiscard(undefined)} disabled={busy}>
-                  Cancel
+                  {copy.git.discardDialog.cancel}
                 </Button>
                 <Button
                   variant="destructive"
                   disabled={busy}
                   icon={<Undo2 className="size-3.5" />}
                   onClick={async () => {
-                    if (await act('discard', { paths: discard.paths }, 'Discarded')) setDiscard(undefined)
+                    if (await act('discard', { paths: discard.paths }, copy.git.discarded))
+                      setDiscard(undefined)
                   }}
                 >
-                  {discard.untracked ? 'Delete file' : 'Discard'}
+                  {discard.untracked ? copy.git.discardDialog.deleteFile : copy.git.discardDialog.discard}
                 </Button>
               </div>
             </div>
@@ -571,16 +602,16 @@ function Tree(props: {
               type="button"
               style={pad}
               onClick={() => props.onPick(n.file as string)}
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[12.5px] hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout hover:bg-surface-2"
             >
               <span className="min-w-0 flex-1 truncate font-mono">{n.name}</span>
               {f?.added !== undefined && (
-                <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                <span className="shrink-0 font-mono text-caption tabular-nums">
                   <span className="text-ok-ink">+{f.added}</span>{' '}
                   <span className="text-bad-ink">−{f.removed}</span>
                 </span>
               )}
-              <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-bold', s.className)}>
+              <span className={cn('w-3 shrink-0 text-center font-mono text-caption font-bold', s.className)}>
                 {s.label}
               </span>
             </button>
@@ -600,7 +631,7 @@ function Tree(props: {
                   return next
                 })
               }
-              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[12.5px] text-fg-2 hover:bg-surface-2"
+              className="flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-callout text-fg-2 hover:bg-surface-2"
             >
               <ChevronRight className={cn('size-3 shrink-0 transition-transform', !shut && 'rotate-90')} />
               <Folder className="size-3.5 shrink-0 text-muted" />
@@ -640,39 +671,41 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
   const sections = useMemo(() => splitPatch(data?.patch ?? ''), [data])
   const files = useMemo(() => new Map((data?.files ?? []).map((f) => [f.path, f])), [data])
   const tree = useMemo(() => fileTree((data?.files ?? []).map((f) => f.path)), [data])
+  // Top-level files first, as in the other change lists, so a folder of generated files does not come before them.
+  const ordered = useMemo(() => groupByFolder(data?.files ?? []).flatMap((g) => g.items), [data])
   const added = data?.files.reduce((n, f) => n + (f.added ?? 0), 0) ?? 0
   const removed = data?.files.reduce((n, f) => n + (f.removed ?? 0), 0) ?? 0
   const anchor = (path: string) => `diff-${path.replace(/[^a-zA-Z0-9]/g, '-')}`
 
   return (
     <Modal
-      title={target.kind === 'working' ? 'Uncommitted changes' : target.commit.subject}
+      title={target.kind === 'working' ? copy.git.full.uncommitted : target.commit.subject}
       onClose={props.onClose}
       size="full"
       flush
     >
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-3 text-[12.5px] text-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-5 py-3 text-callout text-muted">
           {target.kind === 'commit' && (
             <>
               <span className="flex items-center gap-1.5">
                 <span
-                  className="grid size-5 place-items-center rounded-full text-[11px] font-bold text-white"
+                  className="grid size-5 place-items-center rounded-full text-caption font-bold text-white"
                   style={{ background: `hsl(${hue(target.commit.author)} 45% 45%)` }}
                 >
                   {initials(target.commit.author)}
                 </span>
-                <span className="text-fg">{data?.author ?? target.commit.author}</span> committed{' '}
-                {ago(target.commit.date)}
+                <span className="text-fg">{data?.author ?? target.commit.author}</span>
+                {copy.git.full.committedAgo(ago(target.commit.date))}
               </span>
               <button
                 type="button"
                 onClick={() => {
                   void navigator.clipboard.writeText(target.commit.hash)
-                  toast('Copied the commit SHA', 'success')
+                  toast(copy.git.full.copiedSha, 'success')
                 }}
-                className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[11.5px] text-fg-2 hover:text-fg"
-                title="Copy the full SHA"
+                className="flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-footnote text-fg-2 hover:text-fg"
+                title={copy.git.full.copySha}
               >
                 {target.commit.short} <Copy className="size-3" />
               </button>
@@ -680,7 +713,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           )}
           {data && (
             <span className="flex items-center gap-2">
-              {data.files.length} file{data.files.length === 1 ? '' : 's'}
+              {copy.git.full.fileCount(data.files.length)}
               <span className="font-mono text-ok-ink">+{added}</span>
               <span className="font-mono text-bad-ink">−{removed}</span>
               <StatBar added={added} removed={removed} />
@@ -694,12 +727,12 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
               setClosed(closed.size === 0 ? new Set((data?.files ?? []).map((f) => f.path)) : new Set())
             }
           >
-            {closed.size === 0 ? 'Collapse all' : 'Expand all'}
+            {closed.size === 0 ? copy.git.full.collapseAll : copy.git.full.expandAll}
           </button>
           <DiffModeToggle mode={mode} onMode={setMode} />
         </div>
         {target.kind === 'commit' && data?.body && (
-          <pre className="whitespace-pre-wrap border-b border-line px-5 py-2.5 font-sans text-[13px] text-fg-2">
+          <pre className="whitespace-pre-wrap border-b border-line px-5 py-2.5 font-sans text-body text-fg-2">
             {data.body}
           </pre>
         )}
@@ -708,11 +741,11 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
             <LoaderCircle className="size-5 animate-spin text-muted" />
           </div>
         ) : data.files.length === 0 ? (
-          <p className="p-5 text-[13px] text-muted">No changes.</p>
+          <p className="p-5 text-body text-muted">{copy.git.full.noChanges}</p>
         ) : (
           <div className="flex min-h-0 flex-1">
             <nav
-              aria-label="Changed files"
+              aria-label={copy.git.full.changedFiles}
               className="hidden w-64 shrink-0 overflow-y-auto border-r border-line p-2 md:block"
             >
               <Tree
@@ -725,7 +758,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
               />
             </nav>
             <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-              {data.files.map((f) => (
+              {ordered.map((f) => (
                 <FileDiff
                   key={f.path}
                   id={anchor(f.path)}
@@ -743,9 +776,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
                   }
                 />
               ))}
-              {data.truncated && (
-                <p className="text-[12px] text-muted">The diff is large; only its first 512 KB is shown.</p>
-              )}
+              {data.truncated && <p className="text-small text-muted">{copy.git.full.truncated}</p>}
             </div>
           </div>
         )}

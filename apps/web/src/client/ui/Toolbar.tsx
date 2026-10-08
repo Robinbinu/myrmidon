@@ -28,7 +28,7 @@ export function Toolbar(props: {
 
 export function ToolbarTitle(props: { children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 text-[13px] font-semibold">
+    <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 text-body font-semibold">
       {props.children}
     </div>
   )
