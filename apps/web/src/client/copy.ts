@@ -419,6 +419,10 @@ export const copy = {
       renameLabel: (title: string) => `Rename “${title}”`,
       delete: 'Delete chat',
       deleteLabel: (title: string) => `Delete “${title}”`,
+      /** The number beside a chat: each message that started work in it is a round. */
+      rounds: (n: number) => `${n} rounds: messages that started work in this chat`,
+      /** Before a line of a message that matched the search; `from` is the agent's name or `user`. */
+      matchFrom: (from: string) => (from === 'user' ? 'You: ' : `${from}: `),
     },
     projects: {
       heading: 'Projects',
@@ -433,6 +437,7 @@ export const copy = {
     },
     empty: 'Your conversations will appear here.',
     noMatches: (query: string) => `No chats match “${query}”.`,
+    searchingMessages: 'Searching messages…',
     nav: { crews: 'Crews', compare: 'Compare runs', settings: 'Settings' },
     theme: (theme: string, next: string) => `Theme: ${theme}. Switch to ${next}`,
   },

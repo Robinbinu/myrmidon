@@ -22,6 +22,11 @@ export const MAX_FILES = 10
 /** The largest attachment a message can carry; the error text in copy.app.fileTooLarge names the same size. */
 export const MAX_FILE_BYTES = 10 * 1024 * 1024
 
+/* ------------------------------------------------------------------ sidebar */
+
+/** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
+export const MESSAGE_SEARCH_DELAY_MS = 200
+
 /* ------------------------------------------------------------------ scrolling */
 
 /** Within this many pixels of the bottom, a view counts as following its newest content and keeps doing so. */
