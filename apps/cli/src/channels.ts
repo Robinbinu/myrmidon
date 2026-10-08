@@ -162,7 +162,8 @@ export async function channels(call: Call, term: Terminal, args: string[]): Prom
       if (answer) values[f.key] = answer
     }
   }
-  if (!Object.keys(values).length) return
+  // A platform with nothing to fill in (WhatsApp links by QR code) is switched on by saving no values.
+  if (!Object.keys(values).length && c.fields.length) return
   const { channel } = await call<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, { values })
   // It starts at once; give it a moment to say who it is.
   let shown = channel

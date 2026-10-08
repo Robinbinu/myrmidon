@@ -2493,6 +2493,9 @@ interface ChannelView {
   }[]
 }
 
+/** Set up and shown in full: settings filled in, or (for a platform with none, like WhatsApp) switched on. */
+const inUse = (c: ChannelView) => (c.fields.length ? c.configured : c.enabled)
+
 /** How often Settings → Channels looks again, so a code someone just asked for shows up. */
 const CHANNELS_POLL_MS = 3000
 
@@ -2561,7 +2564,7 @@ function ChannelsSection() {
     <>
       <Heading title={t.title}>{t.intro}</Heading>
       {list
-        ?.filter((c) => c.configured || c.id === adding)
+        ?.filter((c) => inUse(c) || c.id === adding)
         .map((c) => {
           const draft = drafts[c.id] ?? {}
           const changed = Object.values(draft).some((v) => v.trim())
@@ -2590,7 +2593,8 @@ function ChannelsSection() {
                       />
                     )}
                   </div>
-                  {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
+                  {/* A platform with nothing to fill in (WhatsApp) shows its setup until it is switched on. */}
+                  {!inUse(c) && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
                   {c.status.state === 'linking' && (
                     <img
                       src={c.status.image}
@@ -2622,16 +2626,30 @@ function ChannelsSection() {
                     </Row>
                   )
                 })}
-                <Row>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={busy === c.id || !changed}
-                    onClick={() => void configure(c, { values: draft })}
-                  >
-                    {busy === c.id ? t.saving : t.save}
-                  </Button>
-                </Row>
+                {c.fields.length > 0 ? (
+                  <Row>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={busy === c.id || !changed}
+                      onClick={() => void configure(c, { values: draft })}
+                    >
+                      {busy === c.id ? t.saving : t.save}
+                    </Button>
+                  </Row>
+                ) : (
+                  !c.enabled && (
+                    <Row>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => void configure(c, { enabled: true })}
+                      >
+                        {t.turnOn}
+                      </Button>
+                    </Row>
+                  )
+                )}
                 {c.configured && (
                   <Row>
                     <Field label={t.project} hint={t.projectHint} inline>
@@ -2830,7 +2848,7 @@ function ChannelsSection() {
             </div>
           )
         })}
-      {list && list.some((c) => !c.configured && c.id !== adding) && (
+      {list && list.some((c) => !inUse(c) && c.id !== adding) && (
         <Card>
           <Row>
             <div className="text-[13px] font-semibold">{t.add}</div>
@@ -2838,7 +2856,7 @@ function ChannelsSection() {
           </Row>
           <div className="grid grid-cols-2 gap-1.5 px-4 pb-4 sm:grid-cols-3">
             {list
-              .filter((c) => !c.configured && c.id !== adding)
+              .filter((c) => !inUse(c) && c.id !== adding)
               .map((c) => (
                 <button
                   key={c.id}

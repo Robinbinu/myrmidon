@@ -144,6 +144,63 @@ export function telegramHtml(markdown: string): string {
   return out.join('\n')
 }
 
+/** Inline Markdown as WhatsApp's own marks: `*bold*`, `_italic_`, `~strike~`, and links as `label (url)`. */
+function whatsappInline(line: string): string {
+  const codes: string[] = []
+  // Inline code keeps its backticks (WhatsApp shows them as code) and is taken out so nothing inside is changed.
+  let out = line.replace(/`[^`\n]+`/g, (code) => {
+    codes.push(code)
+    return `${codes.length - 1}`
+  })
+  out = out
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label: string, url: string) =>
+      label === url ? url : `${label} (${url})`,
+    )
+    // Single-star italics first, so the bold made next is not read as italic again.
+    .replace(/(?<![\w*])\*(?![\s*])([^*\n]+?)(?<![\s*])\*(?![\w*])/g, '_$1_')
+    .replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '*$1*')
+    .replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '*$1*')
+    .replace(/~~(?!\s)([^~\n]+?)(?<!\s)~~/g, '~$1~')
+  return out.replace(/(\d+)/g, (_m, i: string) => codes[Number(i)] ?? '')
+}
+
+/**
+ * Markdown as WhatsApp formats text (after Hermes's `format_message`): bold, italic, strike, code blocks (without
+ * their language, which WhatsApp would print), headings as bold, bullets as `•`; quotes stay `>`, which WhatsApp
+ * shows as quotes. Nothing needs escaping.
+ */
+export function whatsappText(markdown: string): string {
+  const out: string[] = []
+  let inCode = false
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      out.push('```')
+      inCode = !inCode
+      continue
+    }
+    if (inCode) {
+      out.push(line)
+      continue
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(line)
+    if (heading) {
+      // A heading is bold already: bold inside it would nest stars, which WhatsApp prints.
+      const inner = (heading[1] ?? '').trim().replace(/\*\*([^*\n]+)\*\*/g, '$1')
+      out.push(`*${whatsappInline(inner)}*`)
+      continue
+    }
+    const bullet = /^(\s*)[-*+]\s+(.*)$/.exec(line)
+    if (bullet) {
+      out.push(`${bullet[1] ?? ''}• ${whatsappInline(bullet[2] ?? '')}`)
+      continue
+    }
+    out.push(whatsappInline(line))
+  }
+  // A block left open (a cut that missed its fence) is still closed.
+  if (inCode) out.push('```')
+  return out.join('\n')
+}
+
 /**
  * Markdown as plain text, for platforms that show it literally (SMS, iMessage): markers dropped, links as `label (url)`,
  * bullets as `•`, code kept as it is.

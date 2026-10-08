@@ -4,6 +4,10 @@ export const channelCopy = {
   setup: {
     telegram:
       'In Telegram, message @BotFather, send /newbot and follow its steps, then paste the token it gives you. Then message your bot: it replies with a code to approve here. The first person approved is the owner.',
+    whatsapp:
+      "Links Myrmidon to a WhatsApp account as a linked device, like WhatsApp Web: turn it on, then on the phone open WhatsApp → Settings → Linked devices → Link a device and scan the code. This isn't an official WhatsApp API and WhatsApp can ban numbers it takes for bots: use a spare number, never message people first, and never send bulk messages. Then message that number from your own: it replies with a code to approve here. The first person approved is the owner.",
+    'whatsapp-cloud':
+      "Meta's official WhatsApp Business Platform, for a business number. At developers.facebook.com make an app with WhatsApp; copy the phone number ID and an access token from WhatsApp → API Setup (a System User token lasts; the test one expires in a day) and the app secret from Settings → Basic, and make up a verify token. It needs this gateway's public HTTPS address: in WhatsApp → Configuration set the callback URL to <public address>/hooks/channels/whatsapp-cloud with the same verify token, and subscribe to messages. Replies are allowed within 24 hours of the person's last message.",
     mattermost:
       "In Mattermost, open Integrations → Bot Accounts → Add Bot Account, then paste your server's address and the bot's token. Message the bot directly: it replies with a code to approve here. In channels, add the bot and mention it. Buttons for approvals need this gateway's public address; without one, reply /approve KEY (type a space before the slash, or Mattermost takes it as its own command).",
     email:
@@ -20,6 +24,65 @@ export const channelCopy = {
       'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent and copy the token (Reset Token). Invite the bot with OAuth2 → URL Generator (scope "bot"; View Channels, Send Messages, Send Messages in Threads, Read Message History, Attach Files). Then DM the bot: it replies with a code to approve here. The first person approved is the owner.',
     slack:
       'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…). Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
+  },
+  /** Settings the WhatsApp Cloud API needs. */
+  fields: {
+    whatsappCloud: {
+      phoneNumberId: 'Phone number ID',
+      phoneNumberIdHint: 'From WhatsApp → API Setup; a long number, not the phone number itself',
+      token: 'Access token',
+      appSecret: 'App secret',
+      appSecretHint: 'From Settings → Basic; checks that webhooks really come from Meta',
+      verifyToken: 'Verify token',
+      verifyTokenHint: "Any long random text; type the same in Meta's webhook settings",
+    },
+    signal: {
+      url: { label: 'signal-cli address', hint: 'Where its daemon listens with --http' },
+      account: { label: 'Bot phone number', hint: 'The number signal-cli is registered or linked with' },
+    },
+    imessage: {
+      url: { label: 'BlueBubbles server address', hint: 'Its address as this machine reaches it' },
+      password: { label: 'Server password' },
+      name: {
+        label: 'Name in group chats',
+        hint: 'Group messages that start with or @mention this name are for it (default: Myrmidon)',
+      },
+    },
+    matrix: {
+      homeserver: { label: 'Homeserver address' },
+      token: { label: 'Access token' },
+      userId: { label: 'Bot user ID', hint: 'Checked against the token when given, e.g. @myrbot:matrix.org' },
+    },
+    slackBot: 'OAuth & Permissions → Bot User OAuth Token',
+    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope',
+  },
+  whatsapp: {
+    /** What `check()` says before a phone is linked. */
+    account: 'linked device',
+    linking: 'On your phone: WhatsApp → Settings → Linked devices → Link a device, then scan this code',
+    linkExpired: 'No phone scanned the code in time; turn WhatsApp off and on here for a new one',
+    loggedOut:
+      'WhatsApp logged this device out; turn WhatsApp off and on here and scan the new code to link again',
+    replaced:
+      'Another WhatsApp Web session took over this linked device (only one program may use it); stop it, then turn WhatsApp off and on here',
+    closed: (code: number | string) => `WhatsApp closed the connection (${code}); reconnecting`,
+    offline: 'not connected to WhatsApp',
+    tooSlow: 'WhatsApp took too long to send the message',
+  },
+  whatsappCloud: {
+    needsPublic:
+      'The WhatsApp Cloud API delivers messages by webhook, so this gateway needs a public HTTPS address (start it with --public-url; see docs/remote.md)',
+    refused:
+      'Meta refused this access token; make a new one in WhatsApp → API Setup (a System User token does not expire)',
+    noNumber:
+      "Meta doesn't know this phone number ID; copy it from WhatsApp → API Setup (it's not the phone number itself)",
+    unreachable: 'cannot reach the WhatsApp Cloud API',
+    window:
+      "WhatsApp only allows replies within 24 hours of the person's last message; they need to write first",
+    rejected: (why: string) => `WhatsApp refused it: ${why}`,
+    noEdit: "WhatsApp's Cloud API can't edit messages",
+    /** The button that opens a list of more than three options. */
+    choose: 'Choose',
   },
   /** What platforms report in Settings when they cannot connect. */
   errors: {
@@ -43,28 +106,6 @@ export const channelCopy = {
   },
   /** What a message on an ntfy topic is shown as coming from (ntfy has no senders). */
   ntfySender: 'ntfy topic',
-  /** The settings each platform asks for, and what they mean, in Settings → Channels. */
-  fields: {
-    signal: {
-      url: { label: 'signal-cli address', hint: 'Where its daemon listens with --http' },
-      account: { label: 'Bot phone number', hint: 'The number signal-cli is registered or linked with' },
-    },
-    imessage: {
-      url: { label: 'BlueBubbles server address', hint: 'Its address as this machine reaches it' },
-      password: { label: 'Server password' },
-      name: {
-        label: 'Name in group chats',
-        hint: 'Group messages that start with or @mention this name are for it (default: Myrmidon)',
-      },
-    },
-    matrix: {
-      homeserver: { label: 'Homeserver address' },
-      token: { label: 'Access token' },
-      userId: { label: 'Bot user ID', hint: 'Checked against the token when given, e.g. @myrbot:matrix.org' },
-    },
-    slackBot: 'OAuth & Permissions → Bot User OAuth Token',
-    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope',
-  },
   /** Why a platform will not connect, shown as the channel's status (and other messages of its own). */
   signal: {
     refused: (account: string) =>

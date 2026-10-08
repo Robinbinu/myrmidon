@@ -12,6 +12,8 @@ import { SignalAdapter } from './signal.ts'
 import { SlackAdapter } from './slack.ts'
 import { SmsAdapter, TWILIO_API } from './sms.ts'
 import { TELEGRAM_API, TelegramAdapter } from './telegram.ts'
+import { WhatsAppAdapter } from './whatsapp.ts'
+import { WhatsAppCloudAdapter } from './whatsapp-cloud.ts'
 
 export * from './discord.ts'
 export * from './email.ts'
@@ -27,6 +29,10 @@ export * from './sms.ts'
 export * from './store.ts'
 export * from './telegram.ts'
 export * from './types.ts'
+export * from './whatsapp.ts'
+export * from './whatsapp-cloud.ts'
+
+const cloud = channelCopy.fields.whatsappCloud
 
 /** Channels Myrmidon has built in; plugins add more with `ctx.channels.register`. */
 export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
@@ -36,6 +42,35 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
     fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: '123456:ABC-…' }],
     // MYR_TELEGRAM_API points at a self-hosted Bot API server (Telegram's own `telegram-bot-api`) instead.
     make: (values) => new TelegramAdapter(values.token ?? '', process.env.MYR_TELEGRAM_API || TELEGRAM_API),
+  },
+  // Nothing to fill in: it links by QR code once switched on, and keeps its session in the channel's folder.
+  whatsapp: {
+    label: 'WhatsApp',
+    setup: channelCopy.setup.whatsapp,
+    fields: [],
+    make: () => new WhatsAppAdapter(),
+  },
+  'whatsapp-cloud': {
+    label: 'WhatsApp Cloud API',
+    setup: channelCopy.setup['whatsapp-cloud'],
+    fields: [
+      {
+        key: 'phoneNumberId',
+        label: cloud.phoneNumberId,
+        hint: cloud.phoneNumberIdHint,
+        placeholder: '1234567890',
+      },
+      { key: 'token', label: cloud.token, secret: true, placeholder: 'EAA…' },
+      { key: 'appSecret', label: cloud.appSecret, secret: true, hint: cloud.appSecretHint },
+      { key: 'verifyToken', label: cloud.verifyToken, hint: cloud.verifyTokenHint },
+    ],
+    make: (values) =>
+      new WhatsAppCloudAdapter({
+        phoneNumberId: values.phoneNumberId ?? '',
+        token: values.token ?? '',
+        appSecret: values.appSecret ?? '',
+        verifyToken: values.verifyToken ?? '',
+      }),
   },
   mattermost: {
     label: 'Mattermost',

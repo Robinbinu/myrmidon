@@ -1731,6 +1731,7 @@ export const copy = {
       intro:
         "Talk to your agents from a messaging app. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
       secretSet: 'Saved; type a new one to replace it',
+      turnOn: 'Turn on',
       add: 'Add a channel',
       addHint:
         'Pick an app to set it up. Each one runs through the same access rules, approvals and delivery.',
