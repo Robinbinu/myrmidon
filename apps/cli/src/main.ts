@@ -386,6 +386,8 @@ async function main() {
         debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      // Speech engines load in the background now, so the first call does not wait on them.
+      void server.warmVoice()
       if (server.remote)
         console.log(
           `${c.green('remote gateway')}${server.publicUrl ? ` at ${server.publicUrl}` : ''}: pair a device with ${c.bold('myrmidon pair')} (see docs/remote.md)`,

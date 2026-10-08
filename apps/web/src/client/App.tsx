@@ -46,6 +46,7 @@ import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
+import { SETTINGS_SAVED } from './mascot.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
@@ -345,6 +346,17 @@ export function App() {
   const [call, setCall] = useState<{ state: CallState; lines: CallLine[]; muted: boolean }>()
   const [calls, setCalls] = useState<SavedCall[]>([])
   const [callsSeen, setCallsSeen] = useState(0)
+  // The Call button shows only once voice calls are on in Settings → Voice.
+  const [voiceOn, setVoiceOn] = useState(false)
+  useEffect(() => {
+    const load = () =>
+      api<{ enabled?: boolean }>('/api/voice')
+        .then((r) => setVoiceOn(r.enabled === true))
+        .catch(() => setVoiceOn(false))
+    void load()
+    window.addEventListener(SETTINGS_SAVED, load)
+    return () => window.removeEventListener(SETTINGS_SAVED, load)
+  }, [])
   const callChat = activeChat
   // biome-ignore lint/correctness/useExhaustiveDependencies: callsSeen reloads the list after a call ends
   useEffect(() => {
@@ -765,7 +777,7 @@ export function App() {
                     <Pill tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Pill>
                   )}
                 </ToolbarTitle>
-                {view === 'chat' && !call && (
+                {view === 'chat' && voiceOn && !call && (
                   <Button
                     variant="toolbar"
                     size="sm"

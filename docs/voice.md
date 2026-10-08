@@ -8,11 +8,22 @@ question, or needs your OK. Talk over it at any time to interrupt. Design:
 
 ## Set up (Settings → Voice)
 
+Voice calls are **off** until you turn on **Voice calls** in Settings → Voice; until then nothing is downloaded or
+started, and the Call button is hidden. Turned on, the engines you choose are downloaded if they are not here yet and
+kept warm (started, with one short run to compile them), so a call answers at once; turned off, they stop and free
+their memory. The first call right after turning voice on (or after a start) shows "Preparing voice…" while that
+finishes.
+
+Your turns are found by **Silero VAD** (snakers4/silero-vad, MIT): its 16 kHz model, 1.3 MB, downloaded once into
+`<home>/voice` and checked against the hash of release v6.2.3. It tells speech from noise, music and tones, so a
+door or a fan does not start a turn; without it (or if it fails) Myrmidon falls back to how loud the sound is.
+
 By default speech stays on your Mac:
 
 - **Speech to text: Phonon-2** (Fermion Research, 164 MB, English). Press **Install**: Myrmidon runs
-  `uv tool install fermion-research` (with the Apple-silicon runtime). It needs [uv](https://docs.astral.sh/uv/). The
-  model downloads the first time a call starts, into `<home>/voice/fermion`; that first start takes a minute.
+  `uv tool install fermion-research` (with the Apple-silicon runtime), then downloads the model into
+  `<home>/voice/fermion` and warms it at once (about a minute the first time). It needs
+  [uv](https://docs.astral.sh/uv/).
 - **Text to speech: Kitten TTS** (KittenML). Press **Download** for the model size you chose (nano is fastest, mini
   sounds best); it is saved in `<home>/voice/kitten`. Pick one of its eight voices and a speed, and press **Try it**.
 
@@ -45,7 +56,7 @@ installing engines and keys needs full access.
 ## Troubleshooting
 
 - **"Phonon-2 is not installed"**: install it in Settings → Voice, or choose another speech-to-text.
-- **The first call is slow to answer**: Phonon-2 is downloading its model and compiling its runtime once.
+- **"Preparing voice…" for a while**: the engines are downloading or compiling once; later starts take seconds.
 - **It hears itself / interrupts itself**: use headphones, or lower the sensitivity; Myrmidon relies on the browser's
   echo cancellation.
 - **Long pauses before each answer**: choose a faster call model.

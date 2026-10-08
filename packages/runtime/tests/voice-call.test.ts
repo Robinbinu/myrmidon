@@ -4,6 +4,7 @@ import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
 import { type CallChats, type CallOutput, CallSession, splitSentences } from '../src/voice/call.ts'
+import type { SpeechDetector } from '../src/voice/vad.ts'
 
 const RATE = 16_000
 const until = async (check: () => boolean, ms = 3000) => {
@@ -28,7 +29,7 @@ const lastText = (ctx: LlmContext) => {
 /** A call with a scripted ear, an instant voice, fake chats and a mock call model answering by `reply`. */
 function setup(
   reply: (said: string, ctx: LlmContext) => MockContent[],
-  options: { slowVoiceMs?: number } = {},
+  options: { slowVoiceMs?: number; detector?: SpeechDetector } = {},
 ) {
   const heard: string[] = []
   const out: CallOutput[] = []
@@ -58,6 +59,7 @@ function setup(
       chats,
       resolver,
       stt: { transcribe: async () => heard.shift() ?? '' },
+      ...(options.detector ? { detector: options.detector } : {}),
       tts: {
         speak: async (text) => {
           if (options.slowVoiceMs) await Bun.sleep(options.slowVoiceMs)
@@ -65,7 +67,7 @@ function setup(
         },
       },
     },
-    { model: 'mock/voice', name: 'Robin', threshold: 400, sampleRate: RATE },
+    { model: 'mock/voice', name: 'Robin', start: 0.5, hold: 0.35, threshold: 400, sampleRate: RATE },
     (o) => out.push(o),
   )
   const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
@@ -79,7 +81,7 @@ function setup(
   const events = (colonyId: string, list: { type: string; payload: Record<string, unknown> }[]) =>
     listener?.(colonyId, list as unknown as MyrEvent[])
   const said = () => out.flatMap((o) => (o.type === 'said' ? [o.text] : []))
-  return { call, out, sent, decided, say, events, said, model }
+  return { call, out, sent, decided, say, events, said, model, heard }
 }
 
 test('sentences are split as they are written', () => {
@@ -194,4 +196,27 @@ test('saying goodbye ends the call after the goodbye is spoken', async () => {
   await until(() => out.some((o) => o.type === 'ended'))
   expect(said()).toContain('Bye Robin.')
   expect(out.at(-1)).toEqual({ type: 'ended', reason: 'agent' })
+})
+
+test('with a speech detector, loud noise is not a turn and quiet speech is', async () => {
+  // A stand-in detector: "speech" is a quiet tone at 1000 amplitude, anything else (loud included) is not.
+  const detector: SpeechDetector = {
+    stream: () => ({
+      chance: async (chunk) => {
+        const peak = chunk.reduce((m, x) => Math.max(m, Math.abs(x)), 0)
+        return peak > 0.02 && peak < 0.05 ? 0.95 : 0.02
+      },
+    }),
+  }
+  const { call, say, said, out, heard } = setup((text) => (text === 'hello' ? ['Hi.'] : []), { detector })
+  await call.start()
+  say('noise')
+  await Bun.sleep(100)
+  expect(out.some((o) => o.type === 'heard')).toBe(false)
+  heard.splice(0, heard.length, 'hello')
+  const quiet = Int16Array.from({ length: 320 }, (_, i) => Math.round(1000 * Math.sin(i / 3)))
+  for (let i = 0; i < 25; i++) call.audio(quiet)
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => said().includes('Hi.'))
+  call.hangUp()
 })

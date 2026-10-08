@@ -13,7 +13,8 @@ import { prompts } from '../prompts.ts'
 import { trimSilence } from './audio.ts'
 import type { SpeechToText } from './stt.ts'
 import type { TextToSpeech } from './tts.ts'
-import { TurnDetector } from './turns.ts'
+import { rms, TurnDetector } from './turns.ts'
+import { type SpeechDetector, VAD_CHUNK } from './vad.ts'
 
 /** What a call needs from the chats: the same port the channels use. */
 export interface CallChats {
@@ -35,7 +36,10 @@ export interface CallOptions {
   readonly project?: string
   /** What to call the person. */
   readonly name: string
-  /** Speech level for turn detection (see VOICE_THRESHOLDS). */
+  /** How sure the speech detector must be to start a turn (see VOICE_VAD_START), and how much less to hold one. */
+  readonly start: number
+  readonly hold: number
+  /** The speech level to fall back on without a detector (see VOICE_THRESHOLDS). */
   readonly threshold: number
   /** The sample rate of the audio the person's side sends. */
   readonly sampleRate: number
@@ -49,7 +53,7 @@ export interface CallTurn {
 
 /** What a call tells the person's side (the app, later a phone line). */
 export type CallOutput =
-  | { type: 'state'; state: 'listening' | 'hearing' | 'thinking' | 'speaking' }
+  | { type: 'state'; state: 'preparing' | 'listening' | 'hearing' | 'thinking' | 'speaking' }
   | { type: 'heard'; text: string }
   | { type: 'said'; text: string }
   | { type: 'audio'; pcm: Int16Array; sampleRate: number }
@@ -126,6 +130,10 @@ export class CallSession {
   private _playingUntil = 0
   private _muted = false
   private _ended = false
+  private _vad?: { chance(chunk: Float32Array): Promise<number> }
+  /** Audio not yet scored, and the scoring in progress (chunks are scored in order). */
+  private _unscored = new Int16Array(0)
+  private _scoring: Promise<void> = Promise.resolve()
   private _hangUpAfterSpeech = false
   private readonly _off: () => void
 
@@ -135,12 +143,20 @@ export class CallSession {
       readonly resolver: ModelResolver
       readonly stt: SpeechToText
       readonly tts: TextToSpeech
+      /** Silero VAD; without it (or if it fails) turns are found by level. */
+      readonly detector?: SpeechDetector
     },
     private readonly options: CallOptions,
     private readonly emit: (out: CallOutput) => void,
   ) {
     this._chatId = options.chatId
-    this._detector = new TurnDetector({ sampleRate: options.sampleRate, threshold: options.threshold })
+    this._detector = new TurnDetector({
+      sampleRate: options.sampleRate,
+      start: options.start,
+      hold: options.hold,
+    })
+    // Silero's model here is for 16 kHz; other rates (a phone line's 8 kHz) are scored by level.
+    if (ports.detector && options.sampleRate === 16_000) this._vad = ports.detector.stream()
     this._off = ports.chats.onEvents((colonyId, events) => this._onEvents(colonyId, events))
   }
 
@@ -164,10 +180,37 @@ export class CallSession {
     this._state('listening')
   }
 
-  /** A frame of the person's audio (16-bit mono at the call's sample rate). */
+  /** A frame of the person's audio (16-bit mono at the call's sample rate), any length. */
   audio(frame: Int16Array) {
     if (this._ended || this._muted) return
-    for (const event of this._detector.push(frame)) {
+    const all = new Int16Array(this._unscored.length + frame.length)
+    all.set(this._unscored)
+    all.set(frame, this._unscored.length)
+    let at = 0
+    for (; at + VAD_CHUNK <= all.length; at += VAD_CHUNK) {
+      const chunk = all.slice(at, at + VAD_CHUNK)
+      this._scoring = this._scoring.then(() => this._score(chunk))
+    }
+    this._unscored = all.slice(at)
+  }
+
+  /** How likely a chunk is speech, then what that means for the person's turn. */
+  private async _score(chunk: Int16Array) {
+    if (this._ended || this._muted) return
+    let chance = rms(chunk) >= this.options.threshold ? 1 : 0
+    if (this._vad) {
+      try {
+        chance = await this._vad.chance(Float32Array.from(chunk, (x) => x / 32768))
+      } catch (err) {
+        this._vad = undefined
+        this.emit({
+          type: 'error',
+          message: `speech detector: ${err instanceof Error ? err.message : String(err)}`,
+        })
+      }
+    }
+    if (this._ended || this._muted) return
+    for (const event of this._detector.push(chunk, chance)) {
       if (event.type === 'start') {
         if (this._reply || this._playingUntil > Date.now()) this.interrupt()
         this._state('hearing')
@@ -185,7 +228,10 @@ export class CallSession {
 
   mute(muted: boolean) {
     this._muted = muted
-    if (muted) this._detector.reset()
+    if (muted) {
+      this._detector.reset()
+      this._unscored = new Int16Array(0)
+    }
   }
 
   hangUp(reason: 'hung-up' | 'agent' | 'error' = 'hung-up') {

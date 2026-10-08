@@ -1,7 +1,14 @@
 import { callSocket } from '../api.ts'
 import { CALL_FRAME, CALL_RATE } from '../ui-config.ts'
 
-export type CallState = 'connecting' | 'listening' | 'hearing' | 'thinking' | 'speaking' | 'ended'
+export type CallState =
+  | 'connecting'
+  | 'preparing'
+  | 'listening'
+  | 'hearing'
+  | 'thinking'
+  | 'speaking'
+  | 'ended'
 
 export interface CallHandlers {
   state(state: CallState): void

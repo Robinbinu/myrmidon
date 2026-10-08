@@ -187,3 +187,14 @@ export const VOICE_PHONON_START_MS = 10 * 60_000
 /** Model calls the call agent may make for one turn (each tool call takes one), and how much of a round's answer it is told. */
 export const VOICE_STEPS = 4
 export const VOICE_ANSWER_CHARS = 2_000
+/**
+ * Silero VAD (MIT), the speech detector for call turns: its 16 kHz-only model (1.3 MB, half the general one) from
+ * v6.2.3, pinned by hash, downloaded once into <home>/voice.
+ * A turn starts above VOICE_VAD_START and, once started, holds until the probability drops VOICE_VAD_HYSTERESIS
+ * below that (Silero's own hysteresis).
+ */
+export const VOICE_VAD_URL =
+  'https://github.com/snakers4/silero-vad/raw/v6.2.3/src/silero_vad/data/silero_vad_16k_op15.onnx'
+export const VOICE_VAD_SHA256 = '7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49'
+export const VOICE_VAD_START = { low: 0.7, normal: 0.5, high: 0.35 } as const
+export const VOICE_VAD_HYSTERESIS = 0.15

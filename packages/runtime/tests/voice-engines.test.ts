@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { KittenTts, OpenAiCompatibleTts } from '../src/voice/tts.ts'
+import { SileroVad, VAD_CHUNK } from '../src/voice/vad.ts'
 
 const dirs: string[] = []
 const servers: { stop(force?: boolean): void }[] = []
@@ -154,3 +155,48 @@ test('quiet around a spoken sentence is cut to a breath, the speech kept whole',
   expect(trimmed.length / rate).toBeCloseTo(0.7, 1)
   expect(trimSilence(new Int16Array(100), rate).length).toBe(100)
 })
+
+test('the speech detector is saved only if it matches its pinned hash', async () => {
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('not a model') })
+  servers.push(server)
+  const h = home()
+  const vad = new SileroVad(h, `http://127.0.0.1:${server.port}/vad.onnx`)
+  await expect(vad.load()).rejects.toThrow('did not match its hash')
+  expect(vad.ready).toBe(false)
+  expect(existsSync(join(h, 'voice'))).toBe(false)
+})
+
+test.skipIf(!process.env.MYR_VOICE_E2E)(
+  'Silero tells speech from silence and a tone; Phonon-2 warms up',
+  async () => {
+    const h = home()
+    const kitten = new KittenTts(h, () => ({ model: 'nano', voice: 'Leo', speed: 1 }))
+    const vad = new SileroVad(h)
+    const phonon = new PhononStt(h)
+    try {
+      const speech = await kitten.speak('The crew finished the report.')
+      const down = Float32Array.from(
+        { length: Math.floor(speech.pcm.length / 1.5) },
+        (_, i) => (speech.pcm[Math.floor(i * 1.5)] ?? 0) / 32768,
+      )
+      const score = async (audio: Float32Array) => {
+        const s = vad.stream()
+        let best = 0
+        for (let i = 0; i + VAD_CHUNK <= audio.length; i += VAD_CHUNK)
+          best = Math.max(best, await s.chance(audio.subarray(i, i + VAD_CHUNK)))
+        return best
+      }
+      expect(await score(down)).toBeGreaterThan(0.9)
+      expect(await score(new Float32Array(16_000))).toBeLessThan(0.1)
+      expect(
+        await score(Float32Array.from({ length: 16_000 }, (_, i) => 0.3 * Math.sin(i / 3))),
+      ).toBeLessThan(0.5)
+      await phonon.warm()
+      expect(phonon.status()).toEqual({ state: 'running' })
+    } finally {
+      kitten.stop()
+      phonon.stop()
+    }
+  },
+  15 * 60_000,
+)

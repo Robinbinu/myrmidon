@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { VOICE_THRESHOLDS } from '../config.ts'
+import { VOICE_THRESHOLDS, VOICE_VAD_HYSTERESIS, VOICE_VAD_START } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import type { MyrSettings } from '../settings.ts'
 import { trimSilence } from './audio.ts'
@@ -23,6 +23,7 @@ import {
   type Speech,
   type TextToSpeech,
 } from './tts.ts'
+import { SileroVad } from './vad.ts'
 
 export type VoiceSettings = MyrSettings['voice']
 
@@ -53,6 +54,7 @@ export interface SavedCall {
 }
 
 export interface VoiceStatus {
+  readonly enabled: boolean
   readonly callModel?: string
   readonly stt: {
     provider: VoiceSettings['stt']['provider']
@@ -76,9 +78,11 @@ export interface VoiceStatus {
 export class VoiceHub {
   readonly phonon: PhononStt
   readonly kitten: KittenTts
+  readonly vad: SileroVad
   private readonly _calls = new Map<string, CallSession>()
   private readonly _secretsFile: string
   private readonly _callsDir: string
+  private _warm?: { key: string; done: Promise<void> }
 
   constructor(
     private readonly options: {
@@ -88,6 +92,8 @@ export class VoiceHub {
       readonly settings: () => { voice: VoiceSettings; fallbackModel?: string }
       readonly omp?: OmpSpeech
       readonly log?: (line: string) => void
+      /** The speech detector; Silero VAD in `<home>/voice` unless given (tests give one that stays offline). */
+      readonly vad?: SileroVad
     },
   ) {
     const log = options.log ?? (() => {})
@@ -100,6 +106,7 @@ export class VoiceHub {
       },
       log,
     )
+    this.vad = options.vad ?? new SileroVad(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
   }
@@ -110,6 +117,7 @@ export class VoiceHub {
     const omp = this._ompModels()
     const callModel = voice.callModel ?? fallbackModel
     return {
+      enabled: voice.enabled,
       ...(callModel ? { callModel } : {}),
       stt: {
         provider: voice.stt.provider,
@@ -183,6 +191,38 @@ export class VoiceHub {
     return this.kitten
   }
 
+  /**
+   * Loads the engines the settings choose and warms them (the speech detector, Phonon-2, Kitten), so the first call
+   * does not wait on downloads or start-up. Shared: a call starting meanwhile waits for the same work, and once warm it
+   * returns at once until the choice changes.
+   */
+  warm(): Promise<void> {
+    const { voice } = this.options.settings()
+    // Off means nothing is downloaded or started.
+    if (!voice.enabled) {
+      this._warm = undefined
+      return Promise.resolve()
+    }
+    const phonon = voice.stt.provider === 'phonon' && this.phonon.status().state !== 'missing'
+    const kitten = voice.tts.provider === 'kitten' && this.kitten.status().state !== 'missing'
+    const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
+    if (this._warm?.key === key) return this._warm.done
+    const log = this.options.log ?? (() => {})
+    const jobs: [string, Promise<unknown>][] = [['speech detector', this.vad.load()]]
+    if (phonon) jobs.push(['Phonon-2', this.phonon.warm()])
+    if (kitten) jobs.push(['Kitten TTS', this.kitten.speak('Ready.')])
+    const done = Promise.allSettled(jobs.map(([, job]) => job)).then((results) => {
+      results.forEach((r, i) => {
+        if (r.status === 'rejected')
+          log(`${jobs[i]?.[0]} did not start: ${r.reason instanceof Error ? r.reason.message : r.reason}`)
+      })
+      // A failure is tried again next time.
+      if (results.some((r) => r.status === 'rejected') && this._warm?.done === done) this._warm = undefined
+    })
+    this._warm = { key, done }
+    return done
+  }
+
   /** A sentence in the chosen voice, for "Try it" in Settings. */
   async sample(text: string): Promise<Speech> {
     const speech = await this.tts().speak(text)
@@ -190,17 +230,36 @@ export class VoiceHub {
   }
 
   /** Starts a call: the person's side sends audio to `call.audio` and plays what `emit` sends back. */
+  /** Whether voice calls are on in Settings → Voice. */
+  get enabled(): boolean {
+    return this.options.settings().voice.enabled
+  }
+
   call(
     chats: CallChats,
     options: { chatId?: string; chatTitle?: string; project?: string; name: string; sampleRate: number },
     emit: (out: CallOutput) => void,
   ): CallSession {
     const { voice, fallbackModel } = this.options.settings()
+    if (!voice.enabled) throw new Error('voice calls are off: turn them on in Settings → Voice')
     const model = voice.callModel ?? fallbackModel
     if (!model) throw new Error('pick a call model in Settings → Voice')
     const session = new CallSession(
-      { chats, resolver: this.options.resolver, stt: this.stt(), tts: this.tts() },
-      { ...options, model, threshold: VOICE_THRESHOLDS[voice.sensitivity] },
+      {
+        chats,
+        resolver: this.options.resolver,
+        stt: this.stt(),
+        tts: this.tts(),
+        // Downloaded by warm(); until then turns are found by level.
+        ...(this.vad.ready ? { detector: this.vad } : {}),
+      },
+      {
+        ...options,
+        model,
+        start: VOICE_VAD_START[voice.sensitivity],
+        hold: VOICE_VAD_START[voice.sensitivity] - VOICE_VAD_HYSTERESIS,
+        threshold: VOICE_THRESHOLDS[voice.sensitivity],
+      },
       (out) => {
         if (out.type === 'ended') {
           this._calls.delete(session.id)
@@ -229,11 +288,12 @@ export class VoiceHub {
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
   }
 
-  /** Hangs up every call and stops the engines on this machine. */
+  /** Hangs up every call and stops the engines on this machine (they start again when warmed). */
   stop() {
     for (const call of [...this._calls.values()]) call.hangUp()
     this.phonon.stop()
     this.kitten.stop()
+    this._warm = undefined
   }
 
   private _save(session: CallSession) {

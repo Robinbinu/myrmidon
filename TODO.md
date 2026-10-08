@@ -297,6 +297,8 @@ Open work, in the order it will be done:
       keeps talking, reports back, asks before approvals; barge-in; transcripts as call cards; Settings → Voice.
       Follow-ups:
       - [ ] Try a real call with the mic (only the engines, the socket and Settings were checked live).
+      - [x] Voice calls off by default; on, the chosen engines download (if missing) and warm, so calls answer at
+        once; Silero VAD (16 kHz, 1.3 MB) finds turns instead of loudness alone (asked 2026-10-08).
       - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
       - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
       - [ ] Phonon `--hotwords` from agent and project names.

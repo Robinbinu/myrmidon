@@ -72,6 +72,8 @@ export interface MyrSettings {
    * loud speech must be to count.
    */
   voice: {
+    /** Voice calls are off until the person turns them on: nothing is downloaded or started before. */
+    enabled: boolean
     callModel?: string
     stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
     tts: {
@@ -140,6 +142,7 @@ export const settingsSchema = Schema.object({
     screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
   }).default({}),
   voice: Schema.object({
+    enabled: Schema.boolean().default(false),
     callModel: Schema.string(),
     stt: Schema.object({
       provider: Schema.union(['phonon', 'omp', 'endpoint']).default('phonon'),
@@ -182,6 +185,7 @@ function parse(input: unknown): MyrSettings {
     },
     mascot: s.mascot,
     voice: {
+      enabled: s.voice.enabled,
       ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),
       stt: s.voice.stt,
       tts: s.voice.tts,

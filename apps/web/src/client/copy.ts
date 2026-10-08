@@ -149,6 +149,7 @@ export const copy = {
     unmute: 'Unmute',
     states: {
       connecting: 'Connecting…',
+      preparing: 'Preparing voice…',
       listening: 'Listening',
       hearing: 'Hearing you…',
       thinking: 'Thinking…',
@@ -1904,6 +1905,9 @@ export const copy = {
       title: 'Voice',
       intro:
         'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a round in the chat, then tells you when it is done. Speech can stay on this machine, or use a cloud or any OpenAI-compatible service.',
+      enabled: 'Voice calls',
+      enabledHint:
+        'Off by default. Turning them on downloads the speech engines you choose that are not here yet (the speech detector is 1.3 MB) and keeps them ready, so a call answers at once.',
       callModel: 'Call model',
       callModelHint: 'A fast model reads best on a call; it only talks and hands work on.',
       sameAsLead: 'Same as the lead',

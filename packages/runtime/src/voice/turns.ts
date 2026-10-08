@@ -4,8 +4,10 @@ export type TurnEvent = { type: 'start' } | { type: 'end'; audio: Int16Array }
 
 export interface TurnOptions {
   readonly sampleRate: number
-  /** Speech level: the RMS of 16-bit samples a frame must reach to count as speech. */
-  readonly threshold: number
+  /** How sure (0–1) the speech detector must be that a frame is speech for it to start a turn. */
+  readonly start: number
+  /** Once a turn has started, how sure it must stay to count as still speaking (lower, so a turn does not flicker). */
+  readonly hold?: number
   readonly startMs?: number
   readonly endMs?: number
   readonly maxTurnMs?: number
@@ -13,9 +15,9 @@ export interface TurnOptions {
 }
 
 /**
- * Finds where a person's turns start and end in a stream of 16-bit mono frames, by level alone (Hermes's voice mode
- * does the same): enough loud audio starts a turn, a long enough quiet ends it. Quiet within the start window resets
- * it, so a click or a cough is not a turn.
+ * Finds where a person's turns start and end in a stream of 16-bit mono frames, from how likely each frame is speech
+ * (a speech detector's verdict, or 1/0 by level): enough speech starts a turn, a long enough pause ends it. A pause
+ * within the start window resets it, so a click or a cough is not a turn.
  */
 export class TurnDetector {
   private readonly _start: number
@@ -44,8 +46,9 @@ export class TurnDetector {
     return this._speaking
   }
 
-  push(frame: Int16Array): TurnEvent[] {
-    const loud = rms(frame) >= this.options.threshold
+  /** A frame and how likely it is speech (0–1). */
+  push(frame: Int16Array, chance: number): TurnEvent[] {
+    const loud = chance >= (this._speaking ? (this.options.hold ?? this.options.start) : this.options.start)
     if (!this._speaking) {
       this._keepRecent(frame)
       if (loud) {

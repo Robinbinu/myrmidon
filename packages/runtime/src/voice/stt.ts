@@ -123,6 +123,20 @@ export class PhononStt implements SpeechToText {
     return (await this.start()).transcribe(pcm, sampleRate, signal)
   }
 
+  /**
+   * Starts the server and runs one short transcription, so the model is downloaded and its runtime compiled (about
+   * 20 s the first time) before anyone is waiting on a call.
+   */
+  async warm(): Promise<void> {
+    const client = await this.start()
+    this._state = { state: 'starting', line: 'warming up' }
+    try {
+      await client.transcribe(new Int16Array(8000), 16_000)
+    } finally {
+      if (this._proc) this._state = { state: 'running' }
+    }
+  }
+
   /** Starts the server if it is not running, and waits until it answers (the first start also downloads the model). */
   start(): Promise<OpenAiCompatibleStt> {
     this._ready ??= this._start().catch((err) => {

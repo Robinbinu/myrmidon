@@ -154,6 +154,7 @@ export interface ServerSettings {
   profile?: { name?: string; greeting: 'model' | 'rules' }
   mascot?: MascotLook
   voice: {
+    enabled: boolean
     callModel?: string
     stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
     tts: {
@@ -3099,6 +3100,7 @@ function ChannelSheet(props: {
 }
 
 interface VoiceStatusView {
+  enabled: boolean
   callModel?: string
   stt: {
     provider: ServerSettings['voice']['stt']['provider']
@@ -3237,9 +3239,30 @@ function VoiceSection(props: {
       </>
     )
   }
+  const onOff = (
+    <Card className="mb-6">
+      <Row>
+        <Field label={t.enabled} hint={t.enabledHint} inline>
+          <Switch
+            checked={v.enabled}
+            onChange={(enabled) => set((x) => ({ ...x, enabled }))}
+            label={t.enabled}
+          />
+        </Field>
+      </Row>
+    </Card>
+  )
+  if (!v.enabled)
+    return (
+      <>
+        <Heading title={t.title}>{t.intro}</Heading>
+        {onOff}
+      </>
+    )
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
+      {onOff}
       <Card className="mb-6">
         <Row>
           <Field label={t.callModel} hint={t.callModelHint}>

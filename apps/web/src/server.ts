@@ -42,6 +42,7 @@ import {
   type Schedule,
   type ScheduleStore,
   type SettingsStore,
+  type SileroVad,
   type SkillLibrary,
   type SkillProposalStore,
   type SpecialistInput,
@@ -133,6 +134,8 @@ export interface ServeOptions {
   readonly schedules?: ScheduleStore
   /** Shown in settings so users know whether the shell tool is confined. */
   readonly sandboxKind?: string
+  /** The speech detector for calls; Silero VAD in the home unless given (tests give one that stays offline). */
+  readonly voiceVad?: SileroVad
 }
 
 export interface WebServer {
@@ -146,6 +149,8 @@ export interface WebServer {
   readonly token: string
   /** Makes a single-use pairing link for a new device. */
   pairingLink(scope: DeviceScope): { code: string; link: string }
+  /** Loads and warms the speech engines voice calls use, so the first call does not wait on them. */
+  warmVoice(): Promise<void>
   stop(): Promise<void>
 }
 
@@ -208,6 +213,7 @@ const MAX_TERMINALS = 8
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+const VOICE_OFF = 'voice calls are off: turn them on in Settings → Voice'
 /** The longest text "Try it" in Settings → Voice speaks. */
 const VOICE_SAMPLE_CHARS = 300
 /** The largest webhook body a platform may post (media comes by reference, not inline). */
@@ -393,9 +399,20 @@ export function startServer(options: ServeOptions): WebServer {
             return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
           },
           ...(options.omp ? { omp: options.omp } : {}),
+          ...(options.voiceVad ? { vad: options.voiceVad } : {}),
           log: (line) => console.error(`voice: ${line}`),
         })
       : undefined
+  // A new choice of engine is warmed at once, not when the next call starts.
+  let voiceChoice = JSON.stringify(settingsStore?.get().voice)
+  const offVoiceSettings = settingsStore?.onChange((next) => {
+    const choice = JSON.stringify(next.voice)
+    if (choice === voiceChoice) return
+    voiceChoice = choice
+    // Turned off: the engines stop and free their memory. On (or a new choice): what is missing downloads now.
+    if (!next.voice.enabled) voice?.stop()
+    else void voice?.warm()
+  })
   void channels
     ?.start()
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
@@ -1921,8 +1938,10 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/voice/phonon/install': {
         POST: guard(() => {
           if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
           void voice.phonon
             .install()
+            .then(() => voice.warm())
             .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
           return json(voice.status())
         }),
@@ -1930,11 +1949,13 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/voice/kitten/download': {
         POST: guard(async (req) => {
           if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
           const { model } = (await req.json().catch(() => ({}))) as { model?: unknown }
           if (model !== 'nano' && model !== 'micro' && model !== 'mini')
             return json({ error: 'model must be nano, micro or mini' }, 400)
           void voice.kitten
             .download(model)
+            .then(() => voice.warm())
             .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
           return json(voice.status())
         }),
@@ -1951,6 +1972,7 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/voice/sample': {
         POST: guard(async (req) => {
           if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
           const { text } = (await req.json().catch(() => ({}))) as { text?: unknown }
           if (typeof text !== 'string' || !text.trim()) return json({ error: 'text is required' }, 400)
           try {
@@ -1971,6 +1993,7 @@ export function startServer(options: ServeOptions): WebServer {
         const access = req.headers.get('origin') ? authorized(req, url) : undefined
         if (!access) return json({ error: 'unauthorized' }, 401)
         if (!voice || !chatsPort) return json({ error: 'voice needs the chat runtime' }, 503)
+        if (!voice.enabled) return json({ error: VOICE_OFF }, 409)
         const rate = Number(url.searchParams.get('rate'))
         const data = {
           kind: 'call' as const,
@@ -2106,6 +2129,9 @@ export function startServer(options: ServeOptions): WebServer {
           const data = ws.data
           void (async () => {
             if (!voice || !chats || !chatsPort) throw new Error('voice needs the chat runtime')
+            // Usually already warm; the first call after a start or a new choice waits here, and says so.
+            ws.send(JSON.stringify({ type: 'state', state: 'preparing' }))
+            await voice.warm()
             const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
             const session = voice.call(
               chatsPort,
@@ -2265,6 +2291,7 @@ export function startServer(options: ServeOptions): WebServer {
     remote,
     pairingLink,
     token,
+    warmVoice: () => voice?.warm() ?? Promise.resolve(),
     async stop() {
       stopScheduler?.()
       clearInterval(poll)
@@ -2276,6 +2303,7 @@ export function startServer(options: ServeOptions): WebServer {
       await preview.stop(true)
       offPlugins?.()
       await channels?.stop()
+      offVoiceSettings?.()
       voice?.stop()
       store.close()
     },

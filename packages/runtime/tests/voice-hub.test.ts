@@ -17,7 +17,9 @@ afterEach(() => {
 function setup(voice: Partial<VoiceSettings> = {}) {
   const home = mkdtempSync(join(tmpdir(), 'myr-voicehub-'))
   dirs.push(home)
-  const defaults = new SettingsStore(home).get().voice
+  const stored = new SettingsStore(home).get().voice
+  // Most tests are about a call, so voice is on unless the test says otherwise.
+  const defaults = { ...stored, enabled: true }
   const resolver = new ModelResolver()
   const model = createMockModel({ handler: () => ({ content: ['Okay.'] }) })
   resolver.register('mock/voice', { model: model.model, streamFn: model.stream })
@@ -31,12 +33,13 @@ function setup(voice: Partial<VoiceSettings> = {}) {
       speechModels: () => ({ stt: ['openai/whisper-1'], tts: [] }),
     },
   })
-  return { home, hub, defaults }
+  return { home, hub, stored }
 }
 
 test('voice settings default to the engines on this machine', () => {
-  const { hub, defaults } = setup()
-  expect(defaults).toEqual({
+  const { hub, stored } = setup()
+  expect(stored).toEqual({
+    enabled: false,
     stt: { provider: 'phonon' },
     tts: { provider: 'kitten', kittenModel: 'nano', voice: 'Leo', speed: 1 },
     sensitivity: 'normal',
@@ -95,4 +98,19 @@ test("a call's transcript is saved with its chat when it ends", async () => {
   expect(saved).toHaveLength(1)
   expect(saved[0]?.turns[0]).toMatchObject({ who: 'person', text: 'from omp' })
   expect(hub.calls('other')).toEqual([])
+})
+
+test('voice calls start off: nothing is downloaded or started, and no call can begin', async () => {
+  const { hub } = setup({ enabled: false })
+  await hub.warm()
+  expect(hub.vad.ready).toBe(false)
+  expect(hub.status()).toMatchObject({ enabled: false, tts: { kitten: { state: 'missing' } } })
+  const chats = {
+    send: async () => ({ chatId: 'c', colonyId: 'x', started: true }),
+    onEvents: () => () => {},
+    decideApproval: async () => {},
+  }
+  expect(() => hub.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})).toThrow(
+    'voice calls are off',
+  )
 })
