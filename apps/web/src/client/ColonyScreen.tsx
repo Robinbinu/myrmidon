@@ -282,7 +282,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 
   if (colony.error)
     return (
-      <div className="m-4 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
+      <div className="m-4 rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
     )
 
   return (
@@ -455,18 +455,18 @@ function AgentButton(props: {
       type="button"
       onClick={props.onClick}
       className={cn(
-        'relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors',
+        'relative flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors',
         props.active ? 'text-fg' : 'text-fg-2 hover:bg-surface-2',
       )}
     >
       {props.active && (
         <motion.span
           layoutId="colony-agent"
-          className="absolute inset-0 rounded-lg bg-accent-soft"
+          className="absolute inset-0 rounded-xl bg-accent-soft"
           transition={{ type: 'spring', stiffness: 420, damping: 34 }}
         />
       )}
-      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2">
+      <span className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-surface-2">
         {props.icon}
       </span>
       <span className="relative min-w-0 flex-1">
@@ -523,7 +523,7 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border bg-surface',
+        'overflow-hidden rounded-lg border bg-surface',
         item.ok === false ? 'border-bad/30' : 'border-line',
       )}
     >
@@ -588,7 +588,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
   return (
     <div
       className={cn(
-        'rounded-xl border px-3.5 py-2.5',
+        'rounded-lg border px-3.5 py-2.5',
         item.error ? 'border-bad/30 bg-bad-soft' : 'border-transparent bg-surface-2/60',
       )}
     >
@@ -626,7 +626,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
 
 function EventRow({ item }: { item: Item & { kind: 'event' } }) {
   return (
-    <div className="flex gap-2.5 rounded-xl px-3 py-1.5 transition-colors hover:bg-surface-2/60">
+    <div className="flex gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface-2/60">
       <item.icon className={cn('mt-0.5 size-4 shrink-0', item.tone)} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-body">
@@ -648,7 +648,7 @@ function Board({ state }: { state: ColonyState }) {
     <div className="h-full overflow-auto px-4 py-3">
       <ol className="mx-auto flex max-w-3xl flex-col gap-2">
         {[...state.board].reverse().map((b) => (
-          <li key={b.id} className="rounded-xl border border-line bg-surface px-3.5 py-2.5">
+          <li key={b.id} className="rounded-lg border border-line bg-surface px-3.5 py-2.5">
             <div className="mb-1 flex items-center gap-2 text-small">
               <span className="font-semibold">{b.agent}</span>
               {b.mentions.length > 0 && (
@@ -696,7 +696,7 @@ function Kanban({ state }: { state: ColonyState }) {
                   layout
                   layoutId={`task-${t.id}`}
                   key={t.id}
-                  className="rounded-xl border border-line bg-surface p-3 shadow-soft"
+                  className="rounded-lg border border-line bg-surface p-3 shadow-soft"
                 >
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-caption text-muted">{t.id}</span>
@@ -739,9 +739,9 @@ function Files({ state, onOpen }: { state: ColonyState; onOpen(name: string): vo
               key={name}
               type="button"
               onClick={() => onOpen(name)}
-              className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
+              className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
             >
-              <span className="grid size-9 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+              <span className="grid size-9 place-items-center rounded-xl bg-accent-soft text-accent-fg">
                 <FileCode className="size-4" />
               </span>
               <span className="min-w-0 flex-1">
@@ -771,7 +771,7 @@ function Verdicts({ state }: { state: ColonyState }) {
           <li
             key={v.id}
             className={cn(
-              'rounded-xl border px-3.5 py-3',
+              'rounded-lg border px-3.5 py-3',
               v.pass ? 'border-ok/25 bg-ok-soft/50' : 'border-bad/25 bg-bad-soft/50',
             )}
           >
@@ -814,7 +814,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
   }, [playing, speed, cursor, head, setCursor])
   const current = events[cursor - 1]
   const btn =
-    'grid size-8 place-items-center rounded-lg text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-30'
+    'grid size-8 place-items-center rounded-xl text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-30'
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-surface px-3 py-2">
       <button
@@ -846,7 +846,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         value={speed}
         onChange={(e) => setSpeed(Number(e.target.value))}
         aria-label={copy.colonyScreen.replay.speed}
-        className="h-8 rounded-lg border border-line bg-surface px-1.5 text-small"
+        className="h-8 rounded-xl border border-line bg-surface px-1.5 text-small"
       >
         {REPLAY_SPEEDS.map((s) => (
           <option key={s} value={s}>
@@ -870,7 +870,7 @@ function ReplayBar({ colony }: { colony: ReturnType<typeof useColony> }) {
         type="button"
         onClick={() => setLive(!live)}
         className={cn(
-          'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-small font-semibold transition-colors',
+          'inline-flex h-8 items-center gap-1.5 rounded-xl border px-2.5 text-small font-semibold transition-colors',
           live ? 'border-bad/40 bg-bad-soft text-bad-ink' : 'border-line text-muted hover:text-fg',
         )}
       >

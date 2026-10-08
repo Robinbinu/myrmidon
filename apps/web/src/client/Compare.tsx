@@ -191,7 +191,7 @@ function Delta({ m }: { m: Metric }) {
 
 function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(id: string): void }) {
   return (
-    <div className="min-w-0 rounded-xl border border-line bg-surface p-3">
+    <div className="min-w-0 rounded-lg border border-line bg-surface p-3">
       <div className="flex items-center gap-2">
         <span className="grid size-5 place-items-center rounded-md bg-surface-2 font-mono text-caption font-bold">
           {label}
@@ -242,7 +242,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
         </IconButton>
       </div>
       {a.task.trim() !== b.task.trim() && (
-        <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-callout text-warn-ink">
+        <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-callout text-warn-ink">
           {copy.compare.differentTasks}
         </p>
       )}
@@ -317,7 +317,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {files.map((f) => (
               <li
                 key={f.name}
-                className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small"
+                className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small"
               >
                 <span className="font-mono">{f.name}</span>
                 <Pill tone={f.in === 'both' ? (f.same ? 'neutral' : 'warn') : 'accent'}>
@@ -374,7 +374,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             {[a, b].map((r, i) => (
               <p
                 key={r.id}
-                className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-3 text-callout text-fg-2"
+                className="whitespace-pre-wrap rounded-lg border border-line bg-surface p-3 text-callout text-fg-2"
               >
                 <span className="mr-1 font-mono text-caption font-bold">{i === 0 ? 'A' : 'B'}</span>
                 {r.finalReply ?? copy.compare.noAnswer}

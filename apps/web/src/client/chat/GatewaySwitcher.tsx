@@ -73,7 +73,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
       role="menuitemradio"
       aria-checked={props.id === active}
       onClick={() => pick(props.id)}
-      className="flex w-full items-center gap-2.5 rounded-[9px] px-2 py-1.5 text-left transition-colors hover:bg-fill"
+      className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left transition-colors hover:bg-fill"
     >
       <props.icon className="size-4 shrink-0 text-muted" />
       <span className="min-w-0 flex-1">
@@ -97,7 +97,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
         title={t.switcher}
         onClick={() => setOpen(!open)}
         className={cn(
-          'flex h-8 w-full items-center gap-2 rounded-[9px] border border-line px-2.5 text-callout font-medium text-fg-2 transition-colors hover:bg-fill',
+          'flex h-8 w-full items-center gap-2 rounded-base border border-line px-2.5 text-callout font-medium text-fg-2 transition-colors hover:bg-fill',
           open && 'bg-fill text-fg',
         )}
       >
@@ -114,7 +114,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
             transition={spring}
-            className="material-menu absolute left-2.5 right-2.5 top-[calc(100%-2px)] z-40 origin-top rounded-lg border border-line p-1.5"
+            className="material-menu absolute left-2.5 right-2.5 top-[calc(100%-2px)] z-40 origin-top rounded-xl border border-line p-1.5"
           >
             {item({ name: local, detail: location.host, icon: Laptop })}
             {list.map((g) =>
@@ -134,7 +134,7 @@ export function GatewaySwitcher(props: { onManage(): void }) {
                 setOpen(false)
                 props.onManage()
               }}
-              className="flex w-full items-center gap-2.5 rounded-[9px] px-2 py-1.5 text-left text-body text-fg-2 transition-colors hover:bg-fill"
+              className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left text-body text-fg-2 transition-colors hover:bg-fill"
             >
               <Settings2 className="size-4 shrink-0 text-muted" />
               {t.manage}

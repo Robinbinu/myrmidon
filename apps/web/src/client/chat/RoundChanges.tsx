@@ -164,7 +164,7 @@ export function RoundChanges(props: {
               ) : (
                 <div className="flex flex-col gap-2 text-reading text-fg-2">
                   <p>{copy.roundChanges.confirm.skippedTitle(skipped.length)}</p>
-                  <ul className="max-h-40 overflow-auto rounded-lg bg-fill/60 px-3 py-2 font-mono text-small">
+                  <ul className="max-h-40 overflow-auto rounded-xl bg-fill/60 px-3 py-2 font-mono text-small">
                     {skipped.map((f) => (
                       <li key={f} className="truncate">
                         {f}

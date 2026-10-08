@@ -60,7 +60,7 @@ export const Button = forwardRef<
       type={type}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-45',
-        size === 'sm' ? 'h-[22px] rounded-[5px] px-2 text-small' : 'h-7 rounded-md px-3 text-body',
+        size === 'sm' ? 'h-[22px] rounded-sm px-2 text-small' : 'h-7 rounded-md px-3 text-body',
         VARIANTS[variant],
         className,
       )}
@@ -154,7 +154,7 @@ export function Dot({ status }: { status: string }) {
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line bg-fill px-1 font-sans text-caption text-muted">
+    <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-sm border border-line bg-fill px-1 font-sans text-caption text-muted">
       {children}
     </kbd>
   )
@@ -301,7 +301,7 @@ export function Segmented<T extends string>(props: {
           aria-pressed={props.value === o.value}
           onClick={() => props.onChange(o.value)}
           className={cn(
-            'relative inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-2.5 text-small font-medium transition-colors',
+            'relative inline-flex h-[22px] items-center gap-1.5 rounded-sm px-2.5 text-small font-medium transition-colors',
             props.value === o.value ? 'text-fg' : 'text-fg-2 hover:text-fg',
           )}
         >
@@ -309,7 +309,7 @@ export function Segmented<T extends string>(props: {
             <motion.span
               layoutId={`seg-${props.id}`}
               transition={spring}
-              className="absolute inset-0 rounded-[5px] bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
+              className="absolute inset-0 rounded-sm bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
             />
           )}
           <span className="relative inline-flex items-center gap-1.5">{o.label}</span>
@@ -371,7 +371,7 @@ export function Empty(props: { icon?: ReactNode; title: string; children?: React
   return (
     <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
       {props.icon && (
-        <div className="grid size-10 place-items-center rounded-xl bg-fill text-muted">{props.icon}</div>
+        <div className="grid size-10 place-items-center rounded-lg bg-fill text-muted">{props.icon}</div>
       )}
       <p className="text-body font-semibold text-fg">{props.title}</p>
       {props.children && <div className="max-w-sm text-callout text-muted">{props.children}</div>}

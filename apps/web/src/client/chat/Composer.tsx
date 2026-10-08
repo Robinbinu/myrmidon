@@ -238,7 +238,7 @@ export function formatSize(bytes: number) {
 
 /** Toolbar controls read as quiet text until hovered, so the message stays the focus. */
 const CHIP =
-  'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
+  'inline-flex h-8 items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg disabled:opacity-40'
 
 const DELIVERIES = [
   { value: 'steer', icon: Navigation, ...copy.composer.deliveries.steer },
@@ -553,7 +553,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             addFiles(e.dataTransfer.files)
           }}
           className={cn(
-            'rounded-[26px] border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
+            'rounded-4xl border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
             dragging && 'border-accent/60 shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
           )}
         >
@@ -562,7 +562,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${f.size}-${f.lastModified}`}
-                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-small"
+                  className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface-2 py-0.5 pl-2 pr-0.5 text-small"
                 >
                   <FileText className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{f.name}</span>

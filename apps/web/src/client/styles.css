@@ -79,10 +79,18 @@
 }
 
 @theme {
-  /* Corner radii. sm and lg replace Tailwind's 4px and 8px steps; md (6px), xl (12px) and 2xl (16px) keep its own. */
-  --radius-sm: 6px;
+  /* Corner radii, smallest to largest. xs to md and 2xl are Tailwind's own; base sits between md and lg for menu rows
+     and small tiles; 3xl to 5xl round the message bubble, the composer and the mascot's screen. */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-base: 10px;
-  --radius-lg: 14px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 22px;
+  --radius-4xl: 26px;
+  --radius-5xl: 36px;
   /* Type scale for UI text, 11 to 14px in half-pixel steps; the body is 13px. No line heights: text keeps the one
      it inherits or its leading-* class. */
   --text-caption: 11px;

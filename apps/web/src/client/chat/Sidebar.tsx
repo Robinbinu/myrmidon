@@ -513,7 +513,7 @@ function GatewayChip(props: { onOpen?(): void }) {
         onClick={offline ? refresh : props.onOpen}
         title={offline ? t.offlineHint : props.onOpen ? t.open : undefined}
         className={cn(
-          'flex h-8 w-full items-center gap-2 rounded-[9px] px-2.5 text-[12.5px] font-medium transition-colors',
+          'flex h-8 w-full items-center gap-2 rounded-base px-2.5 text-[12.5px] font-medium transition-colors',
           offline
             ? 'bg-bad-soft text-bad-ink hover:bg-bad-soft/80'
             : 'bg-warn-soft text-warn-ink hover:bg-warn-soft/80',

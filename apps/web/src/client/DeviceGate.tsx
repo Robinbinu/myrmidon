@@ -140,7 +140,7 @@ function GatewayGate(props: { children: ReactNode }) {
         </div>
         {gateway !== 'checking' && (
           <>
-            <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">
+            <p className="rounded-xl bg-bad-soft px-3 py-2 text-callout text-bad-ink">
               {gateway.health.error ?? t.unreachable}
             </p>
             <div className="flex gap-2">
@@ -215,7 +215,7 @@ function PairScreen(props: { onPaired(): void }) {
         </div>
         <p className="text-reading leading-relaxed text-fg-2">
           {t.introBefore}
-          <code className="rounded bg-fill px-1 font-mono text-callout">myrmidon pair</code>
+          <code className="rounded-sm bg-fill px-1 font-mono text-callout">myrmidon pair</code>
           {t.introAfter}
         </p>
         <Field label={t.code} hint={t.codeHint}>
@@ -236,7 +236,7 @@ function PairScreen(props: { onPaired(): void }) {
             aria-label={t.name}
           />
         </Field>
-        {error && <p className="rounded-lg bg-bad-soft px-3 py-2 text-callout text-bad-ink">{error}</p>}
+        {error && <p className="rounded-xl bg-bad-soft px-3 py-2 text-callout text-bad-ink">{error}</p>}
         <Button
           type="submit"
           variant="primary"

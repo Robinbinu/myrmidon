@@ -105,7 +105,7 @@ export function CallBar(props: {
               type="button"
               onClick={props.chat.onOpen}
               title={t.openChat(props.chat.title)}
-              className="block h-6 max-w-full truncate rounded-sm text-left text-footnote text-fg-2 underline-offset-2 hover:text-fg hover:underline"
+              className="block h-6 max-w-full truncate rounded-md text-left text-footnote text-fg-2 underline-offset-2 hover:text-fg hover:underline"
             >
               {t.inChat(props.chat.title)}
             </button>

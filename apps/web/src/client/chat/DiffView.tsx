@@ -79,7 +79,7 @@ export function StatBar({ added = 0, removed = 0 }: { added?: number; removed?: 
           // biome-ignore lint/suspicious/noArrayIndexKey: five fixed blocks
           key={i}
           className={cn(
-            'size-[7px] rounded-[1px]',
+            'size-[7px] rounded-xs',
             i < green ? 'bg-ok' : i < green + red ? 'bg-bad' : 'bg-surface-3',
           )}
         />
@@ -92,7 +92,7 @@ export function DiffModeToggle({ mode, onMode }: { mode: DiffMode; onMode(m: Dif
   return (
     <fieldset
       aria-label={copy.diffView.layout}
-      className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
+      className="m-0 inline-flex min-w-0 rounded-xl border border-line p-0.5"
     >
       {(
         [
@@ -333,7 +333,7 @@ export function FileDiff(props: {
 }) {
   const s = STATUS[props.file.status] ?? { label: props.file.status, className: 'text-fg-2', title: '' }
   return (
-    <div id={props.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+    <div id={props.id} className="overflow-hidden rounded-lg border border-line bg-surface">
       <button
         type="button"
         onClick={props.onToggle}
@@ -349,7 +349,7 @@ export function FileDiff(props: {
         <FilePath path={props.name ?? props.file.path} full={props.file.path} />
         <span className="flex-1" />
         {BINARY.test(props.text) && (
-          <span className="shrink-0 rounded bg-surface-3 px-1.5 font-mono text-caption text-muted">
+          <span className="shrink-0 rounded-sm bg-surface-3 px-1.5 font-mono text-caption text-muted">
             {copy.diffView.binaryTag}
           </span>
         )}

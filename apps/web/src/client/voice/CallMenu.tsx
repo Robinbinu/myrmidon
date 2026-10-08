@@ -65,7 +65,7 @@ function Menu(props: { crew: readonly CrewMember[]; onPick(to: CallTarget): void
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.1 } }}
       transition={spring}
-      className="material-menu absolute right-0 top-[calc(100%+4px)] z-40 w-72 origin-top-right rounded-lg border border-line p-1.5 outline-none"
+      className="material-menu absolute right-0 top-[calc(100%+4px)] z-40 w-72 origin-top-right rounded-xl border border-line p-1.5 outline-none"
     >
       {item('assistant', undefined, Headset, t.assistant, t.assistantHint)}
       {item('lead', 'lead', Crown, t.lead, t.leadHint)}

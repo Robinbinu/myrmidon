@@ -425,9 +425,9 @@ function WorkspaceBody({
                                 key={name}
                                 type="button"
                                 onClick={() => setFile(name)}
-                                className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+                                className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
                               >
-                                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
+                                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
                                   <Icon className="size-4" />
                                 </span>
                                 <span className="min-w-0 flex-1">
@@ -497,7 +497,7 @@ function WorkspaceBody({
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <fieldset
                               aria-label={copy.workspace.tasks.layout}
-                              className="m-0 inline-flex min-w-0 rounded-lg border border-line p-0.5"
+                              className="m-0 inline-flex min-w-0 rounded-xl border border-line p-0.5"
                             >
                               {(
                                 [
@@ -665,7 +665,7 @@ function WorkspaceBody({
                           <div className="flex justify-end px-3 pt-2">
                             <FoldAll ids={shells.map((s) => s.id)} folds={shellFolds} />
                           </div>
-                          <div className="m-3 mt-1 overflow-hidden rounded-xl border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
+                          <div className="m-3 mt-1 overflow-hidden rounded-lg border border-line bg-[color:var(--shell-log-bg)] font-mono text-small text-slate-200">
                             {[...shells].reverse().map((s) => {
                               const open = shellFolds.isOpen(s.id)
                               return (
@@ -912,7 +912,7 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
                   <span className="absolute left-0 top-0">
                     <AgentAvatar name={t.members[0] ?? ''} status="idle" size={26} awake />
                   </span>
-                  <span className="absolute bottom-0 right-0 rounded-[9px] ring-2 ring-surface">
+                  <span className="absolute bottom-0 right-0 rounded-base ring-2 ring-surface">
                     <AgentAvatar name={t.members[1] ?? ''} status="idle" size={26} awake />
                   </span>
                 </span>
@@ -985,7 +985,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                       type="button"
                       onClick={() => props.onInspect(m.from)}
                       aria-label={copy.workspace.mail.open(m.from)}
-                      className="rounded-lg transition-transform hover:scale-105"
+                      className="rounded-xl transition-transform hover:scale-105"
                     >
                       <AgentAvatar name={m.from} status="idle" size={26} awake />
                     </button>

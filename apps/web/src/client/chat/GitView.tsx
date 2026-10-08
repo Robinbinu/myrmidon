@@ -189,7 +189,7 @@ function ChangeRow(props: {
   }, [open, props.project, props.kind, props.path, props.version])
   return (
     <div>
-      <div className="group flex items-center gap-2 rounded-lg px-2 hover:bg-surface-2">
+      <div className="group flex items-center gap-2 rounded-xl px-2 hover:bg-surface-2">
         <button
           type="button"
           onClick={() => setOpen(!open)}
@@ -212,7 +212,7 @@ function ChangeRow(props: {
         </span>
       </div>
       {open && (
-        <div className="mx-2 mb-1.5 mt-0.5 overflow-hidden rounded-lg border border-line">
+        <div className="mx-2 mb-1.5 mt-0.5 overflow-hidden rounded-xl border border-line">
           {patch === undefined ? (
             <LoaderCircle className="m-2 size-4 animate-spin text-muted" />
           ) : (
@@ -304,7 +304,7 @@ export function GitView({ project }: { project: string }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center gap-1.5">
-        <span className="flex min-w-0 items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-callout">
+        <span className="flex min-w-0 items-center gap-1.5 rounded-xl bg-surface-2 px-2.5 py-1 text-callout">
           <GitBranch className="size-3.5 shrink-0 text-muted" />
           <span className="truncate font-medium">{status.branch ?? copy.git.detachedHead}</span>
           {status.upstream && (
@@ -341,7 +341,7 @@ export function GitView({ project }: { project: string }) {
           rows={2}
           placeholder={copy.git.messagePlaceholder(status.branch ?? 'HEAD')}
           aria-label={copy.git.messageLabel}
-          className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-1.5 text-callout outline-none placeholder:text-muted focus:border-line-strong"
+          className="w-full resize-none rounded-xl border border-line bg-surface px-2.5 py-1.5 text-callout outline-none placeholder:text-muted focus:border-line-strong"
         />
         <Button
           size="sm"
@@ -517,7 +517,7 @@ export function GitView({ project }: { project: string }) {
                 <button
                   type="button"
                   onClick={() => setFull({ kind: 'commit', commit: c })}
-                  className="flex w-full items-start gap-2 rounded-lg py-1.5 pl-3 pr-2 text-left hover:bg-surface-2"
+                  className="flex w-full items-start gap-2 rounded-xl py-1.5 pl-3 pr-2 text-left hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body">{c.subject}</span>

@@ -203,7 +203,7 @@ function AgentScreen(props: {
   return (
     <div className="flex flex-col gap-2">
       {kinds.length > 1 && (
-        <div className="flex items-center gap-1 rounded-lg border border-line p-0.5 text-small">
+        <div className="flex items-center gap-1 rounded-xl border border-line p-0.5 text-small">
           {(['follow', ...kinds] as const).map((m) => (
             <button
               key={m}
@@ -251,7 +251,7 @@ function TerminalScreen(props: { agent: string; activity: readonly Activity[]; l
   return (
     <div className="flex flex-col gap-1.5">
       <ScreenTitle agent={props.agent} what={copy.computer.terminal} />
-      <div className="max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-[color:var(--terminal-bg)] p-3 font-mono text-footnote leading-relaxed text-[color:var(--terminal-text)]">
+      <div className="max-h-[60vh] min-h-48 overflow-auto rounded-lg border border-line bg-[color:var(--terminal-bg)] p-3 font-mono text-footnote leading-relaxed text-[color:var(--terminal-text)]">
         {runs.map((r, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: runs are positional and append-only
           <div key={i} className="mb-2">
@@ -305,7 +305,7 @@ function EditorScreen(props: { agent: string; activity: readonly Activity[] }) {
         agent={props.agent}
         what={`${copy.computer.editor(last.path)}${last.edit ? copy.computer.edited : ''}`}
       />
-      <pre className="m-0 max-h-[60vh] min-h-48 overflow-auto rounded-xl border border-line bg-code py-2 font-mono text-footnote leading-[1.6]">
+      <pre className="m-0 max-h-[60vh] min-h-48 overflow-auto rounded-lg border border-line bg-code py-2 font-mono text-footnote leading-[1.6]">
         {lines.slice(0, 600).map((l, i) => (
           <div
             // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
@@ -490,7 +490,7 @@ function LiveTab({
           {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </IconButton>
       </div>
-      <div className="truncate rounded-lg border border-line bg-surface-2 px-2.5 py-1 font-mono text-footnote text-fg-2">
+      <div className="truncate rounded-xl border border-line bg-surface-2 px-2.5 py-1 font-mono text-footnote text-fg-2">
         {(replaying ? replaying.url : page.url) || 'about:blank'}
       </div>
       <div
@@ -499,7 +499,7 @@ function LiveTab({
         role="img"
         aria-label={copy.computer.browserLabel(agent, page.title || page.url)}
         className={cn(
-          'relative mx-auto w-full overflow-hidden rounded-xl border bg-black outline-none',
+          'relative mx-auto w-full overflow-hidden rounded-lg border bg-black outline-none',
           full && 'max-w-[calc((100dvh-140px)*1.6)]',
           controlling ? 'cursor-default border-warn/60 ring-2 ring-warn/25' : 'border-line',
         )}
@@ -567,7 +567,7 @@ function LiveTab({
         )}
         {!controlling && (replaying || frame) && (replaying ? replaying.box : highlight) && (
           <div
-            className="pointer-events-none absolute rounded border-2 transition-all duration-200"
+            className="pointer-events-none absolute rounded-sm border-2 transition-all duration-200"
             style={{
               left: (shownBox?.x ?? 0) * scale - 3,
               top: (shownBox?.y ?? 0) * scale - 3,
@@ -579,7 +579,7 @@ function LiveTab({
           >
             {shownLabel && (
               <span
-                className="absolute -top-5 left-0 max-w-[240px] truncate rounded px-1.5 py-px text-caption font-medium"
+                className="absolute -top-5 left-0 max-w-[240px] truncate rounded-sm px-1.5 py-px text-caption font-medium"
                 style={{ background: agentColor(agent), color: inkOn(agentColor(agent)) }}
               >
                 {shownLabel}
@@ -619,7 +619,7 @@ function LiveTab({
                   title={`${copy.computer.actions[f.action]}${f.label ? ` · ${f.label}` : ''} · ${clock(f.time, true)}`}
                   aria-label={copy.computer.stepLabel(i + 1, copy.computer.actions[f.action])}
                   className={cn(
-                    'h-4 min-w-[6px] flex-1 rounded-sm transition-colors',
+                    'h-4 min-w-[6px] flex-1 rounded-md transition-colors',
                     at === i
                       ? 'bg-fg'
                       : f.action === 'open'

@@ -99,7 +99,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
         </div>
 
         {!!status?.problems.length && (
-          <div className="flex flex-col gap-1.5 rounded-xl bg-warn-soft px-4 py-3 text-[13px] text-warn-ink">
+          <div className="flex flex-col gap-1.5 rounded-lg bg-warn-soft px-4 py-3 text-[13px] text-warn-ink">
             {status.problems.map((p) => (
               <div key={p.kind === 'channel' ? p.channel : p.kind}>
                 {p.kind === 'no-models' ? t.problems.noModels : t.problems.channel(p.label)}

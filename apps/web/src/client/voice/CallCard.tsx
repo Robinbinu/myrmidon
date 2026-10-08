@@ -28,7 +28,7 @@ export function CallCard(props: { call: SavedCall }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left text-callout transition-colors hover:bg-surface-2"
+        className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-callout transition-colors hover:bg-surface-2"
       >
         <Phone className="size-3.5 text-muted" />
         <span className="font-medium">{t.card.title(minutes)}</span>
@@ -38,7 +38,7 @@ export function CallCard(props: { call: SavedCall }) {
         <ChevronRight className={cn('size-3.5 text-muted transition-transform', open && 'rotate-90')} />
       </button>
       {open && (
-        <div className="mt-2 flex flex-col gap-1.5 rounded-xl bg-surface-2 px-4 py-3 text-callout">
+        <div className="mt-2 flex flex-col gap-1.5 rounded-lg bg-surface-2 px-4 py-3 text-callout">
           {props.call.turns.map((turn) => (
             <div key={`${turn.at}-${turn.who}`} className={cn(turn.who === 'crew' && 'text-muted')}>
               <span className="font-medium text-fg-2">

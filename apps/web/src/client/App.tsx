@@ -1088,7 +1088,7 @@ export function App() {
                 {copy.app.deleteChat.body(deleting.rounds.length)}
               </p>
               {isRunning(deleting.status) && (
-                <p className="rounded-xl bg-warn-soft px-3 py-2 text-body text-warn-ink">
+                <p className="rounded-lg bg-warn-soft px-3 py-2 text-body text-warn-ink">
                   {copy.app.deleteChat.stillRunning}
                 </p>
               )}
@@ -1160,7 +1160,7 @@ function SetupCard(props: { onConnect?(): void }) {
   const t = copy.app.setup
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
         <Plug className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
@@ -1183,7 +1183,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-[26px] border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />

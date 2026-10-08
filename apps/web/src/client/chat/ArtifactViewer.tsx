@@ -163,7 +163,7 @@ export function ArtifactViewer(props: {
               href={preview}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-callout font-medium transition-colors hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-callout font-medium transition-colors hover:bg-surface-2"
             >
               <ExternalLink className="size-3.5" /> {copy.artifactViewer.open}
             </a>

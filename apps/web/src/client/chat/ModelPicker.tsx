@@ -166,7 +166,7 @@ export function ModelPicker(props: {
               )
             : variant === 'compact'
               ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-[0_0.5px_1px_rgb(0_0_0/0.08)] transition-colors hover:bg-control-hover'
-              : 'group flex w-full flex-col items-start gap-0.5 rounded-xl border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
+              : 'group flex w-full flex-col items-start gap-0.5 rounded-lg border border-line bg-surface px-3 py-2 text-left transition-all duration-150 hover:border-line-strong hover:shadow-soft'
         }
       >
         {variant === 'chip' ? (
@@ -202,7 +202,7 @@ export function ModelPicker(props: {
             transition={spring}
             style={{ maxHeight: fit.max, ...(fit.lift ? { bottom: `calc(100% + ${fit.lift}px)` } : {}) }}
             className={cn(
-              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop',
+              'absolute z-50 flex w-[min(420px,90vw)] flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-pop',
               variant === 'compact' ? 'right-0' : 'left-0',
               variant === 'chip' && 'material-menu border-line',
               up ? 'bottom-[calc(100%+6px)] origin-bottom-left' : 'top-[calc(100%+6px)] origin-top-left',
@@ -238,7 +238,7 @@ export function ModelPicker(props: {
                   }
                 }}
                 aria-label={copy.modelPicker.searchLabel(props.label)}
-                className="w-full rounded-lg bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
+                className="w-full rounded-xl bg-surface-2 py-2 pl-8 pr-3 text-body outline-none placeholder:text-muted focus:ring-2 focus:ring-accent-soft"
               />
             </div>
             <div
@@ -274,7 +274,7 @@ export function ModelPicker(props: {
                         onClick={() => choose(m.ref)}
                         className={cn(
                           // The margin keeps a row scrolled into view clear of the sticky provider heading.
-                          'flex w-full scroll-mt-9 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+                          'flex w-full scroll-mt-9 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors',
                           i === active && !blocked && 'bg-surface-2',
                           m.ref === props.value && 'text-accent-fg',
                           (small || blocked) && 'opacity-60',
@@ -306,7 +306,7 @@ export function ModelPicker(props: {
                           </span>
                         )}
                         {m.source && m.source !== 'omp' && (
-                          <span className="rounded bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
+                          <span className="rounded-sm bg-accent-soft px-1.5 text-caption font-semibold uppercase tracking-wide text-accent-fg">
                             {m.source === 'custom' ? copy.modelPicker.custom : copy.modelPicker.key}
                           </span>
                         )}

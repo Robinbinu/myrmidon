@@ -108,7 +108,7 @@ export function PendingRound({ text }: { text: string }) {
     <section className="flex flex-col gap-4" aria-busy="true">
       <UserMessage text={text} />
       <motion.div {...enter} className="flex items-center gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-screen">
+        <span className="grid size-9 shrink-0 place-items-center rounded-base bg-screen">
           <PixelFace mood="thinking" color={LEAD_COLOR} cols={7} rows={7} cell={3} gap={1} />
         </span>
         <span className="text-body font-medium text-fg-2">
@@ -185,7 +185,7 @@ export function RoundView(props: {
   const [inspect, setInspect] = useState<string>()
 
   if (colony.error)
-    return <div className="rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
+    return <div className="rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{colony.error}</div>
   if (events.length === 0) {
     return (
       <section className="flex flex-col gap-3" aria-busy="true">
@@ -399,7 +399,7 @@ export function RoundView(props: {
                   type="button"
                   onClick={() => setFile(name)}
                   title={copy.round.fileTitle(latest?.version, compact(latest?.size ?? 0), latest?.author)}
-                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-lg border border-line bg-surface-2/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
+                  className="inline-flex min-h-8 max-w-[240px] items-center gap-1.5 rounded-xl border border-line bg-surface-2/60 px-2.5 text-callout font-medium transition-colors hover:border-line-strong hover:bg-surface-2"
                 >
                   <Icon className="size-3.5 shrink-0 text-muted" />
                   <span className="truncate">{name}</span>
@@ -463,7 +463,7 @@ function UserMessage(props: {
   const read = props.readBy?.length ? props.readBy : undefined
   return (
     <motion.div {...enter} className="group flex flex-col items-end gap-1">
-      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-[22px] rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
+      <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-3xl rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
         {props.text}
       </div>
       {props.attachments?.length ? (
@@ -473,7 +473,7 @@ function UserMessage(props: {
               key={name}
               type="button"
               onClick={() => props.onOpen?.(name)}
-              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
+              className="inline-flex max-w-[260px] items-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1 text-small transition-colors hover:bg-surface-2"
             >
               <FileText className="size-3.5 shrink-0 text-muted" />
               <span className="truncate">{name.replace(/^uploads\//, '')}</span>
@@ -809,7 +809,7 @@ function LeadActivity(props: {
     <motion.div {...enter} className={cn('flex flex-col gap-2', !running && '-mt-2 pl-11')}>
       <div className="flex items-center gap-2.5 text-callout text-muted">
         {running && (
-          <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-screen">
+          <span className="grid size-7 shrink-0 place-items-center rounded-base bg-screen">
             <PixelFace
               mood={approving ? 'waiting' : 'working'}
               color={LEAD_COLOR}
@@ -929,7 +929,7 @@ function LiveServers({ state }: { state: ColonyState }) {
           target="_blank"
           rel="noreferrer"
           title={copy.round.serverTitle(s.command, s.agent)}
-          className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-0.5 hover:bg-surface-2"
+          className="inline-flex items-center gap-1.5 rounded-xl px-1.5 py-0.5 hover:bg-surface-2"
         >
           <span className="font-medium">{s.name}</span>
           <span className="font-mono text-small text-muted">{s.url.replace(/^https?:\/\//, '')}</span>
@@ -1011,9 +1011,9 @@ function RunCard(props: {
           type="button"
           onClick={() => setOpen(!expanded)}
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
         >
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-screen">
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-screen">
             <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
           </span>
           <span className="min-w-0 flex-1">
@@ -1202,7 +1202,7 @@ function ModelFailure(props: {
               <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
               {copy.modelFailure.providerMessage}
             </summary>
-            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+            <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
               {failed.message}
             </pre>
           </details>

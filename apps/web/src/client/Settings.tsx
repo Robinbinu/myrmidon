@@ -565,7 +565,7 @@ export function Settings(props: {
                   aria-label={wideNav ? undefined : s.label}
                   title={wideNav ? undefined : s.label}
                   className={cn(
-                    'relative flex items-center gap-3 rounded-xl text-left transition-colors',
+                    'relative flex items-center gap-3 rounded-lg text-left transition-colors',
                     wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
                     section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-surface-2 hover:text-fg',
                   )}
@@ -574,12 +574,12 @@ export function Settings(props: {
                     <motion.span
                       layoutId="settings-nav"
                       transition={spring}
-                      className="absolute inset-0 rounded-xl border border-line bg-surface shadow-soft"
+                      className="absolute inset-0 rounded-lg border border-line bg-surface shadow-soft"
                     />
                   )}
                   <span
                     className={cn(
-                      'relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors',
+                      'relative grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
                       section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-surface-2',
                     )}
                   >
@@ -628,7 +628,7 @@ export function Settings(props: {
             </Select>
           </div>
           {error && (
-            <div className="m-5 rounded-xl bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
+            <div className="m-5 rounded-lg bg-bad-soft px-4 py-3 text-reading text-bad-ink">{error}</div>
           )}
           <AnimatePresence mode="wait">
             <motion.div
@@ -1292,7 +1292,7 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
                 )}
               </div>
               {active && (
-                <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3 text-callout">
+                <div className="mt-3 space-y-2.5 rounded-lg border border-line bg-surface-2 p-3 text-callout">
                   <div className="flex items-center gap-2 text-fg-2">
                     <LoaderCircle className="size-3.5 animate-spin" />
                     {active.progress ?? copy.settings.signIns.finishInBrowser}
@@ -1402,7 +1402,7 @@ function Providers(props: {
       {props.data.ompSetup && (
         <Card className="mb-8">
           <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
               <Download className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
@@ -2101,7 +2101,7 @@ function ToolsSection(props: {
         {TOOL_INFO.map((t) => (
           <Row key={t.key}>
             <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-fg-2">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-fg-2">
                 <t.icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1">
@@ -2456,7 +2456,7 @@ function DevicesSection() {
               <div className="flex flex-col gap-2">
                 <p className="text-body text-fg-2">{t.link}</p>
                 <div className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-callout">
+                  <code className="min-w-0 flex-1 truncate rounded-xl bg-fill px-3 py-2 font-mono text-callout">
                     {link.link}
                   </code>
                   <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
@@ -2610,7 +2610,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
     <>
       <Heading title={t.title}>{t.intro}</Heading>
       {loadError && (
-        <div role="alert" className="mb-6 rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+        <div role="alert" className="mb-6 rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
           {t.loadError(loadError)}
         </div>
       )}
@@ -2682,7 +2682,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                       key={c.id}
                       type="button"
                       onClick={() => setOpen(c.id)}
-                      className="flex flex-col items-center gap-2 rounded-xl border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-surface-2"
+                      className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-surface-2"
                     >
                       <ChannelLogo id={c.id} size={32} />
                       <span className="w-full truncate text-[12px]">{c.label}</span>
@@ -2867,7 +2867,7 @@ function ChannelSheet(props: {
         {tab === 'setup' && (
           <div className="flex flex-col gap-4">
             {c.setup && (
-              <p className="whitespace-pre-line rounded-xl bg-surface-2 px-4 py-3 text-[12.5px] text-fg-2">
+              <p className="whitespace-pre-line rounded-lg bg-surface-2 px-4 py-3 text-[12.5px] text-fg-2">
                 {c.setup}
               </p>
             )}
@@ -2875,7 +2875,7 @@ function ChannelSheet(props: {
               <img
                 src={c.status.image}
                 alt={t.status.linking}
-                className="size-56 self-center rounded-lg bg-white p-2"
+                className="size-56 self-center rounded-xl bg-white p-2"
               />
             )}
             {(c.fields.length > 0 || !c.enabled || c.configured) && (
@@ -2983,7 +2983,7 @@ function ChannelSheet(props: {
         {tab === 'people' && (
           <div className="flex flex-col gap-4">
             {unconfirmed && (
-              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-warn-soft px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3 rounded-lg bg-warn-soft px-4 py-3">
                 <p className="min-w-0 flex-1 text-[12.5px] text-warn-ink">
                   {t.confirmOwner(unconfirmed.name)}
                 </p>
@@ -3224,12 +3224,12 @@ function ChannelSheet(props: {
               {c.health.owed > 0 && <span className="text-warn-ink">{h.owed(c.health.owed)}</span>}
             </div>
             {c.health.lastError && channelState(c) !== 'on' && (
-              <div className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+              <div className="rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
                 {h.lastError(c.health.lastError)}
               </div>
             )}
             {eventsError && (
-              <div role="alert" className="rounded-xl bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+              <div role="alert" className="rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
                 {eventsError}
               </div>
             )}
@@ -3312,7 +3312,7 @@ function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
       {props.raw && (
         <details className="mt-1 text-callout text-muted">
           <summary>{t.details}</summary>
-          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
             {props.raw}
           </pre>
         </details>
@@ -3944,7 +3944,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
     >
       <span
         className={cn(
-          'grid place-items-center rounded-xl p-0.5 ring-2 transition-shadow',
+          'grid place-items-center rounded-lg p-0.5 ring-2 transition-shadow',
           props.selected ? 'ring-accent' : 'ring-transparent hover:ring-line-strong',
         )}
       >
@@ -3959,7 +3959,7 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
 function MiniMascot(props: { look: MascotLook; cell?: number }) {
   const cell = props.cell ?? 4
   return (
-    <span className="relative inline-block rounded-lg bg-screen p-2.5">
+    <span className="relative inline-block rounded-xl bg-screen p-2.5">
       <PixelFace
         mood="idle"
         color={MASCOT_COLORS[props.look.color]}
@@ -4091,7 +4091,7 @@ function MascotSection(props: {
                   onClick={() => set({ color })}
                 >
                   <span className="grid size-10 place-items-center rounded-base bg-screen">
-                    <span className="size-4 rounded-[5px]" style={{ background: MASCOT_COLORS[color] }} />
+                    <span className="size-4 rounded-sm" style={{ background: MASCOT_COLORS[color] }} />
                   </span>
                 </Tile>
               ))}
@@ -4715,7 +4715,7 @@ function PluginSettings(props: { plugin: PluginEntry; onSaved(): void }) {
       .then(props.onSaved)
       .catch((err: Error) => toast(err.message, 'error'))
   return (
-    <div className="mt-2 flex flex-col gap-2 rounded-xl border border-line bg-surface-2/40 p-3">
+    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-surface-2/40 p-3">
       {Object.entries(props.plugin.settings).map(([key, spec]) => {
         const value = props.plugin.values[key]
         return (
@@ -4889,7 +4889,7 @@ function PluginsSection() {
                           {logOpen === p.name ? copy.settings.plugins.hideLog : copy.settings.plugins.showLog}
                         </button>
                         {logOpen === p.name && (
-                          <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
+                          <pre className="mt-1 max-h-48 overflow-auto rounded-xl bg-fill/60 px-2.5 py-2 font-mono text-footnote text-fg-2">
                             {p.status.log.join('\n')}
                           </pre>
                         )}

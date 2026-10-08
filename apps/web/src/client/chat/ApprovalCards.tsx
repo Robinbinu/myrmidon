@@ -131,7 +131,7 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
           onEdit={(key, value) => setEdits((e) => ({ ...e, [key]: value }))}
         />
       ) : (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-surface px-3 py-2 font-mono text-callout">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-surface px-3 py-2 font-mono text-callout">
           {a.summary}
         </pre>
       )}
@@ -184,7 +184,7 @@ function ReviewBody(props: {
         const value = props.edits[f.key] ?? f.value
         const isEditing = editing === f.key
         return (
-          <div key={f.key} className="overflow-hidden rounded-lg border border-line bg-surface">
+          <div key={f.key} className="overflow-hidden rounded-xl border border-line bg-surface">
             <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-small">
               <span className="min-w-0 truncate font-mono text-fg-2">{f.label}</span>
               {value !== f.value && <span className="text-accent-fg">{copy.approvals.review.edited}</span>}
@@ -390,7 +390,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
               {m.project ? copy.approvals.memory.forProject : copy.approvals.memory.everyChat}
             </span>
           </div>
-          <p className="rounded-lg bg-surface px-3 py-2 text-reading">
+          <p className="rounded-xl bg-surface px-3 py-2 text-reading">
             <span className="mr-1.5 font-mono text-caption uppercase tracking-[0.12em] text-muted">
               {m.kind}
             </span>
@@ -504,7 +504,7 @@ export function SkillProposalCard(props: { proposal: SkillProposalView; onDecide
           />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="overflow-hidden rounded-xl border border-line bg-surface">
           <p className="border-b border-line px-3 py-2 text-body">{description}</p>
           {lines ? (
             <DiffLines lines={lines} />

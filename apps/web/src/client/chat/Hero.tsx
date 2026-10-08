@@ -391,7 +391,7 @@ export function Hero(props: {
                   setPetted(false)
                 }}
                 aria-label={copy.hero.poke}
-                className="block rounded-[36px] bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
+                className="block rounded-5xl bg-screen p-6 pb-4 shadow-[var(--screen-frame)] outline-offset-4"
               >
                 <PixelFace
                   mood={emotion.mood}

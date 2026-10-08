@@ -45,7 +45,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
     >
       <span
         className={cn(
-          'z-10 grid size-6 place-items-center rounded-lg border border-line bg-surface',
+          'z-10 grid size-6 place-items-center rounded-xl border border-line bg-surface',
           style.color,
         )}
       >
@@ -57,7 +57,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
             {!hideAgent && <span>{step.agent} · </span>}
             {step.lead} <span className="italic">{step.strong}</span>
           </summary>
-          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 px-3 py-2 text-callout leading-relaxed text-fg-2">
+          <div className="mt-1.5 max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border border-line bg-surface-2 px-3 py-2 text-callout leading-relaxed text-fg-2">
             {step.detail}
           </div>
         </details>

@@ -90,7 +90,7 @@ export function ProjectPermissions(props: {
             <label
               key={m.value}
               className={cn(
-                'flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
+                'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
                 mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-surface-2',
               )}
             >

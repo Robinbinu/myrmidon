@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 exit={{ opacity: 0, x: 40, transition: { duration: 0.15 } }}
                 transition={spring}
                 role={t.kind === 'error' ? 'alert' : 'status'}
-                className="glass pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line px-3.5 py-3 text-reading shadow-pop"
+                className="glass pointer-events-auto flex items-start gap-2.5 rounded-lg border border-line px-3.5 py-3 text-reading shadow-pop"
               >
                 <Icon
                   className={cn(

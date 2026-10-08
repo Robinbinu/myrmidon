@@ -96,7 +96,7 @@ export function QuestionCard(props: {
           <span className="text-caption font-semibold uppercase tracking-wide text-muted">
             {copy.questions.plan}
           </span>
-          <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5 text-reading">
+          <div className="max-h-[420px] overflow-y-auto rounded-lg border border-line bg-surface-2/40 px-3.5 py-2.5 text-reading">
             <Markdown text={props.plan} />
           </div>
         </section>
@@ -139,14 +139,14 @@ export function QuestionCard(props: {
                   aria-pressed={on}
                   onClick={() => pick(i, o.label, multi)}
                   className={cn(
-                    'flex items-start gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors',
+                    'flex items-start gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors',
                     on ? 'border-accent bg-accent-soft/60' : 'border-line hover:bg-surface-2',
                   )}
                 >
                   <span
                     className={cn(
                       'mt-0.5 grid size-4 shrink-0 place-items-center border',
-                      multi ? 'rounded-[5px]' : 'rounded-full',
+                      multi ? 'rounded-sm' : 'rounded-full',
                       on ? 'border-accent bg-accent text-on-accent' : 'border-line-strong',
                     )}
                   >
@@ -179,7 +179,7 @@ export function QuestionCard(props: {
                 }}
                 placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
-                className="h-9 rounded-xl border border-line bg-surface-2/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
+                className="h-9 rounded-lg border border-line bg-surface-2/50 px-3 text-body outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
               />
             )}
           </fieldset>

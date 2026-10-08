@@ -87,7 +87,7 @@ function ChipMenu(props: {
             transition={spring}
             style={{ width: props.width ?? 300 }}
             className={cn(
-              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-lg border border-line p-1.5',
+              'material-menu absolute bottom-[calc(100%+8px)] z-40 rounded-xl border border-line p-1.5',
               alignRight ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
             )}
           >
@@ -113,11 +113,11 @@ function Option(props: {
       role="menuitemradio"
       aria-checked={props.selected}
       onClick={props.onSelect}
-      className="flex w-full items-center gap-3 rounded-[9px] px-2 py-1.5 text-left transition-colors hover:bg-fill"
+      className="flex w-full items-center gap-3 rounded-base px-2 py-1.5 text-left transition-colors hover:bg-fill"
     >
       <span
         className={cn(
-          'grid size-8 shrink-0 place-items-center rounded-[8px] border transition-colors',
+          'grid size-8 shrink-0 place-items-center rounded-base border transition-colors',
           props.selected ? 'border-transparent bg-accent text-on-accent' : 'border-line bg-fill/60 text-fg-2',
         )}
       >

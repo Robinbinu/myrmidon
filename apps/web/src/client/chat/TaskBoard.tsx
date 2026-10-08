@@ -69,7 +69,7 @@ export function TaskBoard(props: {
                         layout
                         transition={softSpring}
                         className={cn(
-                          'flex flex-col gap-1.5 rounded-xl border border-line bg-surface px-3 py-2.5',
+                          'flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5',
                           lane.status === 'verified' && 'opacity-70',
                         )}
                       >

@@ -59,7 +59,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       {audit.stops.length > 0 && (
-        <section className="rounded-xl border border-warn/30 bg-warn-soft p-3">
+        <section className="rounded-lg border border-warn/30 bg-warn-soft p-3">
           <h3 className="mb-1.5 flex items-center gap-1.5 text-callout font-semibold text-warn-ink">
             <Ban className="size-3.5" /> {copy.audit.stopped(audit.stops.length)}
           </h3>
@@ -141,7 +141,7 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                   type="button"
                   onClick={() => folds.toggle(key)}
                   aria-expanded={open}
-                  className="flex w-full items-start gap-2 rounded-lg px-1.5 py-2 text-left hover:bg-surface-2"
+                  className="flex w-full items-start gap-2 rounded-xl px-1.5 py-2 text-left hover:bg-surface-2"
                 >
                   <FoldChevron open={open} className="mt-1 text-muted" />
                   <Icon className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden />
