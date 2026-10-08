@@ -489,6 +489,10 @@ export const copy = {
       renameLabel: (title: string) => `Rename “${title}”`,
       delete: 'Delete chat',
       deleteLabel: (title: string) => `Delete “${title}”`,
+      /** The number beside a chat: each message that started work in it is a round. */
+      rounds: (n: number) => `${n} rounds: messages that started work in this chat`,
+      /** Before a line of a message that matched the search; `from` is the agent's name or `user`. */
+      matchFrom: (from: string) => (from === 'user' ? 'You: ' : `${from}: `),
     },
     projects: {
       heading: 'Projects',
@@ -503,6 +507,7 @@ export const copy = {
     },
     empty: 'Your conversations will appear here.',
     noMatches: (query: string) => `No chats match “${query}”.`,
+    searchingMessages: 'Searching messages…',
     nav: { crews: 'Crews', compare: 'Compare runs', settings: 'Settings' },
     theme: (theme: string, next: string) => `Theme: ${theme}. Switch to ${next}`,
   },
@@ -996,6 +1001,8 @@ export const copy = {
       deleted: 'deleted',
     },
     team: {
+      emptyTitle: 'No one on the crew yet',
+      emptyBody: 'The lead and any helpers it brings in appear here once the work starts.',
       workingOn: (subject: string) => `Working on ${subject}`,
       turns: 'turns',
       tokens: 'tokens',
@@ -1064,8 +1071,9 @@ export const copy = {
     stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
     recorded: (n: number, agent: string) =>
       `${n} recorded step${n === 1 ? '' : 's'} · scrub back to replay what ${agent} did`,
-    controlHint: (agent: string) =>
-      `Click and type in the page as usual. ${agent} waits until you hand it back.`,
+    /** Under the page while the person drives it; `paste` and `leave` are shortcuts such as ⌘V and ⌘. */
+    controlHint: (agent: string, paste: string, leave: string) =>
+      `Click and type in the page as usual; ${paste} pastes. ${leave} leaves the page. ${agent} waits until you hand it back.`,
   },
 
   app: {

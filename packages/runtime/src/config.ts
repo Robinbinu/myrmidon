@@ -100,6 +100,8 @@ export const BROWSER_LOG_LIMIT = 200
 export const BROWSER_NETWORK_LIMIT = 300
 /** The headless browser's window, a common laptop size, so pages lay out as a person would see them. */
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
+/** The longest text a person controlling an agent's tab can paste into it at once. */
+export const BROWSER_PASTE_MAX_CHARS = 100_000
 
 // Reviewer (verifier.ts)
 
@@ -156,3 +158,10 @@ export const MADE_TOOL_MAX_SOURCE = 64 * 1024
 export const MCP_STARTUP_MS = 10_000
 /** A run logged without a pid counts as orphaned once this far past its wall budget. */
 export const RECOVERY_GRACE_MS = 60_000
+
+// Chat list (chat-index.ts)
+
+/** The most chats one message search returns, and how much of the matching message shows around the match. */
+export const CHAT_SEARCH_LIMIT = 50
+export const SNIPPET_BEFORE = 40
+export const SNIPPET_AFTER = 100

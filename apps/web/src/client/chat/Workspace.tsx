@@ -27,14 +27,16 @@ import {
   X,
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { clock, compact, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import { clock, compact, useHotkeys, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
+import { isMac } from '../ui/platform.ts'
 import { cn, Dot, Empty, IconButton, Pill, Select, toneFor } from '../ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from '../ui/SplitDivider.tsx'
+import { comboLabel } from '../ui/shortcuts.ts'
 import { agentPhase } from '../ui/status.ts'
 import { softSpring } from '../ui-config.ts'
 import { useColony } from '../use-colony.ts'
@@ -63,19 +65,38 @@ type Tab =
   | 'activity'
   | 'audit'
 
-/** The panel's views, listed down its activity bar like an IDE's. `terminal` is the agents' sandboxed commands. */
-const VIEWS: { value: Tab; label: string; icon: typeof FileCode; projectOnly?: boolean }[] = [
-  { value: 'files', label: copy.workspace.views.files, icon: FileCode },
-  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, projectOnly: true },
-  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal },
-  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone },
-  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks },
-  { value: 'team', label: copy.workspace.views.team, icon: Users },
-  { value: 'mail', label: copy.workspace.views.mail, icon: Mail },
-  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal },
-  { value: 'activity', label: copy.workspace.views.activity, icon: Activity },
-  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck },
+interface ViewDef {
+  value: Tab
+  label: string
+  icon: typeof FileCode
+  /** Views that sit together on the rail, between dividers. */
+  group: number
+  /** The digit of its shortcut (see VIEW_COMBO). */
+  key?: string
+  projectOnly?: boolean
+}
+
+/**
+ * The panel's views, listed down its activity bar like an IDE's, in groups: the work, the machines agents use, the
+ * crew, and the record. `terminal` is the agents' sandboxed commands; `shell` is the person's own.
+ */
+const VIEWS: ViewDef[] = [
+  { value: 'files', label: copy.workspace.views.files, icon: FileCode, group: 0, key: '1' },
+  { value: 'git', label: copy.workspace.views.git, icon: GitBranch, group: 0, key: '2', projectOnly: true },
+  { value: 'tasks', label: copy.workspace.views.tasks, icon: ListChecks, group: 0, key: '3' },
+  { value: 'shell', label: copy.workspace.views.shell, icon: Terminal, group: 1, key: '4' },
+  { value: 'computer', label: copy.workspace.views.computer, icon: MonitorSmartphone, group: 1, key: '5' },
+  { value: 'terminal', label: copy.workspace.views.terminal, icon: SquareTerminal, group: 1, key: '6' },
+  { value: 'team', label: copy.workspace.views.team, icon: Users, group: 2, key: '7' },
+  { value: 'mail', label: copy.workspace.views.mail, icon: Mail, group: 2, key: '8' },
+  { value: 'activity', label: copy.workspace.views.activity, icon: Activity, group: 3, key: '9' },
+  { value: 'audit', label: copy.workspace.views.audit, icon: ShieldCheck, group: 3, key: '0' },
 ]
+const PLUGIN_GROUP = 4
+const VIEW_COMBO = (key: string) => `mod+alt+${key}`
+/** The views the panel opens by itself for, in the order it prefers when several have something. */
+const CONTENT_VIEWS: Tab[] = ['computer', 'files', 'git', 'tasks']
+const EDITS = new Set(['fs_write', 'fs_edit'])
 
 const ORDER: TaskSnapshot['status'][] = [
   'in_progress',
@@ -191,19 +212,15 @@ function WorkspaceBody({
     [colony, round],
   )
   const pluginTabs = usePluginSlots('workspace.tab')
-  const views = [
+  const views: ViewDef[] = [
     ...VIEWS.filter((v) => !v.projectOnly || project),
     ...pluginTabs.map(({ plugin, def }) => ({
       value: `plugin:${plugin}` as Tab,
       label: def.title ?? plugin,
       icon: Puzzle,
+      group: PLUGIN_GROUP,
     })),
   ]
-  // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
-  const [mounted, setMounted] = useState(open)
-  useEffect(() => {
-    if (open) setMounted(true)
-  }, [open])
   // The shell keeps running while you look at other views; it starts the first time you open it.
   const [shellOpened, setShellOpened] = useState(false)
   const [inspect, setInspect] = useState<string>()
@@ -223,21 +240,19 @@ function WorkspaceBody({
   const View = views.find((v) => v.value === tab)?.icon ?? FileCode
   // Cards in the chat (a sign-in request) can open a view here, e.g. one agent's browser.
   const [focus, setFocus] = useState<string>()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and onOpenChange are stable enough for a listener
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setTab and show are stable enough for a listener
   useEffect(() => {
     const open = (e: Event) => {
       const { view, agent } = (e as CustomEvent<{ view: Tab; agent?: string }>).detail
       setTab(view)
       if (agent) setFocus(agent)
-      onOpenChange(true)
+      show(true)
     }
     window.addEventListener('myr:open-view', open)
     return () => window.removeEventListener('myr:open-view', open)
   }, [])
-  useEffect(() => {
-    if (open && tab === 'shell') setShellOpened(true)
-  }, [open, tab])
   const [file, setFile] = useState<string>()
+  const [hint, setHint] = useState<{ label: string; combo?: string; top: number; right: number }>()
   const steps = useMemo(() => deriveSteps(events), [events])
   const shells = useMemo(() => shellRuns(events), [events])
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
@@ -262,11 +277,56 @@ function WorkspaceBody({
     mail: threads.reduce((n, t) => n + t.messages.length, 0),
     terminal: shells.length,
   }
+  const edited = useMemo(
+    () =>
+      events.some((e) => e.type === 'tool/call' && EDITS.has((e.payload as EventPayloads['tool/call']).tool)),
+    [events],
+  )
+  const has: Partial<Record<Tab, boolean>> = {
+    computer: Object.values(state.logins).some((l) => !l.finished),
+    files: !!counts.files,
+    git: !!project && edited,
+    tasks: tasks.length > 0,
+  }
+  const worth = CONTENT_VIEWS.find((t) => has[t])
+  // The panel the person keeps open shows itself only in chats with something in it (a one-line question has
+  // nothing); opening it in this chat (the rail, ⌘J, a card in the chat) shows it anyway. Closing it is remembered.
+  const [asked, setAsked] = useState(false)
+  const shown = open && (asked || worth !== undefined)
+  const show = (next: boolean) => {
+    setAsked(next)
+    onOpenChange(next)
+  }
+  const auto = shown && !asked
+  // Opening by itself, it starts on what it opened for unless the last view has something to show too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when it opens by itself
+  useEffect(() => {
+    if (auto && worth && !has[tab]) setTabState(worth)
+  }, [auto])
+  // Once opened, the panel stays mounted while closed, so a running terminal survives closing it.
+  const [mounted, setMounted] = useState(shown)
+  useEffect(() => {
+    if (shown) setMounted(true)
+  }, [shown])
+  useEffect(() => {
+    if (shown && tab === 'shell') setShellOpened(true)
+  }, [shown, tab])
+  const pick = (t: Tab) => {
+    // The open view's icon (or shortcut) closes the panel; any other opens its view.
+    if (shown && tab === t) return show(false)
+    setTab(t)
+    if (t === 'shell') setShellOpened(true)
+    show(true)
+  }
+  useHotkeys([
+    { combo: 'mod+j', run: () => show(!shown), inInputs: true },
+    ...views.flatMap((v) => (v.key ? [{ combo: VIEW_COMBO(v.key), run: () => pick(v.value) }] : [])),
+  ])
 
   return (
     <>
       <div className="flex h-full min-h-0">
-        {open && (
+        {shown && (
           <SplitDivider
             split={split}
             side="right"
@@ -281,7 +341,7 @@ function WorkspaceBody({
             // Wide screens dock the panel beside the chat; narrower ones slide it over the chat, left of the rail;
             // phones have no rail and give the panel the whole width.
             'fixed inset-y-0 right-0 z-40 w-full shadow-pop md:right-12 md:w-[min(440px,calc(100vw-3rem))] xl:static xl:z-auto xl:w-[min(var(--inspector-w),calc(100vw-820px))] xl:shadow-none',
-            open ? 'flex' : 'hidden',
+            shown ? 'flex' : 'hidden',
           )}
         >
           {mounted && (
@@ -315,7 +375,7 @@ function WorkspaceBody({
                 <IconButton
                   label={copy.workspace.close}
                   title={copy.workspace.closeTitle}
-                  onClick={() => onOpenChange(false)}
+                  onClick={() => show(false)}
                 >
                   <X className="size-4" />
                 </IconButton>
@@ -523,7 +583,12 @@ function WorkspaceBody({
                           )}
                         </>
                       ))}
-                    {tab === 'team' && (
+                    {tab === 'team' && agents.length === 0 && (
+                      <Empty icon={<Users className="size-5" />} title={copy.workspace.team.emptyTitle}>
+                        {copy.workspace.team.emptyBody}
+                      </Empty>
+                    )}
+                    {tab === 'team' && agents.length > 0 && (
                       <ul className="divide-y divide-line">
                         {agents.map((a) => {
                           const task = tasks.find(
@@ -698,49 +763,74 @@ function WorkspaceBody({
         </div>
         <nav
           aria-label={copy.workspace.viewsLabel}
-          className="hidden w-12 shrink-0 flex-col items-center gap-1 border-l border-line bg-surface pb-2 md:flex"
+          className="hidden w-12 shrink-0 flex-col border-l border-line bg-surface md:flex"
         >
-          <div data-toolbar className="drag-region mb-1 h-[52px] w-full shrink-0 border-b border-line" />
-          {views.map((v) => {
-            const count = counts[v.value]
-            return (
-              <button
-                key={v.value}
-                type="button"
-                onClick={() => {
-                  // The open view's icon closes the panel; any other icon opens its view.
-                  if (open && tab === v.value) return onOpenChange(false)
-                  setTab(v.value)
-                  if (v.value === 'shell') setShellOpened(true)
-                  onOpenChange(true)
-                }}
-                aria-label={v.label}
-                aria-pressed={open && tab === v.value}
-                title={v.label}
-                className={cn(
-                  'relative grid size-8 place-items-center rounded-md transition-colors',
-                  open && tab === v.value
-                    ? 'bg-surface-2 text-fg'
-                    : 'text-muted hover:bg-surface-2/60 hover:text-fg',
-                )}
-              >
-                {open && tab === v.value && (
-                  <motion.span
-                    layoutId="workspace-view"
-                    transition={softSpring}
-                    className="absolute -left-[7px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-fg"
-                  />
-                )}
-                <v.icon className="size-[18px]" />
-                {!!count && (
-                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[11px] font-medium leading-4 tabular-nums text-fg-2">
-                    {count > 99 ? '99+' : count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+          <div data-toolbar className="drag-region h-[52px] w-full shrink-0 border-b border-line" />
+          {/* Short windows and plugin views make the rail taller than the window, so it scrolls. */}
+          <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pb-2 pt-1.5">
+            {views.map((v, i) => {
+              const count = counts[v.value]
+              const on = shown && tab === v.value
+              const combo = v.key ? VIEW_COMBO(v.key) : undefined
+              // The rail scrolls, which would clip a tooltip inside it, so the tooltip is placed on the window.
+              const point = (el: HTMLElement) => {
+                const r = el.getBoundingClientRect()
+                setHint({
+                  label: v.label,
+                  ...(combo ? { combo: comboLabel(combo, isMac) } : {}),
+                  top: r.top + r.height / 2,
+                  right: window.innerWidth - r.left + 6,
+                })
+              }
+              return (
+                <Fragment key={v.value}>
+                  {views[i - 1] && views[i - 1]?.group !== v.group && (
+                    <span aria-hidden="true" className="my-0.5 h-px w-5 shrink-0 bg-line" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => pick(v.value)}
+                    onMouseEnter={(e) => point(e.currentTarget)}
+                    onFocus={(e) => point(e.currentTarget)}
+                    onMouseLeave={() => setHint(undefined)}
+                    onBlur={() => setHint(undefined)}
+                    aria-label={v.label}
+                    aria-pressed={on}
+                    aria-keyshortcuts={v.key ? `${isMac ? 'Meta' : 'Control'}+Alt+${v.key}` : undefined}
+                    className={cn(
+                      'relative grid size-8 shrink-0 place-items-center rounded-md transition-colors',
+                      on ? 'bg-surface-2 text-fg' : 'text-muted hover:bg-surface-2/60 hover:text-fg',
+                    )}
+                  >
+                    {on && (
+                      <motion.span
+                        layoutId="workspace-view"
+                        transition={softSpring}
+                        className="absolute -left-[7px] top-1.5 bottom-1.5 w-[2px] rounded-full bg-fg"
+                      />
+                    )}
+                    <v.icon className="size-[18px]" />
+                    {!!count && (
+                      <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-surface-3 px-1 text-center text-[11px] font-medium leading-4 tabular-nums text-fg-2">
+                        {count > 99 ? '99+' : count}
+                      </span>
+                    )}
+                  </button>
+                </Fragment>
+              )
+            })}
+          </div>
         </nav>
+        {hint && (
+          <div
+            role="tooltip"
+            style={{ top: hint.top, right: hint.right }}
+            className="material-menu pointer-events-none fixed z-50 flex -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-md border border-line px-2 py-1 text-[12px] text-fg"
+          >
+            {hint.label}
+            {hint.combo && <kbd className="font-sans text-[11.5px] text-muted">{hint.combo}</kbd>}
+          </div>
+        )}
       </div>
       <AnimatePresence>
         {file && state.artifacts[file] && (

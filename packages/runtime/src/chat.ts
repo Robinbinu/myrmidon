@@ -14,7 +14,7 @@ import {
   type RoundInfo,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { ChatIndex, type CrewMember, type IndexedRound } from './chat-index.ts'
+import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import { MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
@@ -502,6 +502,15 @@ export class ChatService {
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
 
+  /** Chats with a message (the person's or a reply) containing `text`, each with the words around the match. */
+  async search(text: string): Promise<MessageHit[]> {
+    await this._settle()
+    return this.index.search(
+      text,
+      [...this._live.values()].map((r) => r.state()),
+    )
+  }
+
   /**
    * Delivers to the running round if there is one; otherwise starts a new round. Sends to one chat are
    * serialized: a second request that arrives while a round is still starting (a double-clicked retry)
@@ -623,6 +632,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(id) === run) this._live.delete(id)
       void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
     })
@@ -916,6 +926,7 @@ export class ChatService {
     }
     void run.done.finally(() => {
       this._release(run)
+      this.index.noteMessages(run.id, run.state())
       if (this._live.get(chatId) === run) this._live.delete(chatId)
       void this._checkpoint(
         run.id,

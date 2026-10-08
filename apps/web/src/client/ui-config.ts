@@ -30,6 +30,11 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024
  */
 export const TOOLBAR_FOLD_SLACK_PX = 24
 
+/* ------------------------------------------------------------------ sidebar */
+
+/** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
+export const MESSAGE_SEARCH_DELAY_MS = 200
+
 /* ------------------------------------------------------------------ scrolling */
 
 /** Within this many pixels of the bottom, a view counts as following its newest content and keeps doing so. */

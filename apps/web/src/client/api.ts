@@ -66,7 +66,9 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
     res = await fetch(path, init)
-  } catch {
+  } catch (error) {
+    // The caller gave up on it (a newer search, say): nothing to say about the server.
+    if (init?.signal?.aborted) throw error
     const up = await probe()
     noteReachable(up)
     throw new ApiError(up ? copy.api.interrupted : copy.api.unreachable)
@@ -132,13 +134,13 @@ export async function previewUrl(colony: string, artifact: string): Promise<stri
   return `${config.previewOrigin}/${colony}/${config.previewToken}/${artifact.split('/').map(encodeURIComponent).join('/')}`
 }
 
-export async function api<T>(path: string): Promise<T> {
-  return hubApi<T>(`${base}${path}`)
+export async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return hubApi<T>(`${base}${path}`, signal)
 }
 
 /** A request to this machine itself, whichever gateway the window shows (the list of gateways lives here). */
-export async function hubApi<T>(path: string): Promise<T> {
-  const res = await call(path, { headers: auth })
+export async function hubApi<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await call(path, { headers: auth, ...(signal ? { signal } : {}) })
   if (!res.ok) throw failure(res.status, await errorOf(res))
   return res.json() as Promise<T>
 }

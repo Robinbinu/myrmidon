@@ -16,7 +16,9 @@ import { copy } from '../copy.ts'
 import { CrewCursor } from '../ui/cursor.tsx'
 import { clock } from '../ui/hooks.ts'
 import { AgentAvatar, agentColor, inkOn } from '../ui/pixel.tsx'
+import { isMac } from '../ui/platform.ts'
 import { Button, cn, Empty, IconButton, Pill } from '../ui/primitives.tsx'
+import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
 import { type Activity, activityOf } from './activity.ts'
 
 interface TabInfo {
@@ -62,6 +64,9 @@ const KEYS = new Set([
   'PageUp',
   'PageDown',
 ])
+
+/** While the person drives the page every other key goes to it, so this one leaves it (Apple's "cancel" chord). */
+const LEAVE_PAGE = 'mod+.'
 
 /**
  * The agents' computers, like Manus: pick an agent with a browser open and watch its tab live, with its cursor
@@ -377,6 +382,7 @@ function LiveTab({
   const [full, setFull] = useState(false)
   const socket = useRef<WebSocket>(undefined)
   const screen = useRef<HTMLDivElement>(null)
+  const handBack = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     const ws = browserSocket(colonyId, agent)
@@ -417,7 +423,9 @@ function LiveTab({
 
   useEffect(() => {
     if (!full) return
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !controlling && setFull(false)
+    // Escape typed into the page is the page's; anywhere else it leaves full screen.
+    const esc = (e: KeyboardEvent) =>
+      e.key === 'Escape' && !screen.current?.contains(e.target as Node) && setFull(false)
     document.addEventListener('keydown', esc)
     return () => document.removeEventListener('keydown', esc)
   })
@@ -465,6 +473,7 @@ function LiveTab({
         )}
         {live && (
           <Button
+            ref={handBack}
             size="sm"
             variant={controlling ? 'primary' : 'secondary'}
             onClick={() => send({ type: 'control', by: controlling ? 'agent' : 'person' })}
@@ -516,9 +525,23 @@ function LiveTab({
         }
         onKeyDown={(e) => {
           if (!controlling) return
+          if (matchCombo(LEAVE_PAGE, e)) {
+            e.preventDefault()
+            handBack.current?.focus()
+            return
+          }
+          // ⌘ and Ctrl shortcuts stay this app's and the browser's: paste (below), copy, a password manager's.
+          // AltGr reports Ctrl too on Windows, but it types a character ("@", "{"), which goes to the page.
+          if ((e.metaKey || e.ctrlKey) && !e.getModifierState('AltGraph')) return
           e.preventDefault()
           if (KEYS.has(e.key)) send({ type: 'key', key: e.key })
-          else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) send({ type: 'text', text: e.key })
+          else if (e.key.length === 1) send({ type: 'text', text: e.key })
+        }}
+        onPaste={(e) => {
+          if (!controlling) return
+          e.preventDefault()
+          const text = e.clipboardData.getData('text/plain')
+          if (text) send({ type: 'paste', text })
         }}
       >
         {replaying ? (
@@ -632,7 +655,11 @@ function LiveTab({
           </div>
         </div>
       )}
-      {controlling && <p className="text-[12px] text-muted">{copy.computer.controlHint(agent)}</p>}
+      {controlling && (
+        <p className="text-[12px] text-muted">
+          {copy.computer.controlHint(agent, comboLabel('mod+v', isMac), comboLabel(LEAVE_PAGE, isMac))}
+        </p>
+      )}
       {error && frame && <p className="text-[12px] text-bad-ink">{error}</p>}
     </div>
   )
