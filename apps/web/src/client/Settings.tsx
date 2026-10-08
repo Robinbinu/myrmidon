@@ -2493,8 +2493,12 @@ interface ChannelView {
   }[]
 }
 
-/** Set up and shown in full: settings filled in, or (for a platform with none, like WhatsApp) switched on. */
-const inUse = (c: ChannelView) => (c.fields.length ? c.configured : c.enabled)
+/**
+ * Shown in full once the person has started on it: switched on, or with settings saved. A platform whose settings
+ * are all optional (SimpleX) or that has none (WhatsApp) counts as configured from the start, so that alone is not it.
+ */
+const inUse = (c: ChannelView) =>
+  c.enabled || c.secretsSet.length > 0 || Object.keys(c.values).length > 0 || c.people.length > 0
 
 /** How often Settings → Channels looks again, so a code someone just asked for shows up. */
 const CHANNELS_POLL_MS = 3000
