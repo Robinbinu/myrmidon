@@ -17,6 +17,7 @@ import {
   type Review,
   type ReviewField,
   resolveConversation,
+  reviewVerdicts,
   SYSTEM,
   type TaskSnapshot,
   TEAM_CHAT,
@@ -2289,13 +2290,14 @@ export function observeFacts(host: ColonyHost): string {
     .filter((a) => a.status === 'idle')
     .map((a) => a.info.name)
   const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
+  const finals = reviewVerdicts(s).filter((v) => v.target === 'colony')
   return [
     `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`,
     s.budget.costUsd !== undefined ? `cost: $${spent.toFixed(3)} of $${s.budget.costUsd}` : null,
     `tasks: ${tasks.length} total, unclaimed ${pending.join(', ') || 'none'}, blocked ${blocked.join(', ') || 'none'}, rejected ${rejected.join(', ') || 'none'}`,
     `idle agents: ${idle.join(', ') || 'none'}`,
     `artifacts: ${Object.keys(s.artifacts).join(', ') || 'none'}`,
-    `final verifications: ${s.verdicts.filter((v) => v.target === 'colony').length} run, last ${s.verdicts.filter((v) => v.target === 'colony').at(-1)?.pass ? 'passed' : 'not passed'}`,
+    `final verifications: ${finals.length} run, last ${finals.at(-1)?.pass ? 'passed' : 'not passed'}`,
   ]
     .filter(Boolean)
     .join('\n')

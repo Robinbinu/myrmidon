@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '../src/index.ts'
-import { runDiff } from '../src/index.ts'
+import { foldColony, reviewVerdicts, runDiff } from '../src/index.ts'
 
 function run(
   model: string,
@@ -80,4 +80,8 @@ test('a round nobody reviewed has no judge result, while a judged one keeps its 
   )
   expect(diff.a.judge).toBeUndefined()
   expect(diff.b.judge).toEqual({ pass: true, score: 0.9 })
+  // The console's verdict list and count, and what agents are told about verification, leave delivery out too.
+  const unreviewed = foldColony('a', run('m/one', [], {}, { verifierId: 'delivered', pass: true }))
+  expect(unreviewed.verdicts).toHaveLength(1)
+  expect(reviewVerdicts(unreviewed)).toEqual([])
 })

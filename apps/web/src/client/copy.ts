@@ -1099,7 +1099,6 @@ export const copy = {
       replied: 'replied to you',
       published: (name: string, version: number, size: string) => `published ${name} v${version} (${size}B)`,
       verdict: (result: string, target: string) => `${result} on ${target}`,
-      notReviewed: 'final answer delivered, not reviewed',
       broughtIn: (name: string, model: string) => `brought in ${name} (${model})`,
     },
     pass: 'PASS',

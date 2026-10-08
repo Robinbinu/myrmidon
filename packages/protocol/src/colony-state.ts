@@ -98,6 +98,11 @@ export interface ArtifactVersion extends Entry {
  */
 export const DELIVERED_VERIFIER = 'delivered'
 
+/** The verdicts of checks that actually ran, leaving out an unreviewed round's record of delivery. */
+export function reviewVerdicts(state: Pick<ColonyState, 'verdicts'>): VerdictEntry[] {
+  return state.verdicts.filter((v) => v.verifierId !== DELIVERED_VERIFIER)
+}
+
 export interface VerdictEntry extends Entry {
   readonly target: string
   readonly verifierId: string
