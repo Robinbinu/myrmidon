@@ -530,7 +530,7 @@ function WorkspaceBody({
                             (t) => t.owner === a.info.name && t.status === 'in_progress',
                           )
                           const lead = a.info.role === 'lead'
-                          const { phase, detail } = agentPhase(a)
+                          const { phase, detail } = agentPhase(a, state)
                           return (
                             <li key={a.info.name}>
                               <button
@@ -538,7 +538,7 @@ function WorkspaceBody({
                                 onClick={() => setInspect(a.info.name)}
                                 className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
                               >
-                                <AgentAvatar name={a.info.name} status={a.status} size={40} />
+                                <AgentAvatar name={a.info.name} status={phase} size={40} />
                                 <div className="grid min-w-0 flex-1 gap-1">
                                   <div className="flex items-center gap-2">
                                     <span className="font-semibold">{a.info.name}</span>

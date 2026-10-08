@@ -69,7 +69,7 @@ export function AgentSheet(props: {
   const files = Object.entries(props.state.artifacts).filter(([, v]) => v.at(-1)?.author === props.name)
   if (!agent) return null
   const lead = agent.info.role === 'lead'
-  const { phase } = agentPhase(agent)
+  const { phase } = agentPhase(agent, props.state)
 
   return (
     <>
@@ -92,7 +92,7 @@ export function AgentSheet(props: {
         transition={softSpring}
       >
         <header className="flex items-start gap-4 px-5 pb-4 pt-5">
-          <AgentAvatar name={props.name} status={agent.status} size={64} />
+          <AgentAvatar name={props.name} status={phase} size={64} />
           <div className="min-w-0 flex-1 pt-1">
             <div className="flex items-center gap-2">
               <h2 className="text-[20px] font-semibold tracking-tight">{props.name}</h2>

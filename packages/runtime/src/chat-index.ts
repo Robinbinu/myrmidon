@@ -2,8 +2,7 @@ import { Database } from 'bun:sqlite'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
-import { type ColonyState, type ColonyStatus, foldColony } from '@myrmidon/protocol'
-import { AWAITING_USER } from './colony.ts'
+import { type ColonyState, type ColonyStatus, foldColony, stopCause } from '@myrmidon/protocol'
 
 /** What the chat list needs from one round, without the round's full log. */
 export interface IndexedRound {
@@ -18,6 +17,8 @@ export interface IndexedRound {
   readonly swarm: boolean
   /** The round stopped to wait for the person's answer. */
   readonly awaiting?: boolean
+  /** On a chat's latest round: whether it stopped because a model failed. */
+  readonly failed?: boolean
   readonly title?: { readonly title: string; readonly at: string }
   readonly project?: { readonly id: string; readonly name: string }
   /** On a chat's latest round: who is on its crew now, so the person can write to them (@name). */
@@ -69,8 +70,8 @@ export class ChatIndex {
         // Rows written before chats ran in one colony hold a single round.
         const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
         const list = Array.isArray(data) ? data : [data]
-        // Rows from before the crew was indexed are read again once.
-        if (list.length === 0 || list.at(-1)?.crew) {
+        // Rows from before the crew and model failures were indexed are read again once.
+        if (list.length === 0 || (list.at(-1)?.crew && list.at(-1)?.failed !== undefined)) {
           out.push(...list)
           continue
         }
@@ -118,6 +119,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
   if (!chat) return []
   const title = s.chatTitle
   const last = s.rounds.at(-1)
+  const cause = stopCause(s)
   return s.rounds.map((r) => ({
     colonyId,
     chatId: chat.chatId,
@@ -128,10 +130,11 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     createdAt: r.startedAt,
     ...(r.endedAt ? { endedAt: r.endedAt } : {}),
     swarm: r.swarm,
-    ...(r === last && s.status === 'stopped' && s.statusReason === AWAITING_USER ? { awaiting: true } : {}),
+    ...(r === last && cause.awaiting ? { awaiting: true } : {}),
     ...(title ? { title: { title: title.title, at: title.at } } : {}),
     ...(r === last
       ? {
+          failed: !!cause.failed,
           crew: Object.values(s.agents)
             .filter((a) => !a.dismissed && a.status !== 'failed')
             .map((a) => ({

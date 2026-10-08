@@ -15,18 +15,23 @@ import { copy } from './copy.ts'
 import { AgentAvatar } from './ui/pixel.tsx'
 import { agentPhase } from './ui/status.ts'
 
-type AgentNodeData = { view: AgentView; task?: string; selected: boolean }
+type AgentNodeData = {
+  view: AgentView
+  status: ReturnType<typeof agentPhase>
+  task?: string
+  selected: boolean
+}
 
 function AgentNode({ data }: NodeProps<Node<AgentNodeData>>) {
   const { view, task, selected } = data
-  const { phase, detail } = agentPhase(view)
+  const { phase, detail } = data.status
   // The lead is named for its role, so the role would only repeat the name.
   const role = view.info.specialty ?? view.info.role
   return (
     <div className={`agent-node status-${phase}${selected ? ' selected' : ''}`}>
       <Handle type="target" position={Position.Top} className="handle" />
       <div className="agent-node-head">
-        <AgentAvatar name={view.info.name} status={view.status} size={28} />
+        <AgentAvatar name={view.info.name} status={phase} size={28} />
         <strong>{view.info.name}</strong>
         {role !== view.info.name && <span className="muted">{role}</span>}
       </div>
@@ -82,7 +87,12 @@ export function ColonyMap(props: {
         id: name,
         type: 'agent',
         position: { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius },
-        data: { view, task: task ? `${task.id}: ${task.subject}` : undefined, selected: selected === name },
+        data: {
+          view,
+          status: agentPhase(view, state),
+          task: task ? `${task.id}: ${task.subject}` : undefined,
+          selected: selected === name,
+        },
       }
     })
     const hot = recentLinks(events, cursor)

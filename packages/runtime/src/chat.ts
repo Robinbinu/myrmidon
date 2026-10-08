@@ -204,6 +204,8 @@ export interface ChatSummary {
   readonly status: ColonyStatus
   /** The latest round stopped to wait for the person's answer. */
   readonly awaiting?: boolean
+  /** The latest round stopped because a model failed. */
+  readonly failed?: boolean
   readonly rounds: ChatRound[]
   /** The project folder the chat works in, if any. */
   readonly project?: { readonly id: string; readonly name: string }
@@ -486,6 +488,7 @@ export class ChatService {
           ? { crew: last.crew.filter((c) => c.role !== 'lead') }
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
+        ...(last.failed ? { failed: true } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,

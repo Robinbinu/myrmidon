@@ -1680,9 +1680,12 @@ test('a model refusal pauses the round, stays out of context, and the round cont
   expect(paused.statusReason).toContain('model refused')
   expect(paused.modelError).toMatchObject({ agent: 'lead', kind: 'refusal' })
   expect(paused.modelError?.message).toContain('Refusal (cyber)')
+  // The chat list tells a failed model apart from an ordinary stop.
+  expect((await chats.list()).find((c) => c.chatId === chatId)?.failed).toBe(true)
 
   await chats.resume(chatId, 'mock/backup')
   const done = await waitFor(colonyId, (st) => st.status === 'completed')
+  expect((await chats.list()).find((c) => c.chatId === chatId)?.failed).toBeUndefined()
   expect(done.agents.lead?.info.model).toBe('mock/backup')
   expect(done.modelError).toBeUndefined()
   // The backup model sees the work so far, but never the refusal.

@@ -1,4 +1,4 @@
-import type { AgentView } from '@myrmidon/protocol'
+import type { AgentView, ColonyState } from '@myrmidon/protocol'
 
 /** The colour families a status can take; Badge and Dot map each to its tokens. */
 export type Tone = 'neutral' | 'ok' | 'bad' | 'warn' | 'work' | 'accent'
@@ -16,11 +16,15 @@ export function toneFor(status: string): Tone {
   return 'neutral'
 }
 
-/** A chat's or crew run's state for its dot and pill: a round that stopped to ask the person waits for them. */
+/**
+ * A chat's or crew run's state for its dot and pill. A round that stopped to ask the person waits for them, and one a
+ * model failure stopped has failed (`stopCause` in the protocol tells these from an ordinary stop).
+ */
 export type RunPhase = 'working' | 'awaiting' | 'completed' | 'stopped' | 'failed'
 
-export function runPhase(run: { status: string; awaiting?: boolean }): RunPhase {
+export function runPhase(run: { status: string; awaiting?: boolean; failed?: boolean }): RunPhase {
   if (run.status === 'running' || run.status === 'created') return 'working'
+  if (run.failed) return 'failed'
   if (run.awaiting) return 'awaiting'
   if (run.status === 'completed' || run.status === 'failed') return run.status
   return 'stopped'
@@ -42,13 +46,15 @@ const ROUND_ENDS = new Set(['completed', 'stopped', 'failed'])
 /**
  * What an agent's state means to a person. An agent stopped because its round ended is done (or resting), and the
  * round's status it carries as detail is dropped so it does not repeat; one stopped for its own reason (a turn limit,
- * an interrupted runner) stays stopped with that reason.
+ * an interrupted runner) stays stopped with that reason. The agent whose model failed has failed: it leaves the round
+ * without a status of its own, so it would otherwise still read as working.
  */
-export function agentPhase(agent: Pick<AgentView, 'status' | 'detail'>): {
-  phase: AgentPhase
-  detail?: string
-} {
+export function agentPhase(
+  agent: Pick<AgentView, 'status' | 'detail'> & { info: { name: string } },
+  run?: Pick<ColonyState, 'modelError'>,
+): { phase: AgentPhase; detail?: string } {
   const { status, detail } = agent
+  if (run?.modelError?.agent === agent.info.name) return { phase: 'failed' }
   if (status === 'stopped' && detail !== undefined && ROUND_ENDS.has(detail))
     return { phase: detail === 'completed' ? 'done' : 'resting' }
   if (status === 'completed') return { phase: 'done', ...(detail ? { detail } : {}) }

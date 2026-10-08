@@ -10,6 +10,7 @@ import {
   sqliteLogStore,
 } from '@myrmidon/core'
 import {
+  AWAITING_USER,
   applyEvent,
   asksSomething,
   type ColonyId,
@@ -167,9 +168,6 @@ async function listening(port: number): Promise<boolean> {
     return false
   }
 }
-
-/** Stop reason for a chat round that ended with a question or update for the human. */
-export const AWAITING_USER = 'awaiting your reply'
 
 /** A file the person attached to a chat message. */
 export interface Attachment {

@@ -56,6 +56,8 @@ export function moodFor(status: string): Mood {
     case 'rejected':
       return 'error'
     case 'stopped':
+    case 'done':
+    case 'resting':
       return 'sleep'
     case 'waiting':
       return 'waiting'

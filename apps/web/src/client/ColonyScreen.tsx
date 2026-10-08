@@ -1,4 +1,10 @@
-import { type ColonyState, colonyMetrics, type EventPayloads, type MyrEvent } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  colonyMetrics,
+  type EventPayloads,
+  type MyrEvent,
+  stopCause,
+} from '@myrmidon/protocol'
 import {
   Activity,
   BadgeCheck,
@@ -255,7 +261,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
   const [agent, setAgent] = useState<string>()
   const [file, setFile] = useState<string>()
   const m = colonyMetrics(state)
-  const run = runPhase(state)
+  const run = runPhase({ status: state.status, ...stopCause(state) })
   const items = useMemo(() => buildItems(events, cursor, agent), [events, cursor, agent])
   const agents = Object.values(state.agents)
   const tasks = Object.values(state.tasks).filter((t) => t.status !== 'deleted')
@@ -301,18 +307,21 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
             name={copy.colonyScreen.everyone}
             detail={copy.colonyScreen.agentCount(agents.length)}
           />
-          {agents.map((a) => (
-            <AgentButton
-              key={a.info.name}
-              active={agent === a.info.name}
-              onClick={() => setAgent(a.info.name)}
-              icon={<AgentAvatar name={a.info.name} status={a.status} size={32} />}
-              name={a.info.name}
-              detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
-              status={agentPhase(a).phase}
-              meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
-            />
-          ))}
+          {agents.map((a) => {
+            const { phase } = agentPhase(a, state)
+            return (
+              <AgentButton
+                key={a.info.name}
+                active={agent === a.info.name}
+                onClick={() => setAgent(a.info.name)}
+                icon={<AgentAvatar name={a.info.name} status={phase} size={32} />}
+                name={a.info.name}
+                detail={a.info.specialty ?? a.info.model.split('/').pop() ?? a.info.model}
+                status={phase}
+                meta={copy.colonyScreen.agentMeta(a.turns, compact(a.tokens))}
+              />
+            )
+          })}
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
           <Tabs
