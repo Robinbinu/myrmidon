@@ -229,8 +229,9 @@ export interface RankedCommand {
 }
 
 /**
- * Commands for what was typed after the slash: name prefixes first, then other names containing the letters in
- * order, then commands whose description mentions the word. Commands that can't run now sink below the rest.
+ * Commands for what was typed after the slash: the command of exactly that name first (so `/mode` never runs
+ * `/model`), then name prefixes, then other names containing the letters in order, then commands whose description
+ * mentions the word. Commands that can't run now sink below the rest, except an exact name.
  */
 export function rankCommands(query: string, ctx: SlashContext): RankedCommand[] {
   const scored: { ranked: RankedCommand; score: number }[] = []
@@ -242,10 +243,34 @@ export function rankCommands(query: string, ctx: SlashContext): RankedCommand[] 
       !prefix && !inName && query.length >= 3 && command.description.toLowerCase().includes(query)
     if (!prefix && !inName && !inText) continue
     const matches = prefix ? [...query].map((_, i) => i) : (inName ?? [])
-    const score = (prefix ? 0 : inName ? 1 : 2) + (reason ? 10 : 0)
+    const score = command.name === query ? -1 : (prefix ? 0 : inName ? 1 : 2) + (reason ? 10 : 0)
     scored.push({ ranked: { command, matches, ...(reason ? { unavailable: reason } : {}) }, score })
   }
   return scored.sort((a, b) => a.score - b.score).map((s) => s.ranked)
+}
+
+export type MenuSection = 'recent' | CommandGroup | 'unavailable'
+
+/**
+ * Every command, for the menu before anything is typed: the recent ones that can run, then each group's other
+ * commands that can run, then all that can't run now. Each command appears once.
+ */
+export function menuSections(
+  ctx: SlashContext,
+  recent: readonly string[],
+): { section: MenuSection; commands: SlashCommand[] }[] {
+  const all = allCommands()
+  const ready = all.filter((c) => !unavailable(c, ctx))
+  const recentReady = recent.flatMap((n) => ready.filter((c) => c.name === n))
+  const sections: { section: MenuSection; commands: SlashCommand[] }[] = [
+    { section: 'recent', commands: recentReady },
+    ...GROUPS.map((group) => ({
+      section: group,
+      commands: ready.filter((c) => c.group === group && !recentReady.includes(c)),
+    })),
+    { section: 'unavailable', commands: all.filter((c) => !ready.includes(c)) },
+  ]
+  return sections.filter((s) => s.commands.length > 0)
 }
 
 /**

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import {
   allCommands,
+  menuSections,
   parseSlash,
   rankCommands,
   rankOptions,
@@ -43,6 +44,28 @@ test('commands rank by prefix, then letters in order, and the ones that cannot r
   // "thk" finds thinking by its letters, and the matched letters are reported for highlighting.
   expect(rankCommands('thk', idle)[0]).toMatchObject({ command: { name: 'thinking' }, matches: [0, 1, 4] })
   expect(rankCommands('', idle)).toHaveLength(SLASH_COMMANDS.length)
+})
+
+test('a command typed in full wins over a longer one it prefixes', () => {
+  // "/mode" + Enter runs the highlighted (first) command; it must not be /model.
+  expect(rankCommands('mode', idle)[0]?.command.name).toBe('mode')
+  expect(rankCommands('mod', idle)[0]?.command.name).toBe('model')
+  // An exact name stays first even when it can't run now, so Enter shows why instead of running another command.
+  expect(rankCommands('stop', idle)[0]?.command.name).toBe('stop')
+})
+
+test('the full menu lists each command once, recent first and the ones that cannot run last', () => {
+  const fresh = { running: false, chat: false, resumable: false }
+  const sections = menuSections(fresh, ['plan', 'stop'])
+  const names = sections.flatMap((s) => s.commands.map((c) => c.name))
+  expect(names).toHaveLength(SLASH_COMMANDS.length)
+  expect(new Set(names).size).toBe(names.length)
+  // /stop can't run on a new task, so it is not offered as recent; /plan is, and only there.
+  expect(sections[0]).toMatchObject({ section: 'recent', commands: [{ name: 'plan' }] })
+  const last = sections.at(-1)
+  expect(last?.section).toBe('unavailable')
+  expect(last?.commands.every((c) => unavailable(c, fresh))).toBe(true)
+  expect(sections.slice(0, -1).every((s) => s.commands.every((c) => !unavailable(c, fresh)))).toBe(true)
 })
 
 test('availability follows the chat', () => {

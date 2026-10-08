@@ -21,7 +21,7 @@ import {
   Workflow,
 } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { copy } from '../copy.ts'
 import { cn, Kbd } from '../ui/primitives.tsx'
 import { spring } from '../ui-config.ts'
@@ -29,6 +29,8 @@ import {
   type ArgOption,
   allCommands,
   GROUPS,
+  type MenuSection,
+  menuSections,
   rankCommands,
   rankOptions,
   type SlashCommand,
@@ -106,6 +108,8 @@ export interface MenuModel {
   readonly command?: SlashCommand
   /** What the list is, for screen readers, when it is not the command list. */
   readonly label?: string
+  /** The /help view: every command with its description, and the composer's keys. */
+  readonly help?: boolean
 }
 
 /**
@@ -185,20 +189,29 @@ export function buildMenu(input: {
   if (stage.query)
     return { items: rankCommands(stage.query, input.ctx).map((r) => item(r.command, r.matches)) }
 
-  const items: MenuItem[] = []
-  const recent = recentCommands()
-    .map((n) => allCommands().find((c) => c.name === n))
-    .filter((c): c is SlashCommand => !!c && !unavailable(c, input.ctx))
-  recent.forEach((c, i) => {
-    items.push(item(c, [], i === 0 ? copy.commandMenu.recent : undefined))
-  })
-  for (const group of GROUPS) {
-    const inGroup = allCommands().filter((c) => c.group === group)
-    inGroup.forEach((c, i) => {
-      items.push(item(c, [], i === 0 ? copy.commands.groups[group] : undefined))
-    })
-  }
-  return { items }
+  // Help is a reference: every command in its group, in a fixed order, whether or not it can run now.
+  const sections = input.all
+    ? GROUPS.map((group) => ({
+        section: group as MenuSection,
+        commands: allCommands().filter((c) => c.group === group),
+      }))
+    : menuSections(input.ctx, recentCommands())
+  const items = sections.flatMap(({ section, commands }) =>
+    commands.map((c, i) =>
+      item(
+        c,
+        [],
+        i === 0
+          ? section === 'recent'
+            ? copy.commandMenu.recent
+            : section === 'unavailable'
+              ? copy.commandMenu.unavailable
+              : copy.commands.groups[section]
+          : undefined,
+      ),
+    ),
+  )
+  return { items, ...(input.all ? { help: true } : {}) }
 }
 
 function Highlight({ text, at }: { text: string; at?: readonly number[] }) {
@@ -226,7 +239,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
   useEffect(() => {
     list.current?.querySelector(`[data-index="${props.active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [props.active])
-  const { command } = props.menu
+  const { command, help } = props.menu
   const Icon = command ? (ICONS[command.name] ?? CornerDownLeft) : undefined
 
   return (
@@ -251,6 +264,15 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           </span>
           <span className="font-mono font-medium">/{command.name}</span>
           <span className="truncate text-muted">{command.description}</span>
+        </div>
+      )}
+      {help && (
+        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 text-[12.5px]">
+          <span className="grid size-6 place-items-center rounded-md bg-accent-soft text-accent-fg">
+            <CircleHelp className="size-3.5" />
+          </span>
+          <span className="font-mono font-medium">/help</span>
+          <span className="truncate text-muted">{copy.commandMenu.help.title}</span>
         </div>
       )}
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -309,8 +331,10 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
                     )}
                   </span>
                   {(it.disabled ?? it.description) && (
-                    <span className="block truncate text-[12px] text-muted">
-                      {it.disabled ?? it.description}
+                    <span className={cn('block text-[12px] text-muted', !help && 'truncate')}>
+                      {help && it.disabled
+                        ? `${it.description} · ${it.disabled}`
+                        : (it.disabled ?? it.description)}
                     </span>
                   )}
                 </span>
@@ -324,6 +348,25 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
             </div>
           )
         })}
+        {help && (
+          <>
+            <div className="px-2.5 pb-1 pt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+              {copy.commandMenu.help.keysSection}
+            </div>
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 px-2.5 pb-2 text-[12.5px]">
+              {copy.commandMenu.help.keys.map((k) => (
+                <Fragment key={k.does}>
+                  <dt className="flex items-center gap-1">
+                    {k.keys.map((key) => (
+                      <Kbd key={key}>{key}</Kbd>
+                    ))}
+                  </dt>
+                  <dd className="text-fg-2">{k.does}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </>
+        )}
       </div>
       <div className="flex items-center gap-3 border-t border-line px-3.5 py-1.5 text-[11px] text-muted">
         <span className="flex items-center gap-1">

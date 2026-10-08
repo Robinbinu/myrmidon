@@ -395,6 +395,21 @@ export const copy = {
   commandMenu: {
     label: 'Commands',
     recent: 'Recent',
+    /** The last section of the slash menu: commands that can't run in this chat right now. */
+    unavailable: 'Not available now',
+    help: {
+      title: 'Every command, and the keys the composer knows',
+      keysSection: 'Keys',
+      keys: [
+        { keys: ['Enter'], does: 'Send, or run the highlighted command' },
+        { keys: ['Shift', 'Enter'], does: 'New line' },
+        { keys: ['Alt', 'Enter'], does: 'While a round runs, send the other way (steer or queue)' },
+        { keys: ['/'], does: 'Commands, typed at the start of a message' },
+        { keys: ['@'], does: 'Write directly to a crew member by name' },
+        { keys: ['Tab'], does: 'Complete the highlighted command' },
+        { keys: ['Esc'], does: 'Close this menu and keep what you typed' },
+      ],
+    },
     chooseFor: (args: string, name: string) => `Choose ${args} for /${name}`,
     anArgument: 'an argument',
     noMatches: 'No matches. Esc to close.',
