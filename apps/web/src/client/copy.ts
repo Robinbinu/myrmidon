@@ -731,6 +731,13 @@ export const copy = {
      */
     typesOwn: /^(other|something else)\W*$|\b(I['’]?ll|I will|let me) type\b|\btype (my|your|our) own\b/i,
     plan: 'Plan',
+    /** A plan shown for approval with no questions to answer alongside it. */
+    approvePlan: {
+      button: 'Approve plan',
+      /** What the agent reads when the person approves. */
+      text: 'The plan is approved: go ahead.',
+      hint: 'To change it, write what to change in the message box.',
+    },
     /** What the agent reads for a skipped question. */
     skippedAnswer: '(skipped: use your judgment)',
   },

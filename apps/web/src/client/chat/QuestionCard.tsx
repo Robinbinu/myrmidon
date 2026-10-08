@@ -72,10 +72,10 @@ export function QuestionCard(props: {
         return option && !typesOwn(option)
       }),
   )
-  const send = (all: readonly Answer[]) => {
+  const send = (text: string) => {
     if (sending !== 'no') return
     setSending('yes')
-    props.onAnswer(answerText(props.choices, all)).then(
+    props.onAnswer(text).then(
       () => setSending('sent'),
       () => setSending('no'),
     )
@@ -175,7 +175,7 @@ export function QuestionCard(props: {
                   })
                 }
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && done) send(answers)
+                  if (e.key === 'Enter' && done) send(answerText(props.choices, answers))
                 }}
                 placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
@@ -191,7 +191,14 @@ export function QuestionCard(props: {
             size="sm"
             variant="ghost"
             disabled={sending === 'yes'}
-            onClick={() => send(props.choices.map(() => ({ ...blank, skipped: true })))}
+            onClick={() =>
+              send(
+                answerText(
+                  props.choices,
+                  props.choices.map(() => ({ ...blank, skipped: true })),
+                ),
+              )
+            }
             icon={<SkipForward className="size-3.5" />}
           >
             {copy.questions.skipAll(props.choices.length)}
@@ -200,9 +207,22 @@ export function QuestionCard(props: {
             size="sm"
             variant="primary"
             disabled={!done || sending === 'yes'}
-            onClick={() => send(answers)}
+            onClick={() => send(answerText(props.choices, answers))}
           >
             {sending === 'yes' ? copy.questions.sending : copy.questions.send(props.choices.length)}
+          </Button>
+        </div>
+      )}
+      {live && props.plan && props.choices.length === 0 && (
+        <div className="flex items-center justify-end gap-3 border-t border-line pt-3">
+          <span className="min-w-0 flex-1 text-small text-muted">{copy.questions.approvePlan.hint}</span>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={sending === 'yes'}
+            onClick={() => send(copy.questions.approvePlan.text)}
+          >
+            {sending === 'yes' ? copy.questions.sending : copy.questions.approvePlan.button}
           </Button>
         </div>
       )}
