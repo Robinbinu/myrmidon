@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import { api } from './api.ts'
+import { api, reachable } from './api.ts'
 import { STATUS_POLL_MS } from './ui-config.ts'
 
 /** What `/api/status` says about this gateway; a chats-only device gets `overall` and `problems` only. */
@@ -13,10 +13,14 @@ export interface GatewayStatus {
   models?: number
   sandbox?: string
   running?: { chatId: string; title: string }[]
+  /** The skill curator's last archiving. */
+  skillsArchived?: { at: string; names: string[] }
   channels?: {
     id: string
     label: string
     enabled: boolean
+    /** Set up (on or off); when absent the server listed only channels in use. */
+    configured?: boolean
     status: { state: string; account?: string; error?: string }
     health: {
       connectedAt?: string
@@ -43,12 +47,14 @@ interface StatusState {
   status?: GatewayStatus
   /** The gateway did not answer the last check (a network error, not a refusal). */
   offline: boolean
+  /** The gateway answered the last check with an error, in plain words. */
+  error?: string
   /** How long the last check took, in milliseconds. */
   ping?: number
   refresh(): void
 }
 
-const StatusContext = createContext<StatusState>({ offline: false, refresh: () => {} })
+export const StatusContext = createContext<StatusState>({ offline: false, refresh: () => {} })
 
 /** The shared view of how the shown gateway is doing, checked every so often and whenever the window comes back. */
 export function useStatus() {
@@ -66,8 +72,9 @@ export function StatusProvider(props: { children: ReactNode }) {
       const status = await api<GatewayStatus>('/api/status')
       setState({ status, offline: false, ping: Math.round(performance.now() - started) })
     } catch (err) {
-      // A refusal (401, 403) is an answer: the gateway is up. Only a failed request means it is unreachable.
-      setState((s) => ({ ...s, offline: err instanceof TypeError }))
+      // A refusal or an error is an answer: the gateway is up. Only a request nobody answered means it is unreachable.
+      const offline = !reachable()
+      setState((s) => ({ ...s, offline, ...(offline ? {} : { error: (err as Error).message }) }))
     } finally {
       busy.current = false
     }

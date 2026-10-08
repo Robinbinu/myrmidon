@@ -71,6 +71,38 @@ test('a failed response says what went wrong, never the status and path', async 
   expect(events).toEqual([api.SIGNED_OUT])
 })
 
+test("the server's technical words become plain ones", async () => {
+  const { copy } = await import('../src/client/copy.ts')
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    answer(500, { error: 'internal error' })
+    await expect(api.api('/api/settings')).rejects.toThrow(copy.api.serverProblem)
+    answer(404, { error: 'not found' })
+    await expect(api.api('/api/nowhere')).rejects.toThrow(copy.api.status(404))
+    answer(404, { error: 'no such colony' })
+    await expect(api.post('/api/tools', {})).rejects.toThrow(copy.api.chatGone)
+    answer(404, { error: 'no such colony: c-123' })
+    await expect(api.api('/api/colonies/c-123')).rejects.toThrow(copy.api.chatGone)
+    answer(400, { error: 'invalid request: Expected string, received number at "text"' })
+    await expect(api.post('/api/chats', {})).rejects.toThrow(copy.api.badRequest)
+    // What the person can fix comes through as the server said it.
+    answer(400, { error: 'Attach at most 10 files to one message.' })
+    await expect(api.post('/api/chats', {})).rejects.toThrow('Attach at most 10 files to one message.')
+    answer(503, { error: 'skills need the chat runtime' })
+    await expect(api.api('/api/skills')).rejects.toThrow(copy.api.noChats('skills'))
+    answer(503, { error: 'memory needs the chat runtime' })
+    await expect(api.api('/api/memory')).rejects.toThrow(copy.api.noChats('memory'))
+    answer(503, { error: 'this server was started without the chat runtime' })
+    await expect(api.post('/api/chats', {})).rejects.toThrow(copy.api.noChats('chats'))
+    answer(418)
+    await expect(api.api('/api/teapot')).rejects.toThrow(copy.api.status(418))
+    expect(copy.api.status(418)).not.toContain('418')
+  } finally {
+    console.warn = warn
+  }
+})
+
 test('the composer choices survive a reload, including always bringing helpers in', () => {
   const saved = { mode: 'orchestrated', leadModel: 'a/flash', roster: [], extraWorkers: 0, helpers: 'always' }
   expect(api.normalizeConfig(saved, 'a/pro')).toMatchObject({

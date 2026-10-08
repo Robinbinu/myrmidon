@@ -75,6 +75,8 @@ import { CallMenu, type CallTarget } from './voice/CallMenu.tsx'
 import { CallClient, type CallState } from './voice/call-client.ts'
 
 const CONFIG_KEY = 'myr-team-config'
+/** When this browser last told the person about learned skills the curator archived. */
+const SKILLS_ARCHIVED_SEEN_KEY = 'myr-skills-archived-seen'
 
 /** What the page needs to know about a plugin. */
 interface PluginSummary {
@@ -345,6 +347,23 @@ export function App() {
       notify(text, undefined, `channel-request-${w.channel}-${w.id}`)
     }
   }, [status?.waiting, toast])
+
+  // Learned skills the curator archived: said once per archiving, with the way to restore them.
+  const archived = status?.skillsArchived
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per archiving; openSettings is a fresh closure
+  useEffect(() => {
+    if (!archived) return
+    try {
+      if (localStorage.getItem(SKILLS_ARCHIVED_SEEN_KEY) === archived.at) return
+      localStorage.setItem(SKILLS_ARCHIVED_SEEN_KEY, archived.at)
+    } catch {
+      // Storage blocked: said on every load rather than never.
+    }
+    toast(copy.app.toasts.skillsArchived(archived.names), 'info', {
+      label: copy.app.toasts.reviewSkills,
+      run: () => openSettings('skills'),
+    })
+  }, [archived?.at])
 
   // A voice call from this window: its socket and audio live in the client, what the bar shows lives here.
   const callRef = useRef<CallClient>(undefined)
@@ -1027,8 +1046,16 @@ export function App() {
             onAdded={(p, all) => {
               setProjects(all)
               setPicking(false)
-              // The open chat stays open; a new task about to start works in the folder just added.
+              // The open chat stays open, so the toast offers a chat in the new folder; a new task about to start
+              // works in it already.
               if (!activeChat) setNewProject(p.id)
+              toast(
+                copy.folderPicker.added(p.name),
+                'success',
+                activeChat
+                  ? { label: copy.folderPicker.startChat(p.name), run: () => newTask(p.id) }
+                  : undefined,
+              )
             }}
           />
         )}

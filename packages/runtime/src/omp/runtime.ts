@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
 
 /**
@@ -158,12 +158,14 @@ export function ompAgentDir(home: string): string {
 
 /**
  * Must run before any `@oh-my-pi/*` module is imported anywhere in the process: omp captures its agent
- * directory from the environment at first import.
+ * directory, and its root for logs and caches (PI_CONFIG_DIR, relative to the home directory), from the
+ * environment at first import.
  */
 export function pointOmpAt(home: string): string {
   const dir = ompAgentDir(home)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   process.env.PI_CODING_AGENT_DIR = dir
+  process.env.PI_CONFIG_DIR = relative(homedir(), join(home, 'omp'))
   return dir
 }
 

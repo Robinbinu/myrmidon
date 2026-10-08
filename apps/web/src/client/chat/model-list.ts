@@ -14,3 +14,22 @@ export function withoutDatedAliases(models: readonly ModelOption[], chosen?: str
     (m) => m.ref === chosen || !DATED.test(m.id) || !ids.has(`${m.provider}\n${m.id.replace(DATED, '')}`),
   )
 }
+
+/**
+ * The model to offer in place of one that failed: another the chat's crew runs on (it has answered here), else the
+ * failed model's provider's next one. Undefined rather than whichever model happens to be listed first.
+ */
+export function fallbackModel(
+  failed: string,
+  models: readonly ModelOption[],
+  fits: (m: ModelOption) => boolean,
+  used: readonly string[],
+): ModelOption | undefined {
+  const ok = (m: ModelOption | undefined): m is ModelOption => !!m && m.ref !== failed && fits(m)
+  const crew = used.map((ref) => models.find((m) => m.ref === ref)).find(ok)
+  if (crew) return crew
+  const provider = models.find((m) => m.ref === failed)?.provider ?? failed.split('/')[0]
+  const siblings = models.filter((m) => m.provider === provider)
+  const at = siblings.findIndex((m) => m.ref === failed)
+  return [...siblings.slice(at + 1), ...siblings.slice(0, Math.max(at, 0))].find(ok)
+}
