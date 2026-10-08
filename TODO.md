@@ -407,8 +407,9 @@ Open work, in the order it will be done:
       "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
       passes alone.
       Also channels-feishu "check() names the bot…" once (Feishu refused this App ID…) in a full run; passes alone.
-12f. - [ ] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
-      drops as they read a conversation and rises when new messages arrive.
+12f. - [x] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
+      drops as they read a conversation and rises when new messages arrive. Done: last seq seen per conversation, kept
+      in the browser; checked live (99+ → 21 after opening two conversations).
 12g. - [ ] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
       status dot in the app.

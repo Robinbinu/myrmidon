@@ -16,7 +16,15 @@ import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { clock, compact, useHotkeys, useMinWidth, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import {
+  clock,
+  compact,
+  useHotkeys,
+  useMinWidth,
+  usePersistentFlag,
+  useSeenMail,
+  useStickToBottom,
+} from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
@@ -292,6 +300,7 @@ function WorkspaceBody({
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
   const agents = Object.values(state.agents)
   const threads = useMemo(() => threadsOf(state), [state])
+  const [seen, markSeen] = useSeenMail(colonyId)
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
   const newestShell = shells.at(-1)?.id
@@ -305,7 +314,8 @@ function WorkspaceBody({
     files: files.length + Object.keys(state.madeTools).length,
     tasks: tasks.length,
     team: agents.length,
-    mail: threads.reduce((n, t) => n + t.messages.length, 0),
+    // What the person has not read yet: it drops as they open a conversation and rises as new messages come in.
+    mail: threads.reduce((n, t) => n + unseen(t, seen), 0),
     terminal: shells.length,
   }
   const edited = useMemo(
@@ -764,7 +774,15 @@ function WorkspaceBody({
                           <PluginSlot key={plugin} plugin={plugin} def={def} props={{ colonyId, state }} />
                         ),
                     )}
-                    {tab === 'mail' && <MailTab threads={threads} onInspect={setInspect} />}
+                    {tab === 'mail' && (
+                      <MailTab
+                        threads={threads}
+                        seen={seen}
+                        reading={shown}
+                        onSeen={markSeen}
+                        onInspect={setInspect}
+                      />
+                    )}
                     {tab === 'computer' && (
                       <Computer
                         colonyId={colonyId}
@@ -906,6 +924,10 @@ function threadsOf(state: ColonyState): Thread[] {
     .filter((t) => t.messages.length > 0)
 }
 
+/** A conversation's messages the person has not seen in the Mail tab. */
+const unseen = (t: Thread, seen: Readonly<Record<string, number>>) =>
+  t.messages.filter((m) => m.seq > (seen[t.id] ?? 0)).length
+
 const threadTitle = (t: Thread) =>
   t.kind === 'team' ? copy.workspace.mail.team : t.kind === 'group' ? t.name : t.members.join(' · ')
 
@@ -913,7 +935,14 @@ const threadTitle = (t: Thread) =>
  * The agents' messages, laid out like a messaging app: a list of conversations (the team's group chat and each pair
  * of agents who wrote to each other), newest first, and a conversation open as bubbles with replies quoted.
  */
-function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): void }) {
+function MailTab(props: {
+  threads: readonly Thread[]
+  seen: Readonly<Record<string, number>>
+  /** Whether the panel is on screen: a conversation left open behind a closed panel is not being read. */
+  reading: boolean
+  onSeen(thread: string, seq: number): void
+  onInspect(name: string): void
+}) {
   const [open, setOpen] = useState<string>()
   const threads = props.threads
   const thread = threads.find((t) => t.id === open)
@@ -924,12 +953,20 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
       </Empty>
     )
   if (thread)
-    return <Conversation thread={thread} onBack={() => setOpen(undefined)} onInspect={props.onInspect} />
+    return (
+      <Conversation
+        thread={thread}
+        reading={props.reading}
+        onSeen={props.onSeen}
+        onBack={() => setOpen(undefined)}
+        onInspect={props.onInspect}
+      />
+    )
   return (
     <ul className="flex flex-col py-1">
       {threads.map((t) => {
         const last = t.messages.at(-1)
-        const unread = t.messages.filter((m) => m.read === false).length
+        const unread = unseen(t, props.seen)
         return (
           <li key={t.id}>
             <button
@@ -968,8 +1005,12 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
                     {last ? `${last.from}: ${last.text}` : ''}
                   </span>
                   {unread > 0 && (
-                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright">
-                      {unread}
+                    <span
+                      title={copy.workspace.mail.newCount(unread)}
+                      className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright"
+                    >
+                      <span className="sr-only">{copy.workspace.mail.newCount(unread)}</span>
+                      <span aria-hidden="true">{unread}</span>
                     </span>
                   )}
                 </span>
@@ -986,8 +1027,19 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
  * One conversation as chat bubbles. One-to-one, the second agent writes on the right, like your own messages; in the
  * team chat and groups everyone writes on the left, as in a group chat.
  */
-function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: string): void }) {
-  const { thread } = props
+function Conversation(props: {
+  thread: Thread
+  reading: boolean
+  onSeen(thread: string, seq: number): void
+  onBack(): void
+  onInspect(name: string): void
+}) {
+  const { thread, reading, onSeen } = props
+  // Open on screen, a conversation is read up to its newest message, and stays read as new ones arrive.
+  const newest = thread.messages.at(-1)?.seq
+  useEffect(() => {
+    if (reading && newest !== undefined) onSeen(thread.id, newest)
+  }, [reading, newest, thread.id, onSeen])
   const right = thread.kind === 'direct' ? thread.members[1] : undefined
   const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
   const list = useStickToBottom<HTMLDivElement>(thread.id)

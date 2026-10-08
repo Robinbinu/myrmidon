@@ -1243,8 +1243,11 @@ export const copy = {
       team: 'Crew',
       members: (n: number) => `${n} people`,
       back: 'All messages',
+      /** Whether the agent it was sent to has read a message. */
       read: 'Read',
       unread: 'Not read yet',
+      /** Messages in a conversation the person has not opened yet. */
+      newCount: (n: number) => `${n} new`,
     },
     /** A panel view's button with its count beside the icon, so the name holds the number shown. */
     viewWithCount: (view: string, count: string) => `${view}, ${count}`,

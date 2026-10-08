@@ -48,6 +48,44 @@ export function usePersistentFlag(key: string, initial: boolean): [boolean, (v: 
 }
 
 /**
+ * How far the person has read each of a colony's mail conversations: the last message seq they saw, by conversation
+ * id. Kept in this browser; a conversation never opened here counts all its messages as unread.
+ */
+export function useSeenMail(
+  colonyId: string,
+): [Record<string, number>, (thread: string, seq: number) => void] {
+  const key = `myr-mail-seen:${colonyId}`
+  const [seen, setSeen] = useState<Record<string, number>>(() => readSeen(key))
+  useEffect(() => {
+    setSeen(readSeen(key))
+  }, [key])
+  const mark = useCallback(
+    (thread: string, seq: number) =>
+      setSeen((prev) => {
+        if ((prev[thread] ?? 0) >= seq) return prev
+        const next = { ...prev, [thread]: seq }
+        store(key, JSON.stringify(next))
+        return next
+      }),
+    [key],
+  )
+  return [seen, mark]
+}
+
+function readSeen(key: string): Record<string, number> {
+  try {
+    const raw: unknown = JSON.parse(readStored(key, '{}'))
+    if (!raw || typeof raw !== 'object') return {}
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'number')) as Record<
+      string,
+      number
+    >
+  } catch {
+    return {}
+  }
+}
+
+/**
  * The in-app Reduce motion setting. Motion's components read it through MotionConfig; CSS animations cannot, so it is
  * also applied as `data-reduce-motion` on <html>.
  */
