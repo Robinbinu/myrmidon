@@ -307,7 +307,9 @@ async function start(home: string): Promise<OmpRuntime> {
     async login(id, handlers) {
       if (!getOAuthProviders().some((p) => p.id === id)) throw new Error(`unknown sign-in ${id}`)
       const identity = await core.auth.oauth.login(id, {
-        onAuth: (info) => handlers.onAuth(info.launchUrl ?? info.url, info.instructions),
+        // The full authorization URL, not omp's short `launchUrl`: that one redirects from this machine's loopback
+        // callback server, so it opens nowhere for someone signing in from another device (a remote gateway).
+        onAuth: (info) => handlers.onAuth(info.url, info.instructions),
         onPrompt: (prompt) => handlers.onPrompt(prompt.message, prompt.placeholder),
         onManualCodeInput: () =>
           handlers.onPrompt('Or paste the authorization code / redirect URL here', 'code#state or URL'),

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import './home.ts'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { colonyId, SqliteLogStore } from '@myrmidon/core'
@@ -41,6 +42,9 @@ import {
   ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
+import { setupCopy } from './copy.ts'
+import { type Call, doctor, key, login, model, type ServerInfo, setup } from './setup.ts'
+import { style, terminal } from './terminal.ts'
 
 const HELP = `myrmidon — run and watch colonies of collaborating agents
 
@@ -52,6 +56,11 @@ Usage:
                --preview-port / --preview-url: where devices open agent-built pages from a remote gateway
   myrmidon pair [--scope full|chat]
                Print a single-use link that pairs a device with the running server (10 minutes)
+  myrmidon setup               Walk through sign-in or keys, the default model and a first device, in the terminal
+  myrmidon login [ID]          Sign in with a subscription; works on a server with no browser (paste the link back)
+  myrmidon key [PROVIDER]      Add an API key (typed hidden, or piped: myrmidon key openai < key.txt)
+  myrmidon model [REF]         Show or set the default model (provider/model); it is tested before it is saved
+  myrmidon doctor              Check the server, models, sandbox, browser tools, previews and devices
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -93,14 +102,7 @@ const { values, positionals } = parseArgs({
 const home = process.env.MYRMIDON_HOME as string
 const [command, arg] = positionals
 
-const c = {
-  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
-  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
-  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
-  red: (s: string) => `\x1b[31m${s}\x1b[0m`,
-  yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
-  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
-}
+const c = style
 
 function line(e: MyrEvent): string | undefined {
   const p = e.payload as never
@@ -382,12 +384,19 @@ async function main() {
       const serverFile = join(home, 'server.json')
       writeFileSync(
         serverFile,
-        JSON.stringify({ url: server.url.replace(/#.*$/, ''), token: server.token, pid: process.pid }),
+        JSON.stringify({
+          url: server.url.replace(/#.*$/, ''),
+          token: server.token,
+          pid: process.pid,
+          remote: server.remote,
+          ...(server.publicUrl ? { publicUrl: server.publicUrl } : {}),
+          ...(server.previewUrl ? { previewUrl: server.previewUrl } : {}),
+        }),
         {
           mode: 0o600,
         },
       )
-      process.on('SIGINT', async () => {
+      const shutdown = async () => {
         console.log(c.yellow('\nstopping running colonies…'))
         rmSync(serverFile, { force: true })
         await chats.stopAll()
@@ -396,13 +405,36 @@ async function main() {
         await server.stop()
         await runtime.dispose()
         process.exit(0)
-      })
+      }
+      process.on('SIGINT', shutdown)
+      // systemd stops a service with SIGTERM.
+      process.on('SIGTERM', shutdown)
       return
     }
     case 'ask':
       return ask(arg)
     case 'pair':
       return pair()
+    case 'setup': {
+      const { call, info } = await runningServer()
+      return withScratch((scratch) =>
+        setup(call, terminal(), { sandbox: detectSandbox(), scratch, server: info }, pair),
+      )
+    }
+    case 'login':
+      return login((await runningServer()).call, terminal(), arg)
+    case 'key':
+      return key((await runningServer()).call, terminal(), arg)
+    case 'model':
+      return model((await runningServer()).call, terminal(), arg)
+    case 'doctor': {
+      const server = await runningServer().catch(() => undefined)
+      const problems = await withScratch((scratch) =>
+        doctor(server?.call, terminal(), { sandbox: detectSandbox(), scratch, server: server?.info }),
+      )
+      process.exitCode = problems ? 1 : 0
+      return
+    }
     case 'import-omp': {
       const report = importFromOmp(home)
       console.log(`${c.green('imported')} ${report.copied.join(', ') || 'nothing'} into ${home}/agent`)
@@ -451,26 +483,45 @@ main().catch((err) => {
 })
 
 /** Calls the API of the server running on this machine for this home, with the token it wrote down. */
-function runningServer() {
+/** The server `myrmidon serve` started for this home, checked to be answering (server.json outlives a crash). */
+async function runningServer(): Promise<{ call: Call; info: ServerInfo }> {
   const file = join(home, 'server.json')
-  if (!existsSync(file)) throw new Error(`no running server for ${home}: start one with \`myrmidon serve\``)
-  const { url, token } = JSON.parse(readFileSync(file, 'utf8')) as { url: string; token: string }
-  return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const res = await fetch(new URL(path, url), {
+  if (!existsSync(file)) throw new Error(setupCopy.noServer(home))
+  const info = JSON.parse(readFileSync(file, 'utf8')) as ServerInfo & { token: string }
+  const call: Call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const res = await fetch(new URL(path, info.url), {
       method,
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(info.token ? { authorization: `Bearer ${info.token}` } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     })
     const data = (await res.json().catch(() => ({}))) as T & { error?: string }
     if (!res.ok) throw new Error(data.error ?? `${method} ${path}: ${res.status}`)
     return data
   }
+  await call('GET', '/api/whoami').catch((err: Error) => {
+    throw new Error(err.message.includes('Unable to connect') ? setupCopy.noServer(home) : err.message)
+  })
+  const { token: _token, ...rest } = info
+  return { call, info: rest }
+}
+
+/** A throwaway directory for checks that run something (the sandbox), removed afterwards. */
+async function withScratch<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-check-'))
+  try {
+    return await fn(dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 /** Prints a single-use link that pairs a device (a phone, a laptop) with the running remote gateway. */
 async function pair() {
   const scope = values.scope === 'chat' ? 'chat' : 'full'
-  const call = runningServer()
+  const { call } = await runningServer()
   const { code, link } = await call<{ code: string; link: string }>('POST', '/api/devices/pair-code', {
     scope,
   })
@@ -484,7 +535,7 @@ async function pair() {
 /** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
 async function ask(request: string | undefined) {
   if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
-  const call = runningServer()
+  const { call } = await runningServer()
   const sent = await call<{ chatId: string; colonyId: string; round?: number }>('POST', '/api/chats', {
     text: request,
     ...(values.chat ? { chatId: values.chat } : {}),

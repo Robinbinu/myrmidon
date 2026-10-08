@@ -96,8 +96,6 @@ Every request then needs a paired device. Previews open at `http://100.101.102.1
   AppArmor blocks the unprivileged user namespaces bubblewrap needs; if Settings shows the sandbox as `none`, see
   Ubuntu's notes on `kernel.apparmor_restrict_unprivileged_userns` or add an AppArmor profile for `bwrap`.
 - **Browser tools**: `sudo apt install chromium` (or set `MYR_CHROME` to a Chrome binary); it runs headless.
-- **Model sign-ins** that send you back to `127.0.0.1` (OAuth) finish on the machine that opened them: run them over
-  the SSH tunnel (option 1), or add API keys instead.
 - **Keep it running** with a systemd user service, e.g. `~/.config/systemd/user/myrmidon.service`:
 
 ```ini
@@ -120,6 +118,31 @@ systemctl --user enable --now myrmidon
 ```bash
 loginctl enable-linger $USER
 ```
+
+## Setting it up from the terminal
+
+A VPS usually has no desktop, so everything can be done over SSH. Start the gateway first (the service above, or
+`myrmidon serve …` in another session), then:
+
+```bash
+myrmidon setup
+```
+
+It walks through a way to reach a model, the default model and pairing your first device, then checks everything.
+Each step is also its own command:
+
+- `myrmidon login [ID]` signs in with a subscription (ChatGPT, Claude, Copilot, Gemini…). It prints a link to open
+  on your laptop or phone. Sign-ins with a device code ("…headless/device") just need the code typed there. The
+  others end on a `127.0.0.1` page that does not load on your laptop: copy that page's whole address and paste it
+  into the terminal. Or forward the port it names first (`ssh -N -L 1455:127.0.0.1:1455 you@box`) and it finishes by
+  itself. The same works from Settings → Models on a paired device.
+- `myrmidon key [PROVIDER]` stores an API key, typed without showing it. For scripts, pipe it in so it never lands
+  in your shell history: `myrmidon key openai < openai.key`. The key is tried with one of that provider's models.
+- `myrmidon model [PROVIDER/MODEL]` shows or sets the default model; it is saved only after it answers.
+- `myrmidon doctor` checks the server, models, the default model, the sandbox (by running something in it), the
+  browser tools, previews and paired devices, with a fix for each problem. It exits 1 when something needs attention.
+
+Run without a terminal (a script, a pipe), `myrmidon setup` prints these commands instead of waiting for answers.
 
 ## When something does not connect
 

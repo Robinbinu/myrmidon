@@ -80,9 +80,10 @@ Open work, in the order it will be done:
         scopes, Settings → Devices with revoke, auth audit log, docs/remote.md.
       - [x] Step 2: previews from a remote gateway — --preview-port/--preview-url, per-device preview keys (revoke
         ends previews), preview Host allowlist, a note instead of a broken frame when a device has no preview address.
-      - [ ] Step 2b (asked 2026-10-08): set up a VPS gateway from the CLI alone, since VPSes usually have no
-        desktop: model sign-ins (device-code / paste-back OAuth where providers allow), API keys, default model and
-        team, checks (sandbox, Chromium), all without a browser on the server.
+      - [x] Step 2b (asked 2026-10-08): set up a VPS gateway from the CLI alone — `myrmidon setup` wizard, `login`
+        (device codes, pasted redirect or an SSH-forwarded callback; full auth URL instead of omp's loopback
+        launcher), `key` (hidden or piped), `model` (saved once it answers), `doctor` (runs the sandbox, exits 1 on
+        problems); SIGTERM shuts `serve` down cleanly for systemd.
       - [ ] Step 3: one client, N gateways (hub registry, proxy, switcher, health).
 11d. - [ ] **Channels** (asked 2026-10-08, "like OpenClaw and Hermes"): talk to Myrmidon from WhatsApp, Telegram
       and similar — research how OpenClaw and Hermes Agent do channels (pairing a chat to the gateway, allowlists,
