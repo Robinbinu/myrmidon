@@ -267,8 +267,6 @@ export function FolderGroups<T extends { path: string }>(props: {
   const folds = useFolds(
     (folder) => (groups.find((g) => g.folder === folder)?.items.length ?? 0) <= FOLDER_FOLD_AT,
   )
-  if (groups.length < 2)
-    return <>{groups.flatMap((g) => g.items).map((item) => props.children(item, item.path))}</>
   return (
     <>
       {groups.map((g) =>
