@@ -3,8 +3,11 @@
  * those values; the components keep the layout and logic.
  *
  * Glossary: one word per concept wherever the person reads it. The code keeps older names (colony, round, team,
- * judge, verifier, verdict, observer, steer, queue); those stay identifiers and never reach the screen.
- *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team".
+ * judge, verifier, verdict, observer, steer, queue, newTask); those stay identifiers and never reach the screen.
+ *   chat        one conversation with the lead, listed in the sidebar. Not "task" or "conversation"; a task is only
+ *               a card on the task board.
+ *   crew        everyone working on a chat: the lead and its helpers. Not "colony" or "team". Each chat's crew and
+ *               its history is listed under Crews, and Compare puts two crews side by side.
  *   lead        the agent you talk to; it plans and brings in helpers.
  *   helper      an agent working with the lead. Not "worker". In Swarm mode there is no lead and the agents are
  *               "peers", equals sharing one plan.
@@ -13,6 +16,18 @@
  *   turn        one step of one agent: a model call and the tools it used.
  *   review      the independent check of the work, by the reviewer. Not judge, verdict, verifier, verification.
  *   check-in    Myrmidon's regular look for stuck or idle agents and limits running out. Not "observer".
+ *   call assistant  the fast model the person talks to on a voice call; its model is the "call assistant model".
+ *   Myrmidon    the running app; "this Myrmidon" in body text, not "server". "Gateway" only where one window switches
+ *               between Myrmidons (Settings → Gateways, the switcher). The hardware is "this computer" or "This Mac",
+ *               not "machine".
+ *   channel     a messaging service the crew answers on (Telegram, Slack…). "App" means Myrmidon itself.
+ *   folder      never "directory". An agent's own folder is its "private working folder", not "scratch".
+ *   Allow / Deny        a step an agent wants to take. Approve / Decline: people, groups and plans.
+ *   Changes asked       the reviewer sent work back. Not "rejections".
+ *   Try again   the button after a failure. Not "Retry".
+ *   Delete      things you made (chat, schedule, hook, specialist). Remove: connections (project, plugin, provider,
+ *               channel, gateway, tool library). Revoke: access (devices, people). Discard: proposals. An armed
+ *               confirm button starts with "Yes," and repeats the verb and its object ("Yes, remove channel").
  *   Send now / Send when done   how a message typed during a run reaches the crew (the /steer and /queue commands).
  */
 export const copy = {
@@ -62,7 +77,8 @@ export const copy = {
   unknownCost: 'n/a',
 
   auth: {
-    notAuthorized: 'Not authorized: open the link printed by the CLI.',
+    notAuthorized:
+      "This page isn't signed in to Myrmidon. Open the full address Myrmidon printed when it started: it carries the key.",
     pairAgain: 'This device is no longer paired. Pair it again to carry on.',
   },
 
@@ -106,8 +122,8 @@ export const copy = {
   /** The sidebar chip that appears only when this gateway (or one of its channels) is in trouble. */
   gatewayStatus: {
     offline: 'Offline',
-    retry: 'Retry',
-    offlineHint: 'This gateway is not answering. Retry checks again now.',
+    retry: 'Try again',
+    offlineHint: "Myrmidon isn't answering. Check that it is still running; Try again checks now.",
     noModels: 'No model can answer',
     channelDown: (label: string) => `${label} down`,
     more: (n: number) => `+${n} more`,
@@ -120,15 +136,16 @@ export const copy = {
     nav: 'System',
     ok: 'Everything is working',
     degraded: 'Something needs attention',
-    offline: "This gateway isn't answering",
-    loading: 'Checking how this gateway is doing…',
+    offline: "Myrmidon isn't answering",
+    loading: 'Checking how Myrmidon is doing…',
     problems: {
       noModels: 'No model can answer: add a key or sign in under Settings → Models.',
       channel: (label: string) => `${label} can't connect right now. See Channels below.`,
     },
-    gateway: 'This gateway',
-    local: 'This machine only',
-    remote: (url?: string) => (url ? `Remote gateway at ${url}` : 'Remote gateway'),
+    gateway: 'This Myrmidon',
+    local: 'This computer only',
+    remote: (url?: string) =>
+      url ? `Reachable from other devices at ${url}` : 'Reachable from other devices',
     up: (since: string) => `Up since ${since}`,
     ping: (ms: number) => `Answers in ${ms} ms`,
     home: 'Data folder',
@@ -146,7 +163,7 @@ export const copy = {
     channels: 'Channels',
     noChannels: 'No channels set up. Add one in Settings → Channels.',
     activity: 'Recent activity',
-    noActivity: 'Nothing yet.',
+    noActivity: 'Nothing yet. Messages and answers on your channels show here.',
     /** A channel's connection in plain words; the server's own reason sits behind Show details. */
     channelState: {
       on: 'Connected',
@@ -207,7 +224,8 @@ export const copy = {
     leadName: 'the lead',
     started: (request: string) => `Crew started: ${request}`,
     noMic: 'Myrmidon could not use the microphone. Allow it for this page and try again.',
-    insecure: 'Calls need the microphone, which browsers allow only on https or on this machine.',
+    insecure:
+      'Calls need the microphone, which browsers allow only over https or on the computer Myrmidon runs on. Open Myrmidon there, or over https.',
     couldNotStart:
       'Couldn’t start the call. Check that Myrmidon is running and voice calls are on in Settings → Voice.',
     dropped: 'The call dropped: Myrmidon stopped answering. Check that it is still running, then call again.',
@@ -231,7 +249,7 @@ export const copy = {
   pairing: {
     title: 'Pair this device',
     introBefore:
-      'This Myrmidon runs on another machine. To use it from here, pair this device once: on that machine run ',
+      'This Myrmidon runs on another computer. To use it from here, pair this device once: on that computer run ',
     introAfter:
       ', or make a link in Settings → Devices on a device that is already paired, then open the link or enter its code.',
     code: 'Pairing code',
@@ -252,12 +270,12 @@ export const copy = {
     curious: 'curious',
     focused: 'focused',
     concerned: 'on it',
-    love: 'love',
-    happy: 'hehe',
-    proud: 'done!',
-    wink: 'wink',
-    surprised: 'oh!',
-    dizzy: 'whoa',
+    love: 'glad to help',
+    happy: 'all good',
+    proud: 'done',
+    wink: 'hello',
+    surprised: 'oh',
+    dizzy: 'a bit dizzy',
     sad: 'oh no',
     sleepy: 'zzz',
     night: 'late night',
@@ -360,7 +378,7 @@ export const copy = {
     sentBack: (task: string) => `Sent ${task} back:`,
     needsRework: 'Task needs rework:',
     broughtIn: 'Brought in',
-    promptInjection: 'Possible prompt injection:',
+    promptInjection: 'Ran a command copied from web content:',
     injectionSource: (reason: string, source: string) => `${reason} (from ${source})`,
     startedServer: (name: string) => `Started ${name} at`,
     stoppedServer: (name: string) => `Stopped ${name}`,
@@ -368,7 +386,9 @@ export const copy = {
     hookBlocked: (tool?: string) => `A hook blocked ${tool ?? 'a call'}:`,
     hookAsked: (tool?: string) => `A hook asked you about ${tool ?? 'a call'}:`,
     hookFlagged: (tool?: string) => `A hook flagged ${tool ?? 'the result'}:`,
-    hookFailed: (event: string, code?: number) => `A ${event} hook failed (exit ${code}):`,
+    /** `event` is the runtime's hook event id, named here as Settings → Hooks names it. */
+    hookFailed: (event: string, code?: number) =>
+      `Your “${(copy.settings.hooks.events as Record<string, string>)[event] ?? event}” hook failed (exit code ${code}):`,
     readSkillFile: (file: string) => `Read ${file} from skill`,
     usedSkill: 'Used skill',
     proposedMemory: 'Proposed to remember:',
@@ -378,13 +398,12 @@ export const copy = {
       `Brought ${n} changed file${n === 1 ? '' : 's'} from the project into its branch`,
     mergeConflict: 'Merge conflict, sent back to resolve:',
     keptBranch: 'Kept its branch: it holds changes that were not merged',
-    askedApproval: 'Asked you to approve',
-    approved: 'Approved',
-    notApprovedInTime: 'Not approved in time',
+    askedApproval: 'Asked you to allow',
+    approved: 'Allowed',
+    notApprovedInTime: 'Not answered in time',
     denied: 'Denied',
-    compacted: 'Compacted its context',
-    compactedTail: (messages: number, kTokens: number) =>
-      `summarized ${messages} earlier messages at ~${kTokens}k tokens`,
+    compacted: 'Summarized older messages to make room',
+    compactedTail: (messages: number, kTokens: number) => `${messages} messages, at ~${kTokens}k tokens`,
     switchedTo: 'Switched to',
     switchedFrom: (model?: string) => `from ${model}, by you`,
     askedJudge: 'Asked the reviewer to check the result',
@@ -456,7 +475,7 @@ export const copy = {
   /** The empty state: the mascot, the headline and the starter prompts. */
   hero: {
     headline: 'What should the crew build?',
-    poke: 'Poke the crew',
+    poke: 'Make the mascot react',
     /** What the mascot's screen spells out in dots (letters, digits and a few signs only). */
     screen: {
       hello: (name: string) => `HI ${name.toUpperCase()}`,
@@ -491,7 +510,7 @@ export const copy = {
     },
     thinking: { label: 'Thinking' },
     review: {
-      off: { title: 'Off', hint: 'The lead’s answer completes the task' },
+      off: { title: 'Off', hint: 'The lead’s answer completes the run' },
       auto: { title: 'Auto', hint: 'The lead asks for a check when the work deserves it' },
       always: { title: 'Always', hint: 'Every final answer is checked before it is done' },
     },
@@ -592,7 +611,7 @@ export const copy = {
       attach: { description: 'Attach files to your next message' },
       export: { description: 'Download this chat as Markdown' },
       learn: { description: 'Learn a skill from how this chat did its work' },
-      mcp: { description: 'Manage MCP servers' },
+      mcp: { description: 'Manage MCP servers (tool connectors)' },
       settings: { description: 'Open settings' },
       help: { description: 'Show every command' },
     },
@@ -637,9 +656,9 @@ export const copy = {
   },
 
   sidebar: {
-    label: 'Conversations',
+    label: 'Chats',
     hide: 'Hide sidebar',
-    newTask: 'New task',
+    newTask: 'New chat',
     withShortcut: (action: string, combo: string) => `${action} (${combo})`,
     search: { placeholder: 'Search', label: 'Search chats' },
     /** Date headings for chats outside a project. */
@@ -666,10 +685,11 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
     },
-    empty: 'Your conversations will appear here.',
+    /** `combo` is the New chat shortcut, written for this platform. */
+    empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
     noMatches: (query: string) => `No chats match “${query}”.`,
     searchingMessages: 'Searching messages…',
-    nav: { crews: 'Crews', compare: 'Compare runs', settings: 'Settings' },
+    nav: { crews: 'Crews', compare: 'Compare crews', settings: 'Settings' },
     theme: (theme: string, next: string) => `Theme: ${theme}. Switch to ${next}`,
   },
 
@@ -700,7 +720,7 @@ export const copy = {
     by: 'by',
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
-      'This gateway has no preview address for this device yet, so here is the code. Start it with --preview-port and --preview-url (see docs/remote.md).',
+      'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
   },
 
   audit: {
@@ -715,7 +735,7 @@ export const copy = {
     kindsLabel: 'What to show',
     /** Why a tool call was stopped, shown in brackets after it. */
     stoppedBy: {
-      person: 'you declined',
+      person: 'you denied it',
       timeout: 'no answer in time',
       hook: 'a hook blocked it',
       safety: 'flagged',
@@ -755,7 +775,7 @@ export const copy = {
     },
     reasoning: 'Reasoning',
     stats: { turns: 'turns', tokens: 'tokens', tools: 'tools', tasks: 'tasks' },
-    nothingYet: 'Nothing yet.',
+    nothingYet: 'Nothing from this agent yet. Its steps show here as it works.',
   },
 
   approvals: {
@@ -768,12 +788,12 @@ export const copy = {
     approval: {
       wantsTo: (action: string) => `wants to ${action}`,
       deny: 'Deny',
-      approve: 'Approve',
+      approve: 'Allow',
     },
     /** What became of a call once decided, as the one line it leaves in the chat. */
     decided: {
-      approved: (what: string) => `Approved: ${what}`,
-      approvedEdited: (what: string) => `Approved your version: ${what}`,
+      approved: (what: string) => `Allowed: ${what}`,
+      approvedEdited: (what: string) => `Allowed your version: ${what}`,
       denied: (what: string) => `Denied: ${what}`,
       timedOut: (what: string) => `Not answered in time: ${what}`,
       stopped: (what: string) => `Not run, the run stopped: ${what}`,
@@ -785,7 +805,7 @@ export const copy = {
       editLabel: (field: string) => `Edit ${field}`,
       preview: 'Show changes',
       edited: 'edited',
-      approveEdited: 'Approve your version',
+      approveEdited: 'Allow your version',
       note: (agent: string) => `Note for ${agent} (optional)`,
       noteLabel: 'Note',
       unchanged: 'No changes to the file',
@@ -828,7 +848,7 @@ export const copy = {
       "Agents in this project's chats work in the folder: they read and edit its files and run commands there.",
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
-    go: 'Go',
+    go: 'Open',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
     /** On the "Added" toast while a chat is open: that chat stays where it was. */
@@ -839,7 +859,7 @@ export const copy = {
       title: 'Work in a project folder',
       none: 'No project',
       label: 'Project folder',
-      noneOption: 'No project (scratch only)',
+      noneOption: 'No project (private working folder only)',
       open: 'Open a folder…',
     },
   },
@@ -879,8 +899,8 @@ export const copy = {
   },
 
   roundChanges: {
-    failed: (project: string) => `Couldn’t check what changed in ${project}`,
-    retry: 'Retry',
+    failed: (project: string) => `Couldn’t check what changed in ${project}. Your files are untouched.`,
+    retry: 'Try again',
     /** "Rewound <project> to before this run", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this run' },
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
@@ -892,7 +912,7 @@ export const copy = {
     confirm: {
       title: 'Rewind this run’s changes?',
       body: (project: string, n: number) =>
-        `The ${n} file${n === 1 ? '' : 's'} this run changed in ${project} go${n === 1 ? 'es' : ''} back to how ${n === 1 ? 'it was' : 'they were'} before it: changed files are restored and files it added are removed. Nothing else in the folder is touched, and files edited again since the run are kept unless you choose otherwise. The current state is saved first, so you can undo this.`,
+        `The ${n} file${n === 1 ? '' : 's'} this run changed in ${project} go${n === 1 ? 'es' : ''} back to before it, and files it added are removed; nothing else changes. Later edits stay unless you choose. You can undo it.`,
       skippedTitle: (n: number) =>
         `${n} file${n === 1 ? ' was' : 's were'} edited again after this run, so ${n === 1 ? 'it was' : 'they were'} kept:`,
       rewindThemToo: 'Rewind them too',
@@ -922,10 +942,10 @@ export const copy = {
     remove: 'Remove',
     removeLabel: (name: string) => `Remove tool_${name}`,
     removedToast: (name: string) => `Removed tool_${name} from your library`,
-    confirmRemove: 'Remove for good',
+    confirmRemove: 'Yes, remove tool',
     /** Settings list when nothing has been kept yet. */
     empty:
-      "When agents make a tool with create_tool, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
+      "When an agent makes itself a tool for a job, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
   },
 
   permissions: {
@@ -938,7 +958,7 @@ export const copy = {
       },
       ask: {
         label: 'Ask first',
-        hint: 'Each change to a project file and each shell command waits for your Approve in the chat, except the commands you allow below.',
+        hint: 'Each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
       },
       readOnly: {
         label: 'Read-only',
@@ -1033,7 +1053,7 @@ export const copy = {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
       /** The run is paused on a call the person has to approve. */
-      approval: 'Waiting for your approval',
+      approval: 'Waiting for you to allow a step',
       toTeam: 'Bringing in helpers',
       toAgent: 'Handing this to one agent with every tool',
       doneIn: (time: string) => `Done in ${time}`,
@@ -1083,18 +1103,18 @@ export const copy = {
     windowTooSmall: (model: string, tokens: string, window: string) =>
       `${model} turned down about ${tokens} tokens, though its window is listed as ${window}. Its real window is probably smaller: correct it in Settings → Models, or continue on another model.`,
     conversationTooLong: (tokens: string, model: string, window: string) =>
-      `This conversation is about ${tokens} tokens, and ${model} holds ${window}, even after older messages were summarized. Continue on a model with a bigger window.`,
+      `This chat is about ${tokens} tokens, and ${model} holds ${window}, even after older messages were summarized. Continue on a model with a bigger window.`,
     noLongerFits: (model: string) =>
-      `The conversation no longer fits ${model}'s context window, even after older messages were summarized.`,
+      `This chat no longer fits ${model}'s context window, even after older messages were summarized.`,
     refusal: "The provider's safety filter stopped this reply. Another model can pick up from here.",
     error: 'The provider returned an error. Another model can pick up from here, or try again.',
     providerMessage: 'Provider message',
     continueWith: 'Continue with',
-    wontFit: (window: string) => `Under ${window}: this conversation won't fit`,
+    wontFit: (window: string) => `Under ${window}: this chat won't fit`,
     continuing: 'Continuing…',
     continue: 'Continue',
-    retrying: 'Retrying…',
-    summarizeAndRetry: 'Summarize and retry',
+    retrying: 'Trying again…',
+    summarizeAndRetry: 'Summarize and try again',
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
     kept: 'The work so far is kept; the failed reply is not.',
@@ -1121,7 +1141,7 @@ export const copy = {
     resuming: 'Resuming…',
     resume: 'Resume',
     starting: 'Starting…',
-    retry: 'Retry',
+    retry: 'Try again',
     changesAsked: 'The reviewer asked for changes',
     fixing: 'the crew is fixing them',
     feedback: 'Feedback',
@@ -1191,7 +1211,7 @@ export const copy = {
       running: 'running…',
       noOutput: '(no output)',
     },
-    activityEmpty: 'Nothing yet',
+    activityEmpty: 'No steps yet: each one the crew takes shows here',
     mail: {
       emptyTitle: 'No messages yet',
       emptyBody: 'The crew chat, group chats and messages between agents show up here.',
@@ -1202,7 +1222,7 @@ export const copy = {
       /** The chat everyone on the crew is in. */
       team: 'Crew',
       members: (n: number) => `${n} people`,
-      back: 'All conversations',
+      back: 'All messages',
       read: 'Read',
       unread: 'Not read yet',
     },
@@ -1222,7 +1242,7 @@ export const copy = {
     running: 'running…',
     editor: (path: string) => `Editor · ${path}`,
     edited: ' (edit)',
-    publishedFromScratch: '(published from a file in its scratch directory)',
+    publishedFromScratch: '(published from its private working folder)',
     agentsComputer: (agent: string) => `${agent}’s computer`,
     blankPage: 'blank page',
     youHaveControl: 'you have control',
@@ -1284,7 +1304,7 @@ export const copy = {
       notRunningSendNormally: 'Nothing is running; send it as a normal message',
       notRunning: 'Nothing is running',
       stillRunning: 'Still running',
-      nothingToRetry: 'Nothing to retry yet',
+      nothingToRetry: 'Nothing to run again yet',
       openChatToRename: 'Open a chat to rename it',
       renamed: 'Renamed',
       modeUsage: 'Use /mode orchestrated or /mode swarm',
@@ -1302,9 +1322,9 @@ export const copy = {
       projectRemoved: (name: string) => `Removed ${name} from projects; its folder and chats are untouched`,
     },
     titles: {
-      newTask: 'New task',
+      newTask: 'New chat',
       crews: 'Crews',
-      compare: 'Compare runs',
+      compare: 'Compare crews',
     },
     resizeSidebar: 'Resize sidebar',
     /** One calm line under the toolbar while the server is not answering; it clears by itself. */
@@ -1322,7 +1342,7 @@ export const copy = {
     chatNotFound: {
       title: 'Chat not found',
       body: 'It may have been deleted, or it belongs to another gateway.',
-      action: 'New task',
+      action: 'New chat',
     },
     chatsOnly: 'This device can use chats only.',
     /** A chat link opened while the chat list will not load. */
@@ -1330,10 +1350,10 @@ export const copy = {
     crewsFailed: "Couldn't load crews",
     showSidebar: 'Show sidebar',
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
-    newTask: 'New task',
-    newTaskTitle: (combo: string) => `New task (${combo})`,
+    newTask: 'New chat',
+    newTaskTitle: (combo: string) => `New chat (${combo})`,
     crewButton: 'Crew',
-    crewButtonTitle: 'Crew console: agents, tool calls, tasks, replay',
+    crewButtonTitle: 'This chat’s crew: agents, tool calls, tasks, replay',
     composer: {
       status: 'Crew is working…',
       messagePeers: 'Message the peers while they work…',
@@ -1352,14 +1372,14 @@ export const copy = {
       quotedTitle: (title: string) => `“${title}”`,
       /** Follows the quoted chat title. */
       body: (rounds: number) =>
-        ` and its ${rounds === 1 ? 'run' : `${rounds} runs`} will be permanently removed from this machine: messages, files, logs, and agent transcripts. This can’t be undone.`,
+        ` and its ${rounds === 1 ? 'run' : `${rounds} runs`} will be permanently removed from this Myrmidon: messages, files, logs, and agent transcripts. This can’t be undone.`,
       stillRunning: 'This chat is still running. It will be stopped first.',
       cancel: 'Cancel',
       deleting: 'Deleting…',
       confirm: 'Delete chat',
     },
-    crewConsole: 'Crew console',
-    noCrews: 'No crews yet.',
+    crewConsole: 'Crew',
+    noCrews: 'No crews yet. Send a message in a chat and its crew shows here.',
     crewSelect: 'Crew',
   },
 
@@ -1438,8 +1458,8 @@ export const copy = {
   },
 
   compare: {
-    noCrews: 'No crews yet. Run one with `myrmidon run`.',
-    tickTwo: 'Tick two runs to see what differs between them.',
+    noCrews: 'No crews yet. Send a message in a chat, then tick two crews here to compare them.',
+    tickTwo: 'Tick two crews to see what differs between them.',
     comparing: 'Comparing…',
     columns: {
       compare: 'Compare',
@@ -1447,32 +1467,32 @@ export const copy = {
       status: 'Status',
       pattern: 'Mode',
       models: 'Models',
-      wall: 'Wall',
+      wall: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
       turns: 'Turns',
       toolCalls: 'Tool calls',
       messages: 'Messages',
-      artifactVersions: 'Artifact versions',
-      rejections: 'Rejections',
-      bestScore: 'Best score',
+      artifactVersions: 'File versions',
+      rejections: 'Changes asked',
+      bestScore: 'Review score',
     },
     pick: (name: string) => `Compare ${name}`,
     /** The runtime's pattern ids, named like the composer's modes. */
     patterns: { blackboard: 'Swarm', 'lead-workers': 'Orchestrated' } as Record<string, string>,
     metrics: {
-      wallTime: 'Wall time',
+      wallTime: 'Time',
       tokens: 'Tokens',
       cost: 'Cost',
       turns: 'Turns',
       toolCalls: 'Tool calls',
-      rejections: 'Rejections',
+      rejections: 'Changes asked',
       judgeScore: 'Review score',
     },
     judge: (passed: boolean) => `· review ${passed ? 'passed' : 'failed'}`,
-    runDiff: 'Run diff',
+    runDiff: 'What differs',
     /** Warns that two compared runs were asked to do different things. */
-    differentTasks: 'These runs had different tasks, so their numbers are not like for like.',
+    differentTasks: 'These crews worked on different requests, so their numbers are not like for like.',
     close: 'Close the comparison',
     measure: 'Measure',
     versus: 'B vs A',
@@ -1494,7 +1514,7 @@ export const copy = {
   colonyMap: {
     turn: (n: number) => `turn ${n}`,
     tokens: (n: string) => `${n} tok`,
-    noAgents: 'No agents yet.',
+    noAgents: 'No agents yet. The lead and its helpers show here once the run starts.',
   },
 
   git: {
@@ -1537,7 +1557,7 @@ export const copy = {
       cannotUndo: 'Git cannot bring this work back.',
       cancel: 'Cancel',
       deleteFile: 'Delete file',
-      discard: 'Discard',
+      discard: 'Discard changes',
     },
     full: {
       uncommitted: 'Uncommitted changes',
@@ -1582,8 +1602,6 @@ export const copy = {
       off: 'Off',
       on: 'On',
       loading: 'Loading…',
-      confirmRemove: 'Remove for good',
-      confirmDelete: 'Delete for good',
     },
     /** Why a Settings form value is not accepted, shown under the field. */
     validation: {
@@ -1610,9 +1628,9 @@ export const copy = {
       general: { label: 'General', hint: 'Theme, motion, shortcuts' },
       mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
       specialists: { label: 'Specialists', hint: 'Agents you keep and bring back' },
-      devices: { label: 'Devices', hint: 'Who can use this gateway' },
+      devices: { label: 'Devices', hint: 'Who can use this Myrmidon' },
       gateways: { label: 'Gateways', hint: 'Other Myrmidons, one window' },
-      channels: { label: 'Channels', hint: 'Telegram and other apps' },
+      channels: { label: 'Channels', hint: 'Telegram, Slack, email and more' },
       voice: { label: 'Voice', hint: 'Calls with your crew' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Crew & budget', hint: 'Defaults and limits' },
@@ -1633,8 +1651,8 @@ export const copy = {
       /** Follows the Esc key in the header. */
       escToClose: ' to close',
       sectionPicker: 'Section',
-      saveFailed: 'Couldn’t save',
-      retry: 'Retry',
+      saveFailed: 'Couldn’t save your changes; they are still here',
+      retry: 'Try again',
       groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
       unsaved: {
         title: 'Leave without saving?',
@@ -1703,23 +1721,24 @@ export const copy = {
       signInAgain: 'Sign in again',
       signIn: 'Sign in',
       signOut: 'Sign out',
-      confirmSignOut: 'Sign out for good',
+      confirmSignOut: (name: string) => `Yes, sign out of ${name}`,
       signedOut: (name: string) => `Signed out of ${name}`,
       finishInBrowser: 'Finish signing in in the browser tab; this updates by itself.',
       openPage: 'Open the sign-in page',
-      submit: 'Submit',
+      submit: 'Finish sign-in',
       showMore: (n: number) => `Show ${n} more sign-ins`,
     },
     providers: {
       title: 'Providers & keys',
       intro:
-        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never sent back to the browser.',
+        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on the computer Myrmidon runs on, readable only by your account, and never sent back to the browser.',
       storedIn: (dir: string) => `Stored in ${dir}`,
-      importTitle: 'Import your omp setup',
-      importConfirm: 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.',
+      importTitle: 'Import keys from oh-my-pi (omp)',
+      importConfirm:
+        'Replaces Myrmidon’s keys, sign-ins, and custom providers with oh-my-pi’s, from ~/.omp/agent.',
       importHint:
-        'Copy keys, OAuth logins, and custom providers from ~/.omp/agent. The omp CLI is not needed.',
-      imported: 'Imported your omp setup',
+        'oh-my-pi is the agent toolkit Myrmidon builds on. This copies its keys, sign-ins, and custom providers from ~/.omp/agent; it need not be installed.',
+      imported: 'Imported your keys from oh-my-pi',
       replaceAndImport: 'Replace and import',
       import: 'Import',
       heading: 'Providers',
@@ -1728,7 +1747,7 @@ export const copy = {
       connected: (name: string) => `Connected ${name}`,
       emptyTitle: 'No providers ready yet',
       emptyBody:
-        'Import your omp setup, add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any OpenAI, Anthropic, or Gemini-compatible endpoint.',
+        'Import keys from oh-my-pi (omp), add a key below, or connect LM Studio, Ollama, vLLM, OpenRouter, or any OpenAI, Anthropic, or Gemini-compatible endpoint.',
       custom: 'custom',
       modelCount: (n: number) => `${n} model${n === 1 ? '' : 's'}`,
       edit: 'Edit',
@@ -1738,8 +1757,10 @@ export const copy = {
         'Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models.',
       use: (id: string) => `Use ${id}`,
       removeCredentials: (id: string) => `Remove ${id} credentials`,
+      confirmRemoveCredentials: 'Yes, remove credentials',
       removedCredentials: (id: string) => `Removed ${id} credentials`,
       remove: (id: string) => `Remove ${id}`,
+      confirmRemove: 'Yes, remove provider',
       removed: (id: string) => `Removed ${id}`,
       updated: (id: string) => `Updated ${id}`,
       savedKey: (id: string) => `Saved the ${id} key`,
@@ -1777,7 +1798,7 @@ export const copy = {
     },
     team: {
       title: 'Crew & budget',
-      intro: 'Defaults for every new task. You can still change the crew per message.',
+      intro: 'Defaults for every new chat. You can still change the crew per message.',
       timeLimit: 'Time limit per run',
       timeLimitHint: 'The crew stops when this runs out, reviewed or not.',
       spendLimit: 'Spend limit per run',
@@ -1792,7 +1813,7 @@ export const copy = {
     },
     tools: {
       title: 'Tools',
-      intro: 'Capabilities agents get in new tasks. Publishing, tasks, and review are always on.',
+      intro: 'What agents can use in new chats. Publishing, tasks, and review are always on.',
       groups: {
         shell: {
           label: 'Shell',
@@ -1803,20 +1824,27 @@ export const copy = {
           hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
         },
         files: {
-          label: 'Scratch files',
-          hint: 'Private working files for drafts before publishing artifacts.',
+          label: 'Working files',
+          hint: 'A private working folder for drafts before publishing files.',
         },
         messaging: { label: 'Messaging', hint: 'Board posts, direct mail between agents, and shared notes.' },
         mcp: {
-          label: 'MCP servers',
+          label: 'MCP servers (tool connectors)',
           hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
         },
       },
-      sandboxActive: (sandbox: string) => `Sandbox active: ${sandbox}`,
+      /** `sandbox` is the runtime's sandbox kind. */
+      sandboxActive: (sandbox: string) =>
+        sandbox === 'sandbox-exec'
+          ? 'Sandbox on: macOS confines shell commands'
+          : sandbox === 'bubblewrap'
+            ? 'Sandbox on: bubblewrap confines shell commands'
+            : `Sandbox on: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
       sandboxedHint:
         'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
-      unsandboxedHint: 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.',
+      unsandboxedHint:
+        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless Myrmidon was started with --unsafe-no-sandbox, which runs commands unconfined. On Linux, install bubblewrap and restart Myrmidon.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
@@ -1832,14 +1860,14 @@ export const copy = {
       webSearch: 'Web search',
       searchProvider: 'Search provider',
       searchProviderHint:
-        'Auto tries omp’s chain: providers you have keys for first, then keyless ones like DuckDuckGo.',
+        'Auto tries the search providers you have keys for first, then keyless ones like DuckDuckGo.',
       searchAuto: 'Auto',
     },
     mcp: {
       added: (name: string) => `Added ${name}`,
       reconnected: 'Reconnected MCP servers',
-      title: 'MCP servers',
-      subtitle: 'from mcp.json; imported with your omp setup',
+      title: 'MCP servers (tool connectors)',
+      subtitle: 'from mcp.json, including any imported from oh-my-pi',
       reconnect: 'Reconnect',
       addServer: 'Add server',
       name: 'Name',
@@ -1853,7 +1881,7 @@ export const copy = {
       environmentHint: 'KEY=value per line. Your own API keys are not passed on otherwise.',
       url: 'URL',
       addAndConnect: 'Add and connect',
-      empty: 'No MCP servers yet. Add one, or import your omp setup under Models & providers.',
+      empty: 'No MCP servers yet. Add one, or import them from oh-my-pi under Models & providers.',
       statuses: {
         connected: 'connected',
         connecting: 'connecting',
@@ -1866,17 +1894,18 @@ export const copy = {
       enabled: (name: string) => `Enabled ${name}`,
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
+      confirmRemove: 'Yes, remove server',
       removed: (name: string) => `Removed ${name}`,
     },
     channels: {
       title: 'Channels',
       intro:
-        "Talk to your agents from a messaging app. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
+        "Talk to your crew from the messaging services you already use. A channel continues the same chats as this window: you'll see them in the sidebar, and either can carry on.",
       secretSet: 'Saved; type a new one to replace it',
       turnOn: 'Turn on',
       yours: 'Your channels',
-      search: 'Search apps…',
-      noMatch: 'No app matches that.',
+      search: 'Search channels…',
+      noMatch: 'No channel matches that.',
       loadError: (error: string) => `Channels could not be loaded: ${error}`,
       groupsTitle: { messengers: 'Messengers', work: 'Work chat', other: 'Other' },
       waitingBadge: (n: number) => `${n} waiting`,
@@ -1890,15 +1919,15 @@ export const copy = {
         owed: (n: number) =>
           n === 1 ? '1 answer waiting to be resent' : `${n} answers waiting to be resent`,
       },
-      noActivity: 'Nothing has happened on this channel yet.',
+      noActivity: 'Nothing has happened on this channel yet. Messages and answers show here.',
       remove: 'Remove channel',
-      removeConfirm: 'Remove for good',
+      removeConfirm: 'Yes, remove channel',
       removeWarning:
         'Disconnects it and forgets its token, approved people and groups, and any linked device. Chats it started stay.',
       removed: (label: string) => `Removed ${label}`,
       add: 'Add a channel',
       addHint:
-        'Pick an app to set it up. Each one runs through the same access rules, approvals and delivery.',
+        'Pick a channel to set it up. Each one runs through the same access rules, approvals and delivery.',
       save: 'Save',
       saving: 'Checking…',
       optional: (label: string) => `${label} (optional)`,
@@ -1942,14 +1971,14 @@ export const copy = {
       ownerConfirmed: (name: string) => `Confirmed ${name} as the owner`,
       decline: 'Decline',
       declineName: (name: string) => `Decline ${name}`,
-      declineConfirm: 'Yes, decline',
+      declineConfirm: 'Yes, decline request',
       people: 'Approved people',
       groups: 'Approved groups',
       owner: 'Owner',
       member: 'Member',
       revoke: 'Revoke',
       revokeName: (name: string) => `Revoke ${name}`,
-      revokeConfirm: 'Revoke access',
+      revokeConfirm: 'Yes, revoke access',
       revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
       revokeOwnerWarning:
         'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
@@ -1980,7 +2009,7 @@ export const copy = {
       groupsOptions: { approve: 'Approve each group', open: 'Any group', disabled: 'Off' },
       mention: 'Only when mentioned in groups',
       mentionHint: 'Answer in a group only when someone @mentions or replies to the bot.',
-      perPerson: 'A conversation per person in groups',
+      perPerson: 'A chat per person in groups',
       perPersonHint:
         'Each person in a group gets their own chat with the crew, instead of one for the group.',
       allow: 'Let in without a code',
@@ -2001,15 +2030,15 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a run in the chat, then tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
       enabled: 'Voice calls',
       /** Sizes are written like "1.3 MB", or empty when the server does not say. */
       enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
         `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.`,
       transcripts: (days: number) =>
         `Call transcripts are kept with their chat for ${days} days, then deleted.`,
-      callModel: 'Call model',
-      callModelHint: 'A fast model reads best on a call; it only talks and hands work on.',
+      callModel: 'Call assistant model',
+      callModelHint: 'A fast model suits a call best: the assistant only talks and hands work to the crew.',
       sameAsLead: 'Same as the lead',
       ownModel: 'Its own model',
       leadModel: (model: string) => `Uses ${model}.`,
@@ -2017,10 +2046,10 @@ export const copy = {
       ttsTitle: 'Text to speech',
       engineLabel: 'Engine',
       providers: {
-        phonon: 'Phonon-2 (on this Mac)',
+        phonon: 'On-device speech recognition (Phonon-2)',
         omp: 'Cloud (your signed-in providers)',
-        endpoint: 'OpenAI-compatible endpoint',
-        kitten: 'Kitten TTS (on this Mac)',
+        endpoint: 'Your own service (OpenAI-compatible)',
+        kitten: 'On-device voices (Kitten TTS)',
       },
       hints: {
         phonon: (size: string) =>
@@ -2037,14 +2066,14 @@ export const copy = {
         endpointStt: 'Your audio is sent to this address to be transcribed.',
         endpointTts: 'What the call says is sent to this address to be spoken.',
         plainHttp:
-          'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on this machine.',
+          'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on the same computer as Myrmidon.',
         kitten: 'KittenML’s small voices, run locally on the CPU; nothing is sent anywhere.',
       },
       engine: {
         missing: 'Not installed',
         installing: 'Installing…',
         ready: 'Installed',
-        starting: 'Starting (the first start downloads the model)…',
+        starting: 'Starting… the first time, the model above downloads: allow a few minutes',
         running: 'Running',
         downloading: (done: number, total: number) => `Downloading (${done}/${total})…`,
         downloadingBytes: (received: string, size: string) => `Downloading ${received} of ${size}…`,
@@ -2091,7 +2120,7 @@ export const copy = {
     gateways: {
       title: 'Gateways',
       intro:
-        'Other Myrmidons this one can show, such as a VPS or a home server. Switch between them at the top of the sidebar; chats, files and settings always belong to the one shown. Their access is kept on this machine and never reaches the page.',
+        'Other Myrmidons, like one on a VPS, to switch to at the top of the sidebar; each keeps its own chats and settings. Their access stays here, never in the page.',
       add: 'Add a gateway',
       link: 'Pairing link',
       linkHint: 'Run `myrmidon pair` on the gateway (or use its Settings → Devices) and paste the link here.',
@@ -2100,23 +2129,24 @@ export const copy = {
       adding: 'Pairing…',
       added: (name: string) => `Added ${name}`,
       remove: 'Remove',
-      removed: (name: string) => `Removed ${name}; it no longer has this machine paired.`,
-      show: 'Show',
+      confirmRemove: 'Yes, remove gateway',
+      removed: (name: string) => `Removed ${name}; this Myrmidon is no longer paired with it.`,
+      show: 'Switch to this gateway',
       shown: 'Shown here',
-      empty: 'No other gateways yet.',
+      empty: 'No other gateways yet. Add one above with a pairing link from it.',
       reachable: 'Reachable',
       checked: (when: string) => `checked ${when}`,
     },
     devices: {
       title: 'Devices',
       introRemote:
-        'This gateway is reachable from other machines. Each device that uses it was paired once and has its own access, which you can revoke here at any time.',
+        'This Myrmidon is reachable from other devices. Each device that uses it was paired once and has its own access, which you can revoke here at any time.',
       introLocal:
-        'This Myrmidon only answers on this machine. To use it from a phone or another computer, run it as a remote gateway (see docs/remote.md), then pair devices here.',
+        'This Myrmidon only answers on this computer. To use it from a phone or another computer, make it reachable from them (see docs/remote.md), then pair devices here.',
       pair: 'Pair a device',
-      pairNeedsRemoteTitle: 'Pairing needs remote gateway mode',
+      pairNeedsRemoteTitle: 'Pairing needs Myrmidon to be reachable',
       pairNeedsRemote:
-        'A pairing link made now would open only on this machine, so there is nothing to pair yet.',
+        'A pairing link made now would open only on this computer, so there is nothing to pair yet.',
       scope: 'Access',
       /** Short, for the toggle. */
       scopes: { full: 'Full', chat: 'Chats' },
@@ -2130,26 +2160,27 @@ export const copy = {
       code: (code: string) => `or enter the code ${code}`,
       copy: 'Copy link',
       copied: 'Copied',
-      empty: 'No devices paired yet.',
+      empty: 'No devices paired yet. Pair one to use this Myrmidon from a phone or another computer.',
       thisDevice: 'this device',
       viaHub: 'through another Myrmidon',
       lastSeen: (when: string) => `last seen ${when}`,
       never: 'not seen yet',
       revoke: 'Revoke',
-      confirmRevoke: 'Revoke access',
-      confirmRevokeSelf: 'Revoke and lose access',
+      confirmRevoke: 'Yes, revoke access',
+      confirmRevokeSelf: 'Yes, revoke and lose access',
       revokeSelfWarning: 'This is the device you are using now: it loses access as soon as you revoke it.',
-      revoked: (name: string) => `${name} can no longer use this gateway`,
+      revoked: (name: string) => `${name} can no longer use this Myrmidon`,
     },
     specialists: {
       title: 'Specialists',
       intro:
-        'Helpers you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a crew from the composer, or the lead brings it in when a task fits.',
+        'Helpers you define once and bring back. Each joins under its own name, works the way you describe, on its own model, with only the tools you allow. Add one to a crew from the composer, or the lead brings it in when the work fits it.',
       empty: 'No specialists yet.',
       emptyHint: 'Create one here, or save a helper that did well from its sheet in a chat.',
       add: 'New specialist',
       edit: 'Edit',
       remove: 'Delete',
+      confirmRemove: 'Yes, delete specialist',
       removed: (name: string) => `Deleted ${name}`,
       modelHint: "Leave it unset to use the crew's helper model.",
       useTeamModel: "Use the crew's model",
@@ -2187,7 +2218,7 @@ export const copy = {
       titles: 'Chat names',
       titlesHints: {
         model:
-          'Your lead model names each chat from what it is about after a round (a chat that is only "hi" so far waits). Names you give are kept.',
+          'Your lead model names each chat from what it is about after a run (a chat that is only "hi" so far waits). Names you give are kept.',
         'first-message': 'Chats are named with their first message. No model calls.',
       },
       titlesModel: 'From the topic',
@@ -2210,9 +2241,9 @@ export const copy = {
     },
     reviewer: {
       hints: {
-        off: "Never. The lead's final answer completes the task.",
+        off: "Never. The lead's final answer completes the run.",
         auto: 'When the lead decides the work deserves it: code, files, research with sources.',
-        always: 'Every final answer, before the task completes; findings go back to the lead to fix.',
+        always: 'Every final answer, before the run completes; findings go back to the lead to fix.',
       },
       title: 'Reviewer',
       intro:
@@ -2229,7 +2260,7 @@ export const copy = {
     },
     instructions: {
       title: 'Agent instructions',
-      intro: 'Added to the system prompt of every agent in new tasks. Use it for your house rules.',
+      intro: 'Added to the system prompt of every agent in new chats. Use it for your house rules.',
       lead: 'Lead',
       leadHint: 'Planning, delegation, and how to talk to you.',
       leadPlaceholder: 'e.g. Prefer TypeScript. Keep plans to three bullets. Always cite sources.',
@@ -2246,13 +2277,13 @@ export const copy = {
       },
       title: 'Schedules',
       intro:
-        'Requests that run on their own, like a daily digest or a weekly dependency check. Each run is a new chat with your default crew, reviewed like any other; turn on notifications in General to hear when one finishes. The server has to be running for a schedule to fire.',
+        'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running. Turn on notifications in General to hear when one ends.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
       when: 'When',
       custom: 'Custom (cron)',
       cronExpression: 'Cron expression',
-      cronPlaceholder: 'm h dom mon dow',
+      cronPlaceholder: 'e.g. 0 9 * * 1-5 (minute hour day month weekday)',
       project: 'Project',
       noProject: 'No project',
       deliver: 'Send results to',
@@ -2270,7 +2301,8 @@ export const copy = {
       started: 'Started a run',
       runNow: 'Run now',
       runOnSchedule: (name: string) => `Run ${name} on schedule`,
-      delete: 'Delete this schedule',
+      delete: 'Delete schedule',
+      confirmDelete: 'Yes, delete schedule',
     },
     hooks: {
       events: {
@@ -2282,7 +2314,7 @@ export const copy = {
       title: 'Hooks',
       /** Intro text around the tool-name examples `fs_edit`, `shell`, `Edit|Write` and `Bash`. */
       introBeforeFsEdit:
-        "Commands Myrmidon runs at fixed points, so a rule holds every time instead of relying on an agent: format after every edit, refuse commands that touch secrets, notify you when a run ends. Same format as Claude Code: a hook gets the event as JSON on stdin; exit 2 before a tool blocks it, after a tool tells the agent. Tool names match Myrmidon's (",
+        "Commands run before or after a tool or when a run ends, so a rule always holds. They get the event as JSON on stdin; exit code 2 before a tool blocks it; after a tool, it tells the agent. Tool names are Myrmidon's (",
       introBeforeShell: ', ',
       introBeforeEditWrite: ") or Claude Code's (",
       introBeforeBash: ', ',
@@ -2290,13 +2322,13 @@ export const copy = {
       warningTitle: 'Hooks run as you, outside the sandbox',
       warning: 'A hook can read and change anything your account can. Add only commands you understand.',
       loading: 'Loading hooks…',
-      empty: 'No hooks yet.',
+      empty: 'No hooks yet. A hook runs a command of yours before or after a tool, or when a run ends.',
       when: 'When',
       tools: 'Tools',
       toolsPlaceholder: 'Tools, e.g. Edit|Write (empty: all)',
       timeout: 'Timeout in seconds',
       timeoutPlaceholder: '60s',
-      remove: 'Remove this hook',
+      remove: 'Delete hook',
       command: 'Command',
       commandPlaceholder: 'e.g. jq -r .tool_input.file_path | xargs npx prettier --write',
       add: 'Add hook',
@@ -2304,7 +2336,7 @@ export const copy = {
     plugins: {
       title: 'Plugins',
       intro:
-        'A plugin adds skills, slash commands, hooks and MCP servers in one go, and switches on and off as one. Plugins use Claude Code’s layout, so Claude Code plugins work here unchanged. Add one from a folder or a git URL; it runs as you, so add only plugins you trust.',
+        'A plugin bundles skills, commands, hooks and MCP servers, on and off as one. Claude Code plugins work unchanged. It runs as you: add only plugins you trust.',
       sourcePlaceholder: 'Folder path or git URL, e.g. ~/code/my-plugin or https://github.com/you/plugin',
       sourceLabel: 'Plugin folder or git URL',
       add: 'Add plugin',
@@ -2327,7 +2359,7 @@ export const copy = {
       hideLog: 'Hide log',
       secretSet: 'Set; type to replace',
       remove: 'Remove',
-      confirmRemove: 'Remove for good',
+      confirmRemove: 'Yes, remove plugin',
       removed: (name: string) => `Removed ${name}`,
       applies:
         'Code, tools and MCP servers start now; skills, commands, hooks and prompt sections apply from the next message.',
@@ -2342,7 +2374,7 @@ export const copy = {
       title: 'Skills',
       /** Intro text around the three skill folder paths. */
       introBeforeDir:
-        "Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents see each skill's name and description, and load the full skill when a task matches. Add one by putting its folder in ",
+        "Playbooks in the Agent Skills format (a folder with a SKILL.md, plus scripts and references). Agents see each skill's name and description, and load the full skill when the work matches. Add one by putting its folder in ",
       introBeforeUserDir: ' or ',
       introBeforeProjectDir: "; a project's ",
       introAfterProjectDir: ' apply to its chats.',
@@ -2400,11 +2432,11 @@ export const copy = {
       why: (why: string) => `Why: ${why}`,
       keep: 'Keep',
       forget: 'Forget this',
-      confirmForget: 'Forget for good',
+      confirmForget: 'Yes, forget this memory',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',
-      newTask: 'New task',
+      newTask: 'New chat',
       focusComposer: 'Focus the message box',
       toggleSidebar: 'Toggle sidebar',
       toggleWorkspace: 'Toggle workspace',
@@ -2417,10 +2449,10 @@ export const copy = {
     },
     about: {
       title: 'About Myrmidon',
-      intro: 'Crews of agents that plan, research, build, and review on your machine.',
-      dataDirectory: 'Data directory',
+      intro: 'Crews of agents that plan, research, build, and review on your computer.',
+      dataDirectory: 'Data folder',
       providersReady: 'Providers ready',
-      providersReadyHint: 'Through the embedded omp provider stack.',
+      providersReadyHint: 'Through oh-my-pi’s provider code, built into Myrmidon.',
       sandbox: 'Sandbox',
       eventLog:
         'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',

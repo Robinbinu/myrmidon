@@ -59,3 +59,18 @@ test('event lines name the final answer and check-ins in plain words, never the 
   expect(describeEvent(verdict)).toContain('the final answer')
   expect(describeEvent(signal)).toContain('stalled')
 })
+
+test('a failed hook is named as Settings → Hooks names it, not by its event id', () => {
+  const failed = ev('hook/ran', {
+    event: 'PreToolUse',
+    agent: 'lead',
+    tool: 'shell',
+    command: 'check.sh',
+    code: 1,
+    ms: 12,
+    outcome: 'failed',
+  })
+  const [step] = deriveSteps([failed])
+  expect(step?.lead).toContain('Before a tool')
+  expect(step?.lead).not.toContain('PreToolUse')
+})

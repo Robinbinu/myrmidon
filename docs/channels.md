@@ -785,7 +785,7 @@ signed tokens against their published keys, LINE's signature against the channel
   Your mail server may not add `Authentication-Results`, or adds it under another name than the one you entered;
   check a received message's headers. "The mail server refused this username and password" usually means an app
   password is needed.
-- **SMS: "needs this gateway's public address"**: start the gateway with `--public-url` (see `remote.md`).
+- **SMS: "needs this Myrmidon's public address"**: start the gateway with `--public-url` (see `remote.md`).
 - **ntfy: "Pick a topic of at least 12 characters"**: short topics are easy to guess, and anyone who guesses one
   reads your answers; use a random one, or an access token.
 - **"cannot reach signal-cli"**: start its daemon with `--http` (not `--socket` or `--dbus`), and give the address

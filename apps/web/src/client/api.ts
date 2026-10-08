@@ -91,11 +91,14 @@ function failure(status: number, error?: string): ApiError {
 }
 
 function plainError(status: number, error?: string): string {
-  if (!error || error === 'not found' || status === 500) return copy.api.status(status)
+  // The server's own words for these are technical; the copy says the same plainly.
+  if (!error || error === 'not found' || status === 500 || status === 413) return copy.api.status(status)
   const missing = /^(.+?) needs? the chat runtime$/.exec(error)?.[1]
   if (missing) return copy.api.noChats(missing)
   if (/without the chat runtime$/.test(error)) return copy.api.noChats('chats')
   if (/^(no such (colony|chat)|invalid colony id)\b/.test(error)) return copy.api.chatGone
+  // Only a missing thing: a 4xx "unknown model … add its provider" says how to fix it and must come through.
+  if (status === 404 && /^(no such|unknown) /.test(error)) return copy.api.status(404)
   if (error.startsWith('invalid request')) return copy.api.badRequest
   return error
 }

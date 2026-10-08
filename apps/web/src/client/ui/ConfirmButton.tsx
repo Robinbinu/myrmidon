@@ -12,7 +12,7 @@ export function ConfirmButton(props: {
   label: string
   /** An accessible name for the text button when its label alone is ambiguous in a list. */
   name?: string
-  /** What the armed button says, such as "Remove for good". */
+  /** What the armed button says, such as "Yes, remove channel". */
   confirm: string
   onConfirm(): void
   icon?: boolean

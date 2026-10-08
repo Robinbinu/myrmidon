@@ -474,7 +474,7 @@ nobody owns, publish artifacts, and request final verification once the output m
     specialist: (name: string, instructions: string) =>
       `You are ${name}, a specialist the person set up and keeps. How you work, in their words:\n${instructions}`,
     /** Why a round the log still called running was stopped: the Myrmidon that ran it is gone. */
-    interrupted: 'Myrmidon restarted while this round was running',
+    interrupted: 'Myrmidon restarted during this run',
     /** The reviewer's rubric when the person has not written their own. */
     rubric: `Judge whether the colony did what the person asked, completely and correctly.
 - Every part of the request is addressed; nothing is silently skipped.
@@ -636,15 +636,15 @@ Reply with JSON only: {"title": "..."} or {"title": null}.`,
 
 Use only the facts given; never invent work, names or numbers. Fold in what matters most: something waiting on their answer, then something that failed, then what finished, then what is still running. With no news, play on the time of day, the weekday, or how long they were away.
 
-Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Never quote a chat title: titles are the person's own first message, often long or as bare as "hi". Say "your last task", or name the kind of work in a word or two.`,
+Reply with JSON only: {"headline": "..."}. The headline is one line of at most 40 characters and includes their name. Never quote a chat title: titles are the person's own first message, often long or as bare as "hi". Say "your last run", or name the kind of work in a word or two.`,
     facts: (facts: Record<string, unknown>) => `Facts:\n${JSON.stringify(facts, null, 2)}`,
     /** The built-in lines, most important news first. */
     lines: {
       waitingMany: (n: number, name: string) => `${n} chats need your answer, ${name}.`,
       waitingOne: (name: string) => `${name}, I have a question for you.`,
-      failed: (name: string) => `${name}, your last task hit a snag.`,
+      failed: (name: string) => `${name}, your last run hit a snag.`,
       finishedMany: (name: string, n: number) => `Welcome back, ${name}. ${n} things are done.`,
-      finishedOne: (name: string) => `Your last task is done, ${name}.`,
+      finishedOne: (name: string) => `Your last run is done, ${name}.`,
       runningMany: (name: string, n: number) => `${n} crews are at work, ${name}.`,
       runningOne: (name: string) => `The crew is still at it, ${name}.`,
       first: (name: string) => `Hi ${name}, I'm your lead.`,
@@ -733,7 +733,7 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
       off: 'Voice calls are off: turn them on in Settings → Voice.',
       busy: 'There is already a call in this chat (in another window?).',
       full: (n: number) => `There are already ${n} calls going on; hang one up first.`,
-      noModel: 'Pick a call model in Settings → Voice.',
+      noModel: 'Choose the call assistant’s model in Settings → Voice.',
       phononMissing: 'Speech to text is not ready: install Phonon-2 in Settings → Voice.',
       phononInstalling: 'Speech to text is not ready: Phonon-2 is still installing.',
       kittenMissing: 'Text to speech is not ready: the Kitten TTS model is still downloading.',
