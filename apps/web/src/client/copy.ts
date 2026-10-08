@@ -107,6 +107,11 @@ export const copy = {
     },
     attachedOnly: 'See the attached files.',
     reasoning: ' · reasoning',
+    /** Writing to a crew member directly by typing @ and their name. */
+    mention: {
+      section: 'Write directly to',
+      label: 'Crew members to write to',
+    },
     teamDialog: 'Team and models',
     teamHeading: 'Lead & helpers',
     teamApplies: 'Applies to your next messages',
@@ -683,6 +688,8 @@ export const copy = {
       `v${version} · ${size}B · ${author}`,
     fileVersion: (version: number | undefined) => `v${version}`,
     message: {
+      /** Before the names of the crew members the person wrote to directly. */
+      to: 'To',
       steer: 'Steer',
       queued: 'Queued',
       readBy: (names: string) => `Read by ${names}`,
@@ -990,6 +997,8 @@ export const copy = {
       messagePeers: 'Message the peers while they work…',
       messageLead: 'Message the lead while it works…',
       followUp: 'Ask a follow-up or request changes…',
+      /** Added when the chat has a crew: typing @ and a name writes to that crew member directly. */
+      mentionHint: ' (@name writes to a crew member)',
       newTask: 'Describe what you want done…',
     },
     deleteChat: {

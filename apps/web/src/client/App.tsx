@@ -662,14 +662,17 @@ export function App() {
                       status={running ? copy.app.composer.status : undefined}
                       placeholder={
                         chat
-                          ? running
-                            ? chat.rounds.at(-1)?.swarm
-                              ? copy.app.composer.messagePeers
-                              : copy.app.composer.messageLead
-                            : copy.app.composer.followUp
+                          ? `${
+                              running
+                                ? chat.rounds.at(-1)?.swarm
+                                  ? copy.app.composer.messagePeers
+                                  : copy.app.composer.messageLead
+                                : copy.app.composer.followUp
+                            }${chat.crew?.length ? copy.app.composer.mentionHint : ''}`
                           : copy.app.composer.newTask
                       }
                       onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
+                      {...(chat?.crew ? { crew: chat.crew } : {})}
                       onCommand={command}
                       onStop={stop}
                       chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}

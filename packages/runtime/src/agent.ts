@@ -220,8 +220,12 @@ export class ColonyAgent {
    * A resumed colony wakes its agents itself, so `kickoffFirst` is false there.
    */
   async run(kickoffFirst = true): Promise<void> {
+    const opening = () => kickoff(this.host.spec, this.host.state(), this.restored > 0, this.name)
     if (kickoffFirst && startsAwake(this.host.spec, this.spec))
-      this.notify({ text: kickoff(this.host.spec, this.host.state(), this.restored > 0), trigger: 'kickoff' })
+      this.notify({ text: opening(), trigger: 'kickoff' })
+    // The person opened this round by writing to someone else: the rest hear of it when something wakes them.
+    else if (kickoffFirst && this.host.spec.chat?.addressed?.length)
+      this.notify({ text: opening(), trigger: 'kickoff', quiet: true })
     while (!this._stopped && this.host.state().status === 'running') {
       if (this.inbox.length === 0) {
         await this._status('idle')
@@ -428,15 +432,18 @@ export class ColonyAgent {
    * arguments, which the model streams) or the plain text of a direct answer. Only the agent that speaks streams.
    */
   private _streamReply(m: AssistantMessage, done: boolean) {
-    if (!speaksForColony(this.host.spec, this.spec)) return
+    // The speaker streams its replies and plain answers; a crew member, only what it writes to the person directly.
+    const speaks = speaksForColony(this.host.spec, this.spec)
+    const tool = speaks ? 'reply_user' : 'reply_person'
     const reply = m.content.flatMap((c) =>
-      c.type === 'toolCall' && c.name === 'reply_user' && typeof c.arguments?.text === 'string'
+      c.type === 'toolCall' && c.name === tool && typeof c.arguments?.text === 'string'
         ? [c.arguments.text]
         : [],
     )
-    const text = (reply.length ? reply : m.content.flatMap((c) => (c.type === 'text' ? [c.text] : []))).join(
-      '\n',
-    )
+    if (!speaks && reply.length === 0 && !this._streamedText) return
+    const text = (
+      reply.length || !speaks ? reply : m.content.flatMap((c) => (c.type === 'text' ? [c.text] : []))
+    ).join('\n')
     const now = Date.now()
     if (!done && (text === this._streamedText || now - this._streamedAt < 100)) return
     if (!text && !this._streamedText) return

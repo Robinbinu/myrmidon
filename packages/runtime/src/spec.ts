@@ -53,6 +53,8 @@ export interface ColonySpec {
     escalate?: ('solo' | 'team')[]
     /** What the person keeps across chats, as prompt lines. */
     memory?: string[]
+    /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
+    addressed?: string[]
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy

@@ -146,7 +146,12 @@ export function RoundView(props: {
   // swarm, keeps the run card.
   const index = info ? colony.state.rounds.indexOf(info) : -1
   const handedOver = index > 0 && colony.state.rounds[index - 1]?.escalated?.to === 'team'
-  const solo = !info?.swarm && (state.tier === 'solo' || state.tier === 'answer' || handedOver)
+  // A round the person opened by writing to a crew member directly is a conversation with them.
+  const addressed = !!state.chat?.addressed?.length
+  const solo = !info?.swarm && (state.tier === 'solo' || state.tier === 'answer' || handedOver || addressed)
+  // Who speaks for the round: replies from anyone else (a crew member answering the person) carry their name.
+  const speaker =
+    Object.values(state.agents).find((a) => a.info.role === 'lead')?.info.name ?? Object.keys(state.agents)[0]
   const [first, ...rest] = state.chatMessages
   const opening = first?.from === 'user' ? first : undefined
   const thread = opening ? rest : state.chatMessages
@@ -157,6 +162,7 @@ export function RoundView(props: {
       <UserMessage
         key={m.id}
         text={m.text}
+        to={m.to}
         attachments={m.attachments}
         onOpen={setFile}
         mode={m.mode}
@@ -169,7 +175,7 @@ export function RoundView(props: {
           from={m.from}
           text={m.text}
           final={m.final}
-          plain={solo}
+          plain={solo && m.from === speaker}
           {...(m.assumption ? { assumption: m.assumption } : {})}
           onInspect={() => setInspect(m.from)}
         />
@@ -193,7 +199,9 @@ export function RoundView(props: {
 
   return (
     <section className="flex flex-col gap-4">
-      {opening && <UserMessage text={opening.text} attachments={opening.attachments} onOpen={setFile} />}
+      {opening && (
+        <UserMessage text={opening.text} to={opening.to} attachments={opening.attachments} onOpen={setFile} />
+      )}
       <AnimatePresence initial={false}>{thread.slice(0, split).map(message)}</AnimatePresence>
       {solo && <Thoughts events={events} running={isRunning(state.status)} />}
       {!solo && (
@@ -220,11 +228,11 @@ export function RoundView(props: {
         isRunning(state.status) &&
         Object.entries(colony.streams).map(([agent, live]) =>
           live.text && !state.chatMessages.some((m) => m.from === agent && m.seq > live.since) ? (
-            <StreamingReply key={agent} from={agent} text={live.text} plain={solo} />
+            <StreamingReply key={agent} from={agent} text={live.text} plain={solo && agent === speaker} />
           ) : null,
         )}
       <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
-      {solo && (
+      {solo && !addressed && (
         <Helpers
           state={state}
           events={events}
@@ -329,6 +337,8 @@ function UserMessage(props: {
   readBy?: readonly string[] | undefined
   live?: boolean
   attachments?: readonly string[] | undefined
+  /** Crew members the person wrote to directly (@name). */
+  to?: readonly string[] | undefined
   onOpen?(name: string): void
 }) {
   const [copied, copyText] = useCopy()
@@ -354,6 +364,17 @@ function UserMessage(props: {
         </div>
       ) : null}
       <div className="flex items-center gap-1.5">
+        {props.to?.length ? (
+          <span className="flex items-center gap-1 text-[11.5px] text-muted">
+            {copy.round.message.to}
+            {props.to.map((name) => (
+              <span key={name} className="inline-flex items-center gap-1 font-medium text-fg-2">
+                <span className="size-1.5 rounded-full" style={{ background: agentColor(name) }} />
+                {name}
+              </span>
+            ))}
+          </span>
+        ) : null}
         {props.mode && (
           <span className="flex items-center gap-1 text-[11.5px] text-muted" aria-live="polite">
             {props.mode === 'steer' ? copy.round.message.steer : copy.round.message.queued}

@@ -279,6 +279,12 @@ nobody owns, publish artifacts, and request final verification once the output m
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     huddle: (request: string, snapshot: string) =>
       `${request}\n\nHuddle first: do no work yet. Read who your peers are (list_agents or the roster in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every peer has proposed.\n\n${snapshot}`,
+    /** The round's opening message, written to this agent directly (@name). */
+    addressed: (request: string, snapshot: string) =>
+      `${request}\n\nThe person wrote this to you directly. Answer them yourself with reply_person: do what they ask if it is within your part, or say plainly what you can and cannot do. Tell the lead (message) only if it changes the plan.\n\n${snapshot}`,
+    /** For everyone else in a round the person opened by writing to someone directly. */
+    addressedElsewhere: (to: readonly string[], request: string) =>
+      `The person wrote to ${to.join(', ')} directly, who will answer them: "${request}". You need not act unless someone asks you to.`,
     /** Tells an agent which files the person attached to a message. */
     attached: (names: readonly string[]) =>
       `\n\nThe person attached ${names.join(', ')}; read them with read_artifact.`,
@@ -346,6 +352,12 @@ nobody owns, publish artifacts, and request final verification once the output m
       `If it is for you, answer in the group with message(to: "${p.group}", reply_to: ${p.seq}).`,
     /** Delivered tagged [team]. */
     teamMessage: (seq: number, from: string, text: string) => `#${seq} ${from}: ${text}`,
+    /** The person wrote to this agent directly (@name) while the round runs. */
+    direct: (text: string) =>
+      `${text}\n(The person wrote this to you directly. Answer them yourself with reply_person; tell the lead only if it changes the plan.)`,
+    /** For the speaker, when the person wrote to someone else directly. */
+    directElsewhere: (to: readonly string[], text: string) =>
+      `The person wrote to ${to.join(', ')} directly, who will answer them: "${text}". Do not answer it for them.`,
     mentioned: (seq: number, agent: string, text: string) =>
       `${agent} mentioned you in the team chat (#${seq}): ${text}\n` +
       `Answer with message(to: "team", reply_to: ${seq}), or message ${agent} directly.`,
@@ -578,6 +590,9 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
   toolResults: {
     declined: (what: string, note?: string) =>
       `the person did not approve ${what}${note ? `. They said: ${note}` : ''}. Take that into account: ask them (ask_user) or take another approach`,
+    notAddressed:
+      'the person did not write to you directly; tell the lead (message) and let the lead answer them',
+    answeredPerson: 'answer sent to the person; this round is done unless they write again',
     proposeNoProject:
       'propose changes files in the project folder, and this chat has none; deliver files with publish_artifact instead',
     huddling:
@@ -834,6 +849,14 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
       description:
         'Send a message to the person. final: true is the complete answer and starts verification automatically. ' +
         'Use ask_user for a question you need answered.',
+    },
+    reply_person: {
+      description:
+        'Answer the person when they wrote to you directly (@your name). Write as yourself, briefly. In a round they ' +
+        'opened by writing to you, this reply finishes it; send final: false for a note while you keep working.',
+      params: {
+        final: 'false for a progress note; otherwise this is your answer',
+      },
     },
     remember: {
       description:

@@ -58,6 +58,7 @@ const colonySpec = Schema.object({
       history: Schema.string(),
       escalate: Schema.array(oneOf('solo', 'team')).default([]),
       memory: strs(),
+      addressed: optional(Schema.array(str())),
       project: optional(
         Schema.object({
           id: str(),
@@ -367,6 +368,7 @@ const defs: EventTypeDefinition[] = [
       text: str(),
       mode: Schema.union(['steer', 'queue']),
       attachments: Schema.array(str()).max(20),
+      to: optional(Schema.array(str()).max(20)),
     }),
   },
   {

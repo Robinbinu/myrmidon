@@ -108,7 +108,17 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...plugin,
       ]
     if (spec.team?.mode === 'swarm')
-      return [...READ, ...TALK, 'create_task', 'reject_task', ...HOLD, 'publish_artifact', ...BUILD, ...USER]
+      return [
+        ...READ,
+        ...TALK,
+        'create_task',
+        'reject_task',
+        ...HOLD,
+        'publish_artifact',
+        ...BUILD,
+        ...USER,
+        'reply_person',
+      ]
     if (isLead(spec, agent)) {
       const spawn = (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 ? ['spawn_worker'] : []
       // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
@@ -131,7 +141,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...(spec.agents.length > 1 ? ['dismiss_worker'] : []),
       ]
     }
-    return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD]
+    // A worker speaks to the person only when they wrote to it directly (@name).
+    return [...READ, ...TALK, ...HOLD, 'publish_artifact', ...BUILD, 'reply_person']
   }
   const work = ['publish_artifact', ...BUILD]
   if (isLead(spec, agent))
@@ -436,6 +447,8 @@ export function snapshot(spec: ColonySpec, s: ColonyState): string {
 
 /** Whether this agent starts working when the colony starts, or sleeps until something wakes it. */
 export function startsAwake(spec: ColonySpec, agent: AgentSpec): boolean {
+  // A round the person opened by writing to someone directly starts with that someone.
+  if (spec.chat?.addressed?.length) return spec.chat.addressed.includes(agent.name)
   if (!spec.chat || spec.tier !== 'team' || !spec.team) return true
   // Every swarm peer joins the opening huddle.
   if (spec.team.mode === 'swarm') return true
@@ -448,8 +461,11 @@ export function attachedNote(names: readonly string[] | undefined): string {
 }
 
 /** `remembers`: the agent's own conversation from earlier rounds is restored, so the history is not repeated. */
-export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false): string {
+export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false, agent?: string): string {
   if (!spec.chat) return prompts.kickoff.mission(spec.mission)
+  const to = spec.chat.addressed
+  if (to?.length && agent && !to.includes(agent))
+    return prompts.kickoff.addressedElsewhere(to, spec.chat.request)
   const history = spec.chat.history && !remembers ? prompts.kickoff.history(spec.chat.history) : ''
   // This round's request, not the chat's first one: a colony serves every round of its chat.
   const from = state.rounds.at(-1)?.startSeq ?? 0
@@ -459,6 +475,7 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false)
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''
+  if (to?.length) return prompts.kickoff.addressed(`${request}${carried}`, snapshot(spec, state))
   if (spec.tier !== 'team' || spec.agents.length === 1) return `${request}${carried}`
   if (spec.team?.mode === 'swarm') return prompts.kickoff.huddle(request, snapshot(spec, state))
   return `${request}\n\n${snapshot(spec, state)}`

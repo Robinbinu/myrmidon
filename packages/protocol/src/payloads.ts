@@ -121,6 +121,8 @@ export interface EventPayloads {
       escalate?: ('solo' | 'team')[]
       /** What the person keeps across chats (memory), as prompt lines, when the round started. */
       memory?: string[]
+      /** The person started this round by writing to these crew members directly (@name): they start it, not the lead. */
+      addressed?: string[]
     }
     team?: { mode: TeamMode; maxWorkers: number; workerModels: string[] }
     /** How much machinery this round uses: a direct answer, one agent, or the full team. */
@@ -281,7 +283,8 @@ export interface EventPayloads {
    * `steer` (the default) is read at the agent's next step; `queue` waits until it finishes what it is
    * doing. Only meaningful for messages sent while a round is running.
    */
-  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[] }
+  /** `to`: crew members the person wrote to directly (@name); they hear it first and may answer the person. */
+  'chat/user': { text: string; mode?: 'steer' | 'queue'; attachments?: string[]; to?: string[] }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
    * `question`: the round waits for the answer (ask_user). `assumption`: a check-in the person may answer while the

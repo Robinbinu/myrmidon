@@ -104,6 +104,8 @@ export interface MenuModel {
   readonly items: MenuItem[]
   /** Set while choosing an argument: the command being completed. */
   readonly command?: SlashCommand
+  /** What the list is, for screen readers, when it is not the command list. */
+  readonly label?: string
 }
 
 /**
@@ -231,9 +233,10 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
     <motion.div
       role="listbox"
       aria-label={
-        command
+        props.menu.label ??
+        (command
           ? copy.commandMenu.chooseFor(command.args ?? copy.commandMenu.anArgument, command.name)
-          : copy.commandMenu.label
+          : copy.commandMenu.label)
       }
       initial={{ opacity: 0, y: 6, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}

@@ -1,5 +1,6 @@
 import {
   ArrowUp,
+  AtSign,
   ChevronRight,
   FileText,
   ListEnd,
@@ -13,6 +14,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import {
+  type CrewMember,
   getReviewMode,
   type ModelOption,
   providerOf,
@@ -25,7 +27,7 @@ import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { usePersistentFlag } from '../ui/hooks.ts'
 import { cn, Segmented } from '../ui/primitives.tsx'
 import { MAX_FILES, spring } from '../ui-config.ts'
-import { buildMenu, CommandMenu, rememberCommand } from './CommandMenu.tsx'
+import { buildMenu, CommandMenu, type MenuModel, rememberCommand } from './CommandMenu.tsx'
 import { parseSlash, type SlashCommand } from './commands.ts'
 import { ModelPicker } from './ModelPicker.tsx'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, ThinkingChip } from './TeamControls.tsx'
@@ -239,6 +241,38 @@ interface ComposerProps {
   project?: ReactNode
   /** Whether a chat is open, and whether its latest round stopped early; decides which commands apply. */
   chatState?: { chat: boolean; resumable: boolean }
+  /** Crew members the person can write to directly by typing @ and a name. */
+  crew?: readonly CrewMember[]
+}
+
+/** An @name being typed at the end of the message. */
+const MENTION_AT_END = /(^|\s)@([a-z0-9-]*)$/i
+
+/**
+ * While an @name is being typed, the crew members it could be: picking one completes the name, and the message then
+ * goes to them directly. Escape closes the list for that text.
+ */
+function mentionMenu(
+  text: string,
+  crew: readonly CrewMember[] | undefined,
+  closedFor: string | undefined,
+  insert: (name: string) => void,
+): MenuModel | undefined {
+  const typed = MENTION_AT_END.exec(text)
+  if (!typed || !crew?.length || text === closedFor) return undefined
+  const prefix = (typed[2] ?? '').toLowerCase()
+  const items = crew
+    .filter((c) => c.name.toLowerCase().startsWith(prefix))
+    .map((c, i) => ({
+      key: c.name,
+      ...(i === 0 ? { section: copy.composer.mention.section } : {}),
+      title: `@${c.name}`,
+      description: c.specialty ?? c.role,
+      icon: AtSign,
+      run: () => insert(c.name),
+      complete: () => insert(c.name),
+    }))
+  return items.length ? { items, label: copy.composer.mention.label } : undefined
 }
 
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(props, ref) {
@@ -350,37 +384,43 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
   }
 
-  const menu = buildMenu({
-    text,
-    all: showHelp,
-    ctx: { running: props.running, chat: !!props.chatState?.chat, resumable: !!props.chatState?.resumable },
-    dynamicOptions: (c) =>
-      c.name === 'model'
-        ? props.models
-            .filter((m) => !m.hidden)
-            .map((m) => ({
-              value: m.ref,
-              label: m.name,
-              description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
-            }))
-        : undefined,
-    current: (c) =>
-      c.name === 'model'
-        ? config.mode === 'swarm'
-          ? undefined
-          : (props.models.find((m) => m.ref === config.leadModel)?.name ?? config.leadModel)
-        : c.name === 'mode'
+  const [mentionClosed, setMentionClosed] = useState<string>()
+  const mention = mentionMenu(text, props.crew, mentionClosed, (name) =>
+    fillCommand(text.replace(MENTION_AT_END, (_m, space: string) => `${space}@${name} `)),
+  )
+  const menu =
+    mention ??
+    buildMenu({
+      text,
+      all: showHelp,
+      ctx: { running: props.running, chat: !!props.chatState?.chat, resumable: !!props.chatState?.resumable },
+      dynamicOptions: (c) =>
+        c.name === 'model'
+          ? props.models
+              .filter((m) => !m.hidden)
+              .map((m) => ({
+                value: m.ref,
+                label: m.name,
+                description: `${m.provider}${m.reasoning ? copy.composer.reasoning : ''}`,
+              }))
+          : undefined,
+      current: (c) =>
+        c.name === 'model'
           ? config.mode === 'swarm'
-            ? copy.composer.modes.swarm.name
-            : copy.composer.modes.orchestrated.name
-          : c.name === 'thinking'
-            ? (config.thinking ?? 'auto')
-            : undefined,
-    pickCommand: (c) => void runCommand(c, ''),
-    completeCommand: (c) => fillCommand(`/${c.name}${c.needsArg ? ' ' : ''}`),
-    pickOption: (c, value) => void runCommand(c, value),
-    submit: () => void send(),
-  })
+            ? undefined
+            : (props.models.find((m) => m.ref === config.leadModel)?.name ?? config.leadModel)
+          : c.name === 'mode'
+            ? config.mode === 'swarm'
+              ? copy.composer.modes.swarm.name
+              : copy.composer.modes.orchestrated.name
+            : c.name === 'thinking'
+              ? (config.thinking ?? 'auto')
+              : undefined,
+      pickCommand: (c) => void runCommand(c, ''),
+      completeCommand: (c) => fillCommand(`/${c.name}${c.needsArg ? ' ' : ''}`),
+      pickOption: (c, value) => void runCommand(c, value),
+      submit: () => void send(),
+    })
   const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
@@ -484,6 +524,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 }
                 if (e.key === 'Escape') {
                   e.preventDefault()
+                  if (menu === mention) return setMentionClosed(text)
                   setShowHelp(false)
                   if (!showHelp) setText('')
                   return

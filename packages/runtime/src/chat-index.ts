@@ -20,6 +20,14 @@ export interface IndexedRound {
   readonly awaiting?: boolean
   readonly title?: { readonly title: string; readonly at: string }
   readonly project?: { readonly id: string; readonly name: string }
+  /** On a chat's latest round: who is on its crew now, so the person can write to them (@name). */
+  readonly crew?: readonly CrewMember[]
+}
+
+export interface CrewMember {
+  readonly name: string
+  readonly role: string
+  readonly specialty?: string
 }
 
 /**
@@ -60,8 +68,12 @@ export class ChatIndex {
       if (row && row.stamp === stamp) {
         // Rows written before chats ran in one colony hold a single round.
         const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
-        out.push(...(Array.isArray(data) ? data : [data]))
-        continue
+        const list = Array.isArray(data) ? data : [data]
+        // Rows from before the crew was indexed are read again once.
+        if (list.length === 0 || list.at(-1)?.crew) {
+          out.push(...list)
+          continue
+        }
       }
       const rounds = summarize(id, foldColony(id, await this.store.read(id)))
       put.run(id, stamp, rounds[0]?.chatId ?? null, rounds.length ? JSON.stringify(rounds) : null)
@@ -118,6 +130,17 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
     swarm: r.swarm,
     ...(r === last && s.status === 'stopped' && s.statusReason === AWAITING_USER ? { awaiting: true } : {}),
     ...(title ? { title: { title: title.title, at: title.at } } : {}),
+    ...(r === last
+      ? {
+          crew: Object.values(s.agents)
+            .filter((a) => !a.dismissed && a.status !== 'failed')
+            .map((a) => ({
+              name: a.info.name,
+              role: a.info.role,
+              ...(a.info.specialty ? { specialty: a.info.specialty } : {}),
+            })),
+        }
+      : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),
   }))
 }

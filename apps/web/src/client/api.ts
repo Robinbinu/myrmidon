@@ -283,6 +283,14 @@ export interface ChatSummary {
   rounds: ChatRound[]
   /** The project folder the chat works in. */
   project?: { id: string; name: string }
+  /** Crew members the person can write to directly (@name), the lead aside. */
+  crew?: CrewMember[]
+}
+
+export interface CrewMember {
+  name: string
+  role: string
+  specialty?: string
 }
 
 /** A folder chats can work in, like a Claude Code or Codex project. */

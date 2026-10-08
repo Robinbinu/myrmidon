@@ -1493,6 +1493,31 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     },
   },
   {
+    name: 'reply_person',
+    tier: 'write',
+    description: prompts.tools.reply_person.description,
+    parameters: type({
+      text: type('string').atLeastLength(1),
+      'final?': type('boolean').describe(prompts.tools.reply_person.params.final),
+    }),
+    async run(args, agent, host) {
+      const s = host.state()
+      const from = s.rounds.at(-1)?.startSeq ?? 0
+      // The person opened this round by writing to this agent: its answer is the round's answer.
+      const opened = host.spec.chat?.addressed?.includes(agent) ?? false
+      const asked =
+        opened || s.chatMessages.some((m) => m.from === 'user' && m.seq >= from && m.to?.includes(agent))
+      if (!asked) throw new Error(prompts.toolResults.notAddressed)
+      const final = opened && args.final !== false
+      await host.append({
+        type: 'chat/reply',
+        actor: agentActor(agent),
+        payload: { agent, text: args.text, final },
+      })
+      return final ? prompts.toolResults.answeredPerson : 'message sent to the person'
+    },
+  },
+  {
     name: 'remember',
     tier: 'write',
     description: prompts.tools.remember.description,

@@ -9,11 +9,12 @@ import {
   type EventPayloads,
   foldColony,
   type MyrEvent,
+  mentionsIn,
   type ProjectPermissions,
   type RoundInfo,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
-import { ChatIndex, type IndexedRound } from './chat-index.ts'
+import { ChatIndex, type CrewMember, type IndexedRound } from './chat-index.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import { MAX_WORKERS } from './config.ts'
@@ -49,6 +50,17 @@ function keptTeam(previous: readonly RoundRef[], mode: TeamConfig['mode']): Agen
   return Object.values(last.state.agents)
     .filter((a) => a.info.role === role && !a.dismissed && a.status !== 'failed')
     .map((a) => a.info)
+}
+
+/**
+ * The crew members a message is written to (@name), among those still on the crew; @lead is just a message to the
+ * lead, which the lead hears anyway.
+ */
+function addressedIn(message: string, state: ColonyState): string[] {
+  const crew = Object.values(state.agents)
+    .filter((a) => !a.dismissed && a.status !== 'failed' && a.info.role !== 'lead')
+    .map((a) => a.info.name)
+  return mentionsIn(message, crew)
 }
 
 /** A round's messages: those logged from its start up to its end. */
@@ -181,6 +193,8 @@ export interface ChatSummary {
   readonly rounds: ChatRound[]
   /** The project folder the chat works in, if any. */
   readonly project?: { readonly id: string; readonly name: string }
+  /** Crew members the person can write to directly (@name): everyone on the chat's crew but the lead. */
+  readonly crew?: readonly CrewMember[]
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -341,6 +355,9 @@ export class ChatService {
         ...(first.project ? { project: first.project } : {}),
         updatedAt: last.endedAt ?? last.createdAt ?? '',
         status: last.status,
+        ...(last.crew?.some((c) => c.role !== 'lead')
+          ? { crew: last.crew.filter((c) => c.role !== 'lead') }
+          : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
@@ -389,16 +406,20 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      await live.postUserMessage(message, delivery, attachments)
+      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()))
       return { chatId: id, colonyId: live.id, started: false }
     }
     const previous = await this.rounds(id)
     const history = conversation(previous)
+    // Written to crew members directly (@name): the round starts with them, and they answer.
+    const latestState = previous.at(-1)?.state
+    const to = latestState ? addressedIn(message, latestState) : []
     // The lead starts at once and sizes the work itself (escalate); tests and reruns may fix the size instead.
-    const tier =
-      options.tier ??
-      (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history))
-    const spec = this.buildSpec(id, message, config, previous, history, tier)
+    const tier = to.length
+      ? 'team'
+      : (options.tier ??
+        (config.helpers === 'always' ? 'team' : await (this.options.classify ?? leadFirst)(message, history)))
+    const spec = this.buildSpec(id, message, config, previous, history, tier, to)
     // A chat keeps the project it started in; only a new chat can pick one.
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
@@ -444,7 +465,11 @@ export class ChatService {
       await run.append({
         type: 'chat/user',
         actor: { kind: 'user', id: 'user' },
-        payload: { text: message, ...(names.length ? { attachments: names } : {}) },
+        payload: {
+          text: message,
+          ...(names.length ? { attachments: names } : {}),
+          ...(to.length ? { to } : {}),
+        },
       })
       for (const later of said.slice(1))
         await run.append({
@@ -872,6 +897,7 @@ export class ChatService {
     previous: readonly RoundRef[],
     history: string,
     requested: Tier,
+    addressed: readonly string[] = [],
   ): ColonySpec {
     const s = this.options.settings?.get()
     const leadNote = s?.instructions.lead?.trim()
@@ -881,11 +907,13 @@ export class ChatService {
     // A team with nobody to delegate to is one agent working alone. A swarm the person set up works together
     // on anything bigger than a direct answer.
     const tier: Tier =
-      requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
-        ? 'solo'
-        : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
-          ? 'team'
-          : requested
+      addressed.length > 0
+        ? 'team'
+        : requested === 'team' && config.mode === 'orchestrated' && roster.length === 0 && extra === 0
+          ? 'solo'
+          : requested === 'solo' && config.mode === 'swarm' && roster.length > 1
+            ? 'team'
+            : requested
     const taken = new Set(['lead'])
     // A chat keeps its team: the workers (or peers) of its latest team round come back, minus any the lead
     // dismissed, with their memory. The team picker shapes only a chat's first team.
@@ -901,6 +929,20 @@ export class ChatService {
         ...(note ? { instructions: note } : {}),
       }
     })
+    // Someone the person wrote to directly comes back even if the latest team round did not have them.
+    const known = previous.at(-1)?.state.agents ?? {}
+    for (const name of addressed) {
+      const info = known[name]?.info
+      if (!info || kept.some((k) => k.name === name) || info.role === 'lead') continue
+      taken.add(name)
+      kept.push({
+        name,
+        role: info.role,
+        model: info.model,
+        ...(info.specialty ? { specialty: info.specialty } : {}),
+        ...(info.focus ? { focus: info.focus } : {}),
+      })
+    }
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
       kept.length > 0
         ? kept
@@ -966,8 +1008,9 @@ export class ChatService {
       mission: history ? prompts.chat.mission(request, history) : request,
       pattern: swarm ? 'blackboard' : 'lead-workers',
       agents,
+      // A direct exchange with a crew member is not reviewed, like a direct answer.
       acceptance:
-        review === 'off' || (tier === 'answer' && review !== 'always')
+        review === 'off' || addressed.length > 0 || (tier === 'answer' && review !== 'always')
           ? []
           : [
               {
@@ -992,6 +1035,7 @@ export class ChatService {
         request,
         history,
         ...(escalate.length ? { escalate } : {}),
+        ...(addressed.length ? { addressed: [...addressed] } : {}),
       },
       tier,
       ...(config.thinking ? { thinking: config.thinking } : {}),

@@ -898,7 +898,7 @@ export class ColonyRun implements ColonyHost {
     const planned =
       this._state.notes.some((n) => n.section === 'plan' && n.seq >= from && n.agent !== 'previous-round') ||
       Object.keys(this._state.tasks).length > 0
-    if (swarm && !planned)
+    if (swarm && !planned && !this.spec.chat?.addressed?.length)
       this._huddle = { since: Date.now(), after: this._state.lastSeq, proposed: new Set() }
     await this.append({
       type: 'colony/started',
@@ -1041,13 +1041,19 @@ export class ColonyRun implements ColonyHost {
     text: string,
     mode: 'steer' | 'queue' = 'steer',
     attachments: readonly Attachment[] = [],
+    to: readonly string[] = [],
   ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
     const names = await this.attach(attachments)
     await this.append({
       type: 'chat/user',
       actor: { kind: 'user', id: 'user' },
-      payload: { text, mode, ...(names.length ? { attachments: names } : {}) },
+      payload: {
+        text,
+        mode,
+        ...(names.length ? { attachments: names } : {}),
+        ...(to.length ? { to: [...to] } : {}),
+      },
     })
   }
 
@@ -1362,7 +1368,14 @@ export class ColonyRun implements ColonyHost {
         // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
         const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
         const text = `${p.text}${attachedNote(p.attachments)}`
-        if (swarm) {
+        // Written to someone directly (@name): they hear it and answer; whoever speaks for the round only hears of it.
+        const to = (p.to ?? []).filter((name) => this._agents.has(name))
+        if (to.length) {
+          for (const name of to) notify(name, prompts.colony.direct(text), 'user', delivery)
+          for (const a of this._agents.values())
+            if (!to.includes(a.name) && toolsFor(this.spec, a.spec).includes('reply_user'))
+              notify(a.name, prompts.colony.directElsewhere(to, text), 'user', { quiet: true })
+        } else if (swarm) {
           const target = this._state.tasks['task-final']?.owner ?? this.spec.agents[0]?.name
           if (target) notify(target, `${text}\n\n${snapshot(this.spec, this._state)}`, 'user', delivery)
         } else {

@@ -272,6 +272,81 @@ test('group chats wake their members, the team chat wakes only @mentions, and on
   await chats.stopAll()
 })
 
+test('@name writes to a crew member directly: it answers the person; an idle crew starts a round with it', async () => {
+  const resolver = new ModelResolver()
+  const seen: Record<string, string[]> = {}
+  const look = (who: string, ctx: LlmContext) => {
+    seen[who] = [...(seen[who] ?? []), JSON.stringify(ctx.messages)]
+  }
+  let writer = ''
+  let release = () => {}
+  const held = new Promise<void>((done) => {
+    release = done
+  })
+  let leadCalls = 0
+  const lead = createMockModel({
+    // Round 1: the lead is mid-call (the round runs) while the person writes to the writer; then it answers.
+    handler: async (ctx: LlmContext) => {
+      look('lead', ctx)
+      if (leadCalls++ > 0) return { content: ['ok'] }
+      writer = /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      await held
+      return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/writer', [
+    (ctx) => {
+      look('writer', ctx)
+      return [tool('reply_person', { text: 'Hi! I am on the rhymes.' })]
+    },
+    ['back to it'],
+    (ctx) => {
+      look('writer', ctx)
+      return [tool('reply_person', { text: 'Shorter now: ants march.' })]
+    },
+    ['done'],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  }
+  const { chatId, colonyId } = await chats.send('Write a poem about ants', config)
+  await waitFor(colonyId, () => writer !== '')
+
+  // While the round runs: the writer hears it and answers the person itself; the lead is not woken by it.
+  await chats.send(`@${writer} how is it going?`, config, chatId)
+  const live = await waitFor(colonyId, (x) => x.chatMessages.some((m) => m.from === writer))
+  expect(live.chatMessages.find((m) => m.from === 'user' && m.text.startsWith('@'))?.to).toEqual([writer])
+  expect(live.chatMessages.find((m) => m.from === writer)).toMatchObject({
+    text: 'Hi! I am on the rhymes.',
+    final: false,
+  })
+  expect(seen.writer?.[0]).toContain('wrote this to you directly')
+  expect(seen.lead).toHaveLength(1)
+  release()
+  await waitFor(colonyId)
+
+  // The crew is idle: writing to the writer starts a round with it, and its answer finishes the round.
+  const next = await chats.send(`@${writer} make it shorter`, config, chatId)
+  const done = await waitFor(next.colonyId)
+  expect(done.status).toBe('completed')
+  expect(done.chatMessages.at(-1)).toMatchObject({
+    from: writer,
+    text: 'Shorter now: ants march.',
+    final: true,
+  })
+  const from = done.rounds.at(-1)?.startSeq ?? 0
+  const round2 = (await events(next.colonyId)).filter((e) => e.seq >= from)
+  expect(turnsOf(round2, 'lead')).toHaveLength(0)
+  expect(seen.writer?.at(-1)).toContain('make it shorter')
+  await chats.stopAll()
+})
+
 test('orchestrated: an assigned task wakes only its assignee', async () => {
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>

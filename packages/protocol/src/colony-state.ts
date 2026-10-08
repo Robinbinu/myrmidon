@@ -113,6 +113,8 @@ export interface ChatEntry extends Entry {
   readonly choices?: readonly QuestionChoice[]
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
+  /** The person's message was addressed to these crew members (@name). */
+  readonly to?: readonly string[]
   /** Agents that have read this message (mid-run user messages only). */
   readBy?: string[]
   /** Artifact names of files the person attached. */
@@ -425,6 +427,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         final: false,
         ...(p.mode ? { mode: p.mode } : {}),
         ...(p.attachments?.length ? { attachments: p.attachments } : {}),
+        ...(p.to?.length ? { to: p.to } : {}),
       })
       break
     }
