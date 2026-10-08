@@ -100,6 +100,8 @@ export const BROWSER_LOG_LIMIT = 200
 export const BROWSER_NETWORK_LIMIT = 300
 /** The headless browser's window, a common laptop size, so pages lay out as a person would see them. */
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
+/** The longest text a person controlling an agent's tab can paste into it at once. */
+export const BROWSER_PASTE_MAX_CHARS = 100_000
 
 // Reviewer (verifier.ts)
 

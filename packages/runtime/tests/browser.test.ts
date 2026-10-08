@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assertAgentControl, BrowserHub, findChrome, type LiveEvent } from '../src/browser.ts'
+import { BROWSER_PASTE_MAX_CHARS } from '../src/config.ts'
 
 const dirs: string[] = []
 const hubs: BrowserHub[] = []
@@ -33,6 +34,18 @@ test.skipIf(!findChrome())(
     await tab.page.focus('#q')
     await hub.input('c1', 'wren', { type: 'text', text: 'typed by a person' })
     expect(await tab.page.$eval('#q', (el) => (el as HTMLInputElement).value)).toBe('typed by a person')
+
+    // A paste goes in whole: a newline in it does not press Enter and submit the form.
+    await tab.page.setContent(
+      '<form onsubmit="document.title = \'sent\'; return false"><input id="t"><button>Go</button></form>',
+    )
+    await tab.page.focus('#t')
+    await hub.input('c1', 'wren', { type: 'paste', text: 'line one\nline two' })
+    expect(await tab.page.$eval('#t', (el) => (el as HTMLInputElement).value)).toContain('line two')
+    expect(await tab.page.title()).toBe('')
+    await expect(
+      hub.input('c1', 'wren', { type: 'paste', text: 'x'.repeat(BROWSER_PASTE_MAX_CHARS + 1) }),
+    ).rejects.toThrow('at most')
 
     await hub.setControl('c1', 'wren', 'agent')
     expect(() => assertAgentControl(tab)).not.toThrow()

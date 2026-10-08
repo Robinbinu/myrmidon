@@ -10,7 +10,13 @@ import type {
   Page,
   SerializedAXNode,
 } from 'puppeteer-core'
-import { BROWSER_LOG_LIMIT, BROWSER_NETWORK_LIMIT, BROWSER_VIEWPORT, SNAPSHOT_CHARS } from './config.ts'
+import {
+  BROWSER_LOG_LIMIT,
+  BROWSER_NETWORK_LIMIT,
+  BROWSER_PASTE_MAX_CHARS,
+  BROWSER_VIEWPORT,
+  SNAPSHOT_CHARS,
+} from './config.ts'
 import { prompts } from './prompts.ts'
 
 /**
@@ -36,6 +42,8 @@ export type LiveInput =
   | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number }
   | { type: 'key'; key: string }
   | { type: 'text'; text: string }
+  /** Clipboard text, inserted at once like a paste: newlines do not press Enter. */
+  | { type: 'paste'; text: string }
   | { type: 'navigate'; url: string }
 
 interface Tab {
@@ -250,6 +258,11 @@ export class BrowserHub {
         return
       case 'text':
         await keyboard.type(e.text)
+        return
+      case 'paste':
+        if (e.text.length > BROWSER_PASTE_MAX_CHARS)
+          throw new Error(`a paste can be at most ${BROWSER_PASTE_MAX_CHARS} characters`)
+        await keyboard.sendCharacter(e.text)
         return
       case 'navigate':
         if (!/^https?:\/\//.test(e.url)) throw new Error('only http(s) URLs')

@@ -539,7 +539,7 @@ function LiveTab({
           if (!controlling) return
           e.preventDefault()
           const text = e.clipboardData.getData('text/plain')
-          if (text) send({ type: 'text', text })
+          if (text) send({ type: 'paste', text })
         }}
       >
         {replaying ? (
