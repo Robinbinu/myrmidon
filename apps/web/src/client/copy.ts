@@ -154,7 +154,6 @@ export const copy = {
       error: "Can't connect",
     },
     showDetails: 'Show details',
-    hideDetails: 'Hide details',
     restart: 'Restart',
     restarting: 'Restarting…',
     restarted: (label: string) => `${label} restarted.`,

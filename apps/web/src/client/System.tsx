@@ -1,4 +1,13 @@
-import { Check, CircleAlert, CircleCheck, Copy, RefreshCw, Settings2, WifiOff } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  Copy,
+  RefreshCw,
+  Settings2,
+  WifiOff,
+} from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { send } from './api.ts'
 import { copy } from './copy.ts'
@@ -198,7 +207,6 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
   const h = copy.settings.channels.health
   const c = props.channel
   const toast = useToast()
-  const [open, setOpen] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const state = c.enabled ? c.status.state : 'off'
   const words =
@@ -211,12 +219,9 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
         : state === 'connecting' || state === 'linking'
           ? copy.settings.channels.status[state]
           : copy.settings.channels.status.off
-  const details = [
-    c.status.error,
-    c.health.lastError && state !== 'on' ? h.lastError(c.health.lastError) : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  // The last error is often the one the status already gives.
+  const lastError = state !== 'on' && c.health.lastError !== c.status.error ? c.health.lastError : undefined
+  const details = [c.status.error, lastError && h.lastError(lastError)].filter(Boolean).join('\n')
   const enable = () => send('PUT', `/api/channels/${c.id}`, { enabled: true })
   const restart = async () => {
     setRestarting(true)
@@ -244,16 +249,6 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
           <span className="font-semibold">{c.label}</span>
           <Dot status={state} />
           <span className={cn('truncate text-muted', state === 'error' && 'text-bad-ink')}>{words}</span>
-          {details && (
-            <button
-              type="button"
-              className="shrink-0 text-[12px] text-muted underline-offset-2 hover:text-fg hover:underline"
-              aria-expanded={open}
-              onClick={() => setOpen((o) => !o)}
-            >
-              {open ? t.hideDetails : t.showDetails}
-            </button>
-          )}
         </div>
         <div className="mt-0.5 flex flex-wrap gap-x-3 text-[12px] text-muted">
           <span>{h.lastIn(c.health.lastIn ? ago(c.health.lastIn) : h.never)}</span>
@@ -261,10 +256,16 @@ function ChannelRow(props: { channel: ChannelStatus; onRestarted(): void }) {
           {c.health.reconnects > 0 && <span>{h.reconnects(c.health.reconnects)}</span>}
           {c.health.owed > 0 && <span className="text-warn-ink">{h.owed(c.health.owed)}</span>}
         </div>
-        {open && details && (
-          <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] text-muted">
-            {details}
-          </pre>
+        {details && (
+          <details className="group mt-1">
+            <summary className="cursor-default list-none text-[12px] text-muted hover:text-fg-2">
+              <ChevronDown className="mr-0.5 inline size-3 -rotate-90 transition-transform group-open:rotate-0" />
+              {t.showDetails}
+            </summary>
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[12px] text-muted">
+              {details}
+            </pre>
+          </details>
         )}
       </div>
       {c.enabled && (
