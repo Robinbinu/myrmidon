@@ -1538,7 +1538,7 @@ function Providers(props: {
                 <ConfirmButton
                   icon
                   label={copy.settings.providers.removeCredentials(p.id)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.providers.confirmRemoveCredentials}
                   onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/credentials/${p.id}`),
@@ -1551,7 +1551,7 @@ function Providers(props: {
                 <ConfirmButton
                   icon
                   label={copy.settings.providers.remove(p.id)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.providers.confirmRemove}
                   onConfirm={() =>
                     void act(
                       () => send<{ providers: ProviderInfo[] }>('DELETE', `/api/providers/${p.id}`),
@@ -2358,7 +2358,7 @@ function McpServers() {
                 <ConfirmButton
                   icon
                   label={copy.settings.mcp.remove(m.name)}
-                  confirm={copy.settings.shared.confirmRemove}
+                  confirm={copy.settings.mcp.confirmRemove}
                   onConfirm={() =>
                     void act(
                       () => send('DELETE', `/api/mcp/${encodeURIComponent(m.name)}`),
@@ -3841,7 +3841,7 @@ function GatewaysSection() {
               )}
               <ConfirmButton
                 label={t.remove}
-                confirm={copy.settings.shared.confirmRemove}
+                confirm={copy.settings.gateways.confirmRemove}
                 onConfirm={() => void remove(g)}
               />
             </div>
@@ -3916,7 +3916,7 @@ function SpecialistsSection(props: { models: ModelOption[] }) {
                 </Button>
                 <ConfirmButton
                   label={t.remove}
-                  confirm={copy.settings.shared.confirmDelete}
+                  confirm={copy.settings.specialists.confirmRemove}
                   onConfirm={() =>
                     void removeSpecialist(s.id).then(
                       () => toast(t.removed(s.name), 'info'),
@@ -4456,7 +4456,7 @@ function SchedulesSection() {
                 <ConfirmButton
                   icon
                   label={copy.settings.schedules.delete}
-                  confirm={copy.settings.shared.confirmDelete}
+                  confirm={copy.settings.schedules.confirmDelete}
                   onConfirm={() => act(() => send('DELETE', `/api/schedules/${s.id}`))}
                 />
               </div>

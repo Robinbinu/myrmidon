@@ -122,8 +122,8 @@ export const copy = {
   /** The sidebar chip that appears only when this gateway (or one of its channels) is in trouble. */
   gatewayStatus: {
     offline: 'Offline',
-    retry: 'Retry',
-    offlineHint: 'This gateway is not answering. Retry checks again now.',
+    retry: 'Try again',
+    offlineHint: "Myrmidon isn't answering. Check that it is still running; Try again checks now.",
     noModels: 'No model can answer',
     channelDown: (label: string) => `${label} down`,
     more: (n: number) => `+${n} more`,
@@ -476,7 +476,7 @@ export const copy = {
   /** The empty state: the mascot, the headline and the starter prompts. */
   hero: {
     headline: 'What should the crew build?',
-    poke: 'Poke the crew',
+    poke: 'Make the mascot react',
     /** What the mascot's screen spells out in dots (letters, digits and a few signs only). */
     screen: {
       hello: (name: string) => `HI ${name.toUpperCase()}`,
@@ -849,7 +849,7 @@ export const copy = {
       "Agents in this project's chats work in the folder: they read and edit its files and run commands there.",
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
-    go: 'Go',
+    go: 'Open',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
     /** On the "Added" toast while a chat is open: that chat stays where it was. */
@@ -902,7 +902,7 @@ export const copy = {
   roundChanges: {
     failed: (project: string) =>
       `Couldn’t check what changed in ${project}: Myrmidon didn’t answer. Your files are untouched; try again in a moment.`,
-    retry: 'Retry',
+    retry: 'Try again',
     /** "Rewound <project> to before this run", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this run' },
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
@@ -944,7 +944,7 @@ export const copy = {
     remove: 'Remove',
     removeLabel: (name: string) => `Remove tool_${name}`,
     removedToast: (name: string) => `Removed tool_${name} from your library`,
-    confirmRemove: 'Remove for good',
+    confirmRemove: 'Remove tool',
     /** Settings list when nothing has been kept yet. */
     empty:
       "When an agent makes itself a tool for a job, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
@@ -1116,7 +1116,7 @@ export const copy = {
     continuing: 'Continuing…',
     continue: 'Continue',
     retrying: 'Retrying…',
-    summarizeAndRetry: 'Summarize and retry',
+    summarizeAndRetry: 'Summarize and try again',
     tryAgain: 'Try again',
     noModel: (window: string) => `No model with ${window} or more is set up. Add one in Settings → Models.`,
     kept: 'The work so far is kept; the failed reply is not.',
@@ -1143,7 +1143,7 @@ export const copy = {
     resuming: 'Resuming…',
     resume: 'Resume',
     starting: 'Starting…',
-    retry: 'Retry',
+    retry: 'Try again',
     changesAsked: 'The reviewer asked for changes',
     fixing: 'the crew is fixing them',
     feedback: 'Feedback',
@@ -1559,7 +1559,7 @@ export const copy = {
       cannotUndo: 'Git cannot bring this work back.',
       cancel: 'Cancel',
       deleteFile: 'Delete file',
-      discard: 'Discard',
+      discard: 'Discard changes',
     },
     full: {
       uncommitted: 'Uncommitted changes',
@@ -1604,8 +1604,6 @@ export const copy = {
       off: 'Off',
       on: 'On',
       loading: 'Loading…',
-      confirmRemove: 'Remove for good',
-      confirmDelete: 'Delete for good',
     },
     /** Why a Settings form value is not accepted, shown under the field. */
     validation: {
@@ -1656,7 +1654,7 @@ export const copy = {
       escToClose: ' to close',
       sectionPicker: 'Section',
       saveFailed: 'Couldn’t save your changes; they are still here',
-      retry: 'Retry',
+      retry: 'Try again',
       groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
       unsaved: {
         title: 'Leave without saving?',
@@ -1725,11 +1723,11 @@ export const copy = {
       signInAgain: 'Sign in again',
       signIn: 'Sign in',
       signOut: 'Sign out',
-      confirmSignOut: 'Sign out for good',
+      confirmSignOut: 'Sign out',
       signedOut: (name: string) => `Signed out of ${name}`,
       finishInBrowser: 'Finish signing in in the browser tab; this updates by itself.',
       openPage: 'Open the sign-in page',
-      submit: 'Submit',
+      submit: 'Finish sign-in',
       showMore: (n: number) => `Show ${n} more sign-ins`,
     },
     providers: {
@@ -1760,8 +1758,10 @@ export const copy = {
         'Its credentials come from outside Myrmidon (environment variables, a cloud profile such as ~/.aws, or none needed). Turn it off to stop using its models.',
       use: (id: string) => `Use ${id}`,
       removeCredentials: (id: string) => `Remove ${id} credentials`,
+      confirmRemoveCredentials: 'Remove credentials',
       removedCredentials: (id: string) => `Removed ${id} credentials`,
       remove: (id: string) => `Remove ${id}`,
+      confirmRemove: 'Remove provider',
       removed: (id: string) => `Removed ${id}`,
       updated: (id: string) => `Updated ${id}`,
       savedKey: (id: string) => `Saved the ${id} key`,
@@ -1888,6 +1888,7 @@ export const copy = {
       enabled: (name: string) => `Enabled ${name}`,
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
+      confirmRemove: 'Remove server',
       removed: (name: string) => `Removed ${name}`,
     },
     channels: {
@@ -1914,7 +1915,7 @@ export const copy = {
       },
       noActivity: 'Nothing has happened on this channel yet. Messages and answers show here.',
       remove: 'Remove channel',
-      removeConfirm: 'Remove for good',
+      removeConfirm: 'Remove channel',
       removeWarning:
         'Disconnects it and forgets its token, approved people and groups, and any linked device. Chats it started stay.',
       removed: (label: string) => `Removed ${label}`,
@@ -1953,7 +1954,7 @@ export const copy = {
       approve: 'Approve',
       makeOwner: 'Make owner',
       makeOwnerName: (name: string) => `Make ${name} the owner`,
-      makeOwnerConfirm: 'Yes, make owner',
+      makeOwnerConfirm: 'Make owner',
       makeOwnerWarning:
         'They approve risky steps and can allow tools for good; the current owner becomes a member.',
       makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
@@ -1964,7 +1965,7 @@ export const copy = {
       ownerConfirmed: (name: string) => `Confirmed ${name} as the owner`,
       decline: 'Decline',
       declineName: (name: string) => `Decline ${name}`,
-      declineConfirm: 'Yes, decline',
+      declineConfirm: 'Decline request',
       people: 'Approved people',
       groups: 'Approved groups',
       owner: 'Owner',
@@ -2122,8 +2123,9 @@ export const copy = {
       adding: 'Pairing…',
       added: (name: string) => `Added ${name}`,
       remove: 'Remove',
+      confirmRemove: 'Remove gateway',
       removed: (name: string) => `Removed ${name}; this Myrmidon is no longer paired with it.`,
-      show: 'Show',
+      show: 'Switch to this gateway',
       shown: 'Shown here',
       empty: 'No other gateways yet. Add one above with a pairing link from it.',
       reachable: 'Reachable',
@@ -2172,6 +2174,7 @@ export const copy = {
       add: 'New specialist',
       edit: 'Edit',
       remove: 'Delete',
+      confirmRemove: 'Delete specialist',
       removed: (name: string) => `Deleted ${name}`,
       modelHint: "Leave it unset to use the crew's helper model.",
       useTeamModel: "Use the crew's model",
@@ -2292,7 +2295,8 @@ export const copy = {
       started: 'Started a run',
       runNow: 'Run now',
       runOnSchedule: (name: string) => `Run ${name} on schedule`,
-      delete: 'Delete this schedule',
+      delete: 'Delete schedule',
+      confirmDelete: 'Delete schedule',
     },
     hooks: {
       events: {
@@ -2318,7 +2322,7 @@ export const copy = {
       toolsPlaceholder: 'Tools, e.g. Edit|Write (empty: all)',
       timeout: 'Timeout in seconds',
       timeoutPlaceholder: '60s',
-      remove: 'Remove this hook',
+      remove: 'Delete hook',
       command: 'Command',
       commandPlaceholder: 'e.g. jq -r .tool_input.file_path | xargs npx prettier --write',
       add: 'Add hook',
@@ -2349,7 +2353,7 @@ export const copy = {
       hideLog: 'Hide log',
       secretSet: 'Set; type to replace',
       remove: 'Remove',
-      confirmRemove: 'Remove for good',
+      confirmRemove: 'Remove plugin',
       removed: (name: string) => `Removed ${name}`,
       applies:
         'Code, tools and MCP servers start now; skills, commands, hooks and prompt sections apply from the next message.',
@@ -2422,7 +2426,7 @@ export const copy = {
       why: (why: string) => `Why: ${why}`,
       keep: 'Keep',
       forget: 'Forget this',
-      confirmForget: 'Forget for good',
+      confirmForget: 'Forget memory',
     },
     shortcuts: {
       title: 'Keyboard shortcuts',
