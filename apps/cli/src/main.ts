@@ -46,7 +46,10 @@ const HELP = `myrmidon — run and watch colonies of collaborating agents
 
 Usage:
   myrmidon run <colony.yaml> [--ui] [--port N] [--unsafe-no-sandbox]
-  myrmidon serve [--port N] [--dev] [--debug]
+  myrmidon serve [--port N] [--dev] [--debug] [--host ADDR] [--public-url URL] [--allow-host HOST:PORT]
+               --host / --public-url make a remote gateway: devices pair, see docs/remote.md
+  myrmidon pair [--scope full|chat]
+               Print a single-use link that pairs a device with the running server (10 minutes)
   myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]
                Send a request to the running server (from \`serve\`); --wait prints the final answer
   myrmidon import-omp          Copy an existing omp setup (keys, logins, models.yml) from ~/.omp
@@ -71,6 +74,10 @@ const { values, positionals } = parseArgs({
     out: { type: 'string' },
     'unsafe-no-sandbox': { type: 'boolean', default: false },
     dev: { type: 'boolean', default: false },
+    host: { type: 'string' },
+    'public-url': { type: 'string' },
+    'allow-host': { type: 'string', multiple: true },
+    scope: { type: 'string' },
     debug: { type: 'boolean', default: false },
     chat: { type: 'string' },
     project: { type: 'string' },
@@ -340,9 +347,16 @@ async function main() {
         schedules: new ScheduleStore(home),
         sandboxKind: sandbox.kind,
         noAuth: values.dev,
+        ...(values.host ? { host: values.host } : {}),
+        ...(values['public-url'] ? { publicUrl: values['public-url'] } : {}),
+        ...(values['allow-host']?.length ? { allowHosts: values['allow-host'] } : {}),
         debug: values.debug,
       })
       console.log(`${c.bold('Myrmidon')} ${server.url}`)
+      if (server.remote)
+        console.log(
+          `${c.green('remote gateway')}${server.publicUrl ? ` at ${server.publicUrl}` : ''}: pair a device with ${c.bold('myrmidon pair')} (see docs/remote.md)`,
+        )
       if (values.dev)
         console.log(c.yellow('dev mode: no access token. Any program on this machine can use the API.'))
       if (values.debug)
@@ -375,6 +389,8 @@ async function main() {
     }
     case 'ask':
       return ask(arg)
+    case 'pair':
+      return pair()
     case 'import-omp': {
       const report = importFromOmp(home)
       console.log(`${c.green('imported')} ${report.copied.join(', ') || 'nothing'} into ${home}/agent`)
@@ -422,13 +438,12 @@ main().catch((err) => {
   process.exit(1)
 })
 
-/** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
-async function ask(request: string | undefined) {
-  if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
+/** Calls the API of the server running on this machine for this home, with the token it wrote down. */
+function runningServer() {
   const file = join(home, 'server.json')
   if (!existsSync(file)) throw new Error(`no running server for ${home}: start one with \`myrmidon serve\``)
   const { url, token } = JSON.parse(readFileSync(file, 'utf8')) as { url: string; token: string }
-  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     const res = await fetch(new URL(path, url), {
       method,
       headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
@@ -438,6 +453,26 @@ async function ask(request: string | undefined) {
     if (!res.ok) throw new Error(data.error ?? `${method} ${path}: ${res.status}`)
     return data
   }
+}
+
+/** Prints a single-use link that pairs a device (a phone, a laptop) with the running remote gateway. */
+async function pair() {
+  const scope = values.scope === 'chat' ? 'chat' : 'full'
+  const call = runningServer()
+  const { code, link } = await call<{ code: string; link: string }>('POST', '/api/devices/pair-code', {
+    scope,
+  })
+  console.log(
+    `${c.bold('Pair a device')} (${scope === 'chat' ? 'chats only' : 'full access'}, one use, 10 minutes):`,
+  )
+  console.log(`  ${c.green(link)}`)
+  console.log(c.dim(`  or enter the code ${code} on the gateway's page`))
+}
+
+/** Sends a request to the running server, like typing it in the composer; with --wait, prints the answer. */
+async function ask(request: string | undefined) {
+  if (!request?.trim()) throw new Error('usage: myrmidon ask "<request>" [--chat ID] [--project ID] [--wait]')
+  const call = runningServer()
   const sent = await call<{ chatId: string; colonyId: string; round?: number }>('POST', '/api/chats', {
     text: request,
     ...(values.chat ? { chatId: values.chat } : {}),

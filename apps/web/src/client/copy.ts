@@ -25,6 +25,20 @@ export const copy = {
     notAuthorized: 'Not authorized: open the link printed by the CLI.',
   },
 
+  /** Pairing a device with a remote gateway. */
+  pairing: {
+    title: 'Pair this device',
+    introBefore:
+      'This Myrmidon runs on another machine. To use it from here, pair this device once: on that machine run ',
+    introAfter:
+      ', or make a link in Settings → Devices on a device that is already paired, then open the link or enter its code.',
+    code: 'Pairing code',
+    codeHint: 'Ten letters and digits, valid for 10 minutes, usable once.',
+    name: 'Name for this device',
+    nameHint: 'How it shows in Settings → Devices, where you can revoke it.',
+    pair: 'Pair',
+  },
+
   agentChip: {
     label: (name: string) => `What ${name} is doing`,
   },
@@ -1259,6 +1273,7 @@ export const copy = {
       general: { label: 'General', hint: 'Theme, motion, shortcuts' },
       mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
       specialists: { label: 'Specialists', hint: 'Agents you keep and bring back' },
+      devices: { label: 'Devices', hint: 'Who can use this gateway' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Team & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
@@ -1501,6 +1516,34 @@ export const copy = {
       disabled: (name: string) => `Disabled ${name}`,
       remove: (name: string) => `Remove ${name}`,
       removed: (name: string) => `Removed ${name}`,
+    },
+    devices: {
+      title: 'Devices',
+      introRemote:
+        'This gateway is reachable from other machines. Each device that uses it was paired once and has its own access, which you can revoke here at any time.',
+      introLocal:
+        'This Myrmidon only answers on this machine. To use it from a phone or another computer, run it as a remote gateway (see docs/remote.md), then pair devices here.',
+      pair: 'Pair a device',
+      scope: 'Access',
+      /** Short, for the toggle. */
+      scopes: { full: 'Full', chat: 'Chats' },
+      /** In the list of devices. */
+      scopeNames: { full: 'Full access', chat: 'Chats only' },
+      scopeHints: {
+        full: 'Everything, including the terminal, keys, Settings and devices.',
+        chat: 'Chats, files and approvals; not the terminal, keys, Settings, plugins or devices.',
+      },
+      link: 'Open this link on the device (one use, 10 minutes):',
+      code: (code: string) => `or enter the code ${code}`,
+      copy: 'Copy link',
+      copied: 'Copied',
+      empty: 'No devices paired yet.',
+      thisDevice: 'this device',
+      viaHub: 'through another Myrmidon',
+      lastSeen: (when: string) => `last seen ${when}`,
+      never: 'not seen yet',
+      revoke: 'Revoke',
+      revoked: (name: string) => `${name} can no longer use this gateway`,
     },
     specialists: {
       title: 'Specialists',

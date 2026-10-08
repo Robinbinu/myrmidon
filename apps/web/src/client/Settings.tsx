@@ -20,6 +20,7 @@ import {
   LogIn,
   MessageSquareText,
   Monitor,
+  MonitorSmartphone,
   Moon,
   Palette,
   Plug,
@@ -41,7 +42,7 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type ModelOption, send, type TeamConfig } from './api.ts'
+import { api, type ModelOption, post, send, type TeamConfig } from './api.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
@@ -51,7 +52,7 @@ import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
-import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
+import { NOTIFY_KEY, type ThemeChoice, useCopy, usePersistentFlag } from './ui/hooks.ts'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
@@ -138,6 +139,7 @@ export type Section =
   | 'general'
   | 'mascot'
   | 'specialists'
+  | 'devices'
   | 'models'
   | 'team'
   | 'tools'
@@ -167,6 +169,12 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
     label: copy.settings.sections.specialists.label,
     hint: copy.settings.sections.specialists.hint,
     icon: UserCog,
+  },
+  {
+    id: 'devices',
+    label: copy.settings.sections.devices.label,
+    hint: copy.settings.sections.devices.hint,
+    icon: MonitorSmartphone,
   },
   {
     id: 'models',
@@ -474,6 +482,7 @@ export function Settings(props: {
               )}
               {section === 'mascot' && data && <MascotSection data={data} update={update} />}
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
+              {section === 'devices' && <DevicesSection />}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -2038,6 +2047,119 @@ const REVIEWER_HINT = {
   auto: copy.settings.reviewer.hints.auto,
   always: copy.settings.reviewer.hints.always,
 } as const
+
+interface DeviceRow {
+  id: string
+  name: string
+  scope: 'full' | 'chat'
+  createdAt: string
+  lastSeenAt?: string
+  hub?: boolean
+  current?: boolean
+}
+
+/** Devices paired with this gateway, with Revoke, and a single-use pairing link for a new one. */
+function DevicesSection() {
+  const t = copy.settings.devices
+  const toast = useToast()
+  const [data, setData] = useState<{ remote: boolean; devices: DeviceRow[] }>()
+  const [scope, setScope] = useState<'full' | 'chat'>('full')
+  const [link, setLink] = useState<{ code: string; link: string }>()
+  const [copied, copyText] = useCopy()
+  const load = () =>
+    api<{ remote: boolean; devices: DeviceRow[] }>('/api/devices')
+      .then(setData)
+      .catch((err: Error) => toast(err.message, 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once
+  useEffect(() => {
+    void load()
+  }, [])
+  const makeLink = () =>
+    post<{ code: string; link: string }>('/api/devices/pair-code', { scope }).then(setLink, (err: Error) =>
+      toast(err.message, 'error'),
+    )
+  const revoke = (d: DeviceRow) =>
+    send('DELETE', `/api/devices/${encodeURIComponent(d.id)}`).then(
+      () => {
+        toast(t.revoked(d.name), 'info')
+        void load()
+      },
+      (err: Error) => toast(err.message, 'error'),
+    )
+  return (
+    <>
+      <Heading title={t.title}>{data?.remote === false ? t.introLocal : t.introRemote}</Heading>
+      <Card className="mb-6">
+        <Row>
+          <Field label={t.scope} hint={t.scopeHints[scope]} inline>
+            <Segmented
+              id="pair-scope"
+              value={scope}
+              options={[
+                { value: 'full', label: t.scopes.full },
+                { value: 'chat', label: t.scopes.chat },
+              ]}
+              onChange={(s) => {
+                setScope(s)
+                setLink(undefined)
+              }}
+            />
+          </Field>
+        </Row>
+        <Row>
+          {link ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-[13px] text-fg-2">{t.link}</p>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-lg bg-fill px-3 py-2 font-mono text-[12.5px]">
+                  {link.link}
+                </code>
+                <Button size="sm" variant="ghost" onClick={() => copyText(link.link)}>
+                  {copied ? t.copied : t.copy}
+                </Button>
+              </div>
+              <p className="text-[12.5px] text-muted">{t.code(link.code)}</p>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Plus className="size-3.5" />}
+              onClick={() => void makeLink()}
+            >
+              {t.pair}
+            </Button>
+          )}
+        </Row>
+      </Card>
+      {data && data.devices.length === 0 ? (
+        <Empty icon={<MonitorSmartphone className="size-5" />} title={t.empty} />
+      ) : (
+        <Card>
+          {data?.devices.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+              <MonitorSmartphone className="size-4 shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-[13.5px] font-semibold">{d.name}</span>
+                  {d.current && <Pill tone="accent">{t.thisDevice}</Pill>}
+                </div>
+                <div className="truncate text-[12px] text-muted">
+                  {t.scopeNames[d.scope]}
+                  {d.hub ? ` · ${t.viaHub}` : ''} ·{' '}
+                  {d.lastSeenAt ? t.lastSeen(new Date(d.lastSeenAt).toLocaleString()) : t.never}
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => void revoke(d)}>
+                {t.revoke}
+              </Button>
+            </div>
+          ))}
+        </Card>
+      )}
+    </>
+  )
+}
 
 /** The person's saved specialists: each as a row, opened into its editor; a new one starts empty. */
 function SpecialistsSection(props: { models: ModelOption[] }) {

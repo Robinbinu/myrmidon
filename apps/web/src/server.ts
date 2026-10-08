@@ -46,6 +46,7 @@ import {
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
+import { AuthAudit, type Device, type DeviceScope, DeviceStore, needsFull, PairingCodes } from './devices.ts'
 import { Logins } from './logins.ts'
 import { buildPluginUI, uiStamp } from './plugin-ui.ts'
 
@@ -53,6 +54,15 @@ export interface ServeOptions {
   readonly home: string
   /** 0 picks a free port. */
   readonly port?: number
+  /**
+   * Where to listen; loopback by default. Anything else (a tailnet address, `0.0.0.0`) makes this a remote gateway:
+   * devices must be paired, and `noAuth` is refused.
+   */
+  readonly host?: string
+  /** The address clients use for a remote gateway, e.g. `https://box.tail1234.ts.net`; also makes it remote. */
+  readonly publicUrl?: string
+  /** More Host values to accept (`name:port`), exactly as clients send them. */
+  readonly allowHosts?: readonly string[]
   readonly token?: string
   /**
    * Development only: skip the bearer token. The server still binds to 127.0.0.1 and still rejects
@@ -96,14 +106,50 @@ export interface ServeOptions {
 
 export interface WebServer {
   readonly url: string
+  /** A remote gateway's address for clients, when it has one. */
+  readonly publicUrl?: string
+  /** Whether devices must pair (the gateway is reachable beyond this machine). */
+  readonly remote: boolean
   readonly token: string
+  /** Makes a single-use pairing link for a new device. */
+  pairingLink(scope: DeviceScope): { code: string; link: string }
   stop(): Promise<void>
 }
 
-type StreamData =
-  | { kind: 'events'; colony: ColonyId; cursor: number }
-  | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
-  | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+/** Which paired device opened a socket, so revoking it closes them. */
+type Opened = { device?: string }
+type StreamData = Opened &
+  (
+    | { kind: 'events'; colony: ColonyId; cursor: number }
+    | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
+    | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+  )
+
+/** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
+interface Access {
+  readonly scope: DeviceScope
+  readonly device?: Device
+}
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+/** A bind address (no port) on this machine only. */
+const isLoopbackName = (name: string) => LOOPBACK.has(name)
+/** A Host header (`name:port`, `[v6]:port`) naming this machine only. */
+const isLoopback = (host: string) =>
+  isLoopbackName(host.startsWith('[') ? host.slice(0, host.indexOf(']') + 1) : host.replace(/:\d+$/, ''))
+const DEVICE_COOKIE = 'myr_device'
+/** Over HTTPS the cookie carries the `__Host-` prefix: only this exact origin, over TLS, can set or overwrite it. */
+const SECURE_DEVICE_COOKIE = `__Host-${DEVICE_COOKIE}`
+/** The pairing call comes before sign-in, so its body is capped. */
+const PAIR_BODY_MAX = 4096
+
+function cookie(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.get('cookie') ?? '').split(';')) {
+    const [k, ...v] = part.trim().split('=')
+    if (k === name) return decodeURIComponent(v.join('='))
+  }
+  return undefined
+}
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
@@ -184,6 +230,17 @@ function specialistInput(body: unknown): SpecialistInput {
 }
 
 export function startServer(options: ServeOptions): WebServer {
+  const bindHost = options.host ?? '127.0.0.1'
+  // Reachable beyond this machine: devices pair, and nothing runs without auth (as Hermes and OpenClaw do).
+  const remote = !isLoopbackName(bindHost) || Boolean(options.publicUrl)
+  if (remote && options.noAuth)
+    throw new Error(
+      '--dev turns off auth, so it only works on this machine: drop --host/--public-url, or --dev',
+    )
+  const publicUrl = options.publicUrl ? new URL(options.publicUrl) : undefined
+  const devices = new DeviceStore(options.home)
+  const pairing = new PairingCodes()
+  const audit = new AuthAudit(options.home)
   const token = options.noAuth
     ? ''
     : (options.token ?? Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url'))
@@ -234,16 +291,52 @@ export function startServer(options: ServeOptions): WebServer {
     })
 
   let terminals = 0
-  const authorized = (req: Request, url: URL) => {
+  /** Host values the server answers to, exactly: its loopback names, the public URL's host, and any added ones. */
+  const allowedHosts = () =>
+    new Set([
+      `127.0.0.1:${server.port}`,
+      `localhost:${server.port}`,
+      `[::1]:${server.port}`,
+      // A server bound to one address answers on it; bound to every interface, only named hosts are accepted.
+      ...(isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::'
+        ? []
+        : [bindHost.includes(':') ? `[${bindHost}]:${server.port}` : `${bindHost}:${server.port}`]),
+      ...(publicUrl ? [publicUrl.host] : []),
+      ...(options.allowHosts ?? []),
+    ])
+  /** Pages the API accepts requests from: the server's own origins, never another site (DNS-rebinding defence). */
+  const allowedOrigin = (origin: string, host: string) =>
+    origin === `http://${host}` ||
+    (publicUrl !== undefined && origin === publicUrl.origin) ||
+    origin === `https://${host}`
+  const sameOrigin = (req: Request) => {
     const host = req.headers.get('host') ?? ''
-    if (host !== `127.0.0.1:${server.port}` && host !== `localhost:${server.port}`) return false
+    if (!allowedHosts().has(host)) return false
     const origin = req.headers.get('origin')
-    if (origin && origin !== `http://${host}`) return false
-    if (options.noAuth) return true
-    const header = req.headers.get('authorization')
-    const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
-    return given !== null && given !== undefined && tokenEquals(given, token)
+    return !origin || allowedOrigin(origin, host)
   }
+  const authorized = (req: Request, url: URL): Access | undefined => {
+    if (!sameOrigin(req)) return undefined
+    if (options.noAuth) return { scope: 'full' }
+    const host = req.headers.get('host') ?? ''
+    // The token the CLI prints works on this machine only (an SSH tunnel arrives as loopback too); remotely a paired
+    // device's cookie is the only way in, so no token ever travels in a URL there.
+    if (isLoopback(host)) {
+      const header = req.headers.get('authorization')
+      const given = header?.startsWith('Bearer ') ? header.slice(7) : url.searchParams.get('token')
+      if (given && tokenEquals(given, token)) return { scope: 'full' }
+    }
+    const header = req.headers.get('authorization')
+    const presented =
+      cookie(req, SECURE_DEVICE_COOKIE) ??
+      cookie(req, DEVICE_COOKIE) ??
+      (header?.startsWith('Device ') ? header.slice(7) : undefined)
+    const device = presented ? devices.find(presented) : undefined
+    if (presented && !device) audit.record('rejected', { host })
+    return device ? { scope: device.scope, device } : undefined
+  }
+  const forbidden = () =>
+    json({ error: 'this device can use chats only; pair it with full access for this' }, 403)
 
   const guard =
     (
@@ -251,7 +344,9 @@ export function startServer(options: ServeOptions): WebServer {
     ) =>
     async (req: Request & { params: Record<string, string> }) => {
       const url = new URL(req.url)
-      if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+      const access = authorized(req, url)
+      if (!access) return json({ error: 'unauthorized' }, 401)
+      if (access.scope !== 'full' && needsFull(req.method, url.pathname)) return forbidden()
       try {
         return await handler(req, url)
       } catch (err) {
@@ -300,7 +395,7 @@ export function startServer(options: ServeOptions): WebServer {
   })
 
   const server = Bun.serve<StreamData>({
-    hostname: '127.0.0.1',
+    hostname: bindHost,
     port: options.port ?? 0,
     development: options.debug ? { hmr: true, console: true } : false,
     routes: {
@@ -331,6 +426,98 @@ export function startServer(options: ServeOptions): WebServer {
           pending: !written && Boolean(model && greetings),
         })
       }),
+      // Pairing a device: no sign-in yet (the code is the proof), but still only from the server's own origins.
+      '/api/pair': {
+        POST: async (req: Request) => {
+          if (!sameOrigin(req)) return json({ error: 'unauthorized' }, 401)
+          const raw = await req.text()
+          if (raw.length > PAIR_BODY_MAX) return json({ error: 'request too large' }, 413)
+          let body: { code?: unknown; name?: unknown; hub?: unknown } = {}
+          try {
+            body = JSON.parse(raw) as typeof body
+          } catch {
+            body = {}
+          }
+          const host = req.headers.get('host') ?? ''
+          const scope = typeof body.code === 'string' ? pairing.take(body.code) : undefined
+          if (!scope) {
+            audit.record('pair-failed', { host })
+            // A wrong code costs a moment, so guessing is slow as well as capped.
+            await Bun.sleep(500)
+            return json({ error: 'that pairing code is wrong, used or expired; make a new one' }, 401)
+          }
+          const hub = body.hub === true
+          const { device, token: deviceToken } = devices.add(
+            typeof body.name === 'string' ? body.name : 'Device',
+            scope,
+            hub,
+          )
+          audit.record('paired', {
+            device: device.id,
+            name: device.name,
+            scope,
+            host,
+            ...(hub ? { hub: 'yes' } : {}),
+          })
+          const shown = { id: device.id, name: device.name, scope: device.scope }
+          // A hub keeps the token itself; a browser gets it as a cookie its page can never read.
+          if (hub) return json({ device: shown, token: deviceToken })
+          // Over HTTPS (a Tailscale or TLS address) the cookie is Secure and `__Host-` prefixed; on plain HTTP (an SSH
+          // tunnel to loopback) it cannot be.
+          const secure = publicUrl?.protocol === 'https:' && host === publicUrl.host
+          const name = secure ? SECURE_DEVICE_COOKIE : DEVICE_COOKIE
+          return new Response(JSON.stringify({ device: shown }), {
+            headers: {
+              'content-type': 'application/json',
+              'cache-control': 'no-store',
+              'set-cookie': `${name}=${encodeURIComponent(deviceToken)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000${secure ? '; Secure' : ''}`,
+            },
+          })
+        },
+      },
+      /** Who this is: lets the page show what this device may do, and whether the gateway is remote. */
+      '/api/whoami': (req: Request) => {
+        const access = authorized(req, new URL(req.url))
+        if (!access) return json({ error: 'unauthorized', remote }, 401)
+        return json({
+          scope: access.scope,
+          remote,
+          ...(access.device ? { device: { id: access.device.id, name: access.device.name } } : {}),
+        })
+      },
+      '/api/devices': {
+        GET: guard((req) => {
+          const me = authorized(req, new URL(req.url))?.device?.id
+          return json({
+            remote,
+            devices: devices.list().map((d) => ({
+              id: d.id,
+              name: d.name,
+              scope: d.scope,
+              createdAt: d.createdAt,
+              ...(d.lastSeenAt ? { lastSeenAt: d.lastSeenAt } : {}),
+              ...(d.hub ? { hub: true } : {}),
+              ...(d.id === me ? { current: true } : {}),
+            })),
+          })
+        }),
+      },
+      '/api/devices/pair-code': {
+        POST: guard(async (req) => {
+          const body = (await req.json().catch(() => ({}))) as { scope?: unknown }
+          return json(pairingLink(body.scope === 'chat' ? 'chat' : 'full'))
+        }),
+      },
+      '/api/devices/:id': {
+        DELETE: guard((req) => {
+          const id = req.params.id ?? ''
+          if (!devices.revoke(id)) return json({ error: 'no such device' }, 404)
+          audit.record('revoked', { device: id })
+          // A revoked device is out at once, including its open sockets.
+          for (const ws of sockets) if (ws.data.device === id) ws.close(4401, 'device revoked')
+          return json({ ok: true })
+        }),
+      },
       '/api/config': guard(() => json({ previewOrigin: `http://127.0.0.1:${preview.port}`, previewToken })),
       '/api/models': guard(async (_req, url) => {
         const omp = options.omp
@@ -1201,10 +1388,12 @@ export function startServer(options: ServeOptions): WebServer {
       }),
       '/api/colonies/:id/stream': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
-        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        if (!access) return json({ error: 'unauthorized' }, 401)
         const id = colonyId(req.params.id ?? '')
         const cursor = Math.max(0, Number(url.searchParams.get('from') ?? '1') - 1)
-        if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor } }))
+        const device = access.device ? { device: access.device.id } : {}
+        if (server.upgrade(req, { data: { kind: 'events', colony: id, cursor, ...device } }))
           return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
@@ -1217,26 +1406,36 @@ export function startServer(options: ServeOptions): WebServer {
         const url = new URL(req.url)
         // A shell over a WebSocket must never be reachable from another site: browsers always send Origin, and
         // authorized() already rejects a foreign one, so require it to be present too.
-        if (!req.headers.get('origin') || !authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = req.headers.get('origin') ? authorized(req, url) : undefined
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (access.scope !== 'full') return forbidden()
         if (terminals >= MAX_TERMINALS) return json({ error: 'too many terminals open' }, 429)
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : homedir()
         if (!path) return json({ error: 'no such project' }, 404)
         const size = (key: string, fallback: number) =>
           Math.min(500, Math.max(10, Number(url.searchParams.get(key)) || fallback))
-        const data = { kind: 'terminal' as const, cwd: path, cols: size('cols', 100), rows: size('rows', 30) }
+        const data = {
+          kind: 'terminal' as const,
+          cwd: path,
+          cols: size('cols', 100),
+          rows: size('rows', 30),
+          ...(access.device ? { device: access.device.id } : {}),
+        }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
       // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
       '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
-        if (!authorized(req, url)) return json({ error: 'unauthorized' }, 401)
+        const access = authorized(req, url)
+        if (!access) return json({ error: 'unauthorized' }, 401)
         if (!options.browser) return json({ error: 'no browser on this server' }, 404)
         const data = {
           kind: 'browser' as const,
           colony: colonyId(req.params.id ?? ''),
           agent: req.params.agent ?? '',
+          ...(access.device ? { device: access.device.id } : {}),
         }
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
@@ -1336,10 +1535,23 @@ export function startServer(options: ServeOptions): WebServer {
     for (const ws of sockets) if (ws.data.kind === 'events' && ws.data.colony === colony) ws.send(message)
   })
 
+  /** A single-use pairing link for a new device, on the address clients use. */
+  function pairingLink(scope: DeviceScope): { code: string; link: string } {
+    const code = pairing.create(scope)
+    const base: string = publicUrl?.origin ?? `http://127.0.0.1:${server.port}`
+    return { code, link: `${base}/#pair=${code}` }
+  }
+
+  // What this machine's CLI uses to reach the server; a server bound to one address is reached on that address.
+  const localHost =
+    isLoopbackName(bindHost) || bindHost === '0.0.0.0' || bindHost === '::' ? '127.0.0.1' : bindHost
   return {
     url: options.noAuth
-      ? `http://127.0.0.1:${server.port}/`
-      : `http://127.0.0.1:${server.port}/#token=${token}`,
+      ? `http://${localHost}:${server.port}/`
+      : `http://${localHost}:${server.port}/#token=${token}`,
+    ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+    remote,
+    pairingLink,
     token,
     async stop() {
       stopScheduler?.()

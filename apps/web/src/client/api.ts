@@ -12,6 +12,11 @@ function readToken(): string {
 }
 
 const token = readToken()
+/**
+ * The CLI's token, on this machine. A device paired with a remote gateway has none: its HttpOnly cookie goes along by
+ * itself, on requests and sockets alike.
+ */
+const auth: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {}
 if (location.hash.includes('token=')) history.replaceState(null, '', location.pathname)
 // Opening a fresh CLI link in an already-open tab only changes the hash; reload so the new token is used.
 window.addEventListener('hashchange', () => {
@@ -30,7 +35,7 @@ export async function previewUrl(colony: string, artifact: string): Promise<stri
 }
 
 export async function api<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: { authorization: `Bearer ${token}` } })
+  const res = await fetch(path, { headers: auth })
   if (!res.ok) throw new ApiError(res.status === 401 ? copy.auth.notAuthorized : `${res.status} ${path}`)
   return res.json() as Promise<T>
 }
@@ -38,7 +43,7 @@ export async function api<T>(path: string): Promise<T> {
 /** A browser keyframe as an object URL for <img src>, fetched with the auth header (no token in URLs). */
 export async function keyframeImage(colony: string, hash: string): Promise<string> {
   const res = await fetch(`/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: auth,
   })
   if (!res.ok) throw new ApiError(`keyframe ${hash.slice(0, 8)}: ${res.status}`)
   return URL.createObjectURL(await res.blob())
@@ -47,7 +52,7 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
 /** A plugin's built UI, imported from an object URL so the token stays in the header, never in a URL. */
 export async function importPluginUI(name: string): Promise<unknown> {
   const res = await fetch(`/api/plugins/${encodeURIComponent(name)}/ui.js`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: auth,
   })
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
@@ -63,7 +68,7 @@ export async function importPluginUI(name: string): Promise<unknown> {
 
 export async function blobText(colony: string, hash: string): Promise<string> {
   const res = await fetch(`/api/colonies/${colony}/blobs/${hash}`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: auth,
   })
   if (!res.ok) throw new ApiError(`blob ${hash.slice(0, 8)}: ${res.status}`)
   return res.text()
@@ -85,7 +90,7 @@ export interface ColonySummary {
 export function browserSocket(colony: string, agent: string): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   return new WebSocket(
-    `${proto}://${location.host}/api/colonies/${colony}/browser/${encodeURIComponent(agent)}?token=${encodeURIComponent(token)}`,
+    `${proto}://${location.host}/api/colonies/${colony}/browser/${encodeURIComponent(agent)}${token ? `?token=${encodeURIComponent(token)}` : ''}`,
   )
 }
 
@@ -93,7 +98,7 @@ export function browserSocket(colony: string, agent: string): WebSocket {
 export function terminalSocket(project: string | undefined, cols: number, rows: number): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const query = new URLSearchParams({
-    token,
+    ...(token ? { token } : {}),
     cols: String(cols),
     rows: String(rows),
     ...(project ? { project } : {}),
@@ -123,7 +128,7 @@ export function streamEvents(
   const connect = () => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     ws = new WebSocket(
-      `${proto}://${location.host}/api/colonies/${colony}/stream?from=${cursor}&token=${encodeURIComponent(token)}`,
+      `${proto}://${location.host}/api/colonies/${colony}/stream?from=${cursor}${token ? `&token=${encodeURIComponent(token)}` : ''}`,
     )
     ws.onmessage = (msg) => {
       const data = JSON.parse(String(msg.data)) as MyrEvent[] | ({ type: 'stream' } & ReplyStream)
@@ -151,7 +156,7 @@ export function streamEvents(
 export async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    headers: { ...auth, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
@@ -179,7 +184,7 @@ export async function send<T>(
 ): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    headers: { ...auth, 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
@@ -325,4 +330,28 @@ export interface Project {
   addedAt: string
   /** How freely agents may change the folder; absent means autonomous. */
   permissions?: { mode: 'auto' | 'ask' | 'read-only'; allow: string[] }
+}
+
+/** Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. */
+export interface WhoAmI {
+  scope: 'full' | 'chat'
+  remote: boolean
+  device?: { id: string; name: string }
+}
+
+export async function whoami(): Promise<{ ok: true; me: WhoAmI } | { ok: false; remote: boolean }> {
+  const res = await fetch('/api/whoami', { headers: auth })
+  const data = (await res.json().catch(() => ({}))) as WhoAmI & { remote?: boolean }
+  return res.ok ? { ok: true, me: data } : { ok: false, remote: data.remote === true }
+}
+
+/** Pairs this browser with the gateway using a code from `myrmidon pair`; the server sets the device cookie. */
+export async function pairDevice(code: string, name: string): Promise<void> {
+  const res = await fetch('/api/pair', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code, name }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { error?: string }
+  if (!res.ok) throw new ApiError(data.error ?? `pairing failed (${res.status})`)
 }

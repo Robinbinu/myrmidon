@@ -73,8 +73,13 @@ Open work, in the order it will be done:
       Skills; kept skills go to every chat.
 11b. - [ ] **Retire stale learned skills** (Qwen Code's curator) — learned skills nobody used for 30 days marked stale,
       archived after 90; needs use counts from use_skill.
-11c. - [ ] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw") — host Myrmidon's gateway on a
-      remote server and use the local app/client against it; gateways on N servers; research first (in progress).
+11c. - [ ] **Remote gateways** (asked 2026-10-08, "like Hermes agent / OpenClaw"; research
+      docs/research/2026-10-08-remote-gateways.md, spec docs/superpowers/specs/2026-10-08-remote-gateways-design.md)
+      - [x] Step 1: remote server mode — --host/--public-url, exact Host/Origin allowlist, device pairing
+        (`myrmidon pair`, single-use 10-minute codes), HttpOnly device cookies (`__Host-` over HTTPS), full/chat
+        scopes, Settings → Devices with revoke, auth audit log, docs/remote.md.
+      - [ ] Step 2: previews from a remote gateway (fixed preview port + preview URL).
+      - [ ] Step 3: one client, N gateways (hub registry, proxy, switcher, health).
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
