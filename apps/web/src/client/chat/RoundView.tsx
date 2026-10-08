@@ -237,7 +237,8 @@ export function RoundView(props: {
             <StreamingReply key={agent} from={agent} text={live.text} plain={solo && agent === speaker} />
           ) : null,
         )}
-      <PluginCards events={events} state={state} onAnswer={props.onAnswer} />
+      {/* A plugin's send returns nothing; a failed send has already shown its error. */}
+      <PluginCards events={events} state={state} onAnswer={(t) => void props.onAnswer(t).catch(() => {})} />
       {solo && !addressed && (
         <Helpers
           state={state}
