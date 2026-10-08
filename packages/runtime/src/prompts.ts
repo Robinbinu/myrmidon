@@ -307,7 +307,7 @@ nobody owns, publish artifacts, and request final verification once the output m
       `The colony has started. Mission:\n\n${mission}\n\nStart with read_task and read_messages, then get to work.`,
     history: (history: string) => `Earlier in this conversation:\n${history}\n\n`,
     planFirst:
-      '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), present it with ask_user, and stop. Do not create tasks, publish files, or start the work until they approve.',
+      '\n\nPlan first: the person wants to approve the plan before any work starts. Work out the approach (for a team: the tasks and who does each), then call ask_user with the whole plan in `plan` (markdown: the steps, and who does each) and a question asking them to approve or change it, and stop. The person sees only what you put in `plan`, so never write "here is the plan" without it. Do not create tasks, publish files, or start the work until they approve.',
     carried: (files: readonly string[]) => `\n\nFiles from earlier rounds: ${files.join(', ')}.`,
     huddle: (request: string, snapshot: string) =>
       `${request}\n\nHuddle first: do no work yet. Read who your peers are (list_agents or the roster in your instructions), then send one team chat message (message to "team") proposing how to split this request and which part you will take, and why you are suited to it. Then stop; you will be woken when every peer has proposed.\n\n${snapshot}`,
@@ -954,12 +954,15 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
         'Ask the person something the colony cannot proceed without, or the scoping questions to settle before ' +
         'building. The round pauses until they answer; stop working after asking. Put each choice in `questions` ' +
         'with options they can click: they can also type their own answer or skip a question (then use your ' +
-        'judgment). Their answers arrive as a [user] message, one "question → answer" line each.',
+        'judgment), so never add an option for typing an answer. Asking to approve a plan: put the plan itself in ' +
+        '`plan`, shown above the questions. Their answers arrive as a [user] message, one "question → answer" line ' +
+        'each.',
       params: {
         question: 'A short line introducing the questions, or the whole question when it has no options',
         questions:
           '1-4 questions, each with a short header (e.g. "Audience"), 2-4 options (label plus a one-line ' +
           'description), and multiSelect when several options can apply',
+        plan: 'The plan to approve, in markdown (steps, and who does each); the person sees only what is here',
       },
     },
     create_plugin: {

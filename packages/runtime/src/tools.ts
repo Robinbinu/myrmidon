@@ -1570,6 +1570,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         .array()
         .atMostLength(4)
         .describe(prompts.tools.ask_user.params.questions),
+      'plan?': type('string').atLeastLength(3).describe(prompts.tools.ask_user.params.plan),
     }),
     async run(args, agent, host) {
       const last = host.state().chatMessages.at(-1)
@@ -1583,6 +1584,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           final: false,
           question: true,
           ...(args.questions?.length ? { choices: args.questions } : {}),
+          ...(args.plan ? { plan: args.plan } : {}),
         },
       })
       return prompts.toolResults.asked

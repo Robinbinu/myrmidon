@@ -111,6 +111,8 @@ export interface ChatEntry extends Entry {
   readonly assumption?: string
   /** Options the user can click to answer (ask_user). */
   readonly choices?: readonly QuestionChoice[]
+  /** The plan the question asks the user to approve, in markdown. */
+  readonly plan?: string
   /** A message sent mid-run: steered into the current step, or queued until the agent finishes it. */
   readonly mode?: 'steer' | 'queue'
   /** The person's message was addressed to these crew members (@name). */
@@ -455,6 +457,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         ...(p.question ? { question: true } : {}),
         ...(p.assumption ? { assumption: p.assumption } : {}),
         ...(p.choices?.length ? { choices: p.choices } : {}),
+        ...(p.plan ? { plan: p.plan } : {}),
       })
       touch(state, p.agent, event.seq)
       break

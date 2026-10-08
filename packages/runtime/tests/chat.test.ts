@@ -1177,11 +1177,12 @@ test('fs_edit changes part of a scratch file instead of rewriting it', async () 
 test('plan mode presents the plan for approval before any work, and thinking can be set per chat', async () => {
   const resolver = new ModelResolver()
   const prompts: string[] = []
+  const plan = '1. Hero with the headline\n2. Three feature sections\n3. Sign-up form'
   const lead = createMockModel({
     handler: (ctx: LlmContext) => {
       prompts.push(JSON.stringify(ctx.messages))
       return prompts.length === 1
-        ? { content: [tool('ask_user', { question: 'Plan: one page, three sections. Approve?' })] }
+        ? { content: [tool('ask_user', { question: "Here's the plan. OK to proceed?", plan })] }
         : { content: ['Waiting for approval.'] }
     },
   })
@@ -1191,7 +1192,10 @@ test('plan mode presents the plan for approval before any work, and thinking can
   const { colonyId } = await chats.send('Make a landing page', config, undefined, { planFirst: true })
   const s = await waitFor(colonyId)
   expect(prompts[0]).toContain('Plan first')
+  expect(prompts[0]).toContain('`plan`')
   expect(s.statusReason).toBe('awaiting your reply')
+  // The plan itself reaches the person, not just the question about it.
+  expect(s.chatMessages.at(-1)).toMatchObject({ question: true, plan })
   expect(s.artifacts).toEqual({})
   const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
   expect((created?.payload as { thinking?: string } | undefined)?.thinking).toBe('low')

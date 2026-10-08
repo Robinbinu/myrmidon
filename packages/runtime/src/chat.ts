@@ -220,7 +220,8 @@ function conversation(previous: readonly RoundRef[]): string {
       .map((r) => {
         const replies = messagesOf(r).filter((m) => m.from !== 'user')
         const final = replies.filter((m) => m.final).at(-1) ?? replies.at(-1)
-        return `User: ${r.round.request}\nColony (${r.round.status}): ${final?.text ?? '(no reply)'}`
+        const plan = final?.plan ? `\n\n${final.plan}` : ''
+        return `User: ${r.round.request}\nColony (${r.round.status}): ${final?.text ?? '(no reply)'}${plan}`
       })
       .join('\n\n')
   )
