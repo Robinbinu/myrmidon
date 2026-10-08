@@ -324,8 +324,8 @@ export class ChannelHub {
     return this.list().find((c) => c.id === id)
   }
 
-  /** Approves a waiting code (typed, or picked in Settings) and tells whoever asked. */
-  async approve(id: string, by: { code: string } | { request: string }) {
+  /** Approves a waiting request by its code (typed in Settings or the CLI) and tells whoever asked. */
+  async approve(id: string, by: { code: string; request?: string }) {
     this._kind(id)
     const approved = this.store.approve(id, by)
     if (!approved) return undefined

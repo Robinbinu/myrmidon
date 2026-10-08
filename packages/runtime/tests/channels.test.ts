@@ -271,6 +271,22 @@ test('a stranger gets a code and nothing they say is acted on; the first approve
   expect(chats.sends[1]?.text).toEndWith('summarize the news')
 })
 
+test('approving takes the code the requester was sent: a request id alone, or another request’s code, is refused', async () => {
+  const { hub, adapter, say } = await setup()
+  // A stranger writes first, under the owner's name; the real owner writes next.
+  await say({ id: '666', name: 'Alice' }, 'hi')
+  await say(ALICE, 'hi')
+  await until(() => adapter.to('666').length === 1 && adapter.to('100').length === 1)
+  const [stranger, mine] = hub.store.get('telegram').pending
+  const myCode = codeIn(adapter.to('100')[0] ?? '')
+  // Without the stranger's code their request cannot be approved: not by its id, not with someone else's code.
+  expect(await hub.approve('telegram', { code: '', request: stranger?.id ?? '' })).toBeUndefined()
+  expect(await hub.approve('telegram', { code: myCode, request: stranger?.id ?? '' })).toBeUndefined()
+  expect(hub.store.get('telegram').people).toEqual([])
+  const approved = await hub.approve('telegram', { code: myCode, request: mine?.id ?? '' })
+  expect(approved?.person).toMatchObject({ id: '100', role: 'owner' })
+})
+
 test('removing a channel stops it and forgets its settings, people, chats and private files', async () => {
   const { hub, adapter, chats, say, pair, dir } = await setup()
   await pair(ALICE)
@@ -333,7 +349,7 @@ test('groups need approval, a mention, and an approved sender; per-person conver
   await until(() => adapter.to('-5').length === 1)
   const pending = hub.store.get('telegram').pending.find((p) => p.kind === 'group')
   expect(pending?.chat.title).toBe('Team')
-  await hub.approve('telegram', { request: pending?.id ?? '' })
+  await hub.approve('telegram', { code: codeIn(adapter.to('-5')[0] ?? ''), request: pending?.id ?? '' })
 
   await say(BOB, 'stranger again', group)
   await say(ALICE, 'now do it', group)

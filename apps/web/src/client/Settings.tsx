@@ -368,6 +368,8 @@ export function Settings(props: {
   config?: TeamConfig
   onConfig(c: TeamConfig): void
   initialSection?: Section
+  /** A channel whose sheet Settings → Channels opens on (a new request's toast). */
+  initialChannel?: string
   /**
    * Filled in while Settings is open with a function that runs `go` once leaving is safe (asking first when hook
    * edits are unsaved), for the ways out of Settings that the app itself offers.
@@ -700,7 +702,7 @@ export function Settings(props: {
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
               {section === 'gateways' && <GatewaysSection />}
-              {section === 'channels' && <ChannelsSection />}
+              {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
                 <VoiceSection settings={data.settings} update={update} models={props.models} />
               )}
@@ -2547,7 +2549,7 @@ interface ChannelView {
   pending: {
     id: string
     kind: 'person' | 'group'
-    sender: { name: string; handle?: string }
+    sender: { id: string; name: string; handle?: string }
     chat: { title?: string }
     expires: string
   }[]
@@ -2559,6 +2561,9 @@ interface ChannelView {
  */
 const inUse = (c: ChannelView) =>
   c.enabled || c.secretsSet.length > 0 || Object.keys(c.values).length > 0 || c.people.length > 0
+
+/** The pairing codes the bot sends are this long (`packages/runtime/src/channels/store.ts`). */
+const PAIRING_CODE_LENGTH = 8
 
 /** How often Settings → Channels looks again, so a code someone just asked for shows up. */
 const CHANNELS_POLL_MS = 3000
@@ -2584,12 +2589,12 @@ function channelStatusText(s: ChannelView['status']) {
  * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
  * their state and who is waiting, then every other app to add, grouped and searchable. A tile opens the app's sheet.
  */
-function ChannelsSection() {
+function ChannelsSection(props: { initial?: string | undefined }) {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [open, setOpen] = useState<string>()
+  const [open, setOpen] = useState<string | undefined>(props.initial)
   const [query, setQuery] = useState('')
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
@@ -2752,6 +2757,23 @@ function ChannelSheet(props: {
       },
       (err: Error) => toast(err.message, 'error'),
     )
+  const hasOwner = c.people.some((p) => p.role === 'owner')
+  // Approving takes the code the bot sent the requester: the server checks it, so a stranger who wrote first (even
+  // under the owner's name) cannot be approved by a click.
+  const [codes, setCodes] = useState<Record<string, string>>({})
+  const [codeErrors, setCodeErrors] = useState<Record<string, string>>({})
+  const approve = async (p: ChannelView['pending'][number]) => {
+    const code = (codes[p.id] ?? '').trim()
+    if (!code) return setCodeErrors((all) => ({ ...all, [p.id]: copy.settings.validation.required }))
+    try {
+      await post(`/api/channels/${c.id}/approve`, { code, request: p.id })
+      toast(t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name), 'success')
+      setCodes(({ [p.id]: _, ...rest }) => rest)
+      await props.onChanged()
+    } catch (err) {
+      setCodeErrors((all) => ({ ...all, [p.id]: (err as Error).message }))
+    }
+  }
   const tabs: { value: ChannelTab; label: string; count?: number }[] = [
     { value: 'setup', label: t.tabs.setup },
     ...(c.configured
@@ -2895,39 +2917,59 @@ function ChannelSheet(props: {
                   <div className="text-[13px] font-semibold">{t.waiting}</div>
                   <div className="text-[12px] text-muted">{t.waitingHint}</div>
                 </Row>
-                {c.pending.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13.5px] font-semibold">
-                        {p.sender.name}
-                        {p.sender.handle ? ` (@${p.sender.handle})` : ''}
-                        {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
+                  <Row>
+                    <p className="text-[12.5px] text-warn-ink">{t.ownerFirst}</p>
+                  </Row>
+                )}
+                {c.pending.map((p) => {
+                  const asOwner = !hasOwner && p.kind === 'person'
+                  return (
+                    <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13.5px] font-semibold">
+                          {p.sender.name}
+                          {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                        </div>
+                        <div className="truncate font-mono text-[12px] text-muted">
+                          {t.sender(c.label, p.sender.id, p.sender.handle)}
+                        </div>
+                        <div className="text-[12px] text-muted">
+                          {t.expires(new Date(p.expires).toLocaleTimeString())}
+                        </div>
                       </div>
-                      <div className="text-[12px] text-muted">
-                        {t.expires(new Date(p.expires).toLocaleTimeString())}
+                      <Field label={t.code} hint={t.codeHint} error={codeErrors[p.id]} inline>
+                        <TextInput
+                          value={codes[p.id] ?? ''}
+                          onChange={(e) => {
+                            const code = e.target.value
+                            setCodes((all) => ({ ...all, [p.id]: code }))
+                            setCodeErrors(({ [p.id]: _, ...rest }) => rest)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void approve(p)
+                          }}
+                          autoComplete="off"
+                          spellCheck={false}
+                          maxLength={PAIRING_CODE_LENGTH}
+                          className="w-36 font-mono uppercase"
+                        />
+                      </Field>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
+                        >
+                          {t.dismiss}
+                        </Button>
+                        <Button size="sm" variant="primary" onClick={() => void approve(p)}>
+                          {asOwner ? t.makeOwner : t.approve}
+                        </Button>
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      onClick={() =>
-                        void act(
-                          post(`/api/channels/${c.id}/approve`, { request: p.id }),
-                          t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
-                        )
-                      }
-                    >
-                      {t.approve}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                    >
-                      {t.dismiss}
-                    </Button>
-                  </div>
-                ))}
+                  )
+                })}
               </Card>
             )}
             <Card>

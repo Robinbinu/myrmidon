@@ -18,13 +18,15 @@ OpenClaw (OpenClaw Foundation), both MIT licensed; see `research/2026-10-08-chan
    (it asks for the token without showing it; `myrmidon channels telegram < token.txt` for scripts). The token is
    checked with Telegram first and kept in `<home>/channels/channels.json`, readable only by you.
 3. Message your bot. It replies with a **code**, and does nothing else until you approve it, in Settings →
-   Channels (press **Approve**) or with:
+   Channels → People (type the code and press **Make owner**, or **Approve** once there is an owner) or with:
 
    ```bash
    myrmidon channels approve telegram K7QX3MNP
    ```
 
-   The first person approved is the **owner**; anyone approved later is a **member**.
+   The first person approved is the **owner**; anyone approved later is a **member**. Approving always takes the
+   code the bot sent: only whoever received it can know it, so a stranger who wrote first cannot be approved by
+   mistake.
 
 Nothing needs to be reachable from the internet: Myrmidon asks Telegram for new messages (long polling).
 

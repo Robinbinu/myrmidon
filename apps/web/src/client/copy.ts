@@ -186,8 +186,7 @@ export const copy = {
   channelRequest: {
     person: (name: string, label: string) => `${name} wants to talk to your crew on ${label}`,
     group: (name: string, label: string) => `The ${label} group “${name}” wants your crew`,
-    approve: 'Approve',
-    approved: (name: string) => `Approved ${name}`,
+    review: 'Review',
   },
 
   pairing: {
@@ -1866,10 +1865,18 @@ export const copy = {
         linking: 'Scan this code with your phone to link it',
       },
       waiting: 'Waiting for approval',
-      waitingHint: 'People and groups who messaged your bot. Approve only those you know.',
+      waitingHint:
+        'People and groups who messaged your bot. To approve one, type the code the bot sent them: only they, or someone they told, can know it.',
+      ownerFirst:
+        'No owner yet: the first person you approve becomes the owner, who approves risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
       group: (title: string) => `group “${title}”`,
+      sender: (platform: string, id: string, handle?: string) =>
+        `${handle ? `@${handle} · ` : ''}${platform} ID ${id}`,
       expires: (when: string) => `expires ${when}`,
+      code: 'Code they were sent',
+      codeHint: '8 letters and digits',
       approve: 'Approve',
+      makeOwner: 'Make owner',
       dismiss: 'Dismiss',
       people: 'Approved people',
       groups: 'Approved groups',

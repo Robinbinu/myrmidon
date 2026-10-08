@@ -24,7 +24,7 @@ export interface ChannelGroup {
 
 /** A stranger (or a group) waiting for the owner to approve the code they were sent. */
 export interface PairingRequest {
-  /** For approving from Settings without the code. */
+  /** Names the request in Settings, to decline it or to approve it with the code its sender was sent. */
   readonly id: string
   readonly codeHash: string
   readonly kind: 'person' | 'group'
@@ -186,10 +186,15 @@ export class ChannelStore {
     })
   }
 
-  /** Approves a waiting request by its code or its id; the first person approved becomes the owner. */
-  approve(channel: string, by: { code: string } | { request: string }) {
+  /**
+   * Approves a waiting request by the code its sender was sent (with `request`, only that one), so approving proves
+   * the code reached whoever approves; the first person approved becomes the owner.
+   */
+  approve(channel: string, by: { code: string; request?: string }) {
     return this.update(channel, (c) => {
-      const found = c.pending.find((p) => ('code' in by ? p.codeHash === hash(by.code) : p.id === by.request))
+      const found = c.pending.find(
+        (p) => p.codeHash === hash(by.code) && (by.request === undefined || p.id === by.request),
+      )
       if (!found) return undefined
       c.pending = c.pending.filter((p) => p !== found)
       const at = new Date().toISOString()
