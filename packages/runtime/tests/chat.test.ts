@@ -384,6 +384,48 @@ test('a crew member written to directly that answers in plain text still reaches
   await chats.stopAll()
 })
 
+test('a crew member written to directly that asks the lead first answers once the lead replies', async () => {
+  const resolver = new ModelResolver()
+  let writer = ''
+  const lead = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      writer ||= /- ([a-z]+): writer \(/.exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+      const said = JSON.stringify(ctx.messages)
+      if (!said.includes('confirm scope'))
+        return { content: [tool('reply_user', { text: 'Poem done.', final: true })] }
+      if (ctx.messages.at(-1)?.role === 'toolResult') return { content: ['ok'] }
+      // The lead answers after the writer's turn has ended on its holding line.
+      await Bun.sleep(300)
+      return { content: [tool('message', { to: writer, text: 'Scope: the chorus only.' })] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/writer', [
+    [tool('message', { to: 'lead', text: 'Please confirm scope for the rewrite.' })],
+    ["I've asked the lead to confirm scope and will reply then."],
+    ['The chorus is now four lines, as the lead asked.'],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const config = {
+    mode: 'orchestrated' as const,
+    leadModel: 'mock/lead',
+    roster: [{ role: 'writer', model: 'mock/writer' }],
+    judgeModel: 'mock/judge',
+  }
+  const first = await chats.send('Write a poem about ants', config)
+  await waitFor(first.colonyId)
+
+  const next = await chats.send(`@${writer} rewrite it shorter`, config, first.chatId)
+  const done = await waitFor(next.colonyId)
+  expect(done.status).toBe('completed')
+  const replies = done.chatMessages.filter((m) => m.from === writer)
+  expect(replies).toEqual([
+    expect.objectContaining({ text: 'The chorus is now four lines, as the lead asked.', final: true }),
+  ])
+  await chats.stopAll()
+})
+
 test('saved specialists: kept by name, joined from the team picker or by the lead, as the person set them up', async () => {
   const { SpecialistStore } = await import('../src/specialists.ts')
   const specialists = new SpecialistStore(home)
