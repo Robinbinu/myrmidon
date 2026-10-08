@@ -287,6 +287,10 @@ export function App() {
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     { combo: 'mod+,', run: () => setSettingsOpen(true), inInputs: true },
+    // With a chat's workspace on screen, it takes ⌘J itself (it knows whether its panel is showing).
+    ...(!settingsOpen && view === 'chat' && chat
+      ? []
+      : [{ combo: 'mod+j', run: () => setWorkspaceOpen(!workspaceOpen), inInputs: true }]),
   ])
 
   const send = async (
