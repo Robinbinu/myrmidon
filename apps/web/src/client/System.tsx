@@ -52,8 +52,20 @@ const Line = (props: { children: ReactNode; className?: string }) => (
  */
 export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId: string): void }) {
   const t = copy.system
-  const { status, offline, ping, refresh } = useStatus()
+  const { status, offline, error, ping, refresh } = useStatus()
   const [copied, copyText] = useCopy()
+  if (!status && !offline && error)
+    return (
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto flex max-w-3xl flex-col items-start gap-3 px-6 py-8" role="alert">
+          <h1 className="text-[20px] font-semibold tracking-tight">{t.title}</h1>
+          <p className="text-[13px] text-muted">{error}</p>
+          <Button size="sm" icon={<RefreshCw className="size-3.5" />} onClick={refresh}>
+            {t.tryAgain}
+          </Button>
+        </div>
+      </div>
+    )
   if (!status && !offline)
     return (
       <div className="min-h-0 flex-1 overflow-auto" aria-busy="true">

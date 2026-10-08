@@ -69,3 +69,17 @@ test('a restart that turned the channel off but could not turn it back on says i
     error: new Error('the server said no'),
   })
 })
+
+test('a status check the gateway answered with an error says so, with Try again, instead of loading for ever', async () => {
+  const { SystemPage } = await import('../src/client/System.tsx')
+  const { StatusContext } = await import('../src/client/status.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const html = renderToStaticMarkup(
+    <StatusContext.Provider value={{ offline: false, error: copy.api.serverProblem, refresh: () => {} }}>
+      <SystemPage onManageChannels={() => {}} onOpenChat={() => {}} />
+    </StatusContext.Provider>,
+  )
+  expect(html).not.toContain('aria-busy="true"')
+  expect(html).toContain(copy.api.serverProblem)
+  expect(html).toContain(copy.system.tryAgain)
+})

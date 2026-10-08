@@ -163,6 +163,7 @@ export const copy = {
     turnedOn: (label: string) => `${label} is on again.`,
     manage: 'Manage',
     refresh: 'Refresh',
+    tryAgain: 'Try again',
   },
 
   /** A new request to talk to the crew through a channel, as a toast and a desktop notification. */
