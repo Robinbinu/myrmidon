@@ -607,13 +607,21 @@ export const copy = {
   },
 
   questions: {
-    skip: 'Skip',
+    /** Per question, shown only when there are several; the footer button skips them all. */
+    skip: 'Skip this one',
     unskip: 'Answer',
-    skipAll: 'Skip all, you decide',
-    send: 'Send answers',
+    skipAll: (n: number) => (n === 1 ? 'Skip, you decide' : 'Skip all, you decide'),
+    send: (n: number) => (n === 1 ? 'Send answer' : 'Send answers'),
+    sending: 'Sending…',
     pickAny: 'Pick any that apply',
     other: 'Other: type your own answer',
+    /** Placeholder once the person picked an option that means they will type the rest. */
+    typeHere: 'Type it here',
     otherFor: (question: string) => `Your own answer to: ${question}`,
+    /** Option wording that means the person will type the answer; picking it moves to the text box. */
+    typesOwn:
+      /\b(I'?ll|I will|let me)\s+(type|write|describe|explain|specify|tell|say|add)\b|^other\b|\bsomething else\b/i,
+    plan: 'Plan',
     /** What the agent reads for a skipped question. */
     skippedAnswer: '(skipped: use your judgment)',
   },

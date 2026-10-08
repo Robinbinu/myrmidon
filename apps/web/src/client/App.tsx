@@ -721,7 +721,7 @@ export function App() {
                         onOpenColony={setColonyModal}
                         onRetry={(t) => void send(t).catch(() => {})}
                         onLearn={() => void learn()}
-                        onAnswer={(t) => void send(t).catch(() => {})}
+                        onAnswer={(t) => send(t)}
                         onResume={resume}
                         models={models}
                         sending={busy}
@@ -833,7 +833,7 @@ function Transcript(props: {
   onRetry(text: string): void
   /** Asks for a skill to be learned from this chat. */
   onLearn(): void
-  onAnswer(text: string): void
+  onAnswer(text: string): Promise<unknown>
   onResume(model?: string): Promise<void>
   models: ModelOption[]
   /** A message is on its way to the server; retry stays disabled until it lands. */

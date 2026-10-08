@@ -115,8 +115,8 @@ export function RoundView(props: {
   onRetry(text: string): void
   /** Asks for a skill to be learned from this chat's work. */
   onLearn(): void
-  /** Sends the person's answer to the questions the round is waiting on. */
-  onAnswer(text: string): void
+  /** Sends the person's answer to the questions the round is waiting on; rejects if it did not get through. */
+  onAnswer(text: string): Promise<unknown>
   /** Picks a stopped round back up where it left off, optionally on another model. */
   onResume(model?: string): Promise<void>
   models: ModelOption[]
@@ -182,10 +182,11 @@ export function RoundView(props: {
           {...(m.assumption ? { assumption: m.assumption } : {})}
           onInspect={() => setInspect(m.from)}
         />
-        {m.choices && (
+        {(m.choices || m.plan) && (
           <div className="pl-11">
             <QuestionCard
-              choices={m.choices}
+              choices={m.choices ?? []}
+              {...(m.plan ? { plan: m.plan } : {})}
               open={latest && state.statusReason === AWAITING && m === state.chatMessages.at(-1)}
               onAnswer={props.onAnswer}
             />

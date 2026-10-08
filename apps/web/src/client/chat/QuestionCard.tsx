@@ -1,10 +1,11 @@
 import type { QuestionChoice } from '@myrmidon/protocol'
 import { Check, SkipForward } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { Button, cn } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
+import { Markdown } from './Markdown.tsx'
 
 interface Answer {
   picked: string[]
@@ -13,6 +14,10 @@ interface Answer {
 }
 
 const blank: Answer = { picked: [], other: '', skipped: false }
+
+/** An option that means "I'll type it": picking it hands over to the text box rather than answering. */
+export const typesOwn = (o: QuestionChoice['options'][number]) =>
+  copy.questions.typesOwn.test(o.label) || copy.questions.typesOwn.test(o.description ?? '')
 
 /** What the agent reads back: one "question → answer" line per question. */
 export function answerText(choices: readonly QuestionChoice[], answers: readonly Answer[]): string {
@@ -28,17 +33,21 @@ export function answerText(choices: readonly QuestionChoice[], answers: readonly
 /**
  * Questions an agent asked with options, as Claude Code asks them: click an option (several where allowed), type
  * your own answer, or skip a question to leave it to the agent. One send answers them all. Once answered, the card
- * stays as a read-only record of what was asked.
+ * stays as a read-only record of what was asked. A plan the agent asks to have approved sits above the questions.
  */
 export function QuestionCard(props: {
   choices: readonly QuestionChoice[]
+  plan?: string
   /** The round is waiting on these questions; otherwise they were answered or set aside. */
   open: boolean
-  onAnswer(text: string): void
+  /** Settles once the answer reached the server; a rejection leaves the questions open to send again. */
+  onAnswer(text: string): Promise<unknown>
 }) {
   const [answers, setAnswers] = useState<Answer[]>(() => props.choices.map(() => blank))
-  const [sent, setSent] = useState(false)
-  const live = props.open && !sent
+  const [sending, setSending] = useState<'no' | 'yes' | 'sent'>('no')
+  const others = useRef<(HTMLInputElement | null)[]>([])
+  const live = props.open && sending !== 'sent'
+  const several = props.choices.length > 1
   const set = (i: number, patch: Partial<Answer>) =>
     setAnswers((all) => all.map((a, j) => (j === i ? { ...a, ...patch } : a)))
   const pick = (i: number, label: string, multi: boolean) => {
@@ -51,11 +60,26 @@ export function QuestionCard(props: {
         ? []
         : [label]
     set(i, { picked, skipped: false, ...(multi ? {} : { other: '' }) })
+    const option = props.choices[i]?.options.find((o) => o.label === label)
+    if (option && typesOwn(option) && picked.includes(label)) others.current[i]?.focus()
   }
-  const done = answers.every((a) => a.skipped || a.picked.length > 0 || a.other.trim())
+  // Picking "I'll type it" is not an answer until something is typed.
+  const done = answers.every(
+    (a, i) =>
+      a.skipped ||
+      a.other.trim() ||
+      a.picked.some((label) => {
+        const option = props.choices[i]?.options.find((o) => o.label === label)
+        return option && !typesOwn(option)
+      }),
+  )
   const send = (all: readonly Answer[]) => {
-    setSent(true)
-    props.onAnswer(answerText(props.choices, all))
+    if (sending !== 'no') return
+    setSending('yes')
+    props.onAnswer(answerText(props.choices, all)).then(
+      () => setSending('sent'),
+      () => setSending('no'),
+    )
   }
 
   return (
@@ -68,13 +92,25 @@ export function QuestionCard(props: {
         live ? 'border-accent/40' : 'border-line opacity-80',
       )}
     >
+      {props.plan && (
+        <section aria-label={copy.questions.plan} className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+            {copy.questions.plan}
+          </span>
+          <div className="max-h-[420px] overflow-y-auto rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5 text-[13.5px]">
+            <Markdown text={props.plan} />
+          </div>
+        </section>
+      )}
       {props.choices.map((q, i) => {
         const a = answers[i] ?? blank
         const multi = q.multiSelect === true
+        // Typing alongside an "I'll type it" option adds to it rather than replacing the pick.
+        const typing = a.picked.some((label) => q.options.some((o) => o.label === label && typesOwn(o)))
         return (
           <fieldset
             key={q.question}
-            disabled={!live}
+            disabled={!live || sending === 'yes'}
             className={cn('flex flex-col gap-1.5', a.skipped && 'opacity-50')}
           >
             <legend className="mb-1.5 flex w-full items-center gap-2">
@@ -84,7 +120,7 @@ export function QuestionCard(props: {
                 </span>
               )}
               <span className="min-w-0 flex-1 text-[13.5px] font-medium text-fg">{q.question}</span>
-              {live && (
+              {live && several && (
                 <button
                   type="button"
                   onClick={() => set(i, { skipped: !a.skipped, picked: [], other: '' })}
@@ -128,14 +164,21 @@ export function QuestionCard(props: {
             })}
             {live && (
               <input
+                ref={(el) => {
+                  others.current[i] = el
+                }}
                 value={a.other}
                 onChange={(e) =>
-                  set(i, { other: e.target.value, skipped: false, ...(multi ? {} : { picked: [] }) })
+                  set(i, {
+                    other: e.target.value,
+                    skipped: false,
+                    ...(multi || typing ? {} : { picked: [] }),
+                  })
                 }
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && done) send(answers)
                 }}
-                placeholder={copy.questions.other}
+                placeholder={typing ? copy.questions.typeHere : copy.questions.other}
                 aria-label={copy.questions.otherFor(q.question)}
                 className="h-9 rounded-xl border border-line bg-surface-2/50 px-3 text-[13px] outline-none placeholder:text-muted focus:border-accent/60 focus:ring-2 focus:ring-accent-soft"
               />
@@ -143,18 +186,24 @@ export function QuestionCard(props: {
           </fieldset>
         )
       })}
-      {live && (
+      {live && props.choices.length > 0 && (
         <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
           <Button
             size="sm"
             variant="ghost"
+            disabled={sending === 'yes'}
             onClick={() => send(props.choices.map(() => ({ ...blank, skipped: true })))}
             icon={<SkipForward className="size-3.5" />}
           >
-            {copy.questions.skipAll}
+            {copy.questions.skipAll(props.choices.length)}
           </Button>
-          <Button size="sm" variant="primary" disabled={!done} onClick={() => send(answers)}>
-            {copy.questions.send}
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={!done || sending === 'yes'}
+            onClick={() => send(answers)}
+          >
+            {sending === 'yes' ? copy.questions.sending : copy.questions.send(props.choices.length)}
           </Button>
         </div>
       )}
