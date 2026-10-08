@@ -49,6 +49,8 @@ function ageDays(iso: string) {
 
 export function Sidebar(props: {
   chats: ChatSummary[]
+  /** The chat list has answered at least once; until then an empty list is not "no conversations". */
+  loaded: boolean
   activeChat?: string
   view: View
   theme: ThemeChoice
@@ -324,7 +326,7 @@ export function Sidebar(props: {
             </div>
           )
         })}
-        {props.chats.length === 0 && (
+        {props.loaded && props.chats.length === 0 && (
           <p className="px-2 py-4 text-[12.5px] text-muted">{copy.sidebar.empty}</p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (

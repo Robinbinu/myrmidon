@@ -1,5 +1,6 @@
 import type { ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
 import { copy } from './copy.ts'
+import { STREAM_RETRY_MAX_MS, STREAM_RETRY_MS } from './ui-config.ts'
 
 function readToken(): string {
   const fromHash = new URLSearchParams(location.hash.slice(1)).get('token')
@@ -24,6 +25,46 @@ window.addEventListener('hashchange', () => {
 })
 
 export class ApiError extends Error {}
+
+/** Sent when the server stops or starts answering; `reachable()` says which. */
+export const CONNECTION_CHANGED = 'myr-connection-changed'
+/** Sent when the server no longer knows this browser, so a remote gateway's device can pair again. */
+export const SIGNED_OUT = 'myr-signed-out'
+
+let answering = true
+/** Whether the server answered the last request; it recovers by itself, so the page waits rather than complains. */
+export const reachable = () => answering
+
+function noteReachable(next: boolean) {
+  if (next === answering) return
+  answering = next
+  window.dispatchEvent(new Event(CONNECTION_CHANGED))
+}
+
+/** Set by `whoami`: on a remote gateway a lost sign-in means pairing again, not opening the CLI's link. */
+let remoteGateway = false
+
+/** fetch, noting whether the server answered at all, so a request that never arrived fails in plain words. */
+async function call(path: string, init?: RequestInit): Promise<Response> {
+  let res: Response
+  try {
+    res = await fetch(path, init)
+  } catch {
+    noteReachable(false)
+    throw new ApiError(copy.api.unreachable)
+  }
+  noteReachable(true)
+  if (res.status === 401) window.dispatchEvent(new Event(SIGNED_OUT))
+  return res
+}
+
+/** Why a response failed, for a person: the server's own words when it gave some, else what the status means. */
+function failure(status: number, error?: string): ApiError {
+  if (status === 401) return new ApiError(remoteGateway ? copy.auth.pairAgain : copy.auth.notAuthorized)
+  return new ApiError(error ?? copy.api.status(status))
+}
+
+const errorOf = async (res: Response) => ((await res.json().catch(() => ({}))) as { error?: string }).error
 
 const GATEWAY_KEY = 'myr-gateway'
 
@@ -79,17 +120,17 @@ export async function api<T>(path: string): Promise<T> {
 
 /** A request to this machine itself, whichever gateway the window shows (the list of gateways lives here). */
 export async function hubApi<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: auth })
-  if (!res.ok) throw new ApiError(res.status === 401 ? copy.auth.notAuthorized : `${res.status} ${path}`)
+  const res = await call(path, { headers: auth })
+  if (!res.ok) throw failure(res.status, await errorOf(res))
   return res.json() as Promise<T>
 }
 
 /** A browser keyframe as an object URL for <img src>, fetched with the auth header (no token in URLs). */
 export async function keyframeImage(colony: string, hash: string): Promise<string> {
-  const res = await fetch(`${base}/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}?as=jpeg`, {
     headers: auth,
   })
-  if (!res.ok) throw new ApiError(`keyframe ${hash.slice(0, 8)}: ${res.status}`)
+  if (!res.ok) throw failure(res.status)
   return URL.createObjectURL(await res.blob())
 }
 
@@ -97,13 +138,10 @@ export async function keyframeImage(colony: string, hash: string): Promise<strin
 export async function importPluginUI(name: string): Promise<unknown> {
   // A plugin's screen runs as part of this page, with this machine's access; one from another gateway opens there.
   if (gateway) throw new ApiError(copy.gateways.pluginElsewhere)
-  const res = await fetch(`/api/plugins/${encodeURIComponent(name)}/ui.js`, {
+  const res = await call(`/api/plugins/${encodeURIComponent(name)}/ui.js`, {
     headers: auth,
   })
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new ApiError(body.error ?? `${name} UI: ${res.status}`)
-  }
+  if (!res.ok) throw failure(res.status, await errorOf(res))
   const url = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }))
   try {
     return await import(/* @vite-ignore */ url)
@@ -113,10 +151,10 @@ export async function importPluginUI(name: string): Promise<unknown> {
 }
 
 export async function blobText(colony: string, hash: string): Promise<string> {
-  const res = await fetch(`${base}/api/colonies/${colony}/blobs/${hash}`, {
+  const res = await call(`${base}/api/colonies/${colony}/blobs/${hash}`, {
     headers: auth,
   })
-  if (!res.ok) throw new ApiError(`blob ${hash.slice(0, 8)}: ${res.status}`)
+  if (!res.ok) throw failure(res.status)
   return res.text()
 }
 
@@ -171,11 +209,16 @@ export function streamEvents(
   let ws: WebSocket | undefined
   let closed = false
   let retry: ReturnType<typeof setTimeout> | undefined
+  // While the server is down each failed attempt waits longer, and the stream comes back as soon as it answers again.
+  let wait = STREAM_RETRY_MS
   const connect = () => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
     ws = new WebSocket(
       `${proto}://${location.host}${base}/api/colonies/${colony}/stream?from=${cursor}${token ? `&token=${encodeURIComponent(token)}` : ''}`,
     )
+    ws.onopen = () => {
+      wait = STREAM_RETRY_MS
+    }
     ws.onmessage = (msg) => {
       const data = JSON.parse(String(msg.data)) as MyrEvent[] | ({ type: 'stream' } & ReplyStream)
       if (!Array.isArray(data)) {
@@ -188,25 +231,34 @@ export function streamEvents(
       onEvents(events)
     }
     ws.onclose = () => {
-      if (!closed) retry = setTimeout(connect, 1500)
+      if (closed) return
+      retry = setTimeout(connect, wait)
+      wait = Math.min(wait * 2, STREAM_RETRY_MAX_MS)
     }
   }
+  const back = () => {
+    if (closed || !reachable() || ws?.readyState !== WebSocket.CLOSED) return
+    clearTimeout(retry)
+    connect()
+  }
+  window.addEventListener(CONNECTION_CHANGED, back)
   connect()
   return () => {
     closed = true
     clearTimeout(retry)
+    window.removeEventListener(CONNECTION_CHANGED, back)
     ws?.close()
   }
 }
 
 export async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
+  const res = await call(`${base}${path}`, {
     method: 'POST',
     headers: { ...auth, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${path}`)
+  if (!res.ok) throw failure(res.status, data.error)
   return data as T
 }
 
@@ -237,13 +289,13 @@ export async function hubSend<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await call(path, {
     method,
     headers: { ...auth, 'content-type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${path}`)
+  if (!res.ok) throw failure(res.status, data.error)
   return data as T
 }
 
@@ -401,6 +453,7 @@ export interface WhoAmI {
 export async function whoami(): Promise<{ ok: true; me: WhoAmI } | { ok: false; remote: boolean }> {
   const res = await fetch('/api/whoami', { headers: auth })
   const data = (await res.json().catch(() => ({}))) as WhoAmI & { remote?: boolean }
+  remoteGateway = data.remote === true
   return res.ok ? { ok: true, me: data } : { ok: false, remote: data.remote === true }
 }
 
@@ -412,7 +465,7 @@ export async function pairDevice(code: string, name: string): Promise<void> {
     body: JSON.stringify({ code, name }),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw new ApiError(data.error ?? `pairing failed (${res.status})`)
+  if (!res.ok) throw new ApiError(data.error ?? copy.api.status(res.status))
 }
 
 /** Another gateway as this machine (the hub) lists it; its token stays here. */

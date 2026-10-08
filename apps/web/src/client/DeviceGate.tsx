@@ -1,6 +1,15 @@
 import { KeyRound, Laptop, RefreshCw } from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
-import { activeGateway, type GatewayInfo, listGateways, pairDevice, switchGateway, whoami } from './api.ts'
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
+import {
+  activeGateway,
+  type GatewayInfo,
+  listGateways,
+  pairDevice,
+  SIGNED_OUT,
+  switchGateway,
+  type WhoAmI,
+  whoami,
+} from './api.ts'
 import { copy } from './copy.ts'
 import { Logo } from './ui/Logo.tsx'
 import { isMac } from './ui/platform.ts'
@@ -36,25 +45,48 @@ function guessName(): string {
 
 const pairCode = () => new URLSearchParams(location.hash.slice(1)).get('pair') ?? undefined
 
+const ScopeContext = createContext<WhoAmI['scope']>('full')
+
+/**
+ * What this window may do on the gateway it shows: everything, or chats only (a device paired that way). The server
+ * enforces it; the page uses it to leave out what would only be refused.
+ */
+export const useScope = () => useContext(ScopeContext)
+
 /**
  * Before the app: on a remote gateway, a device that is not paired yet pairs here, with the link (or code) from
- * `myrmidon pair` or Settings → Devices. On this machine, and for a paired device, the app opens straight away.
+ * `myrmidon pair` or Settings → Devices. On this machine, and for a paired device, the app opens straight away. A
+ * device whose pairing ends while the app is open (revoked, or the gateway forgot it) comes back here.
  */
 export function DeviceGate(props: { children: ReactNode }) {
   const [state, setState] = useState<'checking' | 'open' | 'pair'>(pairCode() ? 'pair' : 'checking')
+  const [scope, setScope] = useState<WhoAmI['scope']>('full')
   useEffect(() => {
     if (state !== 'checking') return
     whoami()
-      .then((r) => setState(!r.ok && r.remote ? 'pair' : 'open'))
+      .then((r) => {
+        if (r.ok) setScope(r.me.scope)
+        setState(!r.ok && r.remote ? 'pair' : 'open')
+      })
       // Unreachable: let the app show its own error.
       .catch(() => setState('open'))
+  }, [state])
+  useEffect(() => {
+    if (state !== 'open') return
+    const recheck = () => {
+      whoami()
+        .then((r) => !r.ok && r.remote && setState('pair'))
+        .catch(() => {})
+    }
+    window.addEventListener(SIGNED_OUT, recheck)
+    return () => window.removeEventListener(SIGNED_OUT, recheck)
   }, [state])
   if (state === 'checking') return null
   if (state === 'open') {
     if (activeGateway()) return <GatewayGate>{props.children}</GatewayGate>
-    return <>{props.children}</>
+    return <ScopeContext.Provider value={scope}>{props.children}</ScopeContext.Provider>
   }
-  return <PairScreen onPaired={() => setState('open')} />
+  return <PairScreen onPaired={() => setState('checking')} />
 }
 
 /**
@@ -79,7 +111,8 @@ function GatewayGate(props: { children: ReactNode }) {
       alive = false
     }
   }, [attempt])
-  if (gateway !== 'checking' && gateway.health.ok) return <>{props.children}</>
+  if (gateway !== 'checking' && gateway.health.ok)
+    return <ScopeContext.Provider value={gateway.scope}>{props.children}</ScopeContext.Provider>
   const local = t.local(isMac)
   return (
     <div className="grid min-h-dvh place-items-center bg-bg px-4">

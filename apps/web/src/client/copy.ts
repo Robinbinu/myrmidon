@@ -23,6 +23,22 @@ export const copy = {
 
   auth: {
     notAuthorized: 'Not authorized: open the link printed by the CLI.',
+    pairAgain: 'This device is no longer paired. Pair it again to carry on.',
+  },
+
+  /** Why a request to the server failed, when the server did not say. */
+  api: {
+    unreachable: "Can't reach Myrmidon right now.",
+    status: (status: number) =>
+      status === 403
+        ? "This device isn't allowed to do that."
+        : status === 404
+          ? "That isn't there any more."
+          : status === 413
+            ? 'That is too large to send.'
+            : status >= 500
+              ? 'Something went wrong on the server. Try again in a moment.'
+              : `That didn't work (error ${status}).`,
   },
 
   /** Pairing a device with a remote gateway. */
@@ -1034,7 +1050,21 @@ export const copy = {
       compare: 'Compare runs',
     },
     resizeSidebar: 'Resize sidebar',
-    closeMenu: 'Close menu',
+    /** One calm line under the toolbar while the server is not answering; it clears by itself. */
+    reconnecting: "Can't reach Myrmidon. Reconnecting…",
+    /** On the entry page while no model can lead a crew yet. */
+    setup: {
+      title: 'Connect a model',
+      body: 'The crew needs a model to think with. Sign in to a provider or add an API key, and it can start.',
+      action: 'Connect a model',
+    },
+    /** A link to a chat that is not on this machine (deleted, or from another gateway). */
+    chatNotFound: {
+      title: 'Chat not found',
+      body: 'It may have been deleted, or it belongs to another gateway.',
+      action: 'New task',
+    },
+    chatsOnly: 'This device can use chats only.',
     showSidebar: 'Show sidebar',
     showSidebarTitle: (combo: string) => `Show sidebar (${combo})`,
     newTask: 'New task',
@@ -1042,8 +1072,6 @@ export const copy = {
     /** Status pill beside the chat title while a round runs. */
     working: 'working',
     waitingForYou: 'waiting for you',
-    workspace: 'Workspace',
-    workspaceTitle: 'Workspace (⌘J)',
     crewButton: 'Crew',
     crewButtonTitle: 'Crew console: agents, tool calls, tasks, replay',
     composer: {
@@ -1054,6 +1082,10 @@ export const copy = {
       /** Added when the chat has a crew: typing @ and a name writes to that crew member directly. */
       mentionHint: ' (@name writes to a crew member)',
       newTask: 'Describe what you want done…',
+      /** In place of the message box until the models it offers have loaded. */
+      loading: 'Loading models…',
+      failed: "Couldn't load your models.",
+      retry: 'Try again',
     },
     deleteChat: {
       title: 'Delete chat?',

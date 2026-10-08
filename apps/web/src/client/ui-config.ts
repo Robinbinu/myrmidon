@@ -96,5 +96,11 @@ export const CURSOR = {
   labelTiltPerPx: 0.11,
 }
 
+/* ------------------------------------------------------------------ connection */
+
+/** A crew's event stream reconnects after this long, doubling while the server stays down, up to the most. */
+export const STREAM_RETRY_MS = 1500
+export const STREAM_RETRY_MAX_MS = 15_000
+
 /** How often the gateway switcher checks whether the other gateways answer. */
 export const GATEWAY_POLL_MS = 30_000

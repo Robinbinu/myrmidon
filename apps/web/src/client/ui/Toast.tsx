@@ -18,16 +18,27 @@ export function useToast() {
   return useContext(ToastContext)
 }
 
-export function ToastProvider({ children }: { children: ReactNode }) {
+export function ToastProvider({
+  children,
+  quiet,
+}: {
+  children: ReactNode
+  /** While true, errors are not shown: the page already says why everything fails (e.g. the server is down). */
+  quiet?(): boolean
+}) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), [])
   const push = useCallback(
     (text: string, kind: Kind = 'info') => {
+      if (kind === 'error' && quiet?.()) return
       const id = Date.now() + Math.random()
-      setToasts((t) => [...t.slice(-3), { id, kind, text }])
+      // A message already on screen (a retried request, a poll) is not stacked again.
+      setToasts((t) =>
+        t.some((x) => x.text === text && x.kind === kind) ? t : [...t.slice(-3), { id, kind, text }],
+      )
       setTimeout(() => dismiss(id), kind === 'error' ? 7000 : 3500)
     },
-    [dismiss],
+    [dismiss, quiet],
   )
   return (
     <ToastContext.Provider value={push}>
