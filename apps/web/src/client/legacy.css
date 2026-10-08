@@ -3,7 +3,7 @@
   color: var(--muted);
 }
 .small {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
 }
 .mono {
   font-family: var(--mono);
@@ -20,7 +20,7 @@
 }
 .react-flow__edge-text {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .react-flow__edge-textbg {
   fill: var(--bg);
@@ -36,7 +36,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-md);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .agent-node.selected {
   outline: 2px solid var(--accent);
@@ -54,7 +54,7 @@
 }
 .agent-node-model {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -63,18 +63,18 @@
 .agent-node-meta {
   display: flex;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--muted);
   margin-top: 2px;
 }
 .agent-node-task {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-small);
   color: var(--accent-text);
 }
 .agent-node-detail {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -101,15 +101,17 @@
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
+/* Table heads read as section labels (the section-label utility in styles.css). */
 .compare th {
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: var(--text-caption);
   color: var(--muted);
-  font-weight: 650;
+  font-weight: 400;
   white-space: nowrap;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.14em;
   background: var(--surface-2);
 }
 .compare tbody tr:hover {

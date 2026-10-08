@@ -130,7 +130,7 @@ function GatewayGate(props: { children: ReactNode }) {
         <div className="flex items-center gap-3">
           <Logo size={36} />
           <div className="min-w-0">
-            <h1 className="truncate text-[17px] font-semibold tracking-tight">
+            <h1 className="truncate text-heading font-semibold tracking-tight">
               {gateway === 'checking' ? t.down.checking('…') : t.down.title(gateway.name)}
             </h1>
             {gateway !== 'checking' && (
@@ -209,7 +209,7 @@ function PairScreen(props: { onPaired(): void }) {
         <div className="flex items-center gap-3">
           <Logo size={36} />
           <div>
-            <h1 className="text-[17px] font-semibold tracking-tight">{t.title}</h1>
+            <h1 className="text-heading font-semibold tracking-tight">{t.title}</h1>
             <p className="text-callout text-muted">{location.host}</p>
           </div>
         </div>

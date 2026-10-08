@@ -136,7 +136,7 @@ function Option(props: {
 function MenuHead(props: { title: string; note?: string }) {
   return (
     <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
-      <span className="text-caption font-medium uppercase tracking-[0.12em] text-muted">{props.title}</span>
+      <span className="section-label text-muted">{props.title}</span>
       {props.note && <span className="text-caption text-muted">{props.note}</span>}
     </div>
   )

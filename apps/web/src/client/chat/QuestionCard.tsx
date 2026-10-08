@@ -93,9 +93,7 @@ export function QuestionCard(props: {
     >
       {props.plan && (
         <section aria-label={copy.questions.plan} className="flex flex-col gap-1.5">
-          <span className="text-caption font-semibold uppercase tracking-wide text-muted">
-            {copy.questions.plan}
-          </span>
+          <span className="section-label text-muted">{copy.questions.plan}</span>
           <div className="max-h-[420px] overflow-y-auto rounded-lg border border-line bg-surface-2/40 px-3.5 py-2.5 text-reading">
             <Markdown text={props.plan} />
           </div>

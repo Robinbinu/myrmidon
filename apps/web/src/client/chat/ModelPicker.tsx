@@ -182,7 +182,7 @@ export function ModelPicker(props: {
           </>
         ) : (
           <>
-            <span className="flex items-center gap-1 text-caption font-semibold uppercase tracking-wider text-muted">
+            <span className="flex items-center gap-1 section-label text-muted">
               {props.icon}
               {props.label}
             </span>
@@ -254,7 +254,7 @@ export function ModelPicker(props: {
               )}
               {groups.map(([provider, items]) => (
                 <div key={provider}>
-                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 text-caption font-semibold uppercase tracking-wider text-muted">
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface px-2.5 pb-1 pt-2 section-label text-muted">
                     <ProviderLogo provider={provider} size={12} />
                     {provider}
                   </div>

@@ -545,12 +545,7 @@ export function Settings(props: {
           {(Object.keys(copy.settings.page.groups) as SectionGroup[]).map((group, i) => (
             <div key={group} className="flex w-full flex-col gap-1">
               {wideNav ? (
-                <div
-                  className={cn(
-                    'px-3 pb-1 font-mono text-caption uppercase tracking-[0.14em] text-muted',
-                    i > 0 && 'pt-4',
-                  )}
-                >
+                <div className={cn('px-3 pb-1 section-label text-muted', i > 0 && 'pt-4')}>
                   {copy.settings.page.groups[group]}
                 </div>
               ) : (
@@ -758,7 +753,7 @@ export function Settings(props: {
 function Heading(props: { title: string; children?: ReactNode }) {
   return (
     <div className="mb-6">
-      <h3 className="text-[17px] font-semibold tracking-tight">{props.title}</h3>
+      <h3 className="text-heading font-semibold tracking-tight">{props.title}</h3>
       {props.children && <p className="mt-1 text-reading leading-relaxed text-muted">{props.children}</p>}
     </div>
   )
@@ -2610,13 +2605,13 @@ function ChannelsSection(props: { initial?: string | undefined }) {
     <>
       <Heading title={t.title}>{t.intro}</Heading>
       {loadError && (
-        <div role="alert" className="mb-6 rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+        <div role="alert" className="mb-6 rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
           {t.loadError(loadError)}
         </div>
       )}
       {connected.length > 0 && (
         <section className="mb-8">
-          <h3 className="mb-2 text-[13px] font-semibold">{t.yours}</h3>
+          <h3 className="mb-2 text-body font-semibold">{t.yours}</h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {connected.map((c) => (
               <button
@@ -2628,10 +2623,10 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                 <ChannelLogo id={c.id} size={40} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-[13.5px] font-semibold">{c.label}</span>
+                    <span className="truncate text-reading font-semibold">{c.label}</span>
                     {c.pending.length > 0 && <Pill tone="warn">{t.waitingBadge(c.pending.length)}</Pill>}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted">
+                  <div className="mt-0.5 flex items-center gap-1.5 text-small text-muted">
                     <Dot status={channelState(c)} />
                     <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
                       {channelStatusText(c)}
@@ -2653,8 +2648,8 @@ function ChannelsSection(props: { initial?: string | undefined }) {
         <section>
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="text-[13px] font-semibold">{t.add}</h3>
-              <p className="text-[12px] text-muted">{t.addHint}</p>
+              <h3 className="text-body font-semibold">{t.add}</h3>
+              <p className="text-small text-muted">{t.addHint}</p>
             </div>
             <div className="relative w-56">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
@@ -2667,15 +2662,13 @@ function ChannelsSection(props: { initial?: string | undefined }) {
               />
             </div>
           </div>
-          {others.length === 0 && q && <p className="text-[12.5px] text-muted">{t.noMatch}</p>}
+          {others.length === 0 && q && <p className="text-callout text-muted">{t.noMatch}</p>}
           {groups.map((g) => {
             const apps = others.filter((c) => (CHANNEL_GROUPS[c.id] ?? 'other') === g)
             if (apps.length === 0) return null
             return (
               <div key={g} className="mb-5">
-                <div className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
-                  {t.groupsTitle[g]}
-                </div>
+                <div className="mb-2 section-label text-muted">{t.groupsTitle[g]}</div>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
                   {apps.map((c) => (
                     <button
@@ -2685,7 +2678,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
                       className="flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-2 py-3 text-center transition-colors hover:bg-surface-2"
                     >
                       <ChannelLogo id={c.id} size={32} />
-                      <span className="w-full truncate text-[12px]">{c.label}</span>
+                      <span className="w-full truncate text-small">{c.label}</span>
                     </button>
                   ))}
                 </div>
@@ -2847,7 +2840,7 @@ function ChannelSheet(props: {
           <ChannelLogo id={c.id} size={28} />
           <span className="min-w-0">
             <span className="block truncate">{c.label}</span>
-            <span className="flex items-center gap-1.5 text-[12px] font-normal text-muted">
+            <span className="flex items-center gap-1.5 text-small font-normal text-muted">
               <Dot status={channelState(c)} />
               <span className={cn('truncate', c.status.state === 'error' && 'text-bad-ink')}>
                 {channelStatusText(c)}
@@ -2867,7 +2860,7 @@ function ChannelSheet(props: {
         {tab === 'setup' && (
           <div className="flex flex-col gap-4">
             {c.setup && (
-              <p className="whitespace-pre-line rounded-lg bg-surface-2 px-4 py-3 text-[12.5px] text-fg-2">
+              <p className="whitespace-pre-line rounded-lg bg-surface-2 px-4 py-3 text-callout text-fg-2">
                 {c.setup}
               </p>
             )}
@@ -2915,7 +2908,7 @@ function ChannelSheet(props: {
                         {busy ? t.saving : t.save}
                       </Button>
                       {setup.missing.length > 0 && (
-                        <span className="text-[12px] text-muted">
+                        <span className="text-small text-muted">
                           {t.stillNeeded(
                             c.fields.filter((f) => setup.missing.includes(f.key)).map((f) => f.label),
                           )}
@@ -2984,7 +2977,7 @@ function ChannelSheet(props: {
           <div className="flex flex-col gap-4">
             {unconfirmed && (
               <div className="flex flex-wrap items-center gap-3 rounded-lg bg-warn-soft px-4 py-3">
-                <p className="min-w-0 flex-1 text-[12.5px] text-warn-ink">
+                <p className="min-w-0 flex-1 text-callout text-warn-ink">
                   {t.confirmOwner(unconfirmed.name)}
                 </p>
                 <Button
@@ -3004,12 +2997,12 @@ function ChannelSheet(props: {
             {c.pending.length > 0 && (
               <Card>
                 <Row>
-                  <div className="text-[13px] font-semibold">{t.waiting}</div>
-                  <div className="text-[12px] text-muted">{t.waitingHint}</div>
+                  <div className="text-body font-semibold">{t.waiting}</div>
+                  <div className="text-small text-muted">{t.waitingHint}</div>
                 </Row>
                 {!hasOwner && c.pending.some((p) => p.kind === 'person') && (
                   <Row>
-                    <p className="text-[12.5px] text-warn-ink">{t.ownerFirst}</p>
+                    <p className="text-callout text-warn-ink">{t.ownerFirst}</p>
                   </Row>
                 )}
                 {c.pending.map((p) => {
@@ -3017,14 +3010,14 @@ function ChannelSheet(props: {
                   return (
                     <div key={p.id} className="flex flex-col gap-2 px-4 py-3">
                       <div className="min-w-0">
-                        <div className="truncate text-[13.5px] font-semibold">
+                        <div className="truncate text-reading font-semibold">
                           {p.sender.name}
                           {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
                         </div>
-                        <div className="truncate font-mono text-[12px] text-muted">
+                        <div className="truncate font-mono text-small text-muted">
                           {t.sender(c.label, p.sender.id, p.sender.handle)}
                         </div>
-                        <div className="text-[12px] text-muted">
+                        <div className="text-small text-muted">
                           {t.expires(new Date(p.expires).toLocaleTimeString())}
                         </div>
                       </div>
@@ -3069,12 +3062,12 @@ function ChannelSheet(props: {
             )}
             <Card>
               <Row>
-                <div className="text-[13px] font-semibold">{t.people}</div>
+                <div className="text-body font-semibold">{t.people}</div>
               </Row>
-              {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
+              {c.people.length === 0 && <div className="px-4 py-3 text-callout text-muted">{t.none}</div>}
               {c.people.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">
+                  <div className="min-w-0 flex-1 truncate text-reading">
                     {p.name}
                     {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
                   </div>
@@ -3103,12 +3096,12 @@ function ChannelSheet(props: {
               ))}
               {c.approvedGroups.length > 0 && (
                 <Row>
-                  <div className="text-[13px] font-semibold">{t.groups}</div>
+                  <div className="text-body font-semibold">{t.groups}</div>
                 </Row>
               )}
               {c.approvedGroups.map((g) => (
                 <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
+                  <div className="min-w-0 flex-1 truncate text-reading">{g.title}</div>
                   <ConfirmButton
                     label={t.revoke}
                     name={t.revokeName(g.title)}
@@ -3217,28 +3210,28 @@ function ChannelSheet(props: {
 
         {tab === 'activity' && (
           <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-callout text-muted">
               <span>{h.lastIn(c.health.lastIn ? ago(c.health.lastIn) : h.never)}</span>
               <span>{h.lastOut(c.health.lastOut ? ago(c.health.lastOut) : h.never)}</span>
               {c.health.reconnects > 0 && <span>{h.reconnects(c.health.reconnects)}</span>}
               {c.health.owed > 0 && <span className="text-warn-ink">{h.owed(c.health.owed)}</span>}
             </div>
             {c.health.lastError && channelState(c) !== 'on' && (
-              <div className="rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+              <div className="rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
                 {h.lastError(c.health.lastError)}
               </div>
             )}
             {eventsError && (
-              <div role="alert" className="rounded-lg bg-bad-soft px-4 py-3 text-[12.5px] text-bad-ink">
+              <div role="alert" className="rounded-lg bg-bad-soft px-4 py-3 text-callout text-bad-ink">
                 {eventsError}
               </div>
             )}
             <Card>
               {events?.length === 0 && (
-                <div className="px-4 py-3 text-[12.5px] text-muted">{t.noActivity}</div>
+                <div className="px-4 py-3 text-callout text-muted">{t.noActivity}</div>
               )}
               {events?.map((e) => (
-                <div key={`${e.at}-${e.text}`} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
+                <div key={`${e.at}-${e.text}`} className="flex items-center gap-3 px-4 py-2.5 text-body">
                   <span
                     className={cn(
                       'min-w-0 flex-1 truncate',
@@ -3247,7 +3240,7 @@ function ChannelSheet(props: {
                   >
                     {e.text}
                   </span>
-                  <span className="shrink-0 text-[12px] text-muted">{ago(e.at)}</span>
+                  <span className="shrink-0 text-small text-muted">{ago(e.at)}</span>
                 </div>
               ))}
             </Card>
@@ -5226,9 +5219,7 @@ function MemorySection() {
       ) : (
         groups.map((g) => (
           <section key={g || 'all'} className="mb-6">
-            <h4 className="mb-2 font-mono text-caption uppercase tracking-[0.14em] text-muted">
-              {scopeName(g || undefined)}
-            </h4>
+            <h4 className="mb-2 section-label text-muted">{scopeName(g || undefined)}</h4>
             <Card>
               {memories
                 .filter((m) => (m.project ?? '') === g)

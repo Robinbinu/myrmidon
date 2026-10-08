@@ -111,7 +111,9 @@ export function Modal(props: {
         )}
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-line py-2.5 pl-5 pr-2.5">
-          <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">{props.title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-headline font-semibold tracking-tight">
+            {props.title}
+          </h2>
           {props.actions}
           <IconButton label={copy.common.close} onClick={props.onClose}>
             <X className="size-4" />

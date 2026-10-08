@@ -288,9 +288,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
           return (
             <div key={it.key}>
               {it.section && (
-                <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted first:pt-1">
-                  {it.section}
-                </div>
+                <div className="px-2.5 pb-1 pt-2.5 section-label text-muted first:pt-1">{it.section}</div>
               )}
               <button
                 type="button"
@@ -355,7 +353,7 @@ export function CommandMenu(props: { menu: MenuModel; active: number; onHover(in
         })}
         {help && (
           <>
-            <div className="px-2.5 pb-1 pt-2.5 font-mono text-caption uppercase tracking-[0.14em] text-muted">
+            <div className="px-2.5 pb-1 pt-2.5 section-label text-muted">
               {copy.commandMenu.help.keysSection}
             </div>
             <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 px-2.5 pb-2 text-callout">

@@ -53,7 +53,7 @@ export function TaskBoard(props: {
                 aria-label={lane.label}
                 className={cn('flex min-w-0 flex-col gap-2', cards.length === 0 && 'opacity-60')}
               >
-                <h3 className="flex items-center gap-2 px-1 font-mono text-caption uppercase tracking-[0.14em] text-muted">
+                <h3 className="flex items-center gap-2 px-1 section-label text-muted">
                   <span className={cn('size-2 rounded-full', lane.dot)} />
                   {lane.label}
                   <span className="tabular-nums">{cards.length}</span>

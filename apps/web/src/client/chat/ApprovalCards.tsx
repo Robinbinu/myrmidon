@@ -391,9 +391,7 @@ export function MemoryCards({ state }: { state: ColonyState }) {
             </span>
           </div>
           <p className="rounded-xl bg-surface px-3 py-2 text-reading">
-            <span className="mr-1.5 font-mono text-caption uppercase tracking-[0.12em] text-muted">
-              {m.kind}
-            </span>
+            <span className="mr-1.5 section-label text-muted">{m.kind}</span>
             {m.text}
           </p>
           {m.why && <p className="text-small text-muted">{copy.approvals.memory.why(m.why)}</p>}

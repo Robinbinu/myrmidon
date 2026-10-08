@@ -623,7 +623,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               }
             }}
             aria-label={copy.composer.message}
-            className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-[15px] leading-relaxed text-fg outline-none placeholder:text-muted"
+            className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-headline leading-relaxed text-fg outline-none placeholder:text-muted"
           />
           <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
             <input

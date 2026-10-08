@@ -225,7 +225,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
   const most = Math.max(1, ...tools.flatMap((t) => [t.a, t.b]))
   const [allTools, setAllTools] = useState(false)
   const shownTools = allTools ? tools : tools.slice(0, 10)
-  const head = 'px-2 py-1.5 text-left font-mono text-caption uppercase tracking-[0.12em] text-muted'
+  const head = 'px-2 py-1.5 text-left section-label text-muted'
   const cell = 'px-2 py-1.5 tabular-nums'
   return (
     <section

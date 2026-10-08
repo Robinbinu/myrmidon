@@ -455,7 +455,7 @@ function WorkspaceBody({
                         <>
                           {plan && (
                             <details className="group border-b border-line px-4 py-3" open>
-                              <summary className="flex list-none items-center justify-between font-mono text-caption uppercase tracking-[0.14em] text-muted">
+                              <summary className="flex list-none items-center justify-between section-label text-muted">
                                 {copy.workspace.tasks.plan(plan.agent)}
                               </summary>
                               <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-callout leading-relaxed text-fg-2">
@@ -637,9 +637,7 @@ function WorkspaceBody({
                                     ].map(([label, value]) => (
                                       <span key={label} className="flex flex-col gap-1">
                                         <DotMatrix text={value ?? ''} dot={1.9} className="text-fg" />
-                                        <span className="font-mono text-caption uppercase tracking-[0.14em] text-muted">
-                                          {label}
-                                        </span>
+                                        <span className="section-label text-muted">{label}</span>
                                       </span>
                                     ))}
                                     {a.costKnown && a.cost > 0 && (
@@ -1008,7 +1006,7 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                     </div>
                   )}
                   <div className="whitespace-pre-wrap break-words">{m.text}</div>
-                  <div className="mt-0.5 flex justify-end gap-1 text-[10.5px] tabular-nums text-muted">
+                  <div className="mt-0.5 flex justify-end gap-1 text-caption tabular-nums text-muted">
                     {clock(m.time)}
                     {m.read !== undefined && (
                       <span

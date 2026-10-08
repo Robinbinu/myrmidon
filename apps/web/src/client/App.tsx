@@ -1212,7 +1212,7 @@ function PaneNotice(props: {
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center">
       {props.icon}
       <div>
-        <p className="text-[15px] font-semibold">{props.title}</p>
+        <p className="text-headline font-semibold tracking-tight">{props.title}</p>
         <p className="text-body text-muted">{props.body}</p>
       </div>
       {props.action && (

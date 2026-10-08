@@ -125,7 +125,7 @@ function Section(props: {
           type="button"
           onClick={props.onToggle}
           aria-expanded={!props.closed}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left font-mono text-caption uppercase tracking-[0.14em] text-muted hover:text-fg"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 text-left section-label text-muted hover:text-fg"
         >
           <ChevronRight
             className={cn('size-3.5 shrink-0 transition-transform', !props.closed && 'rotate-90')}

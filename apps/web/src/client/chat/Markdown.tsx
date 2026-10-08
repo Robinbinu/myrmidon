@@ -191,10 +191,10 @@ export function Markdown({ text }: { text: string }) {
           key={key++}
           className={
             level === 1
-              ? 'mb-2 mt-4 text-[18px] font-semibold tracking-tight'
+              ? 'mb-2 mt-4 text-heading font-semibold tracking-tight'
               : level === 2
-                ? 'mb-1.5 mt-4 text-[16px] font-semibold tracking-tight'
-                : 'mb-1 mt-3 text-[15px] font-semibold'
+                ? 'mb-1.5 mt-4 text-headline font-semibold tracking-tight'
+                : 'mb-1 mt-3 text-title font-semibold'
           }
         >
           {inline(heading[2] ?? '')}

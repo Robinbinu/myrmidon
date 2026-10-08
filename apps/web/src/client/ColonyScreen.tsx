@@ -290,7 +290,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[15px] font-semibold tracking-tight">{state.name}</h2>
+            <h2 className="truncate text-headline font-semibold tracking-tight">{state.name}</h2>
             <Pill tone={toneFor(run)}>
               <Dot status={run} /> {copy.status.run[run]}
             </Pill>
@@ -311,9 +311,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 flex-col overflow-auto border-r border-line p-2 md:flex">
-          <div className="px-2 pb-1.5 pt-1 text-caption font-semibold uppercase tracking-wider text-muted">
-            {copy.colonyScreen.agentsHeading}
-          </div>
+          <div className="px-2 pb-1.5 pt-1 section-label text-muted">{copy.colonyScreen.agentsHeading}</div>
           <AgentButton
             active={!agent}
             onClick={() => setAgent(undefined)}
@@ -435,7 +433,7 @@ export function ColonyScreen({ id }: { id: string; compact?: boolean }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span className="flex flex-col">
-      <span className="text-caption font-semibold uppercase tracking-wider">{label}</span>
+      <span className="section-label">{label}</span>
       <span className="text-body font-semibold text-fg">{value}</span>
     </span>
   )
@@ -552,21 +550,14 @@ function ToolRow({ item }: { item: Item & { kind: 'tool' } }) {
           >
             <div className="grid gap-2 border-t border-line bg-code px-3 py-2.5 font-mono text-small">
               <div>
-                <div className="mb-1 text-caption font-semibold uppercase tracking-wider text-muted">
-                  {copy.colonyScreen.toolInput}
-                </div>
+                <div className="mb-1 section-label text-muted">{copy.colonyScreen.toolInput}</div>
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all">
                   {JSON.stringify(item.args, null, 2)}
                 </pre>
               </div>
               {item.output !== undefined && (
                 <div>
-                  <div
-                    className={cn(
-                      'mb-1 text-caption font-semibold uppercase tracking-wider',
-                      item.ok ? 'text-muted' : 'text-bad-ink',
-                    )}
-                  >
+                  <div className={cn('mb-1 section-label', item.ok ? 'text-muted' : 'text-bad-ink')}>
                     {copy.colonyScreen.toolOutput}
                   </div>
                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-fg-2">

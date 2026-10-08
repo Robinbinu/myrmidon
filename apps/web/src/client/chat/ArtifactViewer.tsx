@@ -199,7 +199,7 @@ export function ArtifactViewer(props: {
         </div>
       ) : view === 'preview' && isMarkdown ? (
         <div className="flex-1 overflow-auto">
-          <article className="mx-auto max-w-3xl px-8 py-6 text-[14.5px] leading-relaxed">
+          <article className="mx-auto max-w-3xl px-8 py-6 text-title leading-relaxed">
             <Markdown text={text} />
           </article>
         </div>

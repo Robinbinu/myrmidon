@@ -469,7 +469,7 @@ export function Sidebar(props: {
             <Settings className="size-4" /> {copy.sidebar.nav.settings}
             {waiting > 0 && (
               <span
-                className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-semibold leading-[18px] text-on-accent"
+                className="ml-auto rounded-full bg-accent px-1.5 text-caption font-semibold leading-[18px] text-on-accent"
                 title={copy.settings.channels.waitingBadge(waiting)}
               >
                 {waiting}
@@ -513,7 +513,7 @@ function GatewayChip(props: { onOpen?(): void }) {
         onClick={offline ? refresh : props.onOpen}
         title={offline ? t.offlineHint : props.onOpen ? t.open : undefined}
         className={cn(
-          'flex h-8 w-full items-center gap-2 rounded-base px-2.5 text-[12.5px] font-medium transition-colors',
+          'flex h-8 w-full items-center gap-2 rounded-base px-2.5 text-callout font-medium transition-colors',
           offline
             ? 'bg-bad-soft text-bad-ink hover:bg-bad-soft/80'
             : 'bg-warn-soft text-warn-ink hover:bg-warn-soft/80',
