@@ -426,7 +426,15 @@ export function App() {
           ),
         approvalDone: (id) =>
           setCall((c) => c && { ...c, approvals: c.approvals.filter((a) => a.id !== id) }),
-        error: (message) => toast(message, 'error'),
+        // A refusal that names Settings → Voice (an engine to install, no call model…) opens it from the toast.
+        error: (message) =>
+          toast(
+            message,
+            'error',
+            fullAccess && message.includes('Settings → Voice')
+              ? { label: copy.call.openVoiceSettings, run: () => openSettings('voice') }
+              : undefined,
+          ),
         ended: () => {
           callRef.current = undefined
           setCall(undefined)

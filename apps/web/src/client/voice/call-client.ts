@@ -40,12 +40,14 @@ export interface CallHandlers {
 }
 
 /**
- * Why a call's socket closed, in words for the person. The server gives its reason with a refusal (not signed in,
- * voice off, already on a call…); a socket that never opened without one means the server could not be reached or
- * turned the call away before it began (an older server answers with HTTP instead).
+ * Why a call's socket closed, in words for the person. A refusal (4xxx: not signed in, voice off, already on a call,
+ * too many calls, an engine not ready…) carries the server's own reason; an error inside the server (1011) or input it
+ * would not take (1009) is said plainly, its technical reason left out. A socket that closed otherwise lost the server,
+ * or never reached it (an older server refuses with HTTP, which reaches the page as a bare 1006).
  */
-export function closeMessage(reason: string, opened: boolean): string {
-  if (reason) return reason
+export function closeMessage(code: number, reason: string, opened: boolean): string {
+  if (code >= 4000 && code < 5000 && reason) return reason
+  if (code === 1009 || code === 1011) return copy.call.failed
   return opened ? copy.call.dropped : copy.call.couldNotStart
 }
 
@@ -168,7 +170,7 @@ export class CallClient {
     }
     ws.onclose = (e) => {
       if (this._ended) return
-      if (e.code !== 1000) this.on.error(closeMessage(e.reason, this._opened))
+      if (e.code !== 1000) this.on.error(closeMessage(e.code, e.reason, this._opened))
       this._end(e.code === 1000 ? 'hung-up' : 'error')
     }
   }

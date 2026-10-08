@@ -121,12 +121,16 @@ test('muting turns the mic track off, so the browser no longer shows it in use',
   call.hangUp()
 })
 
-test('a refused call shows the server’s reason, and a plain one when there is none', () => {
-  expect(client.closeMessage('Voice calls are off. Turn them on in Settings → Voice.', false)).toBe(
-    'Voice calls are off. Turn them on in Settings → Voice.',
+test('a refused call shows the server’s reason; server errors and lost connections are said plainly', () => {
+  const off = 'Voice calls are off: turn them on in Settings → Voice.'
+  expect(client.closeMessage(4409, off, true)).toBe(off)
+  expect(client.closeMessage(4429, 'There are already 4 calls going on; hang one up first.', true)).toContain(
+    'hang one up',
   )
-  expect(client.closeMessage('', false)).toBe(copy.call.couldNotStart)
-  expect(client.closeMessage('', true)).toBe(copy.call.dropped)
+  expect(client.closeMessage(1011, 'stream error', true)).toBe(copy.call.failed)
+  expect(client.closeMessage(1009, 'audio frame too large', true)).toBe(copy.call.failed)
+  expect(client.closeMessage(1006, '', false)).toBe(copy.call.couldNotStart)
+  expect(client.closeMessage(1006, '', true)).toBe(copy.call.dropped)
 })
 
 const bar = (props: Partial<Parameters<typeof CallBar>[0]> = {}) =>

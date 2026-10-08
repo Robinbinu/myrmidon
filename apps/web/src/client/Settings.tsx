@@ -64,7 +64,7 @@ import {
 } from './api.ts'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
-import { TeamSettings } from './chat/Composer.tsx'
+import { formatSize, TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
@@ -3112,11 +3112,16 @@ interface VoiceStatusView {
   }
   tts: {
     provider: ServerSettings['voice']['tts']['provider']
-    kitten: { state: string; done?: number; total?: number; error?: string }
+    /** While downloading: files `done` of `total`, and bytes `received` of `size`. */
+    kitten: { state: string; done?: number; total?: number; received?: number; size?: number; error?: string }
     voices: string[]
     omp: string[]
     keySet: boolean
   }
+  /** Bytes each local engine downloads the first time; absent from older servers. */
+  sizes?: { phonon: number; kitten: Record<'nano' | 'micro' | 'mini', number>; vad: number; turn: number }
+  /** Days a call's transcript is kept. */
+  transcriptDays?: number
 }
 
 /** An engine installing, starting or downloading: Settings → Voice looks again until it is done. */
@@ -3205,10 +3210,14 @@ function VoiceSection(props: {
   const set = (patch: (voice: ServerSettings['voice']) => ServerSettings['voice']) =>
     props.update((s) => ({ ...s, voice: patch(s.voice) }))
   const act = (promise: Promise<unknown>) => promise.then(load, (err: Error) => toast(err.message, 'error'))
-  const engine = (s: { state: string; done?: number; total?: number }) =>
+  const engine = (s: { state: string; done?: number; total?: number; received?: number; size?: number }) =>
     s.state === 'downloading'
-      ? t.engine.downloading(s.done ?? 0, s.total ?? 0)
+      ? s.size
+        ? t.engine.downloadingBytes(formatSize(s.received ?? 0), formatSize(s.size))
+        : t.engine.downloading(s.done ?? 0, s.total ?? 0)
       : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
+  const sizes = status?.sizes
+  const size = (bytes: number | undefined) => (bytes ? formatSize(bytes) : '')
   const tryIt = async () => {
     setTrying(true)
     try {
@@ -3305,7 +3314,20 @@ function VoiceSection(props: {
   const onOff = (
     <Card className="mb-6">
       <Row>
-        <Field label={t.enabled} hint={t.enabledHint} inline>
+        <Field
+          label={t.enabled}
+          hint={
+            <>
+              {t.enabledHint({
+                detector: size(sizes?.vad),
+                turn: size(sizes?.turn),
+                kitten: size(sizes?.kitten[v.tts.kittenModel]),
+              })}
+              {status?.transcriptDays !== undefined && ` ${t.transcripts(status.transcriptDays)}`}
+            </>
+          }
+          inline
+        >
           <Switch
             checked={v.enabled}
             onChange={(enabled) => set((x) => ({ ...x, enabled }))}
@@ -3389,7 +3411,7 @@ function VoiceSection(props: {
             label={t.engineLabel}
             hint={
               v.stt.provider === 'phonon'
-                ? t.hints.phonon
+                ? t.hints.phonon(size(sizes?.phonon))
                 : v.stt.provider === 'omp'
                   ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
                   : t.hints.endpointStt
@@ -3474,7 +3496,7 @@ function VoiceSection(props: {
                 >
                   {(['nano', 'micro', 'mini'] as const).map((m) => (
                     <option key={m} value={m}>
-                      {t.kittenModels[m]}
+                      {sizes ? `${t.kittenModels[m]} · ${formatSize(sizes.kitten[m])}` : t.kittenModels[m]}
                     </option>
                   ))}
                 </Select>

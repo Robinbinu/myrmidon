@@ -149,7 +149,7 @@ export const copy = {
     unmute: 'Unmute',
     states: {
       connecting: 'Connecting…',
-      preparing: 'Preparing voice…',
+      preparing: 'Getting ready…',
       listening: 'Listening',
       hearing: 'Hearing you…',
       thinking: 'Thinking…',
@@ -184,6 +184,9 @@ export const copy = {
     couldNotStart:
       'Couldn’t start the call. Check that Myrmidon is running and voice calls are on in Settings → Voice.',
     dropped: 'The call dropped: Myrmidon stopped answering. Check that it is still running, then call again.',
+    failed:
+      'The call stopped because of a problem in Myrmidon. Call again; if it keeps happening, check its log.',
+    openVoiceSettings: 'Open Settings → Voice',
     card: {
       title: (minutes: number) => `Call · ${minutes < 1 ? 'under a minute' : `${minutes} min`}`,
       show: 'Show transcript',
@@ -1931,8 +1934,11 @@ export const copy = {
       intro:
         'Call your crew from the chat. A fast call model talks with you and hands real work to the crew as a run in the chat, then tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
       enabled: 'Voice calls',
-      enabledHint:
-        'Off by default. Turning them on downloads, once, what is not here yet: the speech detector (1.3 MB), the turn model (8.7 MB), and the engines below that run on this Mac (sizes beside each). Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.',
+      /** Sizes are written like "1.3 MB", or empty when the server does not say. */
+      enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
+        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.`,
+      transcripts: (days: number) =>
+        `Call transcripts are kept with their chat for ${days} days, then deleted.`,
       callModel: 'Call model',
       callModelHint: 'A fast model reads best on a call; it only talks and hands work on.',
       sameAsLead: 'Same as the lead',
@@ -1942,14 +1948,14 @@ export const copy = {
       ttsTitle: 'Text to speech',
       engineLabel: 'Engine',
       providers: {
-        phonon: 'Phonon-2 (on this Mac, 164 MB)',
+        phonon: 'Phonon-2 (on this Mac)',
         omp: 'Cloud (your signed-in providers)',
         endpoint: 'OpenAI-compatible endpoint',
         kitten: 'Kitten TTS (on this Mac)',
       },
       hints: {
-        phonon:
-          'Fermion Research’s English model (164 MB, plus a Python runtime installed with uv). Your voice is transcribed on this Mac; the text goes to your call model like any message.',
+        phonon: (size: string) =>
+          `Fermion Research’s English model${size && ` (${size})`}, with a Python runtime installed by uv. Your voice is transcribed on this Mac; the text goes to your call model like any message.`,
         ompStt: (models: string) =>
           models
             ? `Uses ${models}: your audio is sent to that provider to be transcribed.`
@@ -1972,6 +1978,7 @@ export const copy = {
         starting: 'Starting (the first start downloads the model)…',
         running: 'Running',
         downloading: (done: number, total: number) => `Downloading (${done}/${total})…`,
+        downloadingBytes: (received: string, size: string) => `Downloading ${received} of ${size}…`,
       },
       /** An engine that failed, in plain words: what went wrong and what to do; the raw message is behind details. */
       trouble: {
@@ -1999,9 +2006,9 @@ export const copy = {
       saveKey: 'Save key',
       kittenModel: 'Model size',
       kittenModels: {
-        nano: 'Nano (fastest, 60 MB)',
-        micro: 'Micro (45 MB)',
-        mini: 'Mini (best sounding, 82 MB)',
+        nano: 'Nano (fastest)',
+        micro: 'Micro',
+        mini: 'Mini (best sounding)',
       },
       voice: 'Voice',
       speed: 'Speed',
