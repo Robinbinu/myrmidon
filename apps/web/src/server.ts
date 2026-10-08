@@ -9,6 +9,8 @@ import {
   type BrowserHub,
   BUILT_IN_CHANNELS,
   buildCatalog,
+  type CallSession,
+  type ChannelChats,
   ChannelHub,
   type ChatService,
   CUSTOM_APIS,
@@ -47,6 +49,8 @@ import {
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
+  VoiceHub,
+  wav,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
@@ -163,6 +167,8 @@ type StreamData = Opened &
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+    /** A voice call: the person's audio in, the call's speech and state out. */
+    | { kind: 'call'; chat?: string; rate: number; session?: CallSession }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -202,6 +208,8 @@ const MAX_TERMINALS = 8
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+/** The longest text "Try it" in Settings → Voice speaks. */
+const VOICE_SAMPLE_CHARS = 300
 /** The largest webhook body a platform may post (media comes by reference, not inline). */
 const WEBHOOK_MAX = 5 * 1024 * 1024
 
@@ -325,48 +333,69 @@ export function startServer(options: ServeOptions): WebServer {
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
-  // Messaging channels (Telegram, and those plugins add) reach the same chats, with the person's default team.
-  const channels = chats
-    ? new ChannelHub({
-        dir: join(options.home, 'channels'),
-        kinds: () => ({ ...options.pluginHost?.channelKinds(), ...BUILT_IN_CHANNELS }),
-        // Platforms that push (webhooks) need this gateway's public address.
-        webhookUrl: (id) => (publicUrl ? `${publicUrl.origin}/hooks/channels/${id}` : undefined),
-        log: (message) => console.error(`channels: ${message}`),
-        chats: {
-          send: (text, chatId, opts = {}) =>
-            chats.send(text, defaultTeam(), chatId, {
-              ...(opts.project ? { project: opts.project } : {}),
-              ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
-            }),
-          rename: (chatId, title) => chats.rename(chatId, title),
-          stop: (chatId) => chats.stop(chatId),
-          onEvents: (listener) => chats.onEvents(listener),
-          onStream: (listener) => chats.onStream(listener),
-          read: (colonyId) => chats.events(colonyId),
-          decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
-          allowAlways: async (tool) => {
-            const settings = options.settings
-            if (!settings) throw new Error('settings need the chat runtime')
-            const current = settings.get()
-            settings.set({ ...current, permissions: { ...current.permissions, [tool]: 'allow' } })
-            await chats.permissionsChanged()
-          },
-          artifact: async (colonyId, name) => {
-            const found = await latestArtifact(colonyId, name)
-            return 'missing' in found
-              ? undefined
-              : { data: new Uint8Array(found.body), mediaType: found.mediaType }
-          },
-          ...(options.omp
-            ? {
-                transcribe: (audio, mimeType, name) =>
-                  (options.omp as OmpRuntime).transcribe(audio, mimeType, name),
-              }
-            : {}),
+  // Channels and voice calls reach the same chats, with the person's default team.
+  const chatsPort: ChannelChats | undefined = chats
+    ? {
+        send: (text, chatId, opts = {}) =>
+          chats.send(text, defaultTeam(), chatId, {
+            ...(opts.project ? { project: opts.project } : {}),
+            ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+          }),
+        rename: (chatId, title) => chats.rename(chatId, title),
+        stop: (chatId) => chats.stop(chatId),
+        onEvents: (listener) => chats.onEvents(listener),
+        onStream: (listener) => chats.onStream(listener),
+        read: (colonyId) => chats.events(colonyId),
+        decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
+        allowAlways: async (tool) => {
+          const settings = options.settings
+          if (!settings) throw new Error('settings need the chat runtime')
+          const current = settings.get()
+          settings.set({ ...current, permissions: { ...current.permissions, [tool]: 'allow' } })
+          await chats.permissionsChanged()
         },
-      })
+        artifact: async (colonyId, name) => {
+          const found = await latestArtifact(colonyId, name)
+          return 'missing' in found
+            ? undefined
+            : { data: new Uint8Array(found.body), mediaType: found.mediaType }
+        },
+        ...(options.omp
+          ? {
+              transcribe: (audio, mimeType, name) =>
+                (options.omp as OmpRuntime).transcribe(audio, mimeType, name),
+            }
+          : {}),
+      }
     : undefined
+  // Messaging channels (Telegram, and those plugins add).
+  const channels =
+    chats && chatsPort
+      ? new ChannelHub({
+          dir: join(options.home, 'channels'),
+          kinds: () => ({ ...options.pluginHost?.channelKinds(), ...BUILT_IN_CHANNELS }),
+          // Platforms that push (webhooks) need this gateway's public address.
+          webhookUrl: (id) => (publicUrl ? `${publicUrl.origin}/hooks/channels/${id}` : undefined),
+          log: (message) => console.error(`channels: ${message}`),
+          chats: chatsPort,
+        })
+      : undefined
+  // Voice calls: speech to text, a fast call model that hands work to the crew, text to speech (Settings → Voice).
+  const settingsStore = options.settings
+  const voice =
+    chats && options.resolver && settingsStore
+      ? new VoiceHub({
+          home: options.home,
+          resolver: options.resolver,
+          settings: () => {
+            const s = settingsStore.get()
+            const fallbackModel = s.team.leadModel ?? options.omp?.defaultModel()
+            return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
+          },
+          ...(options.omp ? { omp: options.omp } : {}),
+          log: (line) => console.error(`voice: ${line}`),
+        })
+      : undefined
   void channels
     ?.start()
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
@@ -1885,6 +1914,73 @@ export function startServer(options: ServeOptions): WebServer {
           },
         })
       }),
+      // Voice calls (Settings → Voice): what is installed and chosen, installs, keys, a sample, calls per chat.
+      '/api/voice': guard(() =>
+        voice ? json(voice.status()) : json({ error: 'voice needs the chat runtime' }, 503),
+      ),
+      '/api/voice/phonon/install': {
+        POST: guard(() => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          void voice.phonon
+            .install()
+            .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/kitten/download': {
+        POST: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          const { model } = (await req.json().catch(() => ({}))) as { model?: unknown }
+          if (model !== 'nano' && model !== 'micro' && model !== 'mini')
+            return json({ error: 'model must be nano, micro or mini' }, 400)
+          void voice.kitten
+            .download(model)
+            .catch((err) => console.error(`voice: ${err instanceof Error ? err.message : err}`))
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/keys': {
+        PUT: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { stt?: unknown; tts?: unknown }
+          if (typeof body.stt === 'string') voice.setKey('stt', body.stt)
+          if (typeof body.tts === 'string') voice.setKey('tts', body.tts)
+          return json(voice.status())
+        }),
+      },
+      '/api/voice/sample': {
+        POST: guard(async (req) => {
+          if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
+          const { text } = (await req.json().catch(() => ({}))) as { text?: unknown }
+          if (typeof text !== 'string' || !text.trim()) return json({ error: 'text is required' }, 400)
+          try {
+            const speech = await voice.sample(text.slice(0, VOICE_SAMPLE_CHARS))
+            return new Response(wav(speech.pcm, speech.sampleRate), {
+              headers: { 'content-type': 'audio/wav', 'cache-control': 'no-store' },
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/chats/:id/calls': guard((req) => json({ calls: voice?.calls(req.params.id ?? '') ?? [] })),
+      // A call's audio both ways; chats-only devices may call too.
+      '/api/voice/call': (req: Request) => {
+        const url = new URL(req.url)
+        // Microphone audio over a WebSocket: only from this app's own pages (authorized() rejects other origins).
+        const access = req.headers.get('origin') ? authorized(req, url) : undefined
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (!voice || !chatsPort) return json({ error: 'voice needs the chat runtime' }, 503)
+        const rate = Number(url.searchParams.get('rate'))
+        const data = {
+          kind: 'call' as const,
+          rate: rate >= 8000 && rate <= 48_000 ? rate : 16_000,
+          ...(url.searchParams.get('chat') ? { chat: url.searchParams.get('chat') ?? '' } : {}),
+          ...(access.device ? { device: access.device.id } : {}),
+        }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
       '/api/health/socket': (req: Request) => {
         const access = authorized(req, new URL(req.url))
         if (!access) return json({ error: 'unauthorized' }, 401)
@@ -2006,6 +2102,40 @@ export function startServer(options: ServeOptions): WebServer {
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
           return
         }
+        if (ws.data.kind === 'call') {
+          const data = ws.data
+          void (async () => {
+            if (!voice || !chats || !chatsPort) throw new Error('voice needs the chat runtime')
+            const summary = data.chat ? (await chats.list()).find((c) => c.chatId === data.chat) : undefined
+            const session = voice.call(
+              chatsPort,
+              {
+                ...(data.chat ? { chatId: data.chat } : {}),
+                ...(summary ? { chatTitle: summary.title } : {}),
+                ...(summary?.project ? { project: summary.project.id } : {}),
+                name: options.settings?.get().profile.name ?? account,
+                sampleRate: data.rate,
+              },
+              (out) => {
+                if (out.type === 'audio') {
+                  // Speech as binary frames: the sample rate (4 bytes), then 16-bit mono samples.
+                  const frame = new Uint8Array(4 + out.pcm.byteLength)
+                  new DataView(frame.buffer).setUint32(0, out.sampleRate, true)
+                  frame.set(new Uint8Array(out.pcm.buffer, out.pcm.byteOffset, out.pcm.byteLength), 4)
+                  ws.send(frame)
+                  return
+                }
+                ws.send(JSON.stringify(out))
+                if (out.type === 'ended') ws.close(1000, 'call ended')
+              },
+            )
+            data.session = session
+            await session.start()
+          })().catch((err) =>
+            ws.close(1011, (err instanceof Error ? err.message : String(err)).slice(0, 120)),
+          )
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -2033,10 +2163,30 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.proc?.kill()
           return
         }
+        if (ws.data.kind === 'call') {
+          ws.data.session?.hangUp()
+          return
+        }
         if (ws.data.kind === 'browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'call') {
+          const session = ws.data.session
+          if (!session) return
+          if (typeof raw !== 'string') {
+            const bytes = new Uint8Array(raw)
+            session.audio(
+              new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+            )
+            return
+          }
+          const msg = JSON.parse(raw) as { type?: string; muted?: unknown }
+          if (msg.type === 'interrupt') session.interrupt()
+          else if (msg.type === 'mute') session.mute(msg.muted === true)
+          else if (msg.type === 'hangup') session.hangUp()
+          return
+        }
         if (ws.data.kind === 'bridge') {
           const up = ws.data.upstream
           const frame = typeof raw === 'string' ? raw : new Uint8Array(raw)
@@ -2126,6 +2276,7 @@ export function startServer(options: ServeOptions): WebServer {
       await preview.stop(true)
       offPlugins?.()
       await channels?.stop()
+      voice?.stop()
       store.close()
     },
   }
