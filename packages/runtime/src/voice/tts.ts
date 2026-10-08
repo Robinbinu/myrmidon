@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { VOICE_KITTEN_MODELS } from '../config.ts'
 import { parseWav } from './audio.ts'
@@ -85,6 +85,8 @@ export type KittenState =
   | { state: 'error'; error: string }
 
 const WORKER = join(import.meta.dir, 'kitten-worker.ts')
+/** In a model's folder: the pinned revision its files were checked against. */
+const PINNED = '.pinned'
 
 /**
  * Kitten TTS on this machine: its model downloaded from Hugging Face into `<home>/voice/kitten/<model>` (each file
@@ -96,7 +98,8 @@ export class KittenTts implements TextToSpeech {
   private _ready?: Promise<void>
   private _next = 1
   private readonly _waiting = new Map<number, { resolve(s: Speech): void; reject(e: Error): void }>()
-  private _download?: KittenState
+  /** Each model's download, while it runs or once it failed. */
+  private readonly _download = new Map<KittenModel, KittenState>()
   /** Downloads under way, so a warm-up and the Download button share one. */
   private readonly _downloads = new Map<KittenModel, Promise<void>>()
 
@@ -113,20 +116,54 @@ export class KittenTts implements TextToSpeech {
   }
 
   status(model = this.options().model): KittenState {
-    if (this._download && this._download.state !== 'ready') return this._download
+    const download = this._download.get(model)
+    if (download) return download
     if (!existsSync(join(this._dir(model), 'config.json'))) return { state: 'missing' }
     return this._proc && model === this.options().model ? { state: 'running' } : { state: 'ready' }
   }
 
-  /** Downloads a model's three files (its settings, the network, the voices); a model already here is kept. */
+  /**
+   * Downloads a model's three files (its settings, the network, the voices). A model already here is kept if it is
+   * the pinned one: checked by hash the first time (it may predate the pins, or the pin may have moved), then
+   * known by the revision noted in its folder. One that is not is downloaded again.
+   */
   download(model = this.options().model): Promise<void> {
-    if (existsSync(join(this._dir(model), 'config.json'))) return Promise.resolve()
     let job = this._downloads.get(model)
     if (!job) {
-      job = this._fetch(model).finally(() => this._downloads.delete(model))
+      job = this._ensure(model).finally(() => this._downloads.delete(model))
       this._downloads.set(model, job)
     }
     return job
+  }
+
+  private async _ensure(model: KittenModel): Promise<void> {
+    const dir = this._dir(model)
+    if (existsSync(join(dir, 'config.json'))) {
+      if (await this._pinned(model)) return
+      this.log(`kitten: the ${model} model here is not the pinned one; downloading it again`)
+      rmSync(dir, { recursive: true, force: true })
+    }
+    await this._fetch(model)
+  }
+
+  /** Whether the model in its folder is the pinned one. */
+  private async _pinned(model: KittenModel): Promise<boolean> {
+    const dir = this._dir(model)
+    const pin = this.pins[model]
+    const stamp = join(dir, PINNED)
+    if (existsSync(stamp) && readFileSync(stamp, 'utf8') === pin.revision) return true
+    for (const [name, want] of Object.entries(pin.files)) {
+      const file = Bun.file(join(dir, name))
+      if (!(await file.exists())) return false
+      if (
+        createHash('sha256')
+          .update(await file.bytes())
+          .digest('hex') !== want.sha256
+      )
+        return false
+    }
+    writeFileSync(stamp, pin.revision)
+    return true
   }
 
   private async _fetch(model: KittenModel): Promise<void> {
@@ -137,7 +174,7 @@ export class KittenTts implements TextToSpeech {
     let done = 0
     let received = 0
     const progress = () => {
-      this._download = { state: 'downloading', done, total, received, size }
+      this._download.set(model, { state: 'downloading', done, total, received, size })
     }
     const get = async (file: string) => {
       const want = pin.files[file]
@@ -175,11 +212,12 @@ export class KittenTts implements TextToSpeech {
       writeFileSync(join(part, networkFile), network)
       writeFileSync(join(part, voicesFile), voices)
       writeFileSync(join(part, 'config.json'), configBytes)
+      writeFileSync(join(part, PINNED), pin.revision)
       mkdirSync(join(dir, '..'), { recursive: true })
       renameSync(part, dir)
-      this._download = undefined
+      this._download.delete(model)
     } catch (err) {
-      this._download = { state: 'error', error: err instanceof Error ? err.message : String(err) }
+      this._download.set(model, { state: 'error', error: err instanceof Error ? err.message : String(err) })
       throw err
     }
   }

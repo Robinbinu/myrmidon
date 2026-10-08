@@ -41,7 +41,8 @@ By default speech stays on your Mac:
   [uv](https://docs.astral.sh/uv/).
 - **Text to speech: Kitten TTS** (KittenML; nano 60 MB, micro 45 MB, mini 82 MB). The model size you chose downloads
   when you turn voice calls on (or press **Download**), with its progress shown, from a pinned revision of its Hugging
-  Face repo, each file checked against its pinned hash; it is saved in `<home>/voice/kitten`. Nano is fastest, mini
+  Face repo, each file checked against its pinned hash; it is saved in `<home>/voice/kitten`. A model already there
+  (say, from before the pins) is checked the first time it is used, and downloaded again if it is not the pinned one. Nano is fastest, mini
   sounds best. Pick one of its eight voices and a speed, and press **Try it**.
 
 Settings → Voice shows each download's size before it happens (`GET /api/voice` reports them under `sizes`).

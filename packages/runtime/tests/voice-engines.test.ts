@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { VOICE_KITTEN_MODELS, VOICE_PHONON_VERSION } from '../src/config.ts'
@@ -138,10 +138,78 @@ test("Kitten's model downloads into Myrmidon's own folder, all or nothing, from 
   expect(paths.filter((p) => p.endsWith('/net.onnx'))).toHaveLength(1)
   expect(kitten.status()).toEqual({ state: 'ready' })
   expect(readdirSync(join(h, 'voice', 'kitten', 'nano')).sort()).toEqual([
+    '.pinned',
     'config.json',
     'net.onnx',
     'voices.npz',
   ])
+})
+
+test('a Kitten model already here is checked against its pins once, and downloaded again if it is not them', async () => {
+  const files: Record<string, string> = {
+    'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
+    'net.onnx': 'network',
+    'voices.npz': 'voices',
+  }
+  let fetched = 0
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) => {
+      fetched++
+      const name = new URL(req.url).pathname.split('/').pop() ?? ''
+      return files[name] ? new Response(files[name]) : new Response('no', { status: 404 })
+    },
+  })
+  servers.push(server)
+  const h = home()
+  const dir = join(h, 'voice', 'kitten', 'nano')
+  const settings = { model: 'nano' as const, voice: 'Leo', speed: 1 }
+  const kitten = () =>
+    new KittenTts(h, () => settings, undefined, `http://127.0.0.1:${server.port}`, pinsFor(files))
+  // An install from before the pins, with another network in it.
+  mkdirSync(dir, { recursive: true })
+  for (const [name, body] of Object.entries({ ...files, 'net.onnx': 'an older network' }))
+    writeFileSync(join(dir, name), body)
+  await kitten().download()
+  expect(readFileSync(join(dir, 'net.onnx'), 'utf8')).toBe('network')
+  expect(fetched).toBe(3)
+  // The pinned one is kept, and once checked it is known by its revision.
+  rmSync(join(dir, '.pinned'))
+  await kitten().download()
+  expect(readFileSync(join(dir, '.pinned'), 'utf8')).toBe('abc123')
+  await kitten().download()
+  expect(fetched).toBe(3)
+})
+
+test("one Kitten model's failed download says nothing about another", async () => {
+  const files: Record<string, string> = {
+    'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
+    'net.onnx': 'network',
+    'voices.npz': 'voices',
+  }
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) => {
+      const path = new URL(req.url).pathname
+      const name = path.split('/').pop() ?? ''
+      if (path.startsWith('/KittenML/broken/')) return new Response('gone', { status: 500 })
+      return files[name] ? new Response(files[name]) : new Response('no', { status: 404 })
+    },
+  })
+  servers.push(server)
+  const pins = pinsFor(files)
+  const settings = { model: 'nano' as const, voice: 'Leo', speed: 1 }
+  const kitten = new KittenTts(home(), () => settings, undefined, `http://127.0.0.1:${server.port}`, {
+    ...pins,
+    mini: { ...pins.mini, repo: 'KittenML/broken' },
+  })
+  await kitten.download('nano')
+  await expect(kitten.download('mini')).rejects.toThrow('failed (500)')
+  expect(kitten.status('nano')).toEqual({ state: 'ready' })
+  expect(kitten.status('mini')).toMatchObject({ state: 'error' })
+  expect(kitten.status('micro')).toEqual({ state: 'missing' })
 })
 
 test('a Kitten file that does not match its pinned hash, or a config naming a path, is refused', async () => {
