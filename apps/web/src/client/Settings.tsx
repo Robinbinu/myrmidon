@@ -3184,6 +3184,8 @@ function VoiceSection(props: {
   const [urlErrors, setUrlErrors] = useState<{ stt?: string; tts?: string }>({})
   // A failing look is said once, not again on every later look that fails the same way.
   const failed = useRef<string>(undefined)
+  // Counts finished looks, so each one, answered or failed, can schedule the next.
+  const [looks, setLooks] = useState(0)
   const load = () =>
     api<VoiceStatusView>('/api/voice')
       .then((s) => {
@@ -3195,18 +3197,19 @@ function VoiceSection(props: {
         failed.current = err.message
         toast(err.message, 'error')
       })
+      .finally(() => setLooks((n) => n + 1))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once, and again after each save
   useEffect(() => {
     void load()
     window.addEventListener(SETTINGS_SAVED, load)
     return () => window.removeEventListener(SETTINGS_SAVED, load)
   }, [])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each answer schedules the next look while one is due
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each finished look schedules the next while one is due
   useEffect(() => {
-    if (!voiceBusy(status)) return
+    if (!voiceBusy(status) && !failed.current) return
     const timer = setTimeout(() => void load(), VOICE_POLL_MS)
     return () => clearTimeout(timer)
-  }, [status])
+  }, [looks])
   const set = (patch: (voice: ServerSettings['voice']) => ServerSettings['voice']) =>
     props.update((s) => ({ ...s, voice: patch(s.voice) }))
   const act = (promise: Promise<unknown>) => promise.then(load, (err: Error) => toast(err.message, 'error'))
