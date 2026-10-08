@@ -14,7 +14,7 @@ export function ConfirmButton(props: {
   name?: string
   /** The icon button's tooltip, when it has more to say than its name. */
   title?: string
-  /** What the armed button says, such as "Remove for good". */
+  /** What the armed button says, such as "Yes, remove channel". */
   confirm: string
   onConfirm(): void
   /** An icon button instead of text: the trash can, or the glyph given for a removal that deletes nothing. */
