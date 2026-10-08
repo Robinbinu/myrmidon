@@ -130,6 +130,11 @@ export interface OmpRuntime {
   removeProvider(name: string): Promise<void>
   /** Re-reads `models.yml` and asks providers for their current model lists. */
   refreshModels(): Promise<void>
+  /**
+   * Speech to text with the first speech model omp can call (an OpenAI or Groq key, say); throws when there is none.
+   * For voice notes arriving on a channel.
+   */
+  transcribe(audio: Uint8Array, mimeType: string, fileName: string): Promise<string>
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
@@ -179,6 +184,7 @@ async function start(home: string): Promise<OmpRuntime> {
   const search = await import('@oh-my-pi/pi-coding-agent/web/search/index')
   const searchTypes = await import('@oh-my-pi/pi-coding-agent/web/search/types')
   const fetchTool = await import('@oh-my-pi/pi-coding-agent/tools/fetch')
+  const { transcribeAudio } = await import('@oh-my-pi/pi-ai/transcription/index')
   const modelsPath = join(agentDir, 'models.yml')
 
   type Credentials = {
@@ -372,6 +378,20 @@ async function start(home: string): Promise<OmpRuntime> {
     },
     async refreshModels() {
       await core.registry.refresh('online')
+    },
+    async transcribe(audio, mimeType, fileName) {
+      const models = core.registry.getAvailable('stt')
+      // Whisper-style models first; any speech model otherwise.
+      const model = models.find((m) => /whisper/i.test(m.id)) ?? models[0]
+      if (!model) throw new Error('no speech-to-text model: add an OpenAI or Groq key in Settings → Models')
+      const apiKey = (await core.registry.getApiKey(model)) as string | undefined
+      if (!apiKey) throw new Error(`no key for ${model.provider}`)
+      const result = await transcribeAudio(
+        model,
+        { audio, mimeType, fileName, responseFormat: 'json' },
+        { apiKey: apiKey as never },
+      )
+      return result.text
     },
     async search(query, options = {}) {
       const result = await search.runSearchQuery(

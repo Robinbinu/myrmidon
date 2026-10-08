@@ -5,11 +5,16 @@ import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
 import {
   type AdapterIO,
+  type ButtonPress,
   type ChannelAdapter,
+  type ChannelChat,
   type ChannelChats,
   ChannelHub,
+  type ChannelPatch,
   chunk,
   type Inbound,
+  type InboundFile,
+  type OutMessage,
   type SentRef,
   telegramHtml,
 } from '../src/channels/index.ts'
@@ -35,9 +40,14 @@ class FakeAdapter implements ChannelAdapter {
   readonly id = 'fake'
   readonly label = 'Telegram'
   readonly limits = { text: 300, editMs: 20 }
+  can = { buttons: true, files: true, edit: true }
   io?: AdapterIO
-  sent: { chat: string; text: string; id: string }[] = []
+  sent: { chat: string; text: string; id: string; buttons?: OutMessage['buttons'] }[] = []
   edits: { id: string; text: string }[] = []
+  files: { chat: string; name: string; size: number }[] = []
+  presses: { id: string; note?: string }[] = []
+  /** Sends fail while this is above zero (counting down), to exercise the delivery ledger. */
+  failing = 0
   private _n = 0
   async check() {
     return '@fakebot'
@@ -47,15 +57,28 @@ class FakeAdapter implements ChannelAdapter {
     io.status({ state: 'on', account: '@fakebot' })
   }
   async stop() {}
-  async send(chat: string, message: { text: string }): Promise<SentRef> {
+  async send(to: ChannelChat | string, message: OutMessage): Promise<SentRef> {
+    const chat = typeof to === 'string' ? to : to.id
+    if (this.failing > 0) {
+      this.failing--
+      throw new Error('network down')
+    }
     const id = String(++this._n)
-    this.sent.push({ chat, text: message.text, id })
+    this.sent.push({ chat, text: message.text, id, ...(message.buttons ? { buttons: message.buttons } : {}) })
     return { chat, id }
   }
-  async edit(ref: SentRef, message: { text: string }) {
+  async edit(ref: SentRef, message: OutMessage) {
     this.edits.push({ id: ref.id, text: message.text })
   }
   async typing() {}
+  async sendFile(to: ChannelChat | string, file: { name: string; data: Uint8Array }): Promise<SentRef> {
+    const chat = typeof to === 'string' ? to : to.id
+    this.files.push({ chat, name: file.name, size: file.data.byteLength })
+    return { chat, id: String(++this._n) }
+  }
+  async answerPress(press: ButtonPress, note?: string) {
+    this.presses.push({ id: press.id, ...(note ? { note } : {}) })
+  }
   to(chat: string) {
     return this.sent.filter((s) => s.chat === chat).map((s) => s.text)
   }
@@ -63,16 +86,28 @@ class FakeAdapter implements ChannelAdapter {
 
 /** Myrmidon's chats, faked: sends are recorded, and a test appends a round's events. */
 class FakeChats implements ChannelChats {
-  sends: { text: string; chatId: string | undefined }[] = []
+  sends: { text: string; chatId: string | undefined; files?: string[] }[] = []
   renamed: Record<string, string> = {}
   stopped: string[] = []
+  decided: { colonyId: string; id: string; approved: boolean }[] = []
+  alwaysAllowed: string[] = []
+  heard = 'please check the logs'
   events = new Map<string, MyrEvent[]>()
   running = new Set<string>()
   private _listeners = new Set<(colonyId: string, events: readonly MyrEvent[]) => void>()
+  private _streams = new Set<(colonyId: string, agent: string, text: string, done: boolean) => void>()
   private _n = 0
 
-  async send(text: string, chatId: string | undefined) {
-    this.sends.push({ text, chatId })
+  async send(
+    text: string,
+    chatId: string | undefined,
+    options?: { attachments?: readonly { name: string }[] },
+  ) {
+    this.sends.push({
+      text,
+      chatId,
+      ...(options?.attachments ? { files: options.attachments.map((a) => a.name) } : {}),
+    })
     const id = chatId ?? `chat-${++this._n}`
     const colonyId = `col-${id}`
     const started = !this.running.has(colonyId)
@@ -102,8 +137,28 @@ class FakeChats implements ChannelChats {
     this._listeners.add(listener)
     return () => this._listeners.delete(listener)
   }
+  onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void) {
+    this._streams.add(listener)
+    return () => this._streams.delete(listener)
+  }
   async read(colonyId: string) {
     return this.events.get(colonyId) ?? []
+  }
+  async decideApproval(colonyId: string, id: string, approved: boolean) {
+    this.decided.push({ colonyId, id, approved })
+    this.emit(colonyId, 'approval/decided', { id, approved, by: 'person' })
+  }
+  async allowAlways(tool: string) {
+    this.alwaysAllowed.push(tool)
+  }
+  async artifact(_colonyId: string, name: string) {
+    return { data: new TextEncoder().encode(`contents of ${name}`), mediaType: 'text/markdown' }
+  }
+  async transcribe() {
+    return this.heard
+  }
+  stream(colonyId: string, text: string) {
+    for (const l of this._streams) l(colonyId, 'lead', text, false)
   }
   emit(colonyId: string, type: string, payload: Record<string, unknown>) {
     const list = this.events.get(colonyId) ?? []
@@ -126,44 +181,60 @@ class FakeChats implements ChannelChats {
   }
 }
 
-async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'myr-channels-'))
-  dirs.push(dir)
+const codeIn = (text: string) => /approve telegram ([A-Z2-9]{8})/.exec(text)?.[1] ?? ''
+
+async function setup(patch: ChannelPatch = {}, existingDir?: string) {
+  const dir = existingDir ?? mkdtempSync(join(tmpdir(), 'myr-channels-'))
+  if (!existingDir) dirs.push(dir)
   const adapter = new FakeAdapter()
   const chats = new FakeChats()
   const hub = new ChannelHub({
     dir,
     chats,
-    kinds: { telegram: { label: 'Telegram', make: () => adapter } },
+    kinds: () => ({
+      telegram: {
+        label: 'Telegram',
+        fields: [{ key: 'token', label: 'Token', secret: true }],
+        make: () => adapter,
+      },
+    }),
     log: (m) => console.error(m),
   })
   hubs.push(hub)
-  await hub.configure('telegram', { token: 'tok' })
+  if (existingDir) await hub.start()
+  else await hub.configure('telegram', { values: { token: 'tok' }, ...patch })
   await until(() => adapter.io !== undefined)
   let n = 0
   const say = (
-    from: { id: string; name: string },
+    from: { id: string; name: string; handle?: string },
     text: string,
-    chat?: Partial<Inbound['chat']> & { mentioned?: boolean },
+    extra: Partial<Inbound['chat']> & { mentioned?: boolean; files?: InboundFile[]; press?: string } = {},
   ) =>
     adapter.io?.receive({
       messageId: String(++n),
       chat: {
-        id: chat?.id ?? from.id,
-        kind: chat?.kind ?? 'dm',
-        ...(chat?.title ? { title: chat.title } : {}),
+        id: extra.id ?? from.id,
+        kind: extra.kind ?? 'dm',
+        ...(extra.title ? { title: extra.title } : {}),
       },
       sender: from,
       text,
-      mentioned: chat?.mentioned ?? true,
+      mentioned: extra.mentioned ?? true,
+      ...(extra.files ? { files: extra.files } : {}),
+      ...(extra.press ? { press: { id: `cb${n}`, data: extra.press } } : {}),
       time: new Date().toISOString(),
     })
-  return { dir, hub, adapter, chats, say }
+  /** Approves `who` by the code the bot sent them. */
+  const pair = async (who: { id: string; name: string }) => {
+    await say(who, 'hi')
+    await until(() => adapter.to(who.id).length >= 1)
+    await hub.approve('telegram', { code: codeIn(adapter.to(who.id).at(-1) ?? '') })
+  }
+  return { dir, hub, adapter, chats, say, pair }
 }
 
 const ALICE = { id: '100', name: 'Alice' }
-const BOB = { id: '200', name: 'Bob' }
-const codeIn = (text: string) => /approve telegram ([A-Z2-9]{8})/.exec(text)?.[1] ?? ''
+const BOB = { id: '200', name: 'Bob', handle: 'bobby' }
 
 test('a stranger gets a code and nothing they say is acted on; the first approved is the owner', async () => {
   const { hub, adapter, chats, say, dir } = await setup()
@@ -181,7 +252,7 @@ test('a stranger gets a code and nothing they say is acted on; the first approve
   expect(statSync(join(dir, 'channels.json')).mode & 0o777).toBe(0o600)
 
   const approved = await hub.approve('telegram', { code: code.toLowerCase() })
-  expect(approved?.person?.role).toBe('owner')
+  expect(approved?.person).toMatchObject({ role: 'owner', dm: '100' })
   expect(adapter.to('100').at(-1)).toContain('owner')
 
   await say(ALICE, 'build me a calculator')
@@ -200,11 +271,26 @@ test('a stranger gets a code and nothing they say is acted on; the first approve
   expect(chats.sends[1]?.text).toEndWith('summarize the news')
 })
 
-test('groups need approval, a mention, and an approved sender', async () => {
-  const { hub, adapter, chats, say } = await setup()
-  await say(ALICE, 'hi')
-  await until(() => adapter.to('100').length === 1)
-  await hub.approve('telegram', { code: codeIn(adapter.to('100')[0] ?? '') })
+test('access policies: an allowlist lets listed people in (the first as owner) and ignores the rest silently', async () => {
+  const { adapter, chats, say, hub } = await setup({ dm: 'allowlist', allow: ['@bobby'] })
+  await say(ALICE, 'let me in')
+  await Bun.sleep(30)
+  expect(adapter.to('100')).toEqual([])
+  await say(BOB, 'hello from the list')
+  await until(() => chats.sends.length === 1)
+  expect(hub.store.get('telegram').people).toMatchObject([{ id: '200', role: 'owner', dm: '200' }])
+
+  // `open` lets anyone in as a member, without keeping them.
+  await hub.configure('telegram', { dm: 'open' })
+  await say(ALICE, 'open door')
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]?.text).toContain('an approved Telegram member')
+  expect(hub.store.get('telegram').people).toHaveLength(1)
+})
+
+test('groups need approval, a mention, and an approved sender; per-person conversations split them', async () => {
+  const { hub, adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
   const group = { id: '-5', kind: 'group' as const, title: 'Team' }
 
   await say(ALICE, 'not for the bot', { ...group, mentioned: false })
@@ -224,13 +310,18 @@ test('groups need approval, a mention, and an approved sender', async () => {
   await Bun.sleep(30)
   expect(chats.sends.map((s) => s.text)).toEqual(['now do it'])
   expect(chats.renamed['chat-1']).toBe('Telegram · Team')
+
+  // Per person: Bob, once approved, gets his own conversation in the same group.
+  await pair(BOB)
+  await hub.configure('telegram', { perPerson: true })
+  await say(BOB, 'mine', group)
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]?.chatId).toBeUndefined()
 })
 
-test('a round shows a status line that follows the work, then the answer as a new message', async () => {
-  const { hub, adapter, chats, say } = await setup()
-  await say(ALICE, 'hi')
-  await until(() => adapter.to('100').length === 1)
-  await hub.approve('telegram', { code: codeIn(adapter.to('100')[0] ?? '') })
+test('a round shows a status line that follows the work, then the answer and its files', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
   const before = adapter.sent.length
 
   await say(ALICE, 'list the files')
@@ -249,7 +340,7 @@ test('a round shows a status line that follows the work, then the answer as a ne
   expect(adapter.edits.every((e) => e.id === status?.id)).toBe(true)
 
   chats.emit('col-chat-1', 'artifact/versioned', {
-    name: 'files.md',
+    name: 'out/files.md',
     version: 1,
     blob: 'b',
     size: 1,
@@ -262,7 +353,8 @@ test('a round shows a status line that follows the work, then the answer as a ne
     final: true,
   })
   chats.emit('col-chat-1', 'colony/completed', {})
-  await until(() => adapter.sent.some((s) => s.text.startsWith('Files: files.md')))
+  await until(() => adapter.files.length === 1)
+  expect(adapter.files[0]).toMatchObject({ chat: '100', name: 'files.md' })
   expect(adapter.edits.at(-1)?.text).toMatch(/^Done · \d+s$/)
   // The answer is longer than the platform's limit: it arrives in marked pieces.
   const pieces = adapter.to('100').filter((t) => /\(\d\/\d\)$/.test(t))
@@ -270,11 +362,151 @@ test('a round shows a status line that follows the work, then the answer as a ne
   expect(pieces[0]).toStartWith('Here they are:')
 })
 
+test('approvals go to the owner with buttons; only the owner decides, and "always" changes the rule', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await pair(BOB)
+  await say(BOB, 'deploy it')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-1',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'run `rm -rf build`',
+    review: {
+      kind: 'command',
+      title: 'Run',
+      fields: [{ key: 'command', label: 'Command', value: 'rm -rf build', format: 'code', editable: false }],
+    },
+  })
+  // A member's round asks the owner, in the owner's own chat, and says so where it started.
+  await until(() => adapter.sent.some((s) => s.chat === '100' && s.buttons))
+  const ask = adapter.sent.find((s) => s.chat === '100' && s.buttons)
+  expect(ask?.text).toContain('**lead** wants to run `rm -rf build`')
+  await until(() => adapter.to('200').includes("Waiting for the owner's OK."))
+  const [once, always, deny] = (ask?.buttons ?? []).map((row) => row[0]?.data ?? '')
+  expect(always).toContain('a:a:')
+
+  // Bob pressing Deny is refused.
+  await say(BOB, '', { press: deny ?? '' })
+  await until(() => adapter.presses.some((p) => p.note === 'Only the owner can approve this.'))
+  expect(chats.decided).toEqual([])
+
+  await say(ALICE, '', { press: always ?? '' })
+  await until(() => chats.decided.length === 1)
+  expect(chats.decided[0]).toEqual({ colonyId: 'col-chat-1', id: 'ap-1', approved: true })
+  expect(chats.alwaysAllowed).toEqual(['shell'])
+  await until(() =>
+    adapter.edits.some((e) => e.text.includes('✅ Allowed by Alice; shell is now always allowed')),
+  )
+  // The same button again: the request is closed.
+  await say(ALICE, '', { press: once ?? '' })
+  await until(() => adapter.presses.some((p) => p.note === 'This request is no longer open.'))
+})
+
+test('without buttons, approvals and questions are answered by typing', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  adapter.can = { buttons: false, files: false, edit: true }
+  await pair(ALICE)
+  await say(ALICE, 'go')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-2',
+    agent: 'lead',
+    tool: 'fs_write',
+    summary: 'write a.txt',
+  })
+  await until(() => adapter.to('100').some((t) => t.includes('/deny ')))
+  const k = /\/deny (\S+?)\./.exec(adapter.to('100').find((t) => t.includes('/deny')) ?? '')?.[1] ?? ''
+  await say(ALICE, `/deny ${k}`)
+  await until(() => chats.decided.length === 1)
+  expect(chats.decided[0]?.approved).toBe(false)
+
+  chats.emit('col-chat-1', 'chat/reply', {
+    agent: 'lead',
+    text: 'A quick question.',
+    final: false,
+    question: true,
+    choices: [{ question: 'Which colour?', options: [{ label: 'Red' }, { label: 'Blue' }] }],
+  })
+  await until(() => adapter.to('100').some((t) => t.startsWith('Which colour?\n1. Red\n2. Blue')))
+  await say(ALICE, '2')
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]).toEqual({ text: 'Which colour? → Blue', chatId: 'chat-1' })
+})
+
+test('questions with options become buttons; the answers go back together in the app’s format', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'plan a trip')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'chat/reply', {
+    agent: 'lead',
+    text: 'Before I start:',
+    final: false,
+    question: true,
+    choices: [
+      { question: 'Where?', options: [{ label: 'Lisbon' }, { label: 'Oslo' }] },
+      { question: 'How long?', options: [{ label: 'A weekend' }, { label: 'A week' }] },
+    ],
+  })
+  await until(() => adapter.sent.filter((s) => s.buttons).length === 2)
+  const [where, long] = adapter.sent.filter((s) => s.buttons)
+  await say(ALICE, '', { press: where?.buttons?.[1]?.[0]?.data ?? '' })
+  await say(ALICE, '', { press: long?.buttons?.[2]?.[0]?.data ?? '' })
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]?.text).toBe('Where? → Oslo\nHow long? → (skipped: your call)')
+  expect(adapter.edits.some((e) => e.text === 'Where?\n→ Oslo')).toBe(true)
+})
+
+test('voice notes are transcribed and echoed; photos and files become attachments', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  const voice: InboundFile = {
+    kind: 'voice',
+    name: 'voice.ogg',
+    mimeType: 'audio/ogg',
+    read: async () => new Uint8Array([1, 2, 3]),
+  }
+  await say(ALICE, '', { files: [voice] })
+  await until(() => chats.sends.length === 1)
+  expect(chats.sends[0]?.text).toBe('please check the logs')
+  expect(adapter.to('100')).toContain('🎙️ “please check the logs”')
+
+  const photo: InboundFile = {
+    kind: 'image',
+    name: 'screen.png',
+    mimeType: 'image/png',
+    read: async () => new Uint8Array([9, 9]),
+  }
+  await say(ALICE, 'what is wrong here?', { files: [photo] })
+  await until(() => chats.sends.length === 2)
+  expect(chats.sends[1]).toMatchObject({ text: 'what is wrong here?', files: ['screen.png'] })
+})
+
+test('answers that fail to send are kept and resent when the channel comes back, marked as possibly repeated', async () => {
+  const first = await setup()
+  await first.pair(ALICE)
+  await first.say(ALICE, 'tell me')
+  await until(() => first.chats.sends.length === 1)
+  // The network drops just as the answer goes out (and its retry is minutes away).
+  first.adapter.failing = 5
+  first.chats.emit('col-chat-1', 'chat/reply', { agent: 'lead', text: 'The answer is 42.', final: true })
+  first.chats.emit('col-chat-1', 'colony/completed', {})
+  await Bun.sleep(80)
+  expect(first.adapter.to('100').some((t) => t.includes('42'))).toBe(false)
+  await first.hub.stop()
+  hubs.splice(hubs.indexOf(first.hub), 1)
+
+  // A restart: the owed answer goes out once the channel is on again.
+  const second = await setup({}, first.dir)
+  await until(() => second.adapter.to('100').some((t) => t.includes('The answer is 42.')))
+  expect(second.adapter.to('100').find((t) => t.includes('42'))).toStartWith('♻️ Recovered reply')
+})
+
 test('commands: /new starts a fresh chat, /stop stops the running round, and redeliveries are dropped', async () => {
-  const { hub, adapter, chats, say } = await setup()
-  await say(ALICE, 'hi')
-  await until(() => adapter.to('100').length === 1)
-  await hub.approve('telegram', { code: codeIn(adapter.to('100')[0] ?? '') })
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
 
   await say(ALICE, 'first')
   await until(() => chats.sends.length === 1)
@@ -303,6 +535,31 @@ test('commands: /new starts a fresh chat, /stop stops the running round, and red
   await say(ALICE, 'second topic')
   await until(() => chats.sends.length === 3)
   expect(chats.sends[2]?.chatId).toBeUndefined()
+})
+
+test('streaming modes: partial writes the reply into one message; notify reaches the owner', async () => {
+  const { adapter, chats, say, pair, hub } = await setup({ stream: 'partial' })
+  await pair(ALICE)
+  const before = adapter.sent.length
+  await say(ALICE, 'write a haiku')
+  await until(() => chats.sends.length === 1)
+  chats.stream('col-chat-1', 'Autumn moonlight')
+  await until(() => adapter.sent.length === before + 1)
+  expect(adapter.sent.at(-1)?.text).toBe('Autumn moonlight ▉')
+  chats.stream('col-chat-1', 'Autumn moonlight—\na worm digs silently')
+  await until(() => adapter.edits.some((e) => e.text.includes('a worm digs')))
+  chats.emit('col-chat-1', 'chat/reply', {
+    agent: 'lead',
+    text: 'Autumn moonlight—\na worm digs silently\ninto the chestnut.',
+    final: true,
+  })
+  chats.emit('col-chat-1', 'colony/completed', {})
+  await until(() => adapter.edits.some((e) => e.text.endsWith('into the chestnut.')))
+  // No status line in this mode: the draft became the answer.
+  expect(adapter.to('100').includes('Working…')).toBe(false)
+
+  expect(await hub.notify('Long job finished.')).toBe('Telegram · Alice')
+  await until(() => adapter.to('100').includes('Long job finished.'))
 })
 
 test('chunking keeps code blocks whole in each piece, and Telegram HTML is escaped and balanced', () => {

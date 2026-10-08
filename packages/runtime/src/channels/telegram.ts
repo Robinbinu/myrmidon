@@ -1,11 +1,25 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { channelCopy } from './copy.ts'
 import { telegramHtml } from './format.ts'
-import type { AdapterIO, ChannelAdapter, Inbound, OutMessage, SentRef } from './types.ts'
+import {
+  type AdapterIO,
+  type ButtonPress,
+  type ChannelAdapter,
+  type ChannelChat,
+  chatIdOf,
+  type Inbound,
+  type InboundFile,
+  type OutFile,
+  type OutMessage,
+  type SentRef,
+  threadOf,
+} from './types.ts'
 
 /**
- * Telegram through its Bot API over plain HTTP (no library): long polling, so nothing on this machine needs to be
- * reachable from the internet. As Hermes and OpenClaw do: the polling offset is saved only after a message is
- * recorded, a 409 means another program polls the same bot, and `retry_after` is honoured.
+ * Telegram through its Bot API over plain HTTP (no library), ported from OpenClaw's and Hermes's adapters: long
+ * polling by default (nothing on this machine needs to be reachable), or a webhook with a secret header when the
+ * gateway has a public address; the polling offset saved only after a message is recorded; 409 and `retry_after`
+ * handled; inline buttons and their presses; photos, files and voice notes in and out; forum topics as threads.
  */
 
 export const TELEGRAM_API = 'https://api.telegram.org'
@@ -17,6 +31,10 @@ const BACKOFF_MAX_MS = 60_000
 const CONFLICT_WAIT_MS = 10_000
 /** A `retry_after` longer than this fails the send rather than holding the chat up. */
 const RETRY_MAX_S = 30
+/** Bots may download files up to 20 MB and upload up to 50 MB; photos up to 10 MB. */
+const DOWNLOAD_MAX = 20 * 1024 * 1024
+const PHOTO_MAX = 10 * 1024 * 1024
+const UPDATES = ['message', 'callback_query']
 
 class TelegramError extends Error {
   constructor(
@@ -35,26 +53,42 @@ interface TgUser {
   last_name?: string
   username?: string
 }
+interface TgFile {
+  file_id: string
+  file_size?: number
+  file_name?: string
+  mime_type?: string
+}
+interface TgChat {
+  id: number
+  type: 'private' | 'group' | 'supergroup' | 'channel'
+  title?: string
+  is_forum?: boolean
+}
 interface TgMessage {
   message_id: number
   date: number
   from?: TgUser
-  chat: { id: number; type: 'private' | 'group' | 'supergroup' | 'channel'; title?: string }
+  chat: TgChat
+  message_thread_id?: number
+  is_topic_message?: boolean
   text?: string
   caption?: string
   entities?: { type: string; offset: number; length: number }[]
   caption_entities?: { type: string; offset: number; length: number }[]
   reply_to_message?: { from?: TgUser }
-  photo?: unknown
-  voice?: unknown
-  audio?: unknown
-  video?: unknown
-  document?: unknown
+  photo?: TgFile[]
+  voice?: TgFile
+  audio?: TgFile
+  video?: TgFile
+  document?: TgFile
   sticker?: unknown
+  location?: unknown
 }
 interface TgUpdate {
   update_id: number
   message?: TgMessage
+  callback_query?: { id: string; from: TgUser; data?: string; message?: TgMessage }
 }
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -70,14 +104,23 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     )
   })
 
+const senderOf = (u: TgUser) => ({
+  id: String(u.id),
+  name: [u.first_name, u.last_name].filter(Boolean).join(' ') || 'Someone',
+  ...(u.username ? { handle: u.username } : {}),
+})
+
 export class TelegramAdapter implements ChannelAdapter {
   readonly id = 'telegram'
   readonly label = 'Telegram'
-  /** Telegram's message limit, and about one edit a second per chat. */
-  readonly limits = { text: 4096, editMs: 1500 }
+  /** Telegram's message limit, about one edit a second per chat, and the upload limit. */
+  readonly limits = { text: 4096, editMs: 1500, file: 50 * 1024 * 1024 }
+  readonly can = { buttons: true, files: true, edit: true }
   private _me?: { id: number; username: string }
   private _abort?: AbortController
   private _loop?: Promise<void>
+  private _io?: AdapterIO
+  private _secret?: string
 
   constructor(
     private readonly token: string,
@@ -87,15 +130,16 @@ export class TelegramAdapter implements ChannelAdapter {
   /** Never logs or throws the URL: it carries the token. */
   private async _call<T>(
     method: string,
-    body: Record<string, unknown> = {},
+    body: Record<string, unknown> | FormData = {},
     signal?: AbortSignal,
   ): Promise<T> {
     let res: Response
     try {
       res = await fetch(`${this.api}/bot${this.token}/${method}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        ...(body instanceof FormData
+          ? { body }
+          : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
         ...(signal ? { signal } : {}),
       })
     } catch (err) {
@@ -134,6 +178,7 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   async start(io: AdapterIO): Promise<void> {
+    this._io = io
     this._abort = new AbortController()
     const signal = this._abort.signal
     io.status({ state: 'connecting' })
@@ -153,17 +198,36 @@ export class TelegramAdapter implements ChannelAdapter {
       }
       if (signal.aborted) return
       await this._call('setMyCommands', { commands: channelCopy.commands.menu }).catch(() => {})
-      io.status({ state: 'on', account: `@${this._me?.username}` })
+      const account = `@${this._me?.username}`
+      if (io.webhookUrl) {
+        // Telegram pushes updates, each carrying this secret, which the webhook checks.
+        this._secret = io.get('webhook-secret') ?? randomBytes(24).toString('base64url')
+        io.set('webhook-secret', this._secret)
+        try {
+          await this._call('setWebhook', {
+            url: io.webhookUrl,
+            secret_token: this._secret,
+            allowed_updates: UPDATES,
+          })
+          io.status({ state: 'on', account })
+        } catch (err) {
+          io.status({ state: 'error', error: err instanceof Error ? err.message : String(err) })
+        }
+        return
+      }
+      // Polling only works with no webhook set (one left from a webhook setup would make every poll fail).
+      await this._call('deleteWebhook', {}).catch(() => {})
+      io.status({ state: 'on', account })
       let offset = Number(io.get('offset') ?? 0)
       backoff = BACKOFF_MIN_MS
       while (!signal.aborted) {
         try {
           const updates = await this._call<TgUpdate[]>(
             'getUpdates',
-            { offset, timeout: POLL_S, allowed_updates: ['message'] },
+            { offset, timeout: POLL_S, allowed_updates: UPDATES },
             AbortSignal.any([signal, AbortSignal.timeout((POLL_S + 15) * 1000)]),
           )
-          if (backoff !== BACKOFF_MIN_MS) io.status({ state: 'on', account: `@${this._me?.username}` })
+          if (backoff !== BACKOFF_MIN_MS) io.status({ state: 'on', account })
           backoff = BACKOFF_MIN_MS
           for (const update of updates) {
             const message = this._inbound(update)
@@ -201,18 +265,78 @@ export class TelegramAdapter implements ChannelAdapter {
     await this._loop?.catch(() => {})
   }
 
-  /** A Telegram update as the hub's message; undefined for what channels ignore (bots, channels, edits). */
+  /** An update Telegram pushed, accepted only with the secret it was given when the webhook was set. */
+  async webhook(req: Request): Promise<Response> {
+    const given = Buffer.from(req.headers.get('x-telegram-bot-api-secret-token') ?? '')
+    const secret = Buffer.from(this._secret ?? '')
+    if (!secret.length || given.length !== secret.length || !timingSafeEqual(given, secret))
+      return new Response('unauthorized', { status: 401 })
+    const update = (await req.json().catch(() => undefined)) as TgUpdate | undefined
+    const message = update && this._inbound(update)
+    if (message) await this._io?.receive(message)
+    return new Response('ok')
+  }
+
+  private _chat(chat: TgChat, msg?: TgMessage): ChannelChat | undefined {
+    const kind = chat.type === 'private' ? 'dm' : chat.type === 'channel' ? undefined : 'group'
+    if (!kind) return undefined
+    // A forum topic is a conversation of its own.
+    const thread = msg?.is_topic_message && msg.message_thread_id ? String(msg.message_thread_id) : undefined
+    return {
+      id: String(chat.id),
+      kind,
+      ...(chat.title ? { title: chat.title } : {}),
+      ...(thread ? { thread } : {}),
+    }
+  }
+
+  private _file(kind: InboundFile['kind'], f: TgFile, fallback: string, mime: string): InboundFile {
+    return {
+      kind,
+      name: f.file_name ?? fallback,
+      mimeType: f.mime_type ?? mime,
+      ...(f.file_size ? { size: f.file_size } : {}),
+      read: async () => {
+        if (f.file_size && f.file_size > DOWNLOAD_MAX)
+          throw new Error('Telegram lets bots download up to 20 MB')
+        const { file_path } = await this._call<{ file_path: string }>('getFile', { file_id: f.file_id })
+        const res = await fetch(`${this.api}/file/bot${this.token}/${file_path}`)
+        if (!res.ok) throw new Error(`Telegram answered ${res.status} for the file`)
+        return new Uint8Array(await res.arrayBuffer())
+      },
+    }
+  }
+
+  /** A Telegram update as the hub's message; undefined for what channels ignore (bots, channel posts, edits). */
   private _inbound(update: TgUpdate): Inbound | undefined {
+    const press = update.callback_query
+    if (press?.message && !press.from.is_bot) {
+      const chat = this._chat(press.message.chat, press.message)
+      if (!chat) return undefined
+      return {
+        messageId: `press:${press.id}`,
+        chat,
+        sender: senderOf(press.from),
+        text: '',
+        mentioned: true,
+        press: {
+          id: press.id,
+          data: press.data ?? '',
+          message: { chat: chat.id, id: String(press.message.message_id) },
+        },
+        time: new Date().toISOString(),
+      }
+    }
     const msg = update.message
     if (!msg?.from || msg.from.is_bot) return undefined
-    const kind = msg.chat.type === 'private' ? 'dm' : msg.chat.type === 'channel' ? undefined : 'group'
-    if (!kind) return undefined
+    const chat = this._chat(msg.chat, msg)
+    if (!chat) return undefined
     const raw = msg.text ?? msg.caption ?? ''
     const username = this._me?.username.toLowerCase() ?? ''
     const entities = msg.entities ?? msg.caption_entities ?? []
     const command = /^\/[a-z_]+(?:@(\w+))?/i.exec(raw)
     const mentioned =
-      kind === 'dm' ||
+      chat.kind === 'dm' ||
       msg.reply_to_message?.from?.id === this._me?.id ||
       entities.some(
         (e) =>
@@ -223,26 +347,46 @@ export class TelegramAdapter implements ChannelAdapter {
       .replace(new RegExp(`@${username}\\b`, 'gi'), '')
       .replace(/^(\/[a-z_]+)@\w+/i, '$1')
       .trim()
+    const files: InboundFile[] = []
+    const largest = msg.photo?.at(-1)
+    if (largest) files.push(this._file('image', largest, `photo-${msg.message_id}.jpg`, 'image/jpeg'))
+    if (msg.voice) files.push(this._file('voice', msg.voice, `voice-${msg.message_id}.ogg`, 'audio/ogg'))
+    if (msg.audio) files.push(this._file('audio', msg.audio, `audio-${msg.message_id}.mp3`, 'audio/mpeg'))
+    if (msg.video) files.push(this._file('video', msg.video, `video-${msg.message_id}.mp4`, 'video/mp4'))
+    if (msg.document)
+      files.push(this._file('document', msg.document, `file-${msg.message_id}`, 'application/octet-stream'))
     return {
       messageId: String(msg.message_id),
-      chat: { id: String(msg.chat.id), kind, ...(msg.chat.title ? { title: msg.chat.title } : {}) },
-      sender: {
-        id: String(msg.from.id),
-        name: [msg.from.first_name, msg.from.last_name].filter(Boolean).join(' ') || 'Someone',
-        ...(msg.from.username ? { handle: msg.from.username } : {}),
-      },
+      chat,
+      sender: senderOf(msg.from),
       text,
       mentioned,
-      ...(!msg.text && (msg.photo || msg.voice || msg.audio || msg.video || msg.document || msg.sticker)
-        ? { unsupported: true }
-        : {}),
+      ...(files.length ? { files } : {}),
+      ...(!raw && !files.length && (msg.sticker || msg.location) ? { unsupported: true } : {}),
       time: new Date(msg.date * 1000).toISOString(),
     }
   }
 
+  private _where(chat: ChannelChat | string) {
+    const thread = threadOf(chat)
+    return { chat_id: chatIdOf(chat), ...(thread ? { message_thread_id: Number(thread) } : {}) }
+  }
+
+  private _markup(message: OutMessage) {
+    return message.buttons?.length
+      ? {
+          reply_markup: {
+            inline_keyboard: message.buttons.map((row) =>
+              row.map((b) => ({ text: b.label, callback_data: b.data })),
+            ),
+          },
+        }
+      : {}
+  }
+
   /** Sends as HTML, waiting out a short `retry_after` once; plain text when Telegram cannot parse the HTML. */
   private async _send<T>(method: string, body: Record<string, unknown>, message: OutMessage): Promise<T> {
-    const html = { ...body, text: telegramHtml(message.text), parse_mode: 'HTML' }
+    const html = { ...body, ...this._markup(message), text: telegramHtml(message.text), parse_mode: 'HTML' }
     try {
       return await this._call<T>(method, html)
     } catch (err) {
@@ -252,18 +396,18 @@ export class TelegramAdapter implements ChannelAdapter {
         return this._call<T>(method, html)
       }
       if (err.code === 400 && /parse entities|can't find end/i.test(err.message))
-        return this._call<T>(method, { ...body, text: message.text })
+        return this._call<T>(method, { ...body, ...this._markup(message), text: message.text })
       throw err
     }
   }
 
-  async send(chat: string, message: OutMessage): Promise<SentRef> {
+  async send(chat: ChannelChat | string, message: OutMessage): Promise<SentRef> {
     const sent = await this._send<{ message_id: number }>(
       'sendMessage',
-      { chat_id: chat, link_preview_options: { is_disabled: true } },
+      { ...this._where(chat), link_preview_options: { is_disabled: true } },
       message,
     )
-    return { chat, id: String(sent.message_id) }
+    return { chat: chatIdOf(chat), id: String(sent.message_id) }
   }
 
   async edit(ref: SentRef, message: OutMessage): Promise<void> {
@@ -279,7 +423,26 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
 
-  async typing(chat: string): Promise<void> {
-    await this._call('sendChatAction', { chat_id: chat, action: 'typing' })
+  async typing(chat: ChannelChat | string): Promise<void> {
+    await this._call('sendChatAction', { ...this._where(chat), action: 'typing' })
+  }
+
+  /** Images small enough go as photos (shown inline); everything else as a document, uncompressed. */
+  async sendFile(chat: ChannelChat | string, file: OutFile): Promise<SentRef> {
+    const photo = /^image\/(png|jpeg|gif|webp)$/.test(file.mimeType) && file.data.byteLength <= PHOTO_MAX
+    const form = new FormData()
+    for (const [k, v] of Object.entries(this._where(chat))) form.set(k, String(v))
+    if (file.caption) form.set('caption', file.caption)
+    form.set(
+      photo ? 'photo' : 'document',
+      new Blob([new Uint8Array(file.data)], { type: file.mimeType }),
+      file.name,
+    )
+    const sent = await this._call<{ message_id: number }>(photo ? 'sendPhoto' : 'sendDocument', form)
+    return { chat: chatIdOf(chat), id: String(sent.message_id) }
+  }
+
+  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+    await this._call('answerCallbackQuery', { callback_query_id: press.id, ...(note ? { text: note } : {}) })
   }
 }

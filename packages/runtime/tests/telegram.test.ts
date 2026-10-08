@@ -154,7 +154,7 @@ test('updates become messages: mentions in groups, commands, bots ignored, the o
   })
   expect(received[2]).toMatchObject({ mentioned: false })
   expect(received[3]).toMatchObject({ text: '/status', mentioned: true })
-  expect(received[4]).toMatchObject({ unsupported: true, text: '' })
+  expect(received[4]?.files?.[0]).toMatchObject({ kind: 'image', mimeType: 'image/jpeg' })
   // The bot's own kind is never delivered, and the offset moves past everything handled.
   expect(received.some((m) => m.text === 'bot talk')).toBe(false)
   await until(() => kv.get('offset') === '16')
@@ -215,4 +215,118 @@ test('a refused token stops it with the reason; another poller is reported and r
     state: 'retrying',
     error: expect.stringContaining('another program'),
   })
+})
+
+test('button presses, files in and out, and forum topics', async () => {
+  const { server, calls, api } = botApi({
+    getMe: () => ME,
+    getUpdates: (_b, n) =>
+      n === 1
+        ? {
+            ok: true,
+            result: [
+              {
+                update_id: 20,
+                callback_query: {
+                  id: 'cbq-1',
+                  from: user(1, 'Alice'),
+                  data: 'a:o:abc123',
+                  message: { message_id: 50, date: 1, chat: { id: 1, type: 'private' } },
+                },
+              },
+              {
+                update_id: 21,
+                message: {
+                  message_id: 51,
+                  date: 1,
+                  from: user(1, 'Alice'),
+                  chat: { id: -9, type: 'supergroup', title: 'Ops', is_forum: true },
+                  message_thread_id: 77,
+                  is_topic_message: true,
+                  text: '@myrbot look',
+                  entities: [{ type: 'mention', offset: 0, length: 7 }],
+                  voice: { file_id: 'v1', file_size: 3, mime_type: 'audio/ogg' },
+                },
+              },
+            ],
+          }
+        : Bun.sleep(50).then(() => ({ ok: true, result: [] })),
+    getFile: () => ({ ok: true, result: { file_path: 'voice/v1.ogg' } }),
+    sendDocument: () => ({ ok: true, result: { message_id: 90 } }),
+    sendMessage: () => ({ ok: true, result: { message_id: 91 } }),
+  })
+  servers.push(server)
+  // The file download is a plain GET on /file/bot<token>/<path>.
+  const files = Bun.serve({ port: 0, fetch: () => new Response(new Uint8Array([7, 7, 7])) })
+  servers.push(files)
+  const adapter = new TelegramAdapter('TOKEN', api)
+  adapters.push(adapter)
+  const { handle, received } = io()
+  await adapter.start(handle)
+  await until(() => received.length === 2)
+  expect(received[0]).toMatchObject({
+    press: { id: 'cbq-1', data: 'a:o:abc123', message: { chat: '1', id: '50' } },
+  })
+  expect(received[1]).toMatchObject({
+    chat: { id: '-9', kind: 'group', thread: '77' },
+    text: 'look',
+    mentioned: true,
+  })
+  const voice = received[1]?.files?.[0]
+  expect(voice).toMatchObject({ kind: 'voice', mimeType: 'audio/ogg', size: 3 })
+  // Reading it asks Telegram where the file is first.
+  await voice?.read().catch(() => {})
+  expect(calls.some((c) => c.method === 'getFile' && c.body.file_id === 'v1')).toBe(true)
+
+  await adapter.answerPress({ id: 'cbq-1', data: '' }, 'Allowed')
+  expect(calls.at(-1)).toMatchObject({
+    method: 'answerCallbackQuery',
+    body: { callback_query_id: 'cbq-1', text: 'Allowed' },
+  })
+
+  // Replies in a topic stay in it, and buttons become an inline keyboard.
+  await adapter.send(received[1]?.chat ?? '', { text: 'ok', buttons: [[{ label: 'Yes', data: 'q:k:0:0' }]] })
+  expect(calls.at(-1)?.body).toMatchObject({
+    chat_id: '-9',
+    message_thread_id: 77,
+    reply_markup: { inline_keyboard: [[{ text: 'Yes', callback_data: 'q:k:0:0' }]] },
+  })
+  const ref = await adapter.sendFile('1', {
+    name: 'report.pdf',
+    mimeType: 'application/pdf',
+    data: new Uint8Array([1, 2]),
+  })
+  expect(ref).toEqual({ chat: '1', id: '90' })
+  expect(calls.at(-1)?.method).toBe('sendDocument')
+})
+
+test('webhook mode: Telegram is told where to post, and only posts carrying the secret are taken', async () => {
+  const { server, calls, api } = botApi({ getMe: () => ME })
+  servers.push(server)
+  const adapter = new TelegramAdapter('TOKEN', api)
+  adapters.push(adapter)
+  const { handle, received, statuses } = io()
+  await adapter.start({ ...handle, webhookUrl: 'https://box.example.ts.net/hooks/channels/telegram' })
+  await until(() => statuses.some((s) => s.state === 'on'))
+  const set = calls.find((c) => c.method === 'setWebhook')
+  expect(set?.body.url).toBe('https://box.example.ts.net/hooks/channels/telegram')
+  const secret = String(set?.body.secret_token ?? '')
+  expect(secret.length).toBeGreaterThan(20)
+
+  const update = {
+    update_id: 1,
+    message: { message_id: 1, date: 1, from: user(1, 'Alice'), chat: { id: 1, type: 'private' }, text: 'hi' },
+  }
+  const post = (token?: string) =>
+    adapter.webhook(
+      new Request('https://box/hooks', {
+        method: 'POST',
+        headers: token ? { 'x-telegram-bot-api-secret-token': token } : {},
+        body: JSON.stringify(update),
+      }),
+    )
+  expect((await post()).status).toBe(401)
+  expect((await post('wrong-secret-of-the-same-length-xx')).status).toBe(401)
+  expect((await post(secret)).status).toBe(200)
+  expect(received.map((m) => m.text)).toEqual(['hi'])
 })

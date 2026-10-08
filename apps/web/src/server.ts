@@ -13,6 +13,7 @@ import {
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  channelSendTool,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -36,6 +37,7 @@ import {
   type PluginStore,
   type ProjectStore,
   ruleGreeting,
+  type Schedule,
   type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
@@ -200,6 +202,8 @@ const MAX_TERMINALS = 8
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
 const STOP_WAIT_MS = 500
+/** The largest webhook body a platform may post (media comes by reference, not inline). */
+const WEBHOOK_MAX = 5 * 1024 * 1024
 
 const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -320,39 +324,74 @@ export function startServer(options: ServeOptions): WebServer {
   const chats = options.chats
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
-  const stopScheduler =
-    options.schedules && chats
-      ? startScheduler(options.schedules, async (s) => {
-          const sent = await chats.send(
-            s.request,
-            defaultTeam(),
-            undefined,
-            s.project ? { project: s.project } : {},
-          )
-          await chats.rename(sent.chatId, `Scheduled · ${s.name}`).catch(() => {})
-          return sent.chatId
-        })
-      : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
-  // Messaging channels (Telegram…) reach the same chats, with the person's default team.
+  // Messaging channels (Telegram, and those plugins add) reach the same chats, with the person's default team.
   const channels = chats
     ? new ChannelHub({
         dir: join(options.home, 'channels'),
-        kinds: BUILT_IN_CHANNELS,
+        kinds: () => ({ ...options.pluginHost?.channelKinds(), ...BUILT_IN_CHANNELS }),
+        // Platforms that push (webhooks) need this gateway's public address.
+        webhookUrl: (id) => (publicUrl ? `${publicUrl.origin}/hooks/channels/${id}` : undefined),
         log: (message) => console.error(`channels: ${message}`),
         chats: {
-          send: (text, chatId, project) =>
-            chats.send(text, defaultTeam(), chatId, project ? { project } : {}),
+          send: (text, chatId, opts = {}) =>
+            chats.send(text, defaultTeam(), chatId, {
+              ...(opts.project ? { project: opts.project } : {}),
+              ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+            }),
           rename: (chatId, title) => chats.rename(chatId, title),
           stop: (chatId) => chats.stop(chatId),
           onEvents: (listener) => chats.onEvents(listener),
+          onStream: (listener) => chats.onStream(listener),
           read: (colonyId) => chats.events(colonyId),
+          decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
+          allowAlways: async (tool) => {
+            const settings = options.settings
+            if (!settings) throw new Error('settings need the chat runtime')
+            const current = settings.get()
+            settings.set({ ...current, permissions: { ...current.permissions, [tool]: 'allow' } })
+            await chats.permissionsChanged()
+          },
+          artifact: async (colonyId, name) => {
+            const found = await latestArtifact(colonyId, name)
+            return 'missing' in found
+              ? undefined
+              : { data: new Uint8Array(found.body), mediaType: found.mediaType }
+          },
+          ...(options.omp
+            ? {
+                transcribe: (audio, mimeType, name) =>
+                  (options.omp as OmpRuntime).transcribe(audio, mimeType, name),
+              }
+            : {}),
         },
       })
     : undefined
   void channels
     ?.start()
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
+  // A plugin that adds or drops a platform is picked up without a restart.
+  const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
+  // Agents can message the owner on a channel (OpenClaw's core `message` tool), e.g. when long work is done.
+  if (channels) options.pluginHost?.addBuiltIn('channels', [channelSendTool(channels)])
+  /** Starts a schedule's round as a new chat; with `deliver`, the channel follows it and sends the answer. */
+  const runSchedule = async (s: Schedule) => {
+    if (!chats) throw new Error('schedules need the chat runtime')
+    const sent = await chats.send(
+      s.request,
+      defaultTeam(),
+      undefined,
+      s.project ? { project: s.project } : {},
+    )
+    await chats.rename(sent.chatId, `Scheduled · ${s.name}`).catch(() => {})
+    if (s.deliver)
+      await channels
+        ?.follow(s.deliver, sent.chatId, sent.colonyId)
+        .catch((err) => console.error(`channels: ${err}`))
+    return sent.chatId
+  }
+  const stopScheduler =
+    options.schedules && chats ? startScheduler(options.schedules, runSchedule) : undefined
   /** Plugins with whether their code is running, its log, and their settings (secrets shown only as set or not). */
   const pluginList = () =>
     (options.plugins?.list() ?? []).map((p) => {
@@ -692,9 +731,32 @@ export function startServer(options: ServeOptions): WebServer {
           if (!channels) return json({ error: 'channels need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           try {
+            const values =
+              body.values && typeof body.values === 'object'
+                ? Object.fromEntries(
+                    Object.entries(body.values as Record<string, unknown>).filter(
+                      (e): e is [string, string] => typeof e[1] === 'string',
+                    ),
+                  )
+                : typeof body.token === 'string'
+                  ? { token: body.token }
+                  : undefined
+            const pick = <T extends string>(v: unknown, allowed: readonly T[]) =>
+              typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : undefined
+            const dm = pick(body.dm, ['pairing', 'allowlist', 'open', 'disabled'] as const)
+            const groups = pick(body.groups, ['approve', 'open', 'disabled'] as const)
+            const stream = pick(body.stream, ['progress', 'partial', 'final'] as const)
             const channel = await channels.configure(req.params.id ?? '', {
-              ...(typeof body.token === 'string' ? { token: body.token } : {}),
+              ...(values ? { values } : {}),
               ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+              ...(dm ? { dm } : {}),
+              ...(groups ? { groups } : {}),
+              ...(stream ? { stream } : {}),
+              ...(typeof body.mention === 'boolean' ? { mention: body.mention } : {}),
+              ...(typeof body.perPerson === 'boolean' ? { perPerson: body.perPerson } : {}),
+              ...(Array.isArray(body.allow)
+                ? { allow: body.allow.filter((a): a is string => typeof a === 'string') }
+                : {}),
               ...(typeof body.project === 'string' || body.project === null
                 ? { project: body.project as string | null }
                 : {}),
@@ -740,6 +802,14 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
+      },
+      // Platforms that push messages (webhooks) post here; each adapter checks its platform's signature.
+      '/hooks/channels/:id': async (req: Request & { params: Record<string, string> }) => {
+        if (!channels || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
+          return new Response('too large', { status: 413 })
+        return channels.webhook(req.params.id ?? '', req)
       },
       '/api/gateways': {
         GET: guard(async () =>
@@ -1106,6 +1176,7 @@ export function startServer(options: ServeOptions): WebServer {
               cron: String(body.cron ?? ''),
               ...(typeof body.name === 'string' ? { name: body.name } : {}),
               ...(typeof body.project === 'string' && body.project ? { project: body.project } : {}),
+              ...(typeof body.deliver === 'string' && body.deliver ? { deliver: body.deliver } : {}),
             })
             return json({ schedules: options.schedules.list() })
           } catch (err) {
@@ -1126,6 +1197,9 @@ export function startServer(options: ServeOptions): WebServer {
               ...(body.project === null || typeof body.project === 'string'
                 ? { project: (body.project as string | null) || null }
                 : {}),
+              ...(body.deliver === null || typeof body.deliver === 'string'
+                ? { deliver: (body.deliver as string | null) || null }
+                : {}),
             })
             return json({ schedules: options.schedules.list() })
           } catch (err) {
@@ -1143,15 +1217,9 @@ export function startServer(options: ServeOptions): WebServer {
           const schedule = options.schedules?.list().find((s) => s.id === req.params.id)
           if (!schedule || !chats || !options.schedules) return json({ error: 'no such schedule' }, 404)
           try {
-            const sent = await chats.send(
-              schedule.request,
-              defaultTeam(),
-              undefined,
-              schedule.project ? { project: schedule.project } : {},
-            )
-            await chats.rename(sent.chatId, `Scheduled · ${schedule.name}`).catch(() => {})
-            options.schedules.ran(schedule.id, { chatId: sent.chatId })
-            return json({ chatId: sent.chatId, schedules: options.schedules.list() })
+            const chatId = await runSchedule(schedule)
+            options.schedules.ran(schedule.id, { chatId })
+            return json({ chatId, schedules: options.schedules.list() })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
@@ -1969,6 +2037,7 @@ export function startServer(options: ServeOptions): WebServer {
       // above), though the port is already released; waiting on it would hang shutdown.
       await Promise.race([server.stop(true), Bun.sleep(STOP_WAIT_MS)])
       await preview.stop(true)
+      offPlugins?.()
       await channels?.stop()
       store.close()
     },

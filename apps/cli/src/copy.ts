@@ -76,7 +76,7 @@ export const setupCopy = {
 
   channels: {
     usage:
-      'usage: myrmidon channels [telegram [on|off] | approve <channel> <code> | revoke <channel> <name, @handle or id>]',
+      'usage: myrmidon channels [<channel> [on|off|set …] | approve <channel> <code> | revoke <channel> <name, @handle or id>]',
     status: {
       off: 'off',
       connecting: 'connecting…',
@@ -84,11 +84,15 @@ export const setupCopy = {
       retrying: (error: string) => `reconnecting: ${error}`,
       error: (error: string) => error,
     },
-    notSet: 'no token yet: run `myrmidon channels telegram`',
+    notSet: (id: string) => `not set up: run \`myrmidon channels ${id}\``,
     people: (names: string[]) => `approved: ${names.join(', ')}`,
     nobody: 'no one approved yet: message the bot, then approve the code it sends',
     waiting: (who: string, expires: string) => `waiting: ${who} (expires ${expires})`,
-    token: (label: string) => `${label} bot token from @BotFather (hidden)`,
+    field: (label: string, secret: boolean, optional: boolean) =>
+      `${label}${secret ? ' (hidden)' : ''}${optional ? ' (optional, Enter to skip)' : ''}`,
+    setUsage:
+      'usage: myrmidon channels <channel> set dm pairing|allowlist|open|disabled | groups approve|open|disabled | mention on|off | per-person on|off | stream progress|partial|final | allow @a,@b | project <id>',
+    setDone: (name: string, value: string) => `Set ${name} to ${value || '(none)'}.`,
     connected: (label: string, account: string) =>
       `${label} is connected as ${account}. Message it, then approve the code it replies with:`,
     approveHint: (id: string) => `  myrmidon channels approve ${id} <code>`,

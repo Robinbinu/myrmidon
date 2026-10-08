@@ -1,14 +1,17 @@
 /**
  * What a messaging platform implements to be a channel (after OpenClaw's `ChannelPlugin` and Hermes's
- * `BasePlatformAdapter`): receiving, sending, editing and typing. Everything platforms share — who may talk, which
- * chat a message belongs to, progress, chunking, dedupe — is the hub's (`hub.ts`).
+ * `BasePlatformAdapter`): receiving, sending, editing, buttons, files and typing. Everything platforms share — who
+ * may talk, which chat a message belongs to, progress, approvals, chunking, dedupe, delivery — is the hub's
+ * (`hub.ts`).
  */
 
-/** A conversation on the platform: a direct chat with one person, or a group. */
+/** A conversation on the platform: a direct chat with one person, or a group (and a thread or topic in it). */
 export interface ChannelChat {
   readonly id: string
   readonly kind: 'dm' | 'group'
   readonly title?: string
+  /** A thread or forum topic inside the chat, which is a conversation of its own. */
+  readonly thread?: string
 }
 
 export interface ChannelSender {
@@ -17,7 +20,26 @@ export interface ChannelSender {
   readonly handle?: string
 }
 
-/** A message that arrived. */
+/** A file that came with a message; read on demand, since most are never needed. */
+export interface InboundFile {
+  readonly kind: 'image' | 'voice' | 'audio' | 'video' | 'document'
+  readonly name: string
+  readonly mimeType: string
+  readonly size?: number
+  read(): Promise<Uint8Array>
+}
+
+/** Someone pressed a button the hub sent. */
+export interface ButtonPress {
+  /** The platform's id for acknowledging the press. */
+  readonly id: string
+  /** The button's data, as the hub set it. */
+  readonly data: string
+  /** The message the button was on. */
+  readonly message?: SentRef
+}
+
+/** A message that arrived (or a button press). */
 export interface Inbound {
   /** The platform's id for it, unique within the chat (for dropping redeliveries). */
   readonly messageId: string
@@ -27,14 +49,30 @@ export interface Inbound {
   readonly text: string
   /** In a group: the bot was @mentioned, replied to, or sent a command. Always true in a direct chat. */
   readonly mentioned: boolean
-  /** It carried something other than text that this channel cannot take yet (a photo, a voice note). */
+  readonly files?: readonly InboundFile[]
+  readonly press?: ButtonPress
+  /** It carried something this channel cannot take (a sticker, a location). */
   readonly unsupported?: boolean
   readonly time: string
 }
 
-/** A message to send: Markdown, which the adapter renders for its platform. */
+export interface Button {
+  readonly label: string
+  /** Short: Telegram allows 64 bytes. */
+  readonly data: string
+}
+
+/** A message to send: Markdown, which the adapter renders for its platform, with optional rows of buttons. */
 export interface OutMessage {
   readonly text: string
+  readonly buttons?: readonly (readonly Button[])[]
+}
+
+export interface OutFile {
+  readonly name: string
+  readonly mimeType: string
+  readonly data: Uint8Array
+  readonly caption?: string
 }
 
 /** A sent message, so it can be edited later. */
@@ -53,6 +91,8 @@ export interface AdapterIO {
   /** How the connection is doing, for Settings and `myrmidon doctor`. */
   status(status: AdapterStatus): void
   log(message: string): void
+  /** Where the platform should send webhooks for this channel, when the gateway has a public address. */
+  readonly webhookUrl?: string
 }
 
 export type AdapterStatus =
@@ -66,17 +106,42 @@ export type AdapterStatus =
 export interface ChannelAdapter {
   readonly id: string
   readonly label: string
-  /** The longest message it can send, and how long to wait between edits of one message. */
-  readonly limits: { readonly text: number; readonly editMs: number }
+  /** The longest message it can send, how long to wait between edits of one message, the largest file. */
+  readonly limits: { readonly text: number; readonly editMs: number; readonly file?: number }
+  /** What it can do beyond text; the hub falls back to typed commands and file names. */
+  readonly can: { readonly buttons: boolean; readonly files: boolean; readonly edit: boolean }
   /** Checks its credentials and says which account they are (e.g. `@mybot`); throws with the reason otherwise. */
   check(): Promise<string>
   /** Starts receiving; resolves once started. */
   start(io: AdapterIO): Promise<void>
   stop(): Promise<void>
-  send(chat: string, message: OutMessage): Promise<SentRef>
+  send(chat: ChannelChat | string, message: OutMessage): Promise<SentRef>
   edit(ref: SentRef, message: OutMessage): Promise<void>
-  typing(chat: string): Promise<void>
+  typing(chat: ChannelChat | string): Promise<void>
+  sendFile?(chat: ChannelChat | string, file: OutFile): Promise<SentRef>
+  /** Acknowledges a button press, with a short note the platform may show. */
+  answerPress?(press: ButtonPress, note?: string): Promise<void>
+  /** Handles a webhook from the platform (signature checked here); for platforms that push instead of polling. */
+  webhook?(req: Request): Promise<Response>
 }
 
-/** Makes a platform's adapter from its saved settings (the token). */
-export type AdapterFactory = (config: { readonly token: string }) => ChannelAdapter
+/** One setting a platform needs, shown in Settings → Channels and asked for by `myrmidon channels <id>`. */
+export interface ChannelField {
+  readonly key: string
+  readonly label: string
+  /** Kept out of every listing; typed hidden in the CLI. */
+  readonly secret?: boolean
+  readonly placeholder?: string
+  readonly hint?: string
+  readonly optional?: boolean
+}
+
+/** A channel's settings by field key (a bot token, a server address…). */
+export type ChannelValues = Readonly<Record<string, string>>
+
+/** Makes a platform's adapter from its saved settings. */
+export type AdapterFactory = (values: ChannelValues) => ChannelAdapter
+
+/** Where a chat id and thread meet, for the platforms' send functions. */
+export const chatIdOf = (chat: ChannelChat | string) => (typeof chat === 'string' ? chat : chat.id)
+export const threadOf = (chat: ChannelChat | string) => (typeof chat === 'string' ? undefined : chat.thread)

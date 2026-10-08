@@ -2457,15 +2457,32 @@ function DevicesSection() {
 interface ChannelView {
   id: string
   label: string
+  setup?: string
+  fields: {
+    key: string
+    label: string
+    secret?: boolean
+    placeholder?: string
+    hint?: string
+    optional?: boolean
+  }[]
+  values: Record<string, string>
+  secretsSet: string[]
   configured: boolean
   enabled: boolean
   project?: string
+  dm: 'pairing' | 'allowlist' | 'open' | 'disabled'
+  groups: 'approve' | 'open' | 'disabled'
+  mention: boolean
+  stream: 'progress' | 'partial' | 'final'
+  perPerson: boolean
+  allow: string[]
   status:
     | { state: 'off' | 'connecting' }
     | { state: 'on'; account: string }
     | { state: 'retrying' | 'error'; error: string }
   people: { id: string; name: string; handle?: string; role: 'owner' | 'member' }[]
-  groups: { id: string; title: string }[]
+  approvedGroups: { id: string; title: string }[]
   pending: {
     id: string
     kind: 'person' | 'group'
@@ -2479,15 +2496,17 @@ interface ChannelView {
 const CHANNELS_POLL_MS = 3000
 
 /**
- * Messaging channels: the bot token, whether it runs and its project, who is waiting for approval, and who is
- * approved. Telegram is built in; more come as plugins.
+ * Messaging channels: each platform's settings (as it declares them), whether it runs, who may write, what the chat
+ * shows while the crew works, who is waiting for approval, and who is approved. Telegram is built in; plugins add
+ * more.
  */
 function ChannelsSection() {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [tokens, setTokens] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({})
+  const [allowDrafts, setAllowDrafts] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string>()
   const load = () =>
     api<{ channels: ChannelView[] }>('/api/channels')
@@ -2506,8 +2525,8 @@ function ChannelsSection() {
     setBusy(c.id)
     try {
       const { channel } = await send<{ channel: ChannelView }>('PUT', `/api/channels/${c.id}`, patch)
-      if (typeof patch.token === 'string') {
-        setTokens((all) => ({ ...all, [c.id]: '' }))
+      if (patch.values) {
+        setDrafts((all) => ({ ...all, [c.id]: {} }))
         if (channel.status.state === 'on') toast(t.saved(channel.status.account), 'success')
       }
       await load()
@@ -2536,160 +2555,262 @@ function ChannelsSection() {
   return (
     <>
       <Heading title={t.title}>{t.intro}</Heading>
-      {list?.map((c) => (
-        <div key={c.id} className="mb-6 flex flex-col gap-4">
-          <Card>
-            <Row>
-              <div className="flex items-center gap-3">
-                <MessagesSquare className="size-4 shrink-0 text-muted" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold">{c.label}</div>
-                  <div
-                    className={cn(
-                      'truncate text-[12px]',
-                      c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
-                    )}
-                  >
-                    {statusText(c.status)}
-                  </div>
-                </div>
-                {c.configured && (
-                  <Switch
-                    checked={c.enabled}
-                    onChange={(enabled) => void configure(c, { enabled })}
-                    label={t.on}
-                  />
-                )}
-              </div>
-            </Row>
-            <Row>
-              <Field label={t.token} hint={c.configured ? t.tokenSet : t.telegramSteps}>
-                <div className="flex gap-2">
-                  <TextInput
-                    type="password"
-                    autoComplete="off"
-                    value={tokens[c.id] ?? ''}
-                    onChange={(e) => setTokens((all) => ({ ...all, [c.id]: e.target.value }))}
-                    placeholder="123456:ABC-…"
-                    aria-label={t.token}
-                    className="font-mono"
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={busy === c.id || !tokens[c.id]?.trim()}
-                    onClick={() => void configure(c, { token: tokens[c.id] ?? '' })}
-                  >
-                    {busy === c.id ? t.saving : t.save}
-                  </Button>
-                </div>
-              </Field>
-            </Row>
-            {c.configured && (
-              <Row>
-                <Field label={t.project} hint={t.projectHint} inline>
-                  <Select
-                    value={c.project ?? ''}
-                    onChange={(e) => void configure(c, { project: e.target.value || null })}
-                    aria-label={t.project}
-                  >
-                    <option value="">{t.noProject}</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </Row>
-            )}
-          </Card>
-          {c.pending.length > 0 && (
+      {list?.map((c) => {
+        const draft = drafts[c.id] ?? {}
+        const changed = Object.values(draft).some((v) => v.trim())
+        return (
+          <div key={c.id} className="mb-6 flex flex-col gap-4">
             <Card>
               <Row>
-                <div className="text-[13px] font-semibold">{t.waiting}</div>
-                <div className="text-[12px] text-muted">{t.waitingHint}</div>
-              </Row>
-              {c.pending.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <MessagesSquare className="size-4 shrink-0 text-muted" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-semibold">
-                      {p.sender.name}
-                      {p.sender.handle ? ` (@${p.sender.handle})` : ''}
-                      {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
-                    </div>
-                    <div className="text-[12px] text-muted">
-                      {t.expires(new Date(p.expires).toLocaleTimeString())}
+                    <div className="text-[13.5px] font-semibold">{c.label}</div>
+                    <div
+                      className={cn(
+                        'truncate text-[12px]',
+                        c.status.state === 'error' ? 'text-bad-ink' : 'text-muted',
+                      )}
+                    >
+                      {statusText(c.status)}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() =>
-                      void act(
-                        post(`/api/channels/${c.id}/approve`, { request: p.id }),
-                        t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
-                      )
-                    }
-                  >
-                    {t.approve}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
-                  >
-                    {t.dismiss}
-                  </Button>
+                  {c.configured && (
+                    <Switch
+                      checked={c.enabled}
+                      onChange={(enabled) => void configure(c, { enabled })}
+                      label={t.on}
+                    />
+                  )}
                 </div>
-              ))}
-            </Card>
-          )}
-          {c.configured && (
-            <Card>
-              <Row>
-                <div className="text-[13px] font-semibold">{t.people}</div>
+                {!c.configured && c.setup && <p className="mt-2 text-[12.5px] text-fg-2">{c.setup}</p>}
               </Row>
-              {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
-              {c.people.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">
-                    {p.name}
-                    {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
-                  </div>
-                  <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
-                    {p.role === 'owner' ? t.owner : t.member}
-                  </Pill>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
-                </div>
-              ))}
-              {c.groups.length > 0 && (
+              {c.fields.map((f) => {
+                const saved = f.secret ? c.secretsSet.includes(f.key) : Boolean(c.values[f.key])
+                return (
+                  <Row key={f.key}>
+                    <Field label={f.label} hint={f.secret && saved ? t.secretSet : f.hint}>
+                      <TextInput
+                        type={f.secret ? 'password' : 'text'}
+                        autoComplete="off"
+                        value={draft[f.key] ?? (f.secret ? '' : (c.values[f.key] ?? ''))}
+                        onChange={(e) =>
+                          setDrafts((all) => ({ ...all, [c.id]: { ...all[c.id], [f.key]: e.target.value } }))
+                        }
+                        placeholder={f.placeholder}
+                        aria-label={f.label}
+                        className="font-mono"
+                      />
+                    </Field>
+                  </Row>
+                )
+              })}
+              <Row>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={busy === c.id || !changed}
+                  onClick={() => void configure(c, { values: draft })}
+                >
+                  {busy === c.id ? t.saving : t.save}
+                </Button>
+              </Row>
+              {c.configured && (
                 <Row>
-                  <div className="text-[13px] font-semibold">{t.groups}</div>
+                  <Field label={t.project} hint={t.projectHint} inline>
+                    <Select
+                      value={c.project ?? ''}
+                      onChange={(e) => void configure(c, { project: e.target.value || null })}
+                      aria-label={t.project}
+                    >
+                      <option value="">{t.noProject}</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
                 </Row>
               )}
-              {c.groups.map((g) => (
-                <div key={g.id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
-                  >
-                    {t.revoke}
-                  </Button>
-                </div>
-              ))}
             </Card>
-          )}
-        </div>
-      ))}
+            {c.configured && (
+              <Card>
+                <Row>
+                  <div className="text-[13px] font-semibold">{t.access}</div>
+                </Row>
+                <Row>
+                  <Field label={t.dm} hint={t.dmHint[c.dm]} inline>
+                    <Select
+                      value={c.dm}
+                      onChange={(e) => void configure(c, { dm: e.target.value })}
+                      aria-label={t.dm}
+                    >
+                      {(['pairing', 'allowlist', 'open', 'disabled'] as const).map((v) => (
+                        <option key={v} value={v}>
+                          {t.dmOptions[v]}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label={t.groupsLabel} hint={t.groupsHint[c.groups]} inline>
+                    <Select
+                      value={c.groups}
+                      onChange={(e) => void configure(c, { groups: e.target.value })}
+                      aria-label={t.groupsLabel}
+                    >
+                      {(['approve', 'open', 'disabled'] as const).map((v) => (
+                        <option key={v} value={v}>
+                          {t.groupsOptions[v]}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label={t.mention} hint={t.mentionHint} inline>
+                    <Switch
+                      checked={c.mention}
+                      onChange={(mention) => void configure(c, { mention })}
+                      label={t.mention}
+                    />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label={t.perPerson} hint={t.perPersonHint} inline>
+                    <Switch
+                      checked={c.perPerson}
+                      onChange={(perPerson) => void configure(c, { perPerson })}
+                      label={t.perPerson}
+                    />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label={t.allow} hint={t.allowHint}>
+                    <TextInput
+                      value={allowDrafts[c.id] ?? c.allow.join(', ')}
+                      onChange={(e) => setAllowDrafts((all) => ({ ...all, [c.id]: e.target.value }))}
+                      onBlur={() => {
+                        const typed = allowDrafts[c.id]
+                        if (typed === undefined) return
+                        void configure(c, {
+                          allow: typed
+                            .split(',')
+                            .map((a) => a.trim())
+                            .filter(Boolean),
+                        })
+                      }}
+                      placeholder="@alice, 123456789"
+                      aria-label={t.allow}
+                    />
+                  </Field>
+                </Row>
+                <Row>
+                  <Field label={t.stream} hint={t.streamHint[c.stream]} inline>
+                    <Select
+                      value={c.stream}
+                      onChange={(e) => void configure(c, { stream: e.target.value })}
+                      aria-label={t.stream}
+                    >
+                      {(['progress', 'partial', 'final'] as const).map((v) => (
+                        <option key={v} value={v}>
+                          {t.streamOptions[v]}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </Row>
+              </Card>
+            )}
+            {c.pending.length > 0 && (
+              <Card>
+                <Row>
+                  <div className="text-[13px] font-semibold">{t.waiting}</div>
+                  <div className="text-[12px] text-muted">{t.waitingHint}</div>
+                </Row>
+                {c.pending.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13.5px] font-semibold">
+                        {p.sender.name}
+                        {p.sender.handle ? ` (@${p.sender.handle})` : ''}
+                        {p.kind === 'group' ? ` · ${t.group(p.chat.title ?? '')}` : ''}
+                      </div>
+                      <div className="text-[12px] text-muted">
+                        {t.expires(new Date(p.expires).toLocaleTimeString())}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() =>
+                        void act(
+                          post(`/api/channels/${c.id}/approve`, { request: p.id }),
+                          t.approved(p.kind === 'group' ? (p.chat.title ?? '') : p.sender.name),
+                        )
+                      }
+                    >
+                      {t.approve}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/request/${p.id}`))}
+                    >
+                      {t.dismiss}
+                    </Button>
+                  </div>
+                ))}
+              </Card>
+            )}
+            {c.configured && (
+              <Card>
+                <Row>
+                  <div className="text-[13px] font-semibold">{t.people}</div>
+                </Row>
+                {c.people.length === 0 && <div className="px-4 py-3 text-[12.5px] text-muted">{t.none}</div>}
+                {c.people.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1 truncate text-[13.5px]">
+                      {p.name}
+                      {p.handle ? <span className="text-muted"> @{p.handle}</span> : null}
+                    </div>
+                    <Pill tone={p.role === 'owner' ? 'accent' : 'neutral'}>
+                      {p.role === 'owner' ? t.owner : t.member}
+                    </Pill>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/person/${p.id}`))}
+                    >
+                      {t.revoke}
+                    </Button>
+                  </div>
+                ))}
+                {c.approvedGroups.length > 0 && (
+                  <Row>
+                    <div className="text-[13px] font-semibold">{t.groups}</div>
+                  </Row>
+                )}
+                {c.approvedGroups.map((g) => (
+                  <div key={g.id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1 truncate text-[13.5px]">{g.title}</div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void act(send('DELETE', `/api/channels/${c.id}/group/${g.id}`))}
+                    >
+                      {t.revoke}
+                    </Button>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -3182,6 +3303,8 @@ interface ScheduleEntry {
   request: string
   cron: string
   project?: string
+  /** A channel the owner follows each run on. */
+  deliver?: string
   enabled: boolean
   nextRun?: string
   lastRun?: { at: string; chatId?: string; error?: string }
@@ -3210,7 +3333,15 @@ function SchedulesSection() {
   const toast = useToast()
   const [list, setList] = useState<ScheduleEntry[]>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
-  const [draft, setDraft] = useState({ request: '', cron: '0 9 * * 1-5', custom: false, project: '' })
+  const [draft, setDraft] = useState({
+    request: '',
+    cron: '0 9 * * 1-5',
+    custom: false,
+    project: '',
+    deliver: '',
+  })
+  // Channels with an owner can report each run there.
+  const [channels, setChannels] = useState<{ id: string; label: string }[]>([])
   const load = () =>
     api<{ schedules: ScheduleEntry[] }>('/api/schedules')
       .then((r) => setList(r.schedules))
@@ -3218,6 +3349,13 @@ function SchedulesSection() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
     void load()
+    api<{ channels: { id: string; label: string; configured: boolean; people: { role: string }[] }[] }>(
+      '/api/channels',
+    )
+      .then((r) =>
+        setChannels(r.channels.filter((c) => c.configured && c.people.some((p) => p.role === 'owner'))),
+      )
+      .catch(() => {})
     api<{ projects: { id: string; name: string }[] }>('/api/projects')
       .then((r) => setProjects(r.projects))
       .catch(() => {})
@@ -3289,6 +3427,20 @@ function SchedulesSection() {
                 </option>
               ))}
             </Select>
+            {channels.length > 0 && (
+              <Select
+                aria-label={copy.settings.schedules.deliver}
+                value={draft.deliver}
+                onChange={(e) => setDraft({ ...draft, deliver: e.target.value })}
+              >
+                <option value="">{copy.settings.schedules.noDeliver}</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {copy.settings.schedules.deliverTo(c.label)}
+                  </option>
+                ))}
+              </Select>
+            )}
             <span className="flex-1" />
             <Button
               size="sm"
@@ -3301,6 +3453,7 @@ function SchedulesSection() {
                     request: draft.request,
                     cron: draft.cron,
                     ...(draft.project ? { project: draft.project } : {}),
+                    ...(draft.deliver ? { deliver: draft.deliver } : {}),
                   })
                   setDraft({ ...draft, request: '' })
                 }, copy.settings.schedules.scheduled)
@@ -3337,6 +3490,13 @@ function SchedulesSection() {
                       <span>
                         {copy.settings.schedules.inProject(
                           projects.find((p) => p.id === s.project)?.name ?? s.project,
+                        )}
+                      </span>
+                    )}
+                    {s.deliver && (
+                      <span>
+                        {copy.settings.schedules.deliverTo(
+                          channels.find((c) => c.id === s.deliver)?.label ?? s.deliver,
                         )}
                       </span>
                     )}

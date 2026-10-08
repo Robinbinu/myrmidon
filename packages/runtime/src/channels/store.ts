@@ -12,6 +12,8 @@ export interface ChannelPerson {
   /** The first person approved; only the owner approves risky steps. */
   readonly role: 'owner' | 'member'
   readonly approvedAt: string
+  /** Their direct chat with the bot, where approvals for rounds they cannot see are sent. */
+  readonly dm?: string
 }
 
 export interface ChannelGroup {
@@ -32,15 +34,35 @@ export interface PairingRequest {
   readonly expires: string
 }
 
+/**
+ * Who may talk in direct chats (OpenClaw's `dmPolicy`): `pairing` sends strangers a code to approve, `allowlist`
+ * ignores anyone not approved or listed, `open` lets anyone in as a member, `disabled` answers no direct chats.
+ */
+export type DmPolicy = 'pairing' | 'allowlist' | 'open' | 'disabled'
+/** Groups: `approve` needs each group approved first, `open` answers any group, `disabled` none. */
+export type GroupPolicy = 'approve' | 'open' | 'disabled'
+/** What the chat shows while a round works: an updating status line, the reply as it is written, or nothing. */
+export type StreamMode = 'progress' | 'partial' | 'final'
+
 export interface ChannelConfig {
-  token?: string
+  /** The platform's settings by field (tokens, addresses); secret ones never leave the hub. */
+  values: Record<string, string>
   enabled: boolean
   /** The project new chats from this channel work in. */
   project?: string
+  dm: DmPolicy
+  groups: GroupPolicy
+  /** In groups, answer only when mentioned or replied to (on by default, as in both projects). */
+  mention: boolean
+  stream: StreamMode
+  /** In groups, one conversation per person instead of one for the whole group (Hermes's default). */
+  perPerson: boolean
+  /** IDs or @handles let in without pairing. */
+  allow: string[]
   people: ChannelPerson[]
-  groups: ChannelGroup[]
+  approvedGroups: ChannelGroup[]
   pending: PairingRequest[]
-  /** Platform chat id → the Myrmidon chat it continues. */
+  /** Platform conversation key → the Myrmidon chat it continues. */
   chats: Record<string, string>
   /** When each sender last got a code (one per sender per PAIR_EVERY_MS). */
   asked: Record<string, string>
@@ -55,10 +77,17 @@ const PAIR_EVERY_MS = 10 * 60_000
 const MAX_PENDING = 3
 
 const hash = (code: string) => createHash('sha256').update(code.trim().toUpperCase()).digest('hex')
-const empty = (): ChannelConfig => ({
+const defaults = (): ChannelConfig => ({
+  values: {},
   enabled: false,
+  dm: 'pairing',
+  groups: 'approve',
+  mention: true,
+  stream: 'progress',
+  perPerson: false,
+  allow: [],
   people: [],
-  groups: [],
+  approvedGroups: [],
   pending: [],
   chats: {},
   asked: {},
@@ -73,10 +102,10 @@ export class ChannelStore {
     this._file = join(dir, 'channels.json')
   }
 
-  private _all(): Record<string, ChannelConfig> {
+  private _all(): Record<string, Partial<ChannelConfig> & { token?: string; groups?: unknown }> {
     if (!existsSync(this._file)) return {}
     try {
-      return JSON.parse(readFileSync(this._file, 'utf8')) as Record<string, ChannelConfig>
+      return JSON.parse(readFileSync(this._file, 'utf8'))
     } catch {
       return {}
     }
@@ -84,14 +113,23 @@ export class ChannelStore {
 
   get(channel: string): ChannelConfig {
     const now = Date.now()
-    const config = { ...empty(), ...this._all()[channel] }
+    const saved = this._all()[channel] ?? {}
+    // Step 1 kept a bare `token` and the approved groups under `groups`.
+    const { token, groups, ...rest } = saved
+    const config: ChannelConfig = {
+      ...defaults(),
+      ...rest,
+      values: { ...(token ? { token } : {}), ...saved.values },
+      ...(Array.isArray(groups) ? { approvedGroups: groups as ChannelGroup[] } : {}),
+      ...(typeof groups === 'string' ? { groups: groups as GroupPolicy } : {}),
+    }
     config.pending = config.pending.filter((p) => Date.parse(p.expires) > now)
     return config
   }
 
   /** Changes one channel's settings and saves them atomically. */
   update<T>(channel: string, change: (config: ChannelConfig) => T): T {
-    const all = this._all()
+    const all = this._all() as Record<string, unknown>
     const config = this.get(channel)
     const result = change(config)
     all[channel] = config
@@ -144,7 +182,7 @@ export class ChannelStore {
           title: found.chat.title ?? found.chat.id,
           approvedAt: at,
         }
-        c.groups = [...c.groups.filter((g) => g.id !== group.id), group]
+        c.approvedGroups = [...c.approvedGroups.filter((g) => g.id !== group.id), group]
         return { request: found, group }
       }
       const person: ChannelPerson = {
@@ -153,27 +191,59 @@ export class ChannelStore {
         ...(found.sender.handle ? { handle: found.sender.handle } : {}),
         role: c.people.some((p) => p.role === 'owner') ? 'member' : 'owner',
         approvedAt: at,
+        ...(found.chat.kind === 'dm' ? { dm: found.chat.id } : {}),
       }
       c.people = [...c.people.filter((p) => p.id !== person.id), person]
       return { request: found, person }
     })
   }
 
+  /** Remembers a person's direct chat the first time they write there (people let in by a list or `open`). */
+  noteDm(channel: string, personId: string, chat: string) {
+    const c = this.get(channel)
+    const p = c.people.find((x) => x.id === personId)
+    if (!p || p.dm === chat) return
+    this.update(channel, (cfg) => {
+      cfg.people = cfg.people.map((x) => (x.id === personId ? { ...x, dm: chat } : x))
+    })
+  }
+
   revoke(channel: string, kind: 'person' | 'group' | 'request', id: string): boolean {
     return this.update(channel, (c) => {
-      const before = c.people.length + c.groups.length + c.pending.length
+      const before = c.people.length + c.approvedGroups.length + c.pending.length
       if (kind === 'person') c.people = c.people.filter((p) => p.id !== id)
-      if (kind === 'group') c.groups = c.groups.filter((g) => g.id !== id)
+      if (kind === 'group') c.approvedGroups = c.approvedGroups.filter((g) => g.id !== id)
       if (kind === 'request') c.pending = c.pending.filter((p) => p.id !== id)
-      return c.people.length + c.groups.length + c.pending.length < before
+      return c.people.length + c.approvedGroups.length + c.pending.length < before
     })
   }
 }
 
 /** How long a message id is remembered for dropping redeliveries (OpenClaw keeps 7 days). */
 const SEEN_MS = 7 * 24 * 60 * 60_000
+/** Answers older than this are not redelivered after a restart (Hermes: 24 hours). */
+export const OUTBOX_FRESH_MS = 24 * 60 * 60_000
+/** Attempts per answer before it is given up (Hermes: 3). */
+export const OUTBOX_ATTEMPTS = 3
 
-/** `<home>/channels/channels.sqlite`: messages already received, and small values adapters keep (offsets). */
+/**
+ * An answer owed to a chat, after Hermes's delivery ledger: `pending` before the send, `attempting` during it,
+ * `failed` after a refusal; delivered ones are removed. After a crash an `attempting` one may already have
+ * arrived, so it is resent with a visible marker rather than silently twice.
+ */
+export interface OutboxEntry {
+  readonly id: string
+  readonly channel: string
+  readonly chat: string
+  readonly thread?: string
+  readonly text: string
+  readonly state: 'pending' | 'attempting' | 'failed'
+  readonly attempts: number
+  readonly created: number
+  readonly error?: string
+}
+
+/** `<home>/channels/channels.sqlite`: messages already received, answers owed, and small values (offsets). */
 export class ChannelLedger {
   private readonly _db: Database
 
@@ -185,7 +255,14 @@ export class ChannelLedger {
       'create table if not exists seen (channel text not null, chat text not null, message text not null, at integer not null, primary key (channel, chat, message))',
     )
     this._db.run('create table if not exists kv (key text primary key, value text not null)')
+    this._db.run(
+      'create table if not exists outbox (id text primary key, channel text not null, chat text not null, thread text, text text not null, state text not null, attempts integer not null, created integer not null, error text)',
+    )
     this._db.run('delete from seen where at < ?', [Date.now() - SEEN_MS])
+    this._db.run('delete from outbox where created < ? or attempts >= ?', [
+      Date.now() - OUTBOX_FRESH_MS,
+      OUTBOX_ATTEMPTS,
+    ])
   }
 
   /** Records a message; false when it was already recorded (a redelivery). */
@@ -208,6 +285,46 @@ export class ChannelLedger {
       'insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value',
       [key, value],
     )
+  }
+
+  owe(channel: string, chat: string, thread: string | undefined, text: string): string {
+    const id = randomBytes(8).toString('hex')
+    this._db.run(
+      "insert into outbox (id, channel, chat, thread, text, state, attempts, created) values (?, ?, ?, ?, ?, 'pending', 0, ?)",
+      [id, channel, chat, thread ?? null, text, Date.now()],
+    )
+    return id
+  }
+
+  attempting(id: string) {
+    this._db.run("update outbox set state = 'attempting', attempts = attempts + 1 where id = ?", [id])
+  }
+
+  delivered(id: string) {
+    this._db.run('delete from outbox where id = ?', [id])
+  }
+
+  failed(id: string, error: string) {
+    this._db.run("update outbox set state = 'failed', error = ? where id = ?", [error.slice(0, 300), id])
+  }
+
+  /** Answers still owed on a channel: fresh, with attempts left. */
+  owed(channel: string): OutboxEntry[] {
+    return (
+      this._db
+        .query('select * from outbox where channel = ? and created >= ? and attempts < ? order by created')
+        .all(channel, Date.now() - OUTBOX_FRESH_MS, OUTBOX_ATTEMPTS) as (Omit<
+        OutboxEntry,
+        'thread' | 'error'
+      > & {
+        thread: string | null
+        error: string | null
+      })[]
+    ).map(({ thread, error, ...row }) => ({
+      ...row,
+      ...(thread ? { thread } : {}),
+      ...(error ? { error } : {}),
+    }))
   }
 
   close() {

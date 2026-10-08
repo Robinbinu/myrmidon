@@ -2,6 +2,7 @@ import { type FSWatcher, mkdirSync, readdirSync, rmSync, watch, writeFileSync } 
 import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
+import type { ChannelKind } from './channels/hub.ts'
 import type { PluginInfo, PluginStore } from './plugins.ts'
 
 /**
@@ -45,6 +46,11 @@ export interface PluginContext {
     /** Adds a `plugin/event` to a colony's log, for the UI and other plugins to see. */
     emit(colonyId: string, type: string, data: Record<string, unknown>): Promise<void>
   }
+  /**
+   * Messaging platforms the plugin adds (WhatsApp, Discord…), by id: they appear in Settings → Channels and run
+   * through Myrmidon's channel hub, which handles who may talk, conversations, approvals and delivery.
+   */
+  readonly channels: { register(id: string, kind: ChannelKind): void }
   /** The plugin's settings, as the person set them in Settings → Plugins, with the manifest's defaults. */
   readonly settings: { get(): Record<string, unknown> }
   /** A line in the plugin's log, shown in its row in Settings. */
@@ -57,6 +63,7 @@ interface Loaded {
   readonly tools: PluginToolDefinition[]
   readonly prompts: { section: string; text: string; scope: PromptScope }[]
   readonly listeners: { type: string; run: (event: MyrEvent, colonyId: string) => void | Promise<void> }[]
+  readonly channels: Record<string, ChannelKind>
   readonly disposers: (() => void | Promise<void>)[]
   readonly module?: { deactivate?: () => void | Promise<void> }
 }
@@ -79,6 +86,9 @@ export class PluginHost {
   private readonly _watchers = new Map<string, FSWatcher>()
   private readonly _timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly _buildDir: string
+  /** Tools Myrmidon itself adds through the host (not a plugin's), by owner. */
+  private readonly _builtIn = new Map<string, PluginToolDefinition[]>()
+  private readonly _changed = new Set<() => void>()
   private _append?: (
     colonyId: string,
     type: string,
@@ -122,6 +132,7 @@ export class PluginHost {
       tools: [],
       prompts: [],
       listeners: [],
+      channels: {},
       disposers: [],
     }
     const ctx = this._context(plugin, loaded)
@@ -133,6 +144,7 @@ export class PluginHost {
       if (typeof module.activate !== 'function') throw new Error('server/index.ts must export activate(ctx)')
       await module.activate(ctx)
       this._loaded.set(plugin.name, { ...loaded, module })
+      this._notify()
       this._log(
         plugin.name,
         `loaded: ${loaded.tools.length} tool(s), ${loaded.prompts.length} prompt section(s)`,
@@ -158,11 +170,36 @@ export class PluginHost {
     for (const name of new Set([...this._loaded.keys(), ...this._watchers.keys()])) await this.unload(name)
   }
 
-  /** The loaded plugins' tools, bound to the colony and agent that will call them. */
+  /** The loaded plugins' tools, and Myrmidon's own added here, bound to the colony and agent that will call them. */
   tools(call: Omit<PluginCall, 'signal'>): AgentTool[] {
-    return [...this._loaded].flatMap(([plugin, loaded]) =>
-      loaded.tools.map((tool) => this._agentTool(plugin, tool, call)),
-    )
+    return [
+      ...[...this._builtIn].flatMap(([owner, tools]) =>
+        tools.map((tool) => this._agentTool(owner, tool, call, true)),
+      ),
+      ...[...this._loaded].flatMap(([plugin, loaded]) =>
+        loaded.tools.map((tool) => this._agentTool(plugin, tool, call)),
+      ),
+    ]
+  }
+
+  /** Adds Myrmidon's own tools under an owner's name (`<owner>_<tool>`), e.g. the channels' send tool. */
+  addBuiltIn(owner: string, tools: PluginToolDefinition[]) {
+    this._builtIn.set(owner, tools)
+  }
+
+  /** Messaging platforms the loaded plugins add, by id. */
+  channelKinds(): Record<string, ChannelKind> {
+    return Object.assign({}, ...[...this._loaded.values()].map((l) => l.channels))
+  }
+
+  /** Runs `listener` whenever plugins load or unload; returns the undo. */
+  onChange(listener: () => void): () => void {
+    this._changed.add(listener)
+    return () => this._changed.delete(listener)
+  }
+
+  private _notify() {
+    for (const listener of this._changed) listener()
   }
 
   /** Prompt sections for an agent that leads (or speaks) or one that works. */
@@ -214,6 +251,14 @@ export class PluginHost {
           await this._append(colonyId, type, data, plugin.name)
         },
       },
+      channels: {
+        register: (id, kind) => {
+          if (!/^[a-z][a-z0-9-]{1,30}$/.test(id))
+            throw new Error(`channel id ${JSON.stringify(id)} must be a-z, 0-9 and -`)
+          if (typeof kind?.make !== 'function') throw new Error(`channel ${id} needs a make function`)
+          loaded.channels[id] = kind
+        },
+      },
       settings: { get: () => this.store.settings(plugin.name) },
       log: (message) => this._log(plugin.name, message),
       onDispose: (dispose) => loaded.disposers.push(dispose),
@@ -224,12 +269,13 @@ export class PluginHost {
     plugin: string,
     tool: PluginToolDefinition,
     call: Omit<PluginCall, 'signal'>,
+    builtIn = false,
   ): AgentTool {
     const name = `${plugin}_${tool.name}`
     return {
       name,
       label: name,
-      description: `${tool.description} (from the ${plugin} plugin)`,
+      description: builtIn ? tool.description : `${tool.description} (from the ${plugin} plugin)`,
       parameters: (tool.parameters ?? { type: 'object', properties: {} }) as never,
       intent: 'omit',
       approval: 'write',
@@ -269,6 +315,7 @@ export class PluginHost {
     const loaded = this._loaded.get(name)
     if (!loaded) return
     this._loaded.delete(name)
+    this._notify()
     for (const dispose of [
       ...loaded.disposers,
       ...(loaded.module?.deactivate ? [loaded.module.deactivate] : []),

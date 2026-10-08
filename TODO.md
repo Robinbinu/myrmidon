@@ -262,9 +262,17 @@ Open work, in the order it will be done:
       - [x] Step 1: channel core + Telegram text — ChannelHub (pairing codes, owner/members, groups by approval and
         mention, one chat per conversation, /new /stop /status /help, status line, chunked answers, dedupe and saved
         offset), Telegram over plain HTTP, Settings → Channels, `myrmidon channels`, doctor, docs/channels.md.
-      - [ ] Step 2: approvals and questions in the chat (buttons), delivery ledger.
-      - [ ] Step 3: media in/out, voice notes, schedules delivering to a channel.
-      - [ ] Step 4: WhatsApp and other platforms as plugins.
+      Asked 2026-10-08: "port everything they do" (OpenClaw + Hermes, both MIT; adapt onto ChannelHub, credit them).
+      - [x] Step 2 (core parity): approve/deny and question buttons (text /approve fallback), delivery ledger with
+        retries and restart replay, media in (photos, files) and out (round files), voice notes transcribed,
+        streaming modes (progress | partial | final), access policies (pairing | allowlist | open | disabled for
+        DMs and groups, mention on/off), group sessions per user, a `send_message` tool for agents, schedules that
+        deliver to a channel, `ctx.channels.register` for plugins, webhook ingress for webhook-based platforms.
+      - [ ] Step 3: WhatsApp (Baileys linked device; Meta Cloud API).
+      - [ ] Step 4: Discord, Slack.
+      - [ ] Step 5: Signal (signal-cli), iMessage (imsg / BlueBubbles), Matrix, Mattermost, email (IMAP/SMTP).
+      - [ ] Step 6: Microsoft Teams, Google Chat, LINE, SMS (Twilio), Feishu/Lark, DingTalk, WeCom.
+      - [ ] Step 7: IRC, Twitch, X, Nostr, Zalo, Synology Chat, Nextcloud Talk, ntfy, SimpleX, Tlon, WeChat, QQ, webhook.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
