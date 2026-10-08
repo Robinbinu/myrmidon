@@ -115,11 +115,22 @@ const CLOCK_SECONDS = new Intl.DateTimeFormat(undefined, {
   second: '2-digit',
 })
 
+const DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+const DAY_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+function local(format: Intl.DateTimeFormat, iso: string | undefined): string {
+  const at = iso ? Date.parse(iso) : Number.NaN
+  return Number.isNaN(at) ? '' : format.format(at)
+}
+
 /** The time of day of an event, in the reader's own zone and clock style; events are stamped in UTC. */
 export function clock(iso: string | undefined, seconds = false): string {
-  if (!iso) return ''
-  const at = Date.parse(iso)
-  return Number.isNaN(at) ? '' : (seconds ? CLOCK_SECONDS : CLOCK).format(at)
+  return local(seconds ? CLOCK_SECONDS : CLOCK, iso)
+}
+
+/** The local date of a UTC timestamp, with its time of day when `withTime`. */
+export function day(iso: string | undefined, withTime = false): string {
+  return local(withTime ? DAY_TIME : DAY, iso)
 }
 
 /**

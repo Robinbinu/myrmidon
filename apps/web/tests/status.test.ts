@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { type AgentStatus, AWAITING_USER, stopCause } from '@myrmidon/protocol'
 import { copy } from '../src/client/copy.ts'
-import { clock, duration, knownCost, money } from '../src/client/ui/hooks.ts'
+import { clock, day, duration, knownCost, money } from '../src/client/ui/hooks.ts'
 import { agentPhase, runPhase, toneFor } from '../src/client/ui/status.ts'
 
 test('each state has one colour: asking is accent, moving is work, done is green, only failure is red', () => {
@@ -71,6 +71,12 @@ test('event times read in the local zone, not UTC', () => {
   expect(clock(local.toISOString(), true)).toMatch(/0?9\D05\D07/)
   expect(clock(undefined)).toBe('')
   expect(clock('not a time')).toBe('')
+  // Late on 2 January locally is still the 2nd, whatever the UTC date.
+  const late = new Date(2026, 0, 2, 23, 30)
+  expect(day(late.toISOString())).toBe(
+    new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(late),
+  )
+  expect(day(late.toISOString(), true)).toContain(day(late.toISOString()))
 })
 
 test('long durations read in minutes and an unpriced model costs n/a, not $0', () => {

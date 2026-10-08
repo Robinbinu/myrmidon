@@ -34,7 +34,7 @@ import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { type Section, Settings } from './Settings.tsx'
-import { NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
+import { day, NOTIFY_KEY, useHotkeys, usePersistentFlag, useStickToBottom, useTheme } from './ui/hooks.ts'
 import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Button, cn, IconButton, Pill, Select, toneFor } from './ui/primitives.tsx'
@@ -927,7 +927,7 @@ function ColoniesPane() {
         >
           {colonies.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} · {c.status} · {c.createdAt?.slice(0, 16).replace('T', ' ')}
+              {c.name} · {copy.status.run[runPhase(c)]} · {day(c.createdAt, true)}
             </option>
           ))}
         </Select>
