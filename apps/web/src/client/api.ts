@@ -191,7 +191,24 @@ export interface RosterEntry {
   /** What this teammate is for, e.g. `researcher`; `peer` for an unspecialised swarm peer. */
   role: string
   model: string
+  /** One of the person's saved specialists, by name: it joins as they set it up. */
+  specialist?: string
 }
+
+/** An agent the person defined once and brings back (Settings → Specialists). */
+export interface Specialist {
+  id: string
+  name: string
+  specialty: string
+  instructions: string
+  model?: string
+  /** Tool groups it may not use. */
+  off: ('web' | 'shell' | 'files' | 'browser' | 'mcp')[]
+  createdAt: string
+}
+
+/** Sent when specialists change, so pickers listing them load them again. */
+export const SPECIALISTS_CHANGED = 'myr-specialists-changed'
 
 export interface TeamConfig {
   /** `orchestrated`: a lead assigns tasks to specialists; `swarm`: equal peers share notes and tasks. */
@@ -241,7 +258,14 @@ export function normalizeConfig(raw: Record<string, unknown>, fallbackModel: str
     ? { thinking: raw.thinking as 'low' | 'medium' | 'high' }
     : {}
   const roster = Array.isArray(raw.roster)
-    ? (raw.roster as RosterEntry[]).filter((r) => typeof r?.role === 'string' && str(r?.model)).slice(0, 8)
+    ? (raw.roster as RosterEntry[])
+        .filter((r) => typeof r?.role === 'string' && str(r?.model))
+        .slice(0, 8)
+        .map((r) => ({
+          role: r.role,
+          model: r.model,
+          ...(typeof r.specialist === 'string' && r.specialist ? { specialist: r.specialist } : {}),
+        }))
     : undefined
   if (raw.mode === 'swarm')
     return {

@@ -32,7 +32,8 @@ export interface ColonyHost {
   /** Auto review: runs the reviewer on the work so far and returns its verdict, without ending the round. */
   requestReview(by: string, summary: string): Promise<string>
   /** Adds a worker at run time (auto team mode). Returns a message for the calling agent. */
-  spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string>
+  /** Adds a worker: a new one for `label`, or (with `specialist`) one of the person's saved specialists by name. */
+  spawnWorker(by: string, label: string, focus: string, model?: string, specialist?: string): Promise<string>
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number

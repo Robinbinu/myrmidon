@@ -120,7 +120,11 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         'reply_person',
       ]
     if (isLead(spec, agent)) {
-      const spawn = (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 ? ['spawn_worker'] : []
+      // A lead can add workers while it has room, and bring in the person's specialists whenever some can join.
+      const spawn =
+        (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 || spec.team?.specialists?.length
+          ? ['spawn_worker']
+          : []
       // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
       // It plans, assigns, reviews, integrates, and speaks; specialists research and build.
       return [
@@ -192,7 +196,7 @@ export function onDemand(name: string): boolean {
 
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
   const tools = agent.tools ?? roleTools(spec, agent)
-  const disabled = new Set(spec.disabledTools ?? [])
+  const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? [])])
   const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
   // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
   return allowed.some((t) => t === 'mcp' || t === 'shell' || onDemand(t))
@@ -234,10 +238,14 @@ function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
   if (isLead(spec, agent)) {
     const extra = (spec.team?.maxWorkers ?? 0) - (spec.agents.length - 1)
     if (!spec.chat) return prompts.roles.lead(roster(spec, agent))
+    const saved = spec.team?.specialists
+      ?.map((s) => `- ${s.name}: ${s.specialty ?? s.role} (${s.model})`)
+      .join('\n')
     return prompts.roles.chatLead({
       roster: roster(spec, agent),
       extra,
       ...(spec.team ? { workerModels: spec.team.workerModels } : {}),
+      ...(saved ? { saved } : {}),
     })
   }
   if (spec.pattern === 'lead-workers') {

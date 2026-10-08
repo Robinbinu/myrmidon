@@ -29,6 +29,8 @@ export interface AgentSpec {
   specialty?: string
   /** A spawned worker's brief from the lead. */
   focus?: string
+  /** Tools this agent may not use, whatever its role gives it (a saved specialist's switched-off groups). */
+  withoutTools?: string[]
 }
 
 export interface ColonySpec {
@@ -89,6 +91,8 @@ export interface TeamPolicy {
   maxWorkers: number
   /** Models the lead may assign to spawned workers; the first is the default. */
   workerModels: string[]
+  /** The person's saved specialists the lead may bring in by name (spawn_worker), as they would join. */
+  specialists?: AgentSpec[]
 }
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/

@@ -64,8 +64,9 @@ Open work, in the order it will be done:
 9b. - [x] **@mention a worker from the composer** (asked 2026-10-07; the person chose: the worker replies directly,
       an idle crew starts a round with that worker) — typing @ offers the crew; the worker hears it (the lead is only
       told) and answers with reply_person under its own name; in a round opened that way its answer finishes it.
-10. - [ ] **Saved specialist agents** (OpenDots) — agents the person defines once (name, role prompt, tools, model)
-      and reuses as helpers.
+10. - [x] **Saved specialist agents** (OpenDots) — Settings → Specialists (name, specialty, instructions, model,
+      tool groups); joined from the team picker, by the lead with spawn_worker(specialist), or saved from a worker's
+      sheet; a kept specialist always works as currently saved.
 11. - [ ] **Learn skills from past chats** (OpenDots idea) — propose a SKILL.md from finished chats for the person to
       keep or drop, like memory proposals.
 12. - [ ] **Voice calls** (OpenDots, as a plugin) — a fast voice model that hands work to the lead.

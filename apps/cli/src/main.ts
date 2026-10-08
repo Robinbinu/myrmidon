@@ -36,6 +36,7 @@ import {
   ScheduleStore,
   SettingsStore,
   SkillLibrary,
+  SpecialistStore,
   ToolLibrary,
 } from '@myrmidon/runtime'
 import { startServer } from '@myrmidon/web'
@@ -289,6 +290,7 @@ async function main() {
       const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
       const browser = new BrowserHub(join(home, 'browser'))
       const projects = new ProjectStore(home)
+      const specialists = new SpecialistStore(home)
       const library = new ToolLibrary(join(home, 'tools'))
       const memory = new MemoryStore(home)
       const skills = new SkillLibrary(home, undefined, () => plugins.skillRoots())
@@ -306,6 +308,7 @@ async function main() {
         mcp,
         browser,
         projects,
+        specialists,
         library,
         checkpoints,
         memory,
@@ -323,6 +326,7 @@ async function main() {
         mcp,
         browser,
         projects,
+        specialists,
         library,
         memory,
         skills,

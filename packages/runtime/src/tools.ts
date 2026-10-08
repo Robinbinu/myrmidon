@@ -1758,12 +1758,15 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.spawn_worker.description,
     parameters: type({
-      role: type('string').atLeastLength(2).atMostLength(40).describe(prompts.tools.spawn_worker.params.role),
+      'role?': type('string').atMostLength(40).describe(prompts.tools.spawn_worker.params.role),
       focus: type('string').atLeastLength(10).describe(prompts.tools.spawn_worker.params.focus),
       'model?': type('string').describe(prompts.tools.spawn_worker.params.model),
+      'specialist?': type('string').describe(prompts.tools.spawn_worker.params.specialist),
     }),
     async run(args, agent, host) {
-      return host.spawnWorker(agent, args.role, args.focus, args.model)
+      if (!args.specialist && (args.role?.trim().length ?? 0) < 2)
+        throw new Error("give the new worker a role, or bring in one of the person's specialists by name")
+      return host.spawnWorker(agent, args.role?.trim() ?? '', args.focus, args.model, args.specialist)
     },
   },
   {

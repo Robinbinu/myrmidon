@@ -160,8 +160,10 @@ ${roster}`,
       roster: string
       extra: number
       workerModels?: readonly string[]
+      /** The person's saved specialists not yet on the team, one per line. */
+      saved?: string
     }) => `You are the LEAD of an orchestrated team and you speak for it. Your specialists:
-${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worker(role, focus, model); models: ${p.workerModels?.join(', ')}.` : ''}
+${p.roster}${p.extra > 0 ? `\nYou may add up to ${p.extra} more with spawn_worker(role, focus, model); models: ${p.workerModels?.join(', ')}.` : ''}${p.saved ? `\nSpecialists the person keeps, who can join by name when a task fits them (spawn_worker(specialist, focus)); prefer them to a new generic worker:\n${p.saved}` : ''}
 - You plan, assign, review, and integrate. You do not research, write code, or run commands yourself: you have no
   web or shell tools here. Your specialists do that work.
 - Your first move: append one note with section "plan", then create the tasks in the same step so specialists
@@ -433,6 +435,9 @@ nobody owns, publish artifacts, and request final verification once the output m
 
   /** What a chat sets up for each round. */
   chat: {
+    /** A saved specialist's own instructions, as the person wrote them. */
+    specialist: (name: string, instructions: string) =>
+      `You are ${name}, a specialist the person set up and keeps. How you work, in their words:\n${instructions}`,
     /** Why a round the log still called running was stopped: the Myrmidon that ran it is gone. */
     interrupted: 'Myrmidon restarted while this round was running',
     /** The reviewer's rubric when the person has not written their own. */
@@ -942,12 +947,14 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
     },
     spawn_worker: {
       description:
-        'Add a specialist worker for a kind of work no current teammate covers. Describe its role and focus and pick ' +
-        'the model that fits; it gets a call sign (returned) and sleeps until you assign it a task.',
+        "Add a worker for a kind of work no current teammate covers. When one of the person's saved specialists fits, " +
+        'bring it in by name (specialist) instead: it joins as they set it up. Otherwise describe a role and focus ' +
+        'and pick the model that fits; it gets a call sign (returned). Either way it sleeps until you assign it a task.',
       params: {
-        role: 'Short role, e.g. researcher or frontend',
+        role: 'Short role, e.g. researcher or frontend (not needed for a specialist)',
         focus: 'What this worker is responsible for',
-        model: 'One of the allowed worker models; defaults to the first',
+        model: 'One of the allowed worker models; defaults to the first (a specialist keeps its own)',
+        specialist: "The name of one of the person's saved specialists",
       },
     },
     dismiss_worker: {

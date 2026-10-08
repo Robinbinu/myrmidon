@@ -37,6 +37,7 @@ import {
   LOGIN_MS,
   MAX_SERVERS,
   MAX_VERIFY_ROUNDS,
+  MAX_WORKERS,
   QUIET_NUDGES,
   SERVER_START_MS,
 } from './config.ts'
@@ -57,7 +58,7 @@ import { prompts } from './prompts.ts'
 import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
-import type { ColonySpec } from './spec.ts'
+import type { AgentSpec, ColonySpec } from './spec.ts'
 import { guessMediaType } from './tools.ts'
 import { Verifier } from './verifier.ts'
 import { noWebTools, type WebTools } from './web.ts'
@@ -1085,26 +1086,46 @@ export class ColonyRun implements ColonyHost {
    * Adds a specialist to an orchestrated team. `label` is its role (e.g. `researcher`); it gets a call sign
    * and sleeps until the lead assigns it a task.
    */
-  async spawnWorker(by: string, label: string, focus: string, model?: string): Promise<string> {
+  async spawnWorker(
+    by: string,
+    label: string,
+    focus: string,
+    model?: string,
+    specialist?: string,
+  ): Promise<string> {
     const team = this.spec.team
     if (team?.mode !== 'orchestrated') throw new Error('only an orchestrated team can add workers')
     if (this.spec.agents.find((a) => a.name === by)?.role !== 'lead')
       throw new Error('only the lead can spawn workers')
     const workers = this.spec.agents.filter((a) => a.role !== 'lead').length
-    if (workers >= team.maxWorkers) throw new Error(`worker limit reached (${team.maxWorkers})`)
-    const name = pickName(new Set(this.spec.agents.map((a) => a.name)))
-    const chosen = model ?? team.workerModels[0]
-    if (!chosen || !team.workerModels.includes(chosen)) {
+    // The person's own specialists may join past the extra-worker allowance, up to the team's ceiling.
+    const limit = specialist ? MAX_WORKERS : team.maxWorkers
+    if (workers >= limit) throw new Error(`worker limit reached (${limit})`)
+    const saved = specialist ? team.specialists?.find((s) => s.name === specialist) : undefined
+    if (specialist && !saved) {
+      const here = this.spec.agents.some((a) => a.name === specialist)
+      throw new Error(
+        here
+          ? `${specialist} is already on the team: assign it a task`
+          : `no saved specialist called ${specialist}; the person keeps: ${team.specialists?.map((s) => s.name).join(', ') || 'none'}`,
+      )
+    }
+    const chosen = model ?? saved?.model ?? team.workerModels[0]
+    if (!chosen || (!saved && !team.workerModels.includes(chosen))) {
       throw new Error(`model must be one of: ${team.workerModels.join(', ')}`)
     }
-    const spec = {
+    const name = saved?.name ?? pickName(new Set(this.spec.agents.map((a) => a.name)))
+    label = saved?.specialty ?? label
+    const spec: AgentSpec = {
+      ...saved,
       name,
       role: 'worker',
       model: chosen,
       specialty: label,
       focus,
-      instructions: prompts.colony.workerFocus(by, focus),
+      instructions: [saved?.instructions, prompts.colony.workerFocus(by, focus)].filter(Boolean).join('\n\n'),
     }
+    if (team.specialists) team.specialists = team.specialists.filter((s) => s.name !== name)
     this.spec.agents.push(spec)
     await this.append({
       type: 'agent/joined',

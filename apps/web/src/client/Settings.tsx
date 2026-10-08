@@ -34,6 +34,7 @@ import {
   Sun,
   Terminal,
   Trash2,
+  UserCog,
   Users,
   Webhook,
   Wrench,
@@ -44,11 +45,13 @@ import { api, type ModelOption, send, type TeamConfig } from './api.ts'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { windowLabel } from './chat/ModelPicker.tsx'
+import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from './ui/hooks.ts'
-import { BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
+import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Button,
   cn,
@@ -133,6 +136,7 @@ interface SettingsResponse {
 export type Section =
   | 'general'
   | 'mascot'
+  | 'specialists'
   | 'models'
   | 'team'
   | 'tools'
@@ -156,6 +160,12 @@ const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette
     label: copy.settings.sections.mascot.label,
     hint: copy.settings.sections.mascot.hint,
     icon: Smile,
+  },
+  {
+    id: 'specialists',
+    label: copy.settings.sections.specialists.label,
+    hint: copy.settings.sections.specialists.hint,
+    icon: UserCog,
   },
   {
     id: 'models',
@@ -462,6 +472,7 @@ export function Settings(props: {
                 />
               )}
               {section === 'mascot' && data && <MascotSection data={data} update={update} />}
+              {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
@@ -2026,6 +2037,89 @@ const REVIEWER_HINT = {
   auto: copy.settings.reviewer.hints.auto,
   always: copy.settings.reviewer.hints.always,
 } as const
+
+/** The person's saved specialists: each as a row, opened into its editor; a new one starts empty. */
+function SpecialistsSection(props: { models: ModelOption[] }) {
+  const t = copy.settings.specialists
+  const toast = useToast()
+  const list = useSpecialists()
+  const [open, setOpen] = useState<string>()
+  const modelName = (ref?: string) =>
+    ref ? (props.models.find((m) => m.ref === ref)?.name ?? ref) : t.teamModel
+  return (
+    <>
+      <Heading title={t.title}>{t.intro}</Heading>
+      <div className="mb-4 flex justify-end">
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Plus className="size-3.5" />}
+          onClick={() => setOpen('new')}
+        >
+          {t.add}
+        </Button>
+      </div>
+      {open === 'new' && (
+        <Card className="mb-4 p-4">
+          <SpecialistEditor
+            models={props.models}
+            onSaved={() => setOpen(undefined)}
+            onCancel={() => setOpen(undefined)}
+          />
+        </Card>
+      )}
+      {list.length === 0 && open !== 'new' ? (
+        <Empty icon={<UserCog className="size-5" />} title={t.empty}>
+          {t.emptyHint}
+        </Empty>
+      ) : (
+        <Card>
+          {list.map((s) =>
+            open === s.id ? (
+              <div key={s.id} className="p-4">
+                <SpecialistEditor
+                  models={props.models}
+                  initial={s}
+                  onSaved={() => setOpen(undefined)}
+                  onCancel={() => setOpen(undefined)}
+                />
+              </div>
+            ) : (
+              <div key={s.id} className="group flex items-center gap-3 px-4 py-3">
+                <AgentAvatar name={s.name} status="idle" size={32} awake />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[13.5px] font-semibold">{s.name}</span>
+                    <span className="truncate text-[12.5px] text-fg-2">{s.specialty}</span>
+                  </div>
+                  <div className="truncate text-[12px] text-muted">
+                    {modelName(s.model)}
+                    {s.off.length > 0 && ` · ${t.toolsOff(s.off.map((g) => t.groups[g]).join(', '))}`}
+                  </div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setOpen(s.id)}>
+                  {t.edit}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    void removeSpecialist(s.id).then(
+                      () => toast(t.removed(s.name), 'info'),
+                      (err: Error) => toast(err.message, 'error'),
+                    )
+                  }
+                >
+                  {t.remove}
+                </Button>
+              </div>
+            ),
+          )}
+        </Card>
+      )}
+    </>
+  )
+}
 
 /** A choice shown as a small picture with its name under it, like macOS's appearance pickers. */
 function Tile(props: { selected: boolean; label: string; onClick(): void; children: ReactNode }) {

@@ -19,6 +19,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ModelOption, type ReviewMode, type RosterEntry, SPECIALISTS, type TeamConfig } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useSpecialists } from '../specialists.ts'
+import { agentColor } from '../ui/pixel.tsx'
 import { Button, cn, Segmented, Select } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, spring } from '../ui-config.ts'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
@@ -459,9 +461,21 @@ export function HelpersEditor(props: {
   const swarm = config.mode === 'swarm'
   const setRow = (i: number, patch: Partial<RosterEntry>) =>
     set({ roster: config.roster.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
-  const addRow = (role: string) =>
-    config.roster.length < 8 &&
-    set({ roster: [...config.roster, { role, model: config.roster.at(-1)?.model ?? config.leadModel }] })
+  const saved = useSpecialists()
+  const addRow = (role: string) => {
+    if (config.roster.length >= 8) return
+    const model = config.roster.at(-1)?.model ?? config.leadModel
+    // `@name` picks one of the person's saved specialists: its role and model come with it.
+    const specialist = role.startsWith('@') ? saved.find((s) => s.name === role.slice(1)) : undefined
+    set({
+      roster: [
+        ...config.roster,
+        specialist
+          ? { role: specialist.specialty, model: specialist.model ?? model, specialist: specialist.name }
+          : { role, model },
+      ],
+    })
+  }
   // Rows have no identity of their own; keep stable keys so removing one animates the right row.
   const ids = useRef<number[]>([])
   const nextId = useRef(0)
@@ -505,7 +519,17 @@ export function HelpersEditor(props: {
             exit={{ opacity: 0, height: 0 }}
             className="group flex min-h-11 items-center gap-2 px-3 py-1.5"
           >
-            {swarm ? (
+            {r.specialist ? (
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-[13px]">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: agentColor(r.specialist) }}
+                />
+                <span className="truncate">
+                  {copy.teamControls.editor.specialistOf(r.specialist, r.role)}
+                </span>
+              </span>
+            ) : swarm ? (
               <span className="flex-1 text-[13px] text-fg-2">{copy.teamControls.editor.peer(i + 1)}</span>
             ) : (
               <input
@@ -566,6 +590,17 @@ export function HelpersEditor(props: {
                 </option>
               ))}
               <option value="specialist">{copy.teamControls.editor.custom}</option>
+              {saved.some((s) => !config.roster.some((r) => r.specialist === s.name)) && (
+                <optgroup label={copy.teamControls.editor.yourSpecialists}>
+                  {saved
+                    .filter((s) => !config.roster.some((r) => r.specialist === s.name))
+                    .map((s) => (
+                      <option key={s.id} value={`@${s.name}`}>
+                        {copy.teamControls.editor.specialistOf(s.name, s.specialty)}
+                      </option>
+                    ))}
+                </optgroup>
+              )}
             </Select>
           )}
         </div>

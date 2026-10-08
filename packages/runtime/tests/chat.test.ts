@@ -349,6 +349,63 @@ test('@name writes to a crew member directly: it answers the person; an idle cre
   await chats.stopAll()
 })
 
+test('saved specialists: kept by name, joined from the team picker or by the lead, as the person set them up', async () => {
+  const { SpecialistStore } = await import('../src/specialists.ts')
+  const specialists = new SpecialistStore(home)
+  expect(() => specialists.save({ name: 'Lead', specialty: 'x', instructions: '', off: [] })).toThrow(
+    'uses itself',
+  )
+  expect(() => specialists.save({ name: 'a', specialty: 'x', instructions: '', off: [] })).toThrow('2-24')
+  const ada = specialists.save({
+    name: 'Ada',
+    specialty: 'data analyst',
+    instructions: 'Always show the numbers behind a claim.',
+    model: 'mock/ada',
+    off: ['web', 'shell'],
+  })
+  expect(ada.name).toBe('ada')
+  expect(() => specialists.save({ name: 'ada', specialty: 'y', instructions: '', off: [] })).toThrow(
+    'already',
+  )
+  specialists.save({ name: 'scout', specialty: 'web researcher', instructions: 'Cite sources.', off: [] })
+
+  const resolver = new ModelResolver()
+  const prompts: Record<string, string> = {}
+  const look = (who: string) => (ctx: LlmContext) => {
+    prompts[who] ??= ctx.systemPrompt?.join('\n') ?? ''
+  }
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      look('lead')(ctx)
+      return [tool('spawn_worker', { specialist: 'scout', focus: 'Find three sources on ant colonies' })]
+    },
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  scripted(resolver, 'mock/ada', [(ctx) => (look('ada')(ctx), ['ok'])])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), specialists })
+  const { colonyId } = await chats.send('Analyse ant colonies', {
+    mode: 'orchestrated',
+    leadModel: 'mock/lead',
+    roster: [{ role: 'analyst', model: 'mock/ada', specialist: 'ada' }],
+    extraWorkers: 0,
+    judgeModel: 'mock/judge',
+  })
+  const s = await waitFor(colonyId)
+  // From the team picker: Ada joins under her own name, with her instructions, and without the tools switched off.
+  expect(s.agents.ada?.info).toMatchObject({ role: 'worker', model: 'mock/ada', specialty: 'data analyst' })
+  expect(s.agents.ada?.info.tools).not.toContain('web_search')
+  expect(s.agents.ada?.info.tools).not.toContain('shell')
+  expect(s.agents.ada?.info.tools).toContain('fs_write')
+  // The lead sees the specialists it can bring in, and brings Scout in by name though it had no spare slot.
+  const keeps = prompts.lead?.split('Specialists the person keeps')[1]?.split('\n- You plan')[0] ?? ''
+  expect(keeps).toContain('- scout: web researcher')
+  // Ada is already on the team, so she is not offered again.
+  expect(keeps).not.toContain('- ada:')
+  expect(s.agents.scout?.info).toMatchObject({ role: 'worker', specialty: 'web researcher' })
+  await chats.stopAll()
+})
+
 test('orchestrated: an assigned task wakes only its assignee', async () => {
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>

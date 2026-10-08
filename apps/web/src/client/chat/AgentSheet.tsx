@@ -1,12 +1,15 @@
 import type { ColonyState, EventPayloads, MyrEvent } from '@myrmidon/protocol'
-import { FileText, X } from 'lucide-react'
+import { BookmarkPlus, FileText, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { ModelOption } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useSpecialists } from '../specialists.ts'
 import { compact } from '../ui/hooks.ts'
 import { AgentAvatar, DotMatrix } from '../ui/pixel.tsx'
-import { cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { Button, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
+import { SpecialistEditor } from './SpecialistEditor.tsx'
 import { StepRow } from './StepRow.tsx'
 import { deriveSteps } from './steps.ts'
 
@@ -38,8 +41,12 @@ export function AgentSheet(props: {
   state: ColonyState
   events: readonly MyrEvent[]
   onClose(): void
+  /** Models to offer when keeping this worker as a specialist. */
+  models?: readonly ModelOption[]
 }) {
   const agent = props.state.agents[props.name]
+  const [keeping, setKeeping] = useState(false)
+  const kept = useSpecialists().find((s) => s.name === props.name)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
     window.addEventListener('keydown', onKey)
@@ -111,6 +118,34 @@ export function AgentSheet(props: {
             <X className="size-4" />
           </IconButton>
         </header>
+        {!lead && (
+          <div className="border-b border-line px-5 pb-3">
+            {keeping ? (
+              <SpecialistEditor
+                models={props.models ?? []}
+                initial={
+                  kept ?? {
+                    name: props.name,
+                    specialty: agent.info.specialty ?? '',
+                    instructions: focus ?? '',
+                    model: agent.info.model,
+                  }
+                }
+                onSaved={() => setKeeping(false)}
+                onCancel={() => setKeeping(false)}
+              />
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<BookmarkPlus className="size-3.5" />}
+                onClick={() => setKeeping(true)}
+              >
+                {kept ? copy.settings.specialists.edit : copy.settings.specialists.saveFromChat}
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <Section title={lead ? copy.agentSheet.sections.role : copy.agentSheet.sections.focus}>

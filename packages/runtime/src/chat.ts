@@ -31,6 +31,7 @@ import { prompts } from './prompts.ts'
 import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AcceptanceCheck, AgentSpec, ColonySpec, Tier } from './spec.ts'
+import { type SpecialistStore, specialistAgent } from './specialists.ts'
 import type { WebTools } from './web.ts'
 
 /** One round of a chat: the colony it ran in, its place in that colony's log, and the colony's state. */
@@ -73,6 +74,8 @@ export interface RosterEntry {
   /** What this teammate is for, e.g. `researcher`, `coder`, `writer`; `peer` for an unspecialised swarm peer. */
   readonly role: string
   readonly model: string
+  /** One of the person's saved specialists, by name: it joins as they set it up. */
+  readonly specialist?: string
 }
 
 export interface TeamConfig {
@@ -150,7 +153,11 @@ export function normalizeTeamConfig(raw: Record<string, unknown>): TeamConfig {
         (r): r is RosterEntry => typeof r?.role === 'string' && typeof r?.model === 'string' && !!r.model,
       )
       .slice(0, MAX_WORKERS)
-      .map((r) => ({ role: r.role.trim().slice(0, 40) || 'worker', model: r.model }))
+      .map((r) => ({
+        role: r.role.trim().slice(0, 40) || 'worker',
+        model: r.model,
+        ...(typeof r.specialist === 'string' && r.specialist ? { specialist: r.specialist } : {}),
+      }))
     const extra = typeof raw.extraWorkers === 'number' ? Math.max(0, Math.floor(raw.extraWorkers)) : 0
     return { mode: raw.mode, leadModel, roster, extraWorkers: extra, judgeModel, ...wall }
   }
@@ -253,8 +260,34 @@ export class ChatService {
       hooks?: HookStore
       /** Project folders chats can work in. */
       projects?: ProjectStore
+      /** Agents the person defined once and brings back. */
+      specialists?: SpecialistStore
     },
   ) {}
+
+  /**
+   * A crew member who is one of the person's specialists works as they set it up now: its specialty, instructions and
+   * tools (its model and its memory of the chat stay as they are).
+   */
+  private _asSpecialist(agent: AgentSpec): AgentSpec {
+    const saved = agent.role === 'lead' ? undefined : this.options.specialists?.byName(agent.name)
+    if (!saved) return agent
+    const as = specialistAgent(saved, agent.role === 'peer' ? 'peer' : 'worker', agent.model)
+    return {
+      ...agent,
+      ...(as.specialty ? { specialty: as.specialty } : {}),
+      ...(as.instructions ? { instructions: as.instructions } : {}),
+      ...(as.withoutTools ? { withoutTools: as.withoutTools } : {}),
+    }
+  }
+
+  /** The person's specialists a lead may still bring in: those not already on the team. */
+  private _bringable(agents: readonly AgentSpec[], workerModel: string): AgentSpec[] {
+    const here = new Set(agents.map((a) => a.name))
+    return (this.options.specialists?.list() ?? [])
+      .filter((s) => !here.has(s.name))
+      .map((s) => specialistAgent(s, 'worker', workerModel))
+  }
 
   private get store() {
     return this.runtime.ctx.logStore as SqliteLogStore
@@ -806,13 +839,13 @@ export class ChatService {
     const notes = this.options.settings?.get().instructions
     const agents = [...created.agents, ...joined].map((info) => {
       const note = (info.role === 'lead' ? notes?.lead : notes?.worker)?.trim()
-      return {
+      return this._asSpecialist({
         name: info.name,
         role: info.role,
         model: info.model,
         ...(info.specialty ? { specialty: info.specialty } : {}),
         ...(note ? { instructions: note } : {}),
-      }
+      })
     })
     return {
       name: created.name,
@@ -831,6 +864,9 @@ export class ChatService {
               mode: created.team.mode === 'swarm' ? 'swarm' : 'orchestrated',
               maxWorkers: created.team.maxWorkers,
               workerModels: created.team.workerModels,
+              ...(created.team.mode !== 'swarm'
+                ? { specialists: this._bringable(agents, created.team.workerModels[0] ?? '') }
+                : {}),
             },
           }
         : {}),
@@ -946,16 +982,25 @@ export class ChatService {
     const crew = (role: 'worker' | 'peer'): AgentSpec[] =>
       kept.length > 0
         ? kept
-        : roster.map((r) => {
+        : roster.flatMap((r) => {
+            // A roster place taken by a saved specialist: it joins under its own name, once.
+            const saved = r.specialist ? this.options.specialists?.byName(r.specialist) : undefined
+            if (saved) {
+              if (taken.has(saved.name)) return []
+              taken.add(saved.name)
+              return [specialistAgent({ ...saved, model: r.model || saved.model }, role, r.model)]
+            }
             const name = pickName(taken)
             taken.add(name)
-            return {
-              name,
-              role,
-              model: r.model,
-              ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
-              ...(workerNote ? { instructions: workerNote } : {}),
-            }
+            return [
+              {
+                name,
+                role,
+                model: r.model,
+                ...(r.role && r.role !== 'peer' && r.role !== 'worker' ? { specialty: r.role } : {}),
+                ...(workerNote ? { instructions: workerNote } : {}),
+              },
+            ]
           })
     const lead: AgentSpec = {
       name: 'lead',
@@ -981,7 +1026,7 @@ export class ChatService {
             ...(workerNote ? { instructions: workerNote } : {}),
           })
         : lead
-    const agents: AgentSpec[] =
+    const agents: AgentSpec[] = (
       tier !== 'team'
         ? [alone]
         : swarm
@@ -993,6 +1038,7 @@ export class ChatService {
                 return { name, role: 'peer', model: config.leadModel }
               })
           : [lead, ...crew('worker')]
+    ).map((a) => this._asSpecialist(a))
     const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
@@ -1043,6 +1089,9 @@ export class ChatService {
         mode: config.mode,
         maxWorkers: tier === 'team' && !swarm ? (kept.length || roster.length) + extra : 0,
         workerModels: models,
+        ...(tier === 'team' && !swarm
+          ? { specialists: this._bringable(agents, roster[0]?.model ?? config.leadModel) }
+          : {}),
       },
     }
   }

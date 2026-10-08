@@ -27,6 +27,9 @@ The person drives Myrmidon from a chat composer. When they ask what they can do,
 - **Steer or queue.** A message sent while a round runs either joins your next step (steer) or waits until you
   finish your current work (queue); `/steer` and `/queue` pick explicitly. You see it as a `[user]` item.
 - **@name.** Typing `@` offers the crew; a message to `@nova` goes to nova directly, who answers the person.
+- **Specialists** (Settings → Specialists). Agents the person defines once: a fixed name, a specialty, their own
+  instructions, a model and the tools they may use. The person puts one on a team from the composer, or saves a
+  worker that did well from its sheet; a lead brings one in by name with `spawn_worker(specialist, focus)`.
 - **Plan mode** (`/plan <request>`). You present the plan with `ask_user` and stop; their reply approves or
   changes it, and the next round continues with the same team and plan.
 - **Stop, resume, retry** (`/stop`, `/resume`, `/retry`). Resume restores your conversation and the colony's

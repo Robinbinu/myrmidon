@@ -37,6 +37,8 @@ import {
   type ScheduleStore,
   type SettingsStore,
   type SkillLibrary,
+  type SpecialistInput,
+  type SpecialistStore,
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
@@ -73,6 +75,7 @@ export interface ServeOptions {
   readonly browser?: BrowserHub
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
+  readonly specialists?: SpecialistStore
   /** Tools agents made that the person chose to keep. */
   readonly library?: ToolLibrary
   /** What the person keeps across chats (memory). */
@@ -163,6 +166,19 @@ function mcpConfig(raw: Record<string, unknown>): McpServerConfig {
   return type === 'stdio'
     ? { type, ...(command ? { command } : {}), ...(args?.length ? { args } : {}), ...(env ? { env } : {}) }
     : { type, ...(url ? { url } : {}), ...(headers ? { headers } : {}) }
+}
+
+/** A specialist as the page sends it; the store checks the values themselves. */
+function specialistInput(body: unknown): SpecialistInput {
+  const b = (body ?? {}) as Record<string, unknown>
+  const text = (v: unknown) => (typeof v === 'string' ? v : '')
+  return {
+    name: text(b.name),
+    specialty: text(b.specialty),
+    instructions: text(b.instructions),
+    ...(typeof b.model === 'string' && b.model ? { model: b.model } : {}),
+    off: Array.isArray(b.off) ? (b.off.filter((g) => typeof g === 'string') as SpecialistInput['off']) : [],
+  }
 }
 
 export function startServer(options: ServeOptions): WebServer {
@@ -503,6 +519,38 @@ export function startServer(options: ServeOptions): WebServer {
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
+        }),
+      },
+      '/api/specialists': {
+        GET: guard(() => json({ specialists: options.specialists?.list() ?? [] })),
+        POST: guard(async (req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          try {
+            const specialist = options.specialists.save(specialistInput(await req.json()))
+            return json({ specialist, specialists: options.specialists.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
+      '/api/specialists/:id': {
+        PUT: guard(async (req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          try {
+            const specialist = options.specialists.save(
+              specialistInput(await req.json()),
+              req.params.id ?? '',
+            )
+            return json({ specialist, specialists: options.specialists.list() })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+        DELETE: guard((req) => {
+          if (!options.specialists) return json({ error: 'specialists need the chat runtime' }, 503)
+          if (!options.specialists.remove(req.params.id ?? ''))
+            return json({ error: 'no such specialist' }, 404)
+          return json({ specialists: options.specialists.list() })
         }),
       },
       '/api/projects/:id/permissions': {

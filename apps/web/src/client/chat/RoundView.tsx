@@ -312,6 +312,7 @@ export function RoundView(props: {
             name={inspect}
             state={state}
             events={events}
+            models={props.models}
             onClose={() => setInspect(undefined)}
           />
         )}
