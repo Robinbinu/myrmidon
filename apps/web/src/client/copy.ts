@@ -163,7 +163,7 @@ export const copy = {
     channels: 'Channels',
     noChannels: 'No channels set up. Add one in Settings → Channels.',
     activity: 'Recent activity',
-    noActivity: 'Nothing yet.',
+    noActivity: 'Nothing yet. Messages and answers on your channels show here.',
     /** A channel's connection in plain words; the server's own reason sits behind Show details. */
     channelState: {
       on: 'Connected',
@@ -686,7 +686,8 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
     },
-    empty: 'Your conversations will appear here.',
+    /** `combo` is the New chat shortcut, written for this platform. */
+    empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
     noMatches: (query: string) => `No chats match “${query}”.`,
     searchingMessages: 'Searching messages…',
     nav: { crews: 'Runs', compare: 'Compare runs', settings: 'Settings' },
@@ -775,7 +776,7 @@ export const copy = {
     },
     reasoning: 'Reasoning',
     stats: { turns: 'turns', tokens: 'tokens', tools: 'tools', tasks: 'tasks' },
-    nothingYet: 'Nothing yet.',
+    nothingYet: 'Nothing from this agent yet. Its steps show here as it works.',
   },
 
   approvals: {
@@ -946,7 +947,7 @@ export const copy = {
     confirmRemove: 'Remove for good',
     /** Settings list when nothing has been kept yet. */
     empty:
-      "When agents make a tool with create_tool, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
+      "When an agent makes itself a tool for a job, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
   },
 
   permissions: {
@@ -1212,7 +1213,7 @@ export const copy = {
       running: 'running…',
       noOutput: '(no output)',
     },
-    activityEmpty: 'Nothing yet',
+    activityEmpty: 'No steps yet: each one the crew takes shows here',
     mail: {
       emptyTitle: 'No messages yet',
       emptyBody: 'The crew chat, group chats and messages between agents show up here.',
@@ -1515,7 +1516,7 @@ export const copy = {
   colonyMap: {
     turn: (n: number) => `turn ${n}`,
     tokens: (n: string) => `${n} tok`,
-    noAgents: 'No agents yet.',
+    noAgents: 'No agents yet. The lead and its helpers show here once the run starts.',
   },
 
   git: {
@@ -1911,7 +1912,7 @@ export const copy = {
         owed: (n: number) =>
           n === 1 ? '1 answer waiting to be resent' : `${n} answers waiting to be resent`,
       },
-      noActivity: 'Nothing has happened on this channel yet.',
+      noActivity: 'Nothing has happened on this channel yet. Messages and answers show here.',
       remove: 'Remove channel',
       removeConfirm: 'Remove for good',
       removeWarning:
@@ -2065,7 +2066,7 @@ export const copy = {
         missing: 'Not installed',
         installing: 'Installing…',
         ready: 'Installed',
-        starting: 'Starting (the first start downloads the model)…',
+        starting: 'Starting… the first time, the model above downloads: allow a few minutes',
         running: 'Running',
         downloading: (done: number, total: number) => `Downloading (${done}/${total})…`,
         downloadingBytes: (received: string, size: string) => `Downloading ${received} of ${size}…`,
@@ -2124,7 +2125,7 @@ export const copy = {
       removed: (name: string) => `Removed ${name}; this Myrmidon is no longer paired with it.`,
       show: 'Show',
       shown: 'Shown here',
-      empty: 'No other gateways yet.',
+      empty: 'No other gateways yet. Add one above with a pairing link from it.',
       reachable: 'Reachable',
       checked: (when: string) => `checked ${when}`,
     },
@@ -2151,7 +2152,7 @@ export const copy = {
       code: (code: string) => `or enter the code ${code}`,
       copy: 'Copy link',
       copied: 'Copied',
-      empty: 'No devices paired yet.',
+      empty: 'No devices paired yet. Pair one to use this Myrmidon from a phone or another computer.',
       thisDevice: 'this device',
       viaHub: 'through another Myrmidon',
       lastSeen: (when: string) => `last seen ${when}`,
@@ -2311,7 +2312,7 @@ export const copy = {
       warningTitle: 'Hooks run as you, outside the sandbox',
       warning: 'A hook can read and change anything your account can. Add only commands you understand.',
       loading: 'Loading hooks…',
-      empty: 'No hooks yet.',
+      empty: 'No hooks yet. A hook runs a command of yours before or after a tool, or when a run ends.',
       when: 'When',
       tools: 'Tools',
       toolsPlaceholder: 'Tools, e.g. Edit|Write (empty: all)',
