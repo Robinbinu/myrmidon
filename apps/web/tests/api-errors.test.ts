@@ -86,6 +86,9 @@ test("the server's technical words become plain ones", async () => {
     await expect(api.api('/api/colonies/c-123')).rejects.toThrow(copy.api.chatGone)
     answer(404, { error: 'no such gateway' })
     await expect(api.send('DELETE', '/api/gateways/g1')).rejects.toThrow(copy.api.status(404))
+    const fixable = 'unknown model "x/y": add its provider in Settings → Models'
+    answer(422, { error: fixable })
+    await expect(api.post('/api/chats/c1/resume', {})).rejects.toThrow(fixable)
     answer(413, { error: 'request too large' })
     await expect(api.post('/api/pair', {})).rejects.toThrow(copy.api.status(413))
     answer(400, { error: 'invalid request: Expected string, received number at "text"' })

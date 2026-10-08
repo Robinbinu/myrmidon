@@ -378,7 +378,7 @@ export const copy = {
     sentBack: (task: string) => `Sent ${task} back:`,
     needsRework: 'Task needs rework:',
     broughtIn: 'Brought in',
-    promptInjection: 'May have followed instructions from a web page:',
+    promptInjection: 'Ran a command copied from web content:',
     injectionSource: (reason: string, source: string) => `${reason} (from ${source})`,
     startedServer: (name: string) => `Started ${name} at`,
     stoppedServer: (name: string) => `Stopped ${name}`,
@@ -899,8 +899,7 @@ export const copy = {
   },
 
   roundChanges: {
-    failed: (project: string) =>
-      `Couldn’t check what changed in ${project}: Myrmidon didn’t answer. Your files are untouched; try again in a moment.`,
+    failed: (project: string) => `Couldn’t check what changed in ${project}. Your files are untouched.`,
     retry: 'Try again',
     /** "Rewound <project> to before this run", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this run' },

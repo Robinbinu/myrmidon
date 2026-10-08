@@ -97,7 +97,8 @@ function plainError(status: number, error?: string): string {
   if (missing) return copy.api.noChats(missing)
   if (/without the chat runtime$/.test(error)) return copy.api.noChats('chats')
   if (/^(no such (colony|chat)|invalid colony id)\b/.test(error)) return copy.api.chatGone
-  if (/^(no such|unknown) /.test(error)) return copy.api.status(404)
+  // Only a missing thing: a 4xx "unknown model … add its provider" says how to fix it and must come through.
+  if (status === 404 && /^(no such|unknown) /.test(error)) return copy.api.status(404)
   if (error.startsWith('invalid request')) return copy.api.badRequest
   return error
 }
