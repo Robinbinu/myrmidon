@@ -1,13 +1,16 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
 import { SettingsStore } from '../src/settings.ts'
 import { VoiceHub, type VoiceSettings } from '../src/voice/hub.ts'
+import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { FunctionTts, KittenTts } from '../src/voice/tts.ts'
+import { SileroVad } from '../src/voice/vad.ts'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -119,4 +122,74 @@ test('voice calls start off: nothing is downloaded or started, and no call can b
   expect(() => hub.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})).toThrow(
     'voice calls are off',
   )
+})
+
+test('turning voice on downloads the chosen Kitten model then, and Settings is told each download size', async () => {
+  const files: Record<string, string> = {
+    'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
+    'net.onnx': 'not really a network',
+    'voices.npz': 'voices',
+  }
+  const pin = {
+    repo: 'KittenML/test',
+    revision: 'abc123',
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, body]) => [
+        name,
+        { sha256: createHash('sha256').update(body).digest('hex'), bytes: Buffer.byteLength(body) },
+      ]),
+    ),
+  }
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) => {
+      const name = new URL(req.url).pathname.split('/').pop() ?? ''
+      return files[name] ? new Response(files[name]) : new Response('no', { status: 404 })
+    },
+  })
+  try {
+    const home = mkdtempSync(join(tmpdir(), 'myr-voicehub-'))
+    dirs.push(home)
+    const voice = { ...new SettingsStore(home).get().voice, enabled: true, stt: { provider: 'omp' as const } }
+    const kitten = new KittenTts(
+      home,
+      () => ({ model: 'nano', voice: 'Leo', speed: 1 }),
+      undefined,
+      `http://127.0.0.1:${server.port}`,
+      { nano: pin, micro: pin, mini: pin },
+    )
+    const offline = `http://127.0.0.1:${server.port}/no-model.onnx`
+    const hub = new VoiceHub({
+      home,
+      resolver: new ModelResolver(),
+      settings: () => ({ voice }),
+      kitten,
+      vad: new SileroVad(home, offline),
+      turn: new SmartTurn(home, offline),
+    })
+    expect(hub.status()).toMatchObject({
+      tts: { kitten: { state: 'missing' } },
+      vad: { ready: false },
+      turn: { ready: false },
+      sizes: { kitten: { nano: Buffer.byteLength(Object.values(files).join('')) } },
+    })
+    // The worker cannot run a fake network; what matters is that the model is fetched now, not at the first sentence.
+    await hub.warm()
+    expect(kitten.status()).not.toMatchObject({ state: 'missing' })
+    expect(existsSync(join(home, 'voice', 'kitten', 'nano', 'net.onnx'))).toBe(true)
+    kitten.stop()
+  } finally {
+    server.stop(true)
+  }
+})
+
+test('the real pins tell Settings the real sizes', () => {
+  const { hub } = setup()
+  expect(hub.status().sizes).toEqual({
+    phonon: 163_515_201,
+    kitten: { nano: 60_046_685, micro: 44_664_345, mini: 81_547_388 },
+    vad: 1_289_603,
+    turn: 8_679_182,
+  })
 })

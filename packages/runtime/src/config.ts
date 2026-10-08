@@ -198,6 +198,7 @@ export const VOICE_SMART_TURN_DIRECT_THRESHOLD = 0.8
 export const VOICE_SMART_TURN_URL =
   'https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx'
 export const VOICE_SMART_TURN_SHA256 = '2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f'
+export const VOICE_SMART_TURN_BYTES = 8_679_182
 /** Sentences of a reply read aloud before "the rest is in the chat". */
 export const VOICE_SPOKEN_SENTENCES = 6
 export const VOICE_MAX_TURN_MS = 30_000
@@ -206,6 +207,69 @@ export const VOICE_PRE_ROLL_MS = 300
 export const VOICE_THRESHOLDS = { low: 700, normal: 400, high: 200 } as const
 /** How long Phonon-2's server may take to answer after starting; the first start downloads its 164 MB model. */
 export const VOICE_PHONON_START_MS = 10 * 60_000
+/** The fermion-research release Phonon-2 is installed from, and the size of the model its first start downloads. */
+export const VOICE_PHONON_VERSION = '0.2.11'
+export const VOICE_PHONON_MODEL_BYTES = 163_515_201
+/**
+ * Kitten TTS 0.8 (KittenML, Apache-2.0): each model pinned to a revision of its Hugging Face repo, and each file to
+ * its sha256 (Hugging Face's own LFS ids for the large ones) and size.
+ */
+export const VOICE_KITTEN_MODELS = {
+  nano: {
+    repo: 'KittenML/kitten-tts-nano-0.8-fp32',
+    revision: '7a1db645b1f3ab9420761d87428e042b9cec3f26',
+    files: {
+      'config.json': {
+        sha256: 'b66006ccbeccd4de5fc3c9272059c47f5725df7215fd889785c03602652fab64',
+        bytes: 688,
+      },
+      'kitten_tts_nano_v0_8.onnx': {
+        sha256: '320564d2615f235de972ca27a7f39551c94185cfa24ca85b07a29084135f1e5e',
+        bytes: 56_767_095,
+      },
+      'voices.npz': {
+        sha256: '8aa7cee235abb0739cb51e6559685f65a4dacd95568833d05699b1633f519b3f',
+        bytes: 3_278_902,
+      },
+    },
+  },
+  micro: {
+    repo: 'KittenML/kitten-tts-micro-0.8',
+    revision: '1ccf72b2c2048fd17efac7de2fab32d10e225084',
+    files: {
+      'config.json': {
+        sha256: '1f0bd2208348f9211cb0da64fcd1536eb28228571cc6b09e767eb6e203a0a532',
+        bytes: 473,
+      },
+      'kitten_tts_micro_v0_8.onnx': {
+        sha256: '95481626fee1ba70ce683e69c534fc7cb38433c46ce42d3abbeafb4b9f1a4123',
+        bytes: 41_384_970,
+      },
+      'voices.npz': {
+        sha256: '112710c1be8ad0e967c190fb0fd95cbe5848ec4791b93209f20b28b7da20dac1',
+        bytes: 3_278_902,
+      },
+    },
+  },
+  mini: {
+    repo: 'KittenML/kitten-tts-mini-0.8',
+    revision: 'c02725660cea441db4c383af69f1f26f5cd00947',
+    files: {
+      'config.json': {
+        sha256: '6b160bc9b19e24ecb21e84bc14f8a7da21fdf47ec72d42450bc5cf514b61804a',
+        bytes: 470,
+      },
+      'kitten_tts_mini_v0_8.onnx': {
+        sha256: '0f5bbae4fc4800c98dbc544a87ecfa79510de2fb8222db30d12e5bfe9177df91',
+        bytes: 78_268_016,
+      },
+      'voices.npz': {
+        sha256: '40ad2638952b77b7b2f30127e2608e169fc69dd256b53bd8aaa3409a33193c42',
+        bytes: 3_278_902,
+      },
+    },
+  },
+} as const
 /** Model calls the call agent may make for one turn (each tool call takes one), and how much of a round's answer it is told. */
 export const VOICE_STEPS = 4
 export const VOICE_ANSWER_CHARS = 2_000
@@ -218,6 +282,7 @@ export const VOICE_ANSWER_CHARS = 2_000
 export const VOICE_VAD_URL =
   'https://github.com/snakers4/silero-vad/raw/v6.2.3/src/silero_vad/data/silero_vad_16k_op15.onnx'
 export const VOICE_VAD_SHA256 = '7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49'
+export const VOICE_VAD_BYTES = 1_289_603
 export const VOICE_VAD_START = { low: 0.7, normal: 0.5, high: 0.35 } as const
 export const VOICE_VAD_HYSTERESIS = 0.15
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */

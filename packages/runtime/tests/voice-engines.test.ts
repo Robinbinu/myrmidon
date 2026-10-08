@@ -1,11 +1,13 @@
 import { afterEach, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { VOICE_KITTEN_MODELS, VOICE_PHONON_VERSION } from '../src/config.ts'
 import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
 import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { SpeechSplitter } from '../src/voice/speech.ts'
-import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
+import { OpenAiCompatibleStt, PHONON_INSTALL, PhononStt } from '../src/voice/stt.ts'
 import { KittenTts, OpenAiCompatibleTts } from '../src/voice/tts.ts'
 import { SileroVad, VAD_CHUNK } from '../src/voice/vad.ts'
 import { whisperFeatures } from '../src/voice/whisper-features.ts'
@@ -77,18 +79,36 @@ test('an OpenAI-compatible endpoint transcribes a turn and speaks a sentence', a
   await expect(failing.transcribe(tone, 16_000)).rejects.toThrow('transcription failed (404)')
 })
 
-test("Kitten's model downloads into Myrmidon's own folder, all or nothing", async () => {
+/** Pins for a stand-in model whose files are `files`, so the downloads check against their real hashes. */
+const pinsFor = (files: Record<string, string>) => {
+  const pin = {
+    repo: 'KittenML/test',
+    revision: 'abc123',
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, body]) => [
+        name,
+        { sha256: createHash('sha256').update(body).digest('hex'), bytes: Buffer.byteLength(body) },
+      ]),
+    ),
+  }
+  return { nano: pin, micro: pin, mini: pin }
+}
+
+test("Kitten's model downloads into Myrmidon's own folder, all or nothing, from a pinned revision", async () => {
   const files: Record<string, string> = {
     'config.json': JSON.stringify({ model_file: 'net.onnx', voices: 'voices.npz' }),
     'net.onnx': 'network',
     'voices.npz': 'voices',
   }
   let fail = false
+  const paths: string[] = []
   const server = Bun.serve({
     port: 0,
     hostname: '127.0.0.1',
     fetch: (req) => {
-      const name = new URL(req.url).pathname.split('/').pop() ?? ''
+      const path = new URL(req.url).pathname
+      paths.push(path)
+      const name = path.split('/').pop() ?? ''
       if (fail && name === 'voices.npz') return new Response('gone', { status: 500 })
       return files[name] ? new Response(files[name]) : new Response('no', { status: 404 })
     },
@@ -96,7 +116,13 @@ test("Kitten's model downloads into Myrmidon's own folder, all or nothing", asyn
   servers.push(server)
   const h = home()
   const settings = { model: 'nano' as const, voice: 'Leo', speed: 1 }
-  const kitten = new KittenTts(h, () => settings, undefined, `http://127.0.0.1:${server.port}`)
+  const kitten = new KittenTts(
+    h,
+    () => settings,
+    undefined,
+    `http://127.0.0.1:${server.port}`,
+    pinsFor(files),
+  )
   expect(kitten.status()).toEqual({ state: 'missing' })
 
   fail = true
@@ -105,13 +131,71 @@ test("Kitten's model downloads into Myrmidon's own folder, all or nothing", asyn
   expect(existsSync(join(h, 'voice', 'kitten', 'nano'))).toBe(false)
 
   fail = false
-  await kitten.download()
+  paths.length = 0
+  // The Download button and a warm-up at once share one download.
+  await Promise.all([kitten.download(), kitten.download()])
+  expect(paths.every((p) => p.startsWith('/KittenML/test/resolve/abc123/'))).toBe(true)
+  expect(paths.filter((p) => p.endsWith('/net.onnx'))).toHaveLength(1)
   expect(kitten.status()).toEqual({ state: 'ready' })
   expect(readdirSync(join(h, 'voice', 'kitten', 'nano')).sort()).toEqual([
     'config.json',
     'net.onnx',
     'voices.npz',
   ])
+})
+
+test('a Kitten file that does not match its pinned hash, or a config naming a path, is refused', async () => {
+  const good: Record<string, string> = {
+    'config.json': JSON.stringify({ model_file: '../../escape.onnx', voices: 'voices.npz' }),
+    '../../escape.onnx': 'network',
+    'voices.npz': 'voices',
+  }
+  const served: Record<string, string> = { ...good }
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: (req) => {
+      const name = decodeURIComponent(new URL(req.url).pathname.split('/resolve/abc123/')[1] ?? '')
+      return served[name] ? new Response(served[name]) : new Response('no', { status: 404 })
+    },
+  })
+  servers.push(server)
+  const h = home()
+  const settings = { model: 'nano' as const, voice: 'Leo', speed: 1 }
+  const traversal = new KittenTts(
+    h,
+    () => settings,
+    undefined,
+    `http://127.0.0.1:${server.port}`,
+    pinsFor(good),
+  )
+  await expect(traversal.download()).rejects.toThrow('names an unexpected file')
+  expect(existsSync(join(h, 'voice', 'escape.onnx'))).toBe(false)
+  expect(existsSync(join(h, 'escape.onnx'))).toBe(false)
+
+  const plain = {
+    'config.json': JSON.stringify({ model_file: 'net.onnx' }),
+    'net.onnx': 'network',
+    'voices.npz': 'v',
+  }
+  Object.assign(served, plain, { 'net.onnx': 'tampered' })
+  const tampered = new KittenTts(
+    h,
+    () => settings,
+    undefined,
+    `http://127.0.0.1:${server.port}`,
+    pinsFor(plain),
+  )
+  await expect(tampered.download()).rejects.toThrow('did not match its pinned hash')
+  expect(existsSync(join(h, 'voice', 'kitten', 'nano'))).toBe(false)
+})
+
+test('the pinned Kitten models and Phonon-2 release are fixed, not whatever was published last', () => {
+  for (const pin of Object.values(VOICE_KITTEN_MODELS)) {
+    expect(pin.revision).toMatch(/^[0-9a-f]{40}$/)
+    for (const f of Object.values(pin.files)) expect(f.sha256).toMatch(/^[0-9a-f]{64}$/)
+  }
+  expect(PHONON_INSTALL).toContain(`fermion-research==${VOICE_PHONON_VERSION}`)
 })
 
 test('Phonon-2 says it is missing when its command line is not installed', async () => {

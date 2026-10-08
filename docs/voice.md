@@ -35,12 +35,16 @@ matters most.
 
 By default speech stays on your Mac:
 
-- **Speech to text: Phonon-2** (Fermion Research, 164 MB, English). Press **Install**: Myrmidon runs
-  `uv tool install fermion-research` (with the Apple-silicon runtime), then downloads the model into
-  `<home>/voice/fermion` and warms it at once (about a minute the first time). It needs
+- **Speech to text: Phonon-2** (Fermion Research, 164 MB model, English). Press **Install**: Myrmidon runs
+  `uv tool install fermion-research==0.2.11` (a pinned release, with the Apple-silicon runtime), then downloads the
+  model into `<home>/voice/fermion` and warms it at once (about a minute the first time). It needs
   [uv](https://docs.astral.sh/uv/).
-- **Text to speech: Kitten TTS** (KittenML). Press **Download** for the model size you chose (nano is fastest, mini
-  sounds best); it is saved in `<home>/voice/kitten`. Pick one of its eight voices and a speed, and press **Try it**.
+- **Text to speech: Kitten TTS** (KittenML; nano 60 MB, micro 45 MB, mini 82 MB). The model size you chose downloads
+  when you turn voice calls on (or press **Download**), with its progress shown, from a pinned revision of its Hugging
+  Face repo, each file checked against its pinned hash; it is saved in `<home>/voice/kitten`. Nano is fastest, mini
+  sounds best. Pick one of its eight voices and a speed, and press **Try it**.
+
+Settings → Voice shows each download's size before it happens (`GET /api/voice` reports them under `sizes`).
 
 Either can be swapped for:
 

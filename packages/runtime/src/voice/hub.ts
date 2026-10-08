@@ -8,7 +8,14 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { VOICE_THRESHOLDS, VOICE_VAD_HYSTERESIS, VOICE_VAD_START } from '../config.ts'
+import {
+  VOICE_PHONON_MODEL_BYTES,
+  VOICE_SMART_TURN_BYTES,
+  VOICE_THRESHOLDS,
+  VOICE_VAD_BYTES,
+  VOICE_VAD_HYSTERESIS,
+  VOICE_VAD_START,
+} from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import type { MyrSettings } from '../settings.ts'
@@ -19,8 +26,10 @@ import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type Spe
 import {
   FunctionTts,
   KITTEN_VOICES,
+  type KittenModel,
   type KittenState,
   KittenTts,
+  kittenBytes,
   OpenAiCompatibleTts,
   type Speech,
   type TextToSpeech,
@@ -75,6 +84,14 @@ export interface VoiceStatus {
     omp: string[]
     keySet: boolean
   }
+  /** Whether the speech detector and the turn model are here; both download with the first warm-up. */
+  readonly vad: { ready: boolean }
+  readonly turn: { ready: boolean }
+  /**
+   * Bytes each engine downloads the first time it is used, so Settings can say so before it happens: Phonon-2's
+   * model (its command line comes from the Install button), each Kitten model, the speech detector, the turn model.
+   */
+  readonly sizes: { phonon: number; kitten: Record<KittenModel, number>; vad: number; turn: number }
 }
 
 /**
@@ -103,18 +120,22 @@ export class VoiceHub {
       readonly vad?: SileroVad
       /** The end-of-turn model; Smart Turn in `<home>/voice` unless given. */
       readonly turn?: SmartTurn
+      /** Kitten TTS from Hugging Face unless given (tests give one that downloads from a stand-in). */
+      readonly kitten?: KittenTts
     },
   ) {
     const log = options.log ?? (() => {})
     this.phonon = new PhononStt(options.home, log)
-    this.kitten = new KittenTts(
-      options.home,
-      () => {
-        const t = options.settings().voice.tts
-        return { model: t.kittenModel, voice: t.voice, speed: t.speed }
-      },
-      log,
-    )
+    this.kitten =
+      options.kitten ??
+      new KittenTts(
+        options.home,
+        () => {
+          const t = options.settings().voice.tts
+          return { model: t.kittenModel, voice: t.voice, speed: t.speed }
+        },
+        log,
+      )
     this.vad = options.vad ?? new SileroVad(options.home)
     this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
@@ -141,6 +162,18 @@ export class VoiceHub {
         voices: KITTEN_VOICES,
         omp: omp.tts,
         keySet: !!secrets.ttsKey,
+      },
+      vad: { ready: this.vad.ready },
+      turn: { ready: this.turn.ready },
+      sizes: {
+        phonon: VOICE_PHONON_MODEL_BYTES,
+        kitten: {
+          nano: kittenBytes(this.kitten.pins.nano),
+          micro: kittenBytes(this.kitten.pins.micro),
+          mini: kittenBytes(this.kitten.pins.mini),
+        },
+        vad: VOICE_VAD_BYTES,
+        turn: VOICE_SMART_TURN_BYTES,
       },
     }
   }
@@ -202,8 +235,9 @@ export class VoiceHub {
   }
 
   /**
-   * Loads the engines the settings choose and warms them (the speech detector, Phonon-2, Kitten), so the first call
-   * does not wait on downloads or start-up. Shared: a call starting meanwhile waits for the same work, and once warm it
+   * Downloads and warms the engines the settings choose (the speech detector, the turn model, Kitten's model, Phonon-2
+   * once installed), so turning voice on fetches them then, with progress in `status()`, rather than in the middle of
+   * a "Try it" or a call's first sentence. Shared: a call starting meanwhile waits for the same work, and once warm it
    * returns at once until the choice changes.
    */
   warm(): Promise<void> {
@@ -214,7 +248,7 @@ export class VoiceHub {
       return Promise.resolve()
     }
     const phonon = voice.stt.provider === 'phonon' && this.phonon.status().state !== 'missing'
-    const kitten = voice.tts.provider === 'kitten' && this.kitten.status().state !== 'missing'
+    const kitten = voice.tts.provider === 'kitten'
     const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
     if (this._warm?.key === key) return this._warm.done
     const log = this.options.log ?? (() => {})
@@ -223,6 +257,7 @@ export class VoiceHub {
       ['turn model', this.turn.load()],
     ]
     if (phonon) jobs.push(['Phonon-2', this.phonon.warm()])
+    // Speaking starts the worker, which downloads the model first if it is not here.
     if (kitten) jobs.push(['Kitten TTS', this.kitten.speak('Ready.')])
     const done = Promise.allSettled(jobs.map(([, job]) => job)).then((results) => {
       results.forEach((r, i) => {
