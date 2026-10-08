@@ -41,7 +41,6 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
     try {
       const r = await send<{ project: Project; projects: Project[] }>('POST', '/api/projects', { path })
       props.onAdded(r.project, r.projects)
-      toast(copy.folderPicker.added(r.project.name), 'success')
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {

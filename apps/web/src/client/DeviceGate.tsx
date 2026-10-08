@@ -46,7 +46,7 @@ function guessName(): string {
 
 const pairCode = () => new URLSearchParams(location.hash.slice(1)).get('pair') ?? undefined
 
-const ScopeContext = createContext<WhoAmI['scope']>('full')
+export const ScopeContext = createContext<WhoAmI['scope']>('full')
 
 /**
  * What this window may do on the gateway it shows: everything, or chats only (a device paired that way). The server

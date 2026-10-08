@@ -78,10 +78,26 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
   return res
 }
 
-/** Why a response failed, for a person: the server's own words when it gave some, else what the status means. */
+/**
+ * Why a response failed, for a person: the server's own words when it gave some, else what the status means. The
+ * server's technical answers (a crash, a malformed body, a runtime it was started without) get plain words; the
+ * original goes to the console.
+ */
 function failure(status: number, error?: string): ApiError {
   if (status === 401) return new ApiError(remoteGateway ? copy.auth.pairAgain : copy.auth.notAuthorized)
-  return new ApiError(error ?? copy.api.status(status))
+  const plain = plainError(status, error)
+  if (error && plain !== error) console.warn(`request failed (${status}): ${error}`)
+  return new ApiError(plain)
+}
+
+function plainError(status: number, error?: string): string {
+  if (!error || error === 'not found' || status === 500) return copy.api.status(status)
+  const missing = /^(.+?) needs? the chat runtime$/.exec(error)?.[1]
+  if (missing) return copy.api.noChats(missing)
+  if (/without the chat runtime$/.test(error)) return copy.api.noChats('chats')
+  if (/^(no such (colony|chat)|invalid colony id)\b/.test(error)) return copy.api.chatGone
+  if (error.startsWith('invalid request')) return copy.api.badRequest
+  return error
 }
 
 const errorOf = async (res: Response) => ((await res.json().catch(() => ({}))) as { error?: string }).error

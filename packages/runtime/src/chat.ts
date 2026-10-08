@@ -246,10 +246,17 @@ function title(text: string) {
   return line.length > 60 ? `${line.slice(0, 57)}…` : line
 }
 
+/** A chat has a name once any of its rounds was renamed: older chats ran each round in a colony of its own. */
+const named = (rounds: readonly RoundRef[]) => rounds.some((r) => r.state.chatTitle)
+
 /** Conversations as sequences of colony rounds. Follow-ups after a round ends start a new round on its files. */
 export class ChatService {
   private readonly _live = new Map<string, ColonyRun>()
   private readonly _sending = new Map<string, Promise<unknown>>()
+  /** Chats being deleted: a name arriving meanwhile must not write to (and so recreate) their logs. */
+  private readonly _deleting = new Set<string>()
+  /** A chat's name on its way into the log, which deleting the chat waits for. */
+  private readonly _naming = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -651,11 +658,11 @@ export class ChatService {
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, { ...options, attachments: [], tier: final.escalated.to })
-      // A finished round that took real work is read for a skill worth keeping, after the fact.
       if (final.status === 'completed')
         this._nameChat(id, config.leadModel).catch((err) =>
           console.error(`naming ${id} failed: ${err instanceof Error ? err.message : err}`),
         )
+      // A finished round that took real work is read for a skill worth keeping, after the fact.
       if (final.status === 'completed' && this.options.skillProposals && this.options.skills)
         this._reviewForSkill(run.id, config.leadModel, false).catch((err) =>
           console.error(`skill review of ${run.id} failed: ${err instanceof Error ? err.message : err}`),
@@ -673,7 +680,7 @@ export class ChatService {
     if (this.options.settings?.get().profile.titles !== 'model') return
     const rounds = await this.rounds(chatId)
     const latest = rounds.at(-1)
-    if (!latest || rounds.length > CHAT_TITLE_ROUNDS || latest.state.chatTitle) return
+    if (!latest || rounds.length > CHAT_TITLE_ROUNDS || named(rounds)) return
     const answer = messagesOf(latest)
       .filter((m) => m.from !== 'user' && m.final)
       .at(-1)?.text
@@ -681,16 +688,24 @@ export class ChatService {
       asked: rounds.map((r) => r.round.request),
       ...(answer ? { answer } : {}),
     })
-    // Renamed meanwhile (by the person, say): theirs stands.
-    if (!title || (await this.rounds(chatId)).at(-1)?.state.chatTitle) return
+    if (!title) return
+    // Renamed meanwhile (by the person, say): theirs stands. Deleted meanwhile: it stays deleted.
+    const again = await this.rounds(chatId)
+    if (!again.length || named(again) || this._deleting.has(chatId)) return
     const draft = {
       type: 'chat/renamed',
       actor: { kind: 'system', id: 'myrmidon' },
       payload: { title, by: 'auto' },
     } as const
     const live = this._live.get(chatId)
-    if (live?.id === latest.id) await live.append(draft)
-    else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    const write =
+      live?.id === latest.id ? live.append(draft) : this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    this._naming.set(chatId, write)
+    try {
+      await write
+    } finally {
+      if (this._naming.get(chatId) === write) this._naming.delete(chatId)
+    }
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */
@@ -1039,18 +1054,25 @@ export class ChatService {
 
   /** Permanently deletes every round of a chat, stopping a running round first. Returns the deleted colony ids. */
   async delete(chatId: string): Promise<string[]> {
-    const live = this._live.get(chatId)
-    if (live) {
-      await live.stop('chat deleted')
-      await live.done
-      this._live.delete(chatId)
+    this._deleting.add(chatId)
+    try {
+      const live = this._live.get(chatId)
+      if (live) {
+        await live.stop('chat deleted')
+        await live.done
+        this._live.delete(chatId)
+      }
+      const ids = [...new Set((await this.rounds(chatId)).map((r) => r.id))]
+      // A name already on its way lands first; deleting under it would let the append recreate the log.
+      await this._naming.get(chatId)?.catch(() => {})
+      for (const id of ids) {
+        this.store.deleteColony(id as never)
+        this.index.forget(id)
+      }
+      return ids
+    } finally {
+      this._deleting.delete(chatId)
     }
-    const ids = [...new Set((await this.rounds(chatId)).map((r) => r.id))]
-    for (const id of ids) {
-      this.store.deleteColony(id as never)
-      this.index.forget(id)
-    }
-    return ids
   }
 
   /**
@@ -1071,7 +1093,6 @@ export class ChatService {
     (colonyId: string, agent: string, text: string, done: boolean) => void
   >()
 
-  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
   /** Every event as it is appended to any colony, e.g. for a channel following a round it started. */
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void {
     return this.runtime.ctx.on('log/appended', listener)
@@ -1082,6 +1103,7 @@ export class ChatService {
     return this.store.read(colonyId as never)
   }
 
+  /** Listens to speaking agents' replies as they are written (live display only; nothing is logged). */
   onStream(listener: (colonyId: string, agent: string, text: string, done: boolean) => void): () => void {
     this._streams.add(listener)
     return () => this._streams.delete(listener)

@@ -78,8 +78,13 @@ export const copy = {
           : status === 413
             ? 'That is too large to send.'
             : status >= 500
-              ? 'Something went wrong on the server. Try again in a moment.'
-              : `That didn't work (error ${status}).`,
+              ? copy.api.serverProblem
+              : "That didn't work. Try again; if it keeps failing, reload the page.",
+    serverProblem: 'Myrmidon hit a problem. Try again; if it keeps happening, restart Myrmidon.',
+    badRequest: "Myrmidon couldn't read that request. Reload and try again.",
+    chatGone: 'That chat no longer exists.',
+    /** `feature` is the server's own lower-case name for it: skills, memory, MCP, the tool library. */
+    noChats: (feature: string) => `This Myrmidon was started without chats, so ${feature} can't be used.`,
   },
 
   /** Pairing a device with a remote gateway. */
@@ -116,9 +121,10 @@ export const copy = {
     ok: 'Everything is working',
     degraded: 'Something needs attention',
     offline: "This gateway isn't answering",
+    loading: 'Checking how this gateway is doing…',
     problems: {
       noModels: 'No model can answer: add a key or sign in under Settings → Models.',
-      channel: (label: string, error: string) => `${label}: ${error}`,
+      channel: (label: string) => `${label} can't connect right now. See Channels below.`,
     },
     gateway: 'This gateway',
     local: 'This machine only',
@@ -127,17 +133,38 @@ export const copy = {
     ping: (ms: number) => `Answers in ${ms} ms`,
     home: 'Data folder',
     models: (n: number) => (n === 1 ? '1 model can answer' : `${n} models can answer`),
-    sandbox: (kind: string) =>
-      kind === 'none' ? 'Shell commands run unconfined' : `Shell commands are confined (${kind})`,
+    sandbox: (kind?: string) =>
+      kind === 'sandbox-exec'
+        ? 'Shell commands are confined by macOS'
+        : kind === 'bubblewrap'
+          ? 'Shell commands are confined by bubblewrap'
+          : "Shell commands aren't confined",
+    copyPath: 'Copy',
+    copied: 'Copied',
     running: 'Running now',
     nothingRunning: 'Nothing is running.',
     channels: 'Channels',
     noChannels: 'No channels set up. Add one in Settings → Channels.',
     activity: 'Recent activity',
     noActivity: 'Nothing yet.',
+    /** A channel's connection in plain words; the server's own reason sits behind Show details. */
+    channelState: {
+      on: 'Connected',
+      retrying: 'Reconnecting…',
+      error: "Can't connect",
+    },
+    showDetails: 'Show details',
     restart: 'Restart',
+    restarting: 'Restarting…',
+    restarted: (label: string) => `${label} restarted.`,
+    restartFailed: (label: string, reason: string) => `${label} couldn't restart: ${reason}`,
+    leftOff: (label: string, reason: string) =>
+      `${label} is off now; it couldn't be turned back on: ${reason}`,
+    turnOn: 'Turn on',
+    turnedOn: (label: string) => `${label} is on again.`,
     manage: 'Manage',
     refresh: 'Refresh',
+    tryAgain: 'Try again',
   },
 
   /** A new request to talk to the crew through a channel, as a toast and a desktop notification. */
@@ -756,7 +783,7 @@ export const copy = {
     login: {
       needsSignIn: 'needs you to sign in to',
       instructions: (agent: string) =>
-        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees what you type, and the sign-in is kept for later runs.`,
+        `Open ${agent}’s browser, choose Take control, sign in, then Hand back. The agent never sees your password, and the sign-in is kept for later runs.`,
       openBrowser: (agent: string) => `Open ${agent}’s browser`,
     },
     memory: {
@@ -793,6 +820,8 @@ export const copy = {
     go: 'Go',
     empty: 'No sub-folders here.',
     added: (name: string) => `Added ${name}`,
+    /** On the "Added" toast while a chat is open: that chat stays where it was. */
+    startChat: (name: string) => `Start a chat in ${name}`,
     /** The composer's project control. */
     pill: {
       worksIn: (name: string, mode: string) => `Works in ${name}${mode ? ` (${mode})` : ''}`,
@@ -1144,7 +1173,8 @@ export const copy = {
     },
     shell: {
       emptyTitle: 'No shell commands yet',
-      emptyBody: 'Agents run commands in a sandbox that can only write to their own scratch folder.',
+      emptyBody:
+        'Agents run commands in a sandbox that can write only to their working folder and, unless the project is Read-only, the project.',
       running: 'running…',
       noOutput: '(no output)',
     },
@@ -1224,6 +1254,11 @@ export const copy = {
       learning: 'Reading this chat for a skill worth keeping…',
       learned: (name: string) => `Proposed a skill: ${name}. Keep or discard it below.`,
       nothingToLearn: 'Nothing in this chat worth keeping as a skill.',
+      skillsArchived: (names: string[]) =>
+        names.length === 1
+          ? `Archived the learned skill ${names[0]}: nobody used it for a while.`
+          : `Archived ${names.length} learned skills nobody used for a while.`,
+      reviewSkills: 'Review',
       openChatToLearn: 'Open a chat to learn a skill from it',
       roundDone: (title: string) => `“${title}” is done`,
       roundEnded: (title: string, status: string) => `“${title}” ${status}`,
@@ -1665,7 +1700,7 @@ export const copy = {
     providers: {
       title: 'Providers & keys',
       intro:
-        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never reach the browser.',
+        'Connect the AI services your agents use: sign in with a subscription, add an API key, or point Myrmidon at your own endpoint. Keys are kept on this machine, readable only by your account, and never sent back to the browser.',
       storedIn: (dir: string) => `Stored in ${dir}`,
       importTitle: 'Import your omp setup',
       importConfirm: 'Replaces Myrmidon’s keys, logins, and custom providers with the ones in ~/.omp/agent.',
@@ -1748,7 +1783,7 @@ export const copy = {
       groups: {
         shell: {
           label: 'Shell',
-          hint: 'Run commands in a sandbox that can only write to the agent’s scratch folder.',
+          hint: 'Run commands in a sandbox that can write only to the agent’s working folder and, unless the project is Read-only, the project.',
         },
         web: {
           label: 'Web search & fetch',
@@ -1766,7 +1801,8 @@ export const copy = {
       },
       sandboxActive: (sandbox: string) => `Sandbox active: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
-      sandboxedHint: 'Shell commands and command checks cannot write outside the agent’s scratch folder.',
+      sandboxedHint:
+        'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
       unsandboxedHint: 'The shell tool stays disabled unless the server is started with --unsafe-no-sandbox.',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
@@ -2303,7 +2339,7 @@ export const copy = {
       providersReadyHint: 'Through the embedded omp provider stack.',
       sandbox: 'Sandbox',
       eventLog:
-        "Every run's work is an append-only event log; agents never edit your files directly. Licensed under Apache-2.0.",
+        'Every run is recorded and checkpointed, so project changes can be rewound. Licensed under Apache-2.0.',
       builtOn: 'Built on oh-my-pi (providers, search, readers), pi-agent-core, and Cordis.',
     },
   },
