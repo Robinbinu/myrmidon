@@ -6,7 +6,6 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 /* In a plain browser there are no window buttons in the title bar, so the app shows its own mark there. */
 @custom-variant browser (&:where([data-shell="browser"], [data-shell="browser"] *));
-/* Where the dark tokens apply: the person chose Dark, or chose System (no data-theme) on a dark system. */
 /* Less motion: asked for in the operating system, or with Reduce motion in Settings → General. */
 @custom-variant less-motion {
   @media (prefers-reduced-motion: reduce) {
@@ -16,6 +15,7 @@
     @slot;
   }
 }
+/* Where the dark tokens apply: the person chose Dark, or chose System (no data-theme) on a dark system. */
 @custom-variant dark-tokens {
   @media (prefers-color-scheme: dark) {
     &:not([data-theme="light"]) {
