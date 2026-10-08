@@ -16,8 +16,7 @@ interface Answer {
 const blank: Answer = { picked: [], other: '', skipped: false }
 
 /** An option that means "I'll type it": picking it hands over to the text box rather than answering. */
-export const typesOwn = (o: QuestionChoice['options'][number]) =>
-  copy.questions.typesOwn.test(o.label) || copy.questions.typesOwn.test(o.description ?? '')
+export const typesOwn = (o: QuestionChoice['options'][number]) => copy.questions.typesOwn.test(o.label.trim())
 
 /** What the agent reads back: one "question → answer" line per question. */
 export function answerText(choices: readonly QuestionChoice[], answers: readonly Answer[]): string {

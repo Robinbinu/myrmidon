@@ -620,9 +620,12 @@ export const copy = {
     /** Placeholder once the person picked an option that means they will type the rest. */
     typeHere: 'Type it here',
     otherFor: (question: string) => `Your own answer to: ${question}`,
-    /** Option wording that means the person will type the answer; picking it moves to the text box. */
-    typesOwn:
-      /\b(I'?ll|I will|let me)\s+(type|write|describe|explain|specify|tell|say|add)\b|^other\b|\bsomething else\b/i,
+    /**
+     * An option label that means the person will type the answer ("Other", "Adjust: I'll type what to change");
+     * picking it moves to the text box. Labels only, and narrowly: an option that merely says what the agent will
+     * write ("I'll write a summary") is an answer.
+     */
+    typesOwn: /^(other|something else)\W*$|\b(I['’]?ll|I will|let me) type\b|\btype (my|your|our) own\b/i,
     plan: 'Plan',
     /** What the agent reads for a skipped question. */
     skippedAnswer: '(skipped: use your judgment)',
