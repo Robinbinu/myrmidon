@@ -77,7 +77,8 @@ export const copy = {
   unknownCost: 'n/a',
 
   auth: {
-    notAuthorized: 'Not authorized: open the link printed by the CLI.',
+    notAuthorized:
+      "This page isn't signed in to Myrmidon. Open the full address Myrmidon printed when it started: it carries the key.",
     pairAgain: 'This device is no longer paired. Pair it again to carry on.',
   },
 
@@ -143,7 +144,8 @@ export const copy = {
     },
     gateway: 'This Myrmidon',
     local: 'This computer only',
-    remote: (url?: string) => (url ? `Reachable from other devices at ${url}` : 'Reachable from other devices'),
+    remote: (url?: string) =>
+      url ? `Reachable from other devices at ${url}` : 'Reachable from other devices',
     up: (since: string) => `Up since ${since}`,
     ping: (ms: number) => `Answers in ${ms} ms`,
     home: 'Data folder',
@@ -222,7 +224,8 @@ export const copy = {
     leadName: 'the lead',
     started: (request: string) => `Crew started: ${request}`,
     noMic: 'Myrmidon could not use the microphone. Allow it for this page and try again.',
-    insecure: 'Calls need the microphone, which browsers allow only on https or on this machine.',
+    insecure:
+      'Calls need the microphone, which browsers allow only over https or on the computer Myrmidon runs on. Open Myrmidon there, or over https.',
     couldNotStart:
       'Couldn’t start the call. Check that Myrmidon is running and voice calls are on in Settings → Voice.',
     dropped: 'The call dropped: Myrmidon stopped answering. Check that it is still running, then call again.',
@@ -383,7 +386,9 @@ export const copy = {
     hookBlocked: (tool?: string) => `A hook blocked ${tool ?? 'a call'}:`,
     hookAsked: (tool?: string) => `A hook asked you about ${tool ?? 'a call'}:`,
     hookFlagged: (tool?: string) => `A hook flagged ${tool ?? 'the result'}:`,
-    hookFailed: (event: string, code?: number) => `A ${event} hook failed (exit ${code}):`,
+    /** `event` is the runtime's hook event id, named here as Settings → Hooks names it. */
+    hookFailed: (event: string, code?: number) =>
+      `Your “${(copy.settings.hooks.events as Record<string, string>)[event] ?? event}” hook failed (exit code ${code}):`,
     readSkillFile: (file: string) => `Read ${file} from skill`,
     usedSkill: 'Used skill',
     proposedMemory: 'Proposed to remember:',
@@ -894,7 +899,8 @@ export const copy = {
   },
 
   roundChanges: {
-    failed: (project: string) => `Couldn’t check what changed in ${project}`,
+    failed: (project: string) =>
+      `Couldn’t check what changed in ${project}: Myrmidon didn’t answer. Your files are untouched; try again in a moment.`,
     retry: 'Retry',
     /** "Rewound <project> to before this run", split around the project name. */
     rewound: { before: 'Rewound', after: 'to before this run' },
@@ -1648,7 +1654,7 @@ export const copy = {
       /** Follows the Esc key in the header. */
       escToClose: ' to close',
       sectionPicker: 'Section',
-      saveFailed: 'Couldn’t save',
+      saveFailed: 'Couldn’t save your changes; they are still here',
       retry: 'Retry',
       groups: { setup: 'Setup', agents: 'Agents', extend: 'Extend', you: 'You' },
       unsaved: {
