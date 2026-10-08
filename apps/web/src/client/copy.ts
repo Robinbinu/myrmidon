@@ -80,7 +80,7 @@ export const copy = {
             : status >= 500
               ? copy.api.serverProblem
               : "That didn't work. Try again; if it keeps failing, reload the page.",
-    serverProblem: 'Myrmidon hit a problem. Try again; if it repeats, restart it from System.',
+    serverProblem: 'Myrmidon hit a problem. Try again; if it keeps happening, restart Myrmidon.',
     badRequest: "Myrmidon couldn't read that request. Reload and try again.",
     chatGone: 'That chat no longer exists.',
     /** `feature` is the server's own lower-case name for it: skills, memory, MCP, the tool library. */
