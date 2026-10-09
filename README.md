@@ -198,8 +198,10 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   approved is the owner, later ones are members, and members' runs ask the owner before each outside step.
 - **Voice and phone calls.** Press Call and talk, or ring your Twilio number from any phone: a fast call model
   answers out loud and hands real work to the crew while the call goes on. Silero VAD and Smart Turn detect your
-  turns; speech runs on local engines (Phonon-2, Kitten TTS) or a cloud or OpenAI-compatible provider. Approvals
-  count only on a plain spoken yes or no.
+  turns; speech runs on local engines (Phonon-2, Kitten TTS), on Deepgram, ElevenLabs, Cartesia, AssemblyAI, OpenAI,
+  Groq, Google Cloud, Azure, AWS, Speechmatics, Rime or Fish Audio (streaming where they do), or on your own
+  OpenAI-compatible service; or the call runs on a realtime model (OpenAI Realtime, Gemini Live). Approvals count
+  only on a plain spoken yes or no.
 - **Run it on a server.** Turn any VPS or home server into a gateway, reach it over Tailscale or an SSH tunnel,
   pair each device once (full access or chats only), and revoke it any time. One window can switch between
   several gateways. See [docs/remote.md](docs/remote.md).
