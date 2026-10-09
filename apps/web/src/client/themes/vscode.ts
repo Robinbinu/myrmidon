@@ -286,6 +286,8 @@ export function themeTokens(theme: ThemeData): Record<string, string> {
     'control-active': controlActive,
     fill,
     'fill-strong': fillStrong,
+    // The chosen segment must stand off its track (fill-strong); a theme's control colour is often the track's.
+    'segment-on': dark ? mix(fillStrong, label, 0.22) : mix(control, '#ffffff', 0.6),
     separator: alpha(label, 0.11),
     'separator-strong': alpha(label, 0.2),
     'material-sidebar': alpha(window, 0.86),
