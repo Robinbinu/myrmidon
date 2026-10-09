@@ -6,9 +6,15 @@ const PITCH = 2.65
 /** One eye: a 4×4 pixel blob with its corners trimmed, exactly like the mascot's. */
 const EYE = ['.##.', '####', '####', '.##.']
 const EYE_W = 3 * PITCH + CELL
-const SPACING = 3.4
+// Two empty pixel columns between the eyes, as on the app icon, so both eyes sit on the display's grid.
+const SPACING = 2 * PITCH + (PITCH - CELL)
 const X0 = (32 - (EYE_W * 2 + SPACING)) / 2
 const Y0 = (32 - EYE_W) / 2 + 0.4
+
+/** The unlit pixels of the display, running past every edge; the tile's own shape cuts them. */
+const FIELD = Array.from({ length: 14 }, (_, i) => X0 + (i - 2) * PITCH).flatMap((x) =>
+  Array.from({ length: 14 }, (_, j) => Y0 + (j - 4) * PITCH).map((y) => ({ x, y })),
+)
 
 const CELLS = [X0, X0 + EYE_W + SPACING].flatMap((ex) =>
   EYE.flatMap((row, y) =>
@@ -19,7 +25,7 @@ const CELLS = [X0, X0 + EYE_W + SPACING].flatMap((ex) =>
   ),
 )
 
-/** The Myrmidon mark: the mascot's two pixel eyes on a dark glass tile, lit from above. */
+/** The Myrmidon mark: the mascot's two pixel eyes on a deep black display whose unlit grid runs past the edges. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   const id = useId()
   return (
@@ -44,6 +50,9 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
           <stop offset="0" stopColor="#fff" stopOpacity="0.12" />
           <stop offset="0.45" stopColor="#fff" stopOpacity="0" />
         </linearGradient>
+        <clipPath id={`${id}c`}>
+          <rect width="32" height="32" rx="9" />
+        </clipPath>
         <filter id={`${id}g`} x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="1.6" />
         </filter>
@@ -59,6 +68,13 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
         style={{ stroke: 'var(--logo-rim)' }}
         strokeOpacity="0.09"
       />
+      <g clipPath={`url(#${id}c)`} fill="#fff" opacity="0.035">
+        {FIELD.filter(
+          (f) => !CELLS.some((c) => Math.abs(c.x - f.x) < 0.01 && Math.abs(c.y - f.y) < 0.01),
+        ).map((f) => (
+          <rect key={`f${f.x},${f.y}`} x={f.x} y={f.y} width={CELL} height={CELL} rx={0.55} />
+        ))}
+      </g>
       <g filter={`url(#${id}g)`} opacity="0.7">
         {CELLS.map((c) => (
           <rect
