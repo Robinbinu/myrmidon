@@ -12,7 +12,7 @@ import {
   type TeamConfig,
 } from '../api.ts'
 import { copy } from '../copy.ts'
-import { DEFAULT_MASCOT, SETTINGS_SAVED } from '../mascot.ts'
+import { SETTINGS_SAVED, withMascotDefaults } from '../mascot.ts'
 import { useSettingsData } from '../Settings.tsx'
 import { NOTIFY_KEY, readStored, type ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
@@ -183,7 +183,7 @@ export function Setup(props: {
     finish: (starter) => void finish(starter),
   }
 
-  const look = useMemo(() => ({ ...DEFAULT_MASCOT, ...settings.data?.settings.mascot }), [settings.data])
+  const look = useMemo(() => withMascotDefaults(settings.data?.settings.mascot), [settings.data])
   const name = settings.data?.settings.profile?.name?.trim() || settings.data?.account
   const status = (s: SetupScreen): StepStatus =>
     s === 'ready' ? (s === screen ? 'current' : 'todo') : stepStatus(s, view, screen)

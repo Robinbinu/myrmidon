@@ -2,13 +2,13 @@ import { motionValue, useReducedMotionConfig } from 'motion/react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { CursorBody } from '../ui/cursor.tsx'
 import type { Bounds } from '../ui/steering.ts'
-import { MASCOT_CREW } from '../ui-config.ts'
+import { type CREW_BOLDNESS, MASCOT_CREW } from '../ui-config.ts'
 import {
   type CrewSignal,
+  crewFor,
   knockDown,
   type Member,
   makeMember,
-  pickCrew,
   startSpot,
   stepCrew,
   type World,
@@ -19,8 +19,8 @@ const FALLBACK = { face: { hw: 225, hh: 160 }, bounds: { left: -640, right: 640,
 /** The longest step the physics takes, so a frame after the tab was hidden does not fling anyone off. */
 const MAX_STEP_S = 0.05
 
-/** The crew of this visit: who they are and where, kept while the person goes to a chat and back. */
-let visit: Member[] | undefined
+/** The crew of this visit: who they are and where, kept while the person goes to a chat and back, for the settings it was made for. */
+let visit: { key: string; crew: Member[] } | undefined
 
 /**
  * The crew cursors around the new-chat mascot, steering themselves (hero-crew.ts). Their physics runs every frame on
@@ -28,6 +28,10 @@ let visit: Member[] | undefined
  * hears only of a cursor starting or ending a click. With reduced motion they stand still.
  */
 export function HeroCrew(props: {
+  /** How many cursors, the names to give them first (Minions fill the rest), and how bold they are. */
+  count?: number
+  names?: readonly string[]
+  boldness?: keyof typeof CREW_BOLDNESS
   signal: CrewSignal
   look?: readonly [number, number]
   typing: boolean
@@ -40,19 +44,27 @@ export function HeroCrew(props: {
   onWatch(x: number, y: number): void
 }) {
   const reduce = useReducedMotionConfig()
+  const count = props.count ?? MASCOT_CREW.count
+  const boldness = props.boldness ?? 'curious'
+  const key = JSON.stringify([count, props.names ?? [], boldness])
   const [crew] = useState(() => {
-    if (!visit) {
-      const picked = pickCrew(MASCOT_CREW.count)
-      visit = picked.map((p, i) => makeMember(p, startSpot(i, picked.length, FALLBACK.face)))
+    if (visit?.key !== key) {
+      const picked = crewFor(count, props.names)
+      visit = {
+        key,
+        crew: picked.map((p, i) =>
+          makeMember(p, startSpot(i, picked.length, FALLBACK.face), Math.random, boldness),
+        ),
+      }
     }
-    for (const m of visit) {
+    for (const m of visit.crew) {
       // Back on this screen, nobody is mid-click; anyone who was down is up again.
       m.clicking = false
       m.poke = undefined
       if (m.state !== 'roam') m.state = 'roam'
       m.heard = 'roam'
     }
-    return visit
+    return visit.crew
   })
   const values = useMemo(
     () =>
