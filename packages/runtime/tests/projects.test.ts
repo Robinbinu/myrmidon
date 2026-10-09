@@ -2,7 +2,13 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findProjectFiles, listProjectDir, ProjectStore, readProjectFile } from '../src/projects.ts'
+import {
+  findProjectFiles,
+  listProjectDir,
+  ProjectStore,
+  projectSecret,
+  readProjectFile,
+} from '../src/projects.ts'
 
 let home: string
 let folders: string
@@ -146,7 +152,14 @@ test("a project around the person's home hides their keys and Myrmidon's data, b
 
   for (const file of ['ada/.ssh/id_ed25519', 'ada/.netrc', 'ada/.myrmidon/credentials.json', 'ada/code/key'])
     expect(() => readProjectFile(root, file, guard)).toThrow(/keys or sign-ins/)
+  // A missing key answers as a present one does, so nothing tells which exist.
+  expect(() => readProjectFile(root, 'ada/.ssh/id_rsa', guard)).toThrow(/keys or sign-ins/)
   await expect(listProjectDir(root, 'ada/.ssh', guard)).rejects.toThrow(/keys or sign-ins/)
+  // A link into them is left out of the folder's listing too.
+  expect((await listProjectDir(root, 'ada/code', guard)).entries.map((e) => e.name)).toEqual(['.env'])
+  expect(
+    ['ada/.ssh/id_rsa', 'ada/code/key', 'ada/code/.env'].map((f) => projectSecret(root, f, guard)),
+  ).toEqual([true, true, false])
   expect((await listProjectDir(root, 'ada', guard)).entries.map((e) => e.name)).toEqual(['code'])
   expect((await findProjectFiles(root, '', guard)).paths).toEqual(['ada/code/.env'])
   // The project's own files stay open, secrets-looking or not: full access is what guards those.
