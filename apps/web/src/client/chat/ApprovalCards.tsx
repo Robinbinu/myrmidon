@@ -1,5 +1,5 @@
 import type { ColonyState, PermissionRule, PermissionScope, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, ChevronDown, Info, PencilLine, X } from 'lucide-react'
+import { BookmarkPlus, Check, ChevronDown, Info, PencilLine, TriangleAlert, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
 import { send } from '../api.ts'
@@ -156,12 +156,15 @@ function ApprovalCard({
   const changed = Object.entries(edits).filter(
     ([key, value]) => a.review?.fields.find((f) => f.key === key)?.value !== value,
   )
-  // Where an answer may be remembered: this chat, its project, everywhere. A chats-only device keeps to the chat.
-  const scopes: PermissionScope[] = [
-    ...(chatId ? (['chat'] as const) : []),
-    ...(project && full ? (['project'] as const) : []),
-    ...(full ? (['global'] as const) : []),
-  ]
+  // Where an answer may be remembered: this chat, its project, everywhere. A chats-only device keeps to the chat. A
+  // folder of keys or sign-ins is allowed once or for this chat (its own button), never remembered wider.
+  const scopes: PermissionScope[] = a.sensitive
+    ? []
+    : [
+        ...(chatId ? (['chat'] as const) : []),
+        ...(project && full ? (['project'] as const) : []),
+        ...(full ? (['global'] as const) : []),
+      ]
   const choices = scopes.length ? choicesOf(a.offer ?? []) : []
   /** `remember`: the rules saved with the answer, and where. */
   const decide = async (
@@ -233,6 +236,12 @@ function ApprovalCard({
         <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-xl bg-surface px-3 py-2 font-mono text-callout">
           {a.summary}
         </pre>
+      )}
+      {a.sensitive && (
+        <p role="note" className="flex items-start gap-1.5 text-callout text-warn-ink">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          {copy.approvals.reads.sensitive}
+        </p>
       )}
       {a.why && (
         <p className="flex items-center gap-1.5 text-small text-muted">
