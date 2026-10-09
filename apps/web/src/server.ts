@@ -3,7 +3,15 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
-import { type ColonyId, colonyMetrics, foldColony, runDiff, stopCause } from '@myrmidon/protocol'
+import {
+  type ColonyId,
+  colonyMetrics,
+  foldColony,
+  isSetupStep,
+  runDiff,
+  type SetupState,
+  stopCause,
+} from '@myrmidon/protocol'
 import {
   accountName,
   type BrowserHub,
@@ -17,6 +25,9 @@ import {
   CUSTOM_APIS,
   type CustomApi,
   channelSendTool,
+  detectSetup,
+  finishSetup,
+  firstSetup,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -29,11 +40,13 @@ import {
   type HookStore,
   importFromOmp,
   type LiveInput,
+  type LocalServer,
   listFolders,
   type McpHub,
   type McpServerConfig,
   type MemoryStore,
   type ModelResolver,
+  markSetup,
   normalizeTeamConfig,
   type OmpRuntime,
   PHONE_HOOK,
@@ -53,6 +66,7 @@ import {
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  setupHave,
   sniffImage,
   startScheduler,
   TOOL_DEFS,
@@ -144,6 +158,8 @@ export interface ServeOptions {
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
   readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
+  /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
+  readonly setupServers?: readonly LocalServer[]
 }
 
 export interface WebServer {
@@ -375,6 +391,36 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  const modelReady = () => (options.omp?.available().length ?? 0) > 0
+  /**
+   * Setup as it stands. The first time it is asked about it is decided from what this install has, and kept: one
+   * from before the assistant existed, with a chat or a model already, counts as set up.
+   */
+  const currentSetup = async (): Promise<SetupState | undefined> => {
+    const settings = options.settings
+    if (!settings) return undefined
+    const saved = settings.get().setup
+    if (saved) return saved
+    const setup = firstSetup({ chats: (await chats?.list())?.length ?? 0, modelReady: modelReady() })
+    settings.set({ ...settings.get(), setup })
+    return setup
+  }
+  /** What exists already, for the setup steps to show as done. */
+  const setupNow = () => {
+    let channelsOn = false
+    try {
+      channelsOn = channels?.list().some((c) => c.enabled) ?? false
+    } catch {
+      // A damaged channels.json: Settings → Channels says so; setup just shows the step as not done.
+    }
+    return setupHave({
+      // Only called once settings are known to exist.
+      settings: (options.settings as SettingsStore).get(),
+      modelReady: modelReady(),
+      projects: options.projects?.list().length ?? 0,
+      channelsOn,
+    })
+  }
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
@@ -1210,8 +1256,8 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof ref !== 'string') return json({ error: 'ref is required' }, 400)
           const started = Date.now()
           try {
-            await options.resolver.probe(ref, true)
-            return json({ ok: true, ms: Date.now() - started })
+            const reply = await options.resolver.probe(ref, true)
+            return json({ ok: true, ms: Date.now() - started, ...(reply ? { reply } : {}) })
           } catch (err) {
             return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
           }
@@ -1249,7 +1295,10 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            const settings = options.settings.set(await req.json())
+            // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
+            const { setup } = options.settings.get()
+            const body = { ...((await req.json()) as Record<string, unknown>), setup }
+            const settings = options.settings.set(body)
             await options.chats?.permissionsChanged()
             return json({ settings })
           } catch (err) {
@@ -1257,6 +1306,41 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // The first-run setup assistant: where the person is with it, and what exists already however it was set up.
+      '/api/setup': {
+        GET: guard(async () => {
+          const setup = await currentSetup()
+          if (!setup) return json({ error: 'setup needs the chat runtime' }, 503)
+          return json({ setup, have: setupNow() })
+        }),
+        PUT: guard(async (req) => {
+          const settings = options.settings
+          const setup = await currentSetup()
+          if (!settings || !setup) return json({ error: 'setup needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          let next: SetupState
+          if (body.restart === true) next = { steps: {} }
+          else if (body.finish === true) next = finishSetup(setup, setupNow())
+          else if (
+            isSetupStep(body.step) &&
+            (body.mark === 'done' || body.mark === 'later' || body.mark === null)
+          )
+            next = markSetup(setup, body.step, body.mark)
+          else
+            return json({ error: 'send a step and its mark (done, later or null), finish, or restart' }, 400)
+          settings.set({ ...settings.get(), setup: next })
+          return json({ setup: next, have: setupNow() })
+        }),
+      },
+      // What the Connect models step can offer before asking for anything.
+      '/api/setup/detect': guard(async () =>
+        json(
+          await detectSetup({
+            providers: options.omp?.providers() ?? [],
+            ...(options.setupServers ? { servers: options.setupServers } : {}),
+          }),
+        ),
+      ),
       '/api/credentials/:provider': {
         PUT: guard(async (req) => {
           if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
@@ -1378,7 +1462,10 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof path !== 'string') return json({ error: 'path is required' }, 400)
           try {
             const project = options.projects.add(path, typeof name === 'string' ? name : undefined)
-            return json({ project, projects: options.projects.list() })
+            // Setup suggests how freely agents may change it from this: a git repository is work in progress, so
+            // changes wait for the person; any other folder starts read-only.
+            const isGit = existsSync(join(project.path, '.git'))
+            return json({ project, projects: options.projects.list(), isGit })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }

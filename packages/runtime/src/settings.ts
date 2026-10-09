@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Schema } from '@myrmidon/core'
+import { isSetupStep, type SetupState } from '@myrmidon/protocol'
 import { DEFAULT_COST_USD } from './config.ts'
 
 export const TOOL_GROUPS = {
@@ -94,6 +95,11 @@ export interface MyrSettings {
      */
     phone: boolean
   }
+  /**
+   * The first-run setup assistant. Absent until it is first asked about: an install from before it existed is then
+   * counted as set up when it has a chat or a model (see `setup.ts`).
+   */
+  setup?: SetupState
 }
 
 export const settingsSchema = Schema.object({
@@ -169,6 +175,10 @@ export const settingsSchema = Schema.object({
     sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
     phone: Schema.boolean().default(false),
   }).default({}),
+  setup: Schema.object({
+    finishedAt: Schema.string().max(40),
+    steps: Schema.dict(Schema.union(['done', 'later'])).default({}),
+  }),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
@@ -178,6 +188,8 @@ function parse(input: unknown): MyrSettings {
   if (raw.team && (raw.team.mode === 'auto' || raw.team.mode === 'manual'))
     input = { ...raw, team: { ...raw.team, mode: 'orchestrated' } }
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
+  // The schema fills in an absent setup; absent must stay absent, so the first read can still decide it.
+  const setup = (input as { setup?: unknown } | undefined)?.setup !== undefined ? s.setup : undefined
   return {
     version: 1,
     team: s.team,
@@ -202,6 +214,14 @@ function parse(input: unknown): MyrSettings {
       sensitivity: s.voice.sensitivity,
       phone: s.voice.phone,
     },
+    ...(setup
+      ? {
+          setup: {
+            ...(setup.finishedAt ? { finishedAt: setup.finishedAt } : {}),
+            steps: Object.fromEntries(Object.entries(setup.steps).filter(([step]) => isSetupStep(step))),
+          },
+        }
+      : {}),
   }
 }
 
