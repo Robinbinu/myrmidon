@@ -182,7 +182,6 @@ export function themeTokens(theme: ThemeData): Record<string, string> {
   const base = dark ? '#1e1e1e' : '#ffffff'
   const content = opaque(c['editor.background'], base) ?? base
   const pick = (key: string) => opaque(c[key], content)
-  const shade = (hex: string, t: number) => mix(hex, dark ? '#ffffff' : '#000000', t)
   const deeper = (hex: string, t: number) => mix(hex, '#000000', t)
   let label = pick('editor.foreground') ?? pick('foreground') ?? (dark ? '#d4d4d4' : '#333333')
 
@@ -327,7 +326,8 @@ export function themeTokens(theme: ThemeData): Record<string, string> {
     'terminal-bg': terminalBg,
     'terminal-text': terminalText,
     'terminal-command': onTerminal(pick('terminal.ansiGreen'), ok.hue),
-    'terminal-muted': onTerminal(pick('terminal.ansiBrightBlack'), shade(terminalBg, 0.5)),
+    // Faded from the terminal's text, not its bright black: some themes (Solarized) make that their darkest shade.
+    'terminal-muted': onTerminal(mix(terminalText, terminalBg, 0.35), terminalText),
     'terminal-error': onTerminal(pick('terminal.ansiRed'), bad.hue),
     'shell-log-bg': terminalBg,
     ...ansi,

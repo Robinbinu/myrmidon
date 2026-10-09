@@ -255,7 +255,7 @@ export const BUILTIN_THEMES: readonly BuiltinTheme[] = [
     id: 'gruvbox-dark',
     name: 'Gruvbox Dark',
     type: 'dark',
-    author: 'jdinhify (palette by Pavel Pertsev)',
+    author: 'jdinhify',
     source: 'https://github.com/jdinhify/vscode-theme-gruvbox',
     colors: {
       'editor.background': '#282828',
@@ -300,7 +300,7 @@ export const BUILTIN_THEMES: readonly BuiltinTheme[] = [
     id: 'monokai',
     name: 'Monokai Classic',
     type: 'dark',
-    author: 'Wimer Hazenberg (as shipped with VS Code)',
+    author: 'Wimer Hazenberg',
     source: 'https://github.com/microsoft/vscode/tree/main/extensions/theme-monokai',
     colors: {
       'editor.background': '#272822',
@@ -476,7 +476,7 @@ export const BUILTIN_THEMES: readonly BuiltinTheme[] = [
     id: 'solarized-light',
     name: 'Solarized Light',
     type: 'light',
-    author: 'Ethan Schoonover (as shipped with VS Code)',
+    author: 'Ethan Schoonover',
     source: 'https://github.com/microsoft/vscode/tree/main/extensions/theme-solarized-light',
     colors: {
       'editor.background': '#fdf6e3',
@@ -607,7 +607,7 @@ export const BUILTIN_THEMES: readonly BuiltinTheme[] = [
     id: 'atom-one-light',
     name: 'Atom One Light',
     type: 'light',
-    author: 'Mahmoud Ali (akamud)',
+    author: 'akamud',
     source: 'https://github.com/akamud/vscode-theme-onelight',
     colors: {
       'editor.background': '#fafafa',
