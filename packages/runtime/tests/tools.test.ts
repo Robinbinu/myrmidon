@@ -219,7 +219,8 @@ test("computer use's tools load together: the computer works only in an app open
   const { preloaded, withCompanions } = await import('../src/patterns.ts')
   const names = ['fs_read', 'computer', 'open_app', 'list_apps']
   expect(preloaded('What is on my screen in Notes?', names)).toEqual(['computer', 'open_app', 'list_apps'])
-  expect(withCompanions(['computer'])).toEqual(['computer', 'open_app', 'list_apps'])
+  // An agent has one engine's tools; the group names both.
+  expect(withCompanions(['computer'])).toEqual(['computer', 'open_app', 'list_apps', 'desktop'])
   expect(withCompanions(['fs_read'])).toEqual(['fs_read'])
 })
 

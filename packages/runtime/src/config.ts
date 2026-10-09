@@ -456,6 +456,19 @@ export const COMPUTER_SEND_APPS = [
   /^com\.microsoft\.teams/,
   /^com\.microsoft\.Outlook$/,
 ]
+/**
+ * omp's desktop engine (computer/desktop.ts). Screenshots are capped at omp's coordinate-safe frame: a provider that
+ * resizes a larger image would put the model's pointer coordinates off.
+ */
+export const DESKTOP_CAPTURE = { maxWidth: 1280, maxHeight: 896 } as const
+/** How long one desktop script may run by default, and at most, in seconds. */
+export const DESKTOP_TIMEOUT_S = 30
+export const DESKTOP_MAX_TIMEOUT_S = 120
+/** The latest screenshots of a script returned to the model, and how much of its text output. */
+export const DESKTOP_IMAGES_SHOWN = 3
+export const DESKTOP_OUTPUT_CHARS = 12_000
+/** How long launching an app (`open -a`) from a desktop script may take. */
+export const DESKTOP_OPEN_MS = 15_000
 
 // Services (mcp.ts, recovery.ts)
 

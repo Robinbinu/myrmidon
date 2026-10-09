@@ -267,6 +267,8 @@ export interface Environment {
   readonly browser: boolean
   /** The round may use the person's Mac (computer use). */
   readonly computer?: boolean
+  /** What computer use runs on (Settings → Computer use → Engine); Cua Driver when absent. */
+  readonly computerEngine?: 'cua' | 'omp'
   readonly project?: ProjectContext
   /** The agent's own git worktree of the project, when it has one. */
   readonly worktree?: { workdir: string; branch: string }

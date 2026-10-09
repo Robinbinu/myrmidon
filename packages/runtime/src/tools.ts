@@ -50,11 +50,13 @@ import {
   watched,
 } from './browser.ts'
 import { clockTime, localDate } from './clock.ts'
+import { desktopTool } from './computer/desktop.ts'
+import { DESKTOP_TOOL } from './computer/names.ts'
 import {
   appTool,
   COMPUTER_TOOL,
-  COMPUTER_TOOLS,
   computerTool,
+  computerToolSpec,
   LIST_APPS_TOOL,
   OPEN_APP_TOOL,
 } from './computer/tool.ts'
@@ -2731,17 +2733,24 @@ export function buildAgentTools(
   const made = Object.values(host.state().madeTools)
     .filter((t) => (t.language === 'browser' ? browsing : scripts))
     .map((t) => logged(agent, madeTool(agent, t, host), host))
-  // The person's Mac, only for rounds that may use it (never one a channel member started or wrote into). The app
-  // tools come with the computer tool: a rule that takes it away takes them too.
+  // The person's Mac, only for rounds that may use it (never one a channel member started or wrote into), through
+  // the engine set in Settings. The app tools come with the computer tool: a rule that takes it away takes them too.
+  const hub = host.computer
   const computer =
-    allow.has(COMPUTER_TOOL) && host.computer && model
-      ? [
-          computerTool(agent, host, model),
-          ...([OPEN_APP_TOOL, LIST_APPS_TOOL] as const)
-            .filter((name) => allow.has(name))
-            .map((name) => appTool(name, agent, host, model)),
-        ]
-      : []
+    !hub || !model
+      ? []
+      : hub.engine === 'omp'
+        ? allow.has(DESKTOP_TOOL)
+          ? [desktopTool(agent, host)]
+          : []
+        : allow.has(COMPUTER_TOOL)
+          ? [
+              computerTool(agent, host, model),
+              ...([OPEN_APP_TOOL, LIST_APPS_TOOL] as const)
+                .filter((name) => allow.has(name))
+                .map((name) => appTool(name, agent, host, model)),
+            ]
+          : []
   return [...harnessTools(agent, allow, host, facts), ...mcp, ...made, ...computer]
 }
 
@@ -3073,9 +3082,7 @@ class AlreadyDone extends Error {
 
 /** A harness tool's parameters as JSON Schema, the way providers receive them (as pi-ai's arkToWireSchema does). */
 export function toolParameters(name: string): Record<string, unknown> | undefined {
-  const params = Object.hasOwn(COMPUTER_TOOLS, name)
-    ? COMPUTER_TOOLS[name as keyof typeof COMPUTER_TOOLS].parameters
-    : TOOL_DEFS.find((d) => d.name === name)?.parameters
+  const params = computerToolSpec(name)?.parameters ?? TOOL_DEFS.find((d) => d.name === name)?.parameters
   return params?.toJsonSchema({ fallback: (ctx: { base: unknown }) => ctx.base } as never) as
     | Record<string, unknown>
     | undefined

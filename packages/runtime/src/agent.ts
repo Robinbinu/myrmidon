@@ -110,6 +110,7 @@ export class ColonyAgent {
       web: host.web !== noWebTools,
       browser: host.browser !== undefined,
       computer: host.computer !== undefined,
+      ...(host.computer ? { computerEngine: host.computer.engine } : {}),
       boundary: host.boundary,
       ...(host.project ? { project: host.project } : {}),
       ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
