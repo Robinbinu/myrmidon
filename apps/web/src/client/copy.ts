@@ -1733,6 +1733,9 @@ export const copy = {
       rememberIn: 'Remember for',
       scopes: { chat: 'This chat', project: 'This project', global: 'Everywhere' },
       scopeHint: { chat: 'Only in this chat', project: 'Every chat in this project', global: 'Every chat' },
+      /** Under a remembered test, script or build command, which runs code the crew can change. */
+      projectCode:
+        'This runs code the crew can change (tests, scripts, build files). Remembered for a project or every chat, it lets them run whatever they write there.',
       /** Remembering an answer for every chat, or for every command or tool, asks once more before it is saved. */
       confirm: {
         allow: (what: string, where: string) => `Yes, allow ${what} ${where}`,

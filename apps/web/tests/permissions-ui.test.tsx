@@ -622,3 +622,72 @@ test("a card's buttons are named by the words they show (WCAG 2.5.3)", async () 
   const { steer, queue } = copy.composer.deliveries
   expect(copy.composer.deliveryLabel(steer.label, queue.label).startsWith(steer.label)).toBe(true)
 })
+
+test('a chats-only device is not offered what the server would refuse it: every command, or reading for the chat', async () => {
+  recordFetch()
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const { targetText } = await import('../src/client/permissions/describe.ts')
+  const t = copy.permissions.card
+  const every = targetText({ kind: 'command', target: '*' })
+  const read = {
+    ...command,
+    id: 'approval-2',
+    tool: 'request_read',
+    summary: 'read ~/notes',
+    read: { path: '~/notes' },
+  }
+  for (const [scope, offered] of [
+    ['full', true],
+    ['chat', false],
+  ] as const) {
+    const { host, unmount } = await (
+      await page(
+        <>
+          <Approval colonyId="colony-1" chatId="chat-1" project="site" request={command} />
+          <Approval colonyId="colony-1" chatId="chat-1" project="site" request={read as never} />
+        </>,
+      )
+    ).with(scope)
+    const doc = host.ownerDocument
+    try {
+      await click(byLabel(doc, t.moreAllow))
+      const menu = doc.querySelector(`[role=dialog][aria-label="${t.moreAllow}"]`) as HTMLElement
+      expect(menu.textContent?.includes(every)).toBe(offered)
+      const readButton = [...doc.querySelectorAll('button')].some(
+        (b) => b.textContent?.trim() === copy.approvals.reads.approveAll,
+      )
+      expect(readButton).toBe(offered)
+    } finally {
+      await unmount()
+    }
+  }
+})
+
+test('remembering a command that runs project code warns that the crew can change what it runs', async () => {
+  recordFetch()
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const t = copy.permissions.card
+  const tests = {
+    ...command,
+    offer: [{ kind: 'command' as const, target: 'bun test', projectCode: true as const }],
+  }
+  for (const [scope, warned] of [
+    ['full', true],
+    ['chat', false],
+  ] as const) {
+    const { host, unmount } = await (
+      await page(<Approval colonyId="colony-1" chatId="chat-1" project="site" request={tests} />)
+    ).with(scope)
+    const doc = host.ownerDocument
+    try {
+      await click(byLabel(doc, t.moreAllow))
+      const menu = doc.querySelector(`[role=dialog][aria-label="${t.moreAllow}"]`) as HTMLElement
+      // Only where it could be remembered beyond this chat: a chats-only device keeps to the chat.
+      expect(menu.textContent?.includes(t.projectCode)).toBe(warned)
+    } finally {
+      await unmount()
+    }
+  }
+})
