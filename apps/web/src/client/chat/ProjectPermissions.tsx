@@ -131,6 +131,7 @@ export function ProjectPermissions(props: {
   const toast = useToast()
   const [mode, setMode] = useState<PermissionMode>(props.project.permissions?.mode ?? 'auto')
   const [allow, setAllow] = useState((props.project.permissions?.allow ?? []).join('\n'))
+  const [read, setRead] = useState((props.project.permissions?.read ?? []).join('\n'))
   const [busy, setBusy] = useState(false)
   const save = async () => {
     setBusy(true)
@@ -138,6 +139,7 @@ export function ProjectPermissions(props: {
       const r = await send<{ projects: Project[] }>('PUT', `/api/projects/${props.project.id}/permissions`, {
         mode,
         allow: allow.split('\n'),
+        read: read.split('\n'),
       })
       props.onSaved(r.projects)
       toast(`${props.project.name}: ${MODES.find((m) => m.value === mode)?.label}`, 'success')
@@ -191,6 +193,23 @@ export function ProjectPermissions(props: {
               placeholder={'bun test\nbun run typecheck\ngit status'}
               className="font-mono"
             />
+          </div>
+        )}
+        {/* Full access reads everything already. */}
+        {mode !== 'full' && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="read-folders" className="text-callout text-muted">
+              {copy.permissions.read.label}
+            </label>
+            <TextArea
+              id="read-folders"
+              value={read}
+              onChange={(e) => setRead(e.target.value)}
+              rows={2}
+              placeholder={copy.permissions.read.placeholder}
+              className="font-mono"
+            />
+            <p className="text-small text-muted">{copy.permissions.read.hint}</p>
           </div>
         )}
         <p className="text-small text-muted">{copy.permissions.appliesFrom}</p>

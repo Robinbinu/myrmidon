@@ -1481,10 +1481,11 @@ export function App() {
                                     projects.find((p) => p.id === newProject)?.permissions?.mode,
                                     sandboxOff,
                                   )) && <FullAccessBadge />}
-                              {chat?.grants?.length ? (
+                              {chat?.grants?.length || chat?.reads?.length ? (
                                 <ChatGrantChips
                                   chatId={chat.chatId}
-                                  grants={chat.grants}
+                                  grants={chat.grants ?? []}
+                                  reads={chat.reads ?? []}
                                   onChanged={refreshChats}
                                 />
                               ) : null}

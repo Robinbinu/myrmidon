@@ -119,8 +119,13 @@ export interface ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant },
+    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
   ): Promise<ReviewDecision>
+  /**
+   * A sandboxed agent asks to read a folder outside what it may read: the person allows it once (this round) or for
+   * the chat. Refused for the person's keys and other chats' data, and in a round a channel member writes into.
+   */
+  requestRead(agent: string, path: string, reason?: string): Promise<string>
   /**
    * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if
    * given, else at the first local URL it prints. Returns that URL.

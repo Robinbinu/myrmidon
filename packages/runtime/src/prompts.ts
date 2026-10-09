@@ -384,6 +384,8 @@ nobody owns, publish artifacts, and request final verification once the output m
       `Shell: ${p.platform}, ${p.sandbox} sandbox; commands start in the project folder and may write there and in your scratch directory. Use paths relative to the project, never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
     shellFull: (p: { platform: string; runtimes: readonly string[]; project: boolean }) =>
       `Shell: ${p.platform}, full access (no sandbox); commands start in ${p.project ? 'the project folder' : 'your scratch directory'} and run as the person, with their home, environment and network. Prefer paths relative to where you start, and absolute ones only for files outside it. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
+    reads: (p: { folders: readonly string[]; ask: boolean }) =>
+      `Reading: the sandbox keeps the rest of the person's computer private. You can read the project (if any), your scratch directory, this chat's shared files ($MYR_MIRROR) and the toolchains on PATH${p.folders.length ? `, and these folders the person opened for you (read-only): ${p.folders.join(', ')}` : ''}. The rest of their home, their keys and other chats are out of reach, from the shell and the file tools alike.${p.ask ? ' If the task truly needs another folder, call request_read with its full path and why; the person may allow it once or for this chat. Do not ask for keys, tokens or sign-ins (~/.ssh, ~/.aws, ~/.config and the like): those are refused.' : ''}`,
     shellScratch: (p: { platform: string; sandbox: string; runtimes: readonly string[] }) =>
       `Shell: ${p.platform}, ${p.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
   },
@@ -919,6 +921,7 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     edit: (path: string) => `Edit ${path}`,
     commit: (project: string) => `Commit to ${project}`,
     command: 'Run a command',
+    read: (folder: string, reason?: string) => `read ${folder}${reason?.trim() ? ` (${reason.trim()})` : ''}`,
     content: 'New content',
     message: 'Message',
     changes: (n: number) => `${n} changed file${n === 1 ? '' : 's'}`,
@@ -941,6 +944,16 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
       'the swarm is still huddling: send your proposal to the team chat (message to "team") and stop; work starts once every crewmate has proposed',
     editedByPerson:
       '\n(The person edited this before approving; what ran is their version. Read it back before building on it.)',
+    askToRead:
+      '. The sandbox hides the rest of the computer; if the task needs this, ask with request_read (its folder and why)',
+    readFull: 'This round has full access: read it directly with fs_read or the shell.',
+    readNotHere:
+      'nothing outside the project can be opened for reading in this chat: someone other than the person wrote into it',
+    readSecret: (path: string) =>
+      `${path} holds keys, tokens, sign-ins or other chats' data, which agents may not ask for. Do without it, or ask the person (ask_user) for what you need from it`,
+    readAlready: (path: string) => `You can already read ${path}.`,
+    readAllowed: (path: string) =>
+      `The person allowed reading ${path}: read it with fs_read, grep, glob or the shell. It stays read-only.`,
     alreadyDone: (output: string) =>
       `Already done: the person approved this exact call earlier and it ran, so it was not run again. Its result was:\n${output}`,
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',
@@ -1145,7 +1158,16 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     },
     fs_read: {
       description:
-        'Read a file in your working directory (the project, when the chat has one) or your scratch directory.',
+        'Read a file in your working directory (the project, when the chat has one), your scratch directory, or a ' +
+        'folder the person opened for reading (full path, ~ allowed).',
+    },
+    request_read: {
+      description:
+        "Ask the person to let you read a folder outside the project, your scratch and the folders they opened: the rest of their home is hidden by the sandbox. Use it only when the task needs that folder; they allow it once or for this chat, and then fs_read, grep, glob and the shell can read it (never write). Keys, tokens, sign-ins and other chats' data are always refused.",
+      params: {
+        path: 'Full path of the folder (or file), e.g. ~/Documents/notes',
+        reason: 'Why the task needs it, in one short sentence the person reads',
+      },
     },
     fs_list: {
       description:
@@ -1501,7 +1523,8 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     shell: {
       description:
         'Run a shell command in the OS sandbox. It starts in your working directory (the project, when the chat has ' +
-        'one; otherwise your scratch) and may write only there and in your scratch. Use it to ' +
+        'one; otherwise your scratch) and may write only there and in your scratch; it reads only those, this chat’s ' +
+        'files, toolchains and folders the person opened, since the rest of their home is hidden. Use it to ' +
         'build and test what you make: run scripts and tests, install packages locally, check syntax (node --check, ' +
         'python -m py_compile, bun build), and inspect output. Published artifacts are readable at $MYR_MIRROR/artifacts. ' +
         'Read errors carefully and fix the cause rather than retrying the same command.',

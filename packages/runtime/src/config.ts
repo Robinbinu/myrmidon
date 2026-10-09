@@ -135,6 +135,72 @@ export const OBSERVED_CHARS = 1_500
 
 /** The most output a sandboxed command returns, so a noisy build cannot flood the agent. */
 export const SANDBOX_MAX_OUTPUT = 64 * 1024
+/**
+ * Toolchain folders in the person's home (relative to it) that sandboxed commands may read, never write: where
+ * bun, node version managers, rustup, uv, pyenv and the like install the programs on PATH. Commands get a private
+ * HOME, so caches and configs (~/.npm, ~/.cache, ~/Library/Caches, ~/.gitconfig) are their own and not listed;
+ * ~/.cargo is listed by its bin folder alone because it also holds the crates.io token.
+ */
+export const SANDBOX_TOOLCHAINS = [
+  '.bun',
+  '.cargo/bin',
+  '.rustup',
+  '.deno',
+  '.volta',
+  '.nvm',
+  '.fnm',
+  '.local/share/fnm',
+  'Library/Application Support/fnm',
+  '.pyenv',
+  '.rbenv',
+  '.asdf',
+  '.local/share/mise',
+  '.local/bin',
+  '.local/share/uv',
+  '.local/share/pnpm',
+  'Library/pnpm',
+  'go/bin',
+  '.sdkman',
+  '.dotnet',
+  '.ghcup',
+  'miniconda3',
+  'miniforge3',
+  'anaconda3',
+] as const
+/**
+ * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
+ * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project or a chat can
+ * never grant them; only naming one exactly in Settings → Tools opens it. Myrmidon's own data folder, which holds
+ * every chat, is treated the same way except for the chat's own folder.
+ */
+export const SANDBOX_SECRETS = [
+  '.ssh',
+  '.aws',
+  '.azure',
+  '.gnupg',
+  '.kube',
+  '.docker',
+  '.config',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '.git-credentials',
+  '.cargo/credentials',
+  '.cargo/credentials.toml',
+  '.password-store',
+  '.zsh_history',
+  '.bash_history',
+  'Library/Keychains',
+  'Library/Cookies',
+  'Library/Application Support',
+  'Library/Mail',
+  'Library/Messages',
+  'Library/Safari',
+  '.local/share/keyrings',
+  '.mozilla',
+] as const
+/** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
+export const MAX_READ_FOLDERS = 50
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600

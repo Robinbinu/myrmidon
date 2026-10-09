@@ -206,6 +206,8 @@ export interface ColonyState {
   chatTitle?: { title: string; at: string; by?: 'auto' }
   /** Kinds of step the person allowed for the rest of the chat; absent until they allow one. */
   chatGrants?: ChatGrant[]
+  /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
+  chatReads?: string[]
   /** The current round runs with full access (no sandbox); absent when it is confined. */
   fullAccess?: boolean
   /** The model failure that paused the round, until it resumes. */
@@ -488,7 +490,9 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       break
     }
     case 'chat/allowed': {
-      state.chatGrants = [...(event.payload as EventPayloads['chat/allowed']).grants]
+      const p = event.payload as EventPayloads['chat/allowed']
+      state.chatGrants = [...p.grants]
+      if (p.reads) state.chatReads = [...p.reads]
       break
     }
     case 'permissions/changed': {

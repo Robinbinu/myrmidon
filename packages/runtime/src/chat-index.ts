@@ -32,6 +32,8 @@ export interface IndexedRound {
   readonly crew?: readonly CrewMember[]
   /** On a chat's latest round: kinds of step the person allowed for the rest of the chat. */
   readonly grants?: readonly ChatGrant[]
+  /** On a chat's latest round: folders the person let sandboxed agents read for the rest of the chat. */
+  readonly reads?: readonly string[]
   /** On a chat's latest round: it runs with full access (no sandbox). */
   readonly fullAccess?: boolean
 }
@@ -296,6 +298,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
               ...(a.info.specialty ? { specialty: a.info.specialty } : {}),
             })),
           ...(s.chatGrants?.length ? { grants: s.chatGrants } : {}),
+          ...(s.chatReads?.length ? { reads: s.chatReads } : {}),
           ...(s.fullAccess ? { fullAccess: true } : {}),
         }
       : {}),

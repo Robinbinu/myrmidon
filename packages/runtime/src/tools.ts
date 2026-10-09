@@ -308,6 +308,24 @@ function writableFor(host: ColonyHost, agent: string): string[] {
   return [...new Set([host.workspace.workdir(agent), scratch])]
 }
 
+/** Search results without what stays hidden inside the searched folder (the person's keys, other chats' data). */
+function readableMatches<T extends { path: string }>(
+  host: ColonyHost,
+  agent: string,
+  target: string,
+  matches: readonly T[],
+): T[] {
+  const seen = new Map<string, boolean>()
+  return matches.filter((m) => {
+    let ok = seen.get(m.path)
+    if (ok === undefined) {
+      ok = host.workspace.mayRead(agent, resolve(target, m.path))
+      seen.set(m.path, ok)
+    }
+    return ok
+  })
+}
+
 /**
  * Write tools whose effects stay inside the colony: its notes, tasks, messages, helpers and answers. A round that asks
  * for everything (`askAll`) still lets them run, since it could not work at all otherwise.
@@ -713,6 +731,7 @@ export async function runProjectChecks(
       command: check.command,
       cwd,
       writable: [...new Set(writable)],
+      ...host.workspace.confinement(),
       timeoutMs: 300_000,
     })
     const ok = !r.timedOut && r.code === 0
@@ -1383,7 +1402,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.fs_read.description,
     parameters: type({ path: type('string') }),
     async run(args, agent, host) {
-      return clip(readFileSync(host.workspace.resolveInWorkdir(agent, args.path), 'utf8'))
+      return clip(readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'))
     },
   },
   {
@@ -1393,12 +1412,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ 'path?': type('string') }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const dir = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const dir = host.workspace.resolveForRead(agent, args.path ?? '.')
       const out: string[] = []
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
           if (SANDBOX_DIRS.has(entry.name) || SKIP_DIRS.has(entry.name) || out.length > 500) continue
           const full = `${d}/${entry.name}`
+          // A readable folder can hold what stays hidden (the person's keys in a home they opened).
+          if (!host.workspace.mayRead(agent, full)) continue
           if (entry.isDirectory()) walk(full)
           else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
         }
@@ -1421,7 +1442,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
       const context = Math.min(Math.max(0, args.context ?? 0), 5)
       const result = await natives.grep({
         pattern: args.pattern,
@@ -1438,13 +1459,16 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         mode: args.filesOnly ? natives.GrepOutputMode.FilesWithMatches : natives.GrepOutputMode.Content,
       })
       const where = (p: string) => relative(root, resolve(target, p)) || p
-      if (result.matches.length === 0)
-        return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
-      const head = `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} in ${result.filesWithMatches} file${result.filesWithMatches === 1 ? '' : 's'}${result.totalMatches > result.matches.length ? ` (showing ${result.matches.length})` : ''}`
-      if (args.filesOnly) return `${head}\n${result.matches.map((m) => where(m.path)).join('\n')}`
+      const matches = readableMatches(host, agent, target, result.matches)
+      if (matches.length === 0) return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
+      const dropped = matches.length < result.matches.length
+      const total = dropped ? matches.length : result.totalMatches
+      const files = dropped ? new Set(matches.map((m) => m.path)).size : result.filesWithMatches
+      const head = `${total} match${total === 1 ? '' : 'es'} in ${files} file${files === 1 ? '' : 's'}${total > matches.length ? ` (showing ${matches.length})` : ''}`
+      if (args.filesOnly) return `${head}\n${matches.map((m) => where(m.path)).join('\n')}`
       const lines: string[] = [head]
       let file = ''
-      for (const m of result.matches) {
+      for (const m of matches) {
         const p = where(m.path)
         if (p !== file) {
           lines.push(`\n${p}`)
@@ -1467,7 +1491,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
       const result = await natives.glob({
         pattern: args.pattern,
         path: target,
@@ -1478,8 +1502,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         maxResults: GLOB_LIMIT,
         timeoutMs: 20_000,
       })
-      if (result.matches.length === 0) return `No files match ${args.pattern}.`
-      return result.matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+      const matches = readableMatches(host, agent, target, result.matches)
+      if (matches.length === 0) return `No files match ${args.pattern}.`
+      return matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+    },
+  },
+  {
+    name: 'request_read',
+    tier: 'read',
+    description: prompts.tools.request_read.description,
+    parameters: type({
+      path: type('string').atLeastLength(1).describe(prompts.tools.request_read.params.path),
+      'reason?': type('string').describe(prompts.tools.request_read.params.reason),
+    }),
+    async run(args, agent, host) {
+      return host.requestRead(agent, args.path, args.reason)
     },
   },
   {
@@ -1700,6 +1737,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           args: t.args ?? {},
         })),
         allowUnsandboxed: host.unsafeNoSandbox,
+        confinement: host.workspace.confinement(),
       })
     },
   },
@@ -2295,6 +2333,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         command,
         cwd,
         writable: writableFor(host, agent),
+        ...host.workspace.confinement(),
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
         env: { MYR_MIRROR: host.workspace.mirrorRoot },
       })
@@ -2520,6 +2559,7 @@ async function runMadeTool(
     command: scriptCommand(join(host.workspace.colonyDir, 'tools', tool.name), tool),
     cwd,
     writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
     timeoutMs: 120_000,
     env: { MYR_INPUT: JSON.stringify(input), MYR_MIRROR: host.workspace.mirrorRoot },
   })

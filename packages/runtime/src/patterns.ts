@@ -42,6 +42,7 @@ const BUILD = [
   'fs_list',
   'grep',
   'glob',
+  'request_read',
   'shell',
   'run_checks',
   'start_server',
@@ -86,7 +87,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         // A quick lookup on a site still needs searching and clicking; these act only in the agent's own browser.
         ...BROWSER,
         // In a project, quick questions are often about its code: reading it needs no team.
-        ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob'] : []),
+        ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob', 'request_read'] : []),
         'list_artifacts',
         'read_artifact',
         'read_docs',
@@ -390,6 +391,13 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
           : prompts.environment.shellScratch(shell),
     )
   }
+  if (env.sandbox !== 'unconfined' && (tools.includes('shell') || tools.includes('fs_read')))
+    lines.push(
+      prompts.environment.reads({
+        folders: spec.askAll ? [] : (spec.reads ?? []),
+        ask: tools.includes('request_read') && !spec.askAll,
+      }),
+    )
   return lines.join('\n')
 }
 

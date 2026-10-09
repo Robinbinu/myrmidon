@@ -184,6 +184,7 @@ export class Verifier {
       command: check.run,
       cwd: dir,
       writable: [dir],
+      ...this.host.workspace.confinement(),
       timeoutMs: check.timeoutMs ?? 120_000,
     })
     const tail = (s: string) => s.slice(-3000)

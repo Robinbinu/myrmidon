@@ -12,6 +12,8 @@ export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 
 export interface ProjectPermissions {
   mode: 'auto' | 'ask' | 'read-only' | 'full'
   allow: string[]
+  /** Folders beyond the project that sandboxed agents may read (never write) in this project's chats (`~` or absolute). */
+  read?: string[]
 }
 
 /**
@@ -33,6 +35,8 @@ export interface ApprovalRequest {
   key?: string
   /** Set when the person may approve every step of this kind for the rest of the chat. */
   grant?: ChatGrant
+  /** Set when an agent asks to read this folder outside what it may read: the person allows it once or for the chat. */
+  read?: string
 }
 
 /**
@@ -344,7 +348,8 @@ export interface EventPayloads {
   /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
   'chat/renamed': { title: string; by?: 'auto' }
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
-  'chat/allowed': { grants: ChatGrant[] }
+  /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
+  'chat/allowed': { grants: ChatGrant[]; reads?: string[] }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

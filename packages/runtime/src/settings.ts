@@ -2,12 +2,12 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import { Schema } from '@myrmidon/core'
 import { isSetupStep, type SetupState } from '@myrmidon/protocol'
-import { DEFAULT_COST_USD } from './config.ts'
+import { DEFAULT_COST_USD, MAX_READ_FOLDERS } from './config.ts'
 
 export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
-  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list'],
+  files: ['fs_write', 'fs_edit', 'fs_read', 'fs_list', 'request_read'],
   messaging: ['message', 'create_group', 'update_group', 'append_note'],
   browser: [
     'browser_open',
@@ -48,7 +48,16 @@ export interface MyrSettings {
    * reach any path and the web any address (approvals still apply). Read-only projects and rounds a channel member
    * started stay sandboxed whatever this says; a project set to full access has it with the sandbox on.
    */
-  sandbox: { enabled: boolean }
+  sandbox: {
+    enabled: boolean
+    /**
+     * Folders sandboxed agents may also read (never write) in every chat of the person's, `~` or absolute. Naming one of
+     * their keys' folders (SANDBOX_SECRETS) or Myrmidon's data folder exactly is the only way to open it.
+     */
+    read?: string[]
+    /** Everything in the person's home is readable too, but for their keys and other chats' data. */
+    readHome?: boolean
+  }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -129,7 +138,15 @@ export const settingsSchema = Schema.object({
     mcp: Schema.boolean().default(true),
     browser: Schema.boolean().default(true),
   }).default({}),
-  sandbox: Schema.object({ enabled: Schema.boolean().default(true) }).default({}),
+  sandbox: Schema.object({
+    enabled: Schema.boolean().default(true),
+    read: Schema.array(
+      Schema.string()
+        .pattern(/^(~$|~\/|\/)/)
+        .max(1000),
+    ).max(MAX_READ_FOLDERS),
+    readHome: Schema.boolean(),
+  }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -202,7 +219,11 @@ function parse(input: unknown): MyrSettings {
     version: 1,
     team: s.team,
     tools: s.tools,
-    sandbox: { enabled: s.sandbox.enabled },
+    sandbox: {
+      enabled: s.sandbox.enabled,
+      ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
+      ...(s.sandbox.readHome ? { readHome: true } : {}),
+    },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,
