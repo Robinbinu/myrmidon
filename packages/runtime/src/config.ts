@@ -222,14 +222,6 @@ export const HOOK_MAX_OUTPUT = 20_000
 /** How long a leashed command's processes get to exit on SIGTERM, once Myrmidon has gone, before they are killed. */
 export const LEASH_GRACE_MS = 2_000
 
-// Projects (projects.ts)
-
-/**
- * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
- * mode and stays autonomous, so nothing changes under the person's feet.
- */
-export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
-
 // Setup assistant (setup.ts)
 
 /** The smallest context window that can lead a crew; the client's AGENT_MIN_WINDOW (ui-config.ts) is the same. */

@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import { SANDBOX_MAX_OUTPUT } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
+import { presetOf } from './permissions.ts'
 import { realOrNone, realPath, toolchainPaths } from './read-access.ts'
 import type { ColonySpec } from './spec.ts'
 
@@ -267,10 +268,12 @@ export function unconfinedSandbox(): Sandbox {
 
 /**
  * Whether a round runs with full access: it was given it, and nobody but the person wrote into it (a channel member's
- * round never has it), and its project is not read-only (which only the sandbox can keep untouched).
+ * round never has it), and it is not read-only (which only the sandbox can keep untouched).
  */
-export function fullAccessIn(spec: Pick<ColonySpec, 'fullAccess' | 'askAll' | 'chat'>): boolean {
-  return !!spec.fullAccess && !spec.askAll && spec.chat?.project?.permissions?.mode !== 'read-only'
+export function fullAccessIn(
+  spec: Pick<ColonySpec, 'fullAccess' | 'askAll' | 'chat' | 'permissions'>,
+): boolean {
+  return !!spec.fullAccess && !spec.askAll && presetOf(spec) !== 'read-only'
 }
 
 /**

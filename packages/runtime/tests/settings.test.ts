@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseColonySpec, SettingsStore, toolsFor, withoutModel } from '../src/index.ts'
@@ -13,7 +13,7 @@ test('settings validate and persist, and never hold credentials', () => {
   try {
     const store = new SettingsStore(dir)
     expect(store.get().team.wallMinutes).toBe(30)
-    expect(store.get().tools.shell).toBe(true)
+    expect(store.get().permissions).toEqual({ preset: 'auto', rules: [] })
     expect(store.get().search.provider).toBe('auto')
     expect(() => store.set({ team: { workers: 99 } })).toThrow()
     expect(() => store.set({ search: { provider: 'Not A Provider!' } })).toThrow()
@@ -23,12 +23,51 @@ test('settings validate and persist, and never hold credentials', () => {
       search: { provider: 'brave' },
       apiKeys: { anthropic: 'sk-ant-test-0123456789' },
     })
-    expect(saved.tools.shell).toBe(false)
-    expect(saved.tools.web).toBe(true)
+    // The old group switch still reads: shell off for the lead and the crew alike.
+    expect(saved.permissions.access).toEqual({ lead: { shell: false }, crew: { shell: false } })
     const reloaded = new SettingsStore(dir)
     expect(reloaded.get().team.workers).toBe(2)
     expect(reloaded.get().search.provider).toBe('brave')
     expect(readFileSync(join(dir, 'settings.json'), 'utf8')).not.toContain('sk-ant')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('settings from before the permission model load without losing a choice', () => {
+  const dir = home()
+  try {
+    // The shape every saved file had: sandbox on (the default, written whether chosen or not) and per-tool rules.
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        sandbox: { enabled: true, read: ['~/docs'] },
+        tools: { shell: true, web: false, files: true, messaging: true, mcp: true, browser: true },
+        permissions: { fs_write: 'ask', mcp: 'allow', mcp__gh_delete: 'off' },
+      }),
+    )
+    const s = new SettingsStore(dir).get()
+    expect(s.permissions).toEqual({
+      preset: 'auto',
+      rules: [
+        { kind: 'tool', target: 'fs_write', decision: 'ask' },
+        { kind: 'mcp-server', target: '*', decision: 'allow' },
+        { kind: 'mcp-tool', target: 'mcp__gh_delete', decision: 'deny' },
+      ],
+      access: { lead: { web: false }, crew: { web: false } },
+    })
+    expect(s.sandbox).toEqual({ read: ['~/docs'] })
+    // Turning the sandbox off took a confirmation: that person keeps Full access.
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({ sandbox: { enabled: false }, permissions: {} }),
+    )
+    const full = new SettingsStore(dir)
+    expect(full.get().permissions.preset).toBe('full')
+    // Saved again in the new shape, it stays Full access, and the old switch is gone from the file.
+    full.set(full.get())
+    expect(new SettingsStore(dir).get().permissions.preset).toBe('full')
+    expect(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).sandbox).toEqual({})
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

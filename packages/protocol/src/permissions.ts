@@ -128,6 +128,11 @@ function present(levels: PermissionLevels): { scope: PermissionScope; level: Per
   })
 }
 
+/** Every rule of every level, nearest level first. */
+export function rulesIn(levels: PermissionLevels): (PermissionRule & { scope: PermissionScope })[] {
+  return present(levels).flatMap(({ scope, level }) => level.rules.map((r) => ({ ...r, scope })))
+}
+
 /**
  * The preset in effect and the level it comes from: the nearest that sets one, except that a read-only project is a
  * floor no chat can lift (only the project's own permissions change it).

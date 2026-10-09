@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { MyrEvent } from '@myrmidon/protocol'
+import type { MyrEvent, PermissionCall, PermissionRule } from '@myrmidon/protocol'
 import { clockTime, localDate } from '../src/clock.ts'
 import { READ_LOG_RESULT_CHARS } from '../src/config.ts'
 import type { ColonyHost } from '../src/host.ts'
@@ -173,24 +173,39 @@ test('a request that plainly needs the browser or a dev server starts with those
 })
 
 test('MCP tools ask first unless their server marks them read-only; the person can allow, ask or turn off each', async () => {
-  const { needsApproval } = await import('../src/tools.ts')
-  const none = {}
-  expect(needsApproval(none, 'mcp__notes_list', true)).toBe(false)
-  expect(needsApproval(none, 'mcp__notes_delete', false)).toBe(true)
-  expect(needsApproval(none, 'web_search', false)).toBe(false)
-  // A rule for one tool beats the rule for every MCP tool, which beats the read-only default.
-  expect(needsApproval({ allowTools: ['mcp__notes_delete'] }, 'mcp__notes_delete', false)).toBe(false)
-  expect(needsApproval({ askTools: ['mcp__notes_list'] }, 'mcp__notes_list', true)).toBe(true)
-  expect(needsApproval({ askTools: ['mcp'] }, 'mcp__notes_list', true)).toBe(true)
-  expect(needsApproval({ allowTools: ['mcp'] }, 'mcp__notes_delete', false)).toBe(false)
-  expect(needsApproval({ askTools: ['mcp'], allowTools: ['mcp__notes_list'] }, 'mcp__notes_list', true)).toBe(
-    false,
-  )
-  expect(needsApproval({ askTools: ['shell'] }, 'shell', false)).toBe(true)
+  const { decide } = await import('@myrmidon/protocol')
+  const mcp = (tool: string, readOnly: boolean) =>
+    ({ tool, kind: 'mcp', mcp: { server: 'notes', readOnly }, readOnly }) as const
+  const asks = (rules: PermissionRule[], call: PermissionCall, askAll = false) =>
+    decide({ global: { preset: 'auto', rules } }, call, { askAll }).decision === 'ask'
+  expect(asks([], mcp('mcp__notes_list', true))).toBe(false)
+  expect(asks([], mcp('mcp__notes_delete', false))).toBe(true)
+  expect(asks([], { tool: 'web_search', kind: 'web', readOnly: true })).toBe(false)
+  const tool = (target: string, decision: 'allow' | 'ask') => ({
+    kind: 'mcp-tool' as const,
+    target,
+    decision,
+  })
+  const every = (decision: 'allow' | 'ask') => ({ kind: 'mcp-server' as const, target: '*', decision })
+  expect(asks([tool('mcp__notes_delete', 'allow')], mcp('mcp__notes_delete', false))).toBe(false)
+  expect(asks([tool('mcp__notes_list', 'ask')], mcp('mcp__notes_list', true))).toBe(true)
+  expect(asks([every('ask')], mcp('mcp__notes_list', true))).toBe(true)
+  expect(asks([every('allow')], mcp('mcp__notes_delete', false))).toBe(false)
+  // Changed with the permission model: within one level an ask rule beats an allow rule, however specific (as in
+  // Claude Code). A nearer level's allow (the chat's) still beats it; see the protocol's permission tests.
+  expect(asks([every('ask'), tool('mcp__notes_list', 'allow')], mcp('mcp__notes_list', true))).toBe(true)
+  expect(
+    asks([{ kind: 'tool', target: 'shell', decision: 'ask' }], {
+      tool: 'shell',
+      kind: 'command',
+      command: 'ls',
+    }),
+  ).toBe(true)
   // A round someone else started asks for everything that is not read-only, even what the person allowed.
-  expect(needsApproval({ askAll: true, allowTools: ['shell'] }, 'shell', false)).toBe(true)
-  expect(needsApproval({ askAll: true, allowTools: ['mcp'] }, 'mcp__notes_delete', false)).toBe(true)
-  expect(needsApproval({ askAll: true }, 'fs_read', true)).toBe(false)
+  const shell = { tool: 'shell', kind: 'command', command: 'ls', readOnly: false } as const
+  expect(asks([{ kind: 'command', target: '*', decision: 'allow' }], shell, true)).toBe(true)
+  expect(asks([every('allow')], mcp('mcp__notes_delete', false), true)).toBe(true)
+  expect(asks([], { tool: 'fs_read', kind: 'read', readOnly: true }, true)).toBe(false)
 })
 
 test('a failed browser-flow step reports its own error even when the page can no longer be read', async () => {

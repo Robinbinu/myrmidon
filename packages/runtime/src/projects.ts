@@ -9,14 +9,13 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import type { ProjectPermissions } from '@myrmidon/protocol'
+import { type LegacyProjectPermissions, type ProjectPermissions, projectLevelFrom } from '@myrmidon/protocol'
 import {
   MAX_FIND_RESULTS,
   MAX_FIND_SCAN,
   MAX_PROJECT_FILE_BYTES,
   MAX_READ_FOLDERS,
   MAX_TREE_ENTRIES,
-  NEW_PROJECT_MODE,
 } from './config.ts'
 import { git } from './git.ts'
 import { readFolder, secretAt } from './read-access.ts'
@@ -33,8 +32,8 @@ export interface Project {
   /** Absolute, symlink-resolved path. */
   readonly path: string
   readonly addedAt: string
-  /** Absent on folders added before new ones started on `NEW_PROJECT_MODE`: those are autonomous. */
-  readonly permissions?: ProjectPermissions
+  /** The project's level of the permission model; no preset means it uses the global one. */
+  readonly permissions: ProjectPermissions
 }
 
 export class ProjectStore {
@@ -48,7 +47,11 @@ export class ProjectStore {
     if (!existsSync(this._file)) return []
     try {
       const raw = JSON.parse(readFileSync(this._file, 'utf8')) as unknown
-      return Array.isArray(raw) ? (raw as Project[]).filter((p) => p && typeof p.path === 'string') : []
+      if (!Array.isArray(raw)) return []
+      // Folders saved before the permission model keep their mode as a preset (see projectLevelFrom).
+      return (raw as (Omit<Project, 'permissions'> & { permissions?: unknown })[])
+        .filter((p) => p && typeof p.path === 'string')
+        .map((p) => ({ ...p, permissions: projectLevelFrom(p.permissions) }))
     } catch {
       return []
     }
@@ -74,19 +77,25 @@ export class ProjectStore {
       name: base,
       path: real,
       addedAt: new Date().toISOString(),
-      permissions: { mode: NEW_PROJECT_MODE, allow: [] },
+      // A new folder uses the global preset until the person gives it its own.
+      permissions: { rules: [] },
     }
     this._write([...this.list(), project])
     return project
   }
 
-  /** Sets how freely agents may change the project; applies from the chat's next round. */
-  setPermissions(id: string, permissions: ProjectPermissions): Project {
-    const mode = permissions.mode
-    if (mode !== 'auto' && mode !== 'ask' && mode !== 'read-only' && mode !== 'full')
+  /**
+   * Sets the project's level of the permission model (also accepted in the shape from before it); applies to its
+   * running rounds at once and to every later one.
+   */
+  setPermissions(id: string, permissions: ProjectPermissions | LegacyProjectPermissions): Project {
+    const given = permissions as { mode?: unknown; preset?: unknown }
+    if (given.mode !== undefined && !['auto', 'ask', 'read-only', 'full'].includes(given.mode as string))
       throw new Error('mode is auto, ask, read-only or full')
-    const allow = [...new Set(permissions.allow.map((a) => a.trim()).filter(Boolean))].slice(0, 50)
-    const read = [...new Set((permissions.read ?? []).map((f) => f.trim()).filter(Boolean))]
+    if (given.preset != null && !['read-only', 'ask', 'auto', 'full'].includes(given.preset as string))
+      throw new Error('preset is read-only, ask, auto or full')
+    const level = projectLevelFrom(permissions)
+    const read = [...new Set((level.read ?? []).map((f) => f.trim()).filter(Boolean))]
     if (read.length > MAX_READ_FOLDERS) throw new Error(`at most ${MAX_READ_FOLDERS} readable folders`)
     for (const folder of read)
       if (secretAt(readFolder(folder), { dataDir: this._home }))
@@ -96,7 +105,8 @@ export class ProjectStore {
     const list = this.list()
     const project = list.find((p) => p.id === id)
     if (!project) throw new Error('no such project')
-    const next = { ...project, permissions: { mode, allow, ...(read.length ? { read } : {}) } }
+    const { read: _, ...rest } = level
+    const next = { ...project, permissions: { ...rest, ...(read.length ? { read } : {}) } }
     this._write(list.map((p) => (p.id === id ? next : p)))
     return next
   }

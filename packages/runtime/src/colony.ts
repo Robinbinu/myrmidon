@@ -11,14 +11,15 @@ import {
   sqliteLogStore,
 } from '@myrmidon/core'
 import {
+  ACCESS_GROUPS,
   AWAITING_USER,
   applyEvent,
   asksSomething,
-  type ChatGrant,
   type ColonyId,
   type ColonyState,
   crewOf,
   DELIVERED_VERIFIER,
+  decide,
   describeEffect,
   type EventDraft,
   type EventPayloads,
@@ -26,11 +27,17 @@ import {
   foldColony,
   type MyrEvent,
   mentionsIn,
+  offersFor,
   outsideEffects,
-  type ProjectPermissions,
+  type PermissionCall,
+  type PermissionLevels,
+  type PermissionVerdict,
   type Review,
+  rulesIn,
   SYSTEM,
   type TaskSnapshot,
+  tightened,
+  toolHidden,
   unreadMailFor,
 } from '@myrmidon/protocol'
 import { ColonyAgent, type ModelError } from './agent.ts'
@@ -62,6 +69,7 @@ import { ModelResolver } from './models.ts'
 import { pickName } from './names.ts'
 import { FactualObserver } from './observer.ts'
 import { attachedNote, isLead, snapshot, toolsFor } from './patterns.ts'
+import { levelsOf, presetOf, roleOf } from './permissions.ts'
 import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
@@ -89,18 +97,6 @@ export interface Runtime {
   /** Work still writing to the log (a round winding down), which disposing waits for. */
   track?(work: Promise<unknown>): void
   dispose(): Promise<void>
-}
-
-/** Whether two sets of tool rules are the same, order aside. */
-function sameRules(
-  a: { disabledTools?: string[]; askTools?: string[]; allowTools?: string[] },
-  b: { disabledTools: string[]; askTools: string[]; allowTools: string[] },
-) {
-  const same = (x: readonly string[] | undefined, y: readonly string[]) =>
-    (x ?? []).length === y.length && y.every((t) => (x ?? []).includes(t))
-  return (
-    same(a.disabledTools, b.disabledTools) && same(a.askTools, b.askTools) && same(a.allowTools, b.allowTools)
-  )
 }
 
 /** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
@@ -401,6 +397,21 @@ export class ColonyRun implements ColonyHost {
     return this.options.mcp?.readOnly(tool) ?? false
   }
 
+  mcpServer(tool: string) {
+    return this.options.mcp?.serverOf(tool)
+  }
+
+  permit(agent: string, call: PermissionCall): PermissionVerdict {
+    return decide(levelsOf(this.spec), call, {
+      ...(this.spec.askAll ? { askAll: true } : {}),
+      role: roleOf(this.spec, agent),
+    })
+  }
+
+  hidden(agent: string, tool: string, server?: string): boolean {
+    return toolHidden(levelsOf(this.spec), tool, roleOf(this.spec, agent), server)
+  }
+
   pluginTools(agent: string) {
     const tools = this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
     // Messaging the person on a channel is speaking to them: only for agents that do (reply_user).
@@ -522,10 +533,14 @@ export class ColonyRun implements ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
+    options: {
+      review?: Review
+      key?: string
+      read?: string
+      permission?: { call: PermissionCall; verdict: PermissionVerdict }
+    },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
-    if (options.grant && this._state.chatGrants?.includes(options.grant)) return { approved: true }
     const read = options.read
     if (read && this._state.chatReads?.some((f) => within(read, f))) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -549,11 +564,39 @@ export class ColonyRun implements ColonyHost {
         summary,
         ...(options.review ? { review: options.review } : {}),
         ...(options.key ? { key: options.key } : {}),
-        ...(options.grant ? { grant: options.grant } : {}),
         ...(options.read ? { read: options.read } : {}),
+        ...(options.permission ? this._permissionCard(agent, options.permission) : {}),
       },
     })
     return decided
+  }
+
+  /**
+   * What an approval card shows about the permission model: why it asked, and what it may remember from the answer
+   * (nothing when it asked because someone else started the round: no rule lifts that).
+   */
+  private _permissionCard(agent: string, p: { call: PermissionCall; verdict: PermissionVerdict }) {
+    const offer = p.verdict.source.by === 'askAll' ? [] : offersFor(p.call)
+    return {
+      why: p.verdict.source,
+      call: p.call,
+      role: roleOf(this.spec, agent),
+      ...(offer.length ? { offer } : {}),
+    }
+  }
+
+  /**
+   * Decides again every call still waiting for the person under the rules as they are now: the ones the new rules
+   * allow go ahead, the ones they deny are refused, the rest keep waiting. "Allow `bun test` everywhere" on one card
+   * clears every other card it covers.
+   */
+  async redecideApprovals() {
+    for (const a of Object.values(this._state.approvals)) {
+      if (a.decided || !a.call || !this._approvals.has(a.id)) continue
+      const verdict = this.permit(a.agent, a.call)
+      if (verdict.decision !== 'ask')
+        await this.decideApproval(a.id, verdict.decision === 'allow').catch(() => {})
+    }
   }
 
   /**
@@ -590,7 +633,7 @@ export class ColonyRun implements ColonyHost {
     if (this._servers.size >= MAX_SERVERS) throw new Error(`at most ${MAX_SERVERS} servers may run at once`)
     const cwd = this.workspace.workdir(agent)
     const scratch = this.workspace.scratch(agent)
-    const readOnly = this.spec.chat?.project?.permissions?.mode === 'read-only'
+    const readOnly = presetOf(this.spec) === 'read-only'
     // A port already in use is someone else's (the dashboard's, another app's): claiming it would open it to agents.
     const before = listeningPorts()
     if (port && (before?.has(port) || (await listening(port))))
@@ -809,70 +852,60 @@ export class ColonyRun implements ColonyHost {
   }
 
   /**
-   * New tool rules from the person, applied to this round at once. If they got stricter (a tool switched off or
-   * made to ask first, a project made read-only or ask-first, full access taken back), an agent mid-turn is stopped,
-   * so a call the person just took back cannot go ahead, and told what changed. Looser rules wait for the next round.
+   * New permission levels from the person (any of global, project, chat), applied to this round at once. If they got
+   * stricter (a deny or ask rule added, a tool group taken away, a stricter preset, full access taken back), an agent
+   * mid-turn is stopped, so a call the person just took back cannot go ahead, and told what changed. Calls waiting
+   * for the person are decided again. Full access gained waits for the next round.
    */
   async applyRules(next: {
-    disabledTools: string[]
-    askTools: string[]
-    allowTools: string[]
-    project?: ProjectPermissions
+    permissions: PermissionLevels
     /** Whether the round would get full access now (`false` takes it back). */
     fullAccess?: boolean
     /** The folders the person now lets agents read (Settings and the project); they apply from the next read. */
     reads?: string[]
   }) {
-    const spec = this.spec as ColonySpec & {
-      disabledTools?: string[]
-      askTools?: string[]
-      allowTools?: string[]
-    }
+    const spec = this.spec
     if (next.reads) spec.reads = next.reads
-    const added = (now: readonly string[], before: readonly string[] | undefined) =>
-      now.filter((t) => !(before ?? []).includes(t))
-    const off = added(next.disabledTools, spec.disabledTools)
-    const ask = added(next.askTools, spec.askTools)
-    const project = spec.chat?.project
-    // Full access is the absence of the sandbox, not a looser mode: losing it is told apart below.
-    const strictness = { full: 0, auto: 0, ask: 1, 'read-only': 2 } as const
-    const stricter =
-      project && next.project
-        ? strictness[next.project.mode] > strictness[project.permissions?.mode ?? 'auto']
-        : false
+    const before = levelsOf(spec)
     const confined = next.fullAccess === false && this.fullAccess
-    const allowedNow = added(next.allowTools, spec.allowTools)
-    if (!off.length && !ask.length && !allowedNow.length && !stricter && !confined && sameRules(spec, next))
-      return
-    spec.disabledTools = next.disabledTools
-    spec.askTools = next.askTools
-    spec.allowTools = next.allowTools
-    if (project && next.project) project.permissions = next.project
+    if (!confined && JSON.stringify(before) === JSON.stringify(next.permissions)) return
+    const t = tightened(before, next.permissions)
+    const allows = (levels: PermissionLevels) =>
+      rulesIn(levels).flatMap((r) => (r.decision === 'allow' ? [r.target] : []))
+    const before_ = new Set(allows(before))
+    const allowed = [...new Set(allows(next.permissions).filter((t) => !before_.has(t)))]
+    spec.permissions = next.permissions
+    const project = spec.chat?.project
+    if (project && next.permissions.project)
+      project.permissions = {
+        ...next.permissions.project,
+        ...(project.permissions?.read ? { read: project.permissions.read } : {}),
+      }
     if (confined) spec.fullAccess = false
     this.toolsChanged()
-    const interrupted =
-      off.length || ask.length || stricter || confined
-        ? [...this._agents.values()].filter((a) => a.working)
-        : []
+    const off = [...t.denied, ...t.groups.flatMap((g) => ACCESS_GROUPS[g])]
+    const stricter = off.length > 0 || t.asked.length > 0 || !!t.preset || confined
+    const interrupted = stricter ? [...this._agents.values()].filter((a) => a.working) : []
     await this.append({
       type: 'permissions/changed',
       actor: { kind: 'user', id: 'user' },
       payload: {
         off,
-        ask,
-        allow: allowedNow,
-        ...(stricter && next.project ? { project: next.project.mode } : {}),
+        ask: t.asked,
+        allow: allowed,
+        ...(t.preset ? { project: t.preset } : {}),
         ...(confined ? { fullAccess: false } : {}),
         interrupted: interrupted.map((a) => a.name),
       },
     })
     const note = prompts.colony.permissionsChanged({
       off,
-      ask,
-      ...(stricter && next.project ? { project: next.project.mode } : {}),
+      ask: t.asked,
+      ...(t.preset ? { project: t.preset } : {}),
       confined,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
+    await this.redecideApprovals()
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
@@ -1014,8 +1047,6 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.thinking ? { thinking: this.spec.thinking } : {}),
       ...(this.spec.taskJudge ? { taskJudge: this.spec.taskJudge } : {}),
       ...(this.spec.disabledTools?.length ? { disabledTools: this.spec.disabledTools } : {}),
-      ...(this.spec.askTools?.length ? { askTools: this.spec.askTools } : {}),
-      ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
       ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
       ...(this.fullAccess ? { fullAccess: true } : {}),
@@ -1517,12 +1548,7 @@ export class ColonyRun implements ColonyHost {
     const project = this.spec.chat?.project
     const agent = this.spec.agents.find((a) => a.name === name)
     if (!agent || !project || this._worktrees === null) return
-    if (
-      (project.permissions?.mode ?? 'auto') !== 'auto' ||
-      this.spec.tier !== 'team' ||
-      isLead(this.spec, agent)
-    )
-      return
+    if (presetOf(this.spec) !== 'auto' || this.spec.tier !== 'team' || isLead(this.spec, agent)) return
     if (!toolsFor(this.spec, agent).some((t) => t === 'fs_write' || t === 'fs_edit' || t === 'shell')) return
     try {
       this._worktrees ??=

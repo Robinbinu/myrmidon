@@ -1,3 +1,4 @@
+import type { PermissionSource } from '@myrmidon/protocol'
 import type { WorkKind } from './verifier.ts'
 
 /**
@@ -370,7 +371,7 @@ nobody owns, publish artifacts, and request final verification once the output m
     fullAccess:
       "Access: the person gave this round full access. There is no sandbox: your commands run as the person on their own computer, and your file tools take any path they can reach (absolute, or starting with ~), so you can read their files, change anything they can, and use their network, local services and accounts. Myrmidon's checkpoints and rewind cover only the project folder, so a change elsewhere cannot be undone from here. Act as carefully as the person would at their own keyboard: change only what the task needs, never delete or overwrite what you did not create without asking (ask_user), and keep secrets you come across out of your replies.",
     ask: (project: string | undefined, allow: readonly string[]) =>
-      `Permissions: the person approves each change to ${project}'s files and each shell command${allow.length ? ` (except commands starting with ${allow.map((a) => `\`${a}\``).join(', ')})` : ''}. They see each change in full and may rewrite it before approving; when they did, read the file back before building on it. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
+      `Permissions: the person approves each change to ${project ?? 'the files'} and each shell command that does more than look (ls, cat, grep, git status and the like run at once${allow.length ? `, as do commands starting with ${allow.map((a) => `\`${a}\``).join(', ')}` : ''}). They see each change in full and may rewrite it before approving; when they did, read the file back before building on it. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
     /** `list`: the skills this request may need, with descriptions; `others`: the rest, by name. */
     skills: (list: string, others: readonly string[]) =>
       `Skills: the person's playbooks for kinds of task. When a task matches one, load it with use_skill before you start and follow it.${list ? `\n${list}` : ''}${others.length ? `\n${list ? 'Others' : 'By name'} (use_skill shows what one is for): ${others.join(', ')}` : ''}`,
@@ -517,7 +518,7 @@ nobody owns, publish artifacts, and request final verification once the output m
         'The person changed what you may do, so your last step was stopped before it finished.',
         p.off.length ? `Switched off: ${p.off.join(', ')}. Do not try them another way.` : '',
         p.ask.length ? `Now needs the person's approval for each call: ${p.ask.join(', ')}.` : '',
-        p.project ? `The project folder is now ${p.project}.` : '',
+        p.project ? `Permissions are now ${p.project}.` : '',
         p.confined
           ? 'Full access is off: commands run in the sandbox again, file tools reach only the project and your scratch directory, and the web only the public internet.'
           : '',
@@ -942,7 +943,39 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     cut: '\n… (cut: too long to show in full)',
   },
 
+  /** Why the permission model decided a call, as the agent reads it in a refusal. */
+  permissionSource: (source: PermissionSource): string => {
+    const level = (scope: string) =>
+      scope === 'default'
+        ? 'by default'
+        : scope === 'global'
+          ? "in the person's settings"
+          : `for this ${scope}`
+    if (source.by === 'askAll') return 'someone other than the person started this round'
+    if (source.by === 'read-only') return `the files are read-only ${level(source.scope)}`
+    if (source.by === 'preset') return `the ${source.preset} preset ${level(source.scope)}`
+    const r = source.rule
+    const what =
+      r.kind === 'command'
+        ? r.target === '*'
+          ? 'every command'
+          : `commands starting with \`${r.target}\``
+        : r.kind === 'edit'
+          ? 'file changes'
+          : r.kind === 'mcp-server'
+            ? r.target === '*'
+              ? 'every MCP tool'
+              : `the ${r.target} MCP server`
+            : r.target
+    return `a rule that ${r.decision === 'deny' ? 'denies' : r.decision === 'ask' ? 'asks first for' : 'allows'} ${what} ${level(source.scope)}`
+  },
+
   toolResults: {
+    // After Claude Code's refusal for a deny rule: final, with the reason, so the agent does not route around it.
+    denied: (what: string, why: string) =>
+      `${what} is not permitted (${why}). Do not try it another way; if the task needs it, say so to the person`,
+    readOnly: (project: string, where: string) =>
+      `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
     crewmateSilent: (name: string) =>
       `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
