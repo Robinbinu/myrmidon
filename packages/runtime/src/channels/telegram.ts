@@ -11,6 +11,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -446,7 +447,10 @@ export class TelegramAdapter implements ChannelAdapter {
     return { chat: chatIdOf(chat), id: String(sent.message_id) }
   }
 
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
-    await this._call('answerCallbackQuery', { callback_query_id: press.id, ...(note ? { text: note } : {}) })
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
+    await this._call('answerCallbackQuery', {
+      callback_query_id: press.id,
+      ...(note ? { text: note.text } : {}),
+    })
   }
 }

@@ -1,4 +1,4 @@
-import type { ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
+import type { ChatGrant, ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
 import { copy } from './copy.ts'
 import { STREAM_RETRY_MAX_MS, STREAM_RETRY_MS } from './ui-config.ts'
 
@@ -508,6 +508,8 @@ export interface ChatSummary {
   project?: { id: string; name: string }
   /** Crew members the person can write to directly (@name), the lead aside. */
   crew?: CrewMember[]
+  /** Kinds of step the person allowed for the rest of the chat from an approval card. */
+  grants?: ChatGrant[]
 }
 
 export interface CrewMember {
@@ -522,7 +524,7 @@ export interface Project {
   name: string
   path: string
   addedAt: string
-  /** How freely agents may change the folder; absent means autonomous. */
+  /** How freely agents may change the folder. New folders start on ask; absent (an older folder) means autonomous. */
   permissions?: { mode: 'auto' | 'ask' | 'read-only'; allow: string[] }
 }
 

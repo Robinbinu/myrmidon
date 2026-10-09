@@ -3,7 +3,15 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
-import { type ColonyId, colonyMetrics, foldColony, runDiff, stopCause } from '@myrmidon/protocol'
+import {
+  type ColonyId,
+  colonyMetrics,
+  foldColony,
+  isSetupStep,
+  runDiff,
+  type SetupState,
+  stopCause,
+} from '@myrmidon/protocol'
 import {
   accountName,
   type BrowserHub,
@@ -16,7 +24,13 @@ import {
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  canLeadACrew,
   channelSendTool,
+  defaultModelRef,
+  detectSetup,
+  findProjectFiles,
+  finishSetup,
+  firstSetup,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -29,16 +43,25 @@ import {
   type HookStore,
   importFromOmp,
   type LiveInput,
+  type LocalServer,
   listFolders,
+  listProjectDir,
   type McpHub,
   type McpServerConfig,
   type MemoryStore,
   type ModelResolver,
+  markSetup,
+  namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
+  PHONE_HOOK,
+  PHONE_STREAM,
+  PhoneLine,
+  type PhoneStream,
   type PluginHost,
   type PluginStore,
   type ProjectStore,
+  readProjectFile,
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
@@ -49,12 +72,15 @@ import {
   type SmartTurn,
   type SpecialistInput,
   type SpecialistStore,
+  setupHave,
   sniffImage,
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
+  TWILIO_API,
   VoiceHub,
   wav,
+  withoutModel,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
@@ -139,6 +165,8 @@ export interface ServeOptions {
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
   readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
+  /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
+  readonly setupServers?: readonly LocalServer[]
 }
 
 export interface WebServer {
@@ -188,6 +216,8 @@ type StreamData = Opened &
         refusal?: { code: number; reason: string }
         closed?: boolean
       }
+    /** A phone call's audio from Twilio (Media Streams), checked by its signature before the upgrade. */
+    | { kind: 'phone'; stream?: PhoneStream }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -360,14 +390,53 @@ export function startServer(options: ServeOptions): WebServer {
     health.set(g.id, next)
     return next
   }
+  /** The lead when Settings names none: omp's default unless the person hid it (`defaultModelRef`). */
+  const automaticLead = (provider?: string) =>
+    options.omp ? defaultModelRef(options.omp, options.settings, provider) : undefined
   /** The team a request gets when it brings none: the person's defaults from Settings. */
   const defaultTeam = () => {
     const team = options.settings?.get().team
-    const leadModel = team?.leadModel ?? options.omp?.defaultModel()
+    const leadModel = team?.leadModel ?? automaticLead()
     if (!leadModel) throw new Error('no default model: pick one in Settings → Team & budget')
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  /** A model that can lead a crew can be called now, however it came (a key here, the environment, a cloud profile). */
+  const modelReady = () =>
+    !!options.omp &&
+    canLeadACrew(buildCatalog(options.omp, options.settings, false, options.resolver?.windows))
+  /** A model the person connected in Myrmidon itself: a key or sign-in it keeps, or an endpoint they added. */
+  const modelConnected = () => (options.omp?.providers() ?? []).some((p) => p.ready && (p.stored || p.custom))
+  /**
+   * Setup as it stands. The first time it is asked about it is decided from what this install has, and kept: one
+   * from before the assistant existed, with a chat or a model the person connected, counts as set up. Models the
+   * computer offers by itself (a cloud profile, an on-device model) do not: a new install has those too.
+   */
+  const currentSetup = async (): Promise<SetupState | undefined> => {
+    const settings = options.settings
+    if (!settings) return undefined
+    const saved = settings.get().setup
+    if (saved) return saved
+    const setup = firstSetup({ chats: (await chats?.list())?.length ?? 0, modelConnected: modelConnected() })
+    settings.set({ ...settings.get(), setup })
+    return setup
+  }
+  /** What exists already, for the setup steps to show as done. */
+  const setupNow = () => {
+    let channelsOn = false
+    try {
+      channelsOn = channels?.list().some((c) => c.enabled) ?? false
+    } catch {
+      // A damaged channels.json: Settings → Channels says so; setup just shows the step as not done.
+    }
+    return setupHave({
+      // Only called once settings are known to exist.
+      settings: (options.settings as SettingsStore).get(),
+      modelReady: modelReady(),
+      projects: options.projects?.list().length ?? 0,
+      channelsOn,
+    })
+  }
   const account = accountName()
   const greetings = options.resolver ? new GreetingWriter(options.resolver) : undefined
   const logins = options.omp ? new Logins(options.omp) : undefined
@@ -431,12 +500,52 @@ export function startServer(options: ServeOptions): WebServer {
           resolver: options.resolver,
           settings: () => {
             const s = settingsStore.get()
-            const fallbackModel = s.team.leadModel ?? options.omp?.defaultModel()
+            const fallbackModel = s.team.leadModel ?? automaticLead()
             return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
           },
           ...(options.omp ? { omp: options.omp } : {}),
           ...(options.voiceModels ?? {}),
           log: (line) => console.error(`voice: ${line}`),
+        })
+      : undefined
+  // Phone calls on the SMS channel's Twilio number, into the same calls (Settings → Voice → Phone calls).
+  const phone =
+    voice && channels && chatsPort && settingsStore
+      ? new PhoneLine({
+          account: () => {
+            const v = channels.account('sms')
+            if (!v?.sid || !v.token || !v.number) return undefined
+            return {
+              sid: v.sid,
+              token: v.token,
+              number: v.number.replace(/[\s()-]/g, ''),
+              api: process.env.MYR_TWILIO_API || TWILIO_API,
+            }
+          },
+          enabled: () => settingsStore.get().voice.enabled && settingsStore.get().voice.phone,
+          ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+          admit: async (number, ask) => {
+            const found = await channels.caller('sms', number, ask)
+            if ('refused' in found) return found.refused === 'pairing' ? 'pairing' : undefined
+            return {
+              owner: found.person.role === 'owner',
+              name: found.person.name,
+              label: found.label,
+              ...(found.chatId ? { chatId: found.chatId } : {}),
+              ...(found.project ? { project: found.project } : {}),
+            }
+          },
+          chatMade: (number, chatId) => void channels.callChat('sms', number, chatId),
+          ownerName: () => settingsStore.get().profile.name ?? account,
+          describe: async (chatId) => {
+            const summary = (await chats?.list())?.find((c) => c.chatId === chatId)
+            return summary
+              ? { title: summary.title, ...(summary.crew ? { crew: summary.crew } : {}) }
+              : undefined
+          },
+          voice,
+          chats: chatsPort,
+          log: (line) => console.error(`phone: ${line}`),
         })
       : undefined
   // A new choice of engine is warmed at once, not when the next call starts.
@@ -448,9 +557,11 @@ export function startServer(options: ServeOptions): WebServer {
     // Turned off: the engines stop and free their memory. On (or a new choice): what is missing downloads now.
     if (!next.voice.enabled) voice?.stop()
     else void voice?.warm()
+    void phone?.sync()
   })
   void channels
     ?.start()
+    .then(() => phone?.sync())
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   // A plugin that adds or drops a platform is picked up without a restart.
   const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
@@ -932,6 +1043,8 @@ export function startServer(options: ServeOptions): WebServer {
                 ? { project: body.project as string | null }
                 : {}),
             })
+            // Phone calls ride on the SMS channel's number: a new number or account is pointed here too.
+            if (req.params.id === 'sms') void phone?.sync()
             return json({ channel })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
@@ -1005,6 +1118,27 @@ export function startServer(options: ServeOptions): WebServer {
         if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
           return new Response('too large', { status: 413 })
         return channels.webhook(req.params.id ?? '', req)
+      },
+      // Calls to the SMS channel's number (Twilio's voice webhook), signed by Twilio; answered with a Media Stream.
+      [PHONE_HOOK]: async (req: Request) => {
+        if (!phone || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
+          return new Response('too large', { status: 413 })
+        return phone.incoming(req)
+      },
+      // A call's audio: Twilio opens it as the TwiML says, its upgrade signed like a webhook.
+      [PHONE_STREAM]: (req: Request) => {
+        if (!phone || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
+          return new Response('expected a websocket', { status: 400 })
+        if (!phone.streamSigned(req)) {
+          console.error('phone: refused a media stream whose signature did not match')
+          return new Response('forbidden', { status: 403 })
+        }
+        if (server.upgrade(req, { data: { kind: 'phone' as const } })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
       },
       '/api/gateways': {
         GET: guard(async () =>
@@ -1127,7 +1261,7 @@ export function startServer(options: ServeOptions): WebServer {
         const saved = options.settings?.get().team
         return json({
           models,
-          default: saved?.leadModel ?? omp.defaultModel() ?? models[0]?.ref,
+          default: saved?.leadModel ?? automaticLead() ?? models[0]?.ref,
           defaults: saved,
         })
       }),
@@ -1138,10 +1272,49 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof ref !== 'string') return json({ error: 'ref is required' }, 400)
           const started = Date.now()
           try {
-            await options.resolver.probe(ref, true)
-            return json({ ok: true, ms: Date.now() - started })
+            const reply = await options.resolver.probe(ref, true)
+            return json({ ok: true, ms: Date.now() - started, ...(reply ? { reply } : {}) })
           } catch (err) {
             return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+          }
+        }),
+      },
+      // A custom endpoint's model leaves its list; any other is hidden. Defaults that named it fall back, and the
+      // answer says which, with the lead and chat namer new chats get now.
+      '/api/models/remove': {
+        POST: guard(async (req) => {
+          const { omp, settings } = options
+          if (!omp || !settings) return json({ error: 'models need the chat runtime' }, 503)
+          const { ref } = (await req.json()) as { ref?: unknown }
+          const at = typeof ref === 'string' ? ref.indexOf('/') : -1
+          if (typeof ref !== 'string' || at < 1) return json({ error: 'ref must be provider/model' }, 400)
+          const provider = ref.slice(0, at)
+          const id = ref.slice(at + 1)
+          if (!omp.find(provider, id)) return json({ error: `unknown model ${ref}` }, 404)
+          const before = settings.get()
+          const lead = before.team.leadModel ?? automaticLead()
+          const named = !!lead && namingModel(omp, settings, lead) === ref
+          try {
+            const deleted = await omp.removeModel(provider, id)
+            const { settings: next, cleared } = withoutModel(before, ref, !deleted)
+            let saved = settings.set(next)
+            // An automatic lead or namer that was this model moves on too, which the person should hear about.
+            if (lead === ref && !cleared.includes('lead')) cleared.unshift('lead')
+            if (named) cleared.push('titles')
+            // The lead's replacement is saved, so every way into a chat (this window, channels, calls) gets the same.
+            const replacement = lead === ref ? automaticLead(provider) : undefined
+            if (replacement)
+              saved = settings.set({ ...saved, team: { ...saved.team, leadModel: replacement } })
+            const newLead = saved.team.leadModel ?? automaticLead()
+            return json({
+              removed: deleted ? 'deleted' : 'hidden',
+              cleared,
+              ...(newLead ? { lead: newLead, titles: namingModel(omp, settings, newLead) } : {}),
+              settings: saved,
+              providers: omp.providers(),
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
       },
@@ -1177,7 +1350,10 @@ export function startServer(options: ServeOptions): WebServer {
         PUT: guard(async (req) => {
           if (!options.settings) return json({ error: 'settings need the chat runtime' }, 503)
           try {
-            const settings = options.settings.set(await req.json())
+            // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
+            const { setup } = options.settings.get()
+            const body = { ...((await req.json()) as Record<string, unknown>), setup }
+            const settings = options.settings.set(body)
             await options.chats?.permissionsChanged()
             return json({ settings })
           } catch (err) {
@@ -1185,6 +1361,41 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // The first-run setup assistant: where the person is with it, and what exists already however it was set up.
+      '/api/setup': {
+        GET: guard(async () => {
+          const setup = await currentSetup()
+          if (!setup) return json({ error: 'setup needs the chat runtime' }, 503)
+          return json({ setup, have: setupNow() })
+        }),
+        PUT: guard(async (req) => {
+          const settings = options.settings
+          const setup = await currentSetup()
+          if (!settings || !setup) return json({ error: 'setup needs the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          let next: SetupState
+          if (body.restart === true) next = { steps: {} }
+          else if (body.finish === true) next = finishSetup(setup, setupNow())
+          else if (
+            isSetupStep(body.step) &&
+            (body.mark === 'done' || body.mark === 'later' || body.mark === null)
+          )
+            next = markSetup(setup, body.step, body.mark)
+          else
+            return json({ error: 'send a step and its mark (done, later or null), finish, or restart' }, 400)
+          settings.set({ ...settings.get(), setup: next })
+          return json({ setup: next, have: setupNow() })
+        }),
+      },
+      // What the Connect models step can offer before asking for anything.
+      '/api/setup/detect': guard(async () =>
+        json(
+          await detectSetup({
+            providers: options.omp?.providers() ?? [],
+            ...(options.setupServers ? { servers: options.setupServers } : {}),
+          }),
+        ),
+      ),
       '/api/credentials/:provider': {
         PUT: guard(async (req) => {
           if (!options.omp) return json({ error: 'credentials need the chat runtime' }, 503)
@@ -1306,7 +1517,10 @@ export function startServer(options: ServeOptions): WebServer {
           if (typeof path !== 'string') return json({ error: 'path is required' }, 400)
           try {
             const project = options.projects.add(path, typeof name === 'string' ? name : undefined)
-            return json({ project, projects: options.projects.list() })
+            // Setup suggests how freely agents may change it from this: a git repository is work in progress, so
+            // changes wait for the person; any other folder starts read-only.
+            const isGit = existsSync(join(project.path, '.git'))
+            return json({ project, projects: options.projects.list(), isGit })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
@@ -1661,6 +1875,33 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ projects: options.projects?.list() ?? [] })
         }),
       },
+      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only, like the diffs.
+      '/api/projects/:id/file': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        try {
+          return json(readProjectFile(project.path, url.searchParams.get('path') ?? ''))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
+        }
+      }),
+      // The file browser: one folder at a time, and files found by name across the folder.
+      '/api/projects/:id/tree': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        try {
+          return json(await listProjectDir(project.path, url.searchParams.get('path') ?? ''))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
+        }
+      }),
+      '/api/projects/:id/find': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        return json(await findProjectFiles(project.path, url.searchParams.get('q') ?? ''))
+      }),
       // Read-only views of a project's own git repository for the workspace's Git tab.
       '/api/projects/:id/git': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')
@@ -1935,6 +2176,22 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/chats/:chatId/allowed': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { grant, allowed } = (await req.json().catch(() => ({}))) as {
+            grant?: unknown
+            allowed?: unknown
+          }
+          if (grant !== 'file' && grant !== 'command') return json({ error: 'grant is file or command' }, 400)
+          if (typeof allowed !== 'boolean') return json({ error: 'allowed must be true or false' }, 400)
+          try {
+            return json({ grants: await options.chats.allowInChat(req.params.chatId ?? '', grant, allowed) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {
           await options.chats?.stop(req.params.chatId ?? '')
@@ -2025,8 +2282,26 @@ export function startServer(options: ServeOptions): WebServer {
       }),
       // Voice calls (Settings → Voice): what is installed and chosen, installs, keys, a sample, calls per chat.
       '/api/voice': guard(() =>
-        voice ? json(voice.status()) : json({ error: 'voice needs the chat runtime' }, 503),
+        voice
+          ? json({ ...voice.status(), ...(phone ? { phone: phone.status() } : {}) })
+          : json({ error: 'voice needs the chat runtime' }, 503),
       ),
+      // Myrmidon calls someone SMS lets in (the owner unless `to` names another) from the Twilio number.
+      '/api/voice/phone/call': {
+        POST: guard(async (req) => {
+          if (!phone || !channels) return json({ error: 'phone calls need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { to?: unknown }
+          const to =
+            typeof body.to === 'string' && body.to.trim()
+              ? body.to.trim()
+              : channels.store.get('sms').people.find((p) => p.role === 'owner')?.id
+          try {
+            return json({ callSid: await phone.dial(to), to })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
       '/api/voice/phonon/install': {
         POST: guard(() => {
           if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
@@ -2251,7 +2526,9 @@ export function startServer(options: ServeOptions): WebServer {
               {
                 ...(data.chat ? { chatId: data.chat } : {}),
                 ...(summary ? { chatTitle: summary.title } : {}),
-                ...(summary?.project ? { project: summary.project.id } : {}),
+                ...(summary?.project
+                  ? { project: summary.project.id, projectName: summary.project.name }
+                  : {}),
                 ...(summary?.crew?.length ? { crew: summary.crew } : {}),
                 // The lead, or one of this chat's crew; anything else is the call assistant.
                 ...(data.talk === 'lead' || summary?.crew?.some((c) => c.name === data.talk)
@@ -2287,6 +2564,14 @@ export function startServer(options: ServeOptions): WebServer {
           )
           return
         }
+        if (ws.data.kind === 'phone') {
+          ws.data.stream = phone?.stream({
+            send: (text) => ws.send(text),
+            close: (code, reason) => ws.close(code, reason),
+          })
+          if (!ws.data.stream) ws.close(1011, 'phone calls are off')
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -2319,10 +2604,18 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.session?.hangUp()
           return
         }
+        if (ws.data.kind === 'phone') {
+          ws.data.stream?.closed()
+          return
+        }
         if (ws.data.kind === 'browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'phone') {
+          ws.data.stream?.message(typeof raw === 'string' ? raw : new TextDecoder().decode(raw))
+          return
+        }
         if (ws.data.kind === 'call') {
           const session = ws.data.session
           if (!session) return

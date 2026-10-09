@@ -16,8 +16,17 @@ import type { ChatSummary } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { clock, compact, useHotkeys, useMinWidth, usePersistentFlag, useStickToBottom } from '../ui/hooks.ts'
+import {
+  clock,
+  compact,
+  useHotkeys,
+  useMinWidth,
+  usePersistentFlag,
+  useSeenMail,
+  useStickToBottom,
+} from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
 import {
@@ -44,13 +53,16 @@ import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
+import { ProjectExplorer } from './ProjectExplorer.tsx'
+import { ProjectFiles, useOpenProjectFile } from './ProjectFiles.tsx'
 import { ShellTerminal } from './ShellTerminal.tsx'
-import { deriveSteps } from './steps.ts'
+import { deriveSteps, editedFiles } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
 
 type Tab =
   | `plugin:${string}`
   | 'files'
+  | 'explorer'
   | 'git'
   | 'shell'
   | 'computer'
@@ -80,6 +92,13 @@ interface ViewDef {
  */
 export const VIEWS: ViewDef[] = [
   { value: 'files', label: copy.workspace.views.files, icon: FEATURE_ICONS.files, group: 0, key: '1' },
+  {
+    value: 'explorer',
+    label: copy.workspace.views.explorer,
+    icon: FEATURE_ICONS.explorer,
+    group: 0,
+    projectOnly: true,
+  },
   {
     value: 'git',
     label: copy.workspace.views.git,
@@ -194,15 +213,17 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
   return (
     <aside aria-label={copy.workspace.label} className="flex h-full shrink-0">
       {colonyId && (
-        <WorkspaceBody
-          key={colonyId}
-          colonyId={colonyId}
-          {...(round !== undefined ? { round } : {})}
-          project={props.chat.project}
-          open={props.open}
-          onOpenChange={props.onOpenChange}
-          roundPicker={roundPicker}
-        />
+        <ProjectFiles project={props.chat.project}>
+          <WorkspaceBody
+            key={colonyId}
+            colonyId={colonyId}
+            {...(round !== undefined ? { round } : {})}
+            project={props.chat.project}
+            open={props.open}
+            onOpenChange={props.onOpenChange}
+            roundPicker={roundPicker}
+          />
+        </ProjectFiles>
       )}
     </aside>
   )
@@ -258,7 +279,7 @@ function WorkspaceBody({
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return (t === 'git' && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
+    return ((t === 'git' || t === 'explorer') && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)
@@ -287,11 +308,15 @@ function WorkspaceBody({
   const steps = useMemo(() => deriveSteps(events), [events])
   const shells = useMemo(() => shellRuns(events), [events])
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
+  // Project files the crew changed here: they live in the folder, not among the published files, so they open from it.
+  const changed = useMemo(() => (project ? editedFiles(events) : []), [project, events])
+  const openFile = useOpenProjectFile()
   const tasks = Object.values(state.tasks)
     .filter((t) => t.status !== 'deleted')
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
   const agents = Object.values(state.agents)
   const threads = useMemo(() => threadsOf(state), [state])
+  const [seen, markSeen] = useSeenMail(colonyId)
   const by = (s: string) => tasks.filter((t) => t.status === s).length
   // The newest command and any still running start unfolded; so do tasks someone is working on or must redo.
   const newestShell = shells.at(-1)?.id
@@ -302,10 +327,11 @@ function WorkspaceBody({
   )
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
   const counts: Partial<Record<Tab, number>> = {
-    files: files.length + Object.keys(state.madeTools).length,
+    files: files.length + Object.keys(state.madeTools).length + changed.length,
     tasks: tasks.length,
     team: agents.length,
-    mail: threads.reduce((n, t) => n + t.messages.length, 0),
+    // What the person has not read yet: it drops as they open a conversation and rises as new messages come in.
+    mail: threads.reduce((n, t) => n + unseen(t, seen), 0),
     terminal: shells.length,
   }
   const edited = useMemo(
@@ -430,13 +456,41 @@ function WorkspaceBody({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
                     // An open conversation fills the panel and scrolls on its own, opening at its newest message.
-                    className={tab === 'mail' ? 'h-full' : undefined}
+                    className={tab === 'mail' || tab === 'explorer' ? 'h-full' : undefined}
                   >
                     {tab === 'git' && project && <GitView project={project.id} />}
+                    {tab === 'explorer' && project && <ProjectExplorer project={project} edited={changed} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
+                    {tab === 'files' && project && changed.length > 0 && openFile && (
+                      <div className="flex flex-col p-2">
+                        <div className="px-1.5 pt-2 pb-1 section-label text-muted">
+                          {copy.projectFile.changedIn(project.name)}
+                        </div>
+                        {changed.map((path) => (
+                          <button
+                            key={path}
+                            type="button"
+                            onClick={() => openFile(path)}
+                            onContextMenu={(e) =>
+                              openContextMenu(e, copy.contextMenu.file.label(path), [
+                                { label: copy.contextMenu.file.open, run: () => openFile(path) },
+                                copyAction(copy.contextMenu.file.copyName, path),
+                              ])
+                            }
+                            className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
+                          >
+                            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-fill text-fg-2">
+                              <FEATURE_ICONS.projectFile className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-mono text-callout">{path}</span>
+                            <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {tab === 'files' &&
                       (files.length === 0 ? (
-                        Object.keys(state.madeTools).length > 0 ? null : (
+                        Object.keys(state.madeTools).length > 0 || changed.length > 0 ? null : (
                           <Empty
                             icon={<FEATURE_ICONS.files className="size-5" />}
                             title={copy.workspace.files.emptyTitle}
@@ -454,6 +508,12 @@ function WorkspaceBody({
                                 key={name}
                                 type="button"
                                 onClick={() => setFile(name)}
+                                onContextMenu={(e) =>
+                                  openContextMenu(e, copy.contextMenu.file.label(name), [
+                                    { label: copy.contextMenu.file.open, run: () => setFile(name) },
+                                    copyAction(copy.contextMenu.file.copyName, name),
+                                  ])
+                                }
                                 className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
                               >
                                 <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
@@ -590,9 +650,9 @@ function WorkspaceBody({
                                         label={<span className="block truncate">{t.subject}</span>}
                                         className="check-line"
                                         checked={t.status === 'verified'}
-                                        color="var(--text)"
+                                        color="var(--label)"
                                         fillColor="var(--ok)"
-                                        checkColor="var(--bg)"
+                                        checkColor="var(--window)"
                                         boxSize={18}
                                         boxRadius={6}
                                         fontSize={13.5}
@@ -706,6 +766,11 @@ function WorkspaceBody({
                                   <button
                                     type="button"
                                     onClick={() => shellFolds.toggle(s.id)}
+                                    onContextMenu={(e) =>
+                                      openContextMenu(e, s.command, [
+                                        copyAction(copy.contextMenu.copy, s.command),
+                                      ])
+                                    }
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >
@@ -764,7 +829,15 @@ function WorkspaceBody({
                           <PluginSlot key={plugin} plugin={plugin} def={def} props={{ colonyId, state }} />
                         ),
                     )}
-                    {tab === 'mail' && <MailTab threads={threads} onInspect={setInspect} />}
+                    {tab === 'mail' && (
+                      <MailTab
+                        threads={threads}
+                        seen={seen}
+                        reading={shown}
+                        onSeen={markSeen}
+                        onInspect={setInspect}
+                      />
+                    )}
                     {tab === 'computer' && (
                       <Computer
                         colonyId={colonyId}
@@ -906,6 +979,10 @@ function threadsOf(state: ColonyState): Thread[] {
     .filter((t) => t.messages.length > 0)
 }
 
+/** A conversation's messages the person has not seen in the Mail tab. */
+const unseen = (t: Thread, seen: Readonly<Record<string, number>>) =>
+  t.messages.filter((m) => m.seq > (seen[t.id] ?? 0)).length
+
 const threadTitle = (t: Thread) =>
   t.kind === 'team' ? copy.workspace.mail.team : t.kind === 'group' ? t.name : t.members.join(' · ')
 
@@ -913,7 +990,14 @@ const threadTitle = (t: Thread) =>
  * The agents' messages, laid out like a messaging app: a list of conversations (the team's group chat and each pair
  * of agents who wrote to each other), newest first, and a conversation open as bubbles with replies quoted.
  */
-function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): void }) {
+function MailTab(props: {
+  threads: readonly Thread[]
+  seen: Readonly<Record<string, number>>
+  /** Whether the panel is on screen: a conversation left open behind a closed panel is not being read. */
+  reading: boolean
+  onSeen(thread: string, seq: number): void
+  onInspect(name: string): void
+}) {
   const [open, setOpen] = useState<string>()
   const threads = props.threads
   const thread = threads.find((t) => t.id === open)
@@ -924,12 +1008,20 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
       </Empty>
     )
   if (thread)
-    return <Conversation thread={thread} onBack={() => setOpen(undefined)} onInspect={props.onInspect} />
+    return (
+      <Conversation
+        thread={thread}
+        reading={props.reading}
+        onSeen={props.onSeen}
+        onBack={() => setOpen(undefined)}
+        onInspect={props.onInspect}
+      />
+    )
   return (
     <ul className="flex flex-col py-1">
       {threads.map((t) => {
         const last = t.messages.at(-1)
-        const unread = t.messages.filter((m) => m.read === false).length
+        const unread = unseen(t, props.seen)
         return (
           <li key={t.id}>
             <button
@@ -968,8 +1060,12 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
                     {last ? `${last.from}: ${last.text}` : ''}
                   </span>
                   {unread > 0 && (
-                    <span className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright">
-                      {unread}
+                    <span
+                      title={copy.workspace.mail.newCount(unread)}
+                      className="min-w-5 shrink-0 rounded-full bg-ok px-1.5 text-center text-caption font-semibold leading-5 text-on-bright"
+                    >
+                      <span className="sr-only">{copy.workspace.mail.newCount(unread)}</span>
+                      <span aria-hidden="true">{unread}</span>
                     </span>
                   )}
                 </span>
@@ -986,8 +1082,19 @@ function MailTab(props: { threads: readonly Thread[]; onInspect(name: string): v
  * One conversation as chat bubbles. One-to-one, the second agent writes on the right, like your own messages; in the
  * team chat and groups everyone writes on the left, as in a group chat.
  */
-function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: string): void }) {
-  const { thread } = props
+function Conversation(props: {
+  thread: Thread
+  reading: boolean
+  onSeen(thread: string, seq: number): void
+  onBack(): void
+  onInspect(name: string): void
+}) {
+  const { thread, reading, onSeen } = props
+  // Open on screen, a conversation is read up to its newest message, and stays read as new ones arrive.
+  const newest = thread.messages.at(-1)?.seq
+  useEffect(() => {
+    if (reading && newest !== undefined) onSeen(thread.id, newest)
+  }, [reading, newest, thread.id, onSeen])
   const right = thread.kind === 'direct' ? thread.members[1] : undefined
   const bySeq = new Map(thread.messages.map((m) => [m.seq, m]))
   const list = useStickToBottom<HTMLDivElement>(thread.id)
@@ -1032,7 +1139,13 @@ function Conversation(props: { thread: Thread; onBack(): void; onInspect(name: s
                   )}
                 >
                   {first && (
-                    <div className="text-footnote font-semibold" style={{ color: agentColor(m.from) }}>
+                    // Identity colours as text fall to 1.9:1 on the light surface: the colour goes on a dot.
+                    <div className="flex items-center gap-1.5 text-footnote font-semibold text-fg">
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: agentColor(m.from) }}
+                      />
                       {m.from}
                     </div>
                   )}

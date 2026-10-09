@@ -66,11 +66,12 @@ export class ModelResolver {
   /**
    * Sends a one-line request so unsupported models or rejected credentials fail before a colony starts. A model
    * that answered in the last 15 minutes is not asked again; if it fails later, the round pauses on the error.
+   * Resolves to what the model said, when it was asked (setup shows it as proof the model answers).
    */
-  async probe(ref: string, force = false): Promise<void> {
+  async probe(ref: string, force = false): Promise<string | undefined> {
     const resolved = this.resolve(ref)
-    if (resolved.streamFn || resolved.model.api === 'mock') return
-    if (!force && Date.now() - (this._probed.get(ref) ?? 0) < PROBE_FRESH_MS) return
+    if (resolved.streamFn || resolved.model.api === 'mock') return undefined
+    if (!force && Date.now() - (this._probed.get(ref) ?? 0) < PROBE_FRESH_MS) return undefined
     const apiKey = await this.requireApiKey(resolved.model)
     const reply = await completeSimple(
       resolved.model,
@@ -83,6 +84,12 @@ export class ModelResolver {
     if (reply.stopReason === 'error')
       throw new Error(`model ${ref} is not usable: ${reply.errorMessage ?? 'unknown error'}`)
     this._probed.set(ref, Date.now())
+    return (
+      reply.content
+        .flatMap((c) => (c.type === 'text' ? [c.text] : []))
+        .join('')
+        .trim() || undefined
+    )
   }
 
   /** Fails if a model has no credentials, without calling it. */

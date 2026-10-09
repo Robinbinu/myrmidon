@@ -10,6 +10,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -493,12 +494,13 @@ export class MattermostAdapter implements ChannelAdapter {
   }
 
   /** A note only the person who pressed sees (an ephemeral post). */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const [channel, user] = press.id.split(':')
-    if (!note || !channel || !user) return
+    // The pressed post is edited to show the outcome; a note that only repeats it would be one more post under it.
+    if (!note || note.echo || !channel || !user) return
     await this._api('POST', 'posts/ephemeral', {
       user_id: user,
-      post: { channel_id: channel, message: note },
+      post: { channel_id: channel, message: note.text },
     })
   }
 }

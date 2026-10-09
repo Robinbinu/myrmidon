@@ -13,8 +13,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { blobImage } from '../api.ts'
 import { copy } from '../copy.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { cn } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { ATTACH_THUMB_PX } from '../ui-config.ts'
 
 /** Pictures a browser shows by itself; SVG is left out (it can carry script) and shown as a file. */
@@ -86,7 +86,8 @@ const TINTS: Record<Kind, string> = {
 export function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
 /** A file as a card: its type icon, name, and kind (and size when known). */
@@ -307,7 +308,7 @@ export function SentFiles(props: {
       )}
       <AnimatePresence>
         {viewing && (
-          <Modal title={viewing.name} size="lg" flush onClose={() => setViewing(undefined)}>
+          <Sheet title={viewing.name} size="lg" flush onClose={() => setViewing(undefined)}>
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -315,7 +316,7 @@ export function SentFiles(props: {
             >
               <img src={viewing.url} alt={viewing.name} className="max-h-full max-w-full object-contain" />
             </motion.div>
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     </>

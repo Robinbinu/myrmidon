@@ -14,6 +14,7 @@ function xApi(handlers: Record<string, (call: Call, n: number) => Response | obj
   const calls: Call[] = []
   const counts = new Map<string, number>()
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
@@ -234,7 +235,10 @@ test('answers thread under the mention in posts of 280; DMs go to their conversa
   expect(ref).toEqual({ chat: '200', id: '902' })
 
   expect(await adapter.send('dm:7-9', { text: 'private answer' })).toEqual({ chat: 'dm:7-9', id: '777' })
-  expect(calls.at(-1)?.body).toEqual({ text: 'private answer' })
+  // Mentions are polled every 40 ms meanwhile, so the send is found by where it went.
+  expect(calls.findLast((c) => c.path === '/2/dm_conversations/7-9/messages')?.body).toEqual({
+    text: 'private answer',
+  })
   await expect(adapter.send('300', { text: 'unsolicited' })).rejects.toThrow('listed account')
   expect(calls.filter((c) => c.path === '/2/tweets').length).toBe(2)
 })

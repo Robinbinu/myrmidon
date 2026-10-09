@@ -1,5 +1,8 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { lookup as dnsLookup } from 'node:dns/promises'
+import { FETCH_MAX_REDIRECTS } from './config.ts'
 import type { OmpRuntime, ReadResult } from './omp/runtime.ts'
+import { prompts } from './prompts.ts'
 
 /** Web access for agents, backed by omp's search providers and URL reader. */
 export interface WebTools {
@@ -7,11 +10,14 @@ export interface WebTools {
     query: string,
     options?: { limit?: number; recency?: 'day' | 'week' | 'month' | 'year' },
   ): Promise<string>
-  read(url: string): Promise<ReadResult>
+  /** Reads a URL; `localPorts` are the loopback ports the caller's run may reach besides the public internet. */
+  read(url: string, localPorts?: LocalPorts): Promise<ReadResult>
 }
 
 // Agents must not reach the dashboard or other local and private services.
 const PRIVATE_NAME = /^(localhost|.*\.localhost|.*\.local|.*\.internal)$/i
+// mDNS and cloud-internal names; checked by name too, since what they resolve to depends on the network.
+const PRIVATE_SUFFIX = /\.(local|internal)$/i
 
 /** IPv4 ranges that are not the public internet (RFC 6890 special-purpose registry, plus multicast and reserved). */
 const V4_BLOCKED: [string, number][] = [
@@ -59,6 +65,10 @@ function v6(ip: string): number[] | undefined {
   return groups.length === 8 && groups.every((g) => !Number.isNaN(g)) ? groups : undefined
 }
 
+function isLiteral(host: string): boolean {
+  return v4(host) !== undefined || v6(host) !== undefined
+}
+
 /** Whether an IP address is on the public internet: not loopback, private, link-local, reserved or multicast. */
 export function isPublicAddress(ip: string): boolean {
   const n = v4(ip)
@@ -82,6 +92,19 @@ export function isPublicAddress(ip: string): boolean {
   return true
 }
 
+/** 127.0.0.0/8 or ::1, where a run's own dev servers listen. (IPv4-mapped forms are not accepted as loopback.) */
+function isLoopbackAddress(ip: string): boolean {
+  const n = v4(ip)
+  if (n !== undefined) return n >>> 24 === 127
+  const g = v6(ip)
+  return g?.every((x, k) => x === (k === 7 ? 1 : 0)) ?? false
+}
+
+/** `localhost` and its subdomains, which RFC 6761 reserves for loopback; they are never looked up. */
+function isLoopbackName(host: string): boolean {
+  return host === 'localhost' || host.endsWith('.localhost')
+}
+
 /** The checks that need no network: http(s) only, no credentials, and no host that is plainly local or private. */
 export function assertPublicUrl(raw: string): string {
   let url: URL
@@ -94,8 +117,7 @@ export function assertPublicUrl(raw: string): string {
     throw new Error('only http(s) URLs can be fetched')
   if (url.username || url.password) throw new Error('URLs with credentials in them cannot be fetched')
   const host = url.hostname.replace(/^\[|\]$/g, '')
-  const literal = v4(host) !== undefined || v6(host) !== undefined
-  if (PRIVATE_NAME.test(host) || (literal && !isPublicAddress(host)))
+  if (PRIVATE_NAME.test(host) || (isLiteral(host) && !isPublicAddress(host)))
     throw new Error('local and private network addresses cannot be fetched')
   return url.href
 }
@@ -105,49 +127,269 @@ export type Lookup = (host: string) => Promise<string[]>
 const systemLookup: Lookup = async (host) =>
   (await dnsLookup(host, { all: true, verbatim: true })).map((a) => a.address)
 
-/**
- * `assertPublicUrl`, and the host must resolve only to public addresses: a public name pointed at 127.0.0.1 or a
- * cloud metadata address is refused. (A server that answers differently on the next lookup can still slip past;
- * only a fetch pinned to the checked address would close that.)
- */
-export async function assertPublicTarget(raw: string, lookup: Lookup = systemLookup): Promise<string> {
-  const href = assertPublicUrl(raw)
-  const host = new URL(href).hostname.replace(/^\[|\]$/g, '')
-  if (v4(host) !== undefined || v6(host) !== undefined) return href
-  for (const address of await lookup(host))
-    if (!isPublicAddress(address)) throw new Error(`${host} resolves to ${address}, a private address`)
-  return href
+/** The loopback ports a run may reach: the ones its own dev servers opened (start_server). */
+export type LocalPorts = () => ReadonlySet<number>
+
+const NO_LOCAL_PORTS: LocalPorts = () => new Set()
+
+/** An agent asked for an address it may not reach; the message says why, for the agent to read. */
+export class UnreachableError extends Error {
+  override readonly name = 'UnreachableError'
 }
 
 /**
- * Walks a URL's redirects one hop at a time, checking each target before anything is sent to it, and returns where
- * the chain ends. The reader then fetches that URL; its own redirects would otherwise go unchecked until the end.
+ * The addresses `host:port` may be reached at, every one of them checked: public, or a loopback port in `localPorts`
+ * named by `localhost` or a loopback literal. Connect only to what this returns, so a second lookup (DNS rebinding)
+ * cannot swap in another address. Throws `UnreachableError`, saying why, when any address is off limits.
  */
-export async function followPublicRedirects(
-  raw: string,
-  options: { lookup?: Lookup; fetch?: typeof fetch; maxHops?: number } = {},
-): Promise<string> {
-  const fetcher = options.fetch ?? fetch
-  let current = raw
-  for (let hop = 0; hop <= (options.maxHops ?? 10); hop++) {
-    current = await assertPublicTarget(current, options.lookup)
-    const res = await fetcher(current, { redirect: 'manual', signal: AbortSignal.timeout(15_000) })
-    await res.body?.cancel().catch(() => {})
-    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
-    if (!location) return current
-    current = new URL(location, current).href
+export async function reachableAddresses(
+  host: string,
+  port: number,
+  localPorts: LocalPorts = NO_LOCAL_PORTS,
+  lookup: Lookup = systemLookup,
+): Promise<string[]> {
+  const name = host.replace(/^\[|\]$/g, '').toLowerCase()
+  const literal = isLiteral(name)
+  const loopbackName = !literal && isLoopbackName(name)
+  if (!literal && !loopbackName && PRIVATE_SUFFIX.test(name))
+    throw new UnreachableError(prompts.toolResults.privateAddress(name))
+  const addresses = literal ? [name] : loopbackName ? ['127.0.0.1', '::1'] : await lookup(name)
+  if (addresses.length === 0) throw new Error(`${name} did not resolve to any address`)
+  for (const address of addresses) {
+    if (isPublicAddress(address)) continue
+    // Only a name that is plainly loopback reaches a dev server: a public name resolving to 127.0.0.1 does not.
+    const ownServer = (literal || loopbackName) && isLoopbackAddress(address)
+    if (ownServer && localPorts().has(port)) continue
+    throw new UnreachableError(
+      ownServer ? prompts.toolResults.notYourServer(port) : prompts.toolResults.privateAddress(name, address),
+    )
   }
-  throw new Error('too many redirects')
+  return addresses
+}
+
+/**
+ * The refusal `reachableAddresses` would give a URL without looking its name up: a private literal, a local name,
+ * or a loopback port the run did not open. Undefined for anything else, including names (they need the lookup).
+ */
+export function quickRefusal(
+  url: URL,
+  localPorts: LocalPorts = NO_LOCAL_PORTS,
+): UnreachableError | undefined {
+  if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return undefined
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (isLoopbackName(host) || (isLiteral(host) && isLoopbackAddress(host)))
+    return localPorts().has(urlPort(url))
+      ? undefined
+      : new UnreachableError(prompts.toolResults.notYourServer(urlPort(url)))
+  if ((isLiteral(host) && !isPublicAddress(host)) || PRIVATE_SUFFIX.test(host))
+    return new UnreachableError(prompts.toolResults.privateAddress(host))
+  return undefined
+}
+
+/** The port a URL connects to. */
+export function urlPort(url: URL): number {
+  return url.port ? Number(url.port) : url.protocol === 'https:' || url.protocol === 'wss:' ? 443 : 80
+}
+
+/**
+ * `reachableAddresses` for a whole URL, plus the checks that need no network: http(s) only, no credentials. For
+ * tools to refuse a URL with a clear reason before handing it to something that would only say it failed.
+ */
+export async function assertReachableUrl(
+  raw: string,
+  localPorts: LocalPorts = NO_LOCAL_PORTS,
+  lookup: Lookup = systemLookup,
+): Promise<URL> {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`not a URL: ${raw}`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new Error('only http(s) URLs can be fetched')
+  if (url.username || url.password) throw new Error('URLs with credentials in them cannot be fetched')
+  await reachableAddresses(url.hostname, urlPort(url), localPorts, lookup)
+  return url
+}
+
+export interface PinOptions {
+  readonly localPorts?: LocalPorts
+  readonly lookup?: Lookup
+  /** The fetch that sends the pinned request; the process's own, unguarded, by default. */
+  readonly fetch?: typeof fetch
+  readonly maxRedirects?: number
+}
+
+const unguardedFetch = globalThis.fetch
+const REDIRECTS = new Set([301, 302, 303, 307, 308])
+// Errors from failing to open a connection, before anything was sent: the next checked address may answer.
+export const NOT_CONNECTED: ReadonlySet<string> = new Set([
+  'ConnectionRefused',
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EADDRNOTAVAIL',
+])
+
+/** One request to `url`, sent to an address `reachableAddresses` checked, never to a fresh lookup of the name. */
+async function sendPinned(
+  url: URL,
+  init: RequestInit,
+  headers: Headers,
+  options: PinOptions,
+): Promise<Response> {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new Error('only http(s) URLs can be fetched')
+  if (url.username || url.password) throw new Error('URLs with credentials in them cannot be fetched')
+  const addresses = await reachableAddresses(url.hostname, urlPort(url), options.localPorts, options.lookup)
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  // The certificate is still checked against the name; only the connection goes to the checked address.
+  const tls = url.protocol === 'https:' && !isLiteral(host) ? { tls: { serverName: host } } : {}
+  headers.set('host', url.host)
+  let failure: unknown
+  for (const address of addresses) {
+    const pinned = new URL(url)
+    pinned.hostname = address.includes(':') ? `[${address}]` : address
+    try {
+      return await (options.fetch ?? unguardedFetch)(pinned.href, {
+        ...init,
+        headers,
+        redirect: 'manual',
+        ...tls,
+      } as RequestInit)
+    } catch (err) {
+      if (!NOT_CONNECTED.has((err as { code?: string }).code ?? '')) throw err
+      failure = err
+    }
+  }
+  throw failure
+}
+
+/**
+ * `fetch` for agent-chosen URLs. The host is resolved once, every address it resolves to is checked, and the request
+ * goes to a checked address, so DNS rebinding between the check and the connection cannot reach a private address.
+ * Redirects are followed one hop at a time, each target checked before anything is sent to it. The response's `url`
+ * is the URL as named (not the address it was sent to).
+ */
+export async function pinnedFetch(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  options: PinOptions = {},
+): Promise<Response> {
+  const request = input instanceof Request ? input : undefined
+  const merged: RequestInit = {
+    ...(request
+      ? {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+          signal: request.signal,
+          redirect: request.redirect,
+        }
+      : {}),
+    ...init,
+  }
+  let url = new URL(request ? request.url : String(input))
+  let method = (merged.method ?? 'GET').toUpperCase()
+  let body = merged.body
+  const headers = new Headers(merged.headers)
+  const mode = merged.redirect ?? 'follow'
+  for (let hop = 0; ; hop++) {
+    const response = await sendPinned(url, { ...merged, method, body: body ?? null }, headers, options)
+    const location = REDIRECTS.has(response.status) ? response.headers.get('location') : null
+    if (!location || mode === 'manual') {
+      Object.defineProperty(response, 'url', { value: url.href })
+      Object.defineProperty(response, 'redirected', { value: hop > 0 })
+      return response
+    }
+    await response.body?.cancel().catch(() => {})
+    if (mode === 'error') throw new TypeError(`${url.href} redirected to ${location}`)
+    if (hop >= (options.maxRedirects ?? FETCH_MAX_REDIRECTS)) throw new Error('too many redirects')
+    const next = new URL(location, url)
+    // As the Fetch standard does: a 303, or a 301/302 after a POST, becomes a GET without a body.
+    if (response.status === 303 ? method !== 'HEAD' : response.status <= 302 && method === 'POST') {
+      method = 'GET'
+      body = undefined
+      for (const h of [
+        'content-type',
+        'content-length',
+        'content-encoding',
+        'content-language',
+        'content-location',
+      ])
+        headers.delete(h)
+    }
+    if (next.origin !== url.origin)
+      for (const h of ['authorization', 'cookie', 'proxy-authorization']) headers.delete(h)
+    url = next
+  }
+}
+
+interface ReadScope extends PinOptions {
+  /** Requests refused during the read, so a failed read can say why. */
+  readonly refused: UnreachableError[]
+}
+
+const readScope = new AsyncLocalStorage<ReadScope>()
+let guarded = false
+
+/**
+ * omp's reader calls the global `fetch` from many places (the page, its alternates, llms.txt, documents, site
+ * readers) and can run lynx or trafilatura, which fetch on their own. Inside an agent's read, `fetch` becomes
+ * `pinnedFetch` and starting programs is refused; everywhere else both behave as before.
+ */
+function guardProcess() {
+  if (guarded) return
+  guarded = true
+  const scoped = (input: string | URL | Request, init?: RequestInit) => {
+    const scope = readScope.getStore()
+    if (!scope) return unguardedFetch(input, init)
+    return pinnedFetch(input, init, scope).catch((err: unknown) => {
+      if (err instanceof UnreachableError) scope.refused.push(err)
+      throw err
+    })
+  }
+  globalThis.fetch = Object.assign(scoped, { preconnect: unguardedFetch.preconnect }) as typeof fetch
+  const spawn = Bun.spawn
+  const spawnSync = Bun.spawnSync
+  const refuse = () => {
+    if (readScope.getStore()) throw new Error(prompts.toolResults.readerProgram)
+  }
+  Object.assign(Bun, {
+    spawn: (...args: Parameters<typeof spawn>) => {
+      refuse()
+      return spawn(...args)
+    },
+    spawnSync: (...args: Parameters<typeof spawnSync>) => {
+      refuse()
+      return spawnSync(...args)
+    },
+  })
+}
+
+/** Runs `read` with every fetch it makes pinned and checked (see `pinnedFetch`) and no programs started. */
+export async function withPinnedNetwork<T>(
+  options: PinOptions,
+  read: (refused: readonly UnreachableError[]) => Promise<T>,
+): Promise<T> {
+  guardProcess()
+  const scope: ReadScope = { ...options, refused: [] }
+  return readScope.run(scope, () => read(scope.refused))
 }
 
 export function ompWebTools(omp: OmpRuntime, provider: () => string): WebTools {
   return {
     search: (query, options = {}) => omp.search(query, { ...options, provider: provider() }),
-    async read(url) {
-      const result = await omp.read(await followPublicRedirects(url))
-      // The reader follows redirects itself; refuse content that still ended up somewhere private.
-      await assertPublicTarget(result.url)
-      return result
+    async read(url, localPorts = NO_LOCAL_PORTS) {
+      const href = (await assertReachableUrl(url, localPorts)).href
+      return withPinnedNetwork({ localPorts }, async (refused) => {
+        const result = await omp.read(href)
+        // The reader turns a refused request into "Failed to fetch"; the agent should hear why instead.
+        const [first] = refused
+        if (result.method === 'failed' && first) throw first
+        return result
+      })
     },
   }
 }

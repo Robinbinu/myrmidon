@@ -38,6 +38,7 @@ import {
   assertAgentControl,
   type BrowserTab,
   doneWith,
+  navigate,
   openPage,
   pageElement,
   pageSnapshot,
@@ -185,6 +186,7 @@ async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> 
   if (!host.browser) throw new Error('no browser here: Chrome is not installed on this machine')
   const tab = await host.browser.tab(host.id, agent, {
     downloads: join(host.workspace.scratch(agent), 'downloads'),
+    localPorts: () => host.localPorts(),
   })
   assertAgentControl(tab)
   return tab
@@ -503,6 +505,7 @@ async function guardProjectEdit(
       change,
     ),
     key: change.key,
+    grant: 'file',
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${where}`, decision.note))
   const edited = decision.edits?.content
@@ -553,6 +556,7 @@ async function guardProjectCommand(
       title: prompts.reviewCard.command,
       fields: [{ key: 'command', label: tool, value: line, format: 'code', editable }],
     },
+    grant: 'command',
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined('this command', decision.note))
   return decision.edits?.command ?? command
@@ -1504,7 +1508,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.web_fetch.description,
     parameters: type({ url: type('string').describe(prompts.tools.web_fetch.params.url) }),
     async run(args, agent, host) {
-      const page = await host.web.read(args.url)
+      const page = await host.web.read(args.url, () => host.localPorts())
       const head = `Source: ${page.url} (${page.method}, ${page.contentType})`
       if (page.output.length <= PAGE_EXCERPT) return { text: page.output, images: [], preface: `${head}\n` }
       // Like Manus: keep context small and the rest recoverable. The full page goes to a scratch file the agent
@@ -1754,9 +1758,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         const where = relative(project.path, path)
         const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
         const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
+        // A proposed file is a file change like any other, so "allow all file changes" covers it; a commit still asks.
         const decision = await host.reviewChange(agent, 'propose', args.why, {
           review: fileReview(title, where, { before, after: args.content }),
           key,
+          grant: 'file',
         })
         if (!decision.approved) return prompts.toolResults.declined(`writing ${where}`, decision.note)
         const content = decision.edits?.content ?? args.content
@@ -1879,7 +1885,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const tab = await browserTab(host, agent)
       const target = args.url.startsWith('artifact:') ? await artifactUrl(host, args.url.slice(9)) : args.url
       if (!/^(https?|file):/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
-      await tab.page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await navigate(tab, tab.page, target)
       await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
       await keyframe(host, agent, tab, 'open')
       return pageSnapshot(tab)
@@ -1897,7 +1903,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       if (!/^https?:/.test(args.url)) throw new Error('url must be http(s)')
-      await tab.page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await navigate(tab, tab.page, args.url)
       await keyframe(host, agent, tab, 'open')
       const outcome = await host.requestLogin(agent, args.site, args.url, args.reason)
       if (outcome !== 'handed-back')
@@ -1932,7 +1938,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (args.open !== undefined) {
         if (!/^https?:/.test(args.open)) throw new Error('open must be an http(s) URL')
         const page = await openPage(tab)
-        await page.goto(args.open, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await navigate(tab, page, args.open)
         await page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
         changed = true
       }
@@ -2362,7 +2368,7 @@ export function observeFacts(host: ColonyHost): string {
   const idle = Object.values(s.agents)
     .filter((a) => a.status === 'idle')
     .map((a) => a.info.name)
-  const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
+  const spent = host.spent().cost
   const finals = reviewVerdicts(s).filter((v) => v.target === 'colony')
   return [
     `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`,
@@ -2541,7 +2547,7 @@ async function runBrowserFlow(
       if ('open' in step) {
         const url = fillPlaceholders(step.open, input, true)
         if (!/^https?:/.test(url)) throw new Error(`open needs an http(s) URL, got ${url}`)
-        await tab.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await navigate(tab, tab.page, url)
         await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
         await keyframe(host, agent, tab, 'open')
       } else if ('click' in step) {

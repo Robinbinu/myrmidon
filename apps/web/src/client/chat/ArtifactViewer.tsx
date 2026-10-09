@@ -3,11 +3,11 @@ import { BookOpen, Check, Copy, Download, ExternalLink, GitCompare, Monitor } fr
 import { useEffect, useState } from 'react'
 import { blobText, previewUrl } from '../api.ts'
 import { copy } from '../copy.ts'
-import { diffLines } from '../diff.ts'
+import { type DiffLine, diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Select, Skeleton, Tabs, tabPanel } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { Markdown } from './Markdown.tsx'
 
 type View = 'code' | 'preview' | 'diff'
@@ -119,7 +119,7 @@ export function ArtifactViewer(props: {
   ]
 
   return (
-    <Modal
+    <Sheet
       title={<span className="font-mono text-title">{props.name}</span>}
       onClose={props.onClose}
       size="full"
@@ -206,29 +206,40 @@ export function ArtifactViewer(props: {
             </article>
           </div>
         ) : (
-          <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-callout leading-[1.65]">
-            {(view === 'diff' && prev !== undefined
-              ? diffLines(prev, text)
-              : text.split('\n').map((line) => ({ kind: 'same' as const, text: line }))
-            ).map((l, i) => (
-              <div
-                // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-                key={i}
-                className={cn(
-                  'flex px-0 hover:bg-fill/60',
-                  l.kind === 'add' && 'bg-ok-soft',
-                  l.kind === 'del' && 'bg-bad-soft',
-                )}
-              >
-                <span className="w-14 shrink-0 select-none pr-4 text-right text-muted/70">
-                  {view === 'diff' ? (l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '') : i + 1}
-                </span>
-                <span className="whitespace-pre pr-6">{l.text}</span>
-              </div>
-            ))}
-          </pre>
+          <CodeLines
+            diff={view === 'diff'}
+            lines={
+              view === 'diff' && prev !== undefined
+                ? diffLines(prev, text)
+                : text.split('\n').map((line) => ({ kind: 'same' as const, text: line }))
+            }
+          />
         )}
       </div>
-    </Modal>
+    </Sheet>
+  )
+}
+
+/** Source with line numbers, or (`diff`) a diff's lines marked + and −, filling the viewer. */
+export function CodeLines({ lines, diff }: { lines: readonly DiffLine[]; diff?: boolean }) {
+  return (
+    <pre className="m-0 flex-1 overflow-auto bg-code py-3 font-mono text-callout leading-[1.65]">
+      {lines.map((l, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+          key={i}
+          className={cn(
+            'flex px-0 hover:bg-fill/60',
+            l.kind === 'add' && 'bg-ok-soft',
+            l.kind === 'del' && 'bg-bad-soft',
+          )}
+        >
+          <span className="w-14 shrink-0 select-none pr-4 text-right text-muted/70">
+            {diff ? (l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '') : i + 1}
+          </span>
+          <span className="whitespace-pre pr-6">{l.text}</span>
+        </div>
+      ))}
+    </pre>
   )
 }

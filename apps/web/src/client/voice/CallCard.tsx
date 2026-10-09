@@ -2,6 +2,7 @@ import { ChevronRight, Phone } from 'lucide-react'
 import { useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { cn } from '../ui/primitives.tsx'
 import { speaker } from './CallBar.tsx'
 
@@ -15,6 +16,8 @@ export interface SavedCall {
   rounds: { colonyId: string; round?: number }[]
   /** Who the person talked to, when not the call assistant (`lead` or an agent's name). */
   talkTo?: string
+  /** The number on the other end, when it was a phone call. */
+  phone?: string
 }
 
 /** A call in the chat: when and how long, opening to its transcript. */
@@ -30,8 +33,14 @@ export function CallCard(props: { call: SavedCall }) {
         aria-expanded={open}
         className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-left text-callout transition-colors hover:bg-fill"
       >
-        <Phone className="size-3.5 text-muted" />
-        <span className="font-medium">{t.card.title(minutes)}</span>
+        {props.call.phone ? (
+          <FEATURE_ICONS.phoneCalls className="size-3.5 text-muted" />
+        ) : (
+          <Phone className="size-3.5 text-muted" />
+        )}
+        <span className="font-medium">
+          {props.call.phone ? t.card.phone(minutes, props.call.phone) : t.card.title(minutes)}
+        </span>
         <span className="text-muted">{clock(props.call.startedAt)}</span>
         <span className="flex-1" />
         <span className="text-footnote text-muted">{open ? t.card.hide : t.card.show}</span>

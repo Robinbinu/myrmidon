@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
+  type ChatGrant,
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
@@ -15,6 +16,7 @@ import {
   STOPPED_BY_USER,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
+import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
@@ -224,6 +226,8 @@ export interface ChatSummary {
   readonly project?: { readonly id: string; readonly name: string }
   /** Crew members the person can write to directly (@name): everyone on the chat's crew but the lead. */
   readonly crew?: readonly CrewMember[]
+  /** Kinds of step the person allowed for the rest of the chat ("Approve all for this chat"). */
+  readonly grants?: readonly ChatGrant[]
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -472,6 +476,18 @@ export class ChatService {
         const file = this._ownerFile(r.colonyId)
         const pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : undefined
         if (pid && pid !== process.pid && alive(pid)) continue
+        // What it was still asking the person can no longer be answered: closed as stopped, as a stop closes them.
+        const past = await this.runtime.ctx.log.read(r.colonyId as never)
+        const decided = new Set(
+          past.filter((e) => e.type === 'approval/decided').map((e) => (e.payload as { id: string }).id),
+        )
+        for (const e of past)
+          if (e.type === 'approval/requested' && !decided.has((e.payload as { id: string }).id))
+            await this.runtime.ctx.log.appendOne(r.colonyId as never, {
+              type: 'approval/decided',
+              actor: { kind: 'system', id: 'myrmidon' },
+              payload: { id: (e.payload as { id: string }).id, approved: false, by: 'stopped' },
+            })
         await this.runtime.ctx.log.appendOne(r.colonyId as never, {
           type: 'colony/stopped',
           actor: { kind: 'system', id: 'myrmidon' },
@@ -510,6 +526,7 @@ export class ChatService {
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
         ...(last.failed ? { failed: true } : {}),
+        ...(last.grants?.length ? { grants: last.grants } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -701,10 +718,18 @@ export class ChatService {
     const answer = messagesOf(latest)
       .filter((m) => m.from !== 'user' && m.final)
       .at(-1)?.text
-    const title = await nameChat(this.options.resolver, model, {
-      asked: rounds.map((r) => r.round.request),
-      ...(answer ? { answer } : {}),
-    })
+    const input = { asked: rounds.map((r) => r.round.request), ...(answer ? { answer } : {}) }
+    const cheap = this._titleModel(model)
+    // The cheap model may turn out unusable (a lapsed key, a model gone); the lead's model just worked.
+    const title =
+      cheap === model
+        ? await nameChat(this.options.resolver, model, input)
+        : await nameChat(this.options.resolver, cheap, input).catch((err) => {
+            console.warn(
+              `naming ${chatId} on ${cheap} failed, using ${model}: ${err instanceof Error ? err.message : err}`,
+            )
+            return nameChat(this.options.resolver, model, input)
+          })
     if (!title) return
     // Renamed meanwhile (by the person, say): theirs stands. Deleted meanwhile: it stays deleted.
     const again = await this.rounds(chatId)
@@ -723,6 +748,12 @@ export class ChatService {
     } finally {
       if (this._naming.get(chatId) === write) this._naming.delete(chatId)
     }
+  }
+
+  /** The cheapest fast model the person can use and has not hidden, for naming chats; the lead's otherwise. */
+  private _titleModel(lead: string): string {
+    const omp = this.options.resolver.omp
+    return omp ? namingModel(omp, this.options.settings, lead) : lead
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */
@@ -777,6 +808,36 @@ export class ChatService {
     if (live?.id === latest.id) await live.append(draft)
     else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
     return clean
+  }
+
+  /**
+   * Allows one kind of step (project file changes, or shell commands) for the rest of a chat, across its runs, or
+   * takes that back. Allowing also approves the steps of that kind already waiting. Recorded in the chat's latest
+   * round's log, so it survives restarts and holds for runs started from a channel. Returns what is allowed now.
+   */
+  async allowInChat(chatId: string, grant: ChatGrant, allowed: boolean): Promise<ChatGrant[]> {
+    if (grant !== 'file' && grant !== 'command') throw new Error('grant is file or command')
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const live = this._live.get(chatId)
+    const here = live?.id === latest.id ? live : undefined
+    const now = (here?.state() ?? latest.state).chatGrants ?? []
+    const grants = allowed ? [...new Set([...now, grant])] : now.filter((g) => g !== grant)
+    if (grants.length !== now.length) {
+      const draft = {
+        type: 'chat/allowed',
+        actor: { kind: 'user', id: 'user' },
+        payload: { grants },
+      } as const
+      if (here) await here.append(draft)
+      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    }
+    if (allowed && here)
+      for (const a of Object.values(here.state().approvals))
+        if (!a.decided && a.grant === grant)
+          // Decided meanwhile (the person on another device, a timeout): nothing left to approve.
+          await here.decideApproval(a.id, true).catch(() => {})
+    return grants
   }
 
   private _project(

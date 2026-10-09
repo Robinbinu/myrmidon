@@ -2,9 +2,11 @@ import {
   BarChart3,
   ChevronRight,
   CircleAlert,
+  Download,
   Folder,
   FolderPlus,
   HeartPulse,
+  Link,
   Monitor,
   Moon,
   Network,
@@ -27,13 +29,15 @@ import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
-import type { ThemeChoice } from '../ui/hooks.ts'
+import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { isMac } from '../ui/platform.ts'
-import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
-import { comboLabel } from '../ui/shortcuts.ts'
-import { runPhase } from '../ui/status.ts'
+import { Button, CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
+import { needsYou, runPhase } from '../ui/status.ts'
+import { useToast } from '../ui/Toast.tsx'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
@@ -95,8 +99,10 @@ export function Sidebar(props: {
   theme: ThemeChoice
   onTheme(t: ThemeChoice): void
   onSelect(chatId: string): void
-  onDelete(chat: ChatSummary): void
+  /** One chat, or the chats selected together, in list order. */
+  onDelete(chats: ChatSummary[]): void
   onRename(chat: ChatSummary, title: string): Promise<void>
+  onExport?(chat: ChatSummary): void
   onNew(): void
   projects: Project[]
   onNewInProject(project: Project): void
@@ -110,6 +116,7 @@ export function Sidebar(props: {
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
+  const toast = useToast()
   const { status } = useStatus()
   // System reports on this machine and points to Settings, both of which a chats-only device cannot use.
   const fullAccess = useScope() === 'full'
@@ -124,6 +131,11 @@ export function Sidebar(props: {
       // A chats-only device may not see channels; its chats simply show no logo.
       .catch(() => setChannelOf({}))
   }, [chatIds])
+  const unread = useUnreadChats(
+    props.chats,
+    props.loaded,
+    props.view === 'chat' ? props.activeChat : undefined,
+  )
   const [editing, setEditing] = useState<string>()
   const [draft, setDraft] = useState('')
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
@@ -172,19 +184,22 @@ export function Sidebar(props: {
     const q = query.trim().toLowerCase()
     return props.chats.filter((c) => !q || titled(c, q) || said?.has(c.chatId))
   }, [props.chats, query, said])
+  // Chats waiting on the person come first, as in Codex and Claude Code, out of their project or date group.
+  const waitingOnYou = useMemo(() => hits.filter(needsYou), [hits])
+  const rest = useMemo(() => hits.filter((c) => !needsYou(c)), [hits])
   // A chat whose project was removed from the list falls back to the date groups.
   const known = useMemo(() => new Set(props.projects.map((p) => p.id)), [props.projects])
   const byProject = useMemo(() => {
     const out = new Map<string, ChatSummary[]>()
-    for (const c of hits) {
+    for (const c of rest) {
       if (!c.project || !known.has(c.project.id)) continue
       out.set(c.project.id, [...(out.get(c.project.id) ?? []), c])
     }
     return out
-  }, [hits, known])
+  }, [rest, known])
   const grouped = useMemo(() => {
     const out: { label: string; chats: ChatSummary[] }[] = []
-    for (const c of hits) {
+    for (const c of rest) {
       if (c.project && known.has(c.project.id)) continue
       const label =
         GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ??
@@ -194,28 +209,71 @@ export function Sidebar(props: {
       else out.push({ label, chats: [c] })
     }
     return out
-  }, [hits, known])
+  }, [rest, known])
   // The chat list is one Tab stop: the row last focused (or the open chat, or the first) takes it, and the arrow keys
   // walk the rest. Its rename and delete buttons are for the pointer; F2 and Delete do the same from the keyboard.
   const [lastRow, setLastRow] = useState<string>()
   // Only rows on screen can hold it: a chat inside a folded project has no row to Tab to.
   const shownRows = [
+    ...waitingOnYou,
     ...props.projects.filter((p) => !closed.has(p.id)).flatMap((p) => byProject.get(p.id) ?? []),
     ...grouped.flatMap((g) => g.chats),
   ].map((c) => c.chatId)
   const tabRow = tabStopRow(shownRows, [lastRow, props.activeChat])
+  // Chats picked together, as in a Mac list: ⌘-click toggles one, ⇧-click takes a range, ⌘A takes all shown, Esc or a
+  // plain click lets go. Only rows on screen count, so a search or a folded project leaves out what it hides.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const anchor = useRef<string>(undefined)
+  const picked = shownRows.filter((id) => selected.has(id))
+  const pickedChats = () => picked.flatMap((id) => props.chats.find((c) => c.chatId === id) ?? [])
+  const shownActive = props.view === 'chat' && props.activeChat && shownRows.includes(props.activeChat)
+  const clearSelection = () => setSelected(new Set())
+  const selectRange = (to: string) => {
+    const from = [anchor.current, shownActive ? props.activeChat : undefined].find(
+      (id) => id !== undefined && shownRows.includes(id),
+    )
+    const a = shownRows.indexOf(from ?? to)
+    const b = shownRows.indexOf(to)
+    setSelected(new Set(shownRows.slice(Math.min(a, b), Math.max(a, b) + 1)))
+    anchor.current = from ?? to
+  }
+  const exportAll = (chats: readonly ChatSummary[]) => {
+    for (const c of chats) props.onExport?.(c)
+  }
+  /** Rows of one heading's chats: a list the person can pick several from. */
+  const rowList = (label: string, chats: readonly ChatSummary[]) =>
+    chats.length > 0 && (
+      <div role="listbox" aria-multiselectable="true" aria-label={label}>
+        {chats.map(row)}
+      </div>
+    )
+  const toggleSelected = (id: string) => {
+    // The open chat counts as selected, as the highlighted row of a Mac list does, so ⌘-click adds to it.
+    const base = picked.length || !shownActive ? picked : [props.activeChat as string]
+    const next = new Set(base)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+    anchor.current = id
+  }
   // A deleted chat takes its row, and the focus on it, away; the row after it (or before, at the end) takes focus.
-  const afterDelete = useRef<{ chatId: string; next?: string }>(undefined)
+  const afterDelete = useRef<{ chatIds: string[]; next?: string }>(undefined)
+  /** Deletes the row's chat, or the whole selection when the row is part of it. */
   const requestDelete = (c: ChatSummary) => {
-    const at = shownRows.indexOf(c.chatId)
-    afterDelete.current = { chatId: c.chatId, next: shownRows[at + 1] ?? shownRows[at - 1] }
-    props.onDelete(c)
+    const chats = picked.includes(c.chatId) ? pickedChats() : [c]
+    const ids = chats.map((x) => x.chatId)
+    const last = Math.max(...ids.map((id) => shownRows.indexOf(id)))
+    const first = Math.min(...ids.map((id) => shownRows.indexOf(id)))
+    const next = shownRows.slice(last + 1).find((id) => !ids.includes(id)) ?? shownRows[first - 1]
+    afterDelete.current = { chatIds: ids, ...(next ? { next } : {}) }
+    props.onDelete(chats)
   }
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the list of chats changes
   useEffect(() => {
     const pending = afterDelete.current
-    if (!pending || props.chats.some((c) => c.chatId === pending.chatId)) return
+    if (!pending || props.chats.some((c) => pending.chatIds.includes(c.chatId))) return
     afterDelete.current = undefined
+    setSelected(new Set())
     const lost = !document.activeElement || document.activeElement === document.body
     if (lost && pending.next) focusRow(pending.next)
   }, [props.chats])
@@ -223,6 +281,18 @@ export function Sidebar(props: {
     const rows = [...(nav.current?.querySelectorAll<HTMLElement>('[data-chat]') ?? [])]
     const at = rows.indexOf(e.target as HTMLElement)
     if (at === -1) return
+    if (matchCombo('mod+a', e)) {
+      e.preventDefault()
+      setSelected(new Set(shownRows))
+      return
+    }
+    if (e.key === 'Escape' && picked.length) {
+      // Only lets go of the selection; the page around keeps its own Escape for another press.
+      e.preventDefault()
+      e.stopPropagation()
+      clearSelection()
+      return
+    }
     const next =
       e.key === 'ArrowDown'
         ? Math.min(rows.length - 1, at + 1)
@@ -235,7 +305,14 @@ export function Sidebar(props: {
               : undefined
     if (next === undefined) return
     e.preventDefault()
-    rows[next]?.focus()
+    const target = rows[next]
+    target?.focus()
+    // With ⇧ the selection grows from the row it started on, as in a Mac list.
+    const id = target?.dataset.chat
+    if (e.shiftKey && id) {
+      if (!picked.length) anchor.current = rows[at]?.dataset.chat
+      selectRange(id)
+    }
   }
   const toggle = (id: string) =>
     setClosed((s) => {
@@ -247,11 +324,16 @@ export function Sidebar(props: {
 
   const row = (c: ChatSummary) => {
     const on = c.chatId === props.activeChat && props.view === 'chat'
+    const phase = runPhase(c)
+    // A chat that finished while the person was elsewhere is marked until they open it; one that needs them or failed
+    // keeps its own mark.
+    const dot = (phase === 'completed' || phase === 'stopped') && unread(c) ? 'unread' : phase
     // A chat found only by its messages shows the line that matched.
     const q = query.trim()
     const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
+    const isSelected = selected.has(c.chatId)
     return (
-      <div key={c.chatId} className="group relative">
+      <div key={c.chatId} role="presentation" className="group relative">
         {editing === c.chatId ? (
           <input
             // biome-ignore lint/a11y/noAutofocus: focus moves into the field the user just asked to edit
@@ -278,8 +360,44 @@ export function Sidebar(props: {
             data-chat={c.chatId}
             tabIndex={c.chatId === tabRow ? 0 : -1}
             onFocus={() => setLastRow(c.chatId)}
-            onClick={() => props.onSelect(c.chatId)}
+            // ⇧-click would otherwise select the text of every row it spans.
+            onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+            onClick={(e) => {
+              if (e.shiftKey) return selectRange(c.chatId)
+              if (isMac ? e.metaKey : e.ctrlKey) return toggleSelected(c.chatId)
+              clearSelection()
+              anchor.current = c.chatId
+              props.onSelect(c.chatId)
+            }}
             onDoubleClick={() => startRename(c)}
+            onContextMenu={(e) => {
+              const m = copy.contextMenu.chat
+              if (picked.length > 1 && isSelected) {
+                const s = copy.sidebar.selection
+                const chats = pickedChats()
+                return openContextMenu(e, s.count(chats.length), [
+                  props.onExport && {
+                    label: s.export(chats.length),
+                    icon: Download,
+                    run: () => exportAll(chats),
+                  },
+                  {
+                    label: s.delete(chats.length),
+                    icon: Trash2,
+                    destructive: true,
+                    run: () => requestDelete(c),
+                  },
+                ])
+              }
+              const link = new URL(location.pathname, location.origin)
+              link.searchParams.set('chat', c.chatId)
+              openContextMenu(e, m.label(c.title), [
+                { label: m.rename, icon: Pencil, combo: 'f2', run: () => startRename(c) },
+                props.onExport && { label: m.export, icon: Download, run: () => props.onExport?.(c) },
+                { ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')), icon: Link },
+                { label: m.delete, icon: Trash2, destructive: true, run: () => requestDelete(c) },
+              ])
+            }}
             onKeyDown={(e) => {
               if (e.key === 'F2') {
                 e.preventDefault()
@@ -287,18 +405,25 @@ export function Sidebar(props: {
               } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
                 e.preventDefault()
                 requestDelete(c)
+              } else if (e.key === ' ' && (isMac ? e.metaKey : e.ctrlKey)) {
+                // ⌘Space picks the focused row from the keyboard; Space alone opens it, as Enter does.
+                e.preventDefault()
+                toggleSelected(c.chatId)
               }
             }}
             aria-keyshortcuts="F2 Delete Meta+Backspace"
             title={c.title}
             aria-current={on ? 'page' : undefined}
+            role="option"
+            aria-selected={isSelected}
             className={cn(
               'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-body transition-colors',
               line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
-              on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
+              isSelected && 'bg-row-selected',
+              on || isSelected ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
           >
-            {on && (
+            {on && !picked.length && (
               <motion.span
                 layoutId="chat-active"
                 transition={spring}
@@ -306,12 +431,12 @@ export function Sidebar(props: {
               />
             )}
             <span className="relative flex min-w-0 flex-1 items-center gap-2">
-              <Dot status={runPhase(c)} />
+              <Dot status={dot} />
               {channelOf[c.chatId] && (
                 <ChannelLogo id={channelOf[c.chatId] ?? ''} size={15} className="relative" />
               )}
               <span className="truncate">{c.title}</span>
-              <span className="sr-only">{copy.status.spoken(copy.status.run[runPhase(c)])}</span>
+              <span className="sr-only">{copy.status.spoken(copy.status.run[dot])}</span>
               {c.rounds.length > 1 && (
                 <span
                   className="ml-auto text-caption tabular-nums text-muted"
@@ -407,6 +532,14 @@ export function Sidebar(props: {
         </div>
       </div>
       <nav ref={nav} onKeyDown={walkRows} className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
+        {waitingOnYou.length > 0 && (
+          <div>
+            <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">
+              {copy.sidebar.groups.needsYou}
+            </div>
+            {rowList(copy.sidebar.groups.needsYou, waitingOnYou)}
+          </div>
+        )}
         {(props.projects.length > 0 || props.onAddProject) && (
           <div className="group/projects flex items-center px-2 pb-1 pt-3">
             <span className="flex-1 text-caption font-semibold text-muted">
@@ -443,6 +576,18 @@ export function Sidebar(props: {
                 <button
                   type="button"
                   onClick={() => toggle(p.id)}
+                  onContextMenu={(e) => {
+                    const m = copy.contextMenu.project
+                    openContextMenu(e, m.label(p.name), [
+                      { label: m.newChat, icon: Plus, run: () => props.onNewInProject(p) },
+                      props.onProjectPermissions && {
+                        label: m.permissions,
+                        icon: FEATURE_ICONS.permissions,
+                        run: () => props.onProjectPermissions?.(p),
+                      },
+                      copyAction(m.copyPath, p.path, () => toast(m.pathCopied, 'success')),
+                    ])
+                  }}
                   aria-expanded={open}
                   title={p.path}
                   className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-body text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
@@ -489,7 +634,7 @@ export function Sidebar(props: {
               </div>
               {open && (
                 <div className="pl-5">
-                  {chats.map(row)}
+                  {rowList(p.name, chats)}
                   {chats.length === 0 && (
                     <p className="px-2 py-1 text-small text-muted">{copy.sidebar.projects.noChats}</p>
                   )}
@@ -500,7 +645,7 @@ export function Sidebar(props: {
         })}
         {props.loaded && props.chats.length === 0 && (
           <p className="px-2 py-4 text-callout text-muted">
-            {copy.sidebar.empty(comboLabel('mod+k', isMac))}
+            {copy.sidebar.empty(comboLabel('mod+n', isMac))}
           </p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (
@@ -511,10 +656,49 @@ export function Sidebar(props: {
         {grouped.map((g) => (
           <div key={g.label}>
             <div className="px-2 pb-1 pt-4 text-caption font-semibold text-muted">{g.label}</div>
-            {g.chats.map(row)}
+            {rowList(g.label, g.chats)}
           </div>
         ))}
       </nav>
+      {picked.length > 0 && (
+        <div
+          role="toolbar"
+          aria-label={copy.sidebar.selection.label}
+          className="mx-2.5 mb-1.5 flex items-center gap-1 rounded-base border border-line bg-fill/60 py-1 pl-2.5 pr-1"
+        >
+          <span className="flex-1 whitespace-nowrap text-callout font-medium text-fg-2" aria-live="polite">
+            {copy.sidebar.selection.count(picked.length)}
+          </span>
+          {props.onExport && (
+            <IconButton
+              size="sm"
+              label={copy.sidebar.selection.export(picked.length)}
+              title={copy.sidebar.selection.export(picked.length)}
+              onClick={() => exportAll(pickedChats())}
+            >
+              <Download className="size-3.5" />
+            </IconButton>
+          )}
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              const first = pickedChats()[0]
+              if (first) requestDelete(first)
+            }}
+          >
+            {copy.sidebar.selection.delete(picked.length)}
+          </Button>
+          <IconButton
+            size="sm"
+            label={copy.sidebar.selection.clear}
+            title={copy.sidebar.selection.clearTitle(comboLabel('escape', isMac))}
+            onClick={clearSelection}
+          >
+            <X className="size-3.5" />
+          </IconButton>
+        </div>
+      )}
       <GatewayChip {...(fullAccess ? { onOpen: () => props.onView('system') } : {})} />
       <div className="grid gap-px border-t border-line p-2.5">
         <button

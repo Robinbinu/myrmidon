@@ -148,7 +148,7 @@ export function needsFull(method: string, path: string): boolean {
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload)(\/|$)/.test(
+    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
       path,
     )
   )
@@ -156,8 +156,8 @@ export function needsFull(method: string, path: string): boolean {
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
   // Skills and schedules are managed in Settings; a schedule can also deliver to a channel.
   if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules)(\/|$)/.test(path)) return true
-  // Installing speech engines, keys and samples; calling (a GET that upgrades) stays open.
-  if (write && /^\/api\/voice\/(phonon|kitten|keys|sample)(\/|$)/.test(path)) return true
+  // Installing speech engines, keys and samples, and phoning someone; calling (a GET that upgrades) stays open.
+  if (write && /^\/api\/voice\/(phonon|kitten|keys|sample|phone)(\/|$)/.test(path)) return true
   // Adding or removing a project; reading the list stays open so chats show their folder.
   if (write && /^\/api\/projects(\/[^/]+)?$/.test(path)) return true
   return false

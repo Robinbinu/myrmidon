@@ -318,7 +318,11 @@ test('with a public address, buttons are signed actions; a press with a valid si
   })
 
   const pressed = received[0]?.press
-  if (pressed) await adapter.answerPress(pressed, 'Allowed')
+  // The pressed post shows the outcome already, so a note that only repeats it is not posted.
+  const before = fake.calls.length
+  if (pressed) await adapter.answerPress(pressed, { text: 'Allowed', echo: true })
+  expect(fake.calls).toHaveLength(before)
+  if (pressed) await adapter.answerPress(pressed, { text: 'Allowed' })
   expect(fake.calls.at(-1)).toMatchObject({
     path: 'posts/ephemeral',
     body: { user_id: 'u9', post: { channel_id: 'c-town', message: 'Allowed' } },

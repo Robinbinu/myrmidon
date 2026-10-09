@@ -42,6 +42,11 @@ export const MAX_VERIFY_ROUNDS = 3
 
 // Chats (chat.ts)
 
+/**
+ * The spend limit per run, in dollars, where the settings file has none (Settings → Crew & budget; 0 means no limit).
+ * A settings file that already holds a value keeps it. The Settings hint states it too.
+ */
+export const DEFAULT_COST_USD = 5
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
 
@@ -102,6 +107,13 @@ export const BROWSER_NETWORK_LIMIT = 300
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
 /** The longest text a person controlling an agent's tab can paste into it at once. */
 export const BROWSER_PASTE_MAX_CHARS = 100_000
+/** How long the browser's proxy waits on one address of a host before trying its next one. */
+export const BROWSER_CONNECT_MS = 5_000
+
+// Web access (web.ts)
+
+/** Redirect hops one agent fetch follows, each one checked before anything is sent to it. */
+export const FETCH_MAX_REDIRECTS = 10
 
 // Reviewer (verifier.ts)
 
@@ -126,6 +138,45 @@ export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
 export const HOOK_MAX_OUTPUT = 20_000
 
+// Long-lived children (leash.ts)
+
+/** How long a leashed command's processes get to exit on SIGTERM, once Myrmidon has gone, before they are killed. */
+export const LEASH_GRACE_MS = 2_000
+
+// Projects (projects.ts)
+
+/**
+ * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
+ * mode and stays autonomous, so nothing changes under the person's feet.
+ */
+export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
+
+// Setup assistant (setup.ts)
+
+/** The smallest context window that can lead a crew; the client's AGENT_MIN_WINDOW (ui-config.ts) is the same. */
+export const SETUP_LEAD_MIN_WINDOW = 32_000
+/** How long setup waits for a model server on this computer before it counts as not running. */
+export const SETUP_PROBE_MS = 800
+/**
+ * Model servers setup looks for on this computer, at the ports they listen on out of the box, each with the
+ * OpenAI-compatible address it is added at and the provider name it gets.
+ */
+export const SETUP_LOCAL_SERVERS: readonly { id: string; baseUrl: string; provider: string }[] = [
+  { id: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', provider: 'ollama-local' },
+  { id: 'lm-studio', baseUrl: 'http://127.0.0.1:1234/v1', provider: 'lmstudio' },
+]
+/** Provider keys setup notices in the environment, under the names omp's catalog reads them by (pi-catalog). */
+export const SETUP_ENV_KEYS: Readonly<Record<string, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  xai: 'XAI_API_KEY',
+}
+
 // Project context (instructions.ts, git.ts)
 
 /** The most instruction text read from a project, how deep its @imports are followed, and how many folders are searched for nested files. */
@@ -136,6 +187,12 @@ export const INSTRUCTIONS_MAX_DIRS = 3000
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50
 export const MAX_UNTRACKED_BYTES = 256 * 1024
+/** The largest project file the app opens to show (projects.ts `readProjectFile`). */
+export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
+/** The file browser: entries one folder lists, matches a name search returns, and files it looks through outside git. */
+export const MAX_TREE_ENTRIES = 2000
+export const MAX_FIND_RESULTS = 200
+export const MAX_FIND_SCAN = 50_000
 
 // Memory, skills and made tools (memory.ts, skills.ts, made-tools.ts)
 
@@ -210,6 +267,8 @@ export const VOICE_PHONON_START_MS = 10 * 60_000
 /** The fermion-research release Phonon-2 is installed from, and the size of the model its first start downloads. */
 export const VOICE_PHONON_VERSION = '0.2.11'
 export const VOICE_PHONON_MODEL_BYTES = 163_515_201
+/** The most hotwords Phonon-2 takes in a request (its own limit); a call sends its project's and crew's names. */
+export const VOICE_HOTWORDS = 25
 /**
  * Kitten TTS 0.8 (KittenML, Apache-2.0): each model pinned to a revision of its Hugging Face repo, and each file to
  * its sha256 (Hugging Face's own LFS ids for the large ones) and size.
@@ -291,6 +350,21 @@ export const VOICE_MAX_CALLS = 4
 export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
+/**
+ * Phone calls (Twilio Media Streams): how long a call's one-time ticket (in its TwiML) stands, long enough for a call
+ * Myrmidon makes to ring out (Twilio's default ring timeout is 60 s); how long a stream may stay open before its
+ * `start` (OpenClaw's 5 s); the largest message a stream may send (OpenClaw's 64 KB; Twilio's are ~20 ms of audio).
+ */
+export const PHONE_TICKET_MS = 2 * 60_000
+export const PHONE_START_MS = 5_000
+export const PHONE_MESSAGE_MAX = 64 * 1024
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3
+/** The smallest context window (tokens) a model that names chats needs; a window omp does not know passes. */
+export const CHAT_TITLE_MIN_WINDOW = 16_000
+/**
+ * Small, fast model tiers, best first, matched against the words of a model id ("gpt-4o-mini", "claude-haiku-4-5"):
+ * how chats are named when no available model has a known price.
+ */
+export const CHAT_TITLE_TIERS = ['haiku', 'flash', 'mini', 'nano', 'lite', 'small', 'fast']

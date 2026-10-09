@@ -107,7 +107,8 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### [decide] New
 
-- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead?
+- [x] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead? **Decided 2026-10-09: yes,
+      the cheapest fast model available, falling back to the lead's.**
 
 ## UX audit (2026-10-08)
 
@@ -148,12 +149,13 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Helper naming drifts** — "Never" shows as "Solo", "Always" as "Team of 3", "Auto" as "2 helpers"; the
       `/team` popover says "2 helpers · called by the lead" while the chip says "Team of 3".
 - [x] **Solo throws the helper roster away** (`TeamControls.tsx:321`) — keep it and flip a flag.
-- [ ] **Model picker**: duplicate entries (Claude Haiku 4.5, Opus 4.5 under two ids), mixed naming ("Claude 4 Opus"
+- [x] **Model picker**: duplicate entries (Claude Haiku 4.5, Opus 4.5 under two ids), mixed naming ("Claude 4 Opus"
       vs "Claude Opus 4"), the sticky provider header covers half a row; helper model picker opens on top of the
       helpers popover.
-      **Left:** duplicate dated ids and header overlap fixed; mixed names ("Claude 4 Opus" vs "Claude Opus 4") come from the model registry and were left alone.
+      **Left:** duplicate dated ids and header overlap fixed; mixed names now normalized in the picker (`modelName()`,
+      2026-10-09); Qwen/Doubao/ERNIE left as they are, and other places still show the raw name.
 - [x] **@mention menu** — show each agent's face; include the lead.
-- [ ] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
+- [x] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
       **Left:** the result toast exists, but the "Reading this chat…" toast disappears after 3.5s while the job runs longer; needs a lasting progress line.
 
 ### C — Status, colour & time (`ui/primitives.tsx`, `chat/Sidebar.tsx`, `chat/AgentSheet.tsx`, `chat/Workspace.tsx`, `chat/StepRow.tsx`, `chat/AuditView.tsx`, `ColonyScreen.tsx`, `ColonyMap.tsx`, `Compare.tsx`, `legacy.css`)
@@ -166,8 +168,8 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Unknown cost shows `$0.000`** (Crews, Compare) — show "n/a"; durations as "23m 35s", not "1415s".
 - [x] **Compare** — table overflows at 1440 (last column cut), run ids wrap over many lines, "solo · orchestrated",
       no warning when two different tasks are compared.
-- [ ] **Map** — "lead lead", "stopped … stopped", no links between agents.
-      **Left:** "lead lead" and repeated status fixed; links between agents not drawn.
+- [x] **Map** — "lead lead", "stopped … stopped", no links between agents.
+      Links between agents drawn (2026-10-09), weighted by messages; the map's colours now follow the theme.
 - [x] **Accessible names include the sleeping "z"** ("z lead stopped …") from the pixel face.
 - [x] **legacy.css uses the amber accent as text** (~1.9:1, `legacy.css:121,174`); `.pill`/`.dot` duplicate
       `Badge`/`Dot`.
@@ -201,13 +203,14 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Settings navigation** — 14 flat sections in an odd order; group into Setup (Models, Team & budget,
       Reviewer), Agents (Specialists, Instructions, Memory, Skills), Extend (Tools, Plugins, Hooks, Schedules),
       You (General, You & mascot, Devices); at 960 wide the nav and app sidebar leave ~400px.
-- [ ] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
-      select for hundreds of models → ModelPicker.
+- [x] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
+      select for hundreds of models → ModelPicker. (Default tools kept on, decided 2026-10-09.)
       **Left:** validation and ModelPicker done; the default tool set is unchanged, see [decide].
 - [x] **Providers page** — jargon ("omp's provider stack in-process", models.dev), a raw folder path, 80 sign-ins,
       "Sign in again" but no Sign out; Devices offers "Pair a device" on a local-only install; the Hooks "run as
       you, outside the sandbox" warning is plain small text.
-- [ ] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
+- [x] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
+      (Kept on, decided 2026-10-09.)
       **Left:** descriptions clamped and paths moved to tooltips; which skills are on by default is a [decide] item below.
 
 ### F — First run, loading & errors (`App.tsx`, `chat/Hero.tsx`, `api.ts`, `DeviceGate.tsx`, `chat/FolderPicker.tsx`)
@@ -233,9 +236,9 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **The Files panel opens on every chat, even "No files yet"** (~440px) — open it when there is content.
 - [x] **Rail of 10 unlabeled icons with "99+" badges**; Terminal does nothing without a project and doesn't say
       why; the rail doesn't scroll at 600px tall; Team tab has no empty state.
-- [ ] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
-      **Left:** message search done; undo after deleting a chat skipped (delete removes the folder at once; undo needs a pending-delete state).
-- [ ] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles.
+- [x] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
+      Undo after deleting a chat done (2026-10-09): 8s Undo toast or ⌘Z; nothing is deleted until it lapses.
+- [x] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles. (Done as 12b.)
       **Left:** not done: short titles need a model call (cost), see [decide].
 - [x] **Unexplained sidebar numbers** (5, 2, 3).
 - [x] **Dead mobile code** contradicts the 960px minimum (`App.tsx:559-583`, Sidebar `md:` variants).
@@ -253,30 +256,44 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 ### Follow-ups found while fixing
 
-- [ ] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
-- [ ] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
-- [ ] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
+- [x] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
+- [x] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
+- [x] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
       replay bar shows the raw `checkpoint/restored` event type.
-- [ ] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
+- [x] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
       the crew console was not exercised by hand.
-- [ ] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
-- [ ] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
+- [x] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
+- [x] Mail panel shows a sender's name in their agent colour on the light surface (`Workspace.tsx`), as low as 1.9:1.
+      Name in ink now, the colour on a dot beside it.
+- [x] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip). Done.
+- [ ] Teams file consent card (native OneDrive upload in personal chats); Matrix end-to-end encryption needs
+      `@matrix-org/matrix-sdk-crypto-nodejs` (native) — a new dependency, ask first.
+- [x] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
       can't match queries under 3 characters).
 
 ### [decide] Product calls
 
-- [ ] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
-      default?
-- [ ] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap?
-- [ ] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok?
-- [ ] **"Approve all for this chat"** on approval cards (7 approvals for one small fix).
-- [ ] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
+- [x] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
+      default? **Decided 2026-10-09: Ask first.**
+- [x] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap? **Decided
+      2026-10-09: $5 per run.** Done; the cap now counts only the run (it compared the chat's running totals before).
+      Settings saved before keep their stored 0 = no limit (a migration would change that).
+- [x] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok? **Decided
+      2026-10-09: keep as is.**
+- [x] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
+      per chat, per kind of step, shown as a chip that can be revoked.** Done for file changes and commands; channels
+      have no button for it yet.
+- [x] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
-      files.
-- [ ] Merge Crews (ColonyScreen) into the chat Workspace so there is one console.
-- [ ] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
-- [ ] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on?
-- [ ] Short generated chat titles (one cheap model call per new chat)?
+      files. Done 2026-10-09 on Electrobun 2.0.2 (apps/desktop, docs/desktop.md; `bun run desktop`). Left: real
+      menu clicks/⌘ keys untested, voice calls in WKWebView and in the compiled server untested, code signing, app icon,
+      a server left running if the app crashes, notification clicks can't open their chat.
+- [x] Merge Crews (ColonyScreen) into the chat Workspace so there is one console. **Decided 2026-10-09: keep both.**
+- [x] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
+      **Decided 2026-10-09: keep everything on.**
+- [x] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on? **Decided
+      2026-10-09: keep on.**
+- [x] Short generated chat titles (one cheap model call per new chat)? Done as 12b; cheap model decided above.
 
 ## Next
 
@@ -386,11 +403,17 @@ Open work, in the order it will be done:
         once; Silero VAD (16 kHz, 1.3 MB) finds turns instead of loudness alone (asked 2026-10-08).
       - [x] Call the lead or a crew member directly, or the call assistant (which can now ask them); the next message
         after a call carries its transcript to the crew; call cards placed among rounds by time (asked 2026-10-08).
-      - [ ] Mark spoken messages in the chat (they carry `voice: true`).
-      - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
-      - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
-      - [ ] Phonon `--hotwords` from agent and project names.
-      - [ ] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode.
+      - [x] Mark spoken messages in the chat (they carry `voice: true`). Already shown ("Said on a call"); tests added.
+      - [x] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does. Done 2026-10-09 with fakes
+        (docs/voice.md "Phone calls"). Left: try a real call (needs the SMS number, a public https URL); the stream
+        handshake signature URL is unverified; switching off does not restore the number's old webhook; no lead/crew
+        choice by phone.
+      - [x] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner. Live words
+        in the call bar; final 25–180 ms sooner. Replying from a partial was not done (partials miss hotwords).
+      - [x] Phonon `--hotwords` from agent and project names (per request; `--hotwords` is not a server flag).
+      - [x] Phonon servers left running by earlier runs (8 found) are stopped before a new one starts.
+      - [x] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode. **Not now
+        (decided 2026-10-09).**
 12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
       is about (Open WebUI's task-model pattern); "hi" has nothing to name, so it tries again after rounds 2 and 3.
       Names given by the person, a channel or a schedule are kept (`chat/renamed` now says `by: 'auto'` for ours).
@@ -403,21 +426,49 @@ Open work, in the order it will be done:
       only picks models it can call. A photo without a caption failed with "message is empty": files alone are now a
       message. Stickers: a still one comes as its WebP image with its emoji, an animated one as its emoji.
       Not yet checked against the real Telegram (needs a message sent to the bot).
-12e. - [ ] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
+12e. - [x] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
       "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
       passes alone.
       Also channels-feishu "check() names the bot…" once (Feishu refused this App ID…) in a full run; passes alone.
-12f. - [ ] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
-      drops as they read a conversation and rises when new messages arrive.
-12g. - [ ] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
+      Fixed 2026-10-09: fakes listened on both IPv4 and IPv6 while adapters dialled 127.0.0.1, so a port Chrome held
+      on 127.0.0.1 could answer instead; fakes now bind 127.0.0.1, and tests wait for what they check. 7,680 loaded
+      runs clean. Left: voice-call "approvals one at a time" hung once under heavy load (passes 78/78 alone).
+12f. - [x] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
+      drops as they read a conversation and rises when new messages arrive. Done: last seq seen per conversation, kept
+      in the browser; checked live (99+ → 21 after opening two conversations).
+12h. - [x] **No process outlives Myrmidon** (asked 2026-10-09: "we should not have such issues") — 8 Phonon servers and
+      6 Chromes were found orphaned. Done: a leash (own process group, stops the tree when Myrmidon's pipe closes) for
+      Phonon, agents' dev servers, Chrome (watched by pid: puppeteer's pipe mode crashed Bun on macOS, EXC_GUARD) and
+      the desktop app's server; Kitten already exits on EOF; terminal shells get SIGHUP. SIGKILL tests for each.
+      Left: Linux not run; MCP servers that ignore stdin EOF would leak (none seen).
+      - [x] The Kitten worker likely fails in the packaged desktop app (it runs kitten-worker.ts, not on disk in
+        the compiled sidecar) — check and bundle it. Worse: voice on crashed the packaged server, and onnxruntime's
+        library and the warm-up clip were missing too. Fixed and checked in a compiled build.
+      - [ ] Kitten's model download has no timeout: a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
+12i. - [x] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
+      "Run setup again" in Settings → General. Done. Not checked live: the mic level meter, the local voice download,
+      sending a starter prompt, notification bodies, the hand-off animation in a normal window.
+12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
+12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
+12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
-      status dot in the app.
-13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
-      2026-10-07-native-ui).
-14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
-      fetching in omp to close rebinding (69456b5 notes).
-15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
-      through their endpoints (the browser pane was hidden).
+      status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
+      elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
+      Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
+13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
+      2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
+      calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
+      Reveal in Finder (needs the desktop shell).
+14. - [x] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
+      fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
+      Done 2026-10-09 (web_fetch and the browser). Left: the shell can still reach private addresses (sandbox limits
+      writes only); the shared Chrome lets every open run's own ports through for WebSockets and service workers;
+      web_fetch lost omp's lynx/trafilatura/yt-dlp readers (YouTube transcripts through it no longer work).
+15. - [x] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet. Done 2026-10-09
+      on a throwaway project: Plugins renders (placeholder cut at narrow widths); rewind sheet, Rewind files, Undo rewind
+      and the Git panel refresh all work. Found and fixed on the way: the folder picker let a slow home listing replace
+      a typed path; proposed files weren't covered by "Allow all file changes"; a run interrupted by a restart left
+      its approval card with live buttons.
 16. - [ ] **M4.7 benchmarks** (deferred).
 
 Earlier items:
@@ -573,3 +624,17 @@ Earlier items:
       icon tiles and current values, fuzzy match with highlighted letters, commands that can't run now dimmed with
       the reason, and omp-style argument completion (/model lists models, /mode and /thinking their choices, current
       one checked); ↑↓ ↵ Tab Esc with a hint footer.
+
+## Project files (2026-10-09)
+
+- [x] **See, open and re-read a file an agent edits** — edits never showed: no step for `fs_edit`/`fs_write`, an
+      allowed edit shrank to one line with its diff gone, the Files view listed only published artifacts, nothing
+      could open a project file, and a rewound run hid its diff. Now: an "Edited calc.py" step (after it went
+      through) that expands to the change and opens the file; an allowed edit expands to what was allowed; Files
+      lists "Changed in <project>"; a viewer opens a file as it is now (`GET /api/projects/:id/file`, contained to
+      the folder, text only, 2 MB cap); a rewound run keeps View diff, with Open on each file.
+- [x] **File browser like VS Code's Explorer** (the person's ask) — an Explorer view in project chats: the folder as
+      a tree, one level loaded per folder opened (`GET /api/projects/:id/tree`), git status letters, folders with
+      changes tinted, ignored entries dimmed, files the crew changed in this chat ringed, a name filter across the
+      folder (`/find`, skipping what git ignores), arrow keys as in an editor, files open in the viewer. Refreshes on
+      a rewind or commit and when the crew changes a file.

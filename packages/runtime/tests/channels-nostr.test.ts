@@ -18,6 +18,7 @@ function relay(options: { refuse?: boolean } = {}) {
     (!f['#p'] || e.tags.some((t) => t[0] === 'p' && f['#p']?.includes(t[1] ?? ''))) &&
     (f.since === undefined || e.created_at >= f.since)
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     fetch: (req, srv) => (srv.upgrade(req) ? undefined : new Response('relay', { status: 400 })),
     websocket: {
@@ -167,7 +168,7 @@ test('a bad key is an error; relays that cannot be reached are retried', async (
   await a.start(first.handle)
   expect(first.statuses.at(-1)).toMatchObject({ state: 'error' })
 
-  const dead = Bun.serve({ port: 0, fetch: () => new Response('') })
+  const dead = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') })
   const url = `ws://127.0.0.1:${dead.port}`
   dead.stop(true)
   const b = new NostrAdapter({ privateKey: nsecEncode(bot), relays: url })

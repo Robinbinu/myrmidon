@@ -26,8 +26,10 @@ import type {
   ChannelAdapter,
   ChannelChat,
   ChannelField,
+  ChannelValues,
   Inbound,
   OutMessage,
+  PressNote,
   SentRef,
 } from './types.ts'
 
@@ -469,6 +471,64 @@ export class ChannelHub {
     await this._track(channel, adapter, { id: owner.dm, kind: 'dm' }, chatId, colonyId)
   }
 
+  /**
+   * A running channel's saved settings, secret ones too, for another feature of the same platform account (phone
+   * calls on the SMS channel's Twilio number); undefined while it is off or not set up.
+   */
+  account(id: string): ChannelValues | undefined {
+    return this._running.has(id) ? this.store.get(id).values : undefined
+  }
+
+  /**
+   * Whether someone calling from (or to be called at) `number` may talk to the crew, by the channel's own rules for a
+   * direct chat from that sender: approved people and listed ones (added as members) are, and anyone under `open`.
+   * A stranger under `pairing` is texted a code as a text would get, when `ask`. Returns the person, the chat their
+   * conversation continues and the channel's project; or why not.
+   */
+  async caller(
+    id: string,
+    number: string,
+    ask: boolean,
+  ): Promise<
+    | { person: ChannelPerson; chatId?: string; project?: string; label: string }
+    | { refused: 'pairing' | 'ignored' }
+  > {
+    const adapter = this._running.get(id)
+    const kind = this.options.kinds()[id]
+    if (!adapter || !kind) return { refused: 'ignored' }
+    const c = this.store.get(id)
+    const m: Inbound = {
+      messageId: '',
+      chat: { id: number, kind: 'dm' },
+      sender: { id: number, name: number, handle: number },
+      text: '',
+      mentioned: true,
+      time: new Date().toISOString(),
+    }
+    const known = c.people.some((p) => p.id === number) || this._listed(c, m) || c.dm === 'open'
+    if (!known && !ask) return { refused: 'ignored' }
+    const person = await this._admit(id, adapter, c, m)
+    if (!person) return { refused: c.dm === 'pairing' ? 'pairing' : 'ignored' }
+    this._touch(id, { lastIn: new Date().toISOString() })
+    this._note(id, 'in', t.activity.call(person.name))
+    const chatId = this.store.get(id).chats[this._conversation(c, m)]
+    return {
+      person,
+      label: kind.label,
+      ...(chatId ? { chatId } : {}),
+      ...(c.project ? { project: c.project } : {}),
+    }
+  }
+
+  /** A call from `number` made a new chat: that number's texts continue it too, and it is named as theirs would be. */
+  async callChat(id: string, number: string, chatId: string) {
+    const kind = this._kind(id)
+    this.store.update(id, (cfg) => {
+      cfg.chats[number] = chatId
+    })
+    await this.options.chats.rename(chatId, t.title(kind.label, number)).catch(() => {})
+  }
+
   /** A webhook for a channel, passed to its adapter (which checks the platform's signature). */
   async webhook(id: string, req: Request): Promise<Response> {
     const adapter = this._running.get(id)
@@ -749,7 +809,7 @@ export class ChannelHub {
     if (name === 'approve' || name === 'deny') {
       const [k, always] = arg.split(/\s+/)
       const decision = name === 'deny' ? 'd' : always === 'always' ? 'a' : 'o'
-      return this._decide(channel, person, k ?? '', decision, (note) => reply(note))
+      return this._decide(channel, person, k ?? '', decision, (note) => reply(note.text))
     }
     await reply(t.commands.unknown(name, p))
   }
@@ -757,7 +817,7 @@ export class ChannelHub {
   private async _press(channel: string, adapter: ChannelAdapter, person: ChannelPerson, m: Inbound) {
     const press = m.press
     if (!press) return
-    const ack = async (note?: string) => {
+    const ack = async (note?: PressNote) => {
       await adapter.answerPress?.(press, note).catch(() => {})
     }
     const [kind, a, b, c] = press.data.split(':')
@@ -765,11 +825,12 @@ export class ChannelHub {
     if (kind === 'q' && a && b !== undefined && c !== undefined) {
       const q = this._questions.get(a)
       const choice = q?.choices[Number(b)]
-      if (!q || !choice) return ack(t.approval.closed)
-      if (!this._mayAnswer(q, person)) return ack(t.question.notYours)
+      if (!q || !choice) return ack({ text: t.approval.closed })
+      if (!this._mayAnswer(q, person)) return ack({ text: t.question.notYours })
       const label = c === 's' ? t.question.skipped : choice.options[Number(c)]?.label
       if (!label) return ack()
-      await ack(t.question.pressNoted)
+      // The question's message shows the answer only where it can be edited.
+      await ack({ text: t.question.pressNoted, echo: adapter.can.edit })
       return this._answerQuestion(a, Number(b), label, person)
     }
     await ack()
@@ -781,11 +842,11 @@ export class ChannelHub {
     person: ChannelPerson,
     k: string,
     decision: 'o' | 'a' | 'd',
-    note: (text: string) => Promise<unknown>,
+    note: (note: PressNote) => Promise<unknown>,
   ) {
     const open = this._approvals.get(k)
-    if (!open || open.channel !== channel) return void (await note(t.approval.closed))
-    if (person.role !== 'owner') return void (await note(t.approval.onlyOwner))
+    if (!open || open.channel !== channel) return void (await note({ text: t.approval.closed }))
+    if (person.role !== 'owner') return void (await note({ text: t.approval.onlyOwner }))
     this._approvals.delete(k)
     const approved = decision !== 'd'
     const always = decision === 'a' && !open.member
@@ -793,7 +854,7 @@ export class ChannelHub {
       if (always) await this.options.chats.allowAlways(open.tool)
       await this.options.chats.decideApproval(open.colonyId, open.id, approved)
     } catch {
-      return void (await note(t.approval.gone))
+      return void (await note({ text: t.approval.gone }))
     }
     const outcome = always
       ? t.approval.allowedAlways(person.name, open.tool)
@@ -802,7 +863,8 @@ export class ChannelHub {
         : t.approval.denied(person.name)
     for (const msg of open.messages)
       await this._settle(msg.adapter, msg.ref, msg.to, `${open.text}\n\n${outcome}`, outcome)
-    await note(approved ? t.approval.pressAllowed : t.approval.pressDenied)
+    // Each of its messages now says how it ended: edited, or followed by a new one where it cannot be.
+    await note({ text: approved ? t.approval.pressAllowed : t.approval.pressDenied, echo: true })
   }
 
   /** In a group, a question is the asker's (or the owner's) to answer, not anyone's who is approved. */

@@ -2,7 +2,7 @@ import type { PluginToolDefinition } from '../plugin-host.ts'
 import { prompts } from '../prompts.ts'
 import { channelCopy } from './copy.ts'
 import { DingTalkAdapter } from './dingtalk.ts'
-import { DiscordAdapter } from './discord.ts'
+import { DISCORD_API, DiscordAdapter } from './discord.ts'
 import { EmailAdapter } from './email.ts'
 import { FEISHU_API, FeishuAdapter, LARK_API } from './feishu.ts'
 import { GoogleChatAdapter } from './googlechat.ts'
@@ -19,7 +19,7 @@ import { NTFY_SERVER, NtfyAdapter } from './ntfy.ts'
 import { QQAdapter } from './qq.ts'
 import { SignalAdapter } from './signal.ts'
 import { SIMPLEX_URL, SimplexAdapter } from './simplex.ts'
-import { SlackAdapter } from './slack.ts'
+import { SLACK_API, SlackAdapter } from './slack.ts'
 import { SmsAdapter, TWILIO_API } from './sms.ts'
 import { SynologyChatAdapter } from './synology-chat.ts'
 import { TELEGRAM_API, TelegramAdapter } from './telegram.ts'
@@ -258,8 +258,17 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
     label: 'Discord',
     allow: { pattern: /^(\d{15,21}|@?[a-z0-9_.]{2,32})$/i, example: allowExample.discord },
     setup: channelCopy.setup.discord,
-    fields: [{ key: 'token', label: 'Bot token', secret: true, placeholder: 'MTA…' }],
-    make: (values) => new DiscordAdapter(values.token ?? ''),
+    fields: [
+      { key: 'token', label: 'Bot token', secret: true, placeholder: 'MTA…' },
+      {
+        key: 'publicKey',
+        label: 'Public key',
+        placeholder: '64 hexadecimal characters',
+        hint: channelCopy.fields.discordPublicKey,
+        optional: true,
+      },
+    ],
+    make: (values) => new DiscordAdapter(values.token ?? '', DISCORD_API, values.publicKey ?? ''),
   },
   slack: {
     label: 'Slack',
@@ -278,9 +287,18 @@ export const BUILT_IN_CHANNELS: Readonly<Record<string, ChannelKind>> = {
         secret: true,
         placeholder: 'xapp-…',
         hint: channelCopy.fields.slackApp,
+        optional: true,
+      },
+      {
+        key: 'signingSecret',
+        label: 'Signing secret',
+        secret: true,
+        hint: channelCopy.fields.slackSigning,
+        optional: true,
       },
     ],
-    make: (values) => new SlackAdapter(values.botToken ?? '', values.appToken ?? ''),
+    make: (values) =>
+      new SlackAdapter(values.botToken ?? '', values.appToken ?? '', SLACK_API, values.signingSecret ?? ''),
   },
   'synology-chat': {
     label: 'Synology Chat',

@@ -268,6 +268,7 @@ const defs: EventTypeDefinition[] = [
         }),
       ),
       key: Schema.string(),
+      grant: optional(Schema.union(['file', 'command'])),
     }),
   },
   {
@@ -423,6 +424,12 @@ const defs: EventTypeDefinition[] = [
     actors: ['user', 'system'],
     // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
     schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
+  {
+    type: 'chat/allowed',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({ grants: Schema.array(oneOf('file', 'command')).default([]) }),
   },
   {
     type: 'colony/escalated',

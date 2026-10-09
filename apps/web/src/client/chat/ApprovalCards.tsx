@@ -1,5 +1,5 @@
-import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, PencilLine, X } from 'lucide-react'
+import type { ChatGrant, ColonyState, Review, ReviewField } from '@myrmidon/protocol'
+import { BookmarkPlus, Check, ChevronDown, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -9,6 +9,7 @@ import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { spring } from '../ui-config.ts'
 import { Markdown } from './Markdown.tsx'
+import { useOpenProjectFile } from './ProjectFiles.tsx'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
@@ -27,11 +28,20 @@ import type { Pending } from './approvals.ts'
  * there is a change to show, with Approve or Deny; text fields can be rewritten first and what runs is the person's
  * version. Once decided it stays as one line saying what was decided.
  */
-export function Approval({ colonyId, request }: { colonyId: string; request: Pending }) {
+export function Approval({
+  colonyId,
+  chatId,
+  request,
+}: {
+  colonyId: string
+  /** The chat the round belongs to: where "Allow all … in this chat" applies. */
+  chatId?: string | undefined
+  request: Pending
+}) {
   return request.decided ? (
     <ApprovalRecord request={request} decided={request.decided} />
   ) : (
-    <ApprovalCard colonyId={colonyId} request={request} />
+    <ApprovalCard colonyId={colonyId} chatId={chatId} request={request} />
   )
 }
 
@@ -43,7 +53,11 @@ function ApprovalRecord({
   decided: NonNullable<Pending['decided']>
 }) {
   const t = copy.approvals.decided
+  const openFile = useOpenProjectFile()
+  const [open, setOpen] = useState(false)
   const what = a.review?.title ?? a.summary
+  // An allowed file change can still be opened: what it changed, and the file itself.
+  const file = decided.approved && a.review?.kind === 'file' ? a.review.fields[0]?.label : undefined
   const line = decided.approved
     ? decided.edits && Object.keys(decided.edits).length
       ? t.approvedEdited(what)
@@ -53,35 +67,86 @@ function ApprovalRecord({
       : decided.by === 'stopped'
         ? t.stopped(what)
         : t.denied(what)
+  const text = (
+    <>
+      {line}
+      {decided.note && <span className="text-fg-2"> · {decided.note}</span>}
+    </>
+  )
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={spring}
-      className="flex min-w-0 items-center gap-1.5 pl-11 text-callout text-muted"
+      className="flex flex-col gap-1.5 pl-11"
     >
-      {decided.approved ? (
-        <Check className="size-3.5 shrink-0 text-ok-ink" />
-      ) : (
-        <X className="size-3.5 shrink-0 text-bad-ink" />
+      <div className="flex min-w-0 items-center gap-1.5 text-callout text-muted">
+        {decided.approved ? (
+          <Check className="size-3.5 shrink-0 text-ok-ink" />
+        ) : (
+          <X className="size-3.5 shrink-0 text-bad-ink" />
+        )}
+        {a.review ? (
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            title={decided.note ? t.withNote(line, decided.note) : line}
+            className="flex min-w-0 items-center gap-1 rounded-md text-left transition-colors hover:text-fg-2"
+          >
+            <span className="min-w-0 truncate">{text}</span>
+            <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', !open && '-rotate-90')} />
+          </button>
+        ) : (
+          <span className="min-w-0 truncate" title={decided.note ? t.withNote(line, decided.note) : line}>
+            {text}
+          </span>
+        )}
+        {file && openFile && (
+          <button
+            type="button"
+            onClick={() => openFile(file)}
+            title={copy.projectFile.open(file)}
+            aria-label={copy.projectFile.open(file)}
+            className="grid size-5 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg"
+          >
+            <FEATURE_ICONS.projectFile className="size-3.5" />
+          </button>
+        )}
+      </div>
+      {open && a.review && (
+        <div className="flex flex-col gap-2">
+          {a.review.fields.map((f) => (
+            <div key={f.key} className="overflow-hidden rounded-xl border border-line bg-surface">
+              <div className="border-b border-line px-3 py-1.5 font-mono text-small text-fg-2">{f.label}</div>
+              <FieldView field={f} value={decided.edits?.[f.key] ?? f.value} />
+            </div>
+          ))}
+        </div>
       )}
-      <span className="min-w-0 truncate" title={decided.note ? t.withNote(line, decided.note) : line}>
-        {line}
-        {decided.note && <span className="text-fg-2"> · {decided.note}</span>}
-      </span>
     </motion.div>
   )
 }
 
-function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pending }) {
+function ApprovalCard({
+  colonyId,
+  chatId,
+  request: a,
+}: {
+  colonyId: string
+  chatId?: string | undefined
+  request: Pending
+}) {
   const toast = useToast()
+  const grants = copy.approvals.grants
   const [busy, setBusy] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const changed = Object.entries(edits).filter(
     ([key, value]) => a.review?.fields.find((f) => f.key === key)?.value !== value,
   )
-  const decide = async (approved: boolean) => {
+  // `all`: this step as the person left it (their edits and note), then every later one of its kind in the chat.
+  const decide = async (approved: boolean, all = false) => {
     setBusy(true)
     try {
       await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
@@ -89,6 +154,10 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
       })
+      if (all && a.grant && chatId) {
+        await send('PUT', `/api/chats/${chatId}/allowed`, { grant: a.grant, allowed: true })
+        toast(grants.allowed(grants.kinds[a.grant]), 'success')
+      }
     } catch (err) {
       toast(String((err as Error).message), 'error')
       setBusy(false)
@@ -147,6 +216,16 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         >
           {copy.approvals.approval.deny}
         </Button>
+        {a.grant && chatId && (
+          <Button
+            variant="push"
+            disabled={busy}
+            onClick={() => void decide(true, true)}
+            icon={<FEATURE_ICONS.chatGrants className="size-3.5" />}
+          >
+            {grants.approveAll[a.grant]}
+          </Button>
+        )}
         <Button
           variant="primary"
           disabled={busy}
@@ -249,7 +328,7 @@ function patchLines(patch: string): DiffLine[] {
 }
 
 /** Changed lines with a little context; long unchanged stretches fold to a count. */
-function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
+export function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
   const near = (i: number) =>
     lines.slice(Math.max(0, i - 3), i + 4).some((l) => l.kind !== 'same') || lines.length <= 12
   if (!lines.some((l) => l.kind !== 'same'))
@@ -293,6 +372,42 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
       )}
     </div>
   )
+}
+
+/**
+ * What the person allowed for the rest of a chat from its approval cards, as chips beside the message box; removing
+ * one makes that kind of step ask again from the next one.
+ */
+export function ChatGrantChips(props: { chatId: string; grants: readonly ChatGrant[]; onChanged(): void }) {
+  const toast = useToast()
+  const t = copy.approvals.grants
+  const revoke = async (grant: ChatGrant) => {
+    try {
+      await send('PUT', `/api/chats/${props.chatId}/allowed`, { grant, allowed: false })
+      toast(t.revoked(t.kinds[grant]), 'info')
+      props.onChanged()
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+  return props.grants.map((grant) => (
+    <span
+      key={grant}
+      title={t.chipTitle(t.kinds[grant])}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl pr-1 pl-2 text-callout font-medium text-muted"
+    >
+      <FEATURE_ICONS.chatGrants className="size-3.5 shrink-0 text-ok-ink" />
+      <span className="truncate">{t.chip(t.kinds[grant])}</span>
+      <button
+        type="button"
+        onClick={() => void revoke(grant)}
+        aria-label={t.revoke(t.kinds[grant])}
+        className="inline-flex size-5 items-center justify-center rounded-md transition-colors hover:bg-fill hover:text-fg"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  ))
 }
 
 /**

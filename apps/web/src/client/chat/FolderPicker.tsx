@@ -1,9 +1,10 @@
 import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { api, type Project, send } from '../api.ts'
+import { useEffect, useRef, useState } from 'react'
+import { activeGateway, api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
-import { Modal } from '../ui/Modal.tsx'
+import { desktop } from '../ui/desktop.ts'
 import { Button, TextInput } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
@@ -15,32 +16,58 @@ interface Listing {
 
 /**
  * Picks a project folder on this machine. The browser cannot open a native folder dialog, so the server lists
- * folders and the person walks to the one they want (or types its path).
+ * folders and the person walks to the one they want (or types its path). The desktop app opens the native dialog
+ * instead, while the window shows this machine's Myrmidon (another gateway's folders are on another machine).
  */
-export function FolderPicker(props: { onClose(): void; onAdded(project: Project, all: Project[]): void }) {
+export function FolderPicker(props: {
+  onClose(): void
+  /** `isGit`: the folder is a git repository (the setup assistant picks its permissions from that). */
+  onAdded(project: Project, all: Project[], isGit: boolean): void
+}) {
   const toast = useToast()
+  const [native] = useState(() => (activeGateway() ? undefined : desktop()))
   const [listing, setListing] = useState<Listing>()
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
+  // Only the latest request shows: the home folder's listing, slow to come, must not replace a path typed meanwhile.
+  const latest = useRef(0)
 
-  const open = (path: string) =>
-    api<Listing>(`/api/folders?path=${encodeURIComponent(path)}`)
+  const open = (path: string) => {
+    const ask = ++latest.current
+    return api<Listing>(`/api/folders?path=${encodeURIComponent(path)}`)
       .then((l) => {
+        if (ask !== latest.current) return
         setListing(l)
         setTyped(l.path)
       })
-      .catch((err) => toast(String((err as Error).message), 'error'))
+      .catch((err) => {
+        if (ask === latest.current) toast(String((err as Error).message), 'error')
+      })
+  }
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: start in the home folder once
+  // biome-ignore lint/correctness/useExhaustiveDependencies: start in the home folder (or the native dialog) once
   useEffect(() => {
-    void open('~')
+    if (!native) return void open('~')
+    native
+      .pickFolder()
+      .then((path) => (path ? add(path).then(props.onClose) : props.onClose()))
+      .catch((err) => {
+        toast(String((err as Error).message), 'error')
+        props.onClose()
+      })
   }, [])
 
   const add = async (path: string) => {
     setBusy(true)
     try {
-      const r = await send<{ project: Project; projects: Project[] }>('POST', '/api/projects', { path })
-      props.onAdded(r.project, r.projects)
+      const r = await send<{ project: Project; projects: Project[]; isGit?: boolean }>(
+        'POST',
+        '/api/projects',
+        {
+          path,
+        },
+      )
+      props.onAdded(r.project, r.projects, r.isGit === true)
     } catch (err) {
       toast(String((err as Error).message), 'error')
     } finally {
@@ -48,8 +75,9 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
     }
   }
 
+  if (native) return null
   return (
-    <Modal
+    <Sheet
       title={copy.folderPicker.title}
       onClose={props.onClose}
       size="md"
@@ -112,7 +140,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
           )}
         </div>
       </div>
-    </Modal>
+    </Sheet>
   )
 }
 
@@ -129,7 +157,7 @@ export function ProjectPill(props: {
   onAdd?(): void
 }) {
   const pill =
-    'inline-flex h-8 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-xl px-2 text-callout font-medium text-muted'
+    'inline-flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-md px-2 text-body text-muted'
   if (props.fixed) {
     const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
     return (

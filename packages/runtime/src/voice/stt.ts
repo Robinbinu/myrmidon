@@ -2,16 +2,33 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
+import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
+import { type LiveTranscription, PhononStream } from './phonon-stream.ts'
+/**
+ * "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. Imported as a file so a
+ * compiled Myrmidon, which has no source tree beside it, carries it.
+ */
+import WARM_CLIP from './warm-speech.wav' with { type: 'file' }
 
-/** "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. */
-const WARM_CLIP = join(import.meta.dir, 'warm-speech.wav')
+export interface TranscribeOptions {
+  readonly signal?: AbortSignal
+  /** Names to favour (a call's crew and project), for an engine that takes them; others ignore them. */
+  readonly hotwords?: readonly string[]
+}
 
 /** Speech to text for a call: one finished turn of 16-bit mono audio in, its words out. */
 export interface SpeechToText {
-  transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string>
+  transcribe(pcm: Int16Array, sampleRate: number, options?: TranscribeOptions): Promise<string>
   /** A whole recording as it came (a channel's voice note: OGG/Opus, MP3, M4A…), when the engine reads it as is. */
   transcribeFile?(audio: Uint8Array, mimeType: string, name: string): Promise<string>
+  /**
+   * A turn's words as it is spoken, for an engine that streams; undefined when it cannot now (the turn is then only
+   * transcribed once it has ended, as without this).
+   */
+  listen?(sampleRate: number, heard: (text: string) => void): LiveTranscription | undefined
+  /** Readies the engine for these hotwords, so the first turn that uses them does not pay for it. */
+  prepare?(hotwords: readonly string[]): Promise<void>
 }
 
 /** An OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, a local whisper server, Phonon's own). */
@@ -24,11 +41,13 @@ export class OpenAiCompatibleStt implements SpeechToText {
       readonly apiKey?: string
       /** A Unix socket to reach the endpoint through (Phonon's server listens on one). */
       readonly unix?: string
+      /** The endpoint takes a `hotwords` field (Phonon-2's server does; OpenAI's would refuse it). */
+      readonly hotwords?: boolean
     },
   ) {}
 
-  transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
-    return this._post(wav(pcm, sampleRate), 'audio/wav', 'turn.wav', signal)
+  transcribe(pcm: Int16Array, sampleRate: number, options: TranscribeOptions = {}): Promise<string> {
+    return this._post(wav(pcm, sampleRate), 'audio/wav', 'turn.wav', options)
   }
 
   transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string> {
@@ -39,12 +58,14 @@ export class OpenAiCompatibleStt implements SpeechToText {
     audio: Uint8Array,
     mimeType: string,
     name: string,
-    signal?: AbortSignal,
+    { signal, hotwords }: TranscribeOptions = {},
   ): Promise<string> {
     const form = new FormData()
     form.append('file', new Blob([audio as Uint8Array<ArrayBuffer>], { type: mimeType }), name)
     form.append('model', this.options.model)
     form.append('response_format', 'json')
+    // A JSON list, which Phonon reads as one term per item, so a name with a comma in it stays one name.
+    if (this.options.hotwords && hotwords?.length) form.append('hotwords', JSON.stringify(hotwords))
     const res = await fetch(`${this.options.baseUrl.replace(/\/+$/, '')}/audio/transcriptions`, {
       method: 'POST',
       body: form,
@@ -144,8 +165,27 @@ export class PhononStt implements SpeechToText {
     this._state = { state: 'ready' }
   }
 
-  async transcribe(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
-    return (await this.start()).transcribe(pcm, sampleRate, signal)
+  async transcribe(pcm: Int16Array, sampleRate: number, options?: TranscribeOptions): Promise<string> {
+    return (await this.start()).transcribe(pcm, sampleRate, options)
+  }
+
+  /**
+   * Phonon's live stream for a turn, once the server is up (a turn does not wait on it starting). It takes 16 kHz only,
+   * and one stream at a time: a second call's turn gets no live words, only its transcript.
+   */
+  listen(sampleRate: number, heard: (text: string) => void): LiveTranscription | undefined {
+    if (this._state.state !== 'running' || sampleRate !== 16_000) return undefined
+    return new PhononStream(this._socket, sampleRate, heard, this.log)
+  }
+
+  /**
+   * Transcribes the warm-up clip with these hotwords: Phonon builds what a set needs the first time it is used
+   * (measured: 0.2 s to 1.5 s more on that turn), and a call's set is new to it.
+   */
+  async prepare(hotwords: readonly string[]): Promise<void> {
+    if (!hotwords.length) return
+    const { pcm, sampleRate } = parseWav(new Uint8Array(readFileSync(WARM_CLIP)))
+    await this.transcribe(pcm, sampleRate, { hotwords })
   }
 
   /** Phonon-2's server reads WAV, FLAC, OGG (Opus, as Telegram sends voice notes) and AIFF as they are. */
@@ -191,9 +231,12 @@ export class PhononStt implements SpeechToText {
     const fermion = this._binary()
     if (!fermion) throw new Error('Phonon-2 is not installed: install it in Settings → Voice')
     mkdirSync(join(this._dir, 'fermion'), { recursive: true, mode: 0o700 })
+    // The server is leashed, so it stops when Myrmidon does however Myrmidon ends; one left by an older Myrmidon would
+    // still hold its socket and the model in memory, so it is stopped first.
+    await stopLeftovers(this._socket)
     rmSync(this._socket, { force: true })
     this._state = { state: 'starting' }
-    const proc = Bun.spawn([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
+    const proc = spawnLeashed([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
       env: { ...process.env, FERMION_CACHE_DIR: join(this._dir, 'fermion') },
       stdout: 'pipe',
       stderr: 'pipe',
@@ -222,6 +265,7 @@ export class PhononStt implements SpeechToText {
       baseUrl: 'http://phonon/v1',
       model: 'phonon-2',
       unix: this._socket,
+      hotwords: true,
     })
     const deadline = Date.now() + VOICE_PHONON_START_MS
     while (Date.now() < deadline) {
@@ -261,6 +305,47 @@ function socketPath(wanted: string): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   chmodSync(dir, 0o700)
   return join(dir, 'phonon.sock')
+}
+
+/**
+ * Stops Phonon servers still serving `socket` from an earlier run of Myrmidon. The socket sits in this home's private
+ * voice folder, so any server on it is ours; it is asked to stop, then killed if it has not after a moment.
+ */
+export async function stopLeftovers(socket: string, waitMs = 2000): Promise<number[]> {
+  const ps = Bun.spawnSync(['ps', '-Ao', 'pid=,command='], { stdout: 'pipe', stderr: 'ignore' })
+  const pids = new TextDecoder()
+    .decode(ps.stdout)
+    .split('\n')
+    .flatMap((line) => {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(line)
+      if (!m?.[1] || !m[2]) return []
+      const pid = Number(m[1])
+      const words = m[2].split(/\s+/)
+      const at = words.indexOf('--unix-socket')
+      const serving = words.includes('serve') && words.includes('phonon-2') && words[at + 1] === socket
+      return serving && at >= 0 && pid !== process.pid ? [pid] : []
+    })
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  // It may exit on its own between the listing and the signal; that is the outcome wanted.
+  const signal = (pid: number, sig: NodeJS.Signals) => {
+    try {
+      process.kill(pid, sig)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err
+    }
+  }
+  for (const pid of pids) signal(pid, 'SIGTERM')
+  const deadline = Date.now() + waitMs
+  while (pids.some(alive) && Date.now() < deadline) await Bun.sleep(50)
+  for (const pid of pids.filter(alive)) signal(pid, 'SIGKILL')
+  return pids
 }
 
 /** The lines of a byte stream, as they arrive. */

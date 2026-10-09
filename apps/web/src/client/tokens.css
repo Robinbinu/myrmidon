@@ -56,7 +56,8 @@
   --work: #ffb31a;
   --work-ink: #8a5a00;
   --idle: #aeaeb2;
-  --edge: #c7c7cc;
+  /* Crew map links: 3:1 on the window, as WCAG asks of lines that carry meaning. */
+  --edge: #86868b;
   --code-bg: #f5f5f7;
   --add: #e6f6ec;
   --del: #fdecec;
@@ -117,14 +118,6 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 120ms;
   --med: 200ms;
-  /* Older names, kept until every screen uses the ones above. */
-  --bg: var(--window);
-  --surface: var(--content);
-  --border: var(--separator);
-  --border-strong: var(--separator-strong);
-  --text: var(--label);
-  --text-2: var(--label-2);
-  --muted: var(--label-3);
   color-scheme: light;
 }
 
@@ -171,7 +164,7 @@
     --bad-ink: #ff6369;
     --work-ink: #ffb31a;
     --idle: #5c5c66;
-    --edge: #3a3a42;
+    --edge: #6e6e78;
     --code-bg: #0c0c0f;
     --add: #0f2a1d;
     --del: #351719;

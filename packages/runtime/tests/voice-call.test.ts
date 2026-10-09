@@ -5,6 +5,7 @@ import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/moc
 import { ModelResolver } from '../src/models.ts'
 import {
   type CallChats,
+  type CallOptions,
   type CallOutput,
   CallSession,
   splitSentences,
@@ -12,7 +13,8 @@ import {
 } from '../src/voice/call.ts'
 import type { TurnJudge } from '../src/voice/smart-turn.ts'
 import { speakable } from '../src/voice/speech.ts'
-import type { SpeechDetector } from '../src/voice/vad.ts'
+import type { SpeechToText } from '../src/voice/stt.ts'
+import { type SpeechDetector, VAD_CHUNK } from '../src/voice/vad.ts'
 
 const RATE = 16_000
 const until = async (check: () => boolean, ms = 3000) => {
@@ -742,5 +744,92 @@ test('a reply cut off mid-stream does not leave a direct call silent', async () 
   await until(() => said().some((t) => t.includes('all green.')))
   events('c', [{ type: 'approval/requested', payload: { id: 'a1', tool: 'shell', summary: 'rm x' } }])
   await until(() => said().some((t) => t.includes('wants approval')))
+  call.hangUp()
+})
+
+/** A call to the assistant with the speech to text given, the rest instant and quiet. */
+function bareCall(stt: SpeechToText, extra: Partial<CallOptions> = {}) {
+  const out: CallOutput[] = []
+  const chats: CallChats = {
+    send: async () => ({ chatId: 'c', colonyId: 'x', started: true }),
+    onEvents: () => () => {},
+    decideApproval: async () => {},
+  }
+  const resolver = new ModelResolver()
+  const model = createMockModel({ handler: () => ({ content: ['Hi.'] }) })
+  resolver.register('mock/voice', { model: model.model, streamFn: model.stream })
+  const call = new CallSession(
+    { chats, resolver, stt, tts: { speak: async () => ({ pcm: new Int16Array(16), sampleRate: RATE }) } },
+    {
+      model: 'mock/voice',
+      name: 'Robin',
+      start: 0.5,
+      hold: 0.35,
+      threshold: 400,
+      sampleRate: RATE,
+      ...extra,
+    },
+    (o) => out.push(o),
+  )
+  const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
+  return { call, out, loud }
+}
+
+test("a call's speech to text favours its project's and crew's names, readied while the greeting plays", async () => {
+  const asked: (readonly string[] | undefined)[] = []
+  const prepared: (readonly string[])[] = []
+  const { call, out, loud } = bareCall(
+    {
+      transcribe: async (_pcm, _rate, options) => {
+        asked.push(options?.hotwords)
+        return 'ask Quillon'
+      },
+      prepare: async (hotwords) => {
+        prepared.push(hotwords)
+      },
+    },
+    { projectName: 'Orrery', crew: [{ name: 'Quillon' }, { name: 'Ada' }, { name: 'Quillon' }] },
+  )
+  await call.start()
+  expect(prepared).toEqual([['Orrery', 'Quillon', 'Ada']])
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => out.some((o) => o.type === 'heard'))
+  expect(asked).toEqual([['Orrery', 'Quillon', 'Ada']])
+  call.hangUp()
+})
+
+test('with an engine that streams, the turn is shown as it is heard and its stream stops when it ends', async () => {
+  const pushed: number[] = []
+  let closed = 0
+  let heard: ((text: string) => void) | undefined
+  const { call, out, loud } = bareCall({
+    transcribe: async (pcm) => {
+      // The whole turn is still transcribed: the stream only shows it on the way.
+      expect(pcm.length).toBe(pushed.reduce((a, b) => a + b, 0))
+      return 'check the build'
+    },
+    listen: (rate, onText) => {
+      expect(rate).toBe(RATE)
+      heard = onText
+      return {
+        push: (pcm) => pushed.push(pcm.length),
+        close: () => {
+          closed++
+        },
+      }
+    },
+  })
+  await call.start()
+  for (let i = 0; i < 25; i++) call.audio(loud)
+  await until(() => heard !== undefined && pushed.length > 1)
+  // It began with what came just before the turn started, so the first word is not lost.
+  expect(pushed[0]).toBeGreaterThan(VAD_CHUNK)
+  heard?.('check the')
+  expect(out.filter((o) => o.type === 'partial')).toEqual([{ type: 'partial', text: 'check the' }])
+  for (let i = 0; i < 50; i++) call.audio(new Int16Array(320))
+  await until(() => out.some((o) => o.type === 'heard'))
+  expect(closed).toBe(1)
+  expect(out.find((o) => o.type === 'heard')).toEqual({ type: 'heard', text: 'check the build' })
   call.hangUp()
 })

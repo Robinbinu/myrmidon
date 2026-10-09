@@ -1,6 +1,7 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { STICK_SLACK_PX, USER_SCROLL_MS } from '../ui-config.ts'
+import { DESKTOP_SHORTCUT_EVENT } from './desktop.ts'
 import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -35,6 +36,8 @@ export function useTheme(): [ThemeChoice, (t: ThemeChoice) => void] {
 
 /** Whether this browser should notify the person when a round finishes in the background. */
 export const NOTIFY_KEY = 'myr-notify'
+/** Whether the desktop app's Dock icon counts the chats waiting for the person (on unless turned off). */
+export const DOCK_BADGE_KEY = 'myr-dock-badge'
 
 export function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean) => void] {
   const [value, setValue] = useState(() => readStored(key, initial ? '1' : '0') === '1')
@@ -45,6 +48,90 @@ export function usePersistentFlag(key: string, initial: boolean): [boolean, (v: 
       store(key, v ? '1' : '0')
     },
   ]
+}
+
+/**
+ * How far the person has read each of a colony's mail conversations: the last message seq they saw, by conversation
+ * id. Kept in this browser; a conversation never opened here counts all its messages as unread.
+ */
+export function useSeenMail(
+  colonyId: string,
+): [Record<string, number>, (thread: string, seq: number) => void] {
+  const key = `myr-mail-seen:${colonyId}`
+  const [seen, setSeen] = useState<Record<string, number>>(() => readSeen(key))
+  useEffect(() => {
+    setSeen(readSeen(key))
+  }, [key])
+  const mark = useCallback(
+    (thread: string, seq: number) =>
+      setSeen((prev) => {
+        if ((prev[thread] ?? 0) >= seq) return prev
+        const next = { ...prev, [thread]: seq }
+        store(key, JSON.stringify(next))
+        return next
+      }),
+    [key],
+  )
+  return [seen, mark]
+}
+
+const CHATS_SEEN = 'myr-chat-seen'
+
+/**
+ * Which chats finished since the person last looked at them, as Codex and Claude Code mark them with a blue dot. Each
+ * chat's `updatedAt` when last open is kept in this browser; the chat open now is always seen. The first time, every
+ * chat already listed counts as seen, so an existing list does not light up all at once.
+ */
+export function useUnreadChats(
+  chats: readonly { chatId: string; updatedAt: string }[],
+  loaded: boolean,
+  open: string | undefined,
+): (chat: { chatId: string; updatedAt: string }) => boolean {
+  const [seen, setSeen] = useState<Record<string, string>>(() => readSeenChats() ?? {})
+  const openAt = chats.find((c) => c.chatId === open)?.updatedAt
+  // biome-ignore lint/correctness/useExhaustiveDependencies: seeded once, from the first list that loads
+  useEffect(() => {
+    if (!loaded || readSeenChats() !== undefined) return
+    const first = Object.fromEntries(chats.map((c) => [c.chatId, c.updatedAt]))
+    store(CHATS_SEEN, JSON.stringify(first))
+    setSeen(first)
+  }, [loaded])
+  useEffect(() => {
+    if (!open || !openAt) return
+    setSeen((prev) => {
+      if ((prev[open] ?? '') >= openAt) return prev
+      const next = { ...prev, [open]: openAt }
+      store(CHATS_SEEN, JSON.stringify(next))
+      return next
+    })
+  }, [open, openAt])
+  return (chat) => chat.chatId !== open && chat.updatedAt > (seen[chat.chatId] ?? '')
+}
+
+function readSeenChats(): Record<string, string> | undefined {
+  try {
+    const raw: unknown = JSON.parse(readStored(CHATS_SEEN, 'null'))
+    if (!raw || typeof raw !== 'object') return undefined
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'string')) as Record<
+      string,
+      string
+    >
+  } catch {
+    return undefined
+  }
+}
+
+function readSeen(key: string): Record<string, number> {
+  try {
+    const raw: unknown = JSON.parse(readStored(key, '{}'))
+    if (!raw || typeof raw !== 'object') return {}
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'number')) as Record<
+      string,
+      number
+    >
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -123,8 +210,17 @@ export function useHotkeys(keys: readonly Hotkey[]) {
         return
       }
     }
+    // An app-menu item in the desktop shell names its shortcut; it runs whatever has focus, as the menu would.
+    const onMenu = (e: Event) => {
+      const combo = (e as CustomEvent<unknown>).detail
+      ref.current.find((k) => k.combo === combo)?.run(new KeyboardEvent('keydown'))
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(DESKTOP_SHORTCUT_EVENT, onMenu)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(DESKTOP_SHORTCUT_EVENT, onMenu)
+    }
   }, [])
 }
 

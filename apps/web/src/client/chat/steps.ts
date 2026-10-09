@@ -24,6 +24,10 @@ export interface Step {
   readonly time: string
   /** Longer text the row can expand to, e.g. the model's reasoning. */
   readonly detail?: string
+  /** The file the step edited or wrote, as the agent named it. */
+  readonly file?: string
+  /** What it put in the file: the text replaced and its replacement, or a whole new content. */
+  readonly change?: { readonly before?: string; readonly after: string }
 }
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
@@ -41,6 +45,7 @@ function hostPath(url: string) {
 export function deriveSteps(events: readonly MyrEvent[]): Step[] {
   const out: Step[] = []
   const asked = new Map<string, EventPayloads['approval/requested']>()
+  const edits = new Map<string, Record<string, unknown>>()
   for (const e of events) {
     const base = { id: e.id, time: e.time }
     switch (e.type) {
@@ -83,6 +88,9 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
             lead: copy.steps.read,
             strong: hostPath(String(args.url ?? '')),
           })
+        } else if (p.tool === 'fs_edit' || p.tool === 'fs_write') {
+          // Shown once it went through: an edit can still wait for the person, be denied, or fail.
+          edits.set(p.callId, args)
         } else if (p.tool === 'shell') {
           out.push({
             ...base,
@@ -96,6 +104,22 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
       }
       case 'tool/result': {
         const p = e.payload as EventPayloads['tool/result']
+        const args = edits.get(p.callId)
+        if (p.ok && args) {
+          const file = String(args.path ?? '')
+          const edit = p.tool === 'fs_edit'
+          out.push({
+            ...base,
+            kind: 'file',
+            agent: p.agent,
+            lead: edit ? copy.steps.edited : copy.steps.wrote,
+            strong: file,
+            file,
+            change: edit
+              ? { before: String(args.old ?? ''), after: String(args.new ?? '') }
+              : { after: String(args.content ?? '') },
+          })
+        }
         if (!p.ok)
           out.push({
             ...base,
@@ -401,6 +425,24 @@ export function deriveSteps(events: readonly MyrEvent[]): Step[] {
   return out
 }
 
+/** The files agents edited or wrote in these events (the calls that went through), newest first, each once. */
+export function editedFiles(events: readonly MyrEvent[]): string[] {
+  const asked = new Map<string, string>()
+  const done: string[] = []
+  for (const e of events) {
+    if (e.type === 'tool/call') {
+      const p = e.payload as EventPayloads['tool/call']
+      if (p.tool === 'fs_edit' || p.tool === 'fs_write')
+        asked.set(p.callId, String((p.args as { path?: unknown } | undefined)?.path ?? ''))
+    } else if (e.type === 'tool/result') {
+      const p = e.payload as EventPayloads['tool/result']
+      const path = asked.get(p.callId)
+      if (p.ok && path) done.push(path)
+    }
+  }
+  return [...new Set(done.reverse())]
+}
+
 /** The step a "now doing" line should show while the colony runs. */
 export function currentStep(events: readonly MyrEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -414,6 +456,7 @@ export function currentStep(events: readonly MyrEvent[]): string | undefined {
         web_fetch: copy.steps.now.reading(hostPath(String(args.url ?? ''))),
         publish_artifact: copy.steps.now.writing(args.name),
         fs_write: copy.steps.now.drafting(args.path),
+        fs_edit: copy.steps.now.editing(args.path),
         shell: copy.steps.now.runningCommand,
         request_final_verification: copy.steps.now.waitingForJudge,
         // Chats from before the crewmate tools still show their old calls by name.

@@ -42,7 +42,7 @@ export class FactualObserver {
       }
     }
     if (s.budget.costUsd !== undefined) {
-      const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
+      const spent = this.host.spent().cost
       if (spent >= 0.8 * s.budget.costUsd && this._once('budget-0.8')) {
         out.push({
           kind: 'budget',
@@ -52,7 +52,7 @@ export class FactualObserver {
       }
     }
     if (s.budget.tokens !== undefined) {
-      const used = Object.values(s.agents).reduce((n, a) => n + a.tokens, 0)
+      const used = this.host.spent().tokens
       if (used >= 0.8 * s.budget.tokens && this._once('tokens-0.8')) {
         out.push({
           kind: 'budget',

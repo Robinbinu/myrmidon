@@ -1,9 +1,19 @@
-import { Check, ChevronDown, CircleAlert, CircleCheck, Copy, RefreshCw, WifiOff } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  Copy,
+  FolderOpen,
+  RefreshCw,
+  WifiOff,
+} from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { send } from './api.ts'
+import { activeGateway, send } from './api.ts'
 import { copy } from './copy.ts'
 import { type GatewayStatus, useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
+import { desktop } from './ui/desktop.ts'
 import { ago, day, useCopy } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
 import { Banner, Button, Card, cn, Dot, Skeleton } from './ui/primitives.tsx'
@@ -32,6 +42,8 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
   const t = copy.system
   const { status, offline, error, ping, refresh } = useStatus()
   const [copied, copyText] = useCopy()
+  // Finder can only show this machine's folders, not another gateway's.
+  const shell = activeGateway() ? undefined : desktop()
   if (!status && !offline && error)
     return (
       <div className="min-h-0 flex-1 overflow-auto">
@@ -109,6 +121,16 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
                 >
                   {copied ? t.copied : t.copyPath}
                 </Button>
+                {shell && (
+                  <Button
+                    size="sm"
+                    variant="borderless"
+                    icon={<FolderOpen className="size-3.5" />}
+                    onClick={() => status.home && void shell.reveal(status.home).catch(() => {})}
+                  >
+                    {t.reveal}
+                  </Button>
+                )}
               </Line>
             )}
             <Line>

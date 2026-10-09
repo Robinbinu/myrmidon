@@ -19,6 +19,45 @@ export function toneFor(status: string): Tone {
 }
 
 /**
+ * How a status dot is drawn, as Claude Code's sidebar draws them: only work in progress moves (a spinner); a filled
+ * dot wants a look (yellow: the person must act; green: finished and not seen yet), a grey hollow ring has been seen
+ * or is resting. Its words always sit beside it.
+ *   spinner  working: running, connecting
+ *   alert    needs the person: an answer, an approval (yellow fill)
+ *   unread   finished while the person was elsewhere, not opened yet (green fill)
+ *   live     on and healthy: a connection, a ready provider (filled, its tone's colour)
+ *   done     finished and seen: completed, verified (grey hollow ring)
+ *   idle     resting, nothing to do (hollow muted ring)
+ *   queued   waiting its turn: pending, provisioning (dashed ring)
+ *   stopped  stopped by someone (small square)
+ *   failed   failed or refused (×)
+ */
+export type DotShape =
+  | 'spinner'
+  | 'alert'
+  | 'unread'
+  | 'live'
+  | 'done'
+  | 'idle'
+  | 'queued'
+  | 'stopped'
+  | 'failed'
+
+export function dotShape(status: string): DotShape {
+  if (status === 'unread') return 'unread'
+  if (['waiting', 'awaiting'].includes(status)) return 'alert'
+  if (['pending', 'queued', 'provisioning'].includes(status)) return 'queued'
+  if (status === 'stopped') return 'stopped'
+  if (['completed', 'done', 'verified'].includes(status)) return 'done'
+  if (['idle', 'resting', 'off'].includes(status)) return 'idle'
+  const tone = toneFor(status)
+  if (tone === 'work') return 'spinner'
+  if (tone === 'bad') return 'failed'
+  if (tone === 'accent') return 'alert'
+  return tone === 'neutral' ? 'idle' : 'live'
+}
+
+/**
  * A chat's or crew run's state for its dot and pill. A round that stopped to ask the person waits for them, and one a
  * model failure stopped has failed (`stopCause` in the protocol tells these from an ordinary stop).
  */
@@ -31,6 +70,9 @@ export function runPhase(run: { status: string; awaiting?: boolean; failed?: boo
   if (run.status === 'completed' || run.status === 'failed') return run.status
   return 'stopped'
 }
+
+/** A chat waiting on the person's answer or approval: it heads the sidebar and is counted in the window title. */
+export const needsYou = (run: Parameters<typeof runPhase>[0]) => runPhase(run) === 'awaiting'
 
 export type AgentPhase =
   | 'provisioning'

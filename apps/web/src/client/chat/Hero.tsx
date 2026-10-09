@@ -2,11 +2,14 @@ import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
-import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
+import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
+import { ago } from '../ui/hooks.ts'
 import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import { cn, Dot } from '../ui/primitives.tsx'
 import {
   HERO_MASCOT_MIN_HEIGHT,
+  HERO_RECENT_CHATS,
   MASCOT_COLORS,
   MASCOT_DOZE_MS,
   MASCOT_PAT_MS,
@@ -14,7 +17,6 @@ import {
   MASCOT_USER_FOCUS_MS,
   softSpring,
 } from '../ui-config.ts'
-import TechText from '../vendor/react-bits/TechText'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
 const SUGGESTIONS = [
@@ -37,26 +39,16 @@ const CREW = [
 /** Where each cursor last was, so coming back to this screen finds them where they left off, not at their start. */
 let lastPositions: { x: number; y: number }[] | undefined
 
+interface CrewState {
+  name: string
+  color: string
+  x: number
+  y: number
+  clicking: boolean
+}
+
 const readToken = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#ffffff'
-
-/** The current value of a CSS color token, kept in sync with the theme (canvas text can't use var()). */
-function useToken(name: string): string {
-  const [value, setValue] = useState(() => readToken(name))
-  useEffect(() => {
-    const update = () => setValue(readToken(name))
-    update()
-    const observer = new MutationObserver(update)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    media.addEventListener('change', update)
-    return () => {
-      observer.disconnect()
-      media.removeEventListener('change', update)
-    }
-  }, [name])
-  return value
-}
 
 /** Whether the window is at least `px` tall, kept current as it is resized. */
 function useTallerThan(px: number): boolean {
@@ -73,7 +65,7 @@ function useTallerThan(px: number): boolean {
 }
 
 /** A colour canvas can draw with: a `var(--token)` resolves to the token's value, anything else passes through. */
-const resolveColor = (color: string) => {
+export const resolveColor = (color: string) => {
   const token = /^var\((--[\w-]+)\)$/.exec(color)?.[1]
   return token ? readToken(token) : color
 }
@@ -81,7 +73,7 @@ const resolveColor = (color: string) => {
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)] as T
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Pixel offset from the face's center → where the eyes point, in cells. */
-const gaze = (dx: number, dy: number): [number, number] => [
+export const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dx / 110), -2, 2),
   clamp(Math.round(dy / 90), -1, 1),
 ]
@@ -134,18 +126,10 @@ function Readout(props: { mode: MascotLook['screen']; name?: string; working: nu
   )
 }
 
-interface CrewState {
-  name: string
-  color: string
-  x: number
-  y: number
-  clicking: boolean
-}
-
 /**
- * The empty state: the colony's mascot on its screen, one line, the message box, and a few starters.
- * The mascot follows the pointer with its eyes, reacts when clicked or poked by its crew, plays small
- * tricks when left alone, and dozes off after a while.
+ * The new-chat view: the mascot on its screen, a one-line greeting, the message box, a few starters and the latest
+ * chats. The mascot follows the pointer with its eyes, reacts when clicked or poked by its crew, plays small tricks
+ * when left alone, and dozes off after a while.
  */
 export function Hero(props: {
   /** What the user is typing; the mascot reads its mood. */
@@ -156,7 +140,12 @@ export function Hero(props: {
   latest?: { status: string; updatedAt: string }
   /** What the chats are doing, as a key: when it changes, the greeting is written again. */
   news: string
+  /** The latest chats, newest first, to pick one up again. */
+  recent: readonly { chatId: string; title: string; status: string; updatedAt: string }[]
+  onOpenChat(chatId: string): void
   onPick(text: string): void
+  /** The setup assistant just closed: its mascot settles into this one's place, so this one does not pop in too. */
+  fromSetup?: boolean
   children: ReactNode
 }) {
   const reduce = useReducedMotionConfig()
@@ -177,7 +166,6 @@ export function Hero(props: {
   const [crew, setCrew] = useState<CrewState[]>(() =>
     CREW.map((c, i) => ({ ...c, ...lastPositions?.[i], clicking: false })),
   )
-  const ink = useToken('--text')
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typing = props.draft.trim().length > 0
@@ -368,12 +356,14 @@ export function Hero(props: {
   )
 
   return (
-    <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-6 py-8">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
+      <div className="m-auto flex w-full max-w-[720px] flex-col items-center px-6 py-8">
         {roomy && (
           <div className="relative">
+            {/* Shares its layout id with the setup assistant's mascot, which shrinks into this place as setup ends. */}
             <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              layoutId={MASCOT_LAYOUT_ID}
+              initial={props.fromSetup ? false : { opacity: 0, y: 12, scale: 0.94 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={softSpring}
               className="relative"
@@ -468,31 +458,18 @@ export function Hero(props: {
           </div>
         )}
 
-        <h1 className="sr-only">{headline}</h1>
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
+        <motion.h1
+          key={headline}
+          initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...softSpring, delay: 0.06 }}
-          className="mb-0 mt-3 h-[124px] w-full"
-          aria-hidden
+          className={cn(
+            'mb-5 text-center text-page-title font-semibold tracking-tight text-fg',
+            roomy ? 'mt-7' : 'mt-0',
+          )}
         >
-          <TechText
-            key={headline}
-            text={headline}
-            fontSize={40}
-            fontWeight={600}
-            letterSpacing={-0.03}
-            color={ink}
-            accentColor={eyes}
-            reveal="letter"
-            dashLength={4}
-            dashGap={2}
-            specks={0}
-            // Its measuring box follows the pointer only; sweeping by itself it looked like a stray selection.
-            sweep={false}
-            speed={0.6}
-          />
-        </motion.div>
+          {headline}
+        </motion.h1>
 
         <div className="w-full">{props.children}</div>
 
@@ -510,13 +487,42 @@ export function Hero(props: {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...softSpring, delay: 0.15 + i * 0.04 }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-callout font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong/70 bg-control px-2.5 text-body text-fg-2 shadow-control transition-colors duration-100 hover:bg-control-hover hover:text-fg"
             >
               <s.icon className="size-3.5" />
               {s.label}
             </motion.button>
           ))}
         </div>
+
+        {props.recent.length > 0 && (
+          <motion.section
+            aria-labelledby="hero-recent"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.25, duration: 0.2 }}
+            className="mt-8 w-full max-w-[520px]"
+          >
+            <h2 id="hero-recent" className="mb-1 px-2 text-caption font-semibold text-muted">
+              {copy.hero.recent}
+            </h2>
+            <ul>
+              {props.recent.slice(0, HERO_RECENT_CHATS).map((c) => (
+                <li key={c.chatId}>
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenChat(c.chatId)}
+                    className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-body text-fg-2 transition-colors hover:bg-fill hover:text-fg"
+                  >
+                    <Dot status={c.status} pulse={false} />
+                    <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    <span className="shrink-0 text-small tabular-nums text-muted">{ago(c.updatedAt)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </motion.section>
+        )}
       </div>
     </div>
   )

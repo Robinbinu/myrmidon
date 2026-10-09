@@ -23,7 +23,7 @@ export const channelCopy = {
     discord:
       'In the Discord Developer Portal, create an application, open Bot, turn on Message Content Intent and copy the token (Reset Token). Invite the bot with OAuth2 → URL Generator (scope "bot"; View Channels, Send Messages, Send Messages in Threads, Read Message History, Attach Files). Then DM the bot: it replies with a code to approve here. The first person approved is the owner.',
     slack:
-      'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…). Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
+      'At api.slack.com/apps, create an app from the manifest in docs/channels.md (or turn on Socket Mode, Interactivity, the Messages tab, the bot scopes and events listed there), install it, and paste the Bot token (xoxb-…) and an App-level token with connections:write (xapp-…), or, for HTTP mode on a public HTTPS address, the Signing Secret instead of the app-level token. Then DM the app: it replies with a code to approve here. The first person approved is the owner.',
     'synology-chat':
       'Needs this Myrmidon to have a public HTTPS address. In Synology Chat → Integration → Bots, create a bot: set its outgoing URL to <public-url>/hooks/channels/synology-chat, then paste its token and its incoming URL here. Then message the bot: it replies with a code to approve here.',
     'nextcloud-talk':
@@ -84,7 +84,11 @@ export const channelCopy = {
       userId: { label: 'Bot user ID', hint: 'Checked against the token when given, e.g. @myrbot:matrix.org' },
     },
     slackBot: 'OAuth & Permissions → Bot User OAuth Token',
-    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope',
+    slackApp: 'Basic Information → App-Level Tokens, with the connections:write scope (for Socket Mode)',
+    slackSigning:
+      'Basic Information → Signing Secret: for HTTP mode instead of Socket Mode, which needs a public HTTPS address',
+    discordPublicKey:
+      'General Information → Public Key: only when presses go to an Interactions Endpoint URL (HTTP) instead of the gateway',
   },
   whatsapp: {
     /** What `check()` says before a phone is linked. */
@@ -124,6 +128,16 @@ export const channelCopy = {
     smsNumber: (number: string) => `${number} is not a number on this Twilio account`,
     smsPublic:
       "SMS needs this Myrmidon's public address (start it with --public-url): Twilio delivers texts by posting to it",
+    /** Phone calls on the SMS number (Settings → Voice). */
+    phoneOff: 'Phone calls are off: turn them on in Settings → Voice',
+    phoneSms: 'Phone calls use the SMS channel’s Twilio number: set up SMS in Settings → Channels first',
+    phonePublic:
+      "Phone calls need this Myrmidon's public https address (start it with --public-url https://…): Twilio streams the call's audio to it",
+    phoneApp: (number: string) =>
+      `${number} answers calls with a TwiML app or a SIP trunk, which Twilio uses instead of a webhook: remove it from the number in the Twilio console`,
+    phoneNotAllowed: (number: string) =>
+      `${number} is not someone SMS lets in: approve them, or list them under 'let in without a code'`,
+    phoneNoOwner: 'No one to call: make yourself the owner under SMS → People',
     ntfyRefused: 'The ntfy server refused access to this topic; check the access token',
     ntfyTopic: 'A topic is letters, digits, - and _, up to 64 characters',
     ntfyGuessable:
@@ -156,12 +170,14 @@ export const channelCopy = {
     intents:
       'Discord refused the Message Content intent: turn it on in the Developer Portal (Bot → Privileged Gateway Intents), then save again',
     gateway: (code: number) => `Discord closed the connection for good (code ${code})`,
+    badPublicKey: 'The public key is 64 hexadecimal characters (General Information → Public Key)',
   },
   slack: {
     refused: 'Slack refused the bot token; copy the Bot User OAuth Token (xoxb-…) again',
     appRefused: 'Slack refused the app-level token; make one with connections:write (xapp-…)',
     notAppToken: 'The app-level token starts with xapp- (Basic Information → App-Level Tokens)',
     socketOff: 'Socket Mode is off for this Slack app: turn it on under Settings → Socket Mode',
+    noMode: 'Give an app-level token (xapp-…) for Socket Mode, or the signing secret for HTTP mode',
     notInChannel: 'The app is not in that channel: invite it there with /invite @your-app',
     fileHtml: 'Slack sent a page instead of the file: give the app the files:read scope and reinstall it',
   },
@@ -268,6 +284,7 @@ export const channelCopy = {
     connected: (account: string) => `Connected as ${account}`,
     in: (name: string, group?: string) =>
       group ? `Message from ${name} in ${group}` : `Message from ${name}`,
+    call: (name: string) => `Phone call with ${name}`,
     out: 'Answer delivered',
     failed: (why: string, retrying: boolean) => `Couldn't send: ${why}${retrying ? ' (will retry)' : ''}`,
     pairing: (name: string) => `Sent ${name} a code to approve`,
@@ -278,6 +295,10 @@ export const channelCopy = {
   /** A channel chat's name in the app's sidebar. */
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
+  /** A file sent as a link to download, where the platform cannot take the file itself. */
+  fileLink: (name: string, url: string, days: number) =>
+    `📎 [${name.replace(/[[\]]/g, '')}](${url}) (the link works for ${days} days)`,
+  noFileLink: "files go as links from this Myrmidon's public HTTPS address, and it has none",
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
   /** What a sticker says to the crew (a still one also comes as its image). */
   sticker: (emoji?: string) => (emoji ? `(sent a ${emoji} sticker)` : '(sent a sticker)'),

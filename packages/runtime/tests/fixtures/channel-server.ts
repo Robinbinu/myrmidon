@@ -18,6 +18,9 @@ type Handler = (call: Call) => Response | unknown | Promise<Response | unknown>
 export function fakeServer(routes: Record<string, Handler>) {
   const calls: Call[] = []
   const server = Bun.serve({
+    // The address the adapters dial. Bound to the default dual-stack wildcard, a fake can be handed a port another
+    // process (a browser, say) holds on 127.0.0.1 alone, and that process answers instead of the fake.
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
@@ -70,7 +73,8 @@ export async function rsaKey(kid: string, extra: Record<string, unknown> = {}) {
 
 export const now = () => Math.floor(Date.now() / 1000)
 
-export function testIO(webhookUrl?: string) {
+/** `dir` is the channel's own folder; a test that keeps files there (hosted links) passes a fresh one. */
+export function testIO(webhookUrl?: string, dir = tmpdir()) {
   const received: Inbound[] = []
   const statuses: AdapterStatus[] = []
   const logs: string[] = []
@@ -85,7 +89,7 @@ export function testIO(webhookUrl?: string) {
     set: (k, v) => kv.set(k, v),
     status: (s) => statuses.push(s),
     log: (m) => logs.push(m),
-    dir: tmpdir(),
+    dir,
     ...(webhookUrl ? { webhookUrl } : {}),
   }
   return {

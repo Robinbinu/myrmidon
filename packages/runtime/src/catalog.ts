@@ -1,3 +1,4 @@
+import { titleModel } from './chat-titles.ts'
 import type { OmpRuntime } from './omp/runtime.ts'
 import type { SettingsStore } from './settings.ts'
 import type { ContextWindows, WindowSource } from './windows.ts'
@@ -46,4 +47,36 @@ export function buildCatalog(
     })
   }
   return out.sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))
+}
+
+/**
+ * The model a crew gets when no lead is set: omp's default while the person can see it; else the first model they can
+ * see from `provider` (the one a removed model came from), else the first they can see at all.
+ */
+export function defaultModelRef(
+  omp: OmpRuntime,
+  settings?: SettingsStore,
+  provider?: string,
+): string | undefined {
+  const shown = buildCatalog(omp, settings)
+  const preferred = omp.defaultModel()
+  if (preferred && (!shown.length || shown.some((m) => m.ref === preferred))) return preferred
+  return (shown.find((m) => m.provider === provider) ?? shown[0])?.ref ?? preferred
+}
+
+/** The model that names chats (`titleModel`) among those the person can use and has not hidden. */
+export function namingModel(omp: OmpRuntime, settings: SettingsStore | undefined, lead: string): string {
+  const prefs = settings?.get().models
+  const hidden = new Set(prefs?.hidden ?? [])
+  const hiddenProviders = new Set(prefs?.hiddenProviders ?? [])
+  const candidates = omp
+    .available()
+    .filter((m) => !hidden.has(`${m.provider}/${m.id}`) && !hiddenProviders.has(m.provider))
+    .map((m) => ({
+      provider: m.provider,
+      id: m.id,
+      inputPrice: m.cost?.input ?? 0,
+      contextWindow: m.contextWindow ?? null,
+    }))
+  return titleModel(candidates, lead)
 }

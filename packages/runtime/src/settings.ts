@@ -1,6 +1,8 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Schema } from '@myrmidon/core'
+import { isSetupStep, type SetupState } from '@myrmidon/protocol'
+import { DEFAULT_COST_USD } from './config.ts'
 
 export const TOOL_GROUPS = {
   shell: ['shell'],
@@ -87,7 +89,17 @@ export interface MyrSettings {
       endpointVoice?: string
     }
     sensitivity: 'low' | 'normal' | 'high'
+    /**
+     * Phone calls on the SMS channel's Twilio number: answered (its voice webhook is pointed at this gateway) and
+     * made to the people SMS lets in. Off until the person turns it on, so the number's own voice setup is left alone.
+     */
+    phone: boolean
   }
+  /**
+   * The first-run setup assistant. Absent until it is first asked about: an install from before it existed is then
+   * counted as set up when it has a chat or a model (see `setup.ts`).
+   */
+  setup?: SetupState
 }
 
 export const settingsSchema = Schema.object({
@@ -100,7 +112,7 @@ export const settingsSchema = Schema.object({
     judgeModel: Schema.string(),
     wallMinutes: Schema.number().min(1).max(240).default(30),
     maxTurns: Schema.natural().min(1).max(200).default(40),
-    costUsd: Schema.number().min(0).max(1000).default(0),
+    costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
   tools: Schema.object({
@@ -161,7 +173,12 @@ export const settingsSchema = Schema.object({
       endpointVoice: Schema.string().max(60),
     }).default({}),
     sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
+    phone: Schema.boolean().default(false),
   }).default({}),
+  setup: Schema.object({
+    finishedAt: Schema.string().max(40),
+    steps: Schema.dict(Schema.union(['done', 'later'])).default({}),
+  }),
 })
 
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
@@ -171,6 +188,8 @@ function parse(input: unknown): MyrSettings {
   if (raw.team && (raw.team.mode === 'auto' || raw.team.mode === 'manual'))
     input = { ...raw, team: { ...raw.team, mode: 'orchestrated' } }
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
+  // The schema fills in an absent setup; absent must stay absent, so the first read can still decide it.
+  const setup = (input as { setup?: unknown } | undefined)?.setup !== undefined ? s.setup : undefined
   return {
     version: 1,
     team: s.team,
@@ -193,8 +212,52 @@ function parse(input: unknown): MyrSettings {
       stt: s.voice.stt,
       tts: s.voice.tts,
       sensitivity: s.voice.sensitivity,
+      phone: s.voice.phone,
     },
+    ...(setup
+      ? {
+          setup: {
+            ...(setup.finishedAt ? { finishedAt: setup.finishedAt } : {}),
+            steps: Object.fromEntries(Object.entries(setup.steps).filter(([step]) => isSetupStep(step))),
+          },
+        }
+      : {}),
   }
+}
+
+/** A default that can name a model: the lead's, the crewmates', the reviewer's, the call assistant's, or chat naming's. */
+export type ModelDefault = 'lead' | 'crewmates' | 'reviewer' | 'call' | 'titles'
+
+/**
+ * The settings once a model is removed: no default names it any more, so each falls back as an unset one does (the
+ * crewmates, reviewer and call assistant to the lead, the lead to the default model). It is hidden from pickers when it
+ * stays listed (`hide`), or forgotten with its context window when it was deleted. Says which defaults it was.
+ */
+export function withoutModel(
+  s: MyrSettings,
+  ref: string,
+  hide: boolean,
+): { settings: MyrSettings; cleared: ModelDefault[] } {
+  const next = structuredClone(s)
+  const cleared: ModelDefault[] = []
+  const roles = [
+    ['leadModel', 'lead'],
+    ['workerModel', 'crewmates'],
+    ['judgeModel', 'reviewer'],
+  ] as const
+  for (const [key, role] of roles)
+    if (next.team[key] === ref) {
+      delete next.team[key]
+      cleared.push(role)
+    }
+  if (next.voice.callModel === ref) {
+    delete next.voice.callModel
+    cleared.push('call')
+  }
+  const hidden = next.models.hidden.filter((r) => r !== ref)
+  next.models.hidden = hide ? [...hidden, ref] : hidden
+  if (!hide) delete next.models.windows[ref]
+  return { settings: next, cleared }
 }
 
 function atomicWrite(path: string, text: string, mode: number) {

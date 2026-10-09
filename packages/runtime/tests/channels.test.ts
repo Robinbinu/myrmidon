@@ -16,6 +16,7 @@ import {
   type Inbound,
   type InboundFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   telegramHtml,
 } from '../src/channels/index.ts'
@@ -46,7 +47,7 @@ class FakeAdapter implements ChannelAdapter {
   sent: { chat: string; text: string; id: string; buttons?: OutMessage['buttons'] }[] = []
   edits: { id: string; text: string }[] = []
   files: { chat: string; name: string; size: number }[] = []
-  presses: { id: string; note?: string }[] = []
+  presses: { id: string; note?: string; echo?: boolean }[] = []
   /** Sends fail while this is above zero (counting down), to exercise the delivery ledger. */
   failing = 0
   private _n = 0
@@ -77,8 +78,11 @@ class FakeAdapter implements ChannelAdapter {
     this.files.push({ chat, name: file.name, size: file.data.byteLength })
     return { chat, id: String(++this._n) }
   }
-  async answerPress(press: ButtonPress, note?: string) {
-    this.presses.push({ id: press.id, ...(note ? { note } : {}) })
+  async answerPress(press: ButtonPress, note?: PressNote) {
+    this.presses.push({
+      id: press.id,
+      ...(note ? { note: note.text, ...(note.echo ? { echo: true } : {}) } : {}),
+    })
   }
   to(chat: string) {
     return this.sent.filter((s) => s.chat === chat).map((s) => s.text)
@@ -546,12 +550,16 @@ test('approvals go to the owner with buttons; only the owner decides, and "alway
   await say(BOB, '', { press: deny ?? '' })
   await until(() => adapter.presses.some((p) => p.note === 'Only the owner can approve this.'))
   expect(chats.decided).toEqual([])
+  // A refusal is news to the presser; the outcome the edited message shows is flagged as only an echo.
+  expect(adapter.presses.find((p) => p.note === 'Only the owner can approve this.')?.echo).toBeUndefined()
 
   // An "always" pressed anyway counts once.
   await say(ALICE, '', { press: (once ?? '').replace('a:o:', 'a:a:') })
   await until(() => chats.decided.length === 1)
   expect(chats.decided[0]).toEqual({ colonyId: 'col-chat-1', id: 'ap-1', approved: true })
   expect(chats.alwaysAllowed).toEqual([])
+  await until(() => adapter.presses.some((p) => p.note === 'Allowed'))
+  expect(adapter.presses.find((p) => p.note === 'Allowed')?.echo).toBe(true)
   // The same button again: the request is closed.
   await say(ALICE, '', { press: once ?? '' })
   await until(() => adapter.presses.some((p) => p.note === 'This request is no longer open.'))
@@ -725,14 +733,17 @@ test('answers that fail to send are kept and resent when the channel comes back,
   first.chats.emit('col-chat-1', 'chat/reply', { agent: 'lead', text: 'The answer is 42.', final: true })
   first.chats.emit('col-chat-1', 'colony/completed', {})
   await Bun.sleep(80)
-  expect(first.adapter.to('100').some((t) => t.includes('42'))).toBe(false)
+  // The answer's own words: the pairing message's random code may contain "42" too.
+  expect(first.adapter.to('100').some((t) => t.includes('The answer is 42.'))).toBe(false)
   await first.hub.stop()
   hubs.splice(hubs.indexOf(first.hub), 1)
 
   // A restart: the owed answer goes out once the channel is on again.
   const second = await setup({}, first.dir)
   await until(() => second.adapter.to('100').some((t) => t.includes('The answer is 42.')))
-  expect(second.adapter.to('100').find((t) => t.includes('42'))).toStartWith('♻️ Recovered reply')
+  expect(second.adapter.to('100').find((t) => t.includes('The answer is 42.'))).toStartWith(
+    '♻️ Recovered reply',
+  )
 })
 
 test('commands: /new starts a fresh chat, /stop stops the running round, and redeliveries are dropped', async () => {
@@ -909,4 +920,30 @@ test('health and activity: last message in and out, events by name only, and whi
   // Trouble is counted and named.
   adapter.io?.status({ state: 'retrying', error: 'network down' })
   expect(hub.list()[0]?.health).toMatchObject({ reconnects: 1, lastError: 'network down' })
+})
+
+test('a phone caller is let in by the channel’s own rules: listed people as members, strangers coded or ignored', async () => {
+  const { adapter, hub, chats } = await setup({ dm: 'allowlist', allow: ['+15550002222'] })
+  expect(hub.account('telegram')).toEqual({ token: 'tok' })
+  expect(await hub.caller('telegram', '+15559999999', true)).toEqual({ refused: 'ignored' })
+  const listed = await hub.caller('telegram', '+15550002222', true)
+  expect(listed).toMatchObject({ person: { id: '+15550002222', role: 'member' }, label: 'Telegram' })
+  // The adapter's own start-up line may land before or after it, so the call is looked for, not taken as the newest.
+  expect(hub.activity('telegram').map((a) => a.text)).toContain('Phone call with +15550002222')
+  // A call that made a chat: the number's texts and next calls continue it, named as their texts' would be.
+  await hub.callChat('telegram', '+15550002222', 'chat-9')
+  expect(chats.renamed['chat-9']).toBe('Telegram · +15550002222')
+  expect(await hub.caller('telegram', '+15550002222', false)).toMatchObject({ chatId: 'chat-9' })
+
+  // Under pairing a stranger is texted a code only when asked to (an incoming call), never for a call made to them.
+  await hub.configure('telegram', { dm: 'pairing' })
+  expect(await hub.caller('telegram', '+15553333333', false)).toEqual({ refused: 'ignored' })
+  expect(adapter.to('+15553333333')).toEqual([])
+  expect(await hub.caller('telegram', '+15553333333', true)).toEqual({ refused: 'pairing' })
+  expect(codeIn(adapter.to('+15553333333')[0] ?? '')).toHaveLength(8)
+  expect(chats.sends).toEqual([])
+
+  await hub.configure('telegram', { enabled: false })
+  expect(hub.account('telegram')).toBeUndefined()
+  expect(await hub.caller('telegram', '+15550002222', true)).toEqual({ refused: 'ignored' })
 })

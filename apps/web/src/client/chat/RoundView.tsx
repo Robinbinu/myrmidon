@@ -34,6 +34,7 @@ import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
 import { compact, duration, type FollowLatest, useCopy, useStickToBottom } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import {
   AgentAvatar,
   AgentChip,
@@ -213,8 +214,19 @@ export function RoundView(props: {
       : []
   const timeline: Item[] = [
     ...thread.map((m) => ({ seq: m.seq, message: m })),
-    // Only the round running now can still be waiting on the person.
-    ...roundApprovals(state, events).filter((r) => r.approval.decided || latest),
+    // Only the round running now can still be waiting on the person; a request left open by a round that ended
+    // without closing it (an older log) reads as stopped, not as buttons that no longer do anything.
+    ...roundApprovals(state, events).map((r) =>
+      r.approval.decided || (latest && isRunning(state.status))
+        ? r
+        : {
+            ...r,
+            approval: {
+              ...r.approval,
+              decided: { id: r.approval.id, approved: false, by: 'stopped' as const },
+            },
+          },
+    ),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
   ].sort((a, b) => a.seq - b.seq)
@@ -272,7 +284,12 @@ export function RoundView(props: {
     'message' in i ? (
       message(i.message)
     ) : 'approval' in i ? (
-      <Approval key={i.approval.id} colonyId={props.colonyId} request={i.approval} />
+      <Approval
+        key={i.approval.id}
+        colonyId={props.colonyId}
+        chatId={state.chat?.chatId}
+        request={i.approval}
+      />
     ) : (
       <StreamingReply
         key={`stream:${i.stream}`}
@@ -459,7 +476,7 @@ function filesOnly(text: string, files: readonly SentFile[]): boolean {
   return text === copy.composer.attachedOnly || text === `(sent ${names})`
 }
 
-function UserMessage(props: {
+export function UserMessage(props: {
   text: string
   /** Set for messages sent while the round was running. */
   mode?: 'steer' | 'queue' | undefined
@@ -482,7 +499,15 @@ function UserMessage(props: {
         <SentFiles colonyId={props.colonyId} files={files} onOpenFile={(name) => props.onOpen?.(name)} />
       )}
       {!filesOnly(props.text, files) && (
-        <div className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-3xl rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft">
+        // biome-ignore lint/a11y/noStaticElementInteractions: the menu repeats the Copy button, which the keyboard reaches
+        <div
+          onContextMenu={(e) =>
+            openContextMenu(e, copy.contextMenu.message.label, [
+              copyAction(copy.contextMenu.message.copy, props.text),
+            ])
+          }
+          className="max-w-[min(85%,640px)] select-text whitespace-pre-wrap break-words rounded-3xl rounded-br-md bg-bubble px-4 py-2.5 text-title leading-[1.6] text-on-bubble shadow-soft"
+        >
           {props.text}
         </div>
       )}
@@ -565,7 +590,14 @@ function AgentMessage(props: {
             {props.assumption && <Badge tone="accent">{copy.round.agent.checkIn}</Badge>}
           </div>
         )}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: the menu repeats the Copy button, which the keyboard reaches */}
         <div
+          onContextMenu={(e) =>
+            openContextMenu(e, copy.contextMenu.message.label, [
+              copyAction(copy.contextMenu.message.copy, plainText(props.text)),
+              copyAction(copy.contextMenu.message.copyMarkdown, props.text),
+            ])
+          }
           className={cn(
             props.plain && 'pt-1',
             props.final && !props.plain && 'rounded-2xl border border-ok/25 bg-ok-soft/40 px-4 py-3',
@@ -923,7 +955,7 @@ function LiveServers({ state }: { state: ColonyState }) {
   if (live.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ok/30 bg-ok-soft/40 px-3.5 py-2 text-body">
-      <Dot tone="ok" pulse />
+      <Dot tone="ok" />
       {live.map((s) => (
         <a
           key={s.name}

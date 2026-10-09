@@ -607,15 +607,20 @@ function LiveTab({
                   onClick={() => setAt(i)}
                   title={`${copy.computer.actions[f.action]}${f.label ? ` · ${f.label}` : ''} · ${clock(f.time, true)}`}
                   aria-label={copy.computer.stepLabel(i + 1, copy.computer.actions[f.action])}
-                  className={cn(
-                    'h-4 min-w-[6px] flex-1 rounded-md transition-colors',
-                    at === i
-                      ? 'bg-fg'
-                      : f.action === 'open'
-                        ? 'bg-fg-2/50 hover:bg-fg-2'
-                        : 'bg-fill-strong hover:bg-fg-2/60',
-                  )}
-                />
+                  // The full row's height is the target; the bar drawn inside stays 16px.
+                  className="group flex h-6 min-w-[6px] flex-1 items-center"
+                >
+                  <span
+                    className={cn(
+                      'h-4 w-full rounded-md transition-colors',
+                      at === i
+                        ? 'bg-fg'
+                        : f.action === 'open'
+                          ? 'bg-fg-2/50 group-hover:bg-fg-2'
+                          : 'bg-fill-strong group-hover:bg-fg-2/60',
+                    )}
+                  />
+                </button>
               ))}
             </div>
             <IconButton

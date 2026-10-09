@@ -24,7 +24,7 @@ import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import type { MyrSettings } from '../settings.ts'
 import { trimSilence } from './audio.ts'
-import { type CallChats, type CallOutput, CallSession, type CallTurn } from './call.ts'
+import { type CallChats, type CallOptions, type CallOutput, CallSession, type CallTurn } from './call.ts'
 import { SmartTurn } from './smart-turn.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
@@ -83,6 +83,8 @@ export interface SavedCall {
   readonly told?: boolean
   /** Who the person talked to, when not the call assistant (`lead` or an agent's name). */
   readonly talkTo?: string
+  /** The number on the other end, when it was a phone call. */
+  readonly phone?: string
 }
 
 export interface VoiceStatus {
@@ -328,23 +330,21 @@ export class VoiceHub {
       chatId?: string
       chatTitle?: string
       project?: string
+      projectName?: string
       name: string
       sampleRate: number
       talkTo?: string
       crew?: readonly { name: string; role?: string }[]
+      member?: CallOptions['member']
+      phone?: string
     },
     emit: (out: CallOutput) => void,
   ): CallSession {
+    const refused = this.refusal(options.chatId)
+    if (refused) throw refused
     const { voice, fallbackModel } = this.options.settings()
-    const r = prompts.voice.refused
-    if (!voice.enabled) throw new CallRefused(4409, r.off)
-    const calls = [...this._calls.values()]
-    if (options.chatId && calls.some((c) => c.chatId === options.chatId)) throw new CallRefused(4423, r.busy)
-    if (calls.length >= VOICE_MAX_CALLS) throw new CallRefused(4429, r.full(VOICE_MAX_CALLS))
     const model = voice.callModel ?? fallbackModel
-    if (!model) throw new CallRefused(4503, r.noModel)
-    const unready = this._unready()
-    if (unready) throw new CallRefused(4503, unready)
+    if (!model) throw new CallRefused(4503, prompts.voice.refused.noModel)
     let stt: SpeechToText
     let tts: TextToSpeech
     try {
@@ -381,6 +381,22 @@ export class VoiceHub {
     )
     this._calls.set(session.id, session)
     return session
+  }
+
+  /**
+   * Why a call cannot start now (in this chat), or undefined when it can: what call() checks, asked first by a phone
+   * line so the caller hears it before the call is answered.
+   */
+  refusal(chatId?: string): CallRefused | undefined {
+    const { voice, fallbackModel } = this.options.settings()
+    const r = prompts.voice.refused
+    if (!voice.enabled) return new CallRefused(4409, r.off)
+    const calls = [...this._calls.values()]
+    if (chatId && calls.some((c) => c.chatId === chatId)) return new CallRefused(4423, r.busy)
+    if (calls.length >= VOICE_MAX_CALLS) return new CallRefused(4429, r.full(VOICE_MAX_CALLS))
+    if (!(voice.callModel ?? fallbackModel)) return new CallRefused(4503, r.noModel)
+    const unready = this._unready()
+    return unready ? new CallRefused(4503, unready) : undefined
   }
 
   /** Why the chosen engines on this machine cannot take a call now (after warm(), which fetches what it can). */
@@ -460,6 +476,7 @@ export class VoiceHub {
       rounds: session.rounds(),
       // A direct call's words are the chat's own messages: the crew already has them.
       ...(session.direct ? { talkTo: session.direct, told: true } : {}),
+      ...(session.phone ? { phone: session.phone } : {}),
     }
     this._write(saved)
     this._prune()

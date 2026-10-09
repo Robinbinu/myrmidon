@@ -659,10 +659,16 @@ test('sending: Markdown as WhatsApp text, buttons as reply buttons or a list, lo
   expect(adapter.can.edit).toBe(false)
   await expect(adapter.edit(ref, { text: 'x' })).rejects.toThrow(channelCopy.whatsappCloud.noEdit)
 
-  // A press's note comes as a reply to it.
+  // A press's note comes as a reply to it, unless it only repeats the message.
+  const noteBefore = calls.length
   await adapter.answerPress(
     { id: 'wamid.B1', data: 'a:o:K', message: { chat: '447700900123', id: 'wamid.ASK' } },
-    'Allowed',
+    { text: 'Allowed', echo: true },
+  )
+  expect(calls).toHaveLength(noteBefore)
+  await adapter.answerPress(
+    { id: 'wamid.B1', data: 'a:o:K', message: { chat: '447700900123', id: 'wamid.ASK' } },
+    { text: 'Allowed' },
   )
   expect(calls.at(-1)?.json).toMatchObject({
     type: 'text',

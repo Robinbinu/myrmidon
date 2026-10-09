@@ -8,8 +8,6 @@ import {
   CircleX,
   Download,
   ExternalLink,
-  Eye,
-  EyeOff,
   LoaderCircle,
   LogIn,
   type LucideIcon,
@@ -46,6 +44,7 @@ import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
+import { usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
@@ -55,6 +54,8 @@ import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
+import { desktop } from './ui/desktop.ts'
+import { anyDialogOpen } from './ui/dialog.ts'
 import {
   ago,
   day,
@@ -65,7 +66,6 @@ import {
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Badge,
@@ -90,6 +90,8 @@ import {
   TextInput,
   tabPanel,
 } from './ui/primitives.tsx'
+import { Sheet } from './ui/Sheet.tsx'
+import { ShortcutList } from './ui/ShortcutList.tsx'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
@@ -163,10 +165,12 @@ export interface ServerSettings {
       endpointVoice?: string
     }
     sensitivity: 'low' | 'normal' | 'high'
+    /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
+    phone?: boolean
   }
 }
 
-interface SettingsResponse {
+export interface SettingsResponse {
   settings: ServerSettings
   providers: ProviderInfo[]
   searchProviders: { id: string; label: string }[]
@@ -362,8 +366,9 @@ export function Settings(props: {
   guard?: { current?: (go: () => void) => void }
   /** Told the section on screen, so the app can keep it in the address and a refresh comes back to it. */
   onSection?(section: Section): void
+  /** Opens the setup assistant again from its first step (Settings → General). */
+  onRunSetup?(): void
 }) {
-  const toast = useToast()
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const onSection = useRef(props.onSection)
   onSection.current = props.onSection
@@ -371,13 +376,9 @@ export function Settings(props: {
     onSection.current?.(section)
   }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
-  const [data, setData] = useState<SettingsResponse>()
-  const [error, setError] = useState<string>()
-  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
-  const [saveError, setSaveError] = useState<string>()
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  // The settings last sent, so a failed save can be retried as it was.
-  const unsaved = useRef<ServerSettings>(undefined)
+  const { data, error, saving, saveError, retry, update, providersChanged, modelsRemoved } = useSettingsData(
+    props.onModelsChanged,
+  )
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
   // Hooks are the one section with an explicit Save; leaving it with edits asks first.
   const [hooksDirty, setHooksDirty] = useState(false)
@@ -407,53 +408,13 @@ export function Settings(props: {
   }, [hooksDirty])
 
   useEffect(() => {
-    api<SettingsResponse>('/api/settings')
-      .then(setData)
-      .catch((err) => setError(String(err.message ?? err)))
-  }, [])
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select')
-      if (e.key === 'Escape' && !typing && !document.querySelector('[role="dialog"]')) onClose.current()
+      if (e.key === 'Escape' && !typing && !anyDialogOpen()) onClose.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const persist = (next: ServerSettings) => {
-    unsaved.current = next
-    setSaving('saving')
-    send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
-      .then((r) => {
-        setData((d) => (d ? { ...d, settings: r.settings } : d))
-        setSaving('saved')
-        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
-        props.onModelsChanged()
-        window.dispatchEvent(new Event(SETTINGS_SAVED))
-      })
-      .catch((err) => {
-        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
-        setSaving('failed')
-        setSaveError(String(err.message ?? err))
-        toast(String(err.message ?? err), 'error')
-      })
-  }
-
-  /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
-  const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
-    if (!data) return
-    const next = patch(structuredClone(data.settings))
-    setData({ ...data, settings: next })
-    clearTimeout(timer.current)
-    if (immediate) persist(next)
-    else timer.current = setTimeout(() => persist(next), 450)
-  }
-
-  const providersChanged = (providers: ProviderInfo[]) => {
-    setData((d) => (d ? { ...d, providers } : d))
-    props.onModelsChanged()
-  }
 
   const current = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]
   const waiting = useStatus().status?.waiting?.length ?? 0
@@ -490,12 +451,7 @@ export function Settings(props: {
               <CircleX className="size-3.5" />
               {copy.settings.page.saveFailed}
               <span aria-hidden>·</span>
-              <Button
-                size="sm"
-                variant="borderless"
-                onClick={() => unsaved.current && persist(unsaved.current)}
-                icon={<RefreshCw className="size-3" />}
-              >
+              <Button size="sm" variant="borderless" onClick={retry} icon={<RefreshCw className="size-3" />}>
                 {copy.settings.page.retry}
               </Button>
             </motion.span>
@@ -525,17 +481,19 @@ export function Settings(props: {
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
+        {/* A source list, as System Settings has: small monochrome tiles, one line per page, the open page in the
+            neutral selection with its tile in amber. */}
         <nav
           aria-label={copy.settings.page.title}
           className={cn(
-            'hidden shrink-0 flex-col overflow-auto border-r border-line p-3 md:flex',
-            wideNav ? 'w-64' : 'w-[68px] items-center',
+            'material-sidebar hidden shrink-0 flex-col overflow-auto overscroll-contain border-r border-line px-2.5 pb-3 pt-1 md:flex',
+            wideNav ? 'w-60' : 'w-[60px] items-center',
           )}
         >
           {GROUPS.map((group, i) => (
-            <div key={group} className="flex w-full flex-col gap-1">
+            <div key={group} className="flex w-full flex-col gap-px">
               {wideNav ? (
-                <div className={cn('px-3 pb-1 section-label text-muted', i > 0 && 'pt-4')}>
+                <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">
                   {copy.settings.page.groups[group]}
                 </div>
               ) : (
@@ -548,27 +506,27 @@ export function Settings(props: {
                   onClick={() => leave(() => setSection(s.id))}
                   aria-current={section === s.id ? 'page' : undefined}
                   aria-label={wideNav ? undefined : s.label}
-                  title={wideNav ? undefined : s.label}
+                  title={wideNav ? s.hint : s.label}
                   className={cn(
-                    'relative flex items-center gap-3 rounded-lg text-left transition-colors',
-                    wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
-                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
+                    'relative flex h-7 shrink-0 items-center gap-2 rounded-md text-left text-body transition-colors',
+                    wideNav ? 'px-1.5' : 'w-8 justify-center',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
                   )}
                 >
                   {section === s.id && (
                     <motion.span
                       layoutId="settings-nav"
                       transition={spring}
-                      className="absolute inset-0 rounded-lg border border-line bg-surface shadow-soft"
+                      className="absolute inset-0 rounded-md bg-row-selected"
                     />
                   )}
                   <span
                     className={cn(
-                      'relative grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
-                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-fill',
+                      'relative grid size-5 shrink-0 place-items-center rounded-[5px] transition-colors',
+                      section === s.id ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
                     )}
                   >
-                    <s.icon className="size-4" />
+                    <s.icon className="size-3" />
                     {s.id === 'channels' && waiting > 0 && (
                       <CountBadge
                         count={waiting}
@@ -578,18 +536,13 @@ export function Settings(props: {
                       />
                     )}
                   </span>
-                  {wideNav && (
-                    <span className="relative min-w-0">
-                      <span className="block text-reading font-medium">{s.label}</span>
-                      <span className="block truncate text-footnote text-muted">{s.hint}</span>
-                    </span>
-                  )}
+                  {wideNav && <span className="relative min-w-0 truncate">{s.label}</span>}
                 </button>
               ))}
             </div>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain bg-bg">
           <div className="border-b border-line p-3 md:hidden">
             <Select
               value={section}
@@ -632,6 +585,7 @@ export function Settings(props: {
                     onTheme={props.onTheme}
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
+                    {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
                   />
                   <Shortcuts />
                   <About data={data} />
@@ -669,6 +623,14 @@ export function Settings(props: {
                     <ModelsSection
                       models={props.models}
                       settings={data.settings}
+                      providers={data.providers}
+                      {...(props.config ? { config: props.config } : {})}
+                      onConfig={props.onConfig}
+                      onRemoved={(settings, providers) => {
+                        modelsRemoved(settings, providers)
+                        props.onModelsChanged()
+                        window.dispatchEvent(new Event(SETTINGS_SAVED))
+                      }}
                       update={update}
                       onRefresh={props.onModelsChanged}
                       onAddProvider={() => setModelsTab('providers')}
@@ -718,7 +680,7 @@ export function Settings(props: {
       </div>
       <AnimatePresence>
         {leaving && (
-          <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
+          <Sheet title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
             <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="borderless" onClick={() => setLeaving(undefined)}>
@@ -735,19 +697,99 @@ export function Settings(props: {
                 {copy.settings.page.unsaved.discard}
               </Button>
             </div>
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     </div>
   )
 }
 
+/**
+ * The settings as the server has them, and the autosave every section uses: edits apply on the page at once and are
+ * saved shortly after (toggles at once). Also used by the setup assistant, which shows some of the same sections.
+ */
+export function useSettingsData(onModelsChanged: () => void) {
+  const toast = useToast()
+  const [data, setData] = useState<SettingsResponse>()
+  const [error, setError] = useState<string>()
+  const [saving, setSaving] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [saveError, setSaveError] = useState<string>()
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // The settings last sent, so a failed save can be retried as it was.
+  const unsaved = useRef<ServerSettings>(undefined)
+  const changed = useRef(onModelsChanged)
+  changed.current = onModelsChanged
+
+  useEffect(() => {
+    api<SettingsResponse>('/api/settings')
+      .then(setData)
+      .catch((err) => setError(String(err.message ?? err)))
+  }, [])
+
+  const persist = (next: ServerSettings): Promise<boolean> => {
+    unsaved.current = next
+    setSaving('saving')
+    return send<{ settings: ServerSettings }>('PUT', '/api/settings', next)
+      .then((r) => {
+        setData((d) => (d ? { ...d, settings: r.settings } : d))
+        setSaving('saved')
+        setTimeout(() => setSaving((v) => (v === 'saved' ? 'idle' : v)), 1200)
+        changed.current()
+        window.dispatchEvent(new Event(SETTINGS_SAVED))
+        return true
+      })
+      .catch((err) => {
+        // The page still shows the edit, so the header keeps saying it is not saved until a retry works.
+        setSaving('failed')
+        setSaveError(String(err.message ?? err))
+        toast(String(err.message ?? err), 'error')
+        return false
+      })
+  }
+
+  /** Autosave: edits apply in the UI at once and persist shortly after (or immediately for toggles). */
+  const update = (patch: (s: ServerSettings) => ServerSettings, immediate = false) => {
+    if (!data) return
+    const next = patch(structuredClone(data.settings))
+    setData({ ...data, settings: next })
+    clearTimeout(timer.current)
+    if (immediate) void persist(next)
+    else timer.current = setTimeout(() => void persist(next), 450)
+  }
+
+  /** An edit saved at once, for what must be on the server before the next request (voice on before an install). */
+  const saveNow = (patch: (s: ServerSettings) => ServerSettings): Promise<boolean> => {
+    if (!data) return Promise.resolve(false)
+    const next = patch(structuredClone(data.settings))
+    setData({ ...data, settings: next })
+    clearTimeout(timer.current)
+    return persist(next)
+  }
+
+  const providersChanged = (providers: ProviderInfo[]) => {
+    setData((d) => (d ? { ...d, providers } : d))
+    changed.current()
+  }
+
+  /** A model removed on the server: its answer carries the settings and providers as they now are. */
+  const modelsRemoved = (settings: SettingsResponse['settings'], providers: ProviderInfo[]) =>
+    setData((d) => (d ? { ...d, settings, providers } : d))
+
+  const retry = () => {
+    if (unsaved.current) void persist(unsaved.current)
+  }
+
+  return { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved }
+}
+
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
-  const supported = typeof Notification !== 'undefined'
+  // The desktop app posts native notifications, which macOS asks about itself the first time.
+  const shell = !!desktop()
+  const supported = shell || typeof Notification !== 'undefined'
   const [on, setOn] = usePersistentFlag(NOTIFY_KEY, false)
-  const granted = supported && Notification.permission === 'granted'
+  const granted = shell || (supported && Notification.permission === 'granted')
   return (
     <Field
       label={copy.settings.notify.label}
@@ -760,6 +802,7 @@ function NotifyToggle() {
         label={copy.settings.notify.label}
         onChange={(v) => {
           if (!v) return setOn(false)
+          if (shell) return setOn(true)
           void Notification.requestPermission().then((p) => {
             setOn(p === 'granted')
             if (p !== 'granted') toast(copy.settings.notify.blocked, 'error')
@@ -770,11 +813,49 @@ function NotifyToggle() {
   )
 }
 
+/** Light, dark, or as the system has it; also on the setup assistant's Welcome. */
+export function ThemePicker(props: { theme: ThemeChoice; onTheme(t: ThemeChoice): void }) {
+  return (
+    <Segmented
+      id="theme"
+      value={props.theme}
+      onChange={props.onTheme}
+      options={[
+        {
+          value: 'system',
+          label: (
+            <>
+              <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
+            </>
+          ),
+        },
+        {
+          value: 'light',
+          label: (
+            <>
+              <Sun className="size-3.5" /> {copy.settings.general.themeLight}
+            </>
+          ),
+        },
+        {
+          value: 'dark',
+          label: (
+            <>
+              <Moon className="size-3.5" /> {copy.settings.general.themeDark}
+            </>
+          ),
+        },
+      ]}
+    />
+  )
+}
+
 function General(props: {
   theme: ThemeChoice
   onTheme(t: ThemeChoice): void
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
+  onRunSetup?(): void
 }) {
   return (
     <>
@@ -782,37 +863,7 @@ function General(props: {
       <Card>
         <CardRow>
           <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
-            <Segmented
-              id="theme"
-              value={props.theme}
-              onChange={props.onTheme}
-              options={[
-                {
-                  value: 'system',
-                  label: (
-                    <>
-                      <Monitor className="size-3.5" /> {copy.settings.general.themeSystem}
-                    </>
-                  ),
-                },
-                {
-                  value: 'light',
-                  label: (
-                    <>
-                      <Sun className="size-3.5" /> {copy.settings.general.themeLight}
-                    </>
-                  ),
-                },
-                {
-                  value: 'dark',
-                  label: (
-                    <>
-                      <Moon className="size-3.5" /> {copy.settings.general.themeDark}
-                    </>
-                  ),
-                },
-              ]}
-            />
+            <ThemePicker theme={props.theme} onTheme={props.onTheme} />
           </Field>
         </CardRow>
         <CardRow>
@@ -831,6 +882,15 @@ function General(props: {
         <CardRow>
           <NotifyToggle />
         </CardRow>
+        {props.onRunSetup && (
+          <CardRow>
+            <Field label={copy.settings.general.setup} hint={copy.settings.general.setupHint} inline>
+              <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
+                {copy.settings.general.runSetup}
+              </Button>
+            </Field>
+          </CardRow>
+        )}
       </Card>
     </>
   )
@@ -839,6 +899,11 @@ function General(props: {
 function ModelsSection(props: {
   models: ModelOption[]
   settings: ServerSettings
+  providers: ProviderInfo[]
+  config?: TeamConfig
+  onConfig(c: TeamConfig): void
+  /** A model was removed: the settings and providers as the server has them now. */
+  onRemoved(settings: ServerSettings, providers: ProviderInfo[]): void
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
   onRefresh(): void
   onAddProvider(): void
@@ -848,18 +913,67 @@ function ModelsSection(props: {
   const [tests, setTests] = useState<Record<string, 'running' | { ok: boolean; text: string }>>({})
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [hiddenOpen, setHiddenOpen] = useState(false)
   const hidden = new Set(props.settings.models.hidden)
   const hiddenProviders = new Set(props.settings.models.hiddenProviders)
   const q = query.trim().toLowerCase()
+  // A removed model leaves its provider's list for Hidden models, where it can be restored.
   const groups = useMemo(() => {
+    const removed = new Set(props.settings.models.hidden)
     const by = new Map<string, ModelOption[]>()
     for (const m of props.models) {
-      if (q && !`${m.ref} ${m.name}`.toLowerCase().includes(q)) continue
+      if (removed.has(m.ref) || (q && !`${m.ref} ${m.name}`.toLowerCase().includes(q))) continue
       by.set(m.provider, [...(by.get(m.provider) ?? []), m])
     }
     return [...by].sort(([a], [b]) => a.localeCompare(b))
-  }, [props.models, q])
+  }, [props.models, q, props.settings.models.hidden])
+  const hiddenModels = props.models.filter(
+    (m) => hidden.has(m.ref) && (!q || `${m.ref} ${m.name}`.toLowerCase().includes(q)),
+  )
   const shown = props.models.filter((m) => !hidden.has(m.ref) && !hiddenProviders.has(m.provider)).length
+  /** A custom endpoint's model leaves its list; any other model, or an endpoint's only one, is hidden. */
+  const deletes = (m: ModelOption) => {
+    const ids = props.providers.find((p) => p.id === m.provider && p.custom)?.modelIds ?? []
+    return ids.length > 1 && ids.includes(m.id)
+  }
+  const remove = async (m: ModelOption) => {
+    try {
+      const r = await send<{
+        removed: 'deleted' | 'hidden'
+        cleared: ('lead' | 'crewmates' | 'reviewer' | 'call' | 'titles')[]
+        lead?: string
+        titles?: string
+        settings: ServerSettings
+        providers: ProviderInfo[]
+      }>('POST', '/api/models/remove', { ref: m.ref })
+      const lead = r.lead
+      const moved = lead && props.config ? withoutModel(props.config, m.ref, lead) : undefined
+      const leadMoved = r.cleared.includes('lead') || (!!moved && moved.leadModel !== props.config?.leadModel)
+      if (moved) props.onConfig(moved)
+      props.onRemoved(r.settings, r.providers)
+      const name = (ref: string) => props.models.find((x) => x.ref === ref)?.name ?? ref
+      toast(
+        [
+          r.removed === 'deleted'
+            ? copy.settings.models.removedDeleted(m.name, m.provider)
+            : copy.settings.models.removedHidden(m.name),
+          leadMoved && lead && copy.settings.models.nowLeads(name(lead)),
+          r.cleared.includes('titles') && r.titles && copy.settings.models.nowNames(name(r.titles)),
+        ]
+          .filter(Boolean)
+          .join(' '),
+        'success',
+      )
+    } catch (err) {
+      toast(String((err as Error).message ?? err), 'error')
+    }
+  }
+  const inUse = (m: ModelOption) => {
+    const users = usersOf(m.ref, props.config, props.settings)
+    if (!users.length) return undefined
+    const who = new Intl.ListFormat('en').format(users.map((u) => copy.settings.models.users[u]))
+    return copy.settings.models.inUse(who, users.length > 1 || users[0] === 'crewmates')
+  }
 
   const test = async (ref: string) => {
     setTests((t) => ({ ...t, [ref]: 'running' }))
@@ -961,12 +1075,8 @@ function ModelsSection(props: {
                 <div className="max-h-[46vh] overflow-auto">
                   {models.map((m) => {
                     const t = tests[m.ref]
-                    const isHidden = hidden.has(m.ref)
                     return (
-                      <div
-                        key={m.ref}
-                        className={cn('flex items-center gap-3 py-2 pl-10 pr-4', isHidden && 'opacity-55')}
-                      >
+                      <div key={m.ref} className="group/model flex items-center gap-3 py-2 pl-10 pr-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
@@ -987,37 +1097,41 @@ function ModelsSection(props: {
                             </div>
                           )}
                         </div>
-                        <WindowField
-                          model={m}
-                          set={props.settings.models.windows?.[m.ref]}
-                          onSet={(tokens) =>
-                            props.update((s) => {
-                              const windows = { ...s.models.windows }
-                              if (tokens) windows[m.ref] = tokens
-                              else delete windows[m.ref]
-                              return { ...s, models: { ...s.models, windows } }
-                            }, true)
+                        {/* An armed Remove takes their room for what it says about the removal. */}
+                        <span className="contents group-has-[[data-armed]]/model:hidden">
+                          <WindowField
+                            model={m}
+                            set={props.settings.models.windows?.[m.ref]}
+                            onSet={(tokens) =>
+                              props.update((s) => {
+                                const windows = { ...s.models.windows }
+                                if (tokens) windows[m.ref] = tokens
+                                else delete windows[m.ref]
+                                return { ...s, models: { ...s.models, windows } }
+                              }, true)
+                            }
+                          />
+                          <Button
+                            size="sm"
+                            variant="borderless"
+                            onClick={() => void test(m.ref)}
+                            loading={t === 'running'}
+                          >
+                            {copy.settings.models.test}
+                          </Button>
+                        </span>
+                        <ConfirmButton
+                          icon={deletes(m) ? true : <FEATURE_ICONS.hiddenModels className="size-4" />}
+                          label={copy.settings.models.remove(m.name)}
+                          title={
+                            deletes(m)
+                              ? copy.settings.models.removeDeleteTitle(m.provider)
+                              : copy.settings.models.removeHideTitle
                           }
+                          confirm={copy.settings.models.confirmRemove}
+                          warning={inUse(m)}
+                          onConfirm={() => void remove(m)}
                         />
-                        <Button
-                          size="sm"
-                          variant="borderless"
-                          onClick={() => void test(m.ref)}
-                          loading={t === 'running'}
-                        >
-                          {copy.settings.models.test}
-                        </Button>
-                        <IconButton
-                          size="sm"
-                          label={
-                            isHidden
-                              ? copy.settings.models.showModel(m.name)
-                              : copy.settings.models.hideModel(m.name)
-                          }
-                          onClick={() => toggleSet('hidden', m.ref)}
-                        >
-                          {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                        </IconButton>
                       </div>
                     )
                   })}
@@ -1026,6 +1140,44 @@ function ModelsSection(props: {
             </Card>
           )
         })}
+        {hiddenModels.length > 0 && (
+          <Card>
+            <button
+              type="button"
+              onClick={() => setHiddenOpen((o) => !o)}
+              aria-expanded={hiddenOpen}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+            >
+              <motion.span animate={{ rotate: hiddenOpen ? 90 : 0 }} transition={spring}>
+                <ChevronRight className="size-4 text-muted" />
+              </motion.span>
+              <FEATURE_ICONS.hiddenModels className="size-4 text-muted" />
+              <span className="text-body font-medium">
+                {copy.settings.models.hiddenHeading(hiddenModels.length)}
+              </span>
+            </button>
+            {hiddenOpen && (
+              <div className="max-h-[46vh] overflow-auto">
+                {hiddenModels.map((m) => (
+                  <div key={m.ref} className="flex items-center gap-3 py-2 pl-10 pr-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-body font-medium text-fg-2">{m.name}</div>
+                      <div className="truncate font-mono text-caption text-muted">{m.ref}</div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      aria-label={copy.settings.models.restoreLabel(m.name)}
+                      onClick={() => toggleSet('hidden', m.ref)}
+                    >
+                      {copy.settings.models.restore}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
       </div>
     </>
   )
@@ -1319,10 +1471,12 @@ function SignIns(props: { onProviders(p: ProviderInfo[]): void }) {
   )
 }
 
-function Providers(props: {
+export function Providers(props: {
   data: SettingsResponse
   onProviders(p: ProviderInfo[]): void
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+  /** Inside the setup assistant, which has its own heading and says where keys are kept itself. */
+  embedded?: boolean
 }) {
   const off = new Set(props.data.settings.models.hiddenProviders)
   const setOff = (id: string, hide: boolean) =>
@@ -1361,8 +1515,10 @@ function Providers(props: {
 
   return (
     <>
-      <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
-      {props.data.agentDir && (
+      {!props.embedded && (
+        <PageHeader title={copy.settings.providers.title}>{copy.settings.providers.intro}</PageHeader>
+      )}
+      {props.data.agentDir && !props.embedded && (
         <p className="-mt-4 mb-6 truncate font-mono text-footnote text-muted" title={props.data.agentDir}>
           {copy.settings.providers.storedIn(props.data.agentDir)}
         </p>
@@ -1759,6 +1915,19 @@ function ProviderForm(props: {
   )
 }
 
+/** The settings with `config`'s crew as the default every new chat starts with. */
+export function withDefaultCrew(s: ServerSettings, c: TeamConfig): ServerSettings {
+  s.team = {
+    ...s.team,
+    mode: c.mode,
+    workers: c.roster.length,
+    leadModel: c.leadModel,
+    ...(c.roster[0] ? { workerModel: c.roster[0].model } : {}),
+    judgeModel: c.judgeModel,
+  }
+  return s
+}
+
 function TeamSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings): void
@@ -1779,17 +1948,7 @@ function TeamSection(props: {
               config={props.config}
               onConfig={(c) => {
                 props.onConfig(c)
-                props.update((s) => {
-                  s.team = {
-                    ...s.team,
-                    mode: c.mode,
-                    workers: c.roster.length,
-                    leadModel: c.leadModel,
-                    ...(c.roster[0] ? { workerModel: c.roster[0].model } : {}),
-                    judgeModel: c.judgeModel,
-                  }
-                  return s
-                })
+                props.update((s) => withDefaultCrew(s, c))
               }}
             />
           </div>
@@ -1866,7 +2025,7 @@ function TeamSection(props: {
  * A number with limits. Typing applies each value inside the limits at once; leaving the box keeps an out-of-range
  * value at the nearest limit and an empty one at what it was, and while the value is outside them the box says so.
  */
-function NumberField(props: {
+export function NumberField(props: {
   label: string
   value: number
   min: number
@@ -2482,7 +2641,7 @@ function DevicesSection() {
   )
 }
 
-interface ChannelView {
+export interface ChannelView {
   id: string
   label: string
   setup?: string
@@ -2548,7 +2707,13 @@ const channelState = (c: ChannelView) => (c.enabled ? c.status.state : 'off')
  * Messaging channels as a gallery of their apps (OpenClaw's and Hermes's channel pages): the ones in use first, with
  * their state and who is waiting, then every other app to add, grouped and searchable. A tile opens the app's sheet.
  */
-function ChannelsSection(props: { initial?: string | undefined }) {
+export function ChannelsSection(props: {
+  initial?: string | undefined
+  /** Inside the setup assistant, which has its own heading. */
+  embedded?: boolean
+  /** Told each list as it loads, so the setup assistant can notice an app connecting. */
+  onChannels?(channels: readonly ChannelView[]): void
+}) {
   const t = copy.settings.channels
   const toast = useToast()
   const [list, setList] = useState<ChannelView[]>()
@@ -2562,6 +2727,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
       .then((r) => {
         setList(r.channels)
         setLoadError(undefined)
+        props.onChannels?.(r.channels)
       })
       .catch((err: Error) => setLoadError(err.message))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load on a timer
@@ -2580,7 +2746,7 @@ function ChannelsSection(props: { initial?: string | undefined }) {
   const shown = list?.find((c) => c.id === open)
   return (
     <>
-      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
       {loadError && (
         <Banner tone="bad" role="alert" className="mb-6">
           {t.loadError(loadError)}
@@ -2808,7 +2974,7 @@ function ChannelSheet(props: {
   ]
   const h = t.health
   return (
-    <Modal
+    <Sheet
       size="md"
       flush
       onClose={props.onClose}
@@ -3220,11 +3386,11 @@ function ChannelSheet(props: {
           </div>
         )}
       </div>
-    </Modal>
+    </Sheet>
   )
 }
 
-interface VoiceStatusView {
+export interface VoiceStatusView {
   enabled: boolean
   callModel?: string
   stt: {
@@ -3245,6 +3411,8 @@ interface VoiceStatusView {
   sizes?: { phonon: number; kitten: Record<'nano' | 'micro' | 'mini', number>; vad: number; turn: number }
   /** Days a call's transcript is kept. */
   transcriptDays?: number
+  /** The phone line on the SMS number; absent where there are no channels. */
+  phone?: { state: 'off' | 'connecting' | 'on' | 'error'; number?: string; error?: string }
 }
 
 /** An engine installing, starting or downloading: Settings → Voice looks again until it is done. */
@@ -3253,7 +3421,8 @@ function voiceBusy(s: VoiceStatusView | undefined): boolean {
     !!s &&
     (s.stt.phonon.state === 'installing' ||
       s.stt.phonon.state === 'starting' ||
-      s.tts.kitten.state === 'downloading')
+      s.tts.kitten.state === 'downloading' ||
+      s.phone?.state === 'connecting')
   )
 }
 
@@ -3268,7 +3437,7 @@ function plainHttp(url: string | undefined): boolean {
 }
 
 /** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
-function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
+export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
   const t = copy.settings.voice.trouble
   const trouble = engineTrouble(props.engine, props.raw)
   return (
@@ -3688,6 +3857,58 @@ function VoiceSection(props: {
           </Button>
         </CardRow>
       </Card>
+
+      {status?.phone && (
+        <>
+          <SectionHeader
+            as="h3"
+            className="mb-2"
+            icon={<FEATURE_ICONS.phoneCalls className="size-4 text-muted" />}
+            title={t.phone.title}
+          />
+          <Card className="mb-6">
+            <CardRow>
+              <Field
+                label={t.phone.enabled}
+                hint={
+                  <>
+                    {t.phone.hint}
+                    {status.phone.state === 'connecting' && ` ${t.phone.connecting}`}
+                    {status.phone.state === 'on' &&
+                      status.phone.number &&
+                      ` ${t.phone.on(status.phone.number)}`}
+                  </>
+                }
+                error={status.phone.state === 'error' ? status.phone.error : undefined}
+                inline
+              >
+                <Switch
+                  checked={v.phone === true}
+                  onChange={(phone) => set((x) => ({ ...x, phone }))}
+                  label={t.phone.enabled}
+                />
+              </Field>
+            </CardRow>
+            {status.phone.state === 'on' && (
+              <CardRow>
+                <Field label={t.phone.callMe} hint={t.phone.callMeHint} inline>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      void post<{ to: string }>('/api/voice/phone/call', {}).then(
+                        (r) => toast(t.phone.calling(r.to)),
+                        (err: Error) => toast(err.message, 'error'),
+                      )
+                    }
+                  >
+                    {t.phone.callMe}
+                  </Button>
+                </Field>
+              </CardRow>
+            )}
+          </Card>
+        </>
+      )}
     </>
   )
 }
@@ -3949,9 +4170,14 @@ function MiniMascot(props: { look: MascotLook; cell?: number }) {
   )
 }
 
-function MascotSection(props: {
+export function MascotSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+  /**
+   * Inside the setup assistant: its own heading, only the name and the look, and no small preview, since the
+   * assistant's own mascot changes as the person picks.
+   */
+  embedded?: boolean
 }) {
   const t = copy.settings.mascot
   const profile = props.data.settings.profile ?? { greeting: 'model' as const }
@@ -3960,7 +4186,7 @@ function MascotSection(props: {
     props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
   return (
     <>
-      <PageHeader title={t.title}>{t.intro}</PageHeader>
+      {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
       <Card className="mb-6">
         <CardRow>
           <Field label={t.name} hint={t.nameHint(props.data.account ?? '')} inline>
@@ -3979,43 +4205,52 @@ function MascotSection(props: {
             />
           </Field>
         </CardRow>
-        <CardRow>
-          <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
-            <Segmented
-              id="greeting"
-              value={profile.greeting}
-              options={[
-                { value: 'model', label: t.greetingModel },
-                { value: 'rules', label: t.greetingRules },
-              ]}
-              onChange={(greeting) =>
-                props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
-              }
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
-            <Segmented
-              id="titles"
-              value={profile.titles ?? 'model'}
-              options={[
-                { value: 'model', label: t.titlesModel },
-                { value: 'first-message', label: t.titlesFirst },
-              ]}
-              onChange={(titles) =>
-                props.update((s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }), true)
-              }
-            />
-          </Field>
-        </CardRow>
+        {!props.embedded && (
+          <>
+            <CardRow>
+              <Field label={t.greeting} hint={t.greetingHints[profile.greeting]} inline>
+                <Segmented
+                  id="greeting"
+                  value={profile.greeting}
+                  options={[
+                    { value: 'model', label: t.greetingModel },
+                    { value: 'rules', label: t.greetingRules },
+                  ]}
+                  onChange={(greeting) =>
+                    props.update((s) => ({ ...s, profile: { ...s.profile, greeting } }), true)
+                  }
+                />
+              </Field>
+            </CardRow>
+            <CardRow>
+              <Field label={t.titles} hint={t.titlesHints[profile.titles ?? 'model']} inline>
+                <Segmented
+                  id="titles"
+                  value={profile.titles ?? 'model'}
+                  options={[
+                    { value: 'model', label: t.titlesModel },
+                    { value: 'first-message', label: t.titlesFirst },
+                  ]}
+                  onChange={(titles) =>
+                    props.update(
+                      (s) => ({ ...s, profile: { greeting: 'model', ...s.profile, titles } }),
+                      true,
+                    )
+                  }
+                />
+              </Field>
+            </CardRow>
+          </>
+        )}
       </Card>
       <Card>
-        <CardRow>
-          <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
-            <MiniMascot look={look} cell={9} />
-          </figure>
-        </CardRow>
+        {!props.embedded && (
+          <CardRow>
+            <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
+              <MiniMascot look={look} cell={9} />
+            </figure>
+          </CardRow>
+        )}
         <CardRow>
           <Field label={t.eyes}>
             <div className="flex flex-wrap gap-3">
@@ -5320,36 +5555,11 @@ function MemorySection() {
   )
 }
 
-const SHORTCUTS: [string, string[]][] = [
-  [copy.settings.shortcuts.newTask, ['⌘', 'K']],
-  [copy.settings.shortcuts.focusComposer, ['/']],
-  [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
-  [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
-  [copy.settings.shortcuts.workspaceView, ['⌥', '⌘', '1–0']],
-  [copy.settings.shortcuts.openSettings, ['⌘', ',']],
-  [copy.settings.shortcuts.send, ['Enter']],
-  [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
-  [copy.settings.shortcuts.close, ['Esc']],
-  [copy.settings.shortcuts.muteCall, ['⌘', 'D']],
-  [copy.settings.shortcuts.hangUp, ['⌘', '⇧', 'H']],
-]
-
 function Shortcuts() {
   return (
     <>
       <PageHeader title={copy.settings.shortcuts.title} />
-      <Card>
-        {SHORTCUTS.map(([label, keys]) => (
-          <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
-            <span>{label}</span>
-            <span className="flex gap-1">
-              {keys.map((k) => (
-                <Kbd key={k}>{k}</Kbd>
-              ))}
-            </span>
-          </div>
-        ))}
-      </Card>
+      <ShortcutList />
     </>
   )
 }

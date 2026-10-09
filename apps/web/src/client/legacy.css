@@ -1,6 +1,6 @@
 /* Styles for the React Flow colony map and the compare table, which are not yet on Tailwind utilities. */
 .muted {
-  color: var(--muted);
+  color: var(--label-3);
 }
 .small {
   font-size: var(--text-callout);
@@ -9,32 +9,29 @@
   font-family: var(--mono);
 }
 .empty {
-  color: var(--muted);
+  color: var(--label-3);
   padding: 28px 16px;
   text-align: center;
 }
 
+/* React Flow's own stylesheet is unlayered, so it beats any rule in this layer. These set the variables it reads
+   first and leaves unset, so the map follows the theme. */
 .react-flow {
-  --xy-background-pattern-dots-color-default: var(--border-strong);
-  --xy-edge-stroke-default: var(--edge);
+  --xy-background-pattern-color: var(--separator-strong);
+  --xy-edge-stroke: var(--edge);
+  --xy-edge-label-color: var(--label-3);
+  --xy-edge-label-background-color: var(--window);
 }
-.react-flow__edge-text {
-  fill: var(--muted);
-  font-size: var(--text-caption);
-}
-.react-flow__edge-textbg {
-  fill: var(--bg);
-}
-.edge-active .react-flow__edge-path {
-  stroke: var(--accent);
-  stroke-width: 2;
+/* The live link in --accent-text, not --accent: amber on the light window is under 3:1. */
+.react-flow .edge-active {
+  --xy-edge-stroke: var(--accent-text);
 }
 .agent-node {
   width: 220px;
   padding: 10px 12px;
   border-radius: var(--radius-xl);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--content);
+  border: 1px solid var(--separator);
   box-shadow: var(--shadow-md);
   font-size: var(--text-body);
 }
@@ -55,7 +52,7 @@
 .agent-node-model {
   font-family: var(--mono);
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,7 +61,7 @@
   display: flex;
   gap: 8px;
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   margin-top: 2px;
 }
 .agent-node-task {
@@ -75,7 +72,7 @@
 .agent-node-detail {
   margin-top: 2px;
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -90,15 +87,15 @@
 .compare table {
   border-collapse: collapse;
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--content);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-xl);
   overflow: hidden;
 }
 .compare th,
 .compare td {
   padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--separator);
   text-align: left;
   vertical-align: top;
   font-size: var(--text-body);
@@ -107,7 +104,7 @@
 .compare th {
   font-family: var(--mono);
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   font-weight: 400;
   white-space: nowrap;
   text-transform: uppercase;
@@ -125,6 +122,7 @@
   background: none;
   border: 0;
   padding: 0;
+  min-height: 24px;
   color: var(--accent-text);
   font-weight: 600;
   cursor: pointer;

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { type AgentStatus, AWAITING_USER, stopCause } from '@myrmidon/protocol'
 import { copy } from '../src/client/copy.ts'
 import { clock, day, duration, knownCost, money } from '../src/client/ui/hooks.ts'
-import { agentPhase, runPhase, toneFor } from '../src/client/ui/status.ts'
+import { agentPhase, needsYou, runPhase, toneFor } from '../src/client/ui/status.ts'
 
 test('each state has one colour: asking is accent, moving is work, done is green, only failure is red', () => {
   expect(toneFor('awaiting')).toBe('accent')
@@ -30,6 +30,16 @@ test('a chat that stopped to ask the person waits for them rather than reading a
   expect(runPhase({ status: 'created' })).toBe('working')
   expect(runPhase({ status: 'completed' })).toBe('completed')
   expect(toneFor(runPhase({ status: 'stopped', awaiting: true }))).toBe('accent')
+})
+
+test('only a chat waiting on an answer or approval needs the person, and the window title counts them', () => {
+  expect(needsYou({ status: 'stopped', awaiting: true })).toBe(true)
+  // Still working, failed or done: the person is not what it waits on.
+  expect(needsYou({ status: 'running', awaiting: true })).toBe(false)
+  expect(needsYou({ status: 'stopped', awaiting: true, failed: true })).toBe(false)
+  expect(needsYou({ status: 'completed' })).toBe(false)
+  expect(copy.app.documentTitle(2)).toBe('(2) Myrmidon')
+  expect(copy.app.documentTitle(0)).toBe(copy.brand.name)
 })
 
 const worker = (status: AgentStatus, detail?: string) => ({

@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { SANDBOX_MAX_OUTPUT } from './config.ts'
+import { spawnLeashed } from './leashed.ts'
 
 export interface SandboxRun {
   readonly command: string
@@ -75,7 +76,8 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
 }
 
 function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess {
-  const proc = Bun.spawn(argv, { cwd: spec.cwd, env: confinedEnv(spec), stdout: 'pipe', stderr: 'pipe' })
+  // Leashed outside the confinement, so a dev server and what it started stop when Myrmidon dies, however it dies.
+  const proc = spawnLeashed(argv, { cwd: spec.cwd, env: confinedEnv(spec), stdout: 'pipe', stderr: 'pipe' })
   let output = ''
   const drain = async (stream: ReadableStream<Uint8Array>) => {
     const decoder = new TextDecoder()

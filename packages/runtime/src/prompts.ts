@@ -349,6 +349,11 @@ nobody owns, publish artifacts, and request final verification once the output m
     huddleOver: (p: { why: string; proposals: string; snapshot: string }) =>
       `The huddle is over (${p.why}). Proposals:\n${p.proposals}\n\nYou proposed first, so write the plan: one note with section "plan" that merges the proposals, then create the tasks with create_task, each with assignee set to the crewmate who volunteered for it and the outputs it will produce. Then claim your own.\n\n${p.snapshot}`,
     noProposals: '(no proposals were posted)',
+    /** Why a round stopped at one of its limits; the person reads it on the run, and agents when it resumes. */
+    spendLimit: (spent: number, limit: number) =>
+      `spend limit reached: $${spent.toFixed(2)} of $${limit} for this run`,
+    tokenLimit: (used: number, limit: number) =>
+      `token limit reached: ${used.toLocaleString('en-US')} of ${limit.toLocaleString('en-US')} for this run`,
     unread: (lines: string) => `\n\nThe person said, and nobody has read it yet:\n${lines}`,
     resumedRestored: (reason: string) =>
       `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`,
@@ -742,6 +747,9 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
         `The crew could not finish "${request}": ${reason}. Tell the person briefly.`,
       approval: (id: string, tool: string, summary: string) =>
         `The crew is waiting for approval ${id} to use ${tool}: ${summary}. Ask the person whether to allow it.`,
+      /** The person on the call is not the owner (a member calling by phone): they cannot decide it. */
+      ownerApproval: (tool: string, summary: string) =>
+        `The crew is waiting for the owner's approval to use ${tool}: ${summary}. The person on this call cannot give it and you cannot either: tell them briefly that the owner has to allow it in Myrmidon.`,
       question: (text: string) => `The crew asks the person: ${text}. Put the question to them.`,
       answer: (from: string, text: string) =>
         `${from} answered your question:\n${text}\nTell the person the gist in a sentence or two.`,
@@ -767,12 +775,24 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
     },
     /** Read back once the person's yes or no has decided an approval. */
     decided: (approved: boolean, summary: string) => `${approved ? 'Allowed' : 'Refused'}: ${summary}`,
+    /** Spoken by Twilio (TwiML <Say>) to a phone caller the call cannot take. */
+    phone: {
+      /** An unknown number on a channel that pairs strangers: they were texted a code (once per window). */
+      pairing:
+        'This number is not approved to reach the crew yet. We sent you a text with a code; the owner can approve it in Myrmidon.',
+      /** Answered, but no call can start now (voice is not ready, too many calls); why goes to the log, as for texts. */
+      unavailable: 'Sorry, the crew cannot take a call right now. Please try again later.',
+      /** What the person is called on a call when they are a member, whose name is only their number. */
+      member: 'there',
+    },
     /** A call straight to the lead or one crew member: no call assistant, their replies read aloud. */
     direct: {
       hello: (name: string, who: string) =>
         `Hi ${name}, you're talking to ${who === 'lead' ? 'the lead' : who}. Go ahead.`,
       approval: (tool: string, summary: string) =>
         `The crew wants approval to use ${tool}: ${summary}. Say yes or no.`,
+      ownerApproval: (summary: string) =>
+        `The crew is waiting for the owner to allow this: ${summary}. They decide it in Myrmidon.`,
       failed: (reason: string) => `That run failed: ${reason}`,
       rest: 'The rest is in the chat.',
       code: '(there is code in the chat)',
@@ -861,6 +881,18 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
     noDownloads: 'No downloads yet. A download starts when you click its link or button.',
     serving: (name: string, url: string) =>
       `${name} is serving at ${url}. Open it with browser_open; read its output with server_logs.`,
+    privateAddress: (host: string, address?: string) =>
+      `${host}${address && address !== host ? ` resolves to ${address}, which is` : ' is'} a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round`,
+    notYourServer: (port: number) =>
+      `localhost:${port} is not a server you started in this round. Agents can reach only the localhost ports of their own servers (start one with start_server and open the URL it returns), plus the public internet`,
+    portInUse: (port: number) =>
+      `port ${port} is already in use by something other than this server; start it on a free port`,
+    portWasInUse: (port: number) =>
+      `the server printed a URL on port ${port}, but that port was already in use before it started; start it on a free port and pass port`,
+    readerProgram:
+      'web_fetch does not run other programs: they would reach the network without its address checks',
+    browserBlocked: (url: string, reason?: string) =>
+      `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
     toolCreated: (name: string, output: string) =>
       `Created ${name}; the team can call it now. Test run:\n${output}`,
     worktreeUpdated: (files: readonly string[]) =>

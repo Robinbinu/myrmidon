@@ -13,7 +13,7 @@ import {
   useId,
 } from 'react'
 import { spring } from '../ui-config.ts'
-import { type Tone, toneFor } from './status.ts'
+import { type DotShape, dotShape, type Tone, toneFor } from './status.ts'
 
 export function cn(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
@@ -131,18 +131,51 @@ const DOT: Record<Tone, string> = {
 }
 
 /**
- * A status dot. `status` picks its colour as everywhere else (toneFor); `tone` sets it directly, as for a health
- * check. Work in motion pings unless `pulse` is false, as in a lane heading that would otherwise never stop.
+ * A status dot, drawn to the standard Codex and Claude Code share (see DotShape): `status` picks its shape and colour,
+ * `tone` sets a live dot's colour directly, as for a health check. Work in progress spins unless `pulse` is false, as
+ * in a lane heading that would otherwise never stop; with less motion it holds still as a filled dot.
  */
 export function Dot(props: ({ status: string } | { tone: Tone }) & { pulse?: boolean }) {
   const tone = 'tone' in props ? props.tone : toneFor(props.status)
-  const color = DOT[tone]
+  const shape: DotShape =
+    'tone' in props
+      ? tone === 'work'
+        ? 'spinner'
+        : tone === 'bad'
+          ? 'failed'
+          : 'live'
+      : dotShape(props.status)
   return (
-    <span className="relative inline-flex size-2 shrink-0">
-      {(props.pulse ?? tone === 'work') && (
-        <span className={cn('absolute inset-0 animate-ping rounded-full opacity-60', color)} />
+    <span aria-hidden="true" className="relative inline-flex size-2.5 shrink-0 items-center justify-center">
+      {shape === 'spinner' &&
+        (props.pulse === false ? (
+          <span className="size-2 rounded-full bg-fg-2/70" />
+        ) : (
+          <>
+            <span className="size-2.5 animate-spin rounded-full border-[1.5px] border-fg-2/25 border-t-fg-2 less-motion:hidden" />
+            <span className="hidden size-2 rounded-full bg-fg-2/70 less-motion:inline-flex" />
+          </>
+        ))}
+      {shape === 'alert' && <span className="size-2 rounded-full bg-accent" />}
+      {shape === 'unread' && <span className="size-2 rounded-full bg-ok" />}
+      {shape === 'live' && <span className={cn('size-2 rounded-full', DOT[tone])} />}
+      {shape === 'done' && <span className="size-2 rounded-full border-[1.5px] border-muted/60" />}
+      {shape === 'idle' && <span className="size-2 rounded-full border-[1.5px] border-muted/60" />}
+      {shape === 'queued' && (
+        <span className="size-2.5 rounded-full border-[1.5px] border-dashed border-muted/70" />
       )}
-      <span className={cn('relative inline-flex size-2 rounded-full', color)} />
+      {shape === 'stopped' && <span className="size-[7px] rounded-[1.5px] bg-muted/70" />}
+      {shape === 'failed' && (
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 10 10"
+          className="size-2.5 text-bad"
+          fill="none"
+          stroke="currentColor"
+        >
+          <path d="M2 2l6 6M8 2l-6 6" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      )}
     </span>
   )
 }
@@ -232,12 +265,20 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   },
 )
 
+/**
+ * The face of a macOS pop-up button, for any control that opens a list or a panel: Select, and the composer's model
+ * and crew controls. Height, padding and the chevrons are the caller's.
+ */
+export const POPUP =
+  'rounded-md border border-line-strong/70 bg-control text-body text-fg shadow-control transition-colors duration-100 hover:bg-control-hover'
+
 /** A native select drawn as a macOS popup button: keyboard and screen readers keep the real control. */
 export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       className={cn(
-        'h-7 appearance-none rounded-md border border-line-strong/70 bg-control bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 text-body text-fg shadow-control outline-none transition-colors duration-100 hover:bg-control-hover focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        'h-7 appearance-none bg-[image:var(--chevrons)] bg-[length:10px_14px] bg-[position:right_8px_center] bg-no-repeat pl-2.5 pr-7 outline-none focus-visible:border-focus focus-visible:ring-3 focus-visible:ring-focus/30 disabled:opacity-50',
+        POPUP,
         className,
       )}
       {...rest}
@@ -453,7 +494,8 @@ export function SectionHeader(props: {
  * `action` beside it) across its top.
  */
 export function Card(props: { children: ReactNode; className?: string; title?: string; action?: ReactNode }) {
-  const panel = 'rounded-2xl border border-line bg-surface'
+  // An inset group, as System Settings draws one: a 10px card a shade apart from the page behind it.
+  const panel = 'rounded-base border border-line bg-surface'
   if (props.title === undefined)
     return <div className={cn('divide-y divide-line', panel, props.className)}>{props.children}</div>
   return (
@@ -469,7 +511,7 @@ export function Card(props: { children: ReactNode; className?: string; title?: s
 
 /** One row of a Card. */
 export function CardRow(props: { children: ReactNode }) {
-  return <div className="px-4 py-3.5">{props.children}</div>
+  return <div className="px-4 py-3">{props.children}</div>
 }
 
 const BANNER: Record<'bad' | 'warn' | 'ok' | 'info', string> = {

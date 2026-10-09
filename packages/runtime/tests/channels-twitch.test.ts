@@ -11,6 +11,7 @@ function twitch(options: { validate?: (auth: string) => Response; refuseLogin?: 
   const sockets: ServerWebSocket<unknown>[] = []
   const lines: { line: string; at: number }[] = []
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     fetch(req, srv) {
       const url = new URL(req.url)

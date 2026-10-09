@@ -4,18 +4,23 @@ import {
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  BellRing,
   BookMarked,
   Brain,
   CalendarClock,
   Container,
   Cpu,
+  EyeOff,
   Feather,
   FileCode,
+  FileSearch,
   FishingHook,
+  FolderTree,
   Gavel,
   GitBranch,
   Globe,
   GraduationCap,
+  Keyboard,
   KeyRound,
   ListChecks,
   ListFilter,
@@ -25,13 +30,16 @@ import {
   MessagesSquare,
   MonitorSmartphone,
   Palette,
+  PhoneIncoming,
   Plug,
   Puzzle,
+  Rocket,
   ScreenShare,
   ScrollText,
   Server,
   ServerCog,
   ShieldCheck,
+  ShieldPlus,
   ShieldQuestion,
   SlidersHorizontal,
   Smile,
@@ -60,6 +68,8 @@ export const FEATURE_ICONS = {
   permissions: ShieldCheck,
   /** A project that asks before acting, and the approvals it waits on. */
   approvalAsk: ShieldQuestion,
+  /** Steps the person allowed for the rest of one chat from an approval card. */
+  chatGrants: ShieldPlus,
   /** A project where agents act without asking. */
   autonomous: Zap,
   /** Per-tool allow, ask and off rules in Settings → Tools. */
@@ -80,6 +90,8 @@ export const FEATURE_ICONS = {
   lightThinking: Feather,
   /** Models: the Models section, the /model command. */
   models: Cpu,
+  /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
+  hiddenModels: EyeOff,
   /** Providers and their keys. */
   providers: KeyRound,
   /** Another Myrmidon this window can show. */
@@ -132,12 +144,18 @@ export const FEATURE_ICONS = {
   mascot: Smile,
   /** Voice calls with the crew. */
   voice: AudioLines,
+  /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
+  phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
   /** Scratch files: private drafts before publishing. */
   scratchFiles: SlidersHorizontal,
   /** Files the crew published. */
   files: FileCode,
+  /** The project folder as a tree in the workspace (Explorer). */
+  explorer: FolderTree,
+  /** A file in the chat's project folder, opened to read as it is now. */
+  projectFile: FileSearch,
   /** The project's git history. */
   git: GitBranch,
   /** Tasks on the crew's board. */
@@ -148,4 +166,10 @@ export const FEATURE_ICONS = {
   agentShell: SquareTerminal,
   /** The live record of what the crew did. */
   activity: Activity,
+  /** Keyboard shortcuts: the shortcuts sheet (⌘/) and its list in Settings. */
+  shortcuts: Keyboard,
+  /** The first-run setup assistant: running it again, and the home screen's card for what is left. */
+  setup: Rocket,
+  /** Notifications when a chat finishes or needs the person, and the Dock badge. */
+  alerts: BellRing,
 } as const

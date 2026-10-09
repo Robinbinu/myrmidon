@@ -12,8 +12,18 @@ export const popSpring = { type: 'spring', stiffness: 520, damping: 17 } as cons
 export const lookSpring = { type: 'spring', stiffness: 420, damping: 30 } as const
 /** A plain fade: a dialog's backdrop, a toast leaving. */
 export const fade = { duration: 0.15 } as const
+/** A context menu appearing and leaving: quick, as a Mac's do, with no travel. */
+export const menuFade = { duration: 0.1 } as const
+/** The least room a context menu keeps between itself and the window's edges. */
+export const MENU_EDGE_PX = 8
 /** How long a toast stays: one with a button long enough to reach for it, an error long enough to read. */
 export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
+/** How long a deleted chat can be taken back: it is only hidden until then, and deleted for good after. */
+export const UNDO_DELETE_MS = 8000
+/** Takes back the latest delete while it can still be undone; not while typing, where it undoes the typing. */
+export const UNDO_DELETE_COMBO = 'mod+z'
+/** How many titles the sheet deleting several chats names before it says how many more. */
+export const DELETE_TITLES_SHOWN = 5
 
 /* ------------------------------------------------------------------ models */
 
@@ -46,6 +56,14 @@ export const TOOLBAR_FOLD_SLACK_PX = 24
  */
 export const WORKSPACE_DOCK_PX = 1280
 
+/* ------------------------------------------------------------------ command menu */
+
+/** How many of each group the command menu (⌘K) lists: with nothing typed, and while typing. */
+export const PALETTE_LIMITS = {
+  idle: { actions: 8, chats: 5, projects: 3, settings: 0 },
+  searching: { actions: 6, chats: 8, projects: 5, settings: 6 },
+} as const
+
 /* ------------------------------------------------------------------ sidebar */
 
 /** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
@@ -64,6 +82,12 @@ export const USER_SCROLL_MS = 600
 export const MAX_ACTIVITY_ITEMS = 500
 /** Replay speeds offered for scrubbing through a round. */
 export const REPLAY_SPEEDS = [1, 4, 16, 64]
+/** Stroke widths of the crew map's links, in px: a pair that traded one message, and the busiest pair. */
+export const MAP_LINK_WIDTH = { min: 1.25, max: 6 } as const
+/** The crew map's arrowheads, in px at a 1px line; they grow by this much per px of line. */
+export const MAP_ARROW_PX = { base: 14, perWidth: 3 } as const
+/** The latest events whose messages count as live, drawn as moving links on the crew map. */
+export const MAP_RECENT_EVENTS = 25
 
 /* ------------------------------------------------------------------ diffs */
 
@@ -99,10 +123,12 @@ export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
 /**
- * Windows shorter than this leave the mascot off the entry page: its screen (about 300px) would push the message box
- * and the starters below the fold, and they matter more.
+ * Windows shorter than this leave the mascot off the new-chat view: its screen (about 300px) would push the message
+ * box and the starters below the fold, and they matter more.
  */
 export const HERO_MASCOT_MIN_HEIGHT = 760
+/** How many of the latest chats the new-chat view lists under its starters. */
+export const HERO_RECENT_CHATS = 5
 
 /* ------------------------------------------------------------------ crew cursors */
 
@@ -174,3 +200,64 @@ export const VOICE_POLL_MS = 2000
 export const VOICE_SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
 /** Thumbnails of pictures in the message box before sending, in pixels. */
 export const ATTACH_THUMB_PX = 64
+
+/* ------------------------------------------------------------------ setup assistant */
+
+/**
+ * The setup assistant's mascot. It stays one mascot on every screen: big and centred on Welcome and Ready, beside
+ * the content on the rest, travelling between the two on `travel`.
+ */
+export const SETUP_MASCOT = {
+  /** Its screen's width, in px, in each place; beside the content in a window narrower than `narrowBelow`, smaller. */
+  width: { center: 340, side: 220, narrowSide: 150 },
+  narrowBelow: 860,
+  /** On a stage shorter than this, it sits smaller in the centre place too. */
+  shortBelow: 700,
+  shortScale: 0.66,
+  /**
+   * The screen's content and the mascot are centred together right of the step list: the content at most this wide,
+   * this far from the mascot beside it, and at least `edge` from every side.
+   */
+  contentMax: 640,
+  gap: 48,
+  edge: 32,
+  /** Its dot screen's lettering, in px per dot, and the most letters it shows. */
+  dot: 2.4,
+  screenChars: 12,
+  /** Moving to its place on a new screen: a soft spring, so it is seen to travel. */
+  travel: { type: 'spring', stiffness: 170, damping: 22, mass: 0.9 },
+  /** How long a reaction's expression shows before it settles back. */
+  reactionMs: 1600,
+  /** Each beat of waking up on Welcome. */
+  wakeBeatMs: 650,
+  /** One letter of the greeting typing out on its screen. */
+  typeMs: 90,
+  /** How often it may play a trick while left alone, and the chance it does each time. */
+  trickEveryMs: 4000,
+  trickChance: 0.2,
+  /** Where crewmates' cursors wait once they have poked it, relative to its centre, in px: under it, clear of the
+   * content beside it. */
+  crewSpots: [
+    { x: -60, y: 120 },
+    { x: 40, y: 150 },
+    { x: -30, y: 185 },
+    { x: 60, y: 215 },
+    { x: -70, y: 245 },
+    { x: 20, y: 275 },
+    { x: -40, y: 305 },
+    { x: 50, y: 335 },
+  ],
+  /** Where a cursor comes from and leaves to: off past its right edge. */
+  crewOffstage: { x: 520, y: -260 },
+} as const
+/** A provider just connected in setup: how often its models are looked for, and how many times, before giving up. */
+export const SETUP_MODEL_WAIT = { everyMs: 1500, tries: 8 } as const
+/** The pause, once setup is finished, before a starter prompt is sent, so the mascot can settle on the home screen. */
+export const SETUP_HANDOFF_MS = 750
+/** The microphone test: the analyser's window, and how much its level is raised to reach the mascot's eyes. */
+export const MIC_TEST = { fftSize: 512, gain: 5 } as const
+/**
+ * What uv's install of Phonon-2's runtime (mlx and the rest) adds on disk, which the server does not measure: with the
+ * models it does report, voice on this computer comes to about 1.3 GB. Shown before the person chooses it.
+ */
+export const VOICE_RUNTIME_BYTES = 1_100_000_000

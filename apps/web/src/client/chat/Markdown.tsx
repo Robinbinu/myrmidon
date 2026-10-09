@@ -1,7 +1,8 @@
-import { Check, Copy } from 'lucide-react'
-import { Fragment, type ReactNode } from 'react'
+import { Check, Copy, ExternalLink } from 'lucide-react'
+import { Fragment, type MouseEvent, type ReactNode } from 'react'
 import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 
 // A link's label stops at the next `[`, and its address at a `(` that does not open a balanced pair, which every
 // later link's `](` is: each attempt then scans only up to the next link instead of rescanning the rest of the line
@@ -50,13 +51,14 @@ function inline(text: string): ReactNode[] {
           href={token.slice(token.indexOf('](') + 2, -1)}
           target="_blank"
           rel="noreferrer"
+          onContextMenu={linkMenu}
         >
           {token.slice(1, token.indexOf(']'))}
         </a>,
       )
     } else {
       out.push(
-        <a key={at} className={LINK} href={token} target="_blank" rel="noreferrer">
+        <a key={at} className={LINK} href={token} target="_blank" rel="noreferrer" onContextMenu={linkMenu}>
           {token}
         </a>,
       )
@@ -65,6 +67,16 @@ function inline(text: string): ReactNode[] {
   }
   if (last < text.length) out.push(text.slice(last))
   return out
+}
+
+/** A link's own menu, since the browser's is kept off the app: open it, or copy where it goes. */
+function linkMenu(e: MouseEvent<HTMLAnchorElement>) {
+  const href = e.currentTarget.href
+  const m = copy.contextMenu.link
+  openContextMenu(e, m.label(href), [
+    { label: m.open, icon: ExternalLink, run: () => window.open(href, '_blank', 'noopener,noreferrer') },
+    copyAction(m.copy, href),
+  ])
 }
 
 /** The words of Markdown without its markup, for reading out (a screen reader would say every `*` and `#`). */

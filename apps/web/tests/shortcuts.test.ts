@@ -51,4 +51,6 @@ test('labels follow the platform', () => {
   expect(comboLabel('mod+shift+[', false)).toBe('Ctrl+Shift+[')
   expect(comboLabel('escape', true)).toBe('Esc')
   expect(comboLabel('mod+,', false)).toBe('Ctrl+,')
+  expect(comboLabel('shift+enter', true)).toBe('⇧↩')
+  expect(comboLabel('shift+enter', false)).toBe('Shift+Enter')
 })

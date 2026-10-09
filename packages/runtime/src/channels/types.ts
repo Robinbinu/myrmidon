@@ -43,6 +43,16 @@ export interface ButtonPress {
   readonly message?: SentRef
 }
 
+/** What the hub says back to whoever pressed a button: shown to them alone (a toast, an ephemeral reply). */
+export interface PressNote {
+  readonly text: string
+  /**
+   * It only repeats what the pressed message now says (an approval's outcome, an answer noted), so a platform that
+   * shows notes as messages rather than toasts leaves it out.
+   */
+  readonly echo?: boolean
+}
+
 /** A message that arrived (or a button press). */
 export interface Inbound {
   /** The platform's id for it, unique within the chat (for dropping redeliveries). */
@@ -136,7 +146,7 @@ export interface ChannelAdapter {
   typing(chat: ChannelChat | string): Promise<void>
   sendFile?(chat: ChannelChat | string, file: OutFile): Promise<SentRef>
   /** Acknowledges a button press, with a short note the platform may show. */
-  answerPress?(press: ButtonPress, note?: string): Promise<void>
+  answerPress?(press: ButtonPress, note?: PressNote): Promise<void>
   /** Handles a webhook from the platform (signature checked here); for platforms that push instead of polling. */
   webhook?(req: Request): Promise<Response>
 }

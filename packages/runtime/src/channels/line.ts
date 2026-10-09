@@ -1,6 +1,17 @@
 import { createHmac, randomUUID } from 'node:crypto'
+import { channelCopy } from './copy.ts'
 import { plainText } from './format.ts'
-import { clip, connectPushed, download, mimeOf, RefusedError, sameSecret } from './push.ts'
+import {
+  clip,
+  connectPushed,
+  download,
+  HOSTED_DAYS,
+  hostFile,
+  mimeOf,
+  RefusedError,
+  sameSecret,
+  serveHosted,
+} from './push.ts'
 import {
   type AdapterIO,
   type ButtonPress,
@@ -9,7 +20,9 @@ import {
   chatIdOf,
   type Inbound,
   type InboundFile,
+  type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
 } from './types.ts'
 
@@ -33,6 +46,8 @@ const DATA_MAX = 300
 const SENT_KEPT = 500
 /** Lookups of a name or a group's title give up after this, rather than holding the webhook. */
 const LOOKUP_MS = 3000
+/** LINE's largest preview image; a JPEG or PNG up to this size is its own preview. */
+const PREVIEW_MAX = 1024 * 1024
 
 export class LineError extends Error {
   constructor(
@@ -79,8 +94,8 @@ export class LineAdapter implements ChannelAdapter {
   readonly id = 'line'
   readonly label = 'LINE'
   readonly limits = { text: 5000, editMs: 1000 }
-  /** Sending a file needs it at a public HTTPS address of its own, which the gateway does not serve. */
-  readonly can = { buttons: true, files: false, edit: false }
+  /** LINE takes no file's bytes from a bot, only HTTPS addresses to fetch it from, which the gateway serves. */
+  readonly can = { buttons: true, files: true, edit: false }
   private _io?: AdapterIO
   private _abort?: AbortController
   private _loop?: Promise<void>
@@ -167,6 +182,8 @@ export class LineAdapter implements ChannelAdapter {
 
   /** Events LINE posted, taken only with a valid signature of the exact body. */
   async webhook(req: Request): Promise<Response> {
+    const hosted = serveHosted(this._io, req)
+    if (hosted) return hosted
     const body = await req.text()
     const expected = createHmac('sha256', this.secret).update(body).digest('base64')
     if (!this.secret || !sameSecret(req.headers.get('x-line-signature') ?? '', expected))
@@ -389,12 +406,33 @@ export class LineAdapter implements ChannelAdapter {
     await this._call('POST', '/v2/bot/chat/loading/start', { chatId: id, loadingSeconds: 10 })
   }
 
+  /**
+   * A JPEG or PNG small enough to be its own preview is an image message; anything else is a link to download it.
+   * LINE's video and audio messages also need a preview image or the length in milliseconds, which only decoding
+   * the file would give.
+   */
+  async sendFile(chat: ChannelChat | string, file: OutFile): Promise<SentRef> {
+    const url = hostFile(this._io, file)
+    if (!url) throw new Error(channelCopy.noFileLink)
+    const to = chatIdOf(chat)
+    const image =
+      (file.mimeType === 'image/jpeg' || file.mimeType === 'image/png') && file.data.byteLength <= PREVIEW_MAX
+    const messages = [
+      ...(file.caption ? [{ type: 'text', text: plainText(file.caption).slice(0, this.limits.text) }] : []),
+      image
+        ? { type: 'image', originalContentUrl: url, previewImageUrl: url }
+        : { type: 'text', text: plainText(channelCopy.fileLink(file.name, url, HOSTED_DAYS)) },
+    ]
+    return { chat: to, id: await this._deliver(to, messages, this._token(to)) }
+  }
+
   /** LINE shows nothing for a press itself, so the note is sent as a reply (by the press's own token if unused). */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const chat = this._pressChats.get(press.id)
     this._pressChats.delete(press.id)
-    if (!note || !chat) return
+    // Notes arrive as messages here, so one that only repeats the pressed message is left out.
+    if (!note || note.echo || !chat) return
     const unused = this._replies.get(chat)?.token === press.id ? this._token(chat) : undefined
-    await this._deliver(chat, [{ type: 'text', text: note }], unused)
+    await this._deliver(chat, [{ type: 'text', text: note.text }], unused)
   }
 }

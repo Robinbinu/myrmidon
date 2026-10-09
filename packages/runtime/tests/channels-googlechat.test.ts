@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { GoogleChatAdapter, googleChatText, plainText, signJwt } from '../src/channels/index.ts'
 import { fakeServer, now, rsaKey, testIO, until } from './fixtures/channel-server.ts'
 
@@ -10,9 +13,11 @@ const serviceKey = await rsaKey('sa-1')
 
 const servers: { stop(force?: boolean): unknown }[] = []
 const adapters: GoogleChatAdapter[] = []
+const dirs: string[] = []
 afterEach(async () => {
   for (const a of adapters.splice(0)) await a.stop()
   for (const s of servers.splice(0)) s.stop(true)
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** Google's token service and key sets, and the Chat API, on one fake server. */
@@ -235,8 +240,10 @@ test('events become messages: a direct chat, a space thread with a mention, a ca
 test("sends in Chat's formatting, into the thread, with card buttons; edits replace text and buttons", async () => {
   const fake = google()
   const adapter = make(fake.base)
-  const { handle } = testIO(HOOK)
+  const { handle, statuses } = testIO(HOOK)
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   const ref = await adapter.send(
     { id: 'spaces/S1', kind: 'group', thread: 'spaces/S1/threads/T1' },
     {
@@ -290,6 +297,33 @@ test("sends in Chat's formatting, into the thread, with card buttons; edits repl
   await adapter.send({ id: 'spaces/S1', kind: 'group', thread: 'spaces/OTHER/threads/T' }, { text: 'hi' })
   expect(fake.calls.at(-1)?.query.get('messageReplyOption')).toBeNull()
   expect(fake.calls.at(-1)?.body).not.toHaveProperty('thread')
+})
+
+test("files go as links from the gateway's webhook address: an app cannot upload one", async () => {
+  const fake = google()
+  const adapter = make(fake.base)
+  const dir = mkdtempSync(join(tmpdir(), 'myr-gchat-'))
+  dirs.push(dir)
+  const { handle, statuses } = testIO(HOOK, dir)
+  await adapter.start(handle)
+  await until(() => statuses.some((s) => s.state === 'on'))
+  expect(adapter.can.files).toBe(true)
+  const ref = await adapter.sendFile(
+    { id: 'spaces/S1', kind: 'group', thread: 'spaces/S1/threads/T1' },
+    { name: 'notes.md', mimeType: 'text/markdown', data: new Uint8Array([35, 32, 104, 105]) },
+  )
+  expect(ref).toEqual({ chat: 'spaces/S1', id: 'spaces/S1/messages/M1' })
+  const sent = fake.calls.at(-1)
+  expect(sent?.body).toMatchObject({ thread: { name: 'spaces/S1/threads/T1' } })
+  const text = ((sent?.body ?? {}) as { text: string }).text
+  expect(text).toMatch(
+    /^📎 <https:\/\/box\.example\/hooks\/channels\/googlechat\?file=[\w-]{32}\|notes\.md> \(the link works for 7 days\)$/,
+  )
+  // The download needs no Google token: the link is the key.
+  const served = await adapter.webhook(new Request(/<([^|]+)\|/.exec(text)?.[1] ?? ''))
+  expect(served.status).toBe(200)
+  expect(served.headers.get('content-disposition')).toStartWith('attachment;')
+  expect(await served.text()).toBe('# hi')
 })
 
 test("Markdown in Google Chat's marks, and as plain text for LINE", () => {

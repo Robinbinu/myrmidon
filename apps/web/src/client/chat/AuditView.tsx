@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { clock } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { Badge, cn, Empty, Select, TextInput } from '../ui/primitives.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 
@@ -141,6 +142,9 @@ export function AuditView(props: { events: readonly MyrEvent[] }) {
                 <button
                   type="button"
                   onClick={() => folds.toggle(key)}
+                  onContextMenu={(e) =>
+                    openContextMenu(e, t.target, [copyAction(copy.contextMenu.copy, t.target)])
+                  }
                   aria-expanded={open}
                   className="flex w-full items-start gap-2 rounded-xl px-1.5 py-2 text-left hover:bg-fill"
                 >

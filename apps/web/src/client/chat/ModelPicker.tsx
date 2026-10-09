@@ -15,9 +15,9 @@ import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { ProviderGlyph, ProviderLogo } from '../ui/ProviderGlyph.tsx'
-import { cn } from '../ui/primitives.tsx'
+import { cn, POPUP } from '../ui/primitives.tsx'
 import { AGENT_MIN_WINDOW, MODEL_LIST_MIN_PX } from '../ui-config.ts'
-import { withoutDatedAliases } from './model-list.ts'
+import { modelName, withoutDatedAliases } from './model-list.ts'
 
 /** The popover a picker sits in, if any: its list then opens above the popover instead of covering it. */
 export const PickerHost = createContext<RefObject<HTMLElement | null> | undefined>(undefined)
@@ -82,7 +82,9 @@ export function ModelPicker(props: {
 
   const hits = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return visible.filter((m) => !q || `${m.ref} ${m.name}`.toLowerCase().includes(q)).slice(0, 400)
+    return visible
+      .filter((m) => !q || `${m.ref} ${m.name} ${modelName(m.name)}`.toLowerCase().includes(q))
+      .slice(0, 400)
   }, [visible, query])
 
   const groups = useMemo(() => {
@@ -151,8 +153,9 @@ export function ModelPicker(props: {
         className={
           variant === 'chip'
             ? cn(
-                'group inline-flex h-8 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 rounded-full border border-line bg-fill/40 pl-1.5 pr-2.5 text-callout font-medium text-fg-2 shadow-[inset_0_0.5px_0_rgb(255_255_255/0.07)] transition-colors hover:bg-fill hover:text-fg',
-                open && 'bg-fill text-fg',
+                'group inline-flex h-7 w-full min-w-[52px] max-w-[220px] items-center gap-1.5 pl-1.5 pr-2',
+                POPUP,
+                open && 'bg-control-active',
               )
             : variant === 'compact'
               ? 'group inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-line-strong/70 bg-control pl-2.5 pr-1.5 text-body shadow-control transition-colors hover:bg-control-hover'
@@ -162,12 +165,16 @@ export function ModelPicker(props: {
         {variant === 'chip' ? (
           <>
             <ProviderGlyph model={`${props.value} ${current?.name ?? ''}`} />
-            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
+            <span className="truncate">
+              {current ? modelName(current.name) : props.value || copy.modelPicker.choose}
+            </span>
             <ChevronDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : variant === 'compact' ? (
           <>
-            <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
+            <span className="truncate">
+              {current ? modelName(current.name) : props.value || copy.modelPicker.choose}
+            </span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted" />
           </>
         ) : (
@@ -177,7 +184,9 @@ export function ModelPicker(props: {
               {props.label}
             </span>
             <span className="flex w-full items-center justify-between gap-2 text-body font-medium">
-              <span className="truncate">{current?.name ?? (props.value || copy.modelPicker.choose)}</span>
+              <span className="truncate">
+                {current ? modelName(current.name) : props.value || copy.modelPicker.choose}
+              </span>
               <ChevronsUpDown className="size-3.5 shrink-0 text-muted transition-colors group-hover:text-fg" />
             </span>
           </>
@@ -270,7 +279,7 @@ export function ModelPicker(props: {
                       >
                         <ProviderGlyph model={`${m.ref} ${m.name}`} size={18} />
                         <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-body font-medium">{m.name}</span>
+                          <span className="truncate text-body font-medium">{modelName(m.name)}</span>
                           <span className="truncate font-mono text-caption text-muted">
                             {blocked ? props.minReason : small ? copy.modelPicker.tooSmall : m.id}
                           </span>

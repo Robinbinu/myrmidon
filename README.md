@@ -153,7 +153,7 @@ A lead plans a snake game, a coder and a tester build it in parallel, and the re
   never pushes).
 - **A git worktree per coding worker**, so parallel agents never share a working tree.
 - Dev servers the agents can start, open in their browser, and show you live.
-- Per-project permissions: autonomous, ask, or read-only.
+- Per-project permissions: autonomous, ask, or read-only; a new folder starts on ask.
 - Context compaction that respects each model's real context window.
 
 ### Browser agent
