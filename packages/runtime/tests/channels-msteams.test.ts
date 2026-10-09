@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { signJwt, TeamsAdapter } from '../src/channels/index.ts'
 import { fakeServer, now, rsaKey, testIO, until } from './fixtures/channel-server.ts'
 
@@ -10,9 +13,11 @@ const stranger = await rsaKey('k1')
 
 const servers: { stop(force?: boolean): unknown }[] = []
 const adapters: TeamsAdapter[] = []
+const dirs: string[] = []
 afterEach(async () => {
   for (const a of adapters.splice(0)) await a.stop()
   for (const s of servers.splice(0)) s.stop(true)
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** Bot Framework's metadata, keys and token service, and a Teams service URL, all on one fake server. */
@@ -220,7 +225,9 @@ test('files: an uploaded file and an inline image are read on demand, with the t
 test('sends, edits, buttons as an Adaptive Card, typing and images, to the right conversation', async () => {
   const fake = teams()
   const adapter = make(fake.base)
-  const { handle, received } = testIO('https://box.example/hooks/channels/msteams')
+  const dir = mkdtempSync(join(tmpdir(), 'myr-teams-'))
+  dirs.push(dir)
+  const { handle, received } = testIO('https://box.example/hooks/channels/msteams', dir)
   await adapter.start(handle)
   await post(
     adapter,
@@ -280,9 +287,19 @@ test('sends, edits, buttons as an Adaptive Card, typing and images, to the right
   expect(fake.calls.at(-1)?.body).toMatchObject({
     attachments: [{ contentType: 'image/png', contentUrl: 'data:image/png;base64,AQID', name: 'chart.png' }],
   })
-  await expect(
-    adapter.sendFile(chat, { name: 'a.pdf', mimeType: 'application/pdf', data: new Uint8Array([1]) }),
-  ).rejects.toThrow(/only images/)
+  // Other files go as a link to download them from the gateway's webhook address.
+  const pdf = await adapter.sendFile(chat, {
+    name: 'a.pdf',
+    mimeType: 'application/pdf',
+    data: new Uint8Array([1]),
+  })
+  expect(pdf).toEqual({ chat: '19:abc@thread.tacv2;messageid=111', id: 'act-4' })
+  const text = ((fake.calls.at(-1)?.body ?? {}) as { text: string }).text
+  expect(text).toMatch(/^📎 \[a\.pdf\]\(https:\/\/box\.example\/hooks\/channels\/msteams\?file=[\w-]{32}\)/)
+  const url = /\((https:[^)]+)\)/.exec(text)?.[1] ?? ''
+  const served = await adapter.webhook(new Request(url))
+  expect(served.headers.get('content-disposition')).toBe("attachment; filename*=UTF-8''a.pdf")
+  expect(new Uint8Array(await served.arrayBuffer())).toEqual(new Uint8Array([1]))
 
   // A conversation Teams never wrote from has no address to reply to.
   await expect(adapter.send('a:unknown', { text: 'hi' })).rejects.toThrow(/no address/)

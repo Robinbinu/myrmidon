@@ -1,5 +1,16 @@
+import { channelCopy } from './copy.ts'
 import { JwtError, jwksFromMetadata, KeySet, verifyJwt } from './jwt.ts'
-import { connectPushed, download, kindOf, mimeOf, RefusedError, sleep } from './push.ts'
+import {
+  connectPushed,
+  download,
+  HOSTED_DAYS,
+  hostFile,
+  kindOf,
+  mimeOf,
+  RefusedError,
+  serveHosted,
+  sleep,
+} from './push.ts'
 import {
   type AdapterIO,
   type Button,
@@ -42,7 +53,7 @@ const SERVICE_HOSTS = [
 ]
 /** Bot Framework's signing keys change rarely; it asks for them to be cached about a day. */
 const KEYS_TTL_MS = 24 * 3600_000
-/** Images up to this size go inline (as OpenClaw sends them); larger ones need SharePoint, which is not ported. */
+/** Images up to this size go inline (as OpenClaw sends them); larger ones go as links like other files. */
 const IMAGE_MAX = 4 * 1024 * 1024
 /** How long a button press waits for the hub's note, which Teams shows to whoever pressed. */
 const PRESS_WAIT_MS = 3000
@@ -109,7 +120,7 @@ export class TeamsAdapter implements ChannelAdapter {
   readonly id = 'msteams'
   readonly label = 'Microsoft Teams'
   /** Teams takes about 28 KB a message; OpenClaw splits at 4000 characters, which reads better. */
-  readonly limits = { text: 4000, editMs: 1500, file: IMAGE_MAX }
+  readonly limits = { text: 4000, editMs: 1500 }
   readonly can = { buttons: true, files: true, edit: true }
   private _io?: AdapterIO
   private _abort?: AbortController
@@ -229,6 +240,8 @@ export class TeamsAdapter implements ChannelAdapter {
 
   /** An activity Teams posted, taken only with a valid Bot Framework token for this app. */
   async webhook(req: Request): Promise<Response> {
+    const hosted = serveHosted(this._io, req)
+    if (hosted) return hosted
     const token = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1]
     if (!token) return new Response('unauthorized', { status: 401 })
     const activity = (await req.json().catch(() => undefined)) as Activity | undefined
@@ -419,23 +432,31 @@ export class TeamsAdapter implements ChannelAdapter {
     await this._call(this._conversation(chat), 'POST', '', { type: 'typing' })
   }
 
-  /** Images go inline; other files would need a consent card or SharePoint, so the hub lists them by name. */
+  /**
+   * Images go inline; other files as a link to download them. A bot's own file upload is a consent card that works
+   * only in personal chats and needs the app's manifest to allow files; group chats and channels would need Graph
+   * access to SharePoint.
+   */
   async sendFile(chat: ChannelChat | string, file: OutFile): Promise<SentRef> {
-    if (!file.mimeType.startsWith('image/') || file.data.byteLength > IMAGE_MAX)
-      throw new Error('Teams takes only images up to 4 MB from a bot here')
     const conversation = this._conversation(chat)
-    const sent = await this._call<{ id?: string }>(conversation, 'POST', '', {
-      type: 'message',
-      ...(file.caption ? { text: file.caption, textFormat: 'markdown' } : {}),
-      attachments: [
-        {
-          contentType: file.mimeType,
-          contentUrl: `data:${file.mimeType};base64,${Buffer.from(file.data).toString('base64')}`,
-          name: file.name,
-        },
-      ],
-    })
-    return { chat: conversation, id: sent.id ?? '' }
+    if (file.mimeType.startsWith('image/') && file.data.byteLength <= IMAGE_MAX) {
+      const sent = await this._call<{ id?: string }>(conversation, 'POST', '', {
+        type: 'message',
+        ...(file.caption ? { text: file.caption, textFormat: 'markdown' } : {}),
+        attachments: [
+          {
+            contentType: file.mimeType,
+            contentUrl: `data:${file.mimeType};base64,${Buffer.from(file.data).toString('base64')}`,
+            name: file.name,
+          },
+        ],
+      })
+      return { chat: conversation, id: sent.id ?? '' }
+    }
+    const url = hostFile(this._io, file)
+    if (!url) throw new Error(channelCopy.noFileLink)
+    const link = channelCopy.fileLink(file.name, url, HOSTED_DAYS)
+    return this.send(chat, { text: file.caption ? `${file.caption}\n\n${link}` : link })
   }
 
   /** The note becomes the invoke's answer, which Teams shows to whoever pressed. */

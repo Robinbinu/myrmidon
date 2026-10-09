@@ -1,7 +1,17 @@
 import { readFileSync } from 'node:fs'
+import { channelCopy } from './copy.ts'
 import { googleChatText } from './format.ts'
 import { JwtError, KeySet, signJwt, verifyJwt } from './jwt.ts'
-import { connectPushed, download, kindOf, RefusedError, sleep } from './push.ts'
+import {
+  connectPushed,
+  download,
+  HOSTED_DAYS,
+  hostFile,
+  kindOf,
+  RefusedError,
+  serveHosted,
+  sleep,
+} from './push.ts'
 import {
   type AdapterIO,
   type ChannelAdapter,
@@ -9,6 +19,7 @@ import {
   chatIdOf,
   type Inbound,
   type InboundFile,
+  type OutFile,
   type OutMessage,
   type SentRef,
   threadOf,
@@ -102,8 +113,8 @@ export class GoogleChatAdapter implements ChannelAdapter {
   readonly label = 'Google Chat'
   /** Chat takes 4096 characters a message (OpenClaw splits at 4000) and about one write a second per space. */
   readonly limits = { text: 4000, editMs: 1500 }
-  /** Sending files needs a person's own authorization (media.upload refuses apps), so the hub lists them. */
-  readonly can = { buttons: true, files: false, edit: true }
+  /** Files go as links: uploading one (media.upload) takes a person's own authorization, not an app's. */
+  readonly can = { buttons: true, files: true, edit: true }
   private _io?: AdapterIO
   private _abort?: AbortController
   private _loop?: Promise<void>
@@ -258,6 +269,8 @@ export class GoogleChatAdapter implements ChannelAdapter {
 
   /** An event Chat posted, taken only with a token Google signed for this app; answered at once. */
   async webhook(req: Request): Promise<Response> {
+    const hosted = serveHosted(this._io, req)
+    if (hosted) return hosted
     const token = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1]
     if (!token) return new Response('unauthorized', { status: 401 })
     try {
@@ -424,4 +437,11 @@ export class GoogleChatAdapter implements ChannelAdapter {
 
   /** Chat has no typing indicator for apps; the hub's status line shows the work instead. */
   async typing(): Promise<void> {}
+
+  async sendFile(chat: ChannelChat | string, file: OutFile): Promise<SentRef> {
+    const url = hostFile(this._io, file)
+    if (!url) throw new Error(channelCopy.noFileLink)
+    const link = channelCopy.fileLink(file.name, url, HOSTED_DAYS)
+    return this.send(chat, { text: file.caption ? `${file.caption}\n\n${link}` : link })
+  }
 }

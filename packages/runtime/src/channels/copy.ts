@@ -278,6 +278,10 @@ export const channelCopy = {
   /** A channel chat's name in the app's sidebar. */
   title: (channel: string, who: string) => `${channel} · ${who}`,
   files: (names: string[]) => `Files: ${names.join(', ')} (open them in the Myrmidon app)`,
+  /** A file sent as a link to download, where the platform cannot take the file itself. */
+  fileLink: (name: string, url: string, days: number) =>
+    `📎 [${name.replace(/[[\]]/g, '')}](${url}) (the link works for ${days} days)`,
+  noFileLink: "files go as links from this Myrmidon's public HTTPS address, and it has none",
   unsupported: "I can't read that kind of message; send text, a photo, a file or a voice note.",
   /** What a sticker says to the crew (a still one also comes as its image). */
   sticker: (emoji?: string) => (emoji ? `(sent a ${emoji} sticker)` : '(sent a sticker)'),
