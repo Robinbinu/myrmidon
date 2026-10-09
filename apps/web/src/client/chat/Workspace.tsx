@@ -55,9 +55,9 @@ import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
 import { ProjectExplorer } from './ProjectExplorer.tsx'
 import { ProjectFiles, useOpenProjectFile } from './ProjectFiles.tsx'
-import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps, editedFiles } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
+import { TerminalPanel } from './TerminalPanel.tsx'
 
 type Tab =
   | `plugin:${string}`
@@ -443,10 +443,7 @@ function WorkspaceBody({
               </div>
               {shellOpened && (
                 <div className={tab === 'shell' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
-                  <ShellTerminal
-                    {...(project ? { project: project.id } : {})}
-                    cwdLabel={project ? copy.workspace.shellCwd(project.name) : copy.workspace.shellCwd('~')}
-                  />
+                  <TerminalPanel {...(project ? { project } : {})} />
                 </div>
               )}
               <div className={tab === 'shell' ? 'hidden' : 'min-h-0 flex-1 overflow-auto'}>
