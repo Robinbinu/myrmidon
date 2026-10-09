@@ -450,6 +450,11 @@ Open work, in the order it will be done:
       sending a starter prompt, notification bodies, the hand-off animation in a normal window.
 12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
 12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
+12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
+      and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
+      still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
+      /bin/sh and the leash uses ps); a small DNS-rebinding window for other chats' tabs while a full-access chat shares
+      the browser.
 12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
