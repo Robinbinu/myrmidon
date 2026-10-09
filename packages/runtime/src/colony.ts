@@ -317,7 +317,7 @@ export class ColonyRun implements ColonyHost {
     readonly spec: ColonySpec,
     private readonly options: RunOptions = {},
   ) {
-    this.id = options.resumeId ?? newColonyId(spec.name)
+    this.id = options.resumeId ?? newColonyId()
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
     this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
@@ -552,7 +552,9 @@ export class ColonyRun implements ColonyHost {
   }
 
   async requestRead(agent: string, path: string, reason?: string): Promise<string> {
-    if (this.fullAccess) return prompts.toolResults.readFull
+    const self = this.spec.agents.find((a) => a.name === agent)
+    const tools = self ? toolsFor(this.spec, self) : []
+    if (this.fullAccess) return prompts.toolResults.readFull(tools)
     if (this.spec.askAll) throw new Error(prompts.toolResults.readNotHere)
     const folder = realPath(readFolder(path))
     if (this._otherChats(folder)) throw new Error(prompts.toolResults.readChats(path))
@@ -567,7 +569,9 @@ export class ColonyRun implements ColonyHost {
     })
     if (!decision.approved) throw new Error(prompts.toolResults.declined(`reading ${path}`, decision.note))
     if (!(this._state.chatReads ?? []).some((f) => grantCovers(f, folder))) this._readOnce.add(folder)
-    return sensitive ? prompts.toolResults.readAllowedKeys(path) : prompts.toolResults.readAllowed(path)
+    return sensitive
+      ? prompts.toolResults.readAllowedKeys(path, tools)
+      : prompts.toolResults.readAllowed(path, tools)
   }
 
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
@@ -1305,7 +1309,7 @@ export class ColonyRun implements ColonyHost {
         prompts.colony.resumeSpeaker({
           fresh: fresh(speaker),
           request,
-          snapshot: `${snapshot(this.spec, s)}${done(speaker)}`,
+          snapshot: `${snapshot(this.spec, s, { request: request === '' })}${done(speaker)}`,
           said,
         }),
         'resume',
@@ -1510,6 +1514,8 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.spawned({ name, label, model: chosen })
   }
 
+  /** Crewmates that joined for a job and opened with it: the job's mail is for the log, not delivered again. */
+  private readonly _jobInKickoff = new Map<string, string>()
   /** Crewmates the lead is waiting on (ask_crewmate): their next reply to the lead answers it. */
   private readonly _asked = new Map<
     string,
@@ -1536,8 +1542,9 @@ export class ColonyRun implements ColonyHost {
     )
     try {
       if (!here) {
-        // On call until now: it joins the round, its job in its instructions, and is woken by the job's mail below.
-        const spec: AgentSpec = { ...called, role: 'worker' }
+        // On call until now: it joins the round and opens with its job, which is all it is told to do.
+        const spec: AgentSpec = { ...called, role: 'worker', focus: job }
+        this._jobInKickoff.set(spec.name, job)
         this.spec.agents.push(spec)
         await this.append({
           type: 'agent/joined',
@@ -1891,6 +1898,11 @@ export class ColonyRun implements ColonyHost {
         if (asked && p.to === asked.lead && e.seq > asked.since) {
           this._asked.delete(p.from)
           asked.resolve(p.body)
+          break
+        }
+        if (!group && this._jobInKickoff.get(p.to) === p.body) {
+          this._jobInKickoff.delete(p.to)
+          void this.append({ type: 'mail/delivered', actor: SYSTEM, payload: { mail: e.id, to: p.to } })
           break
         }
         if (!group) notify(p.to, prompts.colony.mail(message), 'mail', { mail: e.id })

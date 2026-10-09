@@ -368,6 +368,16 @@ export interface EventPayloads {
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
   /** An agent's context neared its model's window: its older messages were summarized for the model. */
   'agent/compacted': { agent: string; messages: number; tokens: number; summaryChars: number }
+  /**
+   * The prompt an agent starts with, by section: each section's key, the version of its words and a hash of what it
+   * rendered, so two runs can be compared by what their agents were told. `totalTokens` is a rough size.
+   */
+  'agent/prompt': {
+    agent: string
+    sections: { key: string; version: number; hash: string }[]
+    family: string
+    totalTokens: number
+  }
   /** The person switched a running agent to another model; it takes effect on the agent's next step. */
   'agent/model': { agent: string; model: string; previous: string }
   /**

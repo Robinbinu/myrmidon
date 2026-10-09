@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { MyrEvent, PermissionCall, PermissionRule } from '@myrmidon/protocol'
 import { clockTime, localDate } from '../src/clock.ts'
 import { READ_LOG_RESULT_CHARS } from '../src/config.ts'
@@ -9,9 +12,48 @@ import {
   logLines,
   matchTools,
   mcpBreaker,
+  readRange,
   similar,
   sniffImage,
+  TOOL_DEFS,
 } from '../src/tools.ts'
+
+test('fs_read reads a range of lines, cuts at a whole line under the cap, and says how to read on', () => {
+  const text = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n')
+  // A whole file that fits comes back unchanged, so fs_edit snippets can be copied from it.
+  expect(readRange(text)).toBe(text)
+  expect(readRange(`${text}\n`)).toBe(`${text}\n`)
+  expect(readRange(text, 3, 2)).toBe(
+    '(lines 3-4 of 10)\nline 3\nline 4\n… lines 5-10 not shown: fs_read with offset: 5 reads on.',
+  )
+  expect(readRange(text, 9)).toBe('(lines 9-10 of 10)\nline 9\nline 10')
+  // Over the cap, the cut falls at a line boundary and names where to go on.
+  expect(readRange(text, 1, undefined, 21)).toBe(
+    '(lines 1-3 of 10)\nline 1\nline 2\nline 3\n… lines 4-10 not shown: fs_read with offset: 4 reads on.',
+  )
+  // One line longer than the cap is cut rather than skipped.
+  expect(readRange('x'.repeat(50), 1, undefined, 10)).toBe('(lines 1-1 of 1)\nxxxxxxxxxx…')
+  expect(() => readRange(text, 11)).toThrow('offset 11 is past the end: the file has 10 lines')
+  expect(() => readRange(text, 0)).toThrow('offset is a line number')
+  expect(() => readRange(text, 1, 0)).toThrow('limit is a number of lines')
+})
+
+test('the fs_read tool passes offset and limit through to the file it resolves', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-read-'))
+  try {
+    writeFileSync(join(dir, 'notes.md'), 'a\nb\nc\nd\n')
+    const host = {
+      workspace: { resolveForRead: (_: string, p: string) => join(dir, p) },
+    } as unknown as ColonyHost
+    const read = TOOL_DEFS.find((d) => d.name === 'fs_read')
+    expect(await read?.run({ path: 'notes.md', offset: 2, limit: 2 }, 'kai', host)).toBe(
+      '(lines 2-3 of 4)\nb\nc\n… lines 4-4 not shown: fs_read with offset: 4 reads on.',
+    )
+    expect(await read?.run({ path: 'notes.md' }, 'kai', host)).toBe('a\nb\nc\nd\n')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -110,13 +152,14 @@ test('read_log shows each call with what it returned, filtered by agent or tool,
 })
 
 test('agents see every time in one zone, the one their prompt names', async () => {
-  const { systemPrompt } = await import('../src/patterns.ts')
+  const { systemPrompt } = await import('../src/prompt/assemble.ts')
   const { parseColonySpec } = await import('../src/spec.ts')
   const spec = parseColonySpec({ name: 'Zone', mission: 'x', agents: [{ name: 'a', model: 'm' }] })
   const agent = spec.agents[0] as (typeof spec.agents)[number]
-  inZone('Asia/Kolkata', () => {
+  // A system that still reports the deprecated alias gets the zone's current name.
+  inZone('Asia/Calcutta', () => {
     const prompt = systemPrompt(spec, agent, { sandbox: 'none', web: false, browser: false }).join('\n')
-    expect(prompt).toMatch(/time zone, Asia\/(Kolkata|Calcutta) \(UTC\+05:30\)/)
+    expect(prompt).toMatch(/, \d\d:\d\d in the person's time zone, Asia\/Kolkata \(UTC\+05:30\)/)
     // 12:00:01 UTC is 17:30:01 there: read_log says so, not the UTC time.
     expect(logLines(events(), {})[0]).toStartWith('#1 17:30:01 kai')
     expect(clockTime('2026-10-07T12:00:01.000Z')).toBe('17:30:01')

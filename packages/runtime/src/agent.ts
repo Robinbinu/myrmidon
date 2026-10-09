@@ -23,10 +23,11 @@ import {
   preloaded,
   speaksForColony,
   startsAwake,
-  systemPrompt,
   thinkingFor,
   toolsFor,
 } from './patterns.ts'
+import { type AssembledPrompt, assemble } from './prompt/assemble.ts'
+import { factsFor, type PromptFacts } from './prompt/facts.ts'
 import { prompts } from './prompts.ts'
 import { redactDeep } from './secrets.ts'
 import type { AgentSpec } from './spec.ts'
@@ -86,6 +87,9 @@ export class ColonyAgent {
   private readonly _transcript: string
   /** Messages restored from the transcript when a stopped colony resumed. */
   readonly restored: number
+  /** What this agent's prompt and tool descriptions were built from, and the prompt itself. */
+  private readonly _facts: PromptFacts
+  private readonly _prompt: AssembledPrompt
 
   constructor(
     readonly spec: AgentSpec,
@@ -100,7 +104,20 @@ export class ColonyAgent {
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
     this._stream = resolved.streamFn
-    const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host, this._model)
+    this._facts = factsFor(host.spec, spec, {
+      sandbox: host.sandbox.kind,
+      web: host.web !== noWebTools,
+      browser: host.browser !== undefined,
+      computer: host.computer !== undefined,
+      boundary: host.boundary,
+      ...(host.project ? { project: host.project } : {}),
+      ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
+      scratch: host.workspace.scratch(spec.name),
+      skills: host.skills(),
+      plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
+    })
+    this._prompt = assemble(this._facts)
+    const tools = buildAgentTools(spec.name, this._facts.tools.names, host, this._model, this._facts)
     for (const name of preloaded(
       host.spec.chat?.request ?? host.spec.mission,
       tools.map((t) => t.name),
@@ -108,17 +125,7 @@ export class ColonyAgent {
       this._loaded.add(name)
     this._agent = new Agent({
       initialState: {
-        systemPrompt: systemPrompt(host.spec, spec, {
-          sandbox: host.sandbox.kind,
-          web: host.web !== noWebTools,
-          browser: host.browser !== undefined,
-          computer: host.computer !== undefined,
-          boundary: host.boundary,
-          ...(host.project ? { project: host.project } : {}),
-          ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
-          skills: host.skills(),
-          plugins: host.pluginPrompts(speaksForColony(host.spec, spec) ? 'lead' : 'worker'),
-        }),
+        systemPrompt: this._prompt.system,
         model: resolved.model,
         tools,
         ...(history.length ? { messages: history } : {}),
@@ -187,7 +194,13 @@ export class ColonyAgent {
   /** Picks up tools made since this agent started; takes effect on its next model call. */
   refreshTools() {
     this._agent.setTools(
-      buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host, this._model),
+      buildAgentTools(
+        this.spec.name,
+        toolsFor(this.host.spec, this.spec),
+        this.host,
+        this._model,
+        this._facts,
+      ),
     )
   }
 
@@ -268,7 +281,10 @@ export class ColonyAgent {
    * A resumed colony wakes its agents itself, so `kickoffFirst` is false there.
    */
   async run(kickoffFirst = true): Promise<void> {
-    const opening = () => kickoff(this.host.spec, this.host.state(), this.restored > 0, this.name)
+    // Which sections, at which versions, this agent was given: runs compare by it.
+    await this.host.append({ type: 'agent/prompt', actor: SYS, payload: this._prompt.manifest })
+    const opening = () =>
+      `${this._prompt.kickoffPrefix}${kickoff(this.host.spec, this.host.state(), this.restored > 0, this.name)}`
     if (kickoffFirst && startsAwake(this.host.spec, this.spec))
       this.notify({ text: opening(), trigger: 'kickoff' })
     // The person opened this round by writing to someone else: the rest hear of it when something wakes them.

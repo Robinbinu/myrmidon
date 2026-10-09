@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
-import { citedUrls, relevantExcerpt, workKinds } from '../src/verifier.ts'
+import { prompts } from '../src/prompts.ts'
+import { citedUrls, doneWhen, relevantExcerpt, workKinds } from '../src/verifier.ts'
 
 const call = (tool: string): MyrEvent => ({ type: 'tool/call', payload: { tool } }) as unknown as MyrEvent
 
@@ -36,4 +37,27 @@ test('a long page is cut to its opening and the passages matching the claim', ()
   expect(excerpt).toStartWith('Title: Rocket crate')
   expect(excerpt).toContain('14,203,511')
   expect(relevantExcerpt('short page', 'anything')).toBe('short page')
+})
+
+test("a task's review checks it against its own Done when, and the judge knows the pass mark", () => {
+  const brief = [
+    'Goal: a pricing section.',
+    'Context: prices are in notes/pricing.md.',
+    'Done when: three cards show the prices;',
+    '  the page opens with no console errors.',
+    'Not yours: the header.',
+  ].join('\n')
+  expect(doneWhen(brief)).toBe('three cards show the prices;\n  the page opens with no console errors.')
+  // Written on one line, as in create_task's example.
+  expect(doneWhen('Goal: x. Done when: it builds and the test passes. Not yours: docs.')).toBe(
+    'it builds and the test passes.',
+  )
+  expect(doneWhen('Done when: last head.')).toBe('last head.')
+  expect(doneWhen('Write the report.')).toBeUndefined()
+  const task = prompts.judge.task('Pricing', brief, doneWhen(brief))
+  expect(task).toContain('Its "Done when" is your checklist')
+  expect(prompts.judge.task('Pricing', 'Write it.')).not.toContain('checklist')
+  expect(prompts.judge.threshold(0.7)).toStartWith('Passing is 0.70 or more.')
+  expect(prompts.judge.threshold(0.7)).toContain('about 0.3 when')
+  expect(prompts.judge.role).toContain('the replies sent to the person')
 })
