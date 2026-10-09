@@ -846,6 +846,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error(`you are not in the group ${args.to}; ask a member to add you`)
       if (args.reply_to !== undefined && !linesOf(state, chat.id).some((l) => l.seq === args.reply_to))
         throw new Error(`#${args.reply_to} is not a message in your conversation with ${args.to}`)
+      const closing = host.closing?.(agent)
+      if (closing) return closing
       const replyTo = args.reply_to !== undefined ? { replyTo: args.reply_to } : {}
       if (chat.kind === 'team') {
         const mentions = mentionsIn(args.text, chat.members).filter((m) => m !== agent)

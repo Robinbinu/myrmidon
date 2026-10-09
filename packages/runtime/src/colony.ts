@@ -51,6 +51,7 @@ import {
   QUIET_NUDGES,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
+  WIND_DOWN_MESSAGES,
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
@@ -270,7 +271,13 @@ export class ColonyRun implements ColonyHost {
    * A chat round whose final answer is in, still open while the crew finishes talking: it completes with these verdicts
    * once everyone has been quiet a moment, or at `until` whatever is still going on.
    */
-  private _settling?: { verdicts: MyrEvent['id'][]; until: number; quietSince?: number }
+  private _settling?: {
+    verdicts: MyrEvent['id'][]
+    until: number
+    quietSince?: number
+    /** Messages each agent has sent since the wind-down began. */
+    said: Map<string, number>
+  }
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -1612,7 +1619,7 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
-        await this._complete(result.verdicts)
+        await this._complete(result.verdicts, by)
         return prompts.colony.verified(result.report)
       }
       // Outside chat, everyone hears about a failed check; in chat the speaker owns the fix.
@@ -1636,13 +1643,31 @@ export class ColonyRun implements ColonyHost {
    * Completes the round. In a chat with a crew it winds down like a group chat first: the answer is with the person,
    * but anyone mid-reply finishes and what was said gets read (see `_watch`), so nobody is cut off.
    */
-  private async _complete(verdicts: MyrEvent['id'][]) {
+  private async _complete(verdicts: MyrEvent['id'][], by: string) {
     if (this.spec.chat && this._agents.size > 1) {
-      this._settling ??= { verdicts, until: Date.now() + CHAT_SETTLE_MS }
+      if (this._settling) return
+      this._settling = { verdicts, until: Date.now() + CHAT_SETTLE_MS, said: new Map() }
+      // The rest hear the conversation is ending: mid-reply, at once; otherwise with whatever wakes them next.
+      for (const a of this._agents.values())
+        if (a.name !== by)
+          this._wake(a.name, prompts.colony.windDown(by), 'wind-down', a.idle ? { quiet: true } : {})
       return
     }
     await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts } })
     void this._end()
+  }
+
+  closing(agent: string): string | undefined {
+    const settle = this._settling
+    if (!settle) return undefined
+    const said = settle.said.get(agent) ?? 0
+    if (said < WIND_DOWN_MESSAGES) {
+      settle.said.set(agent, said + 1)
+      return undefined
+    }
+    // Like someone who has said goodbye: it still reads what comes in, but it is done talking this round.
+    this._agents.get(agent)?.endTurnAfterStep()
+    return prompts.colony.chatClosing
   }
 
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
@@ -1662,7 +1687,7 @@ export class ColonyRun implements ColonyHost {
               : 'Final answer delivered; this round is not reviewed.',
         },
       })
-      return void (await this._complete([verdict.id]))
+      return void (await this._complete([verdict.id], by))
     }
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return

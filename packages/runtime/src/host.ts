@@ -57,6 +57,11 @@ export interface ColonyHost {
   /** What this round has used so far, against its limits; a chat's colony keeps running totals across rounds. */
   spent(): { cost: number; tokens: number }
   /** An agent's tool batch has finished (all calls in one model response have results). */
+  /**
+   * While a chat winds down after its final answer, each agent has one last word: past that, the reason it may not
+   * message (and its turn ends). Outside wind-down, nothing.
+   */
+  closing?(agent: string): string | undefined
   batchEnded(agent: string): void
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
   modelFailed(agent: string, model: string, error: ModelError): Promise<void>
