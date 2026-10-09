@@ -2,11 +2,12 @@ import { COMPUTER_TOOL } from '../computer/tool.ts'
 import { TOOL_DEFS, toolDescription } from '../tools.ts'
 import { assemble, renderSections } from './assemble.ts'
 import type { PromptFacts } from './facts.ts'
+import type { HeadingKey } from './sections.ts'
 
 /** Everything one agent is shown at the start of a round, as the checks read it. */
 export interface PromptView {
   readonly facts: PromptFacts
-  readonly sections: readonly { readonly key: string; readonly text: string }[]
+  readonly sections: readonly { readonly key: string; readonly heading: HeadingKey; readonly text: string }[]
   readonly system: readonly string[]
   readonly kickoff: string
   readonly tools: readonly { readonly name: string; readonly description: string }[]
@@ -40,7 +41,11 @@ export function viewOf(facts: PromptFacts, kickoff = ''): PromptView {
   const assembled = assemble(facts)
   return {
     facts,
-    sections: renderSections(facts).map((r) => ({ key: r.section.key, text: r.text })),
+    sections: renderSections(facts).map((r) => ({
+      key: r.section.key,
+      heading: r.section.heading,
+      text: r.text,
+    })),
     system: assembled.system,
     kickoff: `${assembled.kickoffPrefix}${kickoff}`,
     tools: facts.tools.names.flatMap((name) => {

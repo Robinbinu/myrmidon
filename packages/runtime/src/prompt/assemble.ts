@@ -1,7 +1,8 @@
 import type { Environment } from '../patterns.ts'
+import { prompts } from '../prompts.ts'
 import type { AgentSpec, ColonySpec } from '../spec.ts'
 import { factsFor, type PromptFacts } from './facts.ts'
-import { BLOCKS, SECTIONS, type Section, type Tier } from './sections.ts'
+import { HEADINGS, type HeadingKey, SECTIONS, type Section, type Tier } from './sections.ts'
 
 /** Which prompt an agent had: enough to compare two runs by what their agents were told. */
 export interface PromptManifest {
@@ -37,28 +38,19 @@ export function renderSections(facts: PromptFacts): RenderedSection[] {
 const hash = (text: string) => new Bun.CryptoHasher('sha256').update(text).digest('hex').slice(0, 12)
 
 /**
- * Groups rendered sections by tier (after Hermes' stable → context → volatile, and OpenHands' static and dynamic
- * blocks) and joins each run of sections sharing a block into one system block.
+ * One system block per tier (after Hermes' stable → context → volatile, and OpenHands' static and dynamic blocks),
+ * so providers can cache the longest unchanged prefix. Inside a tier, each heading's sections render under a short
+ * `#` heading, in registry order.
  */
 function blocks(rendered: readonly RenderedSection[]): string[] {
-  const out: string[] = []
-  for (const tier of TIERS) {
-    let open: { block: keyof typeof BLOCKS; parts: string[] } | undefined
-    const close = () => {
-      if (open) out.push(open.parts.join(BLOCKS[open.block]))
-      open = undefined
-    }
-    for (const { section, text } of rendered) {
-      if (section.tier !== tier) continue
-      if (!section.block || section.block !== open?.block) close()
-      if (section.block) {
-        open ??= { block: section.block, parts: [] }
-        open.parts.push(text)
-      } else out.push(text)
-    }
-    close()
-  }
-  return out
+  return TIERS.flatMap((tier) => {
+    const headings = (Object.keys(HEADINGS) as HeadingKey[]).filter((h) => HEADINGS[h].tier === tier)
+    const parts = headings.flatMap((h) => {
+      const texts = rendered.filter((r) => r.section.heading === h).map((r) => r.text)
+      return texts.length ? [`# ${prompts.system.headings[h]}\n${texts.join(HEADINGS[h].join)}`] : []
+    })
+    return parts.length ? [parts.join('\n\n')] : []
+  })
 }
 
 export function assemble(facts: PromptFacts): AssembledPrompt {

@@ -145,7 +145,7 @@ test("a crewmate's brief matches its real situation: its job, the lead, one way 
   const prompt = systemPrompt(spec, agent, env).join('\n')
   expect(prompt).not.toContain('This round: solo (one agent, all tools)')
   expect(prompt).toContain('This round: one job for lead')
-  expect(prompt).toContain('overrides the general rules')
+  expect(prompt).toContain('override these defaults')
   expect(prompt).not.toContain('reply with one short line')
   expect(prompt.match(/answer lead once/g)).toHaveLength(1)
   // It wakes for its job, not for the person's request.
@@ -153,7 +153,7 @@ test("a crewmate's brief matches its real situation: its job, the lead, one way 
   // Workers on a team are told their task overrides the defaults too.
   const [, team, worker] = roles.find(([l]) => l === 'team worker') ?? []
   if (!team || !worker) throw new Error('no team worker')
-  expect(systemPrompt(team, worker, env).join('\n')).toContain('overrides the general rules')
+  expect(systemPrompt(team, worker, env).join('\n')).toContain('override these defaults')
   // Nobody is told twice not to fabricate.
   for (const [, s, a] of roles)
     expect(

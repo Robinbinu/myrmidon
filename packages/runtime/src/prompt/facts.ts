@@ -45,6 +45,34 @@ export interface CrewInfo {
   readonly role: string
   readonly model: string
   readonly specialty?: string
+  /** The hands-on tool groups it has (web, browser, shell, files, ...), from its real tool list. */
+  readonly tools: readonly ToolGroup[]
+}
+
+/** Hands-on tool groups, named in rosters and in a lead's brief; each is present when its key tool is. */
+export type ToolGroup = 'web' | 'browser' | 'shell' | 'files' | 'computer'
+
+const GROUP_TOOLS: [ToolGroup, string][] = [
+  ['web', 'web_search'],
+  ['browser', 'browser_open'],
+  ['shell', 'shell'],
+  ['files', 'fs_write'],
+  ['computer', 'computer'],
+]
+
+/**
+ * The groups a tool list gives in this environment (web tools without a web provider, say, are no web). MCP is left
+ * out: whether any server is connected is not known here.
+ */
+export function toolGroups(names: readonly string[], env: Environment): ToolGroup[] {
+  const live: Record<ToolGroup, boolean> = {
+    web: env.web,
+    browser: env.browser,
+    shell: env.sandbox !== 'none',
+    files: true,
+    computer: env.computer ?? false,
+  }
+  return GROUP_TOOLS.filter(([g, tool]) => live[g] && names.includes(tool)).map(([g]) => g)
 }
 
 /**
@@ -66,8 +94,10 @@ export interface PromptFacts {
     readonly job?: string
     /** It speaks for the round to the person. */
     readonly speaks: boolean
-    /** It does hands-on work (everyone except a lead that only delegates, and a direct answer). */
+    /** It does hands-on work (everyone except a lead without hands-on tools, and a direct answer). */
     readonly works: boolean
+    /** Its own hands-on tool groups. */
+    readonly groups: readonly ToolGroup[]
   }
   readonly mode: {
     readonly tier?: Tier
@@ -183,11 +213,12 @@ function kindOf(spec: ColonySpec, agent: AgentSpec): AgentKind {
   return 'colony-peer'
 }
 
-const info = (a: AgentSpec): CrewInfo => ({
+const info = (spec: ColonySpec, env: Environment, a: AgentSpec): CrewInfo => ({
   name: a.name,
   role: a.role,
   model: a.model,
   ...(a.specialty ? { specialty: a.specialty } : {}),
+  tools: toolGroups(toolsFor(spec, a), env),
 })
 
 /** Whether the round's final answer is reviewed: never with no acceptance checks or the reviewer off. */
@@ -215,6 +246,10 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
   const fits = new Set(skillsFor(request, skills))
   const guide = env.project?.instructions
   const team = spec.team
+  const groups = toolGroups(names, env)
+  const lead = isLead(spec, agent) && !!spec.chat && spec.agents.length > 1
+  // A crewmate on call joins as a worker of a solo round, so its tools are those of that role.
+  const onCall = (a: AgentSpec) => info({ ...spec, tier: 'solo' }, env, { ...a, role: 'worker' })
   return {
     agent: {
       name: agent.name,
@@ -225,7 +260,8 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       ...(agent.instructions ? { instructions: agent.instructions } : {}),
       ...(kind === 'crewmate' && agent.focus ? { job: agent.focus } : {}),
       speaks: speaksForColony(spec, agent),
-      works: kind !== 'answer' && !(isLead(spec, agent) && !!spec.chat && spec.agents.length > 1),
+      works: kind !== 'answer' && !(lead && groups.length === 0),
+      groups,
     },
     mode: {
       ...(spec.tier ? { tier: spec.tier } : {}),
@@ -233,11 +269,11 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       pattern: spec.pattern,
       ...(team ? { team: team.mode } : {}),
       size: spec.agents.length,
-      roster: spec.agents.filter((a) => a.name !== agent.name).map(info),
-      crewmatesOnCall: isLead(spec, agent) ? (team?.crewmates ?? []).map(info) : [],
+      roster: spec.agents.filter((a) => a.name !== agent.name).map((a) => info(spec, env, a)),
+      crewmatesOnCall: isLead(spec, agent) ? (team?.crewmates ?? []).map(onCall) : [],
       canAdd: (team?.maxWorkers ?? 0) - (spec.agents.length - 1),
       workerModels: team?.workerModels ?? [],
-      specialists: (team?.specialists ?? []).map(info),
+      specialists: (team?.specialists ?? []).map((a) => info(spec, env, a)),
       escalateTo: spec.chat?.escalate ?? [],
     },
     tools: {

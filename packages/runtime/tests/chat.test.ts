@@ -494,7 +494,7 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   const names = (system: string) =>
     [
       // Only the roster lines, up to the instructions after them.
-      ...((system.split('Your crewmates, on call')[1] ?? '').split('\n- When')[0] ?? '').matchAll(
+      ...((system.split('Your crewmates on call')[1] ?? '').split('\n- Ask')[0] ?? '').matchAll(
         /^- (\w+): (\w+) \(/gm,
       ),
     ].map((m) => [m[2], m[1]])
@@ -735,7 +735,7 @@ test('swarm: peers huddle before working, the first proposer plans, and a speake
   // Who proposes first is a race, so each mock peer acts on what it is told rather than on a fixed script.
   const brain = (ctx: LlmContext): MockContent[] => {
     const system = ctx.systemPrompt?.join('\n') ?? ''
-    const me = /You are ([a-z]+), one of/.exec(system)?.[1] ?? '?'
+    const me = /You are "([a-z]+)", an agent/.exec(system)?.[1] ?? '?'
     const others = [...system.matchAll(/^- ([a-z]+): peer \(/gm)].map((m) => m[1] as string)
     const last = JSON.stringify(ctx.messages.at(-1) ?? '')
     const st = progress.get(me) ?? { phase: 'idle' }
