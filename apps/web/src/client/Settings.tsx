@@ -156,7 +156,7 @@ export interface ServerSettings {
   /** Folders sandboxed agents may also read, in every chat. Full access is the global preset. */
   sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
-  computerUse?: { enabled: boolean }
+  computerUse?: { enabled: boolean; engine?: 'cua' | 'omp' }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -698,7 +698,13 @@ export function Settings(props: {
               {section === 'computer' && data && (
                 <ComputerSection
                   enabled={data.settings.computerUse?.enabled === true}
-                  setEnabled={(enabled) => update((s) => ({ ...s, computerUse: { enabled } }), true)}
+                  setEnabled={(enabled) =>
+                    update((s) => ({ ...s, computerUse: { ...s.computerUse, enabled } }), true)
+                  }
+                  engine={data.settings.computerUse?.engine ?? 'cua'}
+                  setEngine={(engine) =>
+                    update((s) => ({ ...s, computerUse: { enabled: false, ...s.computerUse, engine } }), true)
+                  }
                 />
               )}
               {section === 'tools' && data && (
