@@ -1886,8 +1886,8 @@ export const copy = {
       users: { lead: 'lead', crewmates: 'crewmates', reviewer: 'reviewer', call: 'call assistant' },
       inUse: (who: string, many: boolean) =>
         `Your ${who} ${many ? 'use' : 'uses'} it, and will switch to another model.`,
-      removedHidden: (name: string) => `Removed ${name} from pickers`,
-      removedDeleted: (name: string, provider: string) => `Removed ${name} from ${provider}`,
+      removedHidden: (name: string) => `Removed ${name} from pickers.`,
+      removedDeleted: (name: string, provider: string) => `Removed ${name} from ${provider}.`,
       /** After a removal: who uses which model now. */
       nowLeads: (model: string) => `New chats now lead with ${model}.`,
       nowNames: (model: string) => `${model} names chats now.`,

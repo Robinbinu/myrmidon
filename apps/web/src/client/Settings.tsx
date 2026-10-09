@@ -1028,7 +1028,7 @@ function ModelsSection(props: {
                   {models.map((m) => {
                     const t = tests[m.ref]
                     return (
-                      <div key={m.ref} className="flex items-center gap-3 py-2 pl-10 pr-4">
+                      <div key={m.ref} className="group/model flex items-center gap-3 py-2 pl-10 pr-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
@@ -1049,26 +1049,29 @@ function ModelsSection(props: {
                             </div>
                           )}
                         </div>
-                        <WindowField
-                          model={m}
-                          set={props.settings.models.windows?.[m.ref]}
-                          onSet={(tokens) =>
-                            props.update((s) => {
-                              const windows = { ...s.models.windows }
-                              if (tokens) windows[m.ref] = tokens
-                              else delete windows[m.ref]
-                              return { ...s, models: { ...s.models, windows } }
-                            }, true)
-                          }
-                        />
-                        <Button
-                          size="sm"
-                          variant="borderless"
-                          onClick={() => void test(m.ref)}
-                          loading={t === 'running'}
-                        >
-                          {copy.settings.models.test}
-                        </Button>
+                        {/* An armed Remove takes their room for what it says about the removal. */}
+                        <span className="contents group-has-[[data-armed]]/model:hidden">
+                          <WindowField
+                            model={m}
+                            set={props.settings.models.windows?.[m.ref]}
+                            onSet={(tokens) =>
+                              props.update((s) => {
+                                const windows = { ...s.models.windows }
+                                if (tokens) windows[m.ref] = tokens
+                                else delete windows[m.ref]
+                                return { ...s, models: { ...s.models, windows } }
+                              }, true)
+                            }
+                          />
+                          <Button
+                            size="sm"
+                            variant="borderless"
+                            onClick={() => void test(m.ref)}
+                            loading={t === 'running'}
+                          >
+                            {copy.settings.models.test}
+                          </Button>
+                        </span>
                         <ConfirmButton
                           icon={deletes(m) ? true : <FEATURE_ICONS.hiddenModels className="size-4" />}
                           label={copy.settings.models.remove(m.name)}
