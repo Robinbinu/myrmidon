@@ -1,4 +1,11 @@
-import type { ColonyState, PermissionRule, PermissionScope, Review, ReviewField } from '@myrmidon/protocol'
+import type {
+  ColonyState,
+  PermissionOffer,
+  PermissionRule,
+  PermissionScope,
+  Review,
+  ReviewField,
+} from '@myrmidon/protocol'
 import { BookmarkPlus, Check, ChevronDown, Info, PencilLine, TriangleAlert, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
@@ -166,7 +173,9 @@ function ApprovalCard({
         ...(project && full ? (['project'] as const) : []),
         ...(full ? (['global'] as const) : []),
       ]
-  const choices = scopes.length ? choicesOf(a.offer ?? []) : []
+  // The server lets a chats-only device remember only a named step, never every command, file change or tool.
+  const offers = (a.offer ?? []).filter((o) => full || o.target !== '*')
+  const choices = scopes.length ? choicesOf(offers) : []
   /** `remember`: the rules saved with the answer, and where. */
   const decide = async (
     approved: boolean,
@@ -285,10 +294,14 @@ function ApprovalCard({
           heading={copy.permissions.card.denyAlways}
           decision="deny"
           onRemember={(scope, rules) =>
-            void decide(false, { scope, rules: rules.map((r) => ({ ...r, decision: 'deny' as const })) })
+            void decide(false, {
+              scope,
+              rules: rules.map(({ projectCode: _, ...r }) => ({ ...r, decision: 'deny' as const })),
+            })
           }
         />
-        {a.read && chatId && (
+        {/* Opening a folder for the whole chat is a full-access device's call; on others the server refuses it. */}
+        {a.read && chatId && full && (
           <Button
             variant="push"
             disabled={busy}
@@ -310,7 +323,10 @@ function ApprovalCard({
           heading={copy.permissions.card.allowAlways}
           decision="allow"
           onRemember={(scope, rules) =>
-            void decide(true, { scope, rules: rules.map((r) => ({ ...r, decision: 'allow' as const })) })
+            void decide(true, {
+              scope,
+              rules: rules.map(({ projectCode: _, ...r }) => ({ ...r, decision: 'allow' as const })),
+            })
           }
         />
       </div>
@@ -318,7 +334,7 @@ function ApprovalCard({
   )
 }
 
-type Offer = Omit<PermissionRule, 'decision'>
+type Offer = PermissionOffer
 
 /** A rule for every command or every MCP tool, rather than one of them. */
 const wide = (o: Offer) => o.target === '*' && o.kind !== 'edit'
@@ -438,6 +454,10 @@ function SplitButton(props: {
               </MenuList>
             ) : (
               <p className="truncate px-2 pb-1.5 font-mono text-body text-fg">{choice.label}</p>
+            )}
+            {/* A test, script or build step runs what the crew writes: remembered beyond this chat, it covers that too. */}
+            {choice.rules.some((r) => r.projectCode) && props.scopes.some((s) => s !== 'chat') && (
+              <p className="px-2 pb-1.5 text-callout leading-snug text-warn-ink">{t.projectCode}</p>
             )}
             <MenuSeparator />
             {confirming ? (
