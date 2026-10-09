@@ -445,8 +445,9 @@ Open work, in the order it will be done:
         the compiled sidecar) — check and bundle it. Worse: voice on crashed the packaged server, and onnxruntime's
         library and the warm-up clip were missing too. Fixed and checked in a compiled build.
       - [ ] Kitten's model download has no timeout: a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
-12i. - [ ] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
-      "Run setup again" in Settings → General. Building.
+12i. - [x] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
+      "Run setup again" in Settings → General. Done. Not checked live: the mic level meter, the local voice download,
+      sending a starter prompt, notification bodies, the hand-off animation in a normal window.
 12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
 12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
 12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
