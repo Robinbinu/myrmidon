@@ -1650,7 +1650,13 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/schedules': {
-        GET: guard(() => json({ schedules: options.schedules?.list() ?? [] })),
+        // Schedules run by this computer's clock; the zone lets a browser elsewhere say which one their times are in.
+        GET: guard(() =>
+          json({
+            schedules: options.schedules?.list() ?? [],
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }),
+        ),
         POST: guard(async (req) => {
           if (!options.schedules) return json({ error: 'schedules need the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>

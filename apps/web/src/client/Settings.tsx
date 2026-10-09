@@ -57,9 +57,12 @@ import {
   cronToRule,
   DEFAULT_RULE,
   describeCron,
+  hourText,
+  minuteText,
   type Repeat,
   ruleToCron,
   type ScheduleRule,
+  shortMonthNote,
 } from './schedule-rule.ts'
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
@@ -712,6 +715,8 @@ export function Settings(props: {
                   servers={data.mcpServers ?? []}
                   sandbox={data.sandbox}
                   reads={<SandboxReads data={data} update={update} />}
+                  computerUse={data.settings.computerUse?.enabled === true}
+                  onSetUpComputer={() => setSection('computer')}
                 />
               )}
               {section === 'verification' && data && (
@@ -4453,9 +4458,15 @@ function ruleError(rule: ScheduleRule): string | undefined {
  * When a schedule runs: a repeat, then the time, days or day of the month it needs, with the result in plain words.
  * Cron stays available as Custom for anything the picker cannot say.
  */
-function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule): void }) {
+function SchedulePicker(props: {
+  rule: ScheduleRule
+  onChange(rule: ScheduleRule): void
+  /** The zone this Myrmidon runs schedules in, once known. */
+  zone: string | undefined
+}) {
   const t = copy.settings.schedules
   const { rule, onChange } = props
+  const note = shortMonthNote(ruleToCron(rule))
   const errorId = useId()
   const error = ruleError(rule)
   const timed = rule.repeat !== 'hourly' && rule.repeat !== 'custom'
@@ -4488,7 +4499,7 @@ function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule
           >
             {minutes.map((m) => (
               <option key={m} value={m}>
-                :{String(m).padStart(2, '0')}
+                {minuteText(m)}
               </option>
             ))}
           </Select>
@@ -4506,20 +4517,33 @@ function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule
             ))}
           </Select>
         )}
+        {/* Lists rather than the browser's time field, which writes the time as the system does (12- or 24-hour)
+            while the sentence below follows the browser's language: written here the same way, they always agree. */}
         {timed && (
-          <div className="w-28">
-            <TextInput
-              type="time"
-              aria-label={t.time}
-              value={`${String(rule.hour).padStart(2, '0')}:${String(rule.minute).padStart(2, '0')}`}
-              onChange={(e) => {
-                const [h, m] = e.target.value.split(':').map(Number)
-                // A cleared field keeps the last time rather than saving a schedule that has none.
-                if (Number.isInteger(h) && Number.isInteger(m))
-                  onChange({ ...rule, hour: h as number, minute: m as number })
-              }}
-            />
-          </div>
+          <>
+            <Select
+              aria-label={t.hour}
+              value={rule.hour}
+              onChange={(e) => onChange({ ...rule, hour: Number(e.target.value) })}
+            >
+              {Array.from({ length: 24 }, (_, h) => h).map((h) => (
+                <option key={h} value={h}>
+                  {hourText(h)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label={t.minute}
+              value={rule.minute}
+              onChange={(e) => onChange({ ...rule, minute: Number(e.target.value) })}
+            >
+              {minutes.map((m) => (
+                <option key={m} value={m}>
+                  {minuteText(m)}
+                </option>
+              ))}
+            </Select>
+          </>
         )}
         {rule.repeat === 'custom' && (
           <div className="w-56">
@@ -4545,7 +4569,8 @@ function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule
                 key={d}
                 type="button"
                 aria-pressed={on}
-                aria-label={t.dayName[d]}
+                // Named by what it shows ("Mon"), so speech control finds it by that; the full name is the tooltip.
+                title={t.dayName[d]}
                 onClick={() =>
                   onChange({ ...rule, days: on ? rule.days.filter((x) => x !== d) : [...rule.days, d] })
                 }
@@ -4567,20 +4592,26 @@ function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule
       ) : (
         <p className="mt-1.5 text-small leading-snug text-muted">
           {describeCron(ruleToCron(rule))}
-          {rule.repeat !== 'custom' && ` ${t.localTime}`}
-          {rule.repeat === 'monthly' &&
-            rule.dayOfMonth > 28 &&
-            `. ${t.shortMonths(t.ordinal(rule.dayOfMonth))}`}
+          {rule.repeat !== 'custom' && ` ${zoneText(props.zone) ?? t.localTime}`}
+          {note && `. ${note}`}
         </p>
       )}
     </div>
   )
 }
 
+/** How a schedule's time is said when this Myrmidon keeps another zone than the browser; undefined when they agree. */
+function zoneText(zone: string | undefined) {
+  return zone && zone !== Intl.DateTimeFormat().resolvedOptions().timeZone
+    ? copy.settings.schedules.serverZone(zone)
+    : undefined
+}
+
 /** Requests that start on their own on a cron schedule, as new chats with the default team. */
-function SchedulesSection() {
+export function SchedulesSection() {
   const toast = useToast()
   const [list, setList] = useState<ScheduleEntry[]>()
+  const [zone, setZone] = useState<string>()
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [draft, setDraft] = useState({
     request: '',
@@ -4593,8 +4624,11 @@ function SchedulesSection() {
   // Channels with an owner can report each run there.
   const [channels, setChannels] = useState<{ id: string; label: string }[]>([])
   const load = () =>
-    api<{ schedules: ScheduleEntry[] }>('/api/schedules')
-      .then((r) => setList(r.schedules))
+    api<{ schedules: ScheduleEntry[]; timeZone?: string }>('/api/schedules')
+      .then((r) => {
+        setList(r.schedules)
+        setZone(r.timeZone)
+      })
       .catch((err: Error) => toast(err.message, 'error'))
   // biome-ignore lint/correctness/useExhaustiveDependencies: load once
   useEffect(() => {
@@ -4610,6 +4644,13 @@ function SchedulesSection() {
       .then((r) => setProjects(r.projects))
       .catch(() => {})
   }, [])
+  // Leaving the picker puts focus back on the Change button it opened from, rather than losing it to the page.
+  const stopEditing = (id: string) => {
+    setEditing(undefined)
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(`[data-schedule-change="${CSS.escape(id)}"]`)?.focus(),
+    )
+  }
   const act = (run: () => Promise<unknown>, done?: string) =>
     void run()
       .then(() => {
@@ -4631,7 +4672,7 @@ function SchedulesSection() {
             />
           </Field>
           <div className="mt-3">
-            <SchedulePicker rule={draft.rule} onChange={(rule) => setDraft({ ...draft, rule })} />
+            <SchedulePicker rule={draft.rule} zone={zone} onChange={(rule) => setDraft({ ...draft, rule })} />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select
@@ -4702,7 +4743,11 @@ function SchedulesSection() {
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
                   <p className="mt-1 flex flex-wrap gap-x-3 text-small text-muted">
-                    <span>{describeCron(s.cron)}</span>
+                    <span>
+                      {describeCron(s.cron)}
+                      {zoneText(zone) && ` ${zoneText(zone)}`}
+                      {shortMonthNote(s.cron) && `. ${shortMonthNote(s.cron)}`}
+                    </span>
                     {s.project && (
                       <span>
                         {copy.settings.schedules.inProject(
@@ -4730,9 +4775,19 @@ function SchedulesSection() {
                     )}
                   </p>
                   {editing?.id === s.id && (
-                    <div className="mt-3">
+                    // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside
+                    <div
+                      className="mt-3"
+                      onKeyDown={(e) => {
+                        // Escape gives up the change, as Cancel does, instead of closing Settings with it unsaved.
+                        if (e.key !== 'Escape') return
+                        e.stopPropagation()
+                        stopEditing(s.id)
+                      }}
+                    >
                       <SchedulePicker
                         rule={editing.rule}
+                        zone={zone}
                         onChange={(rule) => setEditing({ id: s.id, rule })}
                       />
                       <div className="mt-2 flex gap-2">
@@ -4751,7 +4806,7 @@ function SchedulesSection() {
                         >
                           {copy.settings.schedules.save}
                         </Button>
-                        <Button size="sm" variant="borderless" onClick={() => setEditing(undefined)}>
+                        <Button size="sm" variant="borderless" onClick={() => stopEditing(s.id)}>
                           {copy.settings.schedules.cancel}
                         </Button>
                       </div>
@@ -4762,6 +4817,7 @@ function SchedulesSection() {
                   <Button
                     size="sm"
                     variant="borderless"
+                    data-schedule-change={s.id}
                     onClick={() => setEditing({ id: s.id, rule: cronToRule(s.cron) })}
                   >
                     {copy.settings.schedules.change}

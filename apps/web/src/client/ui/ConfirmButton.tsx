@@ -1,7 +1,26 @@
 import { Trash2 } from 'lucide-react'
-import { type ReactElement, type ReactNode, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactElement, type ReactNode, useRef, useState } from 'react'
 import { CONFIRM_ARM_DELAY_MS } from '../ui-config.ts'
 import { Button, IconButton } from './primitives.tsx'
+
+/**
+ * What a second, confirming step needs against the press that armed it: a held key's repeats would press it, and so
+ * would the second click of a double-click. Call `arm` as it appears; `repeat` swallows a repeated key (true when it
+ * did), and `tooSoon` says a click came within CONFIRM_ARM_DELAY_MS of arming.
+ */
+export function useArmGuard() {
+  const armedAt = useRef(0)
+  return {
+    arm: () => {
+      armedAt.current = performance.now()
+    },
+    repeat: (e: KeyboardEvent) => {
+      if (e.repeat) e.preventDefault()
+      return e.repeat
+    },
+    tooSoon: () => performance.now() - armedAt.current < CONFIRM_ARM_DELAY_MS,
+  }
+}
 
 /**
  * A removal that takes two clicks: the first arms it and says what happens, the second does it. Moving focus away or
@@ -26,9 +45,9 @@ export function ConfirmButton(props: {
   const [armed, setArmed] = useState(false)
   // Disarming with Escape puts focus back on the first button rather than losing it to the page.
   const [refocus, setRefocus] = useState(false)
-  const armedAt = useRef(0)
+  const guard = useArmGuard()
   const arm = () => {
-    armedAt.current = performance.now()
+    guard.arm()
     setArmed(true)
   }
   if (armed)
@@ -52,8 +71,7 @@ export function ConfirmButton(props: {
             setRefocus(false)
           }}
           onKeyDown={(e) => {
-            // A held Enter repeats, and each repeat would press this button.
-            if (e.repeat) return e.preventDefault()
+            if (guard.repeat(e)) return
             // Escape here only disarms; it must not also close the page around it.
             if (e.key !== 'Escape') return
             e.stopPropagation()
@@ -61,7 +79,7 @@ export function ConfirmButton(props: {
             setRefocus(true)
           }}
           onClick={() => {
-            if (performance.now() - armedAt.current < CONFIRM_ARM_DELAY_MS) return
+            if (guard.tooSoon()) return
             setArmed(false)
             setRefocus(false)
             props.onConfirm()
