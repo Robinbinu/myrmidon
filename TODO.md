@@ -450,6 +450,19 @@ Open work, in the order it will be done:
       sending a starter prompt, notification bodies, the hand-off animation in a normal window.
 12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
 12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
+12m. - [ ] **The sandbox lets agents read your files** (asked 2026-10-09) — today it only blocks writes: home, ~/.zshrc and
+      other chats are readable and the network is open, so "sandboxed" vs "full access" barely differ. Block reads of the
+      home folder except scratch, shared files, toolchains, the current chat; make the difference plain in Settings.
+12n. - [ ] **Setup: "Finish setting up" can't be dismissed** — must dismiss for good; redoing one step (e.g. voice) must not
+      walk through the next steps again; the test notification does nothing.
+12o. - [ ] **Mascot shows what you type** — on the new-chat screen the matrix shows the typed text with a blinking bar; after
+      5 s without typing the eyes come back.
+12p. - [ ] **Agent feedback report** (docs/research/2026-10-09-agent-feedback.md): multi-file artifact pages fail from file://
+      (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
+      find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
+      skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
+12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
+      then rewrite Myrmidon's prompts to that standard.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
