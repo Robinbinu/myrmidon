@@ -232,6 +232,8 @@ export interface Environment {
   readonly project?: ProjectContext
   /** The agent's own git worktree of the project, when it has one. */
   readonly worktree?: { workdir: string; branch: string }
+  /** The agent's scratch directory. */
+  readonly scratch?: string
   /** Skills the agent can load by name. */
   readonly skills?: readonly { name: string; description: string }[]
   /** Sections the person's plugins add for this agent. */

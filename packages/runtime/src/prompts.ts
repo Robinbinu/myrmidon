@@ -336,13 +336,12 @@ ${p.list}
     },
   },
 
-  /** What happens to an agent's work under the round's reviewer setting; `judge` is the reviewer's model. */
+  /** What happens to an agent's work under the round's reviewer setting; the setting and judge are under Environment. */
   review: {
-    off: '- Reviewer: off. Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.',
-    auto: (judge: string) =>
-      `- Reviewer: auto (judge: ${judge}). Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers.`,
-    always: (judge: string) =>
-      `- Reviewer: always (judge: ${judge}). An independent reviewer checks your final answer; if it finds problems, fix them and send an updated final answer.`,
+    off: '- Your final answer is not reviewed: it completes the round as soon as you send it, so get it right first.',
+    auto: '- Your final answer completes the round. For work worth checking (code, files, research with sources), call request_review first and fix what it finds; skip it for simple answers.',
+    always:
+      '- An independent reviewer checks your final answer; if it finds problems, fix them and send an updated final answer.',
     /** For an agent that submits tasks. */
     tasks: (judge?: string) =>
       judge
@@ -465,14 +464,44 @@ ${roster}`,
     noCrew: '- (none yet)',
   },
 
-  /** Facts about where the agent runs; the last part of the system prompt, since they change between rounds. */
+  /**
+   * Facts about where the agent runs; the last part of the system prompt, since they change between rounds (§4.10).
+   * After Codex's <environment_context> (cwd, shell, current_date, timezone) and Claude Code's environment block and
+   * git status snapshot (working directory, platform, model, today's date, branch, recent commits).
+   */
   environment: {
-    today: (p: { date: string; weekday: string; zone: string }) =>
-      `Today is ${p.date} (${p.weekday}) in the person's time zone, ${p.zone}; every time you are shown is in it. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
-    worktree: (p: { name: string; workdir: string; branch: string; path: string }) =>
-      `Project: "${p.name}" at ${p.path}. Your working directory is your git worktree of it at ${p.workdir} (branch ${p.branch}); your file tools and shell work there. Scratch files and saved web pages go in your scratch directory.`,
-    project: (p: { name: string; path: string }) =>
-      `Project: "${p.name}" at ${p.path}, the person's real folder and your working directory.`,
+    /** `log`: the agent has read_log, whose times are in the same zone. */
+    today: (p: { date: string; weekday: string; time: string; zone: string; log: boolean }) =>
+      `Today is ${p.date} (${p.weekday}), ${p.time} in the person's time zone, ${p.zone}; every time you are shown${p.log ? ", read_log's included," : ''} is in it. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
+    machine: (p: { model: string; os: string }) => `Model: ${p.model}. OS: ${p.os}.`,
+    /** `writes`: where commands and file tools may write, e.g. "project, scratch". */
+    sandbox: (p: { kind: string; writes: string }) => `Sandbox: ${p.kind} (writes: ${p.writes}).`,
+    fullAccess: 'Sandbox: none; this round has full access.',
+    budget: (p: { minutes: number; turns: number }) =>
+      `Budget: ${p.minutes} min for the round; you stop after ${p.turns} turns (a turn is one wake-up, however many calls it makes).`,
+    reviewer: (p: { setting: string; judge?: string }) =>
+      `Reviewer: ${p.setting}${p.judge ? ` (judge: ${p.judge})` : ''}.`,
+    worktree: (p: { name: string; workdir: string; branch: string; path: string; base?: string }) =>
+      `Working directory: ${p.workdir}, your git worktree of the project "${p.name}" at ${p.path} (branch ${p.branch}${p.base ? `, from ${p.base}` : ''}).`,
+    /** `git`: the project's branch, changes and latest commits, when it is a repository. */
+    project: (p: {
+      name: string
+      path: string
+      git?: { branch?: string; changed: number; recent: readonly string[] }
+    }) =>
+      `Working directory: ${p.path}, the project "${p.name}", the person's real folder${
+        p.git
+          ? ` (${[
+              p.git.branch ? `branch ${p.git.branch}` : 'detached HEAD',
+              p.git.changed ? `${p.git.changed} file${p.git.changed === 1 ? '' : 's'} changed` : 'clean',
+              ...(p.git.recent.length
+                ? [`recent commits: ${p.git.recent.map((c) => `"${c.slice(0, 80)}"`).join('; ')}`]
+                : []),
+            ].join('; ')})`
+          : ''
+      }.`,
+    scratchOnly: (path: string) => `Working directory: ${path}, your scratch directory.`,
+    scratch: (path: string) => `Scratch: ${path} (yours alone: drafts, saved pages, downloads).`,
     untrusted: (boundary: string) =>
       `Outside content this round is marked ⟦untrusted ${boundary} · source⟧ … ⟦/untrusted ${boundary}⟧.`,
     layout: (layout: string) => `Project layout:\n<layout>\n${layout}\n</layout>`,
@@ -480,12 +509,11 @@ ${roster}`,
       `Project checks: ${list}. Run them (run_checks) after you change code and before you say you are done; fix what fails.`,
     onDemand: (p: { later: readonly string[]; mcp: boolean }) =>
       `Tools on demand: some tools stay unloaded until you need them, to keep your context small. Call find_tools with what you need (e.g. "browser", "dev server") to load them${p.later.length ? `: ${p.later.join(', ')}` : ''}${p.mcp ? "; the MCP servers' tools (by server name)" : ''}; and made tools (tool_*). Load before you call them.`,
-    shellProject: (p: { platform: string; sandbox: string; runtimes: readonly string[] }) =>
-      `Shell: ${p.platform}, ${p.sandbox} sandbox; commands start in the project folder. Use paths relative to the project, never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
-    shellFull: (p: { platform: string; runtimes: readonly string[]; project: boolean }) =>
-      `Shell: ${p.platform}, full access (no sandbox); commands start in ${p.project ? 'the project folder' : 'your scratch directory'} and run as the person, with their home, environment and network. Prefer paths relative to where you start, and absolute ones only for files outside it. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
-    shellScratch: (p: { platform: string; sandbox: string; runtimes: readonly string[] }) =>
-      `Shell: ${p.platform}, ${p.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
+    /** `start`: where commands start, in words. */
+    shell: (p: { start: string; runtimes: readonly string[] }) =>
+      `Shell: commands start in ${p.start}; use paths relative to it, never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
+    shellFull: (p: { start: string; runtimes: readonly string[] }) =>
+      `Shell: commands start in ${p.start} and run as the person, with their home, environment and network. Prefer paths relative to where you start, and absolute ones only for files outside it. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
   },
 
   /** The first message of a round, and what joins it. */

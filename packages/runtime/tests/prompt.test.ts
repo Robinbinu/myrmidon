@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newColonyId } from '@myrmidon/core'
 import { emptyColonyState, foldColony } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { canonicalZone } from '../src/clock.ts'
 import { COMPUTER_TOOL } from '../src/computer/tool.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 import { inputSchema } from '../src/made-tools.ts'
 import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
+import { projectGit } from '../src/project-context.ts'
 import { assemble } from '../src/prompt/assemble.ts'
 import { factsFor, modelFamily } from '../src/prompt/facts.ts'
 import { lint, undescribed, viewOf } from '../src/prompt/lint.ts'
@@ -481,4 +483,63 @@ test("a round's first message says the request once, and the board it carries le
   }
   // Wake-ups later in the round still carry it.
   expect(snapshot(teamRound, state)).toContain(`REQUEST: ${request}`)
+})
+
+test('the environment block gives time, model, sandbox, limits, reviewer, places and git state', () => {
+  const spec = chat({ agents: [lead] }, inProject('auto'))
+  const git = { branch: 'main', changed: 2, recent: ['Fix the login redirect', 'Add the pricing page'] }
+  const environment = envFor(spec, { scratch: '/data/scratch/lead' })
+  const facts = factsFor(spec, lead, {
+    ...environment,
+    project: { ...(environment.project as object), git } as never,
+  })
+  const block = assemble(facts).system.at(-1) ?? ''
+  expect(block).toMatch(/Today is \d{4}-\d\d-\d\d \(\w+day\), \d\d:\d\d in the person's time zone, /)
+  expect(block).toContain('Your training data is older')
+  expect(block).toContain('Model: anthropic/claude-sonnet. OS: ')
+  expect(block).toContain('Sandbox: sandbox-exec (writes: project, scratch).')
+  expect(block).toContain('Budget: 1 min for the round; you stop after 10 turns')
+  expect(block).toContain('Reviewer: always (judge: mock/judge).')
+  expect(block).toContain(
+    'Working directory: /tmp/site, the project "site", the person\'s real folder (branch main; 2 files changed; recent commits: "Fix the login redirect"; "Add the pricing page").',
+  )
+  expect(block).toContain('Scratch: /data/scratch/lead')
+  // A worktree agent works in its worktree, and its shell starts there.
+  const worker = views.find((v) => v.label === 'team worker in a worktree')?.view.system.at(-1) ?? ''
+  expect(worker).toContain(`Working directory: ${worktree.workdir}, your git worktree of the project "site"`)
+  expect(worker).toContain('Shell: commands start in your worktree')
+  expect(worker).toContain('Sandbox: sandbox-exec (writes: worktree, scratch).')
+  // Full access says so instead of naming a sandbox; the answer tier, which writes nothing, gets no sandbox line.
+  expect(views.find((v) => v.label === 'solo with full access')?.view.system.at(-1)).toContain(
+    'Sandbox: none; this round has full access.',
+  )
+  expect(views.find((v) => v.label === 'answer')?.view.system.at(-1)).not.toContain('Sandbox:')
+  expect(canonicalZone('Asia/Calcutta')).toBe('Asia/Kolkata')
+  expect(canonicalZone('Europe/Kiev')).toBe('Europe/Kyiv')
+  expect(canonicalZone('Europe/Berlin')).toBe('Europe/Berlin')
+})
+
+test("a project's git state is read once: branch, changed files and the last three commit subjects", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-git-'))
+  try {
+    const git = (...args: string[]) =>
+      Bun.spawnSync(['git', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir })
+    git('init', '-q', '-b', 'main')
+    expect(projectGit(dir)).toEqual({ branch: 'main', changed: 0, recent: [] })
+    for (const n of [1, 2, 3, 4]) {
+      writeFileSync(join(dir, `f${n}.txt`), String(n))
+      git('add', '.')
+      git('commit', '-q', '-m', `Commit ${n}`)
+    }
+    writeFileSync(join(dir, 'f1.txt'), 'changed')
+    writeFileSync(join(dir, 'new.txt'), 'new')
+    expect(projectGit(dir)).toEqual({
+      branch: 'main',
+      changed: 2,
+      recent: ['Commit 4', 'Commit 3', 'Commit 2'],
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  expect(projectGit(tmpdir())).toBeUndefined()
 })

@@ -1,4 +1,4 @@
-import { personZone, zoneOffset } from '../clock.ts'
+import { canonicalZone, zoneOffset } from '../clock.ts'
 import {
   type Environment,
   isLead,
@@ -9,6 +9,7 @@ import {
   speaksForColony,
   toolsFor,
 } from '../patterns.ts'
+import type { ProjectGit } from '../project-context.ts'
 import type { AgentSpec, ColonySpec, Tier } from '../spec.ts'
 
 /**
@@ -159,12 +160,17 @@ export interface PromptFacts {
   }
   readonly env: {
     readonly now: Date
-    /** The person's zone with its offset, e.g. "Europe/Berlin (UTC+02:00)". */
+    /** The person's zone by its current IANA name, with its offset, e.g. "Asia/Kolkata (UTC+05:30)". */
     readonly zone: string
     readonly platform: string
     readonly runtimes: readonly string[]
     /** This round's marker for untrusted content blocks. */
     readonly boundary?: string
+    /** The round's limits: its wall time, and the turns each agent may take. */
+    readonly budget: { readonly wallMs: number; readonly maxTurns: number }
+    readonly scratch?: string
+    /** The project's git state when the round started. */
+    readonly git?: ProjectGit
   }
   readonly context: {
     readonly memory: readonly string[]
@@ -278,7 +284,10 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
     },
     tools: {
       names,
-      deferred: names.includes('find_tools') ? names.filter((t) => onDemand(t) && !ready.has(t)) : [],
+      // Computer use is loadable only where the round may use the person's Mac.
+      deferred: names.includes('find_tools')
+        ? names.filter((t) => onDemand(t) && !ready.has(t) && (t !== 'computer' || env.computer === true))
+        : [],
     },
     model: { ref: agent.model, family: modelFamily(agent.model) },
     access: {
@@ -306,10 +315,13 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
     audience: { owner: !spec.askAll, voice: spec.chat?.voice ?? false },
     env: {
       now,
-      zone: `${personZone()} (${zoneOffset(now)})`,
+      zone: `${canonicalZone()} (${zoneOffset(now)})`,
       platform: process.platform,
       runtimes: RUNTIMES,
       ...(env.boundary ? { boundary: env.boundary } : {}),
+      budget: { wallMs: spec.budget.wallMs, maxTurns: spec.budget.maxTurns },
+      ...(env.scratch ? { scratch: env.scratch } : {}),
+      ...(project && env.project?.git ? { git: env.project.git } : {}),
     },
     context: {
       memory: spec.chat?.memory ?? [],

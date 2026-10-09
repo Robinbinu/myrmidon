@@ -1,4 +1,4 @@
-import { localDate } from '../clock.ts'
+import { clockMinutes, localDate } from '../clock.ts'
 import { prompts } from '../prompts.ts'
 import { type CrewInfo, has, type PromptFacts, type ToolGroup } from './facts.ts'
 
@@ -200,12 +200,12 @@ const speaker = (f: PromptFacts) => f.mode.chat && f.agent.speaks && has(f, 'rep
 const builds = (f: PromptFacts) => any(f, 'publish_artifact', 'fs_write', 'create_task')
 
 function reviewNote(f: PromptFacts): string {
-  const { setting, judge = '' } = f.review
+  const { setting } = f.review
   return setting === 'off'
     ? prompts.review.off
     : setting === 'auto'
-      ? prompts.review.auto(judge)
-      : prompts.review.always(judge)
+      ? prompts.review.auto
+      : prompts.review.always
 }
 
 /** What returns outside content to this agent, in words (not tool names, which differ per agent). */
@@ -279,31 +279,75 @@ function writes(f: PromptFacts): string {
 
 const env = prompts.environment
 
-/** The facts of where the agent runs, as one tagged block. */
-function environment(f: PromptFacts): string {
+const OS: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' }
+
+/** Where commands and file tools may write, as the environment block lists it. */
+function writeRoots(f: PromptFacts): string {
+  if (f.access.worktree) return 'worktree, scratch'
+  return project(f) && project(f)?.mode !== 'read-only' ? 'project, scratch' : 'scratch'
+}
+
+/** Where this agent's shell starts, in words. */
+function shellStart(f: PromptFacts): string {
+  return f.access.worktree ? 'your worktree' : project(f) ? 'the project folder' : 'your scratch directory'
+}
+
+/** The working directory and scratch lines, for an agent with file tools or a shell. */
+function places(f: PromptFacts): string[] {
   const p = project(f)
-  const shell = { platform: f.env.platform, sandbox: f.access.sandbox, runtimes: f.env.runtimes }
+  const { scratch, git } = f.env
+  if (p && f.access.worktree)
+    return [
+      env.worktree({
+        name: p.name,
+        workdir: f.access.worktree.path,
+        branch: f.access.worktree.branch,
+        path: p.path,
+        ...(git?.branch ? { base: git.branch } : {}),
+      }),
+      ...(scratch ? [env.scratch(scratch)] : []),
+    ]
+  if (p)
+    return [
+      env.project({ name: p.name, path: p.path, ...(git ? { git } : {}) }),
+      ...(scratch ? [env.scratch(scratch)] : []),
+    ]
+  return scratch ? [env.scratchOnly(scratch)] : []
+}
+
+/**
+ * The facts of where the agent runs, as one tagged block (§4.10): time, model and machine, sandbox, the round's limits
+ * and reviewer, where it works, and its shell.
+ */
+function environment(f: PromptFacts): string {
+  const files = f.tools.names.some((t) => t.startsWith('fs_') || t === 'grep' || t === 'glob')
+  const shell = has(f, 'shell')
+  const runtimes = f.env.runtimes
   const lines = [
     env.today({
       date: localDate(f.env.now),
       weekday: f.env.now.toLocaleDateString('en-US', { weekday: 'long' }),
+      time: clockMinutes(f.env.now),
       zone: f.env.zone,
+      log: has(f, 'read_log'),
     }),
-    p &&
-      (f.access.worktree
-        ? env.worktree({
-            name: p.name,
-            workdir: f.access.worktree.path,
-            branch: f.access.worktree.branch,
-            path: p.path,
-          })
-        : env.project({ name: p.name, path: p.path })),
-    has(f, 'shell') &&
+    env.machine({ model: f.model.ref, os: OS[f.env.platform] ?? f.env.platform }),
+    // Only an agent that writes is told where it may write; reading limits are under Safety.
+    (shell || any(f, 'fs_write', 'fs_edit')) &&
       (f.access.fullAccess
-        ? env.shellFull({ ...shell, project: p !== undefined })
-        : p
-          ? env.shellProject(shell)
-          : env.shellScratch(shell)),
+        ? env.fullAccess
+        : env.sandbox({
+            kind: f.access.sandbox !== 'none' ? f.access.sandbox : 'none, so no shell',
+            writes: writeRoots(f),
+          })),
+    env.budget({ minutes: Math.round(f.env.budget.wallMs / 60_000), turns: f.env.budget.maxTurns }),
+    f.mode.chat &&
+      env.reviewer({ setting: f.review.setting, ...(f.review.judge ? { judge: f.review.judge } : {}) }),
+    ...(shell || files ? places(f) : []),
+    shell &&
+      (f.access.fullAccess
+        ? env.shellFull({ start: shellStart(f), runtimes })
+        : f.access.sandbox !== 'none' && env.shell({ start: shellStart(f), runtimes })),
     f.env.boundary !== undefined && outsideSources(f).length > 0 && env.untrusted(f.env.boundary),
   ].filter((s): s is string => typeof s === 'string')
   return `<environment>\n${lines.join('\n')}\n</environment>`
@@ -349,7 +393,7 @@ export const SECTIONS: readonly Section[] = [
       guard: (f) => team(f) && !crewmate(f) && f.review.verifier,
       render: () => say.verifier,
     },
-    { key: 'review', guard: speaker, render: reviewNote },
+    { key: 'review', version: 2, guard: speaker, render: reviewNote },
     {
       key: 'review-tasks',
       guard: (f) => has(f, 'submit_task') && f.agent.kind !== 'team-lead',
@@ -568,7 +612,7 @@ export const SECTIONS: readonly Section[] = [
     },
   ]),
   ...under('environment', [
-    { key: 'environment', version: 2, guard: () => true, render: environment },
+    { key: 'environment', version: 3, guard: () => true, render: environment },
     {
       key: 'layout',
       guard: (f) => f.context.layout !== undefined,

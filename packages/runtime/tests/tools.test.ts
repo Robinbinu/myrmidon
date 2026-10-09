@@ -156,9 +156,10 @@ test('agents see every time in one zone, the one their prompt names', async () =
   const { parseColonySpec } = await import('../src/spec.ts')
   const spec = parseColonySpec({ name: 'Zone', mission: 'x', agents: [{ name: 'a', model: 'm' }] })
   const agent = spec.agents[0] as (typeof spec.agents)[number]
-  inZone('Asia/Kolkata', () => {
+  // A system that still reports the deprecated alias gets the zone's current name.
+  inZone('Asia/Calcutta', () => {
     const prompt = systemPrompt(spec, agent, { sandbox: 'none', web: false, browser: false }).join('\n')
-    expect(prompt).toMatch(/time zone, Asia\/(Kolkata|Calcutta) \(UTC\+05:30\)/)
+    expect(prompt).toMatch(/, \d\d:\d\d in the person's time zone, Asia\/Kolkata \(UTC\+05:30\)/)
     // 12:00:01 UTC is 17:30:01 there: read_log says so, not the UTC time.
     expect(logLines(events(), {})[0]).toStartWith('#1 17:30:01 kai')
     expect(clockTime('2026-10-07T12:00:01.000Z')).toBe('17:30:01')
