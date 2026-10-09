@@ -115,6 +115,9 @@ function parking(): HTMLElement {
 
 let ids = 0
 
+/** The eight ANSI colour names, as the --term-* tokens and xterm's theme (with "bright" variants) both use them. */
+const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const
+
 /** One shell: its xterm and its socket. */
 export class TerminalSession {
   readonly id = ++ids
@@ -178,10 +181,24 @@ export class TerminalSession {
     const el = this.screen
     this.ended = undefined
     this.process = null
-    // xterm draws on a canvas, so it takes the panel's colours as values and is given them again on a theme change.
+    // xterm draws on a canvas, so it takes the panel's colours as values and is given them again on a theme change:
+    // the surface and text, and the ANSI palette from the --term-* tokens.
     const colours = () => {
       const style = getComputedStyle(el)
-      return { background: style.backgroundColor, foreground: style.color, cursor: style.color }
+      const token = (name: string) => style.getPropertyValue(`--term-${name}`).trim() || undefined
+      const ansi = Object.fromEntries(
+        ANSI.flatMap((c) => [
+          [c, token(c)],
+          [`bright${c[0]?.toUpperCase()}${c.slice(1)}`, token(`bright-${c}`)],
+        ]).filter(([, value]) => value),
+      )
+      return {
+        background: style.backgroundColor,
+        foreground: style.color,
+        cursor: style.color,
+        ...ansi,
+        ...(token('selection') ? { selectionBackground: token('selection') } : {}),
+      }
     }
     const p = currentPrefs()
     const t = new Terminal({
