@@ -72,7 +72,7 @@ export function sourceText(source: PermissionSource, decision: RuleDecision): st
     case 'read-only':
       return w.readOnly(w.where[source.scope])
     case 'preset':
-      return w.preset(presetLabel(source.preset), w.where[source.scope], w.presetWhat[decision])
+      return w.preset(presetLabel(source.preset), w.setOn[source.scope], w.presetWhat[decision])
     case 'rule':
       return w.rule(w.where[source.scope], w.ruleDecision[source.rule.decision], targetText(source.rule))
   }

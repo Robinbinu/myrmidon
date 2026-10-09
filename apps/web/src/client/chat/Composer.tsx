@@ -670,8 +670,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     }}
                     title={copy.composer.deliveryTitle(DELIVERIES.find((d) => d.value === delivery)?.hint)}
                     aria-label={copy.composer.deliveryLabel(
-                      delivery,
-                      delivery === 'steer' ? 'queue' : 'steer',
+                      (DELIVERIES.find((d) => d.value === delivery) ?? DELIVERIES[0]).label,
+                      (DELIVERIES.find((d) => d.value !== delivery) ?? DELIVERIES[1]).label,
                     )}
                     className={CHIP}
                   >
