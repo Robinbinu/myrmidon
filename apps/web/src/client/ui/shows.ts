@@ -196,7 +196,7 @@ export function charge(): Clip {
       for (let y = 0; y < ROWS; y++)
         for (let x = 0; x < COLS; x++)
           if (Math.hypot(x - (COLS - 1) / 2, (y - (ROWS - 1) / 2) * 1.6) <= p * reach * 1.15)
-            dots.push([x, y, 0.15 + 0.5 * p])
+            dots.push([x, y, 0.1 + 0.35 * p])
       const tremble = p > 0.7 ? (i % 2 ? 1 : -1) : 0
       yield { ms: T.chargeFrameMs, eyes: { stretch: p > 0.4 ? 1 : 0, shift: [tremble, 0] }, dots }
     }
