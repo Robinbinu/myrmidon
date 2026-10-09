@@ -55,6 +55,19 @@ describe('crew map links stand out from the window at 3:1, as lines that carry m
       })
 })
 
+test('initials on any agent or author colour read at 4.5:1', async () => {
+  const { inkOn } = await import('../src/client/ui/pixel.tsx')
+  const { JUDGE_COLOR, LEAD_COLOR, USER_COLOR, WORKER_PALETTE } = await import('@myrmidon/protocol')
+  const { light } = await themes()
+  // Both inks are the same in either theme.
+  const inks: Record<string, string | undefined> = {
+    'var(--on-bright)': light['on-bright'],
+    'var(--on-deep)': light['on-deep'],
+  }
+  for (const fill of [...WORKER_PALETTE, LEAD_COLOR, JUDGE_COLOR, USER_COLOR])
+    expect(contrast(inks[inkOn(fill)] as string, fill)).toBeGreaterThanOrEqual(4.5)
+})
+
 test('text on an agent colour takes whichever ink has more contrast', async () => {
   const { inkOn } = await import('../src/client/ui/pixel.tsx')
   // A mid blue: white reads at only 3.7:1 on it, near-black at 5.3:1.
