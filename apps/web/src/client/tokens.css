@@ -10,6 +10,8 @@
   --content: #ffffff;
   --raised: #ffffff;
   --control: #ffffff;
+  /* The selected segment of a segmented control, on the strong fill of its track. */
+  --thumb: #ffffff;
   --control-hover: #f5f5f7;
   --control-active: #e8e8ed;
   --fill: #f2f2f7;
@@ -131,6 +133,7 @@
     --content: #111114;
     --raised: #18181c;
     --control: #232328;
+    --thumb: #4a4a52;
     --control-hover: #2a2a30;
     --control-active: #313138;
     --fill: #17171b;

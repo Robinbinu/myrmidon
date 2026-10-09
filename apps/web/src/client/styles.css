@@ -43,6 +43,7 @@
   --color-accent-fg: var(--accent-text);
   --color-focus: var(--focus);
   --color-control: var(--control);
+  --color-thumb: var(--thumb);
   --color-control-hover: var(--control-hover);
   --color-control-active: var(--control-active);
   --color-fill: var(--fill);
