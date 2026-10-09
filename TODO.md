@@ -715,6 +715,10 @@ stay small so they merge cleanly into either.
       Containers; ~/.dotnet (a toolchain dir) holds a certificate store.
 - [ ] Outside home, /Volumes, /Users/Shared, /private/var/folders and /tmp/myr-* stay readable.
 - [ ] Unpinned fallback drivers (CUA_DRIVER_PATHS) run with the full environment and Myrmidon's grants.
+- [ ] [decide] Sandboxed binaries can probably use the Accessibility API under Myrmidon's grant (untestable here: no
+      grant).
+- Sandboxed commands no longer reach the clipboard (pasteboard services denied): a project test that copies and
+  pastes fails in the sandbox; builds, git, package managers and test runners are unaffected.
 
 ### B — Crew wind-down (`colony.ts`, `chat.ts`, `agent.ts`, `tools.ts` messaging, `tests/chat.test.ts`)
 - [ ] A person's follow-up while a round settles goes into the closing round and can go unanswered ("Not sent: this

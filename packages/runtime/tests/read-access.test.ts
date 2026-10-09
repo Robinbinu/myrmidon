@@ -97,9 +97,9 @@ test.skipIf(detectSandbox().kind === 'none')(
       'notes',
     )
     expect((await run(`touch "${home}/notes/x"`, { readable: [join(home, 'notes')] })).code).not.toBe(0)
-    // "Everything in my home": the shell config is readable, keys and other chats are not.
+    // "Everything in my home": notes are readable, keys and other chats are not.
     const everything = { readable: [home] }
-    expect((await run(`cat "${home}/.zshrc"`, everything)).code).toBe(0)
+    expect((await run(`cat "${home}/notes/todo.md"`, everything)).code).toBe(0)
     expect((await run(`cat "${home}/.ssh/id_ed25519"`, everything)).code).not.toBe(0)
     expect((await run(`cat "${other}/events.txt"`, everything)).code).not.toBe(0)
     expect((await run(`cat "${colony}/notes.md"`, everything)).stdout).toBe('this chat')
@@ -133,6 +133,26 @@ test('the macOS profile hides the home, then opens what may be read, parents fir
   expect(at(`(allow file-write* (subpath "${scratch}"))`)).toBeGreaterThan(at('(deny file-write*)'))
   // Folders above an open one can be looked up, not listed.
   expect(profile).toContain(`(literal "${home}")`)
+  // Sockets follow the write rules: none in the data folder or a folder only read, the agent's scratch is fine.
+  expect(at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`)).toBeGreaterThan(0)
+  expect(at(`(allow network-outbound (remote unix-socket (subpath "${scratch}")))`)).toBeGreaterThan(
+    at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`),
+  )
+  expect(profile).not.toContain(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)
+  for (const dir of ['/Volumes', '/Users/Shared', '/private/var/folders'])
+    expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
+  expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
+  expect(profile).toContain('(deny appleevent-send)')
+  expect(profile).toContain(
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver") (global-name "com.apple.replayd"))',
+  )
+  expect(profile).toContain('(deny lsopen)')
+  expect(profile).toContain('(deny mach-lookup (global-name-regex #"^com\\.apple\\.pasteboard\\."))')
+  // The /tmp/myr-* rule comes after the reads, so no readable folder reopens it, and one regex covers them all.
+  expect(at('(deny file-read* (regex #"^/private/tmp/myr-"))')).toBeGreaterThan(
+    profile.lastIndexOf('(allow file-read* (subpath'),
+  )
+  if (process.platform === 'darwin') expect(profile).not.toContain('(subpath "/private/tmp/myr-')
 })
 
 test('bubblewrap gets the same rules as mounts: an empty home, then what may be read, then what may be written', () => {
@@ -164,6 +184,22 @@ test('bubblewrap gets the same rules as mounts: an empty home, then what may be 
   )
 })
 
+test.skipIf(detectSandbox().kind === 'none')(
+  ".NET's certificate store stays hidden inside its readable toolchain folder",
+  async () => {
+    const dotnet = join(home, '.dotnet')
+    const store = join(dotnet, 'corefx', 'cryptography', 'x509stores', 'my')
+    mkdirSync(store, { recursive: true })
+    writeFileSync(join(dotnet, 'dotnet'), 'the toolchain')
+    writeFileSync(join(store, 'key.pfx'), 'a private key')
+    const ws = new ColonyWorkspace(colony, project, () => false, { dataDir: data, home, reads: () => [] })
+    const run = (command: string) =>
+      detectSandbox({ home }).run({ ...confined(), ...ws.confinement(), command, timeoutMs: 10_000 })
+    expect((await run(`cat "${dotnet}/dotnet"`)).stdout).toBe('the toolchain')
+    expect((await run(`cat "${store}/key.pfx"`)).code).not.toBe(0)
+  },
+)
+
 test('file tools refuse what the sandbox hides, open what the person allowed, and reach anything with full access', () => {
   let reads: string[] = []
   let unconfined = false
@@ -187,8 +223,38 @@ test('file tools refuse what the sandbox hides, open what the person allowed, an
   expect(() => ws.resolveInWorkdir(agent, `${home}/notes/todo.md`)).toThrow('outside your project')
 
   reads = [home]
-  expect(ws.mayRead(agent, join(home, '.zshrc'))).toBe(true)
+  expect(ws.mayRead(agent, join(home, 'notes', 'todo.md'))).toBe(true)
   expect(ws.mayRead(agent, join(home, '.ssh', 'id_ed25519'))).toBe(false)
+  // Shell startup files, other agents' sign-ins and app data are keys too.
+  for (const secret of [
+    '.zshrc',
+    '.zshenv',
+    '.bashrc',
+    '.bash_profile',
+    '.profile',
+    '.omp/agent/agent.db',
+    '.claude/.credentials.json',
+    '.claude.json',
+    '.codex/auth.json',
+    '.gemini/oauth_creds.json',
+    '.terraform.d/credentials.tfrc.json',
+    '.vault-token',
+    '.pgpass',
+    '.gem/credentials',
+    '.m2/settings.xml',
+    '.zsh_sessions/x.history',
+    '.python_history',
+    '.psql_history',
+    '.yarnrc.yml',
+    '.gradle/gradle.properties',
+    '.composer/auth.json',
+    'Library/Containers/com.example.app/Data/x',
+    'Library/Group Containers/group.example/x',
+    '.dotnet/corefx/cryptography/x509stores/my/key.pfx',
+  ])
+    expect({ secret, read: ws.mayRead(agent, join(home, secret)) }).toEqual({ secret, read: false })
+  expect(ws.mayRead(agent, join(home, '.m2', 'repository', 'x.jar'))).toBe(true)
+  expect(ws.mayRead(agent, join(home, '.dotnet', 'dotnet'))).toBe(true)
   expect(ws.mayRead(agent, join(other, 'events.txt'))).toBe(false)
   expect(ws.confinement().hidden).toEqual(expect.arrayContaining([data, join(home, '.ssh')]))
 
