@@ -67,6 +67,8 @@ export const QUIET_KEPT = 30
 export const SETTLE_QUIET_MS = 3_000
 /** ...and closes after this long even if the crew keeps talking; whatever is still unread waits for the next round. */
 export const CHAT_SETTLE_MS = 120_000
+/** Messages each agent may still send once a chat winds down: one last word, then the chat is closed to it. */
+export const WIND_DOWN_MESSAGES = 1
 /** Unread messages an agent is shown when it next wakes (from before this round); older ones stay in read_messages. */
 export const MISSED_SHOWN = 20
 /** Each such message is shown up to this many characters. */

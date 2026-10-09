@@ -22,8 +22,8 @@ everything shows live in the chat.
    What happens next follows the person's **reviewer** setting (see `verification.md`): off, the answer completes
    the round; auto, the answer completes the round and the speaker asks for a review first when the work deserves
    one (`request_review`); always, the reviewer checks every final answer and its findings come back to be fixed.
-   With a crew, the round then winds down like a group chat: anyone mid-reply finishes and what was said gets read
-   before it closes, so finish your thought rather than rushing.
+   With a crew, the round then winds down like a group chat: anyone mid-reply finishes, everything said gets read,
+   and each of you has one last message; do not answer wrap-ups or goodbyes. It closes once everyone is quiet.
 4. **Follow-ups.** A message sent while a round runs goes straight to the colony. A message after a round ends
    starts the colony's next round: the files, notes, and each agent's own conversation carry on.
 
