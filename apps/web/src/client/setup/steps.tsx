@@ -1197,7 +1197,7 @@ export function AlertsStep() {
             />
           </Field>
         </CardRow>
-        {((notify && alertsAllowed()) || result) && (
+        {(supported || result) && (
           <CardRow>
             <div className="flex items-center gap-3">
               <p
