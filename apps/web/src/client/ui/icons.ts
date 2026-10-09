@@ -58,6 +58,7 @@ import {
   UserRoundPlus,
   Users,
   UsersRound,
+  Volume2,
   Waypoints,
   Workflow,
   Wrench,
@@ -166,6 +167,8 @@ export const FEATURE_ICONS = {
   themeImport: FileUp,
   /** The mascot and the person's name. */
   mascot: Smile,
+  /** The mascot's sounds. */
+  mascotSounds: Volume2,
   /** Voice calls with the crew. */
   voice: AudioLines,
   /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
