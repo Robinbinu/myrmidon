@@ -210,16 +210,6 @@
   background: var(--accent);
 }
 
-/* Faint engineering grid behind hero areas. */
-@utility dot-field {
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    color-mix(in srgb, var(--text) 9%, transparent) 1px,
-    transparent 0
-  );
-  background-size: 22px 22px;
-}
-
 /* The small capitals over a group of rows: settings groups, panel sections, table heads. Colour is the caller's. */
 @utility section-label {
   font-family: var(--mono);

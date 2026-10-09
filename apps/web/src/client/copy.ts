@@ -496,6 +496,7 @@ export const copy = {
   hero: {
     headline: 'What should the crew build?',
     poke: 'Make the mascot react',
+    recent: 'Recent chats',
     /** What the mascot's screen spells out in dots (letters, digits and a few signs only). */
     screen: {
       hello: (name: string) => `HI ${name.toUpperCase()}`,

@@ -1255,6 +1255,13 @@ export function App() {
                         ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
                         : {})}
                       news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
+                      recent={chats.map((c) => ({
+                        chatId: c.chatId,
+                        title: c.title,
+                        status: runPhase(c),
+                        updatedAt: c.updatedAt,
+                      }))}
+                      onOpenChat={openChat}
                       onPick={(t) => composer.current?.fill(t)}
                     >
                       {config && !models.some(canLead) && (
