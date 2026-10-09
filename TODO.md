@@ -299,6 +299,17 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 Open work, in the order it will be done:
 
+0. - [x] **Schedules at any time** (done, merged to develop) — presets were fixed at 9:00; now a
+      repeat (hour, day, weekdays, chosen days, monthly, custom cron), a time and days, said in plain words, and
+      Change edits a saved schedule.
+0. - [x] **Crewmates out of sync across rounds** (done: reads per person, missed mail waits for the next wake) (2026-10-09, "play a game" chat) — when a round completes, `_end()`
+      stops every agent and drops mail still in its inbox or steered queue; the next round wakes them with only the
+      new message, so a crewmate's memory is stale and it answers an old message (zephyr replied to "It's a BOOK!"
+      #1125 after the new topic #1164). Also `mail.delivered` is one flag per message, so a group message read by one
+      member shows as read by all. Fix: per-recipient delivery, and carry undelivered mail into the next round.
+0. - [x] **A chat round ends mid-conversation** (done: the speaker signs off after its final answer; the round closes once the crew is quiet, capped at 2 min) — the lead's final answer completes the round at once (review off),
+      aborting crewmates mid-turn; bix's last message was never delivered (one tick). It should behave like a human
+      chat: let the conversation settle before the round ends.
 1. - [x] **Crew mail like a conversation** (done: messaging norms, threads, reply reminder, chat-style Mail tab) — agents see mail and ignore it; they should read and reply, coordinate
       like people in a chat (the person's words: "make it more human").
 2. - [x] **Plugins phase 4: agents build plugins** (done) — create_plugin / test_plugin / propose_plugin and the speaker
@@ -474,6 +485,13 @@ Open work, in the order it will be done:
 12r. - [x] **Computer use** (asked 2026-10-09) — done: Cua Driver embedded as an MCP server; one app at a time once
       approved, like Claude Code; Settings → Computer use (off by default). Untested live: Esc to stop; Gemini uses the
       generic tool.
+12s. - [ ] **The mascot comes alive** (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
+      sweep, yawn, sneeze, side-eye, peek, bored, cross-eyed); reactions drawn in dots (stars, spirals, ! ?, tears, sweat,
+      fire, ZZZ); screen shows (boot scanline, confetti on a finished run, Pac-Man, Game of Life asleep, voice equaliser);
+      interactive (click to look with a ripple, drag with squash-stretch, double-click sneeze, hold to charge and pop).
+      Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
+      Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
+      react to the eyes, and are named after random Minions.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
