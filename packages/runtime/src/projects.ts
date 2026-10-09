@@ -8,9 +8,9 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import type { ProjectPermissions } from '@myrmidon/protocol'
-import { NEW_PROJECT_MODE } from './config.ts'
+import { MAX_PROJECT_FILE_BYTES, NEW_PROJECT_MODE } from './config.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -121,4 +121,24 @@ export function listFolders(path: string): { path: string; parent: string | unde
     .slice(0, 500)
   const parent = abs === '/' ? undefined : resolve(abs, '..')
   return { path: abs, parent, folders }
+}
+
+/**
+ * A text file in a project folder, for the person to read in the app: one an agent edited, say. `file` is relative to
+ * the folder or absolute inside it (agents name files both ways). Symlinks are followed only while they stay inside.
+ */
+export function readProjectFile(root: string, file: string): { path: string; text: string } {
+  const base = realpathSync(root)
+  const abs = resolve(base, file)
+  const inside = (p: string) => p.startsWith(base + sep)
+  // The real path decides (an absolute path may reach the folder through a symlink); a missing one is judged as named.
+  const real = existsSync(abs) ? realpathSync(abs) : abs
+  if (!file || !inside(real)) throw new Error(`${file} is not in this project`)
+  if (!existsSync(real)) throw new Error(`${file} is no longer in the folder`)
+  const stat = statSync(real)
+  if (!stat.isFile()) throw new Error(`${file} is not a file`)
+  if (stat.size > MAX_PROJECT_FILE_BYTES) throw new Error(`${file} is over 2 MB, too large to show`)
+  const bytes = readFileSync(real)
+  if (bytes.includes(0)) throw new Error(`${file} is not a text file`)
+  return { path: relative(base, real), text: bytes.toString('utf8') }
 }

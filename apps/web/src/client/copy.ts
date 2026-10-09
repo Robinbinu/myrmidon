@@ -396,6 +396,8 @@ export const copy = {
     searched: 'Searched the web for',
     read: 'Read',
     ran: 'Ran',
+    edited: 'Edited',
+    wrote: 'Wrote',
     toolFailed: (tool: string) => `${tool} failed:`,
     created: 'Created',
     updated: 'Updated',
@@ -447,6 +449,7 @@ export const copy = {
       reading: (where: string) => `reading ${where}`,
       writing: (name: unknown) => `writing ${String(name ?? 'a file')}`,
       drafting: (path: unknown) => `drafting ${String(path ?? 'a file')}`,
+      editing: (path: unknown) => `editing ${String(path ?? 'a file')}`,
       runningCommand: 'running a command',
       waitingForJudge: 'waiting for the reviewer',
       bringingIn: (name: unknown) => `bringing in ${String(name ?? 'a crewmate')}`,
@@ -874,6 +877,17 @@ export const copy = {
     previewOf: (name: string) => `Preview of ${name}`,
     noPreview:
       'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
+  },
+
+  /** A file in the chat's project folder, opened from a step, an approval or the change list. */
+  projectFile: {
+    /** Under the file's name: whose folder, and that this is the file as it is now (not as an agent left it). */
+    where: (project: string) => `In ${project}, as it is now`,
+    open: (path: string) => `Open ${path}`,
+    copy: 'Copy',
+    copied: 'Copied',
+    /** The Files view's list of project files the crew changed in this chat. */
+    changedIn: (project: string) => `Changed in ${project}`,
   },
 
   audit: {

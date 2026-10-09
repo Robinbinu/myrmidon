@@ -11,6 +11,7 @@ import {
   Cpu,
   Feather,
   FileCode,
+  FileSearch,
   FishingHook,
   Gavel,
   GitBranch,
@@ -145,6 +146,8 @@ export const FEATURE_ICONS = {
   scratchFiles: SlidersHorizontal,
   /** Files the crew published. */
   files: FileCode,
+  /** A file in the chat's project folder, opened to read as it is now. */
+  projectFile: FileSearch,
   /** The project's git history. */
   git: GitBranch,
   /** Tasks on the crew's board. */

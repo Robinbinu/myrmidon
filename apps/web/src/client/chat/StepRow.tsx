@@ -1,9 +1,14 @@
 import { CircleAlert, Megaphone, Search, TriangleAlert, UserPlus } from 'lucide-react'
 import { motion } from 'motion/react'
+import { useMemo } from 'react'
+import { copy } from '../copy.ts'
+import { diffLines } from '../diff.ts'
 import { clock } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { cn } from '../ui/primitives.tsx'
 import { softSpring } from '../ui-config.ts'
+import { DiffLines } from './ApprovalCards.tsx'
+import { useOpenProjectFile } from './ProjectFiles.tsx'
 import type { Step, StepKind } from './steps.ts'
 
 const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
@@ -23,6 +28,17 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
 /** One line of the activity feed: kind icon, who, what, when. `hideAgent` drops the name in a one-agent view. */
 export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }) {
   const style = STEP_STYLE[step.kind]
+  const openFile = useOpenProjectFile()
+  const change = step.change
+  // A write's whole content is new; an edit shows the text it replaced against its replacement.
+  const lines = useMemo(
+    () =>
+      change &&
+      (change.before === undefined
+        ? change.after.split('\n').map((text) => ({ kind: 'add' as const, text }))
+        : diffLines(change.before, change.after)),
+    [change],
+  )
   return (
     <motion.li
       layout
@@ -40,7 +56,17 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       >
         <style.icon className="size-3" />
       </span>
-      {step.detail ? (
+      {lines ? (
+        <details className="group min-w-0 break-words pt-0.5">
+          <summary className="list-none marker:hidden hover:text-fg">
+            {!hideAgent && <span className="text-muted">{step.agent} · </span>}
+            {step.lead} <span className="font-semibold text-fg">{step.strong}</span>
+          </summary>
+          <div className="mt-1.5 overflow-hidden rounded-xl border border-line bg-surface">
+            <DiffLines lines={lines} />
+          </div>
+        </details>
+      ) : step.detail ? (
         <details className="group min-w-0 break-words pt-0.5">
           <summary className="list-none text-muted marker:hidden hover:text-fg-2">
             {!hideAgent && <span>{step.agent} · </span>}
@@ -57,9 +83,22 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
           {step.tail && <span className="text-muted">{step.tail}</span>}
         </span>
       )}
-      <time dateTime={step.time} className="pt-0.5 text-footnote tabular-nums text-muted">
-        {clock(step.time)}
-      </time>
+      <span className="flex items-center gap-1 pt-0.5">
+        {step.file && openFile && (
+          <button
+            type="button"
+            onClick={() => step.file && openFile(step.file)}
+            title={copy.projectFile.open(step.file)}
+            aria-label={copy.projectFile.open(step.file)}
+            className="grid size-5 place-items-center rounded-md text-muted transition-colors hover:bg-fill hover:text-fg"
+          >
+            <FEATURE_ICONS.projectFile className="size-3.5" />
+          </button>
+        )}
+        <time dateTime={step.time} className="text-footnote tabular-nums text-muted">
+          {clock(step.time)}
+        </time>
+      </span>
     </motion.li>
   )
 }

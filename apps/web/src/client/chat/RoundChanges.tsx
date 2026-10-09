@@ -8,6 +8,7 @@ import { Button } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { type DiffFile, DiffView } from './DiffView.tsx'
+import { useOpenProjectFile } from './ProjectFiles.tsx'
 
 interface Changes {
   files: DiffFile[]
@@ -29,6 +30,7 @@ export function RoundChanges(props: {
   running: boolean
 }) {
   const toast = useToast()
+  const openFile = useOpenProjectFile()
   const { state, checkpoints } = props
   const project = state.chat?.project
   const [changes, setChanges] = useState<Changes>()
@@ -123,7 +125,8 @@ export function RoundChanges(props: {
           </span>
         )}
         <span className="flex-1" />
-        {!rewound && (
+        {/* Rewound, the run's changes stay listed (they are the snapshots, not the folder), so they can be read again. */}
+        {changes.files.length > 0 && (
           <Button size="sm" variant="borderless" onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? copy.roundChanges.hideDiff : copy.roundChanges.viewDiff}
           </Button>
@@ -148,9 +151,14 @@ export function RoundChanges(props: {
           </Button>
         )}
       </div>
-      {open && !rewound && (
+      {open && (
         <div className="px-3 pb-3">
-          <DiffView files={changes.files} patch={changes.patch} truncated={changes.truncated} />
+          <DiffView
+            files={changes.files}
+            patch={changes.patch}
+            truncated={changes.truncated}
+            {...(openFile ? { onOpen: openFile } : {})}
+          />
         </div>
       )}
       <AnimatePresence>

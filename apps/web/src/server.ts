@@ -43,6 +43,7 @@ import {
   type PluginHost,
   type PluginStore,
   type ProjectStore,
+  readProjectFile,
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
@@ -1733,6 +1734,17 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ projects: options.projects?.list() ?? [] })
         }),
       },
+      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only, like the diffs.
+      '/api/projects/:id/file': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        try {
+          return json(readProjectFile(project.path, url.searchParams.get('path') ?? ''))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
+        }
+      }),
       // Read-only views of a project's own git repository for the workspace's Git tab.
       '/api/projects/:id/git': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')

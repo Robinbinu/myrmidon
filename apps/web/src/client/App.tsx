@@ -48,6 +48,7 @@ import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
+import { ProjectFiles } from './chat/ProjectFiles.tsx'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
@@ -1582,49 +1583,51 @@ function Transcript(props: {
   const pane = useFollowLatest<HTMLDivElement>(props.chat?.chatId)
   return (
     <div ref={pane.ref} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
-        {colonies(rounds).map((group, g) => (
-          <ColonyRounds
-            key={group.colonyId}
-            colonyId={group.colonyId}
-            rounds={group.rounds}
-            first={g === 0}
-            render={(colony, r) => (
-              <>
-                {callsBefore(r).map((c) => (
-                  <CallCard key={c.id} call={c} />
-                ))}
-                <RoundView
-                  colonyId={r.colonyId}
-                  colony={colony}
-                  round={r.round}
-                  onOpenColony={props.onOpenColony}
-                  onRetry={props.onRetry}
-                  onLearn={props.onLearn}
-                  onAnswer={props.onAnswer}
-                  onResume={props.onResume}
-                  models={props.models}
-                  retry={
-                    r === rounds.at(-1) && !running && !props.pending
-                      ? props.sending
-                        ? 'starting'
-                        : 'ready'
-                      : 'hidden'
-                  }
-                />
-              </>
-            )}
-          />
-        ))}
-        {loose.map((c) => (
-          <CallCard key={c.id} call={c} />
-        ))}
-        {props.pending && (
-          <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
-            <PendingRound text={props.pending} />
-          </div>
-        )}
-      </div>
+      <ProjectFiles project={props.chat?.project}>
+        <div className="mx-auto flex max-w-[820px] flex-col gap-8 p-6">
+          {colonies(rounds).map((group, g) => (
+            <ColonyRounds
+              key={group.colonyId}
+              colonyId={group.colonyId}
+              rounds={group.rounds}
+              first={g === 0}
+              render={(colony, r) => (
+                <>
+                  {callsBefore(r).map((c) => (
+                    <CallCard key={c.id} call={c} />
+                  ))}
+                  <RoundView
+                    colonyId={r.colonyId}
+                    colony={colony}
+                    round={r.round}
+                    onOpenColony={props.onOpenColony}
+                    onRetry={props.onRetry}
+                    onLearn={props.onLearn}
+                    onAnswer={props.onAnswer}
+                    onResume={props.onResume}
+                    models={props.models}
+                    retry={
+                      r === rounds.at(-1) && !running && !props.pending
+                        ? props.sending
+                          ? 'starting'
+                          : 'ready'
+                        : 'hidden'
+                    }
+                  />
+                </>
+              )}
+            />
+          ))}
+          {loose.map((c) => (
+            <CallCard key={c.id} call={c} />
+          ))}
+          {props.pending && (
+            <div className={cn(rounds.length > 0 && 'border-t border-line pt-8')}>
+              <PendingRound text={props.pending} />
+            </div>
+          )}
+        </div>
+      </ProjectFiles>
       <JumpToLatest follow={pane} />
     </div>
   )

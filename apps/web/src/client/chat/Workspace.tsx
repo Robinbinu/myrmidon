@@ -53,8 +53,9 @@ import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
+import { ProjectFiles, useOpenProjectFile } from './ProjectFiles.tsx'
 import { ShellTerminal } from './ShellTerminal.tsx'
-import { deriveSteps } from './steps.ts'
+import { deriveSteps, editedFiles } from './steps.ts'
 import { TaskBoard } from './TaskBoard.tsx'
 
 type Tab =
@@ -203,15 +204,17 @@ export function Workspace(props: { chat: ChatSummary; open: boolean; onOpenChang
   return (
     <aside aria-label={copy.workspace.label} className="flex h-full shrink-0">
       {colonyId && (
-        <WorkspaceBody
-          key={colonyId}
-          colonyId={colonyId}
-          {...(round !== undefined ? { round } : {})}
-          project={props.chat.project}
-          open={props.open}
-          onOpenChange={props.onOpenChange}
-          roundPicker={roundPicker}
-        />
+        <ProjectFiles project={props.chat.project}>
+          <WorkspaceBody
+            key={colonyId}
+            colonyId={colonyId}
+            {...(round !== undefined ? { round } : {})}
+            project={props.chat.project}
+            open={props.open}
+            onOpenChange={props.onOpenChange}
+            roundPicker={roundPicker}
+          />
+        </ProjectFiles>
       )}
     </aside>
   )
@@ -296,6 +299,9 @@ function WorkspaceBody({
   const steps = useMemo(() => deriveSteps(events), [events])
   const shells = useMemo(() => shellRuns(events), [events])
   const files = Object.entries(state.artifacts).sort(([a], [b]) => a.localeCompare(b))
+  // Project files the crew changed here: they live in the folder, not among the published files, so they open from it.
+  const changed = useMemo(() => (project ? editedFiles(events) : []), [project, events])
+  const openFile = useOpenProjectFile()
   const tasks = Object.values(state.tasks)
     .filter((t) => t.status !== 'deleted')
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status))
@@ -312,7 +318,7 @@ function WorkspaceBody({
   )
   const pct = (n: number) => `${tasks.length ? (n / tasks.length) * 100 : 0}%`
   const counts: Partial<Record<Tab, number>> = {
-    files: files.length + Object.keys(state.madeTools).length,
+    files: files.length + Object.keys(state.madeTools).length + changed.length,
     tasks: tasks.length,
     team: agents.length,
     // What the person has not read yet: it drops as they open a conversation and rises as new messages come in.
@@ -445,9 +451,36 @@ function WorkspaceBody({
                   >
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
+                    {tab === 'files' && project && changed.length > 0 && openFile && (
+                      <div className="flex flex-col p-2">
+                        <div className="px-1.5 pt-2 pb-1 section-label text-muted">
+                          {copy.projectFile.changedIn(project.name)}
+                        </div>
+                        {changed.map((path) => (
+                          <button
+                            key={path}
+                            type="button"
+                            onClick={() => openFile(path)}
+                            onContextMenu={(e) =>
+                              openContextMenu(e, copy.contextMenu.file.label(path), [
+                                { label: copy.contextMenu.file.open, run: () => openFile(path) },
+                                copyAction(copy.contextMenu.file.copyName, path),
+                              ])
+                            }
+                            className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
+                          >
+                            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-fill text-fg-2">
+                              <FEATURE_ICONS.projectFile className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate font-mono text-callout">{path}</span>
+                            <ChevronRight className="size-4 text-muted transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {tab === 'files' &&
                       (files.length === 0 ? (
-                        Object.keys(state.madeTools).length > 0 ? null : (
+                        Object.keys(state.madeTools).length > 0 || changed.length > 0 ? null : (
                           <Empty
                             icon={<FEATURE_ICONS.files className="size-5" />}
                             title={copy.workspace.files.emptyTitle}

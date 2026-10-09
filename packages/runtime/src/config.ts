@@ -161,6 +161,8 @@ export const INSTRUCTIONS_MAX_DIRS = 3000
 export const MAX_PATCH = 512 * 1024
 export const MAX_UNTRACKED_SHOWN = 50
 export const MAX_UNTRACKED_BYTES = 256 * 1024
+/** The largest project file the app opens to show (projects.ts `readProjectFile`). */
+export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
 
 // Memory, skills and made tools (memory.ts, skills.ts, made-tools.ts)
 
