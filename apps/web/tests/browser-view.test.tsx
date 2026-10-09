@@ -97,13 +97,13 @@ test('the tab strip shows each tab, opens and closes them, and streams the one p
     </MotionConfig>,
   )
   await settle()
-  const tabs = () => [...host.querySelectorAll('[role="tab"]')].map((t) => t.textContent)
+  const tabs = () => [...host.querySelectorAll('[data-tab]')].map((t) => t.textContent)
   expect(tabs()).toEqual(['Myrmidon', 'New tab'])
   // The newest tab is shown first, with its own socket.
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('New tab')
+  expect(host.querySelector('[data-tab][aria-current="true"]')?.textContent).toBe('New tab')
   expect(FakeSocket.all.at(-1)?.url).toContain('/api/browser/tabs/t2/live')
 
-  await act(async () => (host.querySelector('[role="tab"]') as HTMLElement).click())
+  await act(async () => (host.querySelector('[data-tab]') as HTMLElement).click())
   await settle()
   expect(FakeSocket.all.at(-1)?.url).toContain('/api/browser/tabs/t1/live')
   expect((host.querySelector('input[aria-label="Address"]') as HTMLInputElement).value).toBe(

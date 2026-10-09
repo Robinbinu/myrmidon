@@ -5,6 +5,7 @@ import {
   Cookie,
   Copy,
   Ellipsis,
+  EthernetPort,
   ExternalLink,
   FileUp,
   Link,
@@ -12,7 +13,6 @@ import {
   Maximize2,
   Minimize2,
   Monitor,
-  Network,
   Plus,
   RotateCw,
   Scaling,
@@ -369,14 +369,17 @@ export function BrowserView(props: {
   )
 }
 
-/** The tabs along the top: each a favicon and title, with its own close button; arrow keys move between them. */
+/**
+ * The tabs along the top: each a favicon and title, with its own close button; arrow keys move between them. A list,
+ * not an ARIA tablist: a tablist may hold only tabs, and each of these carries a close button beside it.
+ */
 export function TabStrip(props: {
   tabs: readonly BrowserTab[]
   active?: string
   onPick(id: string): void
   onClose(id: string): void
 }) {
-  const list = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLUListElement>(null)
   const move = (e: KeyboardEvent) => {
     const at = props.tabs.findIndex((t) => t.id === props.active)
     const next =
@@ -397,18 +400,17 @@ export function TabStrip(props: {
     list.current?.querySelector<HTMLElement>(`[data-tab="${tab.id}"]`)?.focus()
   }
   return (
-    <div
+    <ul
       ref={list}
-      role="tablist"
       aria-label={copy.browser.tabsLabel}
       onKeyDown={move}
-      className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+      className="m-0 flex min-w-0 flex-1 list-none items-center gap-0.5 overflow-x-auto p-0"
     >
       {props.tabs.map((t) => {
         const on = t.id === props.active
         const title = tabTitle(t)
         return (
-          <div
+          <li
             key={t.id}
             className={cn(
               'group flex h-7 min-w-0 max-w-44 shrink items-center rounded-md pl-2 pr-0.5',
@@ -417,9 +419,8 @@ export function TabStrip(props: {
           >
             <button
               type="button"
-              role="tab"
               data-tab={t.id}
-              aria-selected={on}
+              aria-current={on}
               tabIndex={on ? 0 : -1}
               title={title}
               onClick={() => props.onPick(t.id)}
@@ -437,15 +438,16 @@ export function TabStrip(props: {
             <IconButton
               label={copy.browser.closeTab(title)}
               size="sm"
+              tabIndex={on ? 0 : -1}
               className="size-5"
               onClick={() => props.onClose(t.id)}
             >
               <X className="size-3" />
             </IconButton>
-          </div>
+          </li>
         )
       })}
-    </div>
+    </ul>
   )
 }
 
@@ -786,7 +788,7 @@ export function BrowserMenu(props: {
                     onSelect={() => setLinksHere(!linksHere)}
                   />
                   <MenuItem
-                    icon={<Network className="size-4 text-muted" />}
+                    icon={<EthernetPort className="size-4 text-muted" />}
                     title={m.allowedSites}
                     onSelect={() => setPage('sites')}
                   />

@@ -2227,7 +2227,7 @@ export const copy = {
       },
       clear: 'Clear browsing data',
       clearConfirm: 'Yes, clear browsing data',
-      clearWarning: 'Signs you out of every site in this browser.',
+      clearWarning: 'Signs you out of every site here.',
       cleared: 'Browsing data cleared',
     },
     sites: {
