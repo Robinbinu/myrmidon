@@ -1,5 +1,5 @@
 import { copy } from '../copy.ts'
-import { CALL_HANG_UP_COMBO, CALL_MUTE_COMBO } from '../ui-config.ts'
+import { CALL_HANG_UP_COMBO, CALL_MUTE_COMBO, TERMINAL_COMBOS } from '../ui-config.ts'
 import { isMac } from './platform.ts'
 import { Card } from './primitives.tsx'
 import { comboLabel } from './shortcuts.ts'
@@ -43,6 +43,14 @@ export const SHORTCUT_GROUPS: readonly { title: string; items: readonly Shortcut
       { label: t.send, combo: 'enter' },
       { label: t.newLine, combo: 'shift+enter' },
       { label: t.stopRun, combo: 'mod+.' },
+    ],
+  },
+  {
+    title: t.groups.terminal,
+    items: [
+      { label: t.newTerminal, combo: isMac ? TERMINAL_COMBOS.newMac : TERMINAL_COMBOS.new },
+      { label: t.nextTerminal, combo: TERMINAL_COMBOS.next },
+      { label: t.previousTerminal, combo: TERMINAL_COMBOS.previous },
     ],
   },
   {

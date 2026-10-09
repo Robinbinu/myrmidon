@@ -1859,10 +1859,37 @@ export const copy = {
     after: (tasks: string) => `after ${tasks}`,
   },
 
+  /** The person's own terminals in the workspace's Terminal view, one tab each, as in Claude Code. */
   shellTerminal: {
     /** Why the shell ended when the server gave no reason. */
     closed: 'The shell closed.',
     newShell: 'New shell',
+    tabs: 'Terminals',
+    /** A tab: its number in this chat, then what runs in it, else the folder it started in (`~` for home). */
+    name: (n: number) => `Terminal ${n}`,
+    tab: (n: number, what: string) => `Terminal ${n} · ${what}`,
+    /** How the tab's × and the Delete key are offered to screen readers. */
+    closeHint: 'Delete closes it',
+    close: (name: string) => `Close ${name}`,
+    /** Asked before closing a terminal with a command still running in it. */
+    stillRunning: (name: string, command: string) => `${command} is still running in ${name}.`,
+    confirmClose: 'Yes, close terminal',
+    cancel: 'Cancel',
+    add: 'New terminal',
+    addTitle: (keys: string) => `New terminal (${keys})`,
+    full: (n: number) => `Up to ${n} terminals at once`,
+    emptyTitle: 'No terminals open',
+    emptyBody: 'Your own shell on this computer, starting in the chat’s project folder.',
+    options: 'Terminal options',
+    cursorStyle: 'Cursor style',
+    cursorStyles: { block: 'Block', bar: 'Bar', underline: 'Underline' },
+    cursor: 'Cursor and selection',
+    blink: 'Blink cursor',
+    copyOnSelect: 'Copy on select',
+    scrollback: 'Scrollback',
+    lines: (n: number) => `${n.toLocaleString('en-US')} lines`,
+    maximize: 'Maximize terminal',
+    restore: 'Restore terminal (Esc)',
   },
 
   folds: {
@@ -2041,8 +2068,6 @@ export const copy = {
     viewsLabel: 'Workspace views',
     close: 'Close panel',
     closeTitle: 'Close panel (⌘J)',
-    /** Under the shell's title; `where` is the project's name or `~`. */
-    shellCwd: (where: string) => `${where} · your shell`,
     files: {
       emptyTitle: 'No files yet',
       emptyBody: 'Everything the crew publishes appears here, with every version kept.',
@@ -3409,7 +3434,10 @@ export const copy = {
       previousChat: 'Previous chat',
       nextChat: 'Next chat',
       stopRun: 'Stop the run',
-      groups: { app: 'App', window: 'Window', chat: 'Chat', calls: 'Calls' },
+      newTerminal: 'New terminal',
+      nextTerminal: 'Next terminal',
+      previousTerminal: 'Previous terminal',
+      groups: { app: 'App', window: 'Window', chat: 'Chat', terminal: 'Terminal', calls: 'Calls' },
     },
     about: {
       title: 'About Myrmidon',

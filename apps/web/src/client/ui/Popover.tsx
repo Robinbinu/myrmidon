@@ -125,7 +125,7 @@ export function MenuList(props: { label: string; children: ReactNode }) {
 
 /**
  * One item in a menu: an icon, a name, a quieter line under it, and a check when it is the chosen one (`checked`
- * makes it a radio item). Items take focus from the arrow keys, not Tab.
+ * makes it a radio item, or with `checkbox` an on/off item). Items take focus from the arrow keys, not Tab.
  */
 export function MenuItem(props: {
   icon?: ReactNode
@@ -134,6 +134,8 @@ export function MenuItem(props: {
   /** Let the detail wrap instead of cutting it off. */
   multiline?: boolean
   checked?: boolean
+  /** An on/off setting rather than one choice of several: pressing it flips `checked`. */
+  checkbox?: boolean
   /** The group's Tab stop when none of its items is chosen; give it to the first. */
   tabStop?: boolean
   onSelect(): void
@@ -143,9 +145,9 @@ export function MenuItem(props: {
       type="button"
       {...(props.checked === undefined
         ? { role: 'menuitem' }
-        : { role: 'menuitemradio', 'aria-checked': props.checked })}
+        : { role: props.checkbox ? 'menuitemcheckbox' : 'menuitemradio', 'aria-checked': props.checked })}
       // The chosen item is the group's one Tab stop, as in a radio group; the arrow keys reach the rest.
-      tabIndex={props.checked || props.tabStop ? 0 : -1}
+      tabIndex={(props.checked && !props.checkbox) || props.tabStop ? 0 : -1}
       onClick={props.onSelect}
       className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left outline-none transition-colors hover:bg-fill focus-visible:bg-fill"
     >
