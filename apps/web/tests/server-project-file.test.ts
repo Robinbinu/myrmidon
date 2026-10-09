@@ -40,3 +40,34 @@ test('GET /api/projects/:id/file opens a file an agent edited, and only files in
   // Read-only, like the diffs a chats-only device already sees.
   expect(needsFull('GET', `/api/projects/${project.id}/file`)).toBe(false)
 })
+
+test('GET /api/projects/:id/tree lists a folder and /find finds files by name, both inside the folder only', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-ptree-home-'))
+  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-ptree-')))
+  dirs.push(home, folders)
+  const root = join(folders, 'app')
+  mkdirSync(join(root, 'src'), { recursive: true })
+  writeFileSync(join(root, 'src', 'calc.py'), 'x\n')
+  const projects = new ProjectStore(home)
+  const project = projects.add(root)
+  const server = startServer({ home, port: 0, projects })
+  servers.push(server)
+  const get = (path: string) =>
+    fetch(new URL(path, server.url.replace(/#.*$/, '')), {
+      headers: { authorization: `Bearer ${server.token}` },
+    })
+
+  const top = await get(`/api/projects/${project.id}/tree`)
+  expect(top.status).toBe(200)
+  expect(await top.json()).toEqual({
+    path: '',
+    entries: [{ name: 'src', path: 'src', dir: true }],
+    truncated: false,
+  })
+  expect((await get(`/api/projects/${project.id}/tree?path=..`)).status).toBe(400)
+  expect(await (await get(`/api/projects/${project.id}/find?q=calc`)).json()).toEqual({
+    paths: ['src/calc.py'],
+    truncated: false,
+  })
+  expect(needsFull('GET', `/api/projects/${project.id}/tree`)).toBe(false)
+})

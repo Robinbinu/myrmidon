@@ -17,6 +17,7 @@ import {
   CUSTOM_APIS,
   type CustomApi,
   channelSendTool,
+  findProjectFiles,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -30,6 +31,7 @@ import {
   importFromOmp,
   type LiveInput,
   listFolders,
+  listProjectDir,
   type McpHub,
   type McpServerConfig,
   type MemoryStore,
@@ -1744,6 +1746,22 @@ export function startServer(options: ServeOptions): WebServer {
           const message = err instanceof Error ? err.message : String(err)
           return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
         }
+      }),
+      // The file browser: one folder at a time, and files found by name across the folder.
+      '/api/projects/:id/tree': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        try {
+          return json(await listProjectDir(project.path, url.searchParams.get('path') ?? ''))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
+        }
+      }),
+      '/api/projects/:id/find': guard(async (req, url) => {
+        const project = options.projects?.get(req.params.id ?? '')
+        if (!project) return json({ error: 'no such project' }, 404)
+        return json(await findProjectFiles(project.path, url.searchParams.get('q') ?? ''))
       }),
       // Read-only views of a project's own git repository for the workspace's Git tab.
       '/api/projects/:id/git': guard(async (req) => {

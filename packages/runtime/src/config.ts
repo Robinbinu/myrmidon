@@ -163,6 +163,10 @@ export const MAX_UNTRACKED_SHOWN = 50
 export const MAX_UNTRACKED_BYTES = 256 * 1024
 /** The largest project file the app opens to show (projects.ts `readProjectFile`). */
 export const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
+/** The file browser: entries one folder lists, matches a name search returns, and files it looks through outside git. */
+export const MAX_TREE_ENTRIES = 2000
+export const MAX_FIND_RESULTS = 200
+export const MAX_FIND_SCAN = 50_000
 
 // Memory, skills and made tools (memory.ts, skills.ts, made-tools.ts)
 

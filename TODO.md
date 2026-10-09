@@ -627,4 +627,6 @@ Earlier items:
       lists "Changed in <project>"; a viewer opens a file as it is now (`GET /api/projects/:id/file`, contained to
       the folder, text only, 2 MB cap); a rewound run keeps View diff, with Open on each file.
 - [ ] **File browser like VS Code's Explorer** (the person's ask) — the project folder as a tree in the workspace:
-      folders fold, files open in the viewer, files the crew changed marked, filter by name.
+      folders fold, files open in the viewer, files the crew changed marked, filter by name. Server side done
+      (`GET /api/projects/:id/tree?path=` one folder with git status/ignored, `/find?q=` by name); the workspace
+      view (tree, badges, filter, keyboard) is still to build on `ProjectFiles`.
