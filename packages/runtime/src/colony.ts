@@ -34,6 +34,7 @@ import {
   type PermissionCall,
   type PermissionLevels,
   type PermissionVerdict,
+  type QuestionAnswers,
   type Review,
   type RoundAccess,
   rulesIn,
@@ -1405,7 +1406,7 @@ export class ColonyRun implements ColonyHost {
     mode: 'steer' | 'queue' = 'steer',
     attachments: readonly Attachment[] = [],
     to: readonly string[] = [],
-    extra: { voice?: boolean; context?: string } = {},
+    extra: { voice?: boolean; context?: string; answers?: QuestionAnswers } = {},
   ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
     const names = await this.attach(attachments)
@@ -1419,6 +1420,7 @@ export class ColonyRun implements ColonyHost {
         ...(to.length ? { to: [...to] } : {}),
         ...(extra.voice ? { voice: true } : {}),
         ...(extra.context ? { context: extra.context } : {}),
+        ...(extra.answers ? { answers: extra.answers } : {}),
       },
     })
   }
