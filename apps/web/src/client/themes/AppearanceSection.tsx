@@ -119,7 +119,7 @@ function ThemeCard(props: {
         )}
       >
         {props.preview}
-        <span className="flex min-w-0 items-center gap-1.5 px-1">
+        <span className={cn('flex min-w-0 items-center gap-1.5 px-1', props.action ? 'pr-8' : undefined)}>
           <span className="flex shrink-0 -space-x-1" aria-hidden>
             {props.swatches.map((c, i) => (
               <span
@@ -137,7 +137,7 @@ function ThemeCard(props: {
         </span>
         {props.note && <span className="truncate px-1 text-caption text-muted">{props.note}</span>}
       </button>
-      {props.action && <div className="absolute right-2 top-2">{props.action}</div>}
+      {props.action && <div className="absolute bottom-1.5 right-1.5">{props.action}</div>}
     </div>
   )
 }
