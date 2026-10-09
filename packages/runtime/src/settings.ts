@@ -330,7 +330,8 @@ export function withoutModel(
   return { settings: next, cleared }
 }
 
-function atomicWrite(path: string, text: string, mode: number) {
+/** Writes a file whole or not at all: a crash leaves the old one, never half the new. */
+export function atomicWrite(path: string, text: string, mode: number) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, text, { mode })
   chmodSync(tmp, mode)
