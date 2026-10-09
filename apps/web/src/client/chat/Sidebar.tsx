@@ -31,7 +31,6 @@ import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Logo } from '../ui/Logo.tsx'
 import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { isMac } from '../ui/platform.ts'
 import { Button, CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
@@ -497,11 +496,7 @@ export function Sidebar(props: {
       aria-label={copy.sidebar.label}
     >
       <Toolbar inset material={false} className="border-b-0">
-        <span className="hidden items-center gap-2 pl-1 text-body font-semibold tracking-[-0.01em] browser:flex">
-          <Logo size={20} />
-          {copy.brand.name}
-        </span>
-        <span className="flex-1" />
+        {/* Where the collapsed window keeps it too, so the toggle never moves. */}
         <IconButton
           label={copy.sidebar.hide}
           title={copy.sidebar.withShortcut(copy.sidebar.hide, comboLabel('mod+b', isMac))}
@@ -509,6 +504,10 @@ export function Sidebar(props: {
         >
           <PanelLeft className="size-4" />
         </IconButton>
+        {/* The name as a window title: faint, in space the toolbar has anyway. */}
+        <span className="min-w-0 flex-1 truncate px-1 text-small font-medium text-muted">
+          {copy.brand.name}
+        </span>
         <IconButton
           label={copy.sidebar.newTask}
           title={copy.sidebar.withShortcut(copy.sidebar.newTask, comboLabel('mod+n', isMac))}

@@ -94,7 +94,11 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
   ['crewmate on call', chat({ agents: [lead, asked], team: onCall }), asked],
   ['crewmate on call in a project', chat({ agents: [lead, asked], team: onCall }, inProject('auto')), asked],
   // The lead gets its crew's build tools by default; the person can switch them off (Settings → Permissions).
-  ['team lead', chat({ tier: 'team', agents: [lead, kai], team: orchestrated, permissions: planningLead }), lead],
+  [
+    'team lead',
+    chat({ tier: 'team', agents: [lead, kai], team: orchestrated, permissions: planningLead }),
+    lead,
+  ],
   [
     'team lead with hands-on tools',
     chat({ tier: 'team', agents: [handsOn, kai], team: orchestrated }, inProject('auto')),
