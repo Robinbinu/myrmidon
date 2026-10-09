@@ -527,17 +527,19 @@ export function Settings(props: {
         </span>
       </header>
       <div className="flex min-h-0 flex-1">
+        {/* A source list, as System Settings has: small monochrome tiles, one line per page, the open page in the
+            neutral selection with its tile in amber. */}
         <nav
           aria-label={copy.settings.page.title}
           className={cn(
-            'hidden shrink-0 flex-col overflow-auto border-r border-line p-3 md:flex',
-            wideNav ? 'w-64' : 'w-[68px] items-center',
+            'material-sidebar hidden shrink-0 flex-col overflow-auto overscroll-contain border-r border-line px-2.5 pb-3 pt-1 md:flex',
+            wideNav ? 'w-60' : 'w-[60px] items-center',
           )}
         >
           {GROUPS.map((group, i) => (
-            <div key={group} className="flex w-full flex-col gap-1">
+            <div key={group} className="flex w-full flex-col gap-px">
               {wideNav ? (
-                <div className={cn('px-3 pb-1 section-label text-muted', i > 0 && 'pt-4')}>
+                <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">
                   {copy.settings.page.groups[group]}
                 </div>
               ) : (
@@ -550,27 +552,27 @@ export function Settings(props: {
                   onClick={() => leave(() => setSection(s.id))}
                   aria-current={section === s.id ? 'page' : undefined}
                   aria-label={wideNav ? undefined : s.label}
-                  title={wideNav ? undefined : s.label}
+                  title={wideNav ? s.hint : s.label}
                   className={cn(
-                    'relative flex items-center gap-3 rounded-lg text-left transition-colors',
-                    wideNav ? 'px-3 py-2.5' : 'justify-center p-1.5',
-                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
+                    'relative flex h-7 shrink-0 items-center gap-2 rounded-md text-left text-body transition-colors',
+                    wideNav ? 'px-1.5' : 'w-8 justify-center',
+                    section === s.id ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
                   )}
                 >
                   {section === s.id && (
                     <motion.span
                       layoutId="settings-nav"
                       transition={spring}
-                      className="absolute inset-0 rounded-lg border border-line bg-surface shadow-soft"
+                      className="absolute inset-0 rounded-md bg-row-selected"
                     />
                   )}
                   <span
                     className={cn(
-                      'relative grid size-8 shrink-0 place-items-center rounded-xl transition-colors',
-                      section === s.id ? 'bg-accent-soft text-accent-fg' : 'bg-fill',
+                      'relative grid size-5 shrink-0 place-items-center rounded-[5px] transition-colors',
+                      section === s.id ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2',
                     )}
                   >
-                    <s.icon className="size-4" />
+                    <s.icon className="size-3" />
                     {s.id === 'channels' && waiting > 0 && (
                       <CountBadge
                         count={waiting}
@@ -580,18 +582,13 @@ export function Settings(props: {
                       />
                     )}
                   </span>
-                  {wideNav && (
-                    <span className="relative min-w-0">
-                      <span className="block text-reading font-medium">{s.label}</span>
-                      <span className="block truncate text-footnote text-muted">{s.hint}</span>
-                    </span>
-                  )}
+                  {wideNav && <span className="relative min-w-0 truncate">{s.label}</span>}
                 </button>
               ))}
             </div>
           ))}
         </nav>
-        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain bg-bg">
           <div className="border-b border-line p-3 md:hidden">
             <Select
               value={section}

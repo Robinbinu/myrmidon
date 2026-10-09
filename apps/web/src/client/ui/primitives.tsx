@@ -494,7 +494,8 @@ export function SectionHeader(props: {
  * `action` beside it) across its top.
  */
 export function Card(props: { children: ReactNode; className?: string; title?: string; action?: ReactNode }) {
-  const panel = 'rounded-2xl border border-line bg-surface'
+  // An inset group, as System Settings draws one: a 10px card a shade apart from the page behind it.
+  const panel = 'rounded-base border border-line bg-surface'
   if (props.title === undefined)
     return <div className={cn('divide-y divide-line', panel, props.className)}>{props.children}</div>
   return (
@@ -510,7 +511,7 @@ export function Card(props: { children: ReactNode; className?: string; title?: s
 
 /** One row of a Card. */
 export function CardRow(props: { children: ReactNode }) {
-  return <div className="px-4 py-3.5">{props.children}</div>
+  return <div className="px-4 py-3">{props.children}</div>
 }
 
 const BANNER: Record<'bad' | 'warn' | 'ok' | 'info', string> = {
