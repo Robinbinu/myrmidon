@@ -4,7 +4,7 @@ Press **Call** in a chat's toolbar and talk. A fast **call model** answers you o
 (files, commands, research, writing) it hands to the crew as an ordinary round in the chat, so you see it there as
 usual. The call goes on while the crew works, and the call model tells you when the work is done, failed, has a
 question, or needs your OK. Talk over it at any time to interrupt. Design:
-`superpowers/specs/2026-10-08-voice-calls-design.md`; research: `research/2026-10-08-voice-calls.md`.
+`superpowers/specs/2026-10-08-voice-calls-design.md` and `superpowers/specs/2026-10-09-voice-providers-design.md`; research: `research/2026-10-08-voice-calls.md`.
 
 ## Set up (Settings → Voice)
 
@@ -52,13 +52,56 @@ By default speech stays on your Mac:
 
 Settings → Voice shows each download's size before it happens (`GET /api/voice` reports them under `sizes`).
 
-Either can be swapped for:
+Either can be swapped for a **voice provider** you set up in **Settings → Models & providers → Providers → Voice
+providers** (Settings → Voice has an **Add a voice provider** button that opens it there). Each lists what it does,
+whether it streams, and where its key comes from:
 
-- **Cloud**: the speech models of the providers you signed in to under Settings → Models (an OpenAI, Groq or xAI
-  key, or omp's local Whisper models).
-- **OpenAI-compatible endpoint**: any service with the OpenAI audio API (Groq, OpenAI, a local whisper, Kokoro or
-  Piper server): its address up to `/v1`, the model, and a key if it needs one. Keys are kept in
-  `<home>/voice/secrets.json`, readable only by you, not in `settings.json`.
+| Provider | Speech to text | Voice (text to speech) | Realtime |
+| --- | --- | --- | --- |
+| Deepgram | Nova-3, streams | Aura-2, streams | |
+| ElevenLabs | Scribe v2, streams | Flash v2.5…, streams, your voices | |
+| Cartesia | Ink Whisper, streams | Sonic 3.6, streams, your voices | |
+| AssemblyAI | Universal-Streaming, streams | | |
+| OpenAI | gpt-4o(-mini)-transcribe, whisper-1 | gpt-4o-mini-tts, tts-1, streams | gpt-realtime |
+| Gemini | | | Gemini Live |
+| Groq | Whisper large v3 (turbo) | | |
+| Google Cloud | Speech-to-Text v1 | Text-to-Speech (Chirp 3 HD…), your voices | |
+| Azure AI Speech (key + region) | short audio | Neural voices, streams | |
+| AWS (access key + region) | Transcribe, streams | Polly, streams | |
+| Speechmatics | real-time, streams | | |
+| Rime | | Coda / Mist, streams | |
+| Fish Audio | | S2.1 Pro, streams, your voices | |
+
+"Streams" means your words show while you talk and the turn's text is ready the moment it ends, or a sentence starts
+playing before the provider has made all of it; the others take a whole turn, or speak a sentence at a time. Your
+turns are still found by Silero VAD and Smart Turn on this Mac, so talking over the call works the same with any of
+them. A provider's voice list is fetched from it where it has one.
+
+**Keys** are kept in the same credential vault as your model providers' keys (`<home>/agent/agent.db`), never in
+`settings.json`, and never sent back to the page. OpenAI, Gemini and Groq use the key you added for their models (add
+it in either place: it is the same key; remove it under model providers). A provider's environment variable works too
+(`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY`, `ASSEMBLYAI_API_KEY`, `SPEECHMATICS_API_KEY`,
+`RIME_API_KEY`, `FISH_API_KEY`, `GOOGLE_CLOUD_API_KEY`, `AZURE_SPEECH_KEY`, or `AWS_ACCESS_KEY_ID` with
+`AWS_SECRET_ACCESS_KEY`). Azure needs its region, AWS its region (us-east-1 unless set), Speechmatics may be given one.
+
+**Your own speech services**: any service with the OpenAI audio API (a local whisper, Kokoro or Piper server…), added
+under Voice providers with its address and a key if it needs one; Settings → Voice then takes its model and voice.
+Settings from before this, with one OpenAI-compatible address, become such a service (`endpoint`, or `endpoint-stt` and
+`endpoint-tts` when the two used different addresses), and the keys that were in `<home>/voice/secrets.json` move into
+the vault the first time Myrmidon starts; the file is then deleted.
+
+**If a provider fails during a call**, the call bar shows why, the call says so, and it goes on with the engine on this
+Mac when it is here (Phonon-2 installed, the Kitten model downloaded); the turn or sentence that failed is retried with
+it. Without one, the error shows and the next turn tries the provider again. Phone calls use the same choice.
+
+### Realtime calls
+
+**Call mode → Realtime** (Settings → Voice) puts the call assistant on one speech-to-speech model, **OpenAI Realtime**
+or **Gemini Live**, which hears you, answers and speaks itself, so it replies sooner. It has the same tools (it hands
+work to the crew, asks the lead or an agent, says how the work is going, ends the call) and puts approvals to you one at
+a time; your yes or no counts the same way, once its transcript is in. Crew news reaches it only as the result of its
+crew updates tool, never as your words. Calls straight to the lead or a crew member, and phone calls to them, still use
+the speech to text and voice above. Gemini Live connections last about ten minutes; a longer call ends with an error.
 
 The **call model** is the lead's model unless you choose another; a fast one makes the call feel quicker, since it
 only talks and hands work on. **Speech sensitivity** sets how loud speech must be to count: lower it if background
@@ -145,6 +188,8 @@ Twilio charges per call minute.
   this gateway, and the chosen speech engines must be ready (installed, downloaded).
 
 - **"Phonon-2 is not installed"**: install it in Settings → Voice, or choose another speech-to-text.
+- **"<provider> needs its key"**: add it under Voice providers in Settings → Models & providers (or its region, for
+  Azure and AWS).
 - **"Preparing voice…" for a while**: the engines are downloading or compiling once; later starts take seconds.
 - **It hears itself / interrupts itself**: use headphones, or lower the sensitivity; Myrmidon relies on the browser's
   echo cancellation.
