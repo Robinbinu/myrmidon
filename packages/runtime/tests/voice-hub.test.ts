@@ -1,21 +1,13 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMockModel } from '@oh-my-pi/pi-ai/providers/mock'
 import { ModelResolver } from '../src/models.ts'
 import { SettingsStore } from '../src/settings.ts'
 import { CallRefused, VoiceHub, type VoiceSettings } from '../src/voice/hub.ts'
+import { RealtimeCallSession } from '../src/voice/realtime/session.ts'
 import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { OpenAiCompatibleStt, PhononStt } from '../src/voice/stt.ts'
 import { FunctionTts, KittenTts } from '../src/voice/tts.ts'
@@ -26,9 +18,22 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-function setup(voice: Partial<VoiceSettings> = {}) {
+/** The credential vault, in memory: what the voice keys port reads and writes. */
+export function memoryKeys(initial: Record<string, string> = {}) {
+  const map = new Map(Object.entries(initial))
+  return {
+    map,
+    get: async (id: string) => map.get(id),
+    stored: (id: string) => map.has(id),
+    set: async (id: string, key: string) => void map.set(id, key),
+    remove: async (id: string) => void map.delete(id),
+  }
+}
+
+function setup(voice: Partial<VoiceSettings> = {}, keys = memoryKeys(), prepare?: (home: string) => void) {
   const home = mkdtempSync(join(tmpdir(), 'myr-voicehub-'))
   dirs.push(home)
+  prepare?.(home)
   const stored = new SettingsStore(home).get().voice
   // Most tests are about a call, so voice is on unless the test says otherwise.
   const defaults = { ...stored, enabled: true }
@@ -44,14 +49,16 @@ function setup(voice: Partial<VoiceSettings> = {}) {
       speak: async () => ({ audio: new Uint8Array(), mimeType: 'audio/wav' }),
       speechModels: () => ({ stt: ['openai/whisper-1'], tts: [] }),
     },
+    keys,
   })
-  return { home, hub, stored }
+  return { home, hub, stored, keys }
 }
 
 test('voice settings default to the engines on this machine', () => {
   const { hub, stored } = setup()
   expect(stored).toEqual({
     enabled: false,
+    mode: 'pipeline',
     stt: { provider: 'phonon' },
     tts: { provider: 'kitten', kittenModel: 'nano', voice: 'Leo', speed: 1 },
     sensitivity: 'normal',
@@ -61,30 +68,44 @@ test('voice settings default to the engines on this machine', () => {
   expect(hub.tts()).toBeInstanceOf(KittenTts)
   expect(hub.status()).toMatchObject({
     callModel: 'mock/voice',
-    stt: { provider: 'phonon', omp: ['openai/whisper-1'], keySet: false },
-    tts: { provider: 'kitten', kitten: { state: 'missing' }, keySet: false },
+    mode: 'pipeline',
+    // The engines on this machine need no key.
+    stt: { provider: 'phonon', omp: ['openai/whisper-1'], keySet: true },
+    tts: { provider: 'kitten', kitten: { state: 'missing' }, keySet: true },
   })
 })
 
-test('any OpenAI-compatible endpoint can be chosen; its key is kept apart, readable only by this user', () => {
-  const { hub, home } = setup({
-    stt: { provider: 'endpoint', baseUrl: 'https://api.groq.com/openai/v1', model: 'whisper-large-v3' },
+test("the person's own OpenAI-compatible service can be chosen; its key is in the vault, not a file of its own", async () => {
+  const { hub, home, keys } = setup({
+    endpoints: [{ id: 'groq-whisper', baseUrl: 'https://api.groq.com/openai/v1' }],
+    stt: { provider: 'endpoint:groq-whisper', model: 'whisper-large-v3' },
     tts: { provider: 'omp', kittenModel: 'nano', voice: 'Leo', speed: 1 },
   })
-  hub.setKey('stt', 'gsk-secret')
+  await hub.setKey('endpoint:groq-whisper', 'gsk-secret')
+  expect(keys.map.get('voice-endpoint-groq-whisper')).toBe('gsk-secret')
+  await hub.loadKeys()
   expect(hub.stt()).toBeInstanceOf(OpenAiCompatibleStt)
   expect(hub.tts()).toBeInstanceOf(FunctionTts)
-  expect(hub.status().stt.keySet).toBe(true)
-  const file = join(home, 'voice', 'secrets.json')
-  expect(statSync(file).mode & 0o777).toBe(0o600)
-  expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ sttKey: 'gsk-secret' })
-  hub.setKey('stt', '')
-  expect(hub.status().stt.keySet).toBe(false)
+  expect((await hub.providers()).endpoints).toEqual([
+    { id: 'groq-whisper', baseUrl: 'https://api.groq.com/openai/v1', hasKey: true },
+  ])
+  expect(existsSync(join(home, 'voice', 'secrets.json'))).toBe(false)
+  await hub.removeKey('endpoint:groq-whisper')
+  expect((await hub.providers()).endpoints[0]?.hasKey).toBe(false)
 })
 
-test('an endpoint without its address says what to set', () => {
-  const { hub } = setup({ stt: { provider: 'endpoint' } })
-  expect(() => hub.stt()).toThrow('set the speech-to-text endpoint and model in Settings → Voice')
+test('a choice that is not set up says what to do', async () => {
+  expect(() => setup({ stt: { provider: 'endpoint:gone' } }).hub.stt()).toThrow(
+    'The speech service gone is not set up: add it under Voice in Settings → Models & providers',
+  )
+  expect(() => setup({ stt: { provider: 'nobody' } }).hub.stt()).toThrow(
+    'There is no voice provider called nobody',
+  )
+  // A cloud provider without its key: refused before the call, with where to add it.
+  const { hub } = setup({ stt: { provider: 'deepgram' } })
+  await hub.loadKeys()
+  expect(() => hub.stt()).toThrow('Deepgram needs its key: add it in Settings → Models & providers.')
+  expect(hub.refusal()?.message).toBe('Deepgram needs its key: add it in Settings → Models & providers.')
 })
 
 test("a call's transcript is saved with its chat when it ends", async () => {
@@ -334,14 +355,101 @@ test("a channel's voice note is read by the chosen speech to text while voice is
     },
   })
   try {
-    const stt = { provider: 'endpoint' as const, baseUrl: `http://127.0.0.1:${server.port}/v1`, model: 'm' }
-    const on = setup({ stt })
+    const stt = { provider: 'endpoint:local', model: 'm' }
+    const endpoints = [{ id: 'local', baseUrl: `http://127.0.0.1:${server.port}/v1` }]
+    const on = setup({ stt, endpoints })
     const ogg = new Uint8Array([0x4f, 0x67, 0x67, 0x53])
     expect(await on.hub.transcribeFile(ogg, 'audio/ogg', 'voice-9.ogg')).toBe('remind me at five')
     expect(got).toEqual([{ type: 'audio/ogg', name: 'voice-9.ogg' }])
     // Voice off: the hub does not take it (the gateway falls back to omp's cloud models).
-    expect(await setup({ enabled: false, stt }).hub.transcribeFile(ogg, 'audio/ogg', 'v.ogg')).toBeUndefined()
+    expect(
+      await setup({ enabled: false, stt, endpoints }).hub.transcribeFile(ogg, 'audio/ogg', 'v.ogg'),
+    ).toBeUndefined()
   } finally {
     server.stop(true)
   }
+})
+
+test('keys an older Myrmidon kept in voice/secrets.json move into the vault, under the endpoints made of its addresses', async () => {
+  const secrets = (home: string) => {
+    mkdirSync(join(home, 'voice'), { recursive: true })
+    writeFileSync(
+      join(home, 'voice', 'secrets.json'),
+      JSON.stringify({ sttKey: 'gsk-1', ttsKey: 'kokoro-2' }),
+    )
+  }
+  const two = memoryKeys()
+  const split = setup(
+    {
+      endpoints: [
+        { id: 'endpoint-stt', baseUrl: 'https://api.groq.com/openai/v1' },
+        { id: 'endpoint-tts', baseUrl: 'http://localhost:8880/v1' },
+      ],
+    },
+    two,
+    secrets,
+  )
+  await split.hub.providers()
+  expect(Object.fromEntries(two.map)).toEqual({
+    'voice-endpoint-endpoint-stt': 'gsk-1',
+    'voice-endpoint-endpoint-tts': 'kokoro-2',
+  })
+  expect(existsSync(join(split.home, 'voice', 'secrets.json'))).toBe(false)
+  // One address for both: its one key.
+  const one = memoryKeys()
+  await setup({ endpoints: [{ id: 'endpoint', baseUrl: 'https://x.test/v1' }] }, one, secrets).hub.providers()
+  expect(Object.fromEntries(one.map)).toEqual({ 'voice-endpoint-endpoint': 'gsk-1' })
+})
+
+test("Settings is told each provider's key: saved, the model provider's, from the environment, or missing", async () => {
+  const keys = memoryKeys({ deepgram: 'dg', openai: 'sk-openai', 'azure-speech': 'az' })
+  process.env.ELEVENLABS_API_KEY = 'xi-from-env'
+  try {
+    const { hub } = setup({}, keys)
+    const { providers } = await hub.providers()
+    const by = Object.fromEntries(providers.map((p) => [p.id, p]))
+    expect(by.deepgram).toMatchObject({ key: 'stored', configured: true, stt: { streaming: true } })
+    // OpenAI's voice uses the key the person added for OpenAI's models.
+    expect(by.openai).toMatchObject({ key: 'shared', sharedWith: 'openai', configured: true })
+    expect(by.openai?.realtime?.models.length).toBeGreaterThan(0)
+    expect(by.elevenlabs).toMatchObject({ key: 'env', configured: true })
+    expect(by.cartesia).toMatchObject({ key: 'missing', configured: false })
+    // Azure has its key but not its region.
+    expect(by.azure).toMatchObject({ key: 'stored', configured: false, region: { required: true } })
+    // No key ever reaches Settings.
+    expect(JSON.stringify(providers)).not.toContain('sk-openai')
+    // A shared key is removed where it was added.
+    await expect(hub.removeKey('openai')).rejects.toThrow('remove it there')
+  } finally {
+    delete process.env.ELEVENLABS_API_KEY
+  }
+})
+
+test('in realtime mode the call assistant is the realtime model; a call straight to the lead stays on the pipeline', async () => {
+  const chats = {
+    send: async () => ({ chatId: 'c', colonyId: 'col', started: true }),
+    onEvents: () => () => {},
+    decideApproval: async () => {},
+  }
+  const noKey = setup({ mode: 'realtime', realtime: { provider: 'gemini' } })
+  await noKey.hub.loadKeys()
+  expect(noKey.hub.refusal()?.message).toBe('Gemini needs its key: add it in Settings → Models & providers.')
+  // Gemini's key is the one added for Google's models.
+  const { hub } = setup(
+    {
+      mode: 'realtime',
+      realtime: { provider: 'gemini', model: 'gemini-3.8-live', voice: 'Kore' },
+      stt: { provider: 'omp' },
+      tts: { provider: 'omp', kittenModel: 'nano', voice: 'Leo', speed: 1 },
+    },
+    memoryKeys({ google: 'g-key' }),
+  )
+  await hub.loadKeys()
+  expect(hub.refusal()).toBeUndefined()
+  const realtime = hub.call(chats, { name: 'Robin', sampleRate: 16_000 }, () => {})
+  expect(realtime).toBeInstanceOf(RealtimeCallSession)
+  realtime.hangUp()
+  const direct = hub.call(chats, { name: 'Robin', sampleRate: 16_000, talkTo: 'lead' }, () => {})
+  expect(direct).not.toBeInstanceOf(RealtimeCallSession)
+  direct.hangUp()
 })

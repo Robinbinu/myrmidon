@@ -341,7 +341,10 @@ test('a phone call: the caller speaks, the call model answers, and its speech go
   }
   const reply = Buffer.from(twilio.media()[1]?.media?.payload ?? '', 'base64')
   const samples = Math.round(('It is half past four.'.length * 2 * 24_000) / 1000)
-  expect(Math.abs(reply.length - samples / 3)).toBeLessThan(2)
+  // One resampler carries the call's speech to 8 kHz (so pieces that stream in have no seams): it holds back its
+  // kernel's half-width until the next piece, a millisecond here.
+  const held = new Resampler(24_000, 8000).half / 3
+  expect(Math.abs(reply.length - samples / 3)).toBeLessThanOrEqual(held + 1)
   expect(rms(mulawDecode(new Uint8Array(reply)))).toBeGreaterThan(3000)
   // Twilio's `stop` (the caller hung up) ends the call and closes the stream; the transcript stays with the chat.
   twilio.send({ event: 'stop', streamSid: 'MZ1', stop: { accountSid: SID, callSid: 'CA1' } })

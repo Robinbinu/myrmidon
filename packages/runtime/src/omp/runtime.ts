@@ -12,6 +12,7 @@ import {
 import { homedir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { Api, Model } from '@oh-my-pi/pi-ai'
+import type { VoiceKeys } from '../voice/providers.ts'
 
 /**
  * Myrmidon embeds omp's (oh-my-pi) agent libraries in-process: its settings, credential vault, model
@@ -147,6 +148,11 @@ export interface OmpRuntime {
   ): Promise<{ audio: Uint8Array; mimeType: string }>
   /** The speech models omp can call now, as `provider/id`, for Settings → Voice. */
   speechModels(): { stt: string[]; tts: string[] }
+  /**
+   * Voice providers' keys, in the same vault as the model providers' (`agent.db`), so a voice provider whose API is a
+   * model provider's (OpenAI, Groq, Gemini) uses the key already added for it, and none sits in a file of its own.
+   */
+  readonly voiceKeys: VoiceKeys
   search(query: string, options?: SearchOptions): Promise<string>
   read(url: string, signal?: AbortSignal): Promise<ReadResult>
   searchProviders(): { id: string; label: string }[]
@@ -182,6 +188,8 @@ export function bootOmp(home: string): Promise<OmpRuntime> {
 }
 
 const PROVIDER_NAME = /^[a-z][a-z0-9-]{1,40}$/
+/** A voice provider's vault id: a provider's own (`deepgram`), or a person's endpoint's (`voice-endpoint-<id>`). */
+const VOICE_KEY_ID = /^[a-z][a-z0-9-]{1,60}$/
 
 async function start(home: string): Promise<OmpRuntime> {
   const agentDir = ompAgentDir(home)
@@ -449,6 +457,21 @@ async function start(home: string): Promise<OmpRuntime> {
           .filter((m) => isSpeechApi(m.api))
           .map(ref),
       }
+    },
+    voiceKeys: {
+      // omp's cascade: a stored key, else the provider's environment variable when omp knows one.
+      get: async (id) => ((await core.auth.keys.get(id)) as string | undefined) || undefined,
+      stored: (id) => [...core.credentials.providers()].includes(id),
+      async set(id, key) {
+        if (!VOICE_KEY_ID.test(id)) throw new Error('invalid provider id')
+        if (!key.trim()) throw new Error('API key is empty')
+        await core.credentials.storeLoginApiKey(id, key.trim())
+        await core.registry.refresh('offline').catch(() => {})
+      },
+      async remove(id) {
+        await core.credentials.remove(id)
+        await core.registry.refresh('offline').catch(() => {})
+      },
     },
     async search(query, options = {}) {
       const result = await search.runSearchQuery(
