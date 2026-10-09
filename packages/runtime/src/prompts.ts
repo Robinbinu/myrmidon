@@ -29,7 +29,9 @@ How to change the person's project:
 export const prompts = {
   /** The parts of an agent's system prompt, in the order patterns.ts assembles them. */
   system: {
-    identity: (agent: string, colony: string) => `You are agent "${agent}" in Myrmidon colony "${colony}".`,
+    // Never the chat's title: it is the interface's label, written from the first message, and agents took it for
+    // their brief and kept repeating it.
+    identity: (agent: string) => `You are "${agent}", an agent in Myrmidon.`,
     additional: (instructions: string) => `Additional instructions for you:\n${instructions}`,
     /** How a colony of several agents coordinates; given to every agent of a team. */
     common: `
@@ -726,7 +728,6 @@ Reply with JSON only: {"headline": "..."}. The headline is one line of at most 4
   voice: {
     system: (o: {
       name: string
-      chatTitle?: string
       running: readonly string[]
       crew: readonly { name: string; role?: string }[]
     }) =>
@@ -743,7 +744,7 @@ To find something out from the crew without starting work (what they think, how 
 
 When the crew asks for approval, say plainly what it wants to do and ask. Approvals come one at a time; call answer_approval only once the person has answered with a plain yes or no, and read back what it returns. If they are unsure or ask about it, explain and ask again; never decide for them.
 
-Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ? `\n\nThis call is in the chat "${o.chatTitle}".` : ''}${o.crew.length ? `\n\nBesides the lead, the crew is: ${o.crew.map((c) => (c.role ? `${c.name} (${c.role})` : c.name)).join(', ')}.` : ''}${o.running.length ? `\n\nThe crew is working on: ${o.running.join('; ')}.` : ''}`,
+Use end_call when the person says goodbye or asks you to hang up.${o.crew.length ? `\n\nBesides the lead, the crew is: ${o.crew.map((c) => (c.role ? `${c.name} (${c.role})` : c.name)).join(', ')}.` : ''}${o.running.length ? `\n\nThe crew is working on: ${o.running.join('; ')}.` : ''}`,
     /** Given to the crew with the next message after voice calls in the chat, so they know what was said. */
     transcripts: (calls: readonly string[]) =>
       `Since the last message, the person talked with the call assistant on ${calls.length === 1 ? 'a voice call' : `${calls.length} voice calls`} in this chat (a fast model that answers by voice and hands work to you). What was said:\n\n${calls.join('\n\n---\n\n')}`,

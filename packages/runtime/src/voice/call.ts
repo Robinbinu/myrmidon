@@ -756,7 +756,6 @@ export class CallSession {
         systemPrompt: [
           prompts.voice.system({
             name: this.options.name,
-            ...(this.options.chatTitle ? { chatTitle: this.options.chatTitle } : {}),
             running: this._sent.filter((t) => !t.done && !t.question).map((t) => t.request),
             crew: this.options.crew ?? [],
           }),

@@ -437,7 +437,7 @@ function reviewNote(spec: ColonySpec): string {
 export function systemPrompt(spec: ColonySpec, agent: AgentSpec, env: Environment): string[] {
   const team = spec.agents.length > 1
   return [
-    prompts.system.identity(agent.name, spec.name),
+    prompts.system.identity(agent.name),
     capabilities(spec, agent, env),
     roleBrief(spec, agent),
     doesWork(spec, agent) ? prompts.system.craft.trim() : '',
