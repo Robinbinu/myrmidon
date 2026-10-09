@@ -1166,6 +1166,8 @@ export const copy = {
     refresh: 'Refresh',
     collapseAll: 'Collapse folders',
     loading: 'Loading…',
+    /** After a folder that could not be listed, beside the reason. */
+    tryAgain: 'Try again',
     empty: 'This folder is empty',
     noMatches: (q: string) => `No file names contain “${q}”`,
     moreMatches: 'More files match; type more of the name to narrow it down.',

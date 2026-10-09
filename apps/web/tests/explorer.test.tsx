@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { mount, press, withDom } from './dom.ts'
 
 withDom()
@@ -92,6 +92,45 @@ test('the Explorer opens folders by click and keys, finds files by name, and ope
     await act(async () => Bun.sleep(10))
     expect(doc.querySelector('[role=dialog]')?.textContent).toContain('return a + b')
     expect(asked.filter((a) => a.startsWith('tree')).length).toBe(2)
+  } finally {
+    await unmount()
+  }
+})
+
+test('a folder that fails to load says why and tries again; opening one loads it once, even in StrictMode', async () => {
+  const asked: string[] = []
+  let fail = true
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost/')
+    const path = url.searchParams.get('path') ?? ''
+    asked.push(path)
+    if (path === 'src' && fail) return Response.json({ error: 'src is not readable' }, { status: 400 })
+    return Response.json(LISTINGS[path])
+  }) as unknown as typeof fetch
+  const { ProjectExplorer } = await import('../src/client/chat/ProjectExplorer.tsx')
+  const { host, unmount } = await mount(
+    <StrictMode>
+      <ProjectExplorer project={{ id: 'app-1', name: 'app' }} edited={[]} />
+    </StrictMode>,
+  )
+  const doc = host.ownerDocument
+  const row = (name: string) =>
+    [...doc.querySelectorAll<HTMLElement>('[role=treeitem]')].find((r) => r.textContent?.startsWith(name))
+  try {
+    await act(async () => Bun.sleep(10))
+    await act(async () => row('src')?.click())
+    await act(async () => Bun.sleep(10))
+    expect(asked.filter((p) => p === 'src')).toHaveLength(1)
+    const alert = doc.querySelector('[role=tree] [role=alert]')
+    expect(alert?.textContent).toContain('src is not readable')
+    fail = false
+    const retry = alert?.closest('[role=treeitem]')?.querySelector('button')
+    expect(retry?.textContent).toBe('Try again')
+    if (!retry) throw new Error('no Try again button')
+    await act(async () => retry.click())
+    await act(async () => Bun.sleep(10))
+    expect(doc.querySelector('[role=tree] [role=alert]')).toBeNull()
+    expect(row('calc.py')).toBeDefined()
   } finally {
     await unmount()
   }
