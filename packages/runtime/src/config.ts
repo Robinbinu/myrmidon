@@ -205,7 +205,10 @@ export const SANDBOX_SECRETS = [
   '.cargo/credentials.toml',
   '.password-store',
   '.zsh_history',
+  '.zsh_sessions',
   '.bash_history',
+  '.python_history',
+  '.psql_history',
   'Library/Keychains',
   'Library/Cookies',
   'Library/Application Support',
@@ -214,7 +217,51 @@ export const SANDBOX_SECRETS = [
   'Library/Safari',
   '.local/share/keyrings',
   '.mozilla',
+  // Other agents' sign-ins and histories (omp's own and its config, Claude Code, Codex, Gemini CLI).
+  '.omp',
+  '.claude',
+  '.claude.json',
+  '.codex',
+  '.gemini',
+  // Shell startup files, where people export API keys.
+  '.zshrc',
+  '.zshenv',
+  '.zprofile',
+  '.zlogin',
+  '.bashrc',
+  '.bash_profile',
+  '.profile',
+  '.terraform.d',
+  '.terraformrc',
+  '.vault-token',
+  '.pgpass',
+  '.gem/credentials',
+  '.m2/settings.xml',
+  '.yarnrc.yml',
+  '.gradle/gradle.properties',
+  '.composer/auth.json',
+  // .NET's certificate store (private keys), inside a toolchain folder that is otherwise readable.
+  '.dotnet/corefx',
+  // Sandboxed apps' data, and what app groups share (password managers, mail and chat apps).
+  'Library/Containers',
+  'Library/Group Containers',
 ] as const
+/**
+ * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
+ * and the per-user temp and cache folders where other apps (and other chats) leave files. Folders a command may
+ * read or write inside them (a project in the temp folder) open again.
+ */
+export const SANDBOX_HIDDEN_ROOTS = ['/Volumes', '/Users/Shared', '/private/var/folders'] as const
+/**
+ * Files in the macOS per-user temp folder (inside a hidden root) that toolchains read: xcrun's cache, which the
+ * /usr/bin shims (python3, git, clang) look up on every run and complain loudly without.
+ */
+export const SANDBOX_TEMP_READABLE = ['xcrun_db'] as const
+/**
+ * The name prefix of folders in /tmp that Myrmidon keeps sockets in when the data folder's path is too long for one
+ * (`socketPath`): the Cua Driver's socket can be there, so they are hidden like the data folder.
+ */
+export const SANDBOX_HIDDEN_TMP = 'myr-'
 /** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
 export const MAX_READ_FOLDERS = 50
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
@@ -307,6 +354,11 @@ export const CUA_DRIVER_PATHS = [
   '/usr/local/bin/cua-driver',
   '/opt/homebrew/bin/cua-driver',
 ]
+/**
+ * The environment variables a driver the person installed gets: it is not the release Myrmidon pinned, so it does not
+ * see Myrmidon's own environment (provider keys, tokens).
+ */
+export const CUA_DRIVER_FALLBACK_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG'] as const
 /** How long the driver's daemon may take to open its socket, and one desktop action (an accessibility walk) to answer. */
 export const COMPUTER_START_MS = 15_000
 export const COMPUTER_CALL_MS = 60_000
@@ -351,6 +403,11 @@ export const COMPUTER_VIEW_ONLY_APPS = [
   /^com\.vivaldi\./,
   /^org\.chromium\./,
   /^com\.kagi\.kagimacOS/,
+  /^org\.torproject\.torbrowser/,
+  /^com\.duckduckgo\.macos\.browser/,
+  /^app\.zen-browser\./,
+  /^org\.mozilla\.librewolf/,
+  /^net\.waterfox\./,
   /^com\.tradingview\./,
   /^com\.robinhood\./,
   /^com\.webull\./,
@@ -359,7 +416,24 @@ export const COMPUTER_VIEW_ONLY_APPS = [
   /^com\.fidelity\./,
   /^com\.schwab\./,
 ]
+/**
+ * Apps that run the scripts, workflows or shortcuts typed into them: as good as a shell, so click-only with its
+ * warning. Their run key, and a click on Run, ask first.
+ */
+export const COMPUTER_SCRIPT_APPS = [
+  /^com\.apple\.ScriptEditor2$/,
+  /^com\.apple\.Automator$/,
+  /^com\.apple\.shortcuts$/,
+  /^com\.latenightsw\.ScriptDebugger/,
+  /^com\.stairways\.keyboardmaestro\./,
+  /^org\.hammerspoon\.Hammerspoon$/,
+  /^com\.raycast\.macos$/,
+]
+/** Keys that run in a script app (combos as `computerCombo` writes them): cmd+R with any other modifiers, Return. */
+export const COMPUTER_SCRIPT_KEYS = [/^cmd(\+\w+)*\+r$/, /^return$/]
+export const COMPUTER_SCRIPT_LABEL = /\brun\b/i
 export const COMPUTER_SHELL_APPS = [
+  ...COMPUTER_SCRIPT_APPS,
   /^com\.apple\.Terminal$/,
   /^com\.googlecode\.iterm2$/,
   /^dev\.warp\./,
@@ -389,14 +463,17 @@ export const COMPUTER_OWN_WINDOW_TITLE = /\bMyrmidon\b/
 /**
  * What makes a desktop action consequential enough to ask the person first: the label of what it clicks (buy, send,
  * delete…), and keys that send or delete. Agents are told to ask before such steps too; this catches the ones they
- * do not.
+ * do not. Key combos are matched as `computerCombo` writes them: modifiers in alphabetical order (cmd, ctrl, fn,
+ * option, shift), then the key, so each pattern also allows modifiers besides the ones it names.
  */
 export const COMPUTER_SENSITIVE_LABEL =
   /\b(buy|purchase|pay|checkout|check out|place order|order now|subscribe|donate|transfer|send|post|publish|tweet|reply all|submit|delete|remove|erase|trash|empty trash|uninstall|format|wipe|sign out|log out|confirm|approve|accept)\b/i
 export const COMPUTER_SENSITIVE_KEYS = [
-  /^(cmd|ctrl)\+(return|enter)$/i,
-  /^cmd\+(delete|backspace)$/i,
-  /^shift\+cmd\+delete$/i,
+  /^(cmd|ctrl)(\+\w+)*\+return$/,
+  // Delete, Move to Trash, Empty Trash (with or without its confirmation).
+  /^cmd(\+\w+)*\+delete$/,
+  // Mail's Send.
+  /^cmd(\+\w+)*\+shift\+d$/,
 ]
 /** Apps where Return sends what was typed (a message, a mail): pressing it there asks first. */
 export const COMPUTER_SEND_APPS = [

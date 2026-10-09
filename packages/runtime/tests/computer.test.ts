@@ -86,13 +86,18 @@ const textOf = (r: AgentToolResult) =>
 
 /** A round's host as far as the computer tool uses it; the person's answers to cards come from `decide`. */
 function fakeHost(
-  options: { decide?: (summary: string) => boolean; askAll?: boolean; rules?: PermissionRule[] } = {},
+  options: {
+    decide?: (summary: string) => boolean | Promise<boolean>
+    askAll?: boolean
+    rules?: PermissionRule[]
+    id?: string
+  } = {},
 ) {
   const events: EventDraft[] = []
   const cards: string[] = []
   let apps: ComputerApp[] = []
   const host = {
-    id: 'colony-test',
+    id: options.id ?? 'colony-test',
     spec: { askAll: options.askAll },
     permit: (_agent: string, call: PermissionCall) =>
       decide({ global: { preset: 'auto', rules: options.rules ?? [] } }, call, { askAll: !!options.askAll }),
@@ -111,7 +116,7 @@ function fakeHost(
     },
     async reviewChange(_agent: string, _tool: string, summary: string) {
       cards.push(summary)
-      return { approved: options.decide ? options.decide(summary) : true }
+      return { approved: options.decide ? await options.decide(summary) : true }
     },
   } as unknown as ColonyHost
   return { host, events, cards }
@@ -225,6 +230,9 @@ test('a consequential-looking step waits for the person, and secrets are never t
   expect(textOf(pixel)).toContain('did not approve')
   // Return sends in Messages.
   expect(textOf(await call(tool, { action: 'key', text: 'Return' }))).toContain('did not approve')
+  // So does a newline in typed text.
+  expect(textOf(await call(tool, { action: 'type', text: 'on my way\n' }))).toContain('did not approve')
+  expect(asked().some((c) => c.name === 'type_text')).toBe(false)
   expect(asked().some((c) => c.name === 'click' && c.args.element_index === 1)).toBe(false)
   const secret = await call(tool, { action: 'type', text: 'my key is sk-ant-abcdefghijklmnopqrstuvwxyz' })
   expect(textOf(secret)).toContain('never types secrets')
@@ -324,6 +332,75 @@ test('one agent drives an app at a time, and Stop ends a round’s computer use 
   expect(textOf(await call(generic(host), { action: 'screenshot' }))).toContain('stopped computer use')
   hub.newRound('colony-test', () => {})
   expect(hub.stopped('colony-test')).toBe(false)
+})
+
+test('Stop also ends rounds waiting for an app or on its approval card: they never take it after', async () => {
+  const { host } = fakeHost()
+  await call(generic(host), { action: 'open_app', app: 'Notes' })
+  // Another round waits for Notes; a third sits on its card for Messages.
+  const waiter = fakeHost({ id: 'colony-waits' })
+  let answer: (approved: boolean) => void = () => {}
+  const card = fakeHost({ id: 'colony-card', decide: () => new Promise<boolean>((r) => (answer = r)) })
+  hub.newRound('colony-waits', () => {})
+  hub.newRound('colony-card', () => {})
+  const waiting = call(
+    computerTool('kai', waiter.host, () => mockModel),
+    { action: 'open_app', app: 'Notes' },
+  )
+  const carded = call(
+    computerTool('ivy', card.host, () => mockModel),
+    { action: 'open_app', app: 'Messages' },
+  )
+  for (let i = 0; i < 100 && card.cards.length === 0; i++) await Bun.sleep(20)
+  const started = Date.now()
+  expect(hub.stopAll()).toBe(3)
+  expect(textOf(await waiting)).toContain('stopped computer use')
+  expect(textOf(await carded)).toContain('stopped computer use')
+  expect(Date.now() - started).toBeLessThan(5_000)
+  // Allowed after Stop, the app is neither recorded nor taken.
+  answer(true)
+  await Bun.sleep(50)
+  expect(card.events.some((e) => e.type === 'computer/apps')).toBe(false)
+  expect(hub.controls()).toHaveLength(0)
+  expect(hub.stopped('colony-waits')).toBe(true)
+}, 40_000)
+
+test('a wait Stop ended never takes the app, even once a new round of its chat has started', async () => {
+  await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'a', agent: 'nova' })
+  const waiting = hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'b', agent: 'kai' })
+  await Bun.sleep(50)
+  hub.stopAll()
+  // Before the waiting loop looks again: the chat's next round starts and Notes comes free.
+  hub.newRound('b', () => {})
+  hub.release('a')
+  await expect(waiting).rejects.toThrow('stopped')
+  await Bun.sleep(500)
+  expect(hub.controls()).toHaveLength(0)
+})
+
+test('a driver the person installed runs with a minimal environment, and the log says it is their own', async () => {
+  const lines: string[] = []
+  process.env.MYR_TEST_SECRET = 'leaked'
+  const theirs = new ComputerHub(home, {
+    mcp,
+    enabled: () => true,
+    paths: [join(home, 'bin', 'cua-driver')],
+    platform: 'darwin',
+    grants: () => grants,
+    log: (line) => lines.push(line),
+  })
+  try {
+    await theirs.ensure()
+    for (let i = 0; i < 100 && !lines.some((l) => l.includes('env ')); i++) await Bun.sleep(20)
+  } finally {
+    delete process.env.MYR_TEST_SECRET
+    await theirs.stop()
+  }
+  expect(theirs.driver()?.own).toBe(false)
+  const env = lines.find((l) => l.includes('env '))
+  expect(env).toContain('HOME')
+  expect(env).not.toContain('MYR_TEST_SECRET')
+  expect(lines.some((l) => l.includes('your own install'))).toBe(true)
 })
 
 test('missing grants are explained once in the chat and stop the call; a channel member never gets the computer', async () => {
