@@ -567,7 +567,7 @@ nobody owns, publish artifacts, and request final verification once the output m
           ? 'Since your last answer the person changed what you may do'
           : 'The person just changed what you may do'
       const tail = accessLoosened(c)
-        ? 'Anything you declined or could not do earlier because of the old permissions may work now: try it.'
+        ? 'What the old permissions stopped, or what you turned down because of them, may work now: try it. Do not retry a step the person declined: that was their answer, not a permission.'
         : 'Work within the new rules, and tell the person if they stop you doing something the task needs.'
       return `${head}: ${parts.join('; ')}. ${tail}`
     },
