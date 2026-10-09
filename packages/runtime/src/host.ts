@@ -1,5 +1,13 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
-import type { ActorRef, ColonyId, ColonyState, EventDraft, MyrEvent, Review } from '@myrmidon/protocol'
+import type {
+  ActorRef,
+  ChatGrant,
+  ColonyId,
+  ColonyState,
+  EventDraft,
+  MyrEvent,
+  Review,
+} from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -98,13 +106,14 @@ export interface ColonyHost {
   requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
   /**
    * Like requestApproval, with the full change shown for the person to look over and, where a field is editable,
-   * rewrite. `key` is the call's receipt key, so its result is kept once it has run.
+   * rewrite. `key` is the call's receipt key, so its result is kept once it has run. With `grant`, the step is of a
+   * kind the person may allow for the rest of the chat; once they have, it goes ahead without asking.
    */
   reviewChange(
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string },
+    options: { review?: Review; key?: string; grant?: ChatGrant },
   ): Promise<ReviewDecision>
   /**
    * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
+  type ChatGrant,
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
@@ -224,6 +225,8 @@ export interface ChatSummary {
   readonly project?: { readonly id: string; readonly name: string }
   /** Crew members the person can write to directly (@name): everyone on the chat's crew but the lead. */
   readonly crew?: readonly CrewMember[]
+  /** Kinds of step the person allowed for the rest of the chat ("Approve all for this chat"). */
+  readonly grants?: readonly ChatGrant[]
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -510,6 +513,7 @@ export class ChatService {
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
         ...(last.failed ? { failed: true } : {}),
+        ...(last.grants?.length ? { grants: last.grants } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -804,6 +808,36 @@ export class ChatService {
     if (live?.id === latest.id) await live.append(draft)
     else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
     return clean
+  }
+
+  /**
+   * Allows one kind of step (project file changes, or shell commands) for the rest of a chat, across its runs, or
+   * takes that back. Allowing also approves the steps of that kind already waiting. Recorded in the chat's latest
+   * round's log, so it survives restarts and holds for runs started from a channel. Returns what is allowed now.
+   */
+  async allowInChat(chatId: string, grant: ChatGrant, allowed: boolean): Promise<ChatGrant[]> {
+    if (grant !== 'file' && grant !== 'command') throw new Error('grant is file or command')
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const live = this._live.get(chatId)
+    const here = live?.id === latest.id ? live : undefined
+    const now = (here?.state() ?? latest.state).chatGrants ?? []
+    const grants = allowed ? [...new Set([...now, grant])] : now.filter((g) => g !== grant)
+    if (grants.length !== now.length) {
+      const draft = {
+        type: 'chat/allowed',
+        actor: { kind: 'user', id: 'user' },
+        payload: { grants },
+      } as const
+      if (here) await here.append(draft)
+      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    }
+    if (allowed && here)
+      for (const a of Object.values(here.state().approvals))
+        if (!a.decided && a.grant === grant)
+          // Decided meanwhile (the person on another device, a timeout): nothing left to approve.
+          await here.decideApproval(a.id, true).catch(() => {})
+    return grants
   }
 
   private _project(

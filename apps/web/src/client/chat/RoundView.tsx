@@ -272,7 +272,12 @@ export function RoundView(props: {
     'message' in i ? (
       message(i.message)
     ) : 'approval' in i ? (
-      <Approval key={i.approval.id} colonyId={props.colonyId} request={i.approval} />
+      <Approval
+        key={i.approval.id}
+        colonyId={props.colonyId}
+        chatId={state.chat?.chatId}
+        request={i.approval}
+      />
     ) : (
       <StreamingReply
         key={`stream:${i.stream}`}

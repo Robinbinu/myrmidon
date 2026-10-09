@@ -503,6 +503,7 @@ async function guardProjectEdit(
       change,
     ),
     key: change.key,
+    grant: 'file',
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${where}`, decision.note))
   const edited = decision.edits?.content
@@ -553,6 +554,7 @@ async function guardProjectCommand(
       title: prompts.reviewCard.command,
       fields: [{ key: 'command', label: tool, value: line, format: 'code', editable }],
     },
+    grant: 'command',
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined('this command', decision.note))
   return decision.edits?.command ?? command

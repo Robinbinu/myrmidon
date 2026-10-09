@@ -1,4 +1,4 @@
-import type { ColonyState, Review, ReviewField } from '@myrmidon/protocol'
+import type { ChatGrant, ColonyState, Review, ReviewField } from '@myrmidon/protocol'
 import { BookmarkPlus, Check, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
@@ -27,11 +27,20 @@ import type { Pending } from './approvals.ts'
  * there is a change to show, with Approve or Deny; text fields can be rewritten first and what runs is the person's
  * version. Once decided it stays as one line saying what was decided.
  */
-export function Approval({ colonyId, request }: { colonyId: string; request: Pending }) {
+export function Approval({
+  colonyId,
+  chatId,
+  request,
+}: {
+  colonyId: string
+  /** The chat the round belongs to: where "Allow all … in this chat" applies. */
+  chatId?: string | undefined
+  request: Pending
+}) {
   return request.decided ? (
     <ApprovalRecord request={request} decided={request.decided} />
   ) : (
-    <ApprovalCard colonyId={colonyId} request={request} />
+    <ApprovalCard colonyId={colonyId} chatId={chatId} request={request} />
   )
 }
 
@@ -73,15 +82,25 @@ function ApprovalRecord({
   )
 }
 
-function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pending }) {
+function ApprovalCard({
+  colonyId,
+  chatId,
+  request: a,
+}: {
+  colonyId: string
+  chatId?: string | undefined
+  request: Pending
+}) {
   const toast = useToast()
+  const grants = copy.approvals.grants
   const [busy, setBusy] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const changed = Object.entries(edits).filter(
     ([key, value]) => a.review?.fields.find((f) => f.key === key)?.value !== value,
   )
-  const decide = async (approved: boolean) => {
+  // `all`: this step as the person left it (their edits and note), then every later one of its kind in the chat.
+  const decide = async (approved: boolean, all = false) => {
     setBusy(true)
     try {
       await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
@@ -89,6 +108,10 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
       })
+      if (all && a.grant && chatId) {
+        await send('PUT', `/api/chats/${chatId}/allowed`, { grant: a.grant, allowed: true })
+        toast(grants.allowed(grants.kinds[a.grant]), 'success')
+      }
     } catch (err) {
       toast(String((err as Error).message), 'error')
       setBusy(false)
@@ -147,6 +170,16 @@ function ApprovalCard({ colonyId, request: a }: { colonyId: string; request: Pen
         >
           {copy.approvals.approval.deny}
         </Button>
+        {a.grant && chatId && (
+          <Button
+            variant="push"
+            disabled={busy}
+            onClick={() => void decide(true, true)}
+            icon={<FEATURE_ICONS.chatGrants className="size-3.5" />}
+          >
+            {grants.approveAll[a.grant]}
+          </Button>
+        )}
         <Button
           variant="primary"
           disabled={busy}
@@ -293,6 +326,42 @@ function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
       )}
     </div>
   )
+}
+
+/**
+ * What the person allowed for the rest of a chat from its approval cards, as chips beside the message box; removing
+ * one makes that kind of step ask again from the next one.
+ */
+export function ChatGrantChips(props: { chatId: string; grants: readonly ChatGrant[]; onChanged(): void }) {
+  const toast = useToast()
+  const t = copy.approvals.grants
+  const revoke = async (grant: ChatGrant) => {
+    try {
+      await send('PUT', `/api/chats/${props.chatId}/allowed`, { grant, allowed: false })
+      toast(t.revoked(t.kinds[grant]), 'info')
+      props.onChanged()
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+    }
+  }
+  return props.grants.map((grant) => (
+    <span
+      key={grant}
+      title={t.chipTitle(t.kinds[grant])}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl pr-1 pl-2 text-callout font-medium text-muted"
+    >
+      <FEATURE_ICONS.chatGrants className="size-3.5 shrink-0 text-ok-ink" />
+      <span className="truncate">{t.chip(t.kinds[grant])}</span>
+      <button
+        type="button"
+        onClick={() => void revoke(grant)}
+        aria-label={t.revoke(t.kinds[grant])}
+        className="inline-flex size-5 items-center justify-center rounded-md transition-colors hover:bg-fill hover:text-fg"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  ))
 }
 
 /**

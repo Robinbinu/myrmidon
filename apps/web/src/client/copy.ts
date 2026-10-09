@@ -812,6 +812,16 @@ export const copy = {
       deny: 'Deny',
       approve: 'Allow',
     },
+    /** One kind of step allowed for the rest of a chat from its card, and the chips that take it back. */
+    grants: {
+      kinds: { file: 'File changes', command: 'Commands' },
+      approveAll: { file: 'Allow all file changes in this chat', command: 'Allow all commands in this chat' },
+      allowed: (kind: string) => `${kind} are allowed for the rest of this chat`,
+      chip: (kind: string) => `${kind} allowed`,
+      chipTitle: (kind: string) => `${kind} run without asking in this chat`,
+      revoke: (kind: string) => `Ask again before ${kind.toLowerCase()}`,
+      revoked: (kind: string) => `${kind} ask first again`,
+    },
     /** What became of a call once decided, as the one line it leaves in the chat. */
     decided: {
       approved: (what: string) => `Allowed: ${what}`,

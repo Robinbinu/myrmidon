@@ -32,6 +32,7 @@ import {
   Server,
   ServerCog,
   ShieldCheck,
+  ShieldPlus,
   ShieldQuestion,
   SlidersHorizontal,
   Smile,
@@ -60,6 +61,8 @@ export const FEATURE_ICONS = {
   permissions: ShieldCheck,
   /** A project that asks before acting, and the approvals it waits on. */
   approvalAsk: ShieldQuestion,
+  /** Steps the person allowed for the rest of one chat from an approval card. */
+  chatGrants: ShieldPlus,
   /** A project where agents act without asking. */
   autonomous: Zap,
   /** Per-tool allow, ask and off rules in Settings → Tools. */

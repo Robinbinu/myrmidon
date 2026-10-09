@@ -13,6 +13,7 @@ import {
   AWAITING_USER,
   applyEvent,
   asksSomething,
+  type ChatGrant,
   type ColonyId,
   type ColonyState,
   crewOf,
@@ -383,9 +384,10 @@ export class ColonyRun implements ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string },
+    options: { review?: Review; key?: string; grant?: ChatGrant },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
+    if (options.grant && this._state.chatGrants?.includes(options.grant)) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const decided = new Promise<ReviewDecision>((resolve) => {
       const timer = setTimeout(
@@ -407,6 +409,7 @@ export class ColonyRun implements ColonyHost {
         summary,
         ...(options.review ? { review: options.review } : {}),
         ...(options.key ? { key: options.key } : {}),
+        ...(options.grant ? { grant: options.grant } : {}),
       },
     })
     return decided

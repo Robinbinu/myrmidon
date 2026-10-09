@@ -1,4 +1,4 @@
-import type { ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
+import type { ChatGrant, ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
 import { copy } from './copy.ts'
 import { STREAM_RETRY_MAX_MS, STREAM_RETRY_MS } from './ui-config.ts'
 
@@ -508,6 +508,8 @@ export interface ChatSummary {
   project?: { id: string; name: string }
   /** Crew members the person can write to directly (@name), the lead aside. */
   crew?: CrewMember[]
+  /** Kinds of step the person allowed for the rest of the chat from an approval card. */
+  grants?: ChatGrant[]
 }
 
 export interface CrewMember {

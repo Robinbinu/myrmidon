@@ -2187,6 +2187,67 @@ test('review cards: the person sees a change in full and may rewrite it; an appr
   rmSync(folder, { recursive: true, force: true })
 })
 
+test('allowing all file changes for a chat approves the waiting one and later ones, there only, until taken back', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-grant-'))
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  expect(project.permissions?.mode).toBe('ask')
+  const resolver = new ModelResolver()
+  const writes = (ref: string, ...files: string[]) =>
+    scripted(resolver, ref, [
+      ...files.map((f) => [tool('fs_write', { path: f, content: f })]),
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+  judge(resolver)
+  const config = (model: string) => ({ ...solo(model), judgeModel: 'mock/judge' })
+  const asked = (colonyId: string) =>
+    waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+
+  writes('mock/a1', 'a.txt', 'b.txt')
+  const a = await chats.send('Write two files', config('mock/a1'), undefined, { project: project.id })
+  const waiting = Object.values((await asked(a.colonyId)).approvals)
+  expect(waiting.map((x) => [x.summary, x.grant])).toEqual([['write a.txt', 'file']])
+  // One click: the waiting write goes ahead, and so does the next without a card.
+  expect(await chats.allowInChat(a.chatId, 'file', true)).toEqual(['file'])
+  const done = await waitFor(a.colonyId)
+  expect(done.status).toBe('completed')
+  expect(Object.values(done.approvals).map((x) => x.decided?.approved)).toEqual([true])
+  expect(readFileSync(join(folder, 'b.txt'), 'utf8')).toBe('b.txt')
+
+  // Another chat in the same project still asks.
+  writes('mock/b1', 'c.txt')
+  const b = await chats.send('Write c', config('mock/b1'), undefined, { project: project.id })
+  const other = Object.values((await asked(b.colonyId)).approvals)
+  expect(other.map((x) => x.summary)).toEqual(['write c.txt'])
+  await chats.decideApproval(b.colonyId, other[0]?.id ?? '', false)
+  await waitFor(b.colonyId)
+
+  // After a restart (a new service reading the logs) the chat keeps it, and lists it.
+  const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  expect((await again.list()).find((c) => c.chatId === a.chatId)?.grants).toEqual(['file'])
+  expect((await again.list()).find((c) => c.chatId === b.chatId)?.grants).toBeUndefined()
+  writes('mock/a2', 'd.txt')
+  const next = await again.send('One more', config('mock/a2'), a.chatId)
+  const s2 = await waitFor(next.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
+  expect(s2.status).toBe('completed')
+  expect(Object.values(s2.approvals)).toHaveLength(1)
+  expect(existsSync(join(folder, 'd.txt'))).toBe(true)
+
+  // Taken back, the next write asks again.
+  expect(await again.allowInChat(a.chatId, 'file', false)).toEqual([])
+  writes('mock/a3', 'e.txt')
+  const last = await again.send('And another', config('mock/a3'), a.chatId)
+  const s3 = await waitFor(
+    last.colonyId,
+    (x) => x.rounds.length === 3 && Object.values(x.approvals).some((p) => !p.decided),
+  )
+  expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
+  await again.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
+
 test.skipIf(detectSandbox().kind === 'none')(
   'project permissions: ask mode waits for the person, read-only keeps the folder untouched',
   async () => {
@@ -2211,7 +2272,11 @@ test.skipIf(detectSandbox().kind === 'none')(
       return Object.values(s.approvals).find((a) => !a.decided)
     }
     const first = await pending()
-    expect(first).toMatchObject({ tool: 'shell', summary: 'echo chained && touch chained.txt' })
+    expect(first).toMatchObject({
+      tool: 'shell',
+      summary: 'echo chained && touch chained.txt',
+      grant: 'command',
+    })
     await chats.decideApproval(colonyId, first?.id ?? '', true)
     const second = await pending()
     expect(second).toMatchObject({ tool: 'fs_write', summary: 'write denied.txt' })

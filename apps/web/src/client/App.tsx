@@ -34,6 +34,7 @@ import {
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { Compare } from './Compare.tsx'
+import { ChatGrantChips } from './chat/ApprovalCards.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { forgetDraft } from './chat/drafts.ts'
@@ -1046,16 +1047,25 @@ export function App() {
                       onStop={stop}
                       chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
                       project={
-                        // A chat started without a project stays without one.
-                        (!chat || chat.project) && (
-                          <ProjectPill
-                            projects={projects}
-                            {...(chat?.project ? { fixed: chat.project } : {})}
-                            {...(newProject ? { value: newProject } : {})}
-                            onChange={setNewProject}
-                            {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
-                          />
-                        )
+                        <>
+                          {/* A chat started without a project stays without one. */}
+                          {(!chat || chat.project) && (
+                            <ProjectPill
+                              projects={projects}
+                              {...(chat?.project ? { fixed: chat.project } : {})}
+                              {...(newProject ? { value: newProject } : {})}
+                              onChange={setNewProject}
+                              {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
+                            />
+                          )}
+                          {chat?.grants?.length ? (
+                            <ChatGrantChips
+                              chatId={chat.chatId}
+                              grants={chat.grants}
+                              onChanged={refreshChats}
+                            />
+                          ) : null}
+                        </>
                       }
                     />
                   ) : (
