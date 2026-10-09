@@ -20,7 +20,7 @@ import {
 } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { usePersistentFlag } from '../ui/hooks.ts'
+import { SUGGEST_KEY, usePersistentFlag } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
@@ -33,8 +33,10 @@ import { readDraft, saveDraft } from './drafts.ts'
 import { helperMode, helpersHint, helpersLabel, withHelperMode } from './helpers.ts'
 import { ModelPicker, PickerHost } from './ModelPicker.tsx'
 import { withoutDatedAliases } from './model-list.ts'
+import { nextWord } from './suggest.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
 import { idleRoom, naturalWidth, shouldFold } from './toolbar-fit.ts'
+import { useSuggester } from './use-suggester.ts'
 
 export const MODES = [
   {
@@ -428,6 +430,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setShowTeam(false)
     try {
       await props.onSend(value, how, sent)
+      if (text.trim()) suggester?.learn(text.trim())
     } catch {
       setText(text)
       setFiles(sent)
@@ -478,6 +481,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       submit: () => void send(),
     })
   const menu = !showHelp && text === closedFor ? undefined : listed
+
+  // Ghost text after the caret, from what the person wrote before: Tab takes its next word, → all of it, Esc hides it.
+  const [suggestOn] = usePersistentFlag(SUGGEST_KEY, true)
+  const suggester = useSuggester(suggestOn)
+  const [atEnd, setAtEnd] = useState(true)
+  const [hiddenFor, setHiddenFor] = useState<string>()
+  const ghost = !menu && atEnd && text !== hiddenFor ? suggester?.suggest(text) : undefined
+  const ghostLayer = useRef<HTMLDivElement>(null)
+  const take = (part: string) => {
+    const next = text + part
+    setText(next)
+    requestAnimationFrame(() => {
+      const el = area.current
+      if (!el) return
+      el.selectionStart = el.selectionEnd = next.length
+      setAtEnd(true)
+    })
+  }
+  // The ghost layer scrolls with the box, so the suggestion stays after the last line of text.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the box whenever the suggestion changes
+  useLayoutEffect(() => {
+    if (ghostLayer.current && area.current) ghostLayer.current.scrollTop = area.current.scrollTop
+  }, [ghost])
   const canSend = (text.trim().length > 0 || files.length > 0) && !props.busy
 
   return (
@@ -544,52 +570,86 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               onRemove={(i) => setFiles((prev) => prev.filter((_, n) => n !== i))}
             />
           )}
-          <textarea
-            ref={area}
-            rows={1}
-            value={text}
-            placeholder={props.placeholder}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={(e) => {
-              if (e.clipboardData.files.length === 0) return
-              e.preventDefault()
-              addFiles(e.clipboardData.files)
-            }}
-            onKeyDown={(e) => {
-              if (menu) {
-                const items = menu.items
-                const pick = items[menuIndex] ?? items[0]
-                if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length > 0) {
-                  e.preventDefault()
-                  const step = e.key === 'ArrowDown' ? 1 : -1
-                  setMenuIndex((i) => (i + step + items.length) % items.length)
-                  return
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  if (showHelp) return setShowHelp(false)
-                  return setClosedFor(text)
-                }
-                if (e.key === 'Tab' && pick?.complete) {
-                  e.preventDefault()
-                  pick.complete()
-                  return
-                }
-                if (e.key === 'Enter' && !e.shiftKey && pick) {
-                  e.preventDefault()
-                  if (!pick.disabled) pick.run()
-                  return
-                }
-              }
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          <div className="relative">
+            <textarea
+              ref={area}
+              rows={1}
+              value={text}
+              placeholder={props.placeholder}
+              onChange={(e) => setText(e.target.value)}
+              onSelect={(e) => {
+                const el = e.currentTarget
+                setAtEnd(el.selectionStart === el.value.length && el.selectionEnd === el.value.length)
+              }}
+              onScroll={(e) => {
+                if (ghostLayer.current) ghostLayer.current.scrollTop = e.currentTarget.scrollTop
+              }}
+              onPaste={(e) => {
+                if (e.clipboardData.files.length === 0) return
                 e.preventDefault()
-                // Alt+Enter sends the other way, without changing the toggle.
-                void send(e.altKey && props.running ? (delivery === 'steer' ? 'queue' : 'steer') : delivery)
-              }
-            }}
-            aria-label={copy.composer.message}
-            className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-headline leading-relaxed text-fg outline-none placeholder:text-muted"
-          />
+                addFiles(e.clipboardData.files)
+              }}
+              onKeyDown={(e) => {
+                if (menu) {
+                  const items = menu.items
+                  const pick = items[menuIndex] ?? items[0]
+                  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length > 0) {
+                    e.preventDefault()
+                    const step = e.key === 'ArrowDown' ? 1 : -1
+                    setMenuIndex((i) => (i + step + items.length) % items.length)
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    if (showHelp) return setShowHelp(false)
+                    return setClosedFor(text)
+                  }
+                  if (e.key === 'Tab' && pick?.complete) {
+                    e.preventDefault()
+                    pick.complete()
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey && pick) {
+                    e.preventDefault()
+                    if (!pick.disabled) pick.run()
+                    return
+                  }
+                }
+                if (ghost && !e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+                  if (e.key === 'Tab') {
+                    e.preventDefault()
+                    return take(nextWord(ghost))
+                  }
+                  if (e.key === 'ArrowRight') {
+                    e.preventDefault()
+                    return take(ghost)
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    return setHiddenFor(text)
+                  }
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  // Alt+Enter sends the other way, without changing the toggle.
+                  void send(e.altKey && props.running ? (delivery === 'steer' ? 'queue' : 'steer') : delivery)
+                }
+              }}
+              aria-label={copy.composer.message}
+              className="block max-h-[300px] w-full resize-none bg-transparent px-5 pb-1.5 pt-4 text-headline leading-relaxed text-fg outline-none placeholder:text-muted"
+            />
+            {ghost && (
+              // The typed text again, invisible, so the suggestion lands right after the caret, wrapped as the box wraps.
+              <div
+                ref={ghostLayer}
+                aria-hidden
+                className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap px-5 pb-1.5 pt-4 text-headline leading-relaxed [overflow-wrap:break-word]"
+              >
+                <span className="invisible">{text}</span>
+                <span className="text-muted">{ghost}</span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
             <input
               ref={picker}

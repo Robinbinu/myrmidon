@@ -44,6 +44,8 @@ export function useTheme(imported?: readonly ImportedTheme[]): [ThemeChoice, (t:
 
 /** Whether this browser should notify the person when a round finishes in the background. */
 export const NOTIFY_KEY = 'myr-notify'
+/** Ghost-text suggestions in the composer, on unless the person turns them off (this browser only). */
+export const SUGGEST_KEY = 'myr-suggest'
 /** Whether the desktop app's Dock icon counts the chats waiting for the person (on unless turned off). */
 export const DOCK_BADGE_KEY = 'myr-dock-badge'
 
