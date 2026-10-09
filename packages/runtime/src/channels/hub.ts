@@ -1123,6 +1123,7 @@ export class ChannelHub {
     const text = [
       t.approval.ask(request.agent, request.summary),
       ...(request.sensitive ? [t.approval.sensitive] : []),
+      ...(always.some((o) => o.projectCode) ? [t.approval.projectCode] : []),
       ...(member ? [t.approval.member(member)] : []),
       ...(preview
         ? [`\`\`\`\n${preview.slice(0, PREVIEW_CHARS)}${preview.length > PREVIEW_CHARS ? '\n…' : ''}\n\`\`\``]
