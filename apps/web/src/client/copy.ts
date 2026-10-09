@@ -1662,6 +1662,18 @@ export const copy = {
     warning:
       'Agents will see the windows of apps you approve and can click and type in them as you. What they see on screen can try to trick them; approve only apps the task needs, and watch while they work.',
     turnOff: 'Turn off',
+    engineTitle: 'Engine',
+    engineNote: 'What agents use your Mac through.',
+    engines: {
+      cua: {
+        label: 'Cua Driver',
+        hint: 'One app at a time, each approved once per chat, with view-only and click-only apps. The default.',
+      },
+      omp: {
+        label: 'omp desktop engine',
+        hint: 'Agents write short scripts against every window and its accessibility tree (oh-my-pi, MIT). Looking is approved once per chat; every script that clicks, types or opens an app asks first, unless you allow it for the chat. Scripts run in Myrmidon itself, outside the sandbox.',
+      },
+    },
     driverTitle: 'Cua Driver',
     driverNote: 'The open-source driver agents use your Mac through (trycua, MIT).',
     driverStates: {
@@ -1703,6 +1715,11 @@ export const copy = {
       'Terminals and code editors: click only, unless you give full control in the chat.',
       'Everything else: see, click and type.',
       'Finder, terminals and System Settings show a warning before you approve them. Myrmidon itself is never shown to agents.',
+    ],
+    ompTiers: [
+      'Looking (window lists, screenshots, accessibility trees, the clipboard): you approve it once per chat, for every window on your screen, Myrmidon’s too.',
+      'Scripts that click, type or open apps: you see each script and approve it, or allow them for the chat from its card.',
+      'No app is view-only here: the per-app limits apply to Cua Driver only.',
     ],
     appsTitle: 'Apps you allowed in chats',
     appsNote: 'Each chat asks once per app; take one back here.',
