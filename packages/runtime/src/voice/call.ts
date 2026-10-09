@@ -8,6 +8,7 @@ import {
   type Tool,
   type ToolCall,
 } from '@oh-my-pi/pi-ai'
+import { canonicalZone, clockMinutes, localDate, zoneOffset } from '../clock.ts'
 import {
   VOICE_ANSWER_CHARS,
   VOICE_END_MS,
@@ -188,6 +189,17 @@ export function spokenAnswer(text: string): boolean | undefined {
     .replace(/\s+/g, ' ')
     .trim()
   return YES.has(said) ? true : NO.has(said) ? false : undefined
+}
+
+/** The date and time as the call assistant is told them, in the person's zone. */
+function callTime() {
+  const now = new Date()
+  return {
+    date: localDate(now),
+    weekday: now.toLocaleDateString('en-US', { weekday: 'long' }),
+    time: clockMinutes(now),
+    zone: `${canonicalZone()} (${zoneOffset(now)})`,
+  }
 }
 
 /** The call assistant's tools (exported for the prompt lint's parameter check). */
@@ -759,6 +771,7 @@ export class CallSession {
             name: this.options.name,
             running: this._sent.filter((t) => !t.done && !t.question).map((t) => t.request),
             crew: this.options.crew ?? [],
+            now: callTime(),
           }),
         ],
         messages: this._messages,

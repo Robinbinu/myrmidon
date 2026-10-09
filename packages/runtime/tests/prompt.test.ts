@@ -16,6 +16,7 @@ import { assemble } from '../src/prompt/assemble.ts'
 import { factsFor, modelFamily } from '../src/prompt/facts.ts'
 import { lint, undescribed, viewOf } from '../src/prompt/lint.ts'
 import { HEADINGS, SECTIONS, tierOf } from '../src/prompt/sections.ts'
+import { prompts } from '../src/prompts.ts'
 import type { AgentSpec, ColonySpec } from '../src/spec.ts'
 import { TOOL_DEFS, toolDescription, toolParameters } from '../src/tools.ts'
 import { VOICE_TOOLS } from '../src/voice/call.ts'
@@ -542,4 +543,20 @@ test("a project's git state is read once: branch, changed files and the last thr
     rmSync(dir, { recursive: true, force: true })
   }
   expect(projectGit(tmpdir())).toBeUndefined()
+})
+
+test('the call assistant knows the time, what to say of running work, and how to take an interruption', () => {
+  const text = prompts.voice.system({
+    name: 'Robin',
+    running: ['Build the pricing page'],
+    crew: [],
+    now: { date: '2026-10-09', weekday: 'Friday', time: '14:45', zone: 'Asia/Kolkata (UTC+05:30)' },
+  })
+  expect(text).toContain('It is Friday, 2026-10-09, 14:45 in their time zone (Asia/Kolkata (UTC+05:30)).')
+  expect(text).toContain('already doing, say it is under way and offer where it stands (task_status)')
+  expect(text).toContain('If they talk over you or change their mind')
+  expect(text).toContain('The crew is working on: Build the pricing page.')
+  // Every tool it names is one it has.
+  const names = VOICE_TOOLS.map((t) => t.name)
+  for (const called of text.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) expect(names).toContain(called)
 })
