@@ -129,5 +129,15 @@ export function finishSetup(state: SetupState, have: SetupHave, now = new Date()
   const steps = { ...state.steps }
   // Welcome has nothing to set up later.
   for (const step of SETUP_STEPS) steps[step] ??= step === 'welcome' || have[step] ? 'done' : 'later'
-  return { finishedAt: now.toISOString(), steps }
+  return { ...state, finishedAt: now.toISOString(), steps }
+}
+
+/** Starting again from the first step. A dismissed Finish setting up card stays dismissed: that was for good. */
+export function restartSetup(state: SetupState): SetupState {
+  return { steps: {}, ...(state.dismissedAt ? { dismissedAt: state.dismissedAt } : {}) }
+}
+
+/** The home screen's Finish setting up card dismissed, for good. */
+export function dismissSetup(state: SetupState, now = new Date()): SetupState {
+  return { ...state, dismissedAt: state.dismissedAt ?? now.toISOString() }
 }

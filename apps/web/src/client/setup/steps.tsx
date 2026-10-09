@@ -65,11 +65,13 @@ export interface SetupContext {
   project?: { project: Project; isGit: boolean }
   setProject(chosen: { project: Project; isGit: boolean }): void
   onProjects(all: Project[]): void
+  /** One step opened on its own: Back, done and Set up later go back where it was opened from. */
+  single: boolean
   go(screen: SetupScreen): void
   back(): void
-  /** Marks the step done and moves on. */
+  /** Marks the step done and moves on (or, opened on its own, goes back). */
   done(step: SetupStep): void
-  /** Marks the step set up later and moves on. */
+  /** Marks the step set up later and moves on (or, opened on its own, goes back). */
   later(step: SetupStep): void
   /** Asks again what exists, after something was set up. */
   refresh(): void
@@ -153,7 +155,7 @@ function StepFrame(props: {
             title={props.next.disabled ? props.next.hint : undefined}
             onClick={props.next.onClick}
           >
-            {props.next.label ?? t.continue}
+            {ctx.single ? t.single.done : (props.next.label ?? t.continue)}
           </Button>
         )}
       </div>

@@ -5,6 +5,7 @@ import {
   type MyrEvent,
   type PluginCommand,
   roundSlice,
+  type SetupStep,
 } from '@myrmidon/protocol'
 import {
   BarChart3,
@@ -66,7 +67,10 @@ import { Setup } from './setup/Setup.tsx'
 import {
   leftToSetUp,
   opensOnLoad,
+  returnFromAddress,
   SETUP_PARAM,
+  SETUP_RETURN_PARAM,
+  type SetupReturn,
   type SetupScreen,
   type SetupView,
   type Starter,
@@ -375,6 +379,8 @@ export function App() {
   const [setup, setSetup] = useState<SetupView | 'failed'>()
   /** The setup assistant's screen while it is open in place of the app. */
   const [setupScreen, setSetupScreen] = useState<SetupScreen>()
+  /** Set while one step is open on its own: where the window goes back to once it is done. */
+  const [setupReturn, setSetupReturn] = useState<SetupReturn>()
   /** Whether setup has been decided on for this page: it opens by itself only on the first answer. */
   const setupDecided = useRef(false)
   /** A starter prompt picked as setup finished, sent once the home screen is back. */
@@ -458,7 +464,9 @@ export function App() {
         if (setupDecided.current) return
         setupDecided.current = true
         const open = opensOnLoad(r)
-        if (open) setSetupScreen(open)
+        if (!open) return
+        setSetupScreen(open)
+        setSetupReturn(returnFromAddress())
       })
       .catch(() => {
         if (!setupDecided.current) setSetup('failed')
@@ -1156,10 +1164,14 @@ export function App() {
   /** Setup handing the window back: to the home screen, where a starter prompt picked on its last screen is sent. */
   const closeSetup = (result: { starter?: Starter; project?: string }) => {
     setSetupScreen(undefined)
+    setSetupReturn(undefined)
     const url = new URL(location.href)
     url.searchParams.delete(SETUP_PARAM)
+    url.searchParams.delete(SETUP_RETURN_PARAM)
     history.replaceState(null, '', url)
     loadSetup()
+    // One step opened on its own goes back where it was opened from: Settings is still open behind it, or home.
+    if (setupReturn) return
     setSettingsOpen(false)
     setView('chat')
     setActiveChat(undefined)
@@ -1171,11 +1183,32 @@ export function App() {
       if (text) setStarter(text)
     }, SETUP_HANDOFF_MS)
   }
+  /** One step on its own, from the home screen's card or Settings → General; it comes back there when done. */
+  const openSetupStep = (step: SetupStep, from: SetupReturn) => {
+    if (from === 'settings') setSettingsSection('general')
+    setSetupReturn(from)
+    setSetupScreen(step)
+  }
+  const dismissSetupNudge = () => {
+    if (!setup || setup === 'failed') return
+    const before = setup
+    setSetup({ ...setup, setup: { ...setup.setup, dismissedAt: new Date().toISOString() } })
+    request<SetupView>('PUT', '/api/setup', { dismiss: true })
+      .then((r) => {
+        setSetup(r)
+        toast(copy.setup.nudge.dismissed, 'info')
+      })
+      .catch((err) => {
+        setSetup(before)
+        toast(String((err as Error).message ?? err), 'error')
+      })
+  }
   const runSetupAgain = () =>
     request<SetupView>('PUT', '/api/setup', { restart: true })
       .then((r) => {
         setSetup(r)
         setSettingsOpen(false)
+        setSetupReturn(undefined)
         setSetupScreen('welcome')
       })
       .catch((err) => toast(String((err as Error).message ?? err), 'error'))
@@ -1214,6 +1247,7 @@ export function App() {
               onConfig={updateConfig}
               online={online}
               onProjects={setProjects}
+              {...(setupReturn ? { returnTo: setupReturn } : {})}
               onClose={closeSetup}
             />
           </motion.div>
@@ -1267,6 +1301,7 @@ export function App() {
                   config={config}
                   onConfig={updateConfig}
                   onRunSetup={() => void runSetupAgain()}
+                  onOpenSetupStep={(step) => openSetupStep(step, 'settings')}
                 />
               ) : (
                 <>
@@ -1501,7 +1536,11 @@ export function App() {
                             <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
                           )}
                           {fullAccess && models.some(canLead) && setupLeft.length > 0 && (
-                            <SetupNudge left={setupLeft} onOpen={setSetupScreen} />
+                            <SetupNudge
+                              left={setupLeft}
+                              onOpen={(step) => openSetupStep(step, 'home')}
+                              onDismiss={dismissSetupNudge}
+                            />
                           )}
                           {box}
                         </Hero>

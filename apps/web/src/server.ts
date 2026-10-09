@@ -29,6 +29,7 @@ import {
   channelSendTool,
   defaultModelRef,
   detectSetup,
+  dismissSetup,
   findProjectFiles,
   finishSetup,
   firstSetup,
@@ -63,6 +64,7 @@ import {
   type PluginStore,
   type ProjectStore,
   readProjectFile,
+  restartSetup,
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
@@ -1376,15 +1378,19 @@ export function startServer(options: ServeOptions): WebServer {
           if (!settings || !setup) return json({ error: 'setup needs the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           let next: SetupState
-          if (body.restart === true) next = { steps: {} }
+          if (body.restart === true) next = restartSetup(setup)
           else if (body.finish === true) next = finishSetup(setup, setupNow())
+          else if (body.dismiss === true) next = dismissSetup(setup)
           else if (
             isSetupStep(body.step) &&
             (body.mark === 'done' || body.mark === 'later' || body.mark === null)
           )
             next = markSetup(setup, body.step, body.mark)
           else
-            return json({ error: 'send a step and its mark (done, later or null), finish, or restart' }, 400)
+            return json(
+              { error: 'send a step and its mark (done, later or null), finish, dismiss, or restart' },
+              400,
+            )
           settings.set({ ...settings.get(), setup: next })
           return json({ setup: next, have: setupNow() })
         }),

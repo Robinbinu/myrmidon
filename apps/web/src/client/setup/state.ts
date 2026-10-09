@@ -8,6 +8,19 @@ export type SetupScreen = (typeof SETUP_SCREENS)[number]
 /** The address names the open screen, as `?settings=` does for Settings, so a reload comes back to it. */
 export const SETUP_PARAM = 'setup'
 
+/**
+ * Where one step opened on its own (from the home screen's card or Settings) goes back to once it is done or set up
+ * later, instead of walking on to the next step. Absent when the whole assistant runs.
+ */
+export type SetupReturn = 'home' | 'settings'
+/** The address names it beside the step, so a reload still does only that step. */
+export const SETUP_RETURN_PARAM = 'from'
+
+export function returnFromAddress(search: string = location.search): SetupReturn | undefined {
+  const value = new URLSearchParams(search).get(SETUP_RETURN_PARAM)
+  return value === 'home' || value === 'settings' ? value : undefined
+}
+
 /** What the server says about setup: where the person is with it, and what exists already. */
 export interface SetupView {
   setup: SetupState
@@ -56,9 +69,12 @@ export function opensOnLoad(view: SetupView, search: string = location.search): 
   return view.setup.finishedAt ? undefined : resumeAt(view)
 }
 
-/** The steps set up later whose thing does not exist yet: what the home screen's card says is left. */
+/**
+ * The steps set up later whose thing does not exist yet: what the home screen's card says is left. None once the
+ * card was dismissed, which is for good.
+ */
 export function leftToSetUp(view: SetupView): SetupStep[] {
-  if (!view.setup.finishedAt) return []
+  if (!view.setup.finishedAt || view.setup.dismissedAt) return []
   return SETUP_STEPS.filter((s) => view.setup.steps[s] === 'later' && !view.have[s])
 }
 

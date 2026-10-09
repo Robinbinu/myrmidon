@@ -599,6 +599,8 @@ export const copy = {
     navLabel: 'Setup steps',
     finishLater: 'Finish later',
     finishLaterTitle: 'Close the assistant. What is left waits on the home screen.',
+    /** One step opened on its own, from the home screen or Settings: it goes back there when done. */
+    single: { close: 'Close', done: 'Done' },
     back: 'Back',
     continue: 'Continue',
     later: 'Set up later',
@@ -807,6 +809,9 @@ export const copy = {
       title: (n: number) => `Finish setting up · ${n} left`,
       body: (steps: string) => `Still to do: ${steps}.`,
       action: 'Continue',
+      dismiss: 'Not now',
+      dismissTitle: 'Hide this for good. Every step stays in Settings → General.',
+      dismissed: 'Hidden for good. You can run any step from Settings → General.',
     },
   },
 
@@ -2157,6 +2162,8 @@ export const copy = {
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',
+      setupStep: 'One step',
+      setupStepHint: 'Open a single step on its own; when it is done you come back here.',
     },
     models: {
       title: 'Models',

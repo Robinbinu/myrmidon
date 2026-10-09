@@ -24,7 +24,9 @@ import {
   nextScreen,
   previousScreen,
   SETUP_PARAM,
+  SETUP_RETURN_PARAM,
   SETUP_SCREENS,
+  type SetupReturn,
   type SetupScreen,
   type SetupView,
   STATUS_DOT,
@@ -58,7 +60,8 @@ const withAlerts = (view: SetupView): SetupView => ({
 /**
  * The first-run setup assistant, in place of the home screen: a list of its steps to jump between, one step per
  * screen, and one mascot that travels between them. Each step can be set up later; finishing (or Finish later) hands
- * the window back to the app, with a starter prompt when one was picked.
+ * the window back to the app, with a starter prompt when one was picked. Opened on one step alone (`returnTo`), it
+ * does only that step: done or set up later, it hands the window back instead of walking on.
  */
 export function Setup(props: {
   initial: SetupView
@@ -72,6 +75,8 @@ export function Setup(props: {
   /** Whether Myrmidon answers; while it does not, the assistant says it is reconnecting and keeps its place. */
   online: boolean
   onProjects(all: Project[]): void
+  /** Set when one step was opened on its own: where the window goes back to once that step is done. */
+  returnTo?: SetupReturn
   onClose(result: { starter?: Starter; project?: string }): void
 }) {
   const toast = useToast()
@@ -83,13 +88,16 @@ export function Setup(props: {
   const [closing, setClosing] = useState(false)
   // Marks made while Myrmidon did not answer, sent again once it does.
   const unsent = useRef(new Map<SetupStep, SetupMark>())
+  const single = !!props.returnTo
 
   // The open screen lives in the address, so a reload comes back to it.
   useEffect(() => {
     const url = new URL(location.href)
     url.searchParams.set(SETUP_PARAM, screen)
+    if (props.returnTo) url.searchParams.set(SETUP_RETURN_PARAM, props.returnTo)
+    else url.searchParams.delete(SETUP_RETURN_PARAM)
     if (url.href !== location.href) history.replaceState(null, '', url)
-  }, [screen])
+  }, [screen, props.returnTo])
 
   const take = useCallback((r: SetupView) => setView((v) => withAlerts({ ...v, ...r })), [])
   const refresh = useCallback(() => {
@@ -129,7 +137,14 @@ export function Setup(props: {
 
   const mark = (step: SetupStep, value: SetupMark) => {
     setView((v) => ({ ...v, setup: { ...v.setup, steps: { ...v.setup.steps, [step]: value } } }))
-    void sendMark(step, value)
+    return sendMark(step, value)
+  }
+  /** After a step: the next one, or, for a step opened on its own, back where it was opened from once it is saved. */
+  const leave = (step: SetupStep, value: SetupMark) => {
+    const saved = mark(step, value)
+    if (!single) return setScreen(nextScreen(step))
+    setClosing(true)
+    void saved.then(() => props.onClose({}))
   }
 
   const finish = async (starter?: Starter) => {
@@ -155,19 +170,15 @@ export function Setup(props: {
     ...(project ? { project } : {}),
     setProject,
     onProjects: props.onProjects,
+    single,
     go: setScreen,
     back: () => {
+      if (single) return props.onClose({})
       const before = previousScreen(screen)
       if (before) setScreen(before)
     },
-    done: (step) => {
-      mark(step, 'done')
-      setScreen(nextScreen(step))
-    },
-    later: (step) => {
-      mark(step, 'later')
-      setScreen(nextScreen(step))
-    },
+    done: (step) => leave(step, 'done'),
+    later: (step) => leave(step, 'later'),
     refresh,
     finish: (starter) => void finish(starter),
   }
@@ -200,15 +211,21 @@ export function Setup(props: {
         <Logo size={22} />
         <span className="text-body font-semibold">{t.title}</span>
         <span className="flex-1" />
-        <Button
-          variant="borderless"
-          size="sm"
-          title={t.finishLaterTitle}
-          loading={closing}
-          onClick={() => void finish()}
-        >
-          {t.finishLater}
-        </Button>
+        {single ? (
+          <Button variant="borderless" size="sm" loading={closing} onClick={() => props.onClose({})}>
+            {t.single.close}
+          </Button>
+        ) : (
+          <Button
+            variant="borderless"
+            size="sm"
+            title={t.finishLaterTitle}
+            loading={closing}
+            onClick={() => void finish()}
+          >
+            {t.finishLater}
+          </Button>
+        )}
       </header>
       {!props.online && (
         <div
