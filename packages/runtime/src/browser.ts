@@ -20,6 +20,7 @@ import {
   BROWSER_VIEWPORT,
   SNAPSHOT_CHARS,
 } from './config.ts'
+import { leashRunning } from './leashed.ts'
 import { prompts } from './prompts.ts'
 import {
   assertReachableUrl,
@@ -200,7 +201,14 @@ export class BrowserHub {
         proxy.close()
         throw err
       })
+      // puppeteer stops Chrome when this process exits or gets SIGINT, SIGTERM or SIGHUP; the leash also does when it
+      // is SIGKILLed or crashes. (DevTools over a pipe would make Chrome exit with it too, but under Bun 1.3 closing
+      // that pipe double-closes a descriptor, which macOS punishes by killing the whole process.)
+      const pid = browser.process()?.pid
+      const leash = pid ? leashRunning(pid) : undefined
       browser.once('disconnected', () => {
+        // A Chrome this hub has let go of is stopped, so the next launch does not find the profile in use.
+        leash?.stdin.end()
         proxy.close()
         this._browser = undefined
         this._tabs.clear()

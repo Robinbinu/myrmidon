@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { spawnLeashed } from '../../../packages/runtime/src/leashed.ts'
 import { SERVER_POLL_MS, SERVER_START_TIMEOUT_MS, SERVER_STOP_TIMEOUT_MS } from './config.ts'
 import { desktopCopy } from './copy.ts'
 
@@ -92,11 +93,11 @@ export async function startServer(options: {
   timeoutMs?: number
   pollMs?: number
 }): Promise<Server> {
-  const child = Bun.spawn(
+  // Leashed, so the server stops with the app even when the app crashes or is killed.
+  const child = spawnLeashed(
     [...options.command, 'serve', '--port', String(options.port), '--home', options.home],
     {
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      stdin: 'ignore',
       stdout: 'inherit',
       stderr: 'inherit',
     },
@@ -110,7 +111,8 @@ export async function startServer(options: {
       Bun.sleep(SERVER_STOP_TIMEOUT_MS).then(() => false),
     ])
     if (!stopped) {
-      child.kill('SIGKILL')
+      // Not SIGKILL, which would kill only the leash: ending its stdin kills the server and all it started.
+      child.stdin.end()
       await child.exited
     }
   }
@@ -125,10 +127,16 @@ export async function startServer(options: {
     if (child.exitCode !== null || child.signalCode !== null)
       throw new Error(desktopCopy.errors.exited(child.exitCode))
     const written = readServerFile(options.home)
-    if (written?.pid === child.pid && (await answers(written)))
+    if (written && parentPid(written.pid) === child.pid && (await answers(written)))
       return { pageUrl: pageUrl(written), owned: true, stop }
     await Bun.sleep(options.pollMs ?? SERVER_POLL_MS)
   }
   await stop()
   throw new Error(desktopCopy.errors.timeout(Math.round(timeoutMs / 1000)))
+}
+
+/** A process's parent: the server's is its leash. */
+function parentPid(pid: number): number | undefined {
+  const ps = Bun.spawnSync(['ps', '-o', 'ppid=', '-p', String(pid)], { stdout: 'pipe', stderr: 'ignore' })
+  return Number(new TextDecoder().decode(ps.stdout).trim()) || undefined
 }

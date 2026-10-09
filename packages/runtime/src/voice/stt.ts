@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
+import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
 import { type LiveTranscription, PhononStream } from './phonon-stream.ts'
 
@@ -228,12 +229,12 @@ export class PhononStt implements SpeechToText {
     const fermion = this._binary()
     if (!fermion) throw new Error('Phonon-2 is not installed: install it in Settings → Voice')
     mkdirSync(join(this._dir, 'fermion'), { recursive: true, mode: 0o700 })
-    // A Myrmidon that was killed or restarted (`bun --watch`) leaves its server running: stop it before taking its
-    // socket, or every restart orphans another server holding the model in memory.
+    // The server is leashed, so it stops when Myrmidon does however Myrmidon ends; one left by an older Myrmidon would
+    // still hold its socket and the model in memory, so it is stopped first.
     await stopLeftovers(this._socket)
     rmSync(this._socket, { force: true })
     this._state = { state: 'starting' }
-    const proc = Bun.spawn([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
+    const proc = spawnLeashed([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
       env: { ...process.env, FERMION_CACHE_DIR: join(this._dir, 'fermion') },
       stdout: 'pipe',
       stderr: 'pipe',
