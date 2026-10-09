@@ -5,7 +5,16 @@ import { copy } from '../copy.ts'
 import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
 import { ago } from '../ui/hooks.ts'
-import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import {
+  agentColor,
+  BOW,
+  DotMatrix,
+  DotTicker,
+  FLOWER,
+  LEAD_COLOR,
+  PixelFace,
+  PixelSprite,
+} from '../ui/pixel.tsx'
 import { cn, Dot } from '../ui/primitives.tsx'
 import {
   HERO_MASCOT_MIN_HEIGHT,
@@ -14,6 +23,7 @@ import {
   MASCOT_DOZE_MS,
   MASCOT_PAT_MS,
   MASCOT_SCREEN_MS,
+  MASCOT_TYPING,
   MASCOT_USER_FOCUS_MS,
   softSpring,
 } from '../ui-config.ts'
@@ -77,6 +87,49 @@ export const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dx / 110), -2, 2),
   clamp(Math.round(dy / 90), -1, 1),
 ]
+
+/**
+ * What the mascot's screen spells out of the message box: the draft (its end, when long) from the moment the person
+ * types, until they stop for `idleMs` or clear the box, when its eyes come back. A draft already there when the
+ * screen opens is not typing, so it does not show. The screen follows the box at most every `throttleMs`.
+ */
+export function useTypedText(
+  draft: string,
+  idleMs: number = MASCOT_TYPING.idleMs,
+  throttleMs: number = MASCOT_TYPING.throttleMs,
+): string | undefined {
+  const [shown, setShown] = useState<string>()
+  const before = useRef(draft)
+  const lastShown = useRef(0)
+  const trailing = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const idle = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => {
+    if (draft === before.current) return
+    before.current = draft
+    clearTimeout(idle.current)
+    clearTimeout(trailing.current)
+    if (!draft.trim()) return setShown(undefined)
+    const show = () => {
+      lastShown.current = Date.now()
+      setShown(draft.slice(-MASCOT_TYPING.maxChars))
+    }
+    const wait = throttleMs - (Date.now() - lastShown.current)
+    if (wait <= 0) show()
+    else trailing.current = setTimeout(show, wait)
+    idle.current = setTimeout(() => {
+      clearTimeout(trailing.current)
+      setShown(undefined)
+    }, idleMs)
+  }, [draft, idleMs, throttleMs])
+  useEffect(
+    () => () => {
+      clearTimeout(idle.current)
+      clearTimeout(trailing.current)
+    },
+    [],
+  )
+  return shown
+}
 
 /**
  * The readout in the screen's corner, as the person chose: the clock, a hello with their name, how many crews are at
@@ -169,6 +222,7 @@ export function Hero(props: {
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typing = props.draft.trim().length > 0
+  const typed = useTypedText(props.draft)
   const typingRef = useRef(typing)
   typingRef.current = typing
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -388,18 +442,47 @@ export function Hero(props: {
                   aria-label={copy.hero.poke}
                   className="block rounded-xl outline-offset-4"
                 >
-                  <PixelFace
-                    mood={emotion.mood}
-                    color={eyes}
-                    cols={15}
-                    rows={8}
-                    cell={20}
-                    gap={6}
-                    glow
-                    eyes={mascot.eyes}
-                    {...(look ? { look } : {})}
-                    className="h-auto w-[min(400px,calc(100vw-96px))]"
-                  />
+                  {/* While the person types, the screen spells out their message; its eyes fade back after. */}
+                  <span className="relative block">
+                    <PixelFace
+                      mood={emotion.mood}
+                      color={eyes}
+                      cols={15}
+                      rows={8}
+                      cell={20}
+                      gap={6}
+                      glow
+                      eyes={mascot.eyes}
+                      {...(look ? { look } : {})}
+                      className={cn(
+                        'h-auto w-[min(400px,calc(100vw-96px))] transition-opacity duration-300',
+                        typed !== undefined && 'opacity-0',
+                      )}
+                    />
+                    <AnimatePresence>
+                      {typed !== undefined && (
+                        <motion.span
+                          key="typed"
+                          className="absolute inset-0 flex px-3"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          data-typed
+                        >
+                          <DotTicker
+                            text={typed}
+                            color={eyes}
+                            dot={MASCOT_TYPING.dot}
+                            speed={MASCOT_TYPING.scrollPxPerSecond}
+                            gap={MASCOT_TYPING.loopGapDots * MASCOT_TYPING.dot}
+                            reduce={!!reduce}
+                            className="w-full"
+                          />
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </span>
                 </button>
                 <div className="mt-5 flex items-center justify-between px-1">
                   <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
