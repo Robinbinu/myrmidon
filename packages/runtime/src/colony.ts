@@ -60,7 +60,13 @@ import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
 import { prompts } from './prompts.ts'
-import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
+import {
+  detectSandbox,
+  fullAccessIn,
+  type Sandbox,
+  type SandboxProcess,
+  unconfinedSandbox,
+} from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -231,7 +237,8 @@ export class ColonyRun implements ColonyHost {
   readonly blobs: BlobStore
   readonly workspace: ColonyWorkspace
   readonly project?: ProjectContext
-  readonly sandbox: Sandbox
+  private readonly _confined: Sandbox
+  private readonly _unconfined = unconfinedSandbox()
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
   readonly web: WebTools
@@ -290,11 +297,11 @@ export class ColonyRun implements ColonyHost {
     this.id = options.resumeId ?? newColonyId(spec.name)
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
-    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path)
+    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess)
     const folder = spec.chat?.project?.path
     // Read once per round, so every agent works from the same rules even if a file changes mid-round.
     if (folder) this.project = readProjectContext(folder)
-    this.sandbox = options.sandbox ?? detectSandbox()
+    this._confined = options.sandbox ?? detectSandbox()
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
     this.web = options.web ?? noWebTools
@@ -308,6 +315,15 @@ export class ColonyRun implements ColonyHost {
 
   get log() {
     return this.runtime.ctx.log
+  }
+
+  /** Read at each use, so a round a channel member writes into is confined from their message on. */
+  get fullAccess(): boolean {
+    return fullAccessIn(this.spec)
+  }
+
+  get sandbox(): Sandbox {
+    return this.fullAccess ? this._unconfined : this._confined
   }
 
   state() {
@@ -548,7 +564,8 @@ export class ColonyRun implements ColonyHost {
     return url
   }
 
-  localPorts(): ReadonlySet<number> {
+  localPorts(): ReadonlySet<number> | 'all' {
+    if (this.fullAccess) return 'all'
     const ports = new Set<number>()
     for (const proc of this._servers.values()) {
       const port = this._serverPorts.get(proc)
@@ -703,14 +720,16 @@ export class ColonyRun implements ColonyHost {
 
   /**
    * New tool rules from the person, applied to this round at once. If they got stricter (a tool switched off or
-   * made to ask first, a project made read-only or ask-first), an agent mid-turn is stopped, so a call the person
-   * just took back cannot go ahead, and told what changed.
+   * made to ask first, a project made read-only or ask-first, full access taken back), an agent mid-turn is stopped,
+   * so a call the person just took back cannot go ahead, and told what changed. Looser rules wait for the next round.
    */
   async applyRules(next: {
     disabledTools: string[]
     askTools: string[]
     allowTools: string[]
     project?: ProjectPermissions
+    /** Whether the round would get full access now (`false` takes it back). */
+    fullAccess?: boolean
   }) {
     const spec = this.spec as ColonySpec & {
       disabledTools?: string[]
@@ -722,20 +741,26 @@ export class ColonyRun implements ColonyHost {
     const off = added(next.disabledTools, spec.disabledTools)
     const ask = added(next.askTools, spec.askTools)
     const project = spec.chat?.project
-    const strictness = { auto: 0, ask: 1, 'read-only': 2 } as const
+    // Full access is the absence of the sandbox, not a looser mode: losing it is told apart below.
+    const strictness = { full: 0, auto: 0, ask: 1, 'read-only': 2 } as const
     const stricter =
       project && next.project
         ? strictness[next.project.mode] > strictness[project.permissions?.mode ?? 'auto']
         : false
+    const confined = next.fullAccess === false && this.fullAccess
     const allowedNow = added(next.allowTools, spec.allowTools)
-    if (!off.length && !ask.length && !allowedNow.length && !stricter && sameRules(spec, next)) return
+    if (!off.length && !ask.length && !allowedNow.length && !stricter && !confined && sameRules(spec, next))
+      return
     spec.disabledTools = next.disabledTools
     spec.askTools = next.askTools
     spec.allowTools = next.allowTools
     if (project && next.project) project.permissions = next.project
+    if (confined) spec.fullAccess = false
     this.toolsChanged()
     const interrupted =
-      off.length || ask.length || stricter ? [...this._agents.values()].filter((a) => a.working) : []
+      off.length || ask.length || stricter || confined
+        ? [...this._agents.values()].filter((a) => a.working)
+        : []
     await this.append({
       type: 'permissions/changed',
       actor: { kind: 'user', id: 'user' },
@@ -744,6 +769,7 @@ export class ColonyRun implements ColonyHost {
         ask,
         allow: allowedNow,
         ...(stricter && next.project ? { project: next.project.mode } : {}),
+        ...(confined ? { fullAccess: false } : {}),
         interrupted: interrupted.map((a) => a.name),
       },
     })
@@ -751,6 +777,7 @@ export class ColonyRun implements ColonyHost {
       off,
       ask,
       ...(stricter && next.project ? { project: next.project.mode } : {}),
+      confined,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
   }
@@ -898,6 +925,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
       ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
+      ...(this.fullAccess ? { fullAccess: true } : {}),
     }
   }
 
@@ -972,6 +1000,13 @@ export class ColonyRun implements ColonyHost {
         this._route(e)
       }
     })
+    // Full access is decided afresh on resume (the person may have turned the sandbox back on); the log says so.
+    if (!!this._state.fullAccess !== this.fullAccess)
+      await this.append({
+        type: 'permissions/changed',
+        actor: { kind: 'user', id: 'user' },
+        payload: { off: [], ask: [], allow: [], fullAccess: this.fullAccess, interrupted: [] },
+      })
     await this._launch(left, reason, models)
   }
 

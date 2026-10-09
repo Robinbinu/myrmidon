@@ -75,8 +75,10 @@ interface Tab {
   cdp?: CDPSession
   cursor: { x: number; y: number }
   controlledBy: 'agent' | 'person'
-  /** The loopback ports this tab may reach: its run's own servers (and any the hub allows every tab). */
+  /** The loopback ports this tab may reach: its run's own servers (and any the hub allows every tab); `all` with full access. */
   readonly localPorts: LocalPorts
+  /** Whether the proxy behind every tab lets anything through, because a full-access tab is open. */
+  readonly proxyOpen: () => boolean
   /** Why the browser last refused a connection, if it did at or after `since`; for saying why a navigation failed. */
   readonly refusal: (since: number) => string | undefined
   readonly onRefused: (reason: string) => void
@@ -158,9 +160,13 @@ export class BrowserHub {
     private readonly options: { localPorts?: LocalPorts } = {},
   ) {}
 
-  private _allPorts(): ReadonlySet<number> {
-    const all = new Set(this.options.localPorts?.() ?? [])
-    for (const ports of this._ports.values()) for (const port of ports()) all.add(port)
+  private _allPorts(): ReadonlySet<number> | 'all' {
+    const all = new Set<number>()
+    for (const ports of [this.options.localPorts, ...this._ports.values()]) {
+      const open = ports?.() ?? []
+      if (open === 'all') return 'all'
+      for (const port of open) all.add(port)
+    }
     return all
   }
 
@@ -232,13 +238,17 @@ export class BrowserHub {
     let tab = this._tabs.get(key)
     if (!tab) {
       const own = options.localPorts
-      const localPorts: LocalPorts = () =>
-        new Set([...(this.options.localPorts?.() ?? []), ...(own?.() ?? [])])
+      const localPorts: LocalPorts = () => {
+        const hub = this.options.localPorts?.() ?? []
+        const mine = own?.() ?? []
+        return hub === 'all' || mine === 'all' ? 'all' : new Set([...hub, ...mine])
+      }
       this._ports.set(key, localPorts)
       tab = (async () => {
         const page = await (await this._launch()).newPage()
         const tab: Tab = {
           localPorts,
+          proxyOpen: () => this._allPorts() === 'all',
           onRefused: (reason) => this._refuse(reason),
           refusal: (since) => {
             const refused = this._refused
@@ -442,11 +452,18 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
     if (tab.logs.length > BROWSER_LOG_LIMIT) tab.logs.shift()
   }
   await page.setRequestInterception(true)
-  page.on('request', (r) => {
+  page.on('request', async (r) => {
     if (r.isInterceptResolutionHandled()) return
     let refused: UnreachableError | undefined
     try {
-      refused = quickRefusal(new URL(r.url()), tab.localPorts)
+      const url = new URL(r.url())
+      refused = quickRefusal(url, tab.localPorts)
+      // While a full-access tab is open the shared proxy lets anything through, so a confined tab looks names up
+      // itself: a public name that resolves to a private address is still refused here.
+      if (!refused && tab.localPorts() !== 'all' && tab.proxyOpen() && /^(https?|wss?):$/.test(url.protocol))
+        await reachableAddresses(url.hostname, urlPort(url), tab.localPorts).catch((err: unknown) => {
+          if (err instanceof UnreachableError) refused = err
+        })
     } catch {
       refused = undefined
     }

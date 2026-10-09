@@ -228,6 +228,8 @@ export interface ChatSummary {
   readonly crew?: readonly CrewMember[]
   /** Kinds of step the person allowed for the rest of the chat ("Approve all for this chat"). */
   readonly grants?: readonly ChatGrant[]
+  /** The latest round runs (or ran) with full access: no sandbox. */
+  readonly fullAccess?: boolean
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -527,6 +529,7 @@ export class ChatService {
         ...(last.awaiting ? { awaiting: true } : {}),
         ...(last.failed ? { failed: true } : {}),
         ...(last.grants?.length ? { grants: last.grants } : {}),
+        ...(last.fullAccess ? { fullAccess: true } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -611,6 +614,7 @@ export class ChatService {
     const earlier = latest?.state.chat?.project
     const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
+    if (this._fullAccess(project, spec.askAll)) spec.fullAccess = true
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
@@ -840,6 +844,19 @@ export class ChatService {
     return grants
   }
 
+  /**
+   * Whether a round of the person's runs with full access: its project is set to it, or the sandbox is off in Settings
+   * and the project is not read-only. A round someone else started (`askAll`) never does.
+   */
+  private _fullAccess(
+    project: { permissions?: ProjectPermissions } | undefined,
+    askAll: boolean | undefined,
+  ) {
+    if (askAll) return false
+    const mode = project?.permissions?.mode
+    return mode === 'full' || (this.options.settings?.get().sandbox.enabled === false && mode !== 'read-only')
+  }
+
   private _project(
     id: string | undefined,
     required = true,
@@ -1021,6 +1038,10 @@ export class ChatService {
     if (last.round.escalated)
       throw new Error('this round handed its request to a bigger one; wait for it or send a follow-up')
     const spec = this.specFromLog(await this.store.read(last.id as never))
+    // Taken from the settings now, not as the round started: the person may have turned the sandbox back on.
+    const project = spec.chat?.project
+    const permissions = project ? this.options.projects?.get(project.id)?.permissions : undefined
+    if (this._fullAccess(permissions ? { permissions } : project, spec.askAll)) spec.fullAccess = true
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1174,7 +1195,8 @@ export class ChatService {
       if (run.state().status !== 'running') continue
       const project = run.spec.chat?.project
       const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
-      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}) })
+      const fullAccess = this._fullAccess(fresh ? { permissions: fresh } : project, run.spec.askAll)
+      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}), fullAccess })
     }
   }
 

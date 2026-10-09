@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BlobStore } from '@myrmidon/core'
 import type { ColonyState } from '@myrmidon/protocol'
@@ -27,6 +28,8 @@ export class ColonyWorkspace {
     readonly colonyDir: string,
     /** The person's project folder (absolute, real path), when the chat belongs to one. */
     readonly project?: string,
+    /** Whether the round has full access right now: then the file tools may reach any path the person can. */
+    private readonly _unconfined: () => boolean = () => false,
   ) {
     this.scratchRoot = join(colonyDir, 'scratch')
     this.mirrorRoot = join(colonyDir, 'mirror')
@@ -57,15 +60,18 @@ export class ColonyWorkspace {
 
   /**
    * Resolves an agent-supplied path for the file tools: relative paths are in its working directory; absolute
-   * paths may point into the project or its own scratch, and nowhere else.
+   * paths may point into the project or its own scratch, and nowhere else. With full access any path goes, `~` for
+   * the person's home included.
    */
   resolveInWorkdir(agent: string, path: string): string {
     const roots = [...new Set([this.workdir(agent), this.scratch(agent)])]
-    const target = isAbsolute(path) ? path : resolve(roots[0] as string, path)
+    const unconfined = this._unconfined()
+    const named = unconfined ? path.replace(/^~(?=$|\/)/, homedir()) : path
+    const target = isAbsolute(named) ? named : resolve(roots[0] as string, named)
     let probe = target
     while (!existsSync(probe)) probe = dirname(probe)
     const real = join(realpathSync(probe), relative(probe, target))
-    if (!roots.some((root) => real === root || real.startsWith(root + sep)))
+    if (!unconfined && !roots.some((root) => real === root || real.startsWith(root + sep)))
       throw new Error(
         `path is outside your ${this.project ? 'project and scratch directories' : 'scratch directory'}: ${path}`,
       )

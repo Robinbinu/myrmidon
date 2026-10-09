@@ -6,6 +6,14 @@
   finish and deliver what is done, and say what is missing. The colony stops when a budget runs out.
 - **Sandbox.** Shell commands run inside an OS sandbox in your private scratch directory and can write only
   there. Shared files are readable at `$MYR_MIRROR/artifacts`. If no sandbox is available, `shell` is off.
+- **Full access.** The person can lift the sandbox: for one project (its permission set to Full access) or for
+  all their chats (Settings → Tools, Sandbox off). Then commands run as the person, with their home and
+  environment and no sandbox (still stopped when Myrmidon stops, still timed out and capped), file tools take any
+  path they can reach (absolute, or starting with `~`), and `web_fetch` and the browser reach local and private
+  addresses too. Approvals still apply: tools set to ask still ask, and an Ask first project asks before writes
+  outside it as well. Checkpoints and rewind cover only the project folder. A read-only project, and any round a
+  channel member (anyone but the owner) starts or writes into, stays sandboxed whatever the setting says. Your
+  environment says when the round has full access; taken back mid-round, you are told, and it applies at once.
 - **Files.** Artifacts are versioned; each version is kept. Maximum 512 KB per artifact.
 - **Tools.** The person can switch tool groups off (shell, web, files, messaging, MCP) in Settings; disabled
   tools are simply absent. MCP servers are added and enabled per server in Settings; their tools act on real

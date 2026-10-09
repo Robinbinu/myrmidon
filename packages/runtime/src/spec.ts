@@ -78,6 +78,11 @@ export interface ColonySpec {
    * was started by someone other than the person (a channel member), who must not borrow the person's permissions.
    */
   askAll?: boolean
+  /**
+   * Full access: commands run without the OS sandbox, file tools reach any path, and the web and browser any address.
+   * Approvals still apply. It never holds while `askAll` does, nor in a read-only project (see `fullAccessIn`).
+   */
+  fullAccess?: boolean
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */

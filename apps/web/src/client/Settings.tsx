@@ -142,6 +142,8 @@ export interface ServerSettings {
     tokens: number
   }
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
+  /** `enabled: false` gives the person's chats full access; absent from older servers. */
+  sandbox?: { enabled: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -2201,7 +2203,10 @@ function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
-  const sandboxed = props.data.sandbox !== 'none'
+  const on = props.data.settings.sandbox?.enabled !== false
+  const sandboxed = on && props.data.sandbox !== 'none'
+  const setSandbox = (enabled: boolean) => props.update((s) => ({ ...s, sandbox: { enabled } }), true)
+  const Icon = on ? FEATURE_ICONS.sandbox : FEATURE_ICONS.fullAccess
   return (
     <>
       <PageHeader title={copy.settings.tools.title}>{copy.settings.tools.intro}</PageHeader>
@@ -2211,18 +2216,39 @@ function ToolsSection(props: {
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
-        <FEATURE_ICONS.sandbox
-          className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')}
-        />
-        <div>
+        <Icon className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
+        <div className="min-w-0 flex-1">
           <div className="font-semibold">
-            {sandboxed
-              ? copy.settings.tools.sandboxActive(props.data.sandbox)
-              : copy.settings.tools.noSandbox}
+            {!on
+              ? copy.settings.tools.sandboxOffTitle
+              : sandboxed
+                ? copy.settings.tools.sandboxActive(props.data.sandbox)
+                : copy.settings.tools.noSandbox}
           </div>
           <div className="text-fg-2">
-            {sandboxed ? copy.settings.tools.sandboxedHint : copy.settings.tools.unsandboxedHint}
+            {!on
+              ? copy.settings.tools.sandboxOffHint
+              : sandboxed
+                ? copy.settings.tools.sandboxedHint
+                : copy.settings.tools.unsandboxedHint}
           </div>
+          {props.data.settings.sandbox && (
+            <div className="mt-2 flex justify-end">
+              {on ? (
+                <ConfirmButton
+                  label={copy.settings.tools.turnOff}
+                  name={copy.settings.tools.turnOffName}
+                  confirm={copy.settings.tools.confirmOff}
+                  warning={copy.fullAccess.warning}
+                  onConfirm={() => setSandbox(false)}
+                />
+              ) : (
+                <Button size="sm" variant="push" onClick={() => setSandbox(true)}>
+                  {copy.settings.tools.turnOn}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <Card>

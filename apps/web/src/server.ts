@@ -8,6 +8,7 @@ import {
   colonyMetrics,
   foldColony,
   isSetupStep,
+  type ProjectPermissions,
   runDiff,
   type SetupState,
   stopCause,
@@ -983,6 +984,7 @@ export function startServer(options: ServeOptions): WebServer {
           home: options.home,
           models,
           sandbox: options.sandboxKind ?? 'unknown',
+          ...(options.settings?.get().sandbox.enabled === false ? { fullAccess: true } : {}),
           running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
           ...(skillsArchived ? { skillsArchived } : {}),
           channels: inUse.map((c) => ({
@@ -1510,7 +1512,13 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/projects': {
-        GET: guard(() => json({ projects: options.projects?.list() ?? [] })),
+        // `fullAccess`: the sandbox is off in Settings, so the person's chats outside read-only projects run unconfined.
+        GET: guard(() =>
+          json({
+            projects: options.projects?.list() ?? [],
+            fullAccess: options.settings?.get().sandbox.enabled === false,
+          }),
+        ),
         POST: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
           const { path, name } = (await req.json()) as { path?: unknown; name?: unknown }
@@ -1567,7 +1575,7 @@ export function startServer(options: ServeOptions): WebServer {
             : []
           try {
             const project = options.projects.setPermissions(req.params.id ?? '', {
-              mode: body.mode as 'auto' | 'ask' | 'read-only',
+              mode: body.mode as ProjectPermissions['mode'],
               allow,
             })
             await options.chats?.permissionsChanged()

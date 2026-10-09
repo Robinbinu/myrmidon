@@ -127,8 +127,11 @@ export type Lookup = (host: string) => Promise<string[]>
 const systemLookup: Lookup = async (host) =>
   (await dnsLookup(host, { all: true, verbatim: true })).map((a) => a.address)
 
-/** The loopback ports a run may reach: the ones its own dev servers opened (start_server). */
-export type LocalPorts = () => ReadonlySet<number>
+/**
+ * The loopback ports a run may reach: the ones its own dev servers opened (start_server). `all` is full access: every
+ * address, local and private ones included.
+ */
+export type LocalPorts = () => ReadonlySet<number> | 'all'
 
 const NO_LOCAL_PORTS: LocalPorts = () => new Set()
 
@@ -139,7 +142,7 @@ export class UnreachableError extends Error {
 
 /**
  * The addresses `host:port` may be reached at, every one of them checked: public, or a loopback port in `localPorts`
- * named by `localhost` or a loopback literal. Connect only to what this returns, so a second lookup (DNS rebinding)
+ * named by `localhost` or a loopback literal (with full access, `all`, any address). Connect only to what this returns, so a second lookup (DNS rebinding)
  * cannot swap in another address. Throws `UnreachableError`, saying why, when any address is off limits.
  */
 export async function reachableAddresses(
@@ -151,15 +154,17 @@ export async function reachableAddresses(
   const name = host.replace(/^\[|\]$/g, '').toLowerCase()
   const literal = isLiteral(name)
   const loopbackName = !literal && isLoopbackName(name)
-  if (!literal && !loopbackName && PRIVATE_SUFFIX.test(name))
+  const allowed = localPorts()
+  if (allowed !== 'all' && !literal && !loopbackName && PRIVATE_SUFFIX.test(name))
     throw new UnreachableError(prompts.toolResults.privateAddress(name))
   const addresses = literal ? [name] : loopbackName ? ['127.0.0.1', '::1'] : await lookup(name)
   if (addresses.length === 0) throw new Error(`${name} did not resolve to any address`)
+  if (allowed === 'all') return addresses
   for (const address of addresses) {
     if (isPublicAddress(address)) continue
     // Only a name that is plainly loopback reaches a dev server: a public name resolving to 127.0.0.1 does not.
     const ownServer = (literal || loopbackName) && isLoopbackAddress(address)
-    if (ownServer && localPorts().has(port)) continue
+    if (ownServer && allowed.has(port)) continue
     throw new UnreachableError(
       ownServer ? prompts.toolResults.notYourServer(port) : prompts.toolResults.privateAddress(name, address),
     )
@@ -176,9 +181,11 @@ export function quickRefusal(
   localPorts: LocalPorts = NO_LOCAL_PORTS,
 ): UnreachableError | undefined {
   if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return undefined
+  const allowed = localPorts()
+  if (allowed === 'all') return undefined
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
   if (isLoopbackName(host) || (isLiteral(host) && isLoopbackAddress(host)))
-    return localPorts().has(urlPort(url))
+    return allowed.has(urlPort(url))
       ? undefined
       : new UnreachableError(prompts.toolResults.notYourServer(urlPort(url)))
   if ((isLiteral(host) && !isPublicAddress(host)) || PRIVATE_SUFFIX.test(host))

@@ -155,8 +155,9 @@ Each step is also its own command:
 - `myrmidon key [PROVIDER]` stores an API key, typed without showing it. For scripts, pipe it in so it never lands
   in your shell history: `myrmidon key openai < openai.key`. The key is tried with one of that provider's models.
 - `myrmidon model [PROVIDER/MODEL]` shows or sets the default model; it is saved only after it answers.
-- `myrmidon doctor` checks the server, models, the default model, the sandbox (by running something in it), the
-  browser tools, previews and paired devices, with a fix for each problem. It exits 1 when something needs attention.
+- `myrmidon doctor` checks the server, models, the default model, whether agents run sandboxed or with full access,
+  the sandbox (by running something in it), the browser tools, previews and paired devices, with a fix for each
+  problem. It exits 1 when something needs attention.
 
 Run without a terminal (a script, a pipe), `myrmidon setup` prints these commands instead of waiting for answers.
 

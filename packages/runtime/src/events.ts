@@ -66,7 +66,7 @@ const colonySpec = Schema.object({
           path: str(),
           permissions: optional(
             Schema.object({
-              mode: oneOf('auto', 'ask', 'read-only'),
+              mode: oneOf('auto', 'ask', 'read-only', 'full'),
               allow: Schema.array(Schema.string()).default([]),
             }),
           ),
@@ -90,6 +90,7 @@ const colonySpec = Schema.object({
   allowTools: Schema.array(str()),
   askAll: Schema.boolean(),
   review: Schema.union(['off', 'auto', 'always']),
+  fullAccess: Schema.boolean(),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -335,6 +336,7 @@ const defs: EventTypeDefinition[] = [
       allow: strs(),
       project: Schema.string(),
       askAll: Schema.boolean(),
+      fullAccess: Schema.boolean(),
       interrupted: strs(),
     }),
   },

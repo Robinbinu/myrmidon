@@ -2,6 +2,7 @@ import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { SANDBOX_MAX_OUTPUT } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
+import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
   readonly command: string
@@ -33,7 +34,10 @@ export interface SandboxProcess {
 }
 
 export interface Sandbox {
-  readonly kind: 'sandbox-exec' | 'bubblewrap' | 'none'
+  /** `unconfined` is full access: commands run as the person, with no OS confinement at all. */
+  readonly kind: 'sandbox-exec' | 'bubblewrap' | 'none' | 'unconfined'
+  /** The program and arguments `run` and `start` execute for a spec: the command inside its confinement, if any. */
+  argv(spec: Omit<SandboxRun, 'timeoutMs'>): string[]
   run(spec: SandboxRun): Promise<SandboxResult>
   /** Starts a process that keeps running (no timeout) until stopped; same confinement as `run`. */
   start(spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess
@@ -75,9 +79,13 @@ function confinedEnv(spec: Omit<SandboxRun, 'timeoutMs'>) {
   return { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: home, TMPDIR: tmp, ...spec.env }
 }
 
-function startConfined(argv: string[], spec: Omit<SandboxRun, 'timeoutMs'>): SandboxProcess {
+function startConfined(
+  argv: string[],
+  spec: Omit<SandboxRun, 'timeoutMs'>,
+  env: Record<string, string | undefined> = confinedEnv(spec),
+): SandboxProcess {
   // Leashed outside the confinement, so a dev server and what it started stop when Myrmidon dies, however it dies.
-  const proc = spawnLeashed(argv, { cwd: spec.cwd, env: confinedEnv(spec), stdout: 'pipe', stderr: 'pipe' })
+  const proc = spawnLeashed(argv, { cwd: spec.cwd, env, stdout: 'pipe', stderr: 'pipe' })
   let output = ''
   const drain = async (stream: ReadableStream<Uint8Array>) => {
     const decoder = new TextDecoder()
@@ -134,6 +142,55 @@ async function spawnConfined(argv: string[], spec: SandboxRun): Promise<SandboxR
   return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
 }
 
+const plainShell = (spec: Omit<SandboxRun, 'timeoutMs'>) => ['/bin/sh', '-c', spec.command]
+
+/**
+ * A command run to completion on a leash: when it times out, the leash stops its whole tree (killing the leash alone
+ * would orphan the command), and what it leaves running in the background is stopped when it ends.
+ */
+async function runLeashed(
+  argv: string[],
+  spec: SandboxRun,
+  env: Record<string, string | undefined>,
+): Promise<SandboxResult> {
+  const proc = spawnLeashed(argv, { cwd: spec.cwd, env, stdout: 'pipe', stderr: 'pipe' })
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    proc.stdin.end()
+  }, spec.timeoutMs)
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  clearTimeout(timer)
+  return { code: timedOut ? null : code, stdout: cap(stdout), stderr: cap(stderr), timedOut }
+}
+
+/**
+ * Full access, like Hermes Agent's local backend: commands run directly as the person, in their own environment and
+ * home, able to read and change anything they can. Still leashed (nothing outlives Myrmidon), timed out and capped.
+ */
+export function unconfinedSandbox(): Sandbox {
+  const argv = plainShell
+  const env = (spec: Omit<SandboxRun, 'timeoutMs'>) => ({ ...process.env, ...spec.env })
+  return {
+    kind: 'unconfined',
+    argv,
+    run: (spec) => runLeashed(argv(spec), spec, env(spec)),
+    start: (spec) => startConfined(argv(spec), spec, env(spec)),
+  }
+}
+
+/**
+ * Whether a round runs with full access: it was given it, and nobody but the person wrote into it (a channel member's
+ * round never has it), and its project is not read-only (which only the sandbox can keep untouched).
+ */
+export function fullAccessIn(spec: Pick<ColonySpec, 'fullAccess' | 'askAll' | 'chat'>): boolean {
+  return !!spec.fullAccess && !spec.askAll && spec.chat?.project?.permissions?.mode !== 'read-only'
+}
+
 /** Picks the OS confinement backend. Returns `none` when no backend exists; callers must refuse exec tools then. */
 export function detectSandbox(): Sandbox {
   if (process.platform === 'darwin' && Bun.which('sandbox-exec')) {
@@ -147,6 +204,7 @@ export function detectSandbox(): Sandbox {
     ]
     return {
       kind: 'sandbox-exec',
+      argv,
       run: (spec) => spawnConfined(argv(spec), spec),
       start: (spec) => startConfined(argv(spec), spec),
     }
@@ -173,13 +231,16 @@ export function detectSandbox(): Sandbox {
     ]
     return {
       kind: 'bubblewrap',
+      argv,
       run: (spec) => spawnConfined(argv(spec), spec),
       start: (spec) => startConfined(argv(spec), spec),
     }
   }
+  const argv = plainShell
   return {
     kind: 'none',
-    run: (spec) => spawnConfined(['/bin/sh', '-c', spec.command], spec),
-    start: (spec) => startConfined(['/bin/sh', '-c', spec.command], spec),
+    argv,
+    run: (spec) => spawnConfined(argv(spec), spec),
+    start: (spec) => startConfined(argv(spec), spec),
   }
 }

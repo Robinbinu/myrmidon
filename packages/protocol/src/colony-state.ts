@@ -206,6 +206,8 @@ export interface ColonyState {
   chatTitle?: { title: string; at: string; by?: 'auto' }
   /** Kinds of step the person allowed for the rest of the chat; absent until they allow one. */
   chatGrants?: ChatGrant[]
+  /** The current round runs with full access (no sandbox); absent when it is confined. */
+  fullAccess?: boolean
   /** The model failure that paused the round, until it resumes. */
   modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
@@ -299,6 +301,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chat = p.chat
       state.team = p.team
       state.tier = p.tier
+      if (p.fullAccess) state.fullAccess = true
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
@@ -488,6 +491,13 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chatGrants = [...(event.payload as EventPayloads['chat/allowed']).grants]
       break
     }
+    case 'permissions/changed': {
+      const p = event.payload as EventPayloads['permissions/changed']
+      // A round someone else wrote into is confined from then on, whatever it started with.
+      if (p.fullAccess === false || p.askAll) delete state.fullAccess
+      else if (p.fullAccess) state.fullAccess = true
+      break
+    }
     case 'colony/started': {
       const p = event.payload as EventPayloads['colony/started']
       state.status = 'running'
@@ -520,6 +530,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chat = p.chat
       state.team = p.team
       state.tier = p.tier
+      if (p.fullAccess) state.fullAccess = true
+      else delete state.fullAccess
       state.status = 'created'
       delete state.statusReason
       delete state.endedAt

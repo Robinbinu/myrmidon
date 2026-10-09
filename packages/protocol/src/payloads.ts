@@ -6,10 +6,11 @@ export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 
 /**
  * How freely agents may change a project folder. `auto`: anything the sandbox allows (checkpoints can rewind it);
  * `ask`: edits to project files and shell commands wait for the person, except commands starting with an `allow`
- * prefix; `read-only`: agents read the project but cannot change it.
+ * prefix; `read-only`: agents read the project but cannot change it; `full`: as `auto`, with no sandbox at all (full
+ * access: commands, file tools and the web reach whatever the person can).
  */
 export interface ProjectPermissions {
-  mode: 'auto' | 'ask' | 'read-only'
+  mode: 'auto' | 'ask' | 'read-only' | 'full'
   allow: string[]
 }
 
@@ -147,6 +148,11 @@ export interface EventPayloads {
     askAll?: boolean
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
+    /**
+     * The round runs with full access: no sandbox, file tools reach any path, the web any address. Approvals still
+     * apply. Never set on a round someone other than the person started (`askAll`).
+     */
+    fullAccess?: boolean
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -279,6 +285,8 @@ export interface EventPayloads {
     project?: string
     /** From here on the round asks before every outside step: someone other than the person wrote into it. */
     askAll?: boolean
+    /** Whether the round has full access from here on, when that changed. */
+    fullAccess?: boolean
     interrupted: string[]
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */

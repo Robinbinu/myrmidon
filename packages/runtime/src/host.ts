@@ -25,8 +25,11 @@ export interface ColonyHost {
   readonly log: EventLog
   readonly blobs: BlobStore
   readonly workspace: ColonyWorkspace
+  /** Where commands run: the OS sandbox, or with full access none (`unconfined`). */
   readonly sandbox: Sandbox
   readonly unsafeNoSandbox: boolean
+  /** The round has full access right now (see `fullAccessIn`): no sandbox, any path, any address. */
+  readonly fullAccess: boolean
   /** Live projection; current as of the last committed event. */
   state(): ColonyState
   append(draft: EventDraft): Promise<MyrEvent>
@@ -122,9 +125,9 @@ export interface ColonyHost {
   startServer(agent: string, name: string, command: string, port?: number): Promise<string>
   /**
    * The localhost ports this colony's running servers opened: the only private addresses its agents' web reads and
-   * browser may reach.
+   * browser may reach. With full access, `all`: every address.
    */
-  localPorts(): ReadonlySet<number>
+  localPorts(): ReadonlySet<number> | 'all'
   /** The latest output of a server this colony started. */
   serverLogs(name: string): string
   stopServer(name: string, reason: string): Promise<void>

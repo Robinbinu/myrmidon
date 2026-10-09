@@ -765,7 +765,9 @@ commands are typed with `!` instead: `!approve KEY`, `!new`, `!stop`, `!status`,
   approving a code or with **Make owner** under People. A handle matches only where the platform vouches for it;
   on IRC, where anyone can take a free nick, list the full `nick!user@host`.
 - **Members**' messages reach the agents marked as theirs (not the owner's), and their runs ask the owner before
-  every step that changes something or reads the project. In a group, only whoever asked for a run (or the owner)
+  every step that changes something or reads the project. Their runs never get full access: they stay in the
+  sandbox even when the owner turned it off in Settings → Tools or gave the project full access, and a run the
+  owner started with full access is sandboxed from the moment a member writes into it. In a group, only whoever asked for a run (or the owner)
   can answer its questions.
 - **Groups**: add the bot to a group and mention it; the bot sends a code for the group, which you approve. It then
   answers only when mentioned or replied to (unless you turn that off), and only to approved people. Groups can be

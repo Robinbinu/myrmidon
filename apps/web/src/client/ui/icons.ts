@@ -39,6 +39,7 @@ import {
   Server,
   ServerCog,
   ShieldCheck,
+  ShieldOff,
   ShieldPlus,
   ShieldQuestion,
   SlidersHorizontal,
@@ -76,6 +77,8 @@ export const FEATURE_ICONS = {
   toolRules: ListFilter,
   /** The sandbox shell commands run in. */
   sandbox: Container,
+  /** Full access: agents run without the sandbox (Settings → Tools, a project's permission, the badge on its chats). */
+  fullAccess: ShieldOff,
   /** The independent reviewer, in Settings and the crew's events. */
   reviewer: Gavel,
   /** A review's verdict, and the reviewer checking every answer. */
