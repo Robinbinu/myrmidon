@@ -108,7 +108,8 @@ should carry over, but the CEF build has not been tried.
 
 ## Other known gaps
 
-- **No app icon yet**: Hutch looks for `apps/desktop/icon.iconset` and falls back to its default.
+- **App icon**: `apps/desktop/assets/icon.svg` (the web favicon on Apple's 824/1024 icon grid) is rendered into
+  `assets/icon.iconset` by `bun scripts/icons.ts` (run from `apps/desktop`; needs Chrome); commit the result.
 - **PATH from Finder**: an app opened from Finder gets the system's minimal PATH, so agents' shell commands may not
   find tools installed with Homebrew, bun or uv. Started from a terminal it inherits your shell's PATH.
 - **A crash leaves the server running.** The next launch finds it through `server.json` and uses it (but then does not

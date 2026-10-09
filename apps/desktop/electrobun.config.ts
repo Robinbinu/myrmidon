@@ -21,6 +21,11 @@ export default {
       // Voice calls use the microphone, which a signed app with the hardened runtime may use only with this
       // entitlement. Its usage text goes into Info.plist from scripts/bundle-hook.ts.
       entitlements: { 'com.apple.security.device.audio-input': true },
+      // The favicon on Apple's icon grid; scripts/icons.ts renders it from assets/icon.svg.
+      icons: 'assets/icon.iconset',
+    },
+    linux: {
+      icon: 'assets/icon.iconset/icon_512x512@2x.png',
     },
   },
   scripts: {
