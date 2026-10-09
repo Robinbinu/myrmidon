@@ -514,6 +514,7 @@ export const copy = {
       'chat/user': 'message from you',
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
+      'chat/allowed': 'allowed for this chat',
       'colony/failed': 'crew failed',
       'colony/completed': 'crew completed',
       'agent/status': 'status changed',

@@ -107,7 +107,7 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### [decide] New
 
-- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead? **Decided 2026-10-09: yes,
+- [x] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead? **Decided 2026-10-09: yes,
       the cheapest fast model available, falling back to the lead's.**
 
 ## UX audit (2026-10-08)
@@ -273,14 +273,16 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 ### [decide] Product calls
 
-- [ ] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
+- [x] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
       default? **Decided 2026-10-09: Ask first.**
-- [ ] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap? **Decided
-      2026-10-09: $5 per run.**
+- [x] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap? **Decided
+      2026-10-09: $5 per run.** Done; the cap now counts only the run (it compared the chat's running totals before).
+      Settings saved before keep their stored 0 = no limit (a migration would change that).
 - [x] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok? **Decided
       2026-10-09: keep as is.**
-- [ ] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
-      per chat, per kind of step, shown as a chip that can be revoked.**
+- [x] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
+      per chat, per kind of step, shown as a chip that can be revoked.** Done for file changes and commands; channels
+      have no button for it yet.
 - [ ] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
       files.
