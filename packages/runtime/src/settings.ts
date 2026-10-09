@@ -49,6 +49,12 @@ export interface MyrSettings {
    * started stay sandboxed whatever this says; a project set to full access has it with the sandbox on.
    */
   sandbox: { enabled: boolean }
+  /**
+   * Computer use: agents may see and control the person's Mac (through Cua Driver), one app at a time once the person
+   * approves it in the chat. Off until the person turns it on; separate from the sandbox, and never given to rounds a
+   * channel member started.
+   */
+  computerUse: { enabled: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -130,6 +136,7 @@ export const settingsSchema = Schema.object({
     browser: Schema.boolean().default(true),
   }).default({}),
   sandbox: Schema.object({ enabled: Schema.boolean().default(true) }).default({}),
+  computerUse: Schema.object({ enabled: Schema.boolean().default(false) }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -203,6 +210,7 @@ function parse(input: unknown): MyrSettings {
     team: s.team,
     tools: s.tools,
     sandbox: { enabled: s.sandbox.enabled },
+    computerUse: { enabled: s.computerUse.enabled },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,

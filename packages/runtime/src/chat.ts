@@ -7,6 +7,7 @@ import {
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
+  type ComputerApp,
   type EventPayloads,
   foldColony,
   type MyrEvent,
@@ -21,6 +22,7 @@ import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from '
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import type { ComputerHub } from './computer/driver.ts'
 import { CHAT_TITLE_ROUNDS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
@@ -230,6 +232,8 @@ export interface ChatSummary {
   readonly grants?: readonly ChatGrant[]
   /** The latest round runs (or ran) with full access: no sandbox. */
   readonly fullAccess?: boolean
+  /** Apps on the person's Mac they let agents use in this chat (computer use). */
+  readonly computerApps?: readonly ComputerApp[]
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -288,6 +292,8 @@ export class ChatService {
       library?: ToolLibrary
       /** Shared headless Chrome for the browser_* tools. */
       browser?: BrowserHub
+      /** Computer use: agents drive the person's Mac through Cua Driver when Settings → Computer use is on. */
+      computer?: ComputerHub
       /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
       memory?: MemoryStore
       /** Skills agents load by name when a task matches. */
@@ -530,6 +536,7 @@ export class ChatService {
         ...(last.failed ? { failed: true } : {}),
         ...(last.grants?.length ? { grants: last.grants } : {}),
         ...(last.fullAccess ? { fullAccess: true } : {}),
+        ...(last.computerApps?.length ? { computerApps: last.computerApps } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -615,6 +622,7 @@ export class ChatService {
     const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
     if (this._fullAccess(project, spec.askAll)) spec.fullAccess = true
+    if (this._computerUse(spec.askAll)) spec.computerUse = true
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
@@ -628,6 +636,7 @@ export class ChatService {
         this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
@@ -845,6 +854,25 @@ export class ChatService {
   }
 
   /**
+   * Takes back apps the person let agents use on their Mac in a chat (Settings → Computer use): the chat keeps only
+   * `keep`. Recorded in the chat's latest round, so the next round asks again for the rest.
+   */
+  async setComputerApps(chatId: string, keep: readonly string[]): Promise<ComputerApp[]> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const live = this._live.get(chatId)
+    const here = live?.id === latest.id ? live : undefined
+    const now = (here?.state() ?? latest.state).computerApps ?? []
+    const apps = now.filter((a) => keep.includes(a.bundleId))
+    if (apps.length !== now.length) {
+      const draft = { type: 'computer/apps', actor: { kind: 'user', id: 'user' }, payload: { apps } } as const
+      if (here) await here.append(draft)
+      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    }
+    return apps
+  }
+
+  /**
    * Whether a round of the person's runs with full access: its project is set to it, or the sandbox is off in Settings
    * and the project is not read-only. A round someone else started (`askAll`) never does.
    */
@@ -855,6 +883,15 @@ export class ChatService {
     if (askAll) return false
     const mode = project?.permissions?.mode
     return mode === 'full' || (this.options.settings?.get().sandbox.enabled === false && mode !== 'read-only')
+  }
+
+  /**
+   * Whether a round of the person's may use their Mac: computer use is switched on and can run here. A round someone
+   * else started (`askAll`) never may; one they write into loses it from then on (ColonyRun.computer).
+   */
+  private _computerUse(askAll: boolean | undefined): boolean {
+    const hub = this.options.computer
+    return !askAll && !!hub?.enabled && hub.supported
   }
 
   private _project(
@@ -1042,6 +1079,7 @@ export class ChatService {
     const project = spec.chat?.project
     const permissions = project ? this.options.projects?.get(project.id)?.permissions : undefined
     if (this._fullAccess(permissions ? { permissions } : project, spec.askAll)) spec.fullAccess = true
+    if (this._computerUse(spec.askAll)) spec.computerUse = true
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1067,6 +1105,7 @@ export class ChatService {
         this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
     })

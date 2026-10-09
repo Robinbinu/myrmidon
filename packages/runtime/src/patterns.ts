@@ -50,6 +50,7 @@ const BUILD = [
   'create_tool',
   ...BROWSER,
   'mcp',
+  'computer',
 ]
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
 /** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
@@ -85,6 +86,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         ...WEB,
         // A quick lookup on a site still needs searching and clicking; these act only in the agent's own browser.
         ...BROWSER,
+        // "What's on my screen", "check this in Notes": only when the person switched computer use on.
+        'computer',
         // In a project, quick questions are often about its code: reading it needs no team.
         ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob'] : []),
         'list_artifacts',
@@ -175,6 +178,7 @@ const ON_DEMAND = new Set([
   'create_tool',
   'read_log',
   'read_docs',
+  'computer',
   ...PLUGIN,
 ])
 
@@ -189,11 +193,16 @@ export function preloaded(request: string, names: readonly string[]): string[] {
     )
   const server = /\bdev server|\blocalhost\b|\bserve it\b|\bstart (the )?(app|server)\b/i.test(request)
   const plugin = /\bplugin|\bmyrmidon\b/i.test(request)
+  const computer =
+    /\b(my (mac|screen|desktop|computer)|on (my|the) screen|desktop app|native app|the app\b|open (the )?\w+ app|finder|system settings|simulator|xcode|computer use)\b/i.test(
+      request,
+    )
   return names.filter(
     (n) =>
       (browser && (n.startsWith('browser_') || n === 'request_login')) ||
       (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
-      (plugin && (PLUGIN.includes(n) || n === 'read_docs')),
+      (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
+      (computer && n === 'computer'),
   )
 }
 
@@ -286,6 +295,8 @@ export interface Environment {
   readonly sandbox: string
   readonly web: boolean
   readonly browser: boolean
+  /** The round may use the person's Mac (computer use). */
+  readonly computer?: boolean
   readonly project?: ProjectContext
   /** The agent's own git worktree of the project, when it has one. */
   readonly worktree?: { workdir: string; branch: string }
@@ -344,6 +355,7 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     lines.push(prompts.environment.untrusted(env.boundary))
   const permissions = project?.permissions
   if (env.sandbox === 'unconfined') lines.push(prompts.environment.fullAccess)
+  if (env.computer && tools.includes('computer')) lines.push(prompts.environment.computer(env.boundary))
   if (permissions?.mode === 'read-only')
     lines.push(prompts.environment.readOnly(project?.name, tools.includes('propose')))
   else if (permissions?.mode === 'ask') lines.push(prompts.environment.ask(project?.name, permissions.allow))
@@ -458,6 +470,7 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
         has('browser_open') &&
           (env.browser ? `${say.browser}${load('browser_open', 'browser')}` : say.noBrowser),
         has('mcp') && say.mcp,
+        has('computer') && env.computer && `${say.computer}${load('computer', 'computer')}`,
         has('create_tool') &&
           env.sandbox !== 'none' &&
           `${say.makeTools}${load('create_tool', 'create_tool')}`,
