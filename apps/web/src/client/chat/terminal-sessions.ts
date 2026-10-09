@@ -79,12 +79,15 @@ export function plainLabel(text: string): string {
  * own) give nothing, and the tab keeps the folder it started in.
  */
 export function folderOfTitle(title: string): string | undefined {
+  // Shortened only once the folder is found: a long path would otherwise be cut before its last part.
   const path =
-    plainLabel(title)
+    title
+      .replace(UNSEEN, '')
+      .trim()
       .split(/[\s:]+/)
       .at(-1) ?? ''
   if (path !== '~' && !path.startsWith('~/') && !path.startsWith('/')) return undefined
-  return path.replace(/\/+$/, '').split('/').at(-1) || path
+  return plainLabel(path.replace(/\/+$/, '').split('/').at(-1) || path)
 }
 
 const listeners = new Set<() => void>()
