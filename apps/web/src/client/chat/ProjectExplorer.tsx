@@ -285,7 +285,7 @@ export function ProjectExplorer(props: {
                   className="flex items-center gap-2 rounded-md py-1 pr-2 font-sans text-footnote outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   style={{ paddingLeft: `${row.depth * 12 + 28}px` }}
                 >
-                  <span className="min-w-0 truncate text-bad-ink" role="alert" title={row.error}>
+                  <span className="min-w-0 truncate text-bad-ink" title={row.error}>
                     {row.error}
                   </span>
                   <button
