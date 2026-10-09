@@ -13,6 +13,7 @@ import {
   EyeOff,
   Feather,
   FileCode,
+  FilePen,
   FileSearch,
   FishingHook,
   FolderKey,
@@ -38,6 +39,7 @@ import {
   Rocket,
   ScreenShare,
   ScrollText,
+  SearchCheck,
   Server,
   ServerCog,
   ShieldCheck,
@@ -49,6 +51,7 @@ import {
   SquareTerminal,
   Terminal,
   User,
+  UserCheck,
   UserCog,
   UserRoundPlus,
   Users,
@@ -67,21 +70,27 @@ import {
 export const FEATURE_ICONS = {
   /** What agents did with the person's files and machine, in the workspace's Audit view. */
   audit: ScrollText,
-  /** What agents may do in a project folder. */
+  /** What agents may do: Settings → Permissions, a project's permissions, the chat's permission control. */
   permissions: ShieldCheck,
-  /** A project that asks before acting, and the approvals it waits on. */
+  /** The Ask preset, and the approvals agents wait on. */
   approvalAsk: ShieldQuestion,
-  /** Steps the person allowed for the rest of one chat from an approval card. */
+  /** Answers remembered from approval cards ("don't ask again for …"). */
   chatGrants: ShieldPlus,
-  /** A project where agents act without asking. */
+  /** The Auto preset: agents act without asking, within the sandbox. */
   autonomous: Zap,
-  /** Per-tool allow, ask and off rules in Settings → Tools. */
+  /** Allow, ask and deny rules under the presets. */
   toolRules: ListFilter,
+  /** Who can use what: tool groups for the lead and the crew. */
+  roleAccess: UserCheck,
+  /** Checking which level and rule decide a tool's calls. */
+  permissionCheck: SearchCheck,
+  /** The file tools agents read and change files with, as a group the person can give or take away. */
+  fileTools: FilePen,
   /** Folders sandboxed agents may read beyond the defaults: in Settings, a project's permissions, a chat's grants. */
   readAccess: FolderKey,
   /** The sandbox shell commands run in. */
   sandbox: Container,
-  /** Full access: agents run without the sandbox (Settings → Tools, a project's permission, the badge on its chats). */
+  /** The Full access preset: agents run without the sandbox (its choice at any level, the badge on its chats). */
   fullAccess: ShieldOff,
   /** The independent reviewer, in Settings and the crew's events. */
   reviewer: Gavel,

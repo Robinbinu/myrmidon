@@ -1,4 +1,4 @@
-import type { SetupStep } from '@myrmidon/protocol'
+import { DEFAULT_PRESET, type PermissionPreset, type SetupStep } from '@myrmidon/protocol'
 import { ChevronRight, Folder, LoaderCircle, RefreshCw } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
@@ -8,7 +8,7 @@ import { FolderPicker } from '../chat/FolderPicker.tsx'
 import { helperMode, helpersHint, withHelperMode } from '../chat/helpers.ts'
 import { ModelPicker } from '../chat/ModelPicker.tsx'
 import { canLead } from '../chat/model-list.ts'
-import { PermissionChoices, type PermissionMode } from '../chat/ProjectPermissions.tsx'
+import { PermissionChoices } from '../chat/ProjectPermissions.tsx'
 import { HelpersEditor, Row } from '../chat/TeamControls.tsx'
 import { copy } from '../copy.ts'
 import {
@@ -670,7 +670,7 @@ export function ProjectStep() {
   const mascot = useSetupMascot()
   const [picking, setPicking] = useState(false)
   const chosen = ctx.project
-  const [mode, setMode] = useState<PermissionMode | undefined>(chosen?.project.permissions?.mode)
+  const [preset, setPreset] = useState<PermissionPreset | undefined>(chosen?.project.permissions?.preset)
   const [saveError, setSaveError] = useState<string>()
   const data = ctx.settings.data
 
@@ -678,14 +678,16 @@ export function ProjectStep() {
     if (chosen) mascot.screen(chosen.project.name.toUpperCase())
   }, [chosen, mascot])
 
-  const apply = async (project: Project, next: PermissionMode) => {
-    setMode(next)
+  const apply = async (project: Project, next: PermissionPreset | undefined) => {
+    setPreset(next)
     setSaveError(undefined)
     mascot.react(next === 'ask' ? 'nod' : next === 'read-only' ? 'curious' : 'ping')
     try {
+      // Only the preset changes: the project's rules and readable folders stay as they are.
       const r = await send<{ projects: Project[] }>('PUT', `/api/projects/${project.id}/permissions`, {
-        mode: next,
-        allow: project.permissions?.allow ?? [],
+        rules: project.permissions?.rules ?? [],
+        ...(project.permissions?.access ? { access: project.permissions.access } : {}),
+        preset: next ?? null,
       })
       ctx.onProjects(r.projects)
     } catch (err) {
@@ -730,7 +732,8 @@ export function ProjectStep() {
             <p className="mb-3 text-callout text-fg-2">{chosen.isGit ? t.project.git : t.project.notGit}</p>
             <p className="mb-2 text-body font-medium">{t.project.permissions}</p>
             <PermissionChoices
-              mode={mode ?? (chosen.isGit ? 'ask' : 'read-only')}
+              value={preset}
+              global={data?.settings.permissions.preset ?? DEFAULT_PRESET}
               onChange={(next) => void apply(chosen.project, next)}
             />
           </CardRow>
@@ -740,7 +743,7 @@ export function ProjectStep() {
         <Banner tone="bad" role="alert">
           <p>{t.project.saveFailed(saveError)}</p>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={() => void apply(chosen.project, mode ?? 'ask')}>
+            <Button size="sm" onClick={() => void apply(chosen.project, preset)}>
               {t.tryAgain}
             </Button>
             <Button size="sm" variant="borderless" onClick={() => ctx.later('project')}>

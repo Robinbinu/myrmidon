@@ -174,20 +174,25 @@ test("a channel member's round stays sandboxed and asking even with the sandbox 
   sandboxOff(settings)
   const resolver = models([
     [tool('fs_write', { path: `${outside}/member.txt`, content: 'x' })],
+    [tool('fs_write', { path: 'member.txt', content: 'x' })],
     [tool('reply_user', { text: 'Could not.', final: true })],
   ])
   const chats = new ChatService(runtime, { resolver, settings })
   const { colonyId } = await chats.send('Write outside', config, undefined, { askAll: true })
+  // A file change is decided once its path is known: a member's round cannot reach past its scratch, so the write
+  // outside is refused before there is anything to ask about; the write it can make still waits for the person.
   const waiting = await waitFor(colonyId, (s) => pending(s).length > 0)
   expect(waiting.fullAccess).toBeUndefined()
   expect((await created(colonyId))?.fullAccess).toBeUndefined()
-  // Even when the person approves the step, the member's round cannot reach past its scratch.
+  const [refused] = await results(colonyId)
+  expect(refused?.ok).toBe(false)
+  expect(refused?.output).toContain('outside your scratch directory')
+  expect(existsSync(join(outside, 'member.txt'))).toBe(false)
+  expect(pending(waiting)[0]).toMatchObject({ tool: 'fs_write', why: { by: 'askAll' } })
+  // Asked because someone else started the round: no rule could lift that, so the card offers to remember nothing.
+  expect(pending(waiting)[0]?.offer).toBeUndefined()
   await chats.decideApproval(colonyId, pending(waiting)[0]?.id ?? '', true)
   await waitFor(colonyId)
-  const [write] = await results(colonyId)
-  expect(write?.ok).toBe(false)
-  expect(write?.output).toContain('outside your scratch directory')
-  expect(existsSync(join(outside, 'member.txt'))).toBe(false)
   await chats.stopAll()
 })
 
@@ -208,24 +213,28 @@ test('full access keeps the approvals the person set: per-tool ask rules, and As
   expect(existsSync(join(outside, 'asked.txt'))).toBe(false)
   await chats.stopAll()
 
-  // An Ask first project: a write outside it, which only full access can make, waits for the person too.
-  settings.set({ ...settings.get(), permissions: {} })
+  // Changed with the permission model: an Ask project used to run unsandboxed under a sandbox-off global and ask
+  // before writes beyond it. Its preset is its own now: Ask is sandboxed, so the write outside cannot happen, and a
+  // write in the project waits for the person.
+  settings.set({ ...settings.get(), permissions: { preset: 'full', rules: [] } })
   const projects = new ProjectStore(home)
   const folder = realpathSync(mkdtempSync(join(tmpdir(), 'myr-ask-project-')))
   try {
     const project = projects.setPermissions(projects.add(folder).id, { mode: 'ask', allow: [] })
     const careful = models([
       [tool('fs_write', { path: `${outside}/beyond.txt`, content: 'y' })],
+      [tool('fs_write', { path: 'inside.txt', content: 'y' })],
       [tool('reply_user', { text: 'Written.', final: true })],
     ])
     const asking = new ChatService(runtime, { resolver: careful, settings, projects })
     const run = await asking.send('Write outside', config, undefined, { project: project.id })
     const ask = await waitFor(run.colonyId, (s) => pending(s).length > 0)
-    expect(ask.fullAccess).toBe(true)
-    expect(pending(ask)[0]).toMatchObject({ tool: 'fs_write', summary: `write ${outside}/beyond.txt` })
+    expect(ask.fullAccess).toBeUndefined()
+    expect(pending(ask)[0]).toMatchObject({ tool: 'fs_write', summary: 'write inside.txt' })
     await asking.decideApproval(run.colonyId, pending(ask)[0]?.id ?? '', true)
     await waitFor(run.colonyId)
-    expect(existsSync(join(outside, 'beyond.txt'))).toBe(true)
+    expect(existsSync(join(outside, 'beyond.txt'))).toBe(false)
+    expect(existsSync(join(folder, 'inside.txt'))).toBe(true)
     await asking.stopAll()
   } finally {
     rmSync(folder, { recursive: true, force: true })

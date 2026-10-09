@@ -61,8 +61,11 @@ export interface ChannelChats {
   ): () => void
   read(colonyId: string): Promise<readonly MyrEvent[]>
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
-  /** Lets a tool run without asking from now on (the person's per-tool rule in Settings). */
-  allowAlways(tool: string): Promise<void>
+  /**
+   * Lets this kind of call run without asking from now on, everywhere: the approval's first offer (a command's
+   * prefix, an MCP tool), saved as a global allow rule.
+   */
+  allowAlways(colonyId: string, approvalId: string): Promise<void>
   /** An artifact's latest version, for sending the files a round made. */
   artifact(colonyId: string, name: string): Promise<{ data: Uint8Array; mediaType: string } | undefined>
   /** Speech to text for voice notes; absent when nothing can do it. */
@@ -851,7 +854,7 @@ export class ChannelHub {
     const approved = decision !== 'd'
     const always = decision === 'a' && !open.member
     try {
-      if (always) await this.options.chats.allowAlways(open.tool)
+      if (always) await this.options.chats.allowAlways(open.colonyId, open.id)
       await this.options.chats.decideApproval(open.colonyId, open.id, approved)
     } catch {
       return void (await note({ text: t.approval.gone }))

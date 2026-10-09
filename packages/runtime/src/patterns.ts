@@ -1,5 +1,14 @@
-import type { ColonyState } from '@myrmidon/protocol'
+import {
+  ACCESS_GROUPS,
+  type ColonyState,
+  effectivePreset,
+  groupsOff,
+  LEAD_WORK_GROUPS,
+  rulesIn,
+  toolHidden,
+} from '@myrmidon/protocol'
 import { localDate, personZone, zoneOffset } from './clock.ts'
+import { levelsOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -136,8 +145,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 || spec.team?.specialists?.length
           ? ['add_crewmate']
           : []
-      // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
-      // It plans, assigns, reviews, integrates, and speaks; specialists research and build.
+      // It plans, assigns, reviews, integrates, and speaks. Its own hands (files, shell, web…) are the groups the
+      // person lets a lead use (see withRoleAccess); with them all off it only delegates.
       return [
         'read_task',
         ...LOOK,
@@ -211,8 +220,37 @@ export function onDemand(name: string): boolean {
   return ON_DEMAND.has(name) || /^(browser_|mcp__|tool_)/.test(name)
 }
 
+/** Whether the agent speaking for the chat has someone to hand work to: a team, or crewmates on call. */
+function leadsCrew(spec: ColonySpec): boolean {
+  return spec.tier === 'team'
+    ? spec.agents.length > 1
+    : spec.tier === 'solo' && !!spec.team?.crewmates?.length
+}
+
+/**
+ * Who may use what (the permission model's access and whole-tool denies). The lead, while it leads a crew, follows
+ * the lead column and gets the build tools of every group it is allowed (a hands-on lead); everyone who does the
+ * work, an agent working alone included, follows the crew column. A tool denied outright is left out.
+ */
+function withRoleAccess(
+  spec: ColonySpec,
+  agent: AgentSpec,
+  tools: readonly string[],
+  own: boolean,
+): string[] {
+  const levels = levelsOf(spec)
+  const role = speaksForColony(spec, agent) ? 'lead' : 'crew'
+  const leading = role === 'lead' && leadsCrew(spec)
+  const off = new Set(groupsOff(levels, leading ? 'lead' : 'crew').flatMap((g) => ACCESS_GROUPS[g]))
+  const hands =
+    leading && !own && isLead(spec, agent) && spec.tier === 'team' && spec.team?.mode !== 'swarm'
+      ? LEAD_WORK_GROUPS.flatMap((g) => ACCESS_GROUPS[g])
+      : []
+  return [...new Set([...tools, ...hands])].filter((t) => !off.has(t) && !toolHidden(levels, t, role))
+}
+
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
-  const tools = agent.tools ?? roleTools(spec, agent)
+  const tools = withRoleAccess(spec, agent, agent.tools ?? roleTools(spec, agent), agent.tools !== undefined)
   const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? [])])
   const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
   // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
@@ -354,12 +392,18 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
     )
   if (env.boundary && tools.some((t) => t.startsWith('web_') || t.startsWith('browser_') || t === 'mcp'))
     lines.push(prompts.environment.untrusted(env.boundary))
-  const permissions = project?.permissions
+  const levels = levelsOf(spec)
+  const preset = effectivePreset(levels).preset
   if (env.sandbox === 'unconfined') lines.push(prompts.environment.fullAccess)
   if (env.computer && tools.includes('computer')) lines.push(prompts.environment.computer(env.boundary))
-  if (permissions?.mode === 'read-only')
-    lines.push(prompts.environment.readOnly(project?.name, tools.includes('propose')))
-  else if (permissions?.mode === 'ask') lines.push(prompts.environment.ask(project?.name, permissions.allow))
+  if (preset === 'read-only' && project)
+    lines.push(prompts.environment.readOnly(project.name, tools.includes('propose')))
+  else if (preset === 'ask') {
+    const allowed = rulesIn(levels).flatMap((r) =>
+      r.kind === 'command' && r.decision === 'allow' ? [r.target] : [],
+    )
+    lines.push(prompts.environment.ask(project?.name, allowed.includes('*') ? [] : [...new Set(allowed)]))
+  }
   if (env.skills?.length && tools.includes('use_skill')) {
     const skills = env.skills.slice(0, 40)
     const fits = skillsFor(spec.chat?.request ?? spec.mission, skills)
