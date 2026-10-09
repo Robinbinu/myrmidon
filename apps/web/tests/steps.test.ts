@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
 import { deriveSteps } from '../src/client/chat/steps.ts'
+import { copy } from '../src/client/copy.ts'
 import { describeEvent } from '../src/client/describe.ts'
 
 let seq = 0
@@ -58,6 +59,15 @@ test('event lines name the final answer and check-ins in plain words, never the 
     expect(describeEvent(e)).not.toMatch(/colony|observer|verdict|judge/i)
   expect(describeEvent(verdict)).toContain('the final answer')
   expect(describeEvent(signal)).toContain('stalled')
+})
+
+test('the replay bar names every event type in plain words, not by its log id', () => {
+  const restored = ev('checkpoint/restored', { commit: 'abc', undo: 'def', changed: 2 })
+  expect(describeEvent(restored)).toBe(copy.events.types['checkpoint/restored'])
+  for (const label of Object.values(copy.events.types)) {
+    expect(label).not.toContain('/')
+    expect(label).not.toMatch(/colony|round|judge|verdict|verifier|observer|helper|worker/i)
+  }
 })
 
 test('a failed hook is named as Settings → Hooks names it, not by its event id', () => {

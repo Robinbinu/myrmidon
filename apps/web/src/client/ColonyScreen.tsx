@@ -78,11 +78,14 @@ function agentOf(e: MyrEvent): string | undefined {
 }
 
 /** Builds the activity stream (newest first) from the log up to the replay cursor. */
-function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string): Item[] {
+export function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string): Item[] {
   const calls = new Map<string, Item & { kind: 'tool' }>()
   const items: Item[] = []
   for (const e of events.slice(0, cursor)) {
-    const who = agentOf(e) ?? copy.colonyScreen.agents.system
+    const name = agentOf(e)
+    // The runtime signs the reviewer's task decisions and notes `verifier`, a name no crewmate can take.
+    const who =
+      name === 'verifier' ? copy.colonyScreen.agents.reviewer : (name ?? copy.colonyScreen.agents.system)
     if (
       agent &&
       who !== agent &&
@@ -208,7 +211,7 @@ function buildItems(events: readonly MyrEvent[], cursor: number, agent?: string)
         }
         items.push({
           ...base,
-          agent: p.verifierId,
+          agent: copy.colonyScreen.agents.reviewer,
           kind: 'event',
           icon: FEATURE_ICONS.reviewer,
           tone: p.pass ? 'text-ok-ink' : 'text-bad-ink',
@@ -768,7 +771,6 @@ function Verdicts({ state }: { state: ColonyState }) {
               <Badge tone={v.pass ? 'ok' : 'bad'}>
                 {v.pass ? copy.colonyScreen.pass : copy.colonyScreen.fail}
               </Badge>
-              <span className="font-mono">{v.verifierId}</span>
               <span className="text-muted">
                 {copy.colonyScreen.verdictTarget(copy.reviewTarget(v.target))}
               </span>
@@ -777,7 +779,7 @@ function Verdicts({ state }: { state: ColonyState }) {
                   {copy.colonyScreen.score(v.score.toFixed(2))}
                 </span>
               )}
-              <RowMeta agent="" time={v.time} />
+              <RowMeta agent={copy.colonyScreen.agents.reviewer} time={v.time} />
             </div>
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-small text-fg-2">
               {v.evidence}
