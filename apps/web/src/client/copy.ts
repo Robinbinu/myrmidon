@@ -3010,15 +3010,15 @@ export const copy = {
       greeting: 'Greeting',
       greetingHints: {
         model:
-          'Your lead model writes it from what happened while you were away. Uses a few hundred tokens when there is news.',
+          'A small, fast model you have (the one that names chats) writes it from what happened while you were away. A few hundred tokens when there is news.',
         rules: 'Written by Myrmidon itself, from the same facts. No model calls.',
       },
-      greetingModel: 'Lead',
+      greetingModel: 'Model',
       greetingRules: 'Built in',
       titles: 'Chat names',
       titlesHints: {
         model:
-          'Your lead model names each chat from what it is about after a run (a chat that is only "hi" so far waits). Names you give are kept.',
+          'A small, fast model you have names each chat from what it is about after a run (a chat that is only "hi" so far waits). Names you give are kept.',
         'first-message': 'Chats are named with their first message. No model calls.',
       },
       titlesModel: 'From the topic',

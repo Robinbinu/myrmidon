@@ -14,6 +14,8 @@
   --control-active: #e8e8ed;
   --fill: #f2f2f7;
   --fill-strong: #e5e5ea;
+  /* The chosen option of a segmented control, raised off its track (fill-strong). */
+  --segment-on: #ffffff;
   --separator: rgb(0 0 0 / 0.1);
   --separator-strong: rgb(0 0 0 / 0.18);
   --material-sidebar: rgb(242 242 244 / 0.82);
@@ -135,6 +137,8 @@
     --control-active: #313138;
     --fill: #17171b;
     --fill-strong: #222228;
+    /* Well above the track: --control is nearly the track's colour in dark, so the choice did not show. */
+    --segment-on: #4a4a53;
     --separator: rgb(255 255 255 / 0.08);
     --separator-strong: rgb(255 255 255 / 0.16);
     --material-sidebar: rgb(22 22 26 / 0.72);

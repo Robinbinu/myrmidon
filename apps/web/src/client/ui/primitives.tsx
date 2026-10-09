@@ -358,7 +358,8 @@ export function Segmented<T extends string>(props: {
   id: string
 }) {
   return (
-    <div className="inline-flex rounded-md bg-fill-strong p-[2px]">
+    // Never squeezed by a long description beside it: each label stays on one line.
+    <div className="inline-flex shrink-0 rounded-md bg-fill-strong p-[2px]">
       {props.options.map((o) => (
         <button
           key={o.value}
@@ -366,7 +367,7 @@ export function Segmented<T extends string>(props: {
           aria-pressed={props.value === o.value}
           onClick={() => props.onChange(o.value)}
           className={cn(
-            'relative inline-flex h-[22px] items-center gap-1.5 rounded-sm px-2.5 text-small font-medium transition-colors',
+            'relative inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-small font-medium transition-colors',
             props.value === o.value ? 'text-fg' : 'text-fg-2 hover:text-fg',
           )}
         >
@@ -374,7 +375,7 @@ export function Segmented<T extends string>(props: {
             <motion.span
               layoutId={`seg-${props.id}`}
               transition={spring}
-              className="absolute inset-0 rounded-sm bg-control shadow-[0_0.5px_2px_rgb(0_0_0/0.18),0_0_0_0.5px_rgb(0_0_0/0.05)]"
+              className="absolute inset-0 rounded-sm bg-segment-on shadow-[0_0.5px_2px_rgb(0_0_0/0.25),0_0_0_0.5px_rgb(0_0_0/0.08)]"
             />
           )}
           <span className="relative inline-flex items-center gap-1.5">{o.label}</span>
