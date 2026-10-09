@@ -12,11 +12,14 @@ const Y0 = (32 - EYE_W) / 2 + 0.4
 
 const CELLS = [X0, X0 + EYE_W + SPACING].flatMap((ex) =>
   EYE.flatMap((row, y) =>
-    [...row].flatMap((ch, x) => (ch === '#' ? [{ x: ex + x * PITCH, y: Y0 + y * PITCH }] : [])),
+    [...row].flatMap((ch, x) =>
+      // The first lit pixel of each eye catches the light, as on the app icon.
+      ch === '#' ? [{ x: ex + x * PITCH, y: Y0 + y * PITCH, light: x === 1 && y === 0 }] : [],
+    ),
   ),
 )
 
-/** The Myrmidon mark: the mascot's two pixel eyes on a dark glass tile. */
+/** The Myrmidon mark: the mascot's two pixel eyes on a dark glass tile, lit from above. */
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   const id = useId()
   return (
@@ -37,6 +40,10 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
           <stop offset="0" style={{ stopColor: 'var(--logo-eye-top)' }} />
           <stop offset="1" style={{ stopColor: 'var(--logo-eye-bottom)' }} />
         </linearGradient>
+        <linearGradient id={`${id}h`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.12" />
+          <stop offset="0.45" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
         <filter id={`${id}g`} x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="1.6" />
         </filter>
@@ -52,7 +59,7 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
         style={{ stroke: 'var(--logo-rim)' }}
         strokeOpacity="0.09"
       />
-      <g filter={`url(#${id}g)`} opacity="0.55">
+      <g filter={`url(#${id}g)`} opacity="0.7">
         {CELLS.map((c) => (
           <rect
             key={`g${c.x},${c.y}`}
@@ -73,9 +80,10 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
           width={CELL}
           height={CELL}
           rx={0.55}
-          fill={`url(#${id}e)`}
+          fill={c.light ? 'var(--logo-eye-light)' : `url(#${id}e)`}
         />
       ))}
+      <rect width="32" height="32" rx="9" fill={`url(#${id}h)`} />
     </svg>
   )
 }
