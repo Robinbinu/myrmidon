@@ -597,7 +597,7 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
             <button
               type="button"
               onClick={() => setMore(!more)}
-              className="mt-1 text-small font-medium text-accent-fg hover:underline"
+              className="mt-0.5 inline-flex min-h-6 items-center text-small font-medium text-accent-fg hover:underline"
             >
               {more ? copy.colonyScreen.showLess : copy.colonyScreen.showMore}
             </button>
@@ -605,8 +605,8 @@ function SayRow({ item }: { item: Item & { kind: 'say' } }) {
         </div>
       )}
       {item.thinking && (
-        <details className="mt-1.5">
-          <summary className="text-small text-muted">{copy.colonyScreen.thinking}</summary>
+        <details className="mt-0.5">
+          <summary className="py-1 text-small text-muted">{copy.colonyScreen.thinking}</summary>
           <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap text-small text-muted">
             {item.thinking}
           </pre>

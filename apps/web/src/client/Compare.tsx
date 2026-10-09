@@ -67,12 +67,15 @@ export function Compare(props: { colonies: ColonySummary[]; onOpen(id: string): 
             {props.colonies.map((c) => (
               <tr key={c.id}>
                 <td>
-                  <input
-                    type="checkbox"
-                    aria-label={copy.compare.pick(c.name)}
-                    checked={picked.includes(c.id)}
-                    onChange={() => toggle(c.id)}
-                  />
+                  {/* The label is the 24px target; the box itself is the browser's 13px. */}
+                  <label className="-m-1 grid size-6 cursor-pointer place-items-center">
+                    <input
+                      type="checkbox"
+                      aria-label={copy.compare.pick(c.name)}
+                      checked={picked.includes(c.id)}
+                      onChange={() => toggle(c.id)}
+                    />
+                  </label>
                 </td>
                 <td>
                   <button type="button" className="link" onClick={() => props.onOpen(c.id)}>
@@ -199,7 +202,7 @@ function SideHead({ label, run, onOpen }: { label: string; run: RunSide; onOpen(
         <button
           type="button"
           onClick={() => onOpen(run.id)}
-          className="min-w-0 truncate text-left text-reading font-semibold hover:underline"
+          className="min-h-6 min-w-0 truncate text-left text-reading font-semibold hover:underline"
         >
           {run.name}
         </button>
@@ -302,7 +305,7 @@ function RunDiffView(props: { diff: RunDiff; onOpen(id: string): void; onClose()
             <button
               type="button"
               onClick={() => setAllTools(!allTools)}
-              className="mt-1 rounded-md px-1.5 py-0.5 text-small text-muted hover:bg-fill hover:text-fg"
+              className="mt-0.5 rounded-md px-1.5 py-1 text-small text-muted hover:bg-fill hover:text-fg"
             >
               {allTools ? copy.compare.showFewer : copy.compare.showAllTools(tools.length)}
             </button>
