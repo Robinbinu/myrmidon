@@ -1,5 +1,7 @@
+import { createHmac } from 'node:crypto'
 import { channelCopy } from './copy.ts'
 import { slackMrkdwn } from './format.ts'
+import { sameSecret } from './push.ts'
 import {
   type AdapterIO,
   type ButtonPress,
@@ -11,6 +13,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -18,7 +21,8 @@ import {
 /**
  * Slack through Socket Mode and the Web API with no library, ported from OpenClaw's and Hermes's adapters: a
  * WebSocket from `apps.connections.open` (so nothing on this machine needs to be reachable from the internet), every
- * envelope acknowledged at once, a fresh connection when Slack asks for one; messages and mentions (a thread per
+ * envelope acknowledged at once, a fresh connection when Slack asks for one (or, in HTTP mode, the same events and
+ * interactions posted to the gateway with Slack's signature); messages and mentions (a thread per
  * conversation in channels), files with the bot token, Block Kit buttons and their presses; mrkdwn out, files up
  * through `files.getUploadURLExternal`, and `Retry-After` honoured.
  */
@@ -42,6 +46,8 @@ const LABEL_MAX = 75
 const ACTIONS_MAX = 25
 /** Threads remembered as ones the bot takes part in (no mention needed there). */
 const THREADS_KEPT = 500
+/** HTTP requests signed longer ago than this are refused (Slack's own advice: five minutes). */
+const REPLAY_WINDOW_S = 300
 /** A press's `response_url` takes replies for 30 minutes. */
 const PRESS_KEEP_MS = 25 * 60_000
 /** Message subtypes that are someone writing; the rest (edits, deletions, joins, bot posts) are ignored. */
@@ -56,15 +62,6 @@ const REFUSED = new Set([
   'token_revoked',
   'token_expired',
   'not_allowed_token_type',
-])
-/**
- * Notes the hub sends that the edited message already says; shown as a message only the presser sees, they would
- * repeat it.
- */
-const ECHOES = new Set([
-  channelCopy.approval.pressAllowed,
-  channelCopy.approval.pressDenied,
-  channelCopy.question.pressNoted,
 ])
 
 class SlackError extends Error {
@@ -212,10 +209,16 @@ export class SlackAdapter implements ChannelAdapter {
   private readonly _titles = new Map<string, string | undefined>()
   private readonly _presses = new Map<string, { url: string; timer: ReturnType<typeof setTimeout> }>()
 
+  /**
+   * With an app-level token it connects out by Socket Mode; with a signing secret it takes Slack's signed HTTP
+   * requests (Events API and Interactivity) at the gateway's webhook address instead. With both, Socket Mode is what
+   * runs (and the signed requests are still taken).
+   */
   constructor(
     private readonly botToken: string,
     private readonly appToken: string,
     private readonly api = SLACK_API,
+    private readonly signingSecret = '',
   ) {}
 
   /** One Web API call, form-encoded (which every method takes); never logs or throws the token. */
@@ -275,8 +278,10 @@ export class SlackAdapter implements ChannelAdapter {
       if (err instanceof SlackError && REFUSED.has(err.code)) throw new Error(channelCopy.slack.refused)
       throw err
     }
-    if (!this.appToken.startsWith('xapp-')) throw new Error(channelCopy.slack.notAppToken)
-    await this._open()
+    if (this.appToken) {
+      if (!this.appToken.startsWith('xapp-')) throw new Error(channelCopy.slack.notAppToken)
+      await this._open()
+    } else if (!this.signingSecret) throw new Error(channelCopy.slack.noMode)
     this._me = { id: auth.user_id, name: auth.user, team: auth.team }
     return this._account()
   }
@@ -287,7 +292,9 @@ export class SlackAdapter implements ChannelAdapter {
 
   private _refused(message: string) {
     const t = channelCopy.slack
-    return message === t.refused || message === t.appRefused || message === t.notAppToken
+    return (
+      message === t.refused || message === t.appRefused || message === t.notAppToken || message === t.noMode
+    )
   }
 
   async start(io: AdapterIO): Promise<void> {
@@ -314,6 +321,13 @@ export class SlackAdapter implements ChannelAdapter {
           await sleep(jitter(backoff), signal)
           backoff = Math.min(backoff * 2, BACKOFF_MAX_MS)
         }
+      }
+      if (signal.aborted) return
+      // HTTP mode: nothing to connect to; Slack posts to the webhook.
+      if (!this.appToken) {
+        if (!io.webhookUrl)
+          return io.status({ state: 'error', error: channelCopy.needsPublicUrl(this.label) })
+        return io.status({ state: 'on', account: this._account() })
       }
       backoff = BACKOFF_MIN_MS
       while (!signal.aborted) {
@@ -403,6 +417,47 @@ export class SlackAdapter implements ChannelAdapter {
     else if (msg.type === 'interactive' && payload.type === 'block_actions')
       message = await this._press(payload as SlackInteraction)
     if (message) await this._io?.receive(message)
+  }
+
+  /**
+   * HTTP mode: an Events API event (JSON) or an interaction (a form with `payload`), taken only with a valid v0
+   * signature of the raw body made in the last five minutes. Answered at once, as Slack wants within 3 s; the
+   * envelope is then handled in order like a Socket Mode one.
+   */
+  async webhook(req: Request): Promise<Response> {
+    if (!this.signingSecret) return new Response('not found', { status: 404 })
+    if (req.method !== 'POST') return new Response('method not allowed', { status: 405 })
+    const raw = await req.text()
+    const timestamp = req.headers.get('x-slack-request-timestamp') ?? ''
+    const expected = `v0=${createHmac('sha256', this.signingSecret).update(`v0:${timestamp}:${raw}`).digest('hex')}`
+    if (!timestamp || !sameSecret(req.headers.get('x-slack-signature') ?? '', expected))
+      return new Response('invalid signature', { status: 401 })
+    const age = Math.abs(Date.now() / 1000 - Number(timestamp))
+    if (!Number.isFinite(age) || age > REPLAY_WINDOW_S)
+      return new Response('stale timestamp', { status: 401 })
+    let body: { type?: string; challenge?: string; event?: SlackEvent } & Partial<SlackInteraction>
+    try {
+      const form = req.headers.get('content-type')?.includes('application/x-www-form-urlencoded')
+      body = JSON.parse(form ? (new URLSearchParams(raw).get('payload') ?? '') : raw)
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+    if (body.type === 'url_verification')
+      return new Response(body.challenge ?? '', { headers: { 'content-type': 'text/plain' } })
+    const io = this._io
+    // Before the bot knows who it is, mentions cannot be told; Slack sends it again.
+    if (!io || !this._me) return new Response('not ready', { status: 503 })
+    const msg: Envelope | undefined =
+      body.type === 'event_callback'
+        ? { type: 'events_api', payload: { ...(body.event ? { event: body.event } : {}) } }
+        : body.type === 'block_actions'
+          ? { type: 'interactive', payload: body }
+          : undefined
+    if (msg)
+      this._queue = this._queue
+        .then(() => this._envelope(msg))
+        .catch((err) => io.log(err instanceof Error ? err.message : String(err)))
+    return new Response(null, { status: 200 })
   }
 
   /** Who someone is, by `users.info` (needs `users:read`; their id otherwise), remembered. */
@@ -549,17 +604,17 @@ export class SlackAdapter implements ChannelAdapter {
 
   /**
    * Slack has no toast for a button: a note becomes a reply only the presser sees, through the press's
-   * `response_url`.
+   * `response_url`. One the edited message already says is left out, since a reply would repeat it.
    */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const held = this._presses.get(press.id)
     this._presses.delete(press.id)
     if (held) clearTimeout(held.timer)
-    if (!held || !note || ECHOES.has(note)) return
+    if (!held || !note || note.echo) return
     const res = await fetch(held.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text: note }),
+      body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text: note.text }),
     })
     if (!res.ok) throw new Error(`Slack answered ${res.status} to the press`)
   }

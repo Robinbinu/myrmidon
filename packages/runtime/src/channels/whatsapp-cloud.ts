@@ -12,6 +12,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
 } from './types.ts'
 
@@ -453,9 +454,9 @@ export class WhatsAppCloudAdapter implements ChannelAdapter {
    * No toast to show as Telegram has, and the message with the buttons cannot be edited: a note (allowed, denied,
    * only the owner may) comes as a reply to the press.
    */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const to = press.message?.chat
     if (!note || !to) return
-    await this._message(to, { type: 'text', text: { body: note }, context: { message_id: press.id } })
+    await this._message(to, { type: 'text', text: { body: note.text }, context: { message_id: press.id } })
   }
 }

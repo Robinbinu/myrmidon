@@ -191,6 +191,12 @@ There are no buttons, so approvals are typed (`/approve KEY`).
 Myrmidon keeps a WebSocket open to Discord's gateway (resumed after a drop), so nothing needs to be reachable from
 the internet; messages sent while it is off are not delivered later.
 
+**HTTP interactions** (optional): if the app has an **Interactions Endpoint URL** (General Information), Discord
+sends button presses only there, never over the gateway. On a gateway with a public HTTPS address, set it to
+`<public-url>/hooks/channels/discord` and give Myrmidon the app's **Public Key** (General Information) too; each
+request is checked against its Ed25519 signature, and Discord's PING is answered so the portal accepts the URL.
+Messages still come over the gateway, since Discord sends them nowhere else.
+
 - **In a server channel** it answers only when mentioned (`@bot`) or replied to, after the channel is approved like
   a Telegram group (mention it once; it sends the code). A thread is a conversation of its own; once the bot was
   mentioned in a thread, or wrote in it, it answers there without a mention.
@@ -239,6 +245,13 @@ the internet; messages sent while it is off are not delivered later.
    `myrmidon channels approve slack <code>`.
 
 Myrmidon uses Socket Mode (a WebSocket Slack opens for the app), so nothing needs to be reachable from the internet.
+
+**HTTP mode** (instead of Socket Mode, for a gateway with a public HTTPS address): in the manifest set
+`"socket_mode_enabled": false`, and give both `"interactivity"` and `"event_subscriptions"` the `"request_url"`
+`<public-url>/hooks/channels/slack`. Skip the app-level token; give Myrmidon the **Signing Secret** (Basic
+Information → App Credentials) with the bot token instead. Every request is checked against Slack's `v0` signature
+and refused when signed more than five minutes ago; Slack's URL check (its challenge) is answered. With an
+app-level token given as well, Myrmidon uses Socket Mode, which must then be on in Slack.
 
 - **In a channel**, invite the app (`/invite @Myrmidon`) and mention it; approve the channel with the code it sends.
   Each message there that mentions it starts a thread, and the answer goes into that thread: each thread is a
@@ -444,8 +457,9 @@ No Microsoft Graph permissions are needed. What works and what does not:
   indicator shows while the crew works. Markdown is sent as is; Teams renders it.
 - **Files in**: files sent in a direct chat and images pasted there. Images pasted in a channel or group chat are
   not fetched (they need Microsoft Graph).
-- **Files out**: images up to 4 MB, inline. Other files are listed by name: a bot sends those through a file
-  consent card or SharePoint, which are not ported.
+- **Files out**: images up to 4 MB, inline. Other files (up to 20 MB) come as a link to download them from the
+  gateway (see *Webhooks* below). A bot's own upload is a file consent card, which works only in direct
+  chats and needs `supportsFiles` in the app manifest, or SharePoint through Microsoft Graph; neither is used.
 - Only Teams itself is taken: the Azure portal's *Test in Web Chat* does not reach Myrmidon.
 
 ## Set up Google Chat
@@ -474,7 +488,8 @@ What works and what does not:
   line is what shows the crew working. Markdown is turned into Chat's own formatting (`*bold*`, `_italic_`, links).
 - **Files in**: files uploaded to Chat. Google Drive files shared in a message are not fetched (they need the
   person's own authorization).
-- **Files out**: listed by name. Uploading needs a person's authorization, which an app does not have.
+- **Files out**: a link to download each file from the gateway (see *Webhooks* below). Chat's own
+  upload (`media.upload`) needs a person's authorization, which an app does not have.
 - Chat apps built as Google Workspace add-ons (their events come in another shape) are not supported: configure
   the app in the Google Chat API as above.
 
@@ -505,8 +520,10 @@ What works and what does not:
   instead) and an approval's outcome comes as a short reply to the press.
 - No formatting: Markdown is sent as plain text, links spelled out.
 - **Files in**: photos, videos, files, and audio messages (transcribed as voice notes).
-- **Files out**: listed by name. LINE only takes files from a public address of their own, which the gateway does
-  not serve.
+- **Files out**: LINE takes no file from a bot, only an HTTPS address to fetch it from, which the gateway serves
+  (see *Webhooks* below). A JPEG or PNG up to 1 MB comes as a photo; anything else, video and audio
+  included, as a link (LINE's video and audio messages also need a preview image or the length, which would mean
+  decoding the file).
 
 ## Set up Feishu / Lark
 
@@ -765,12 +782,21 @@ know. Without a public address it polls, which needs nothing reachable from the 
 presses arrive at `<public-url>/hooks/channels/mattermost` (signed by the gateway), and SMS needs the public address
 for every text (`<public-url>/hooks/channels/sms`, signed by Twilio). Email and ntfy never need one. iMessage does the same
 with BlueBubbles (`/hooks/channels/imessage`, the secret in the URL). Signal and Matrix always connect out (an event
-stream, `/sync`), so they need no public address.
+stream, `/sync`), so they need no public address. Slack and Discord connect out too, unless set up to post instead:
+Slack in HTTP mode (`/hooks/channels/slack`, signed with the app's signing secret) and Discord's HTTP interactions
+(`/hooks/channels/discord`, signed with the application's Ed25519 key), as described in their sections.
 
 Microsoft Teams, Google Chat and LINE only push, so they **need** the public HTTPS address: each posts to
 `<public-url>/hooks/channels/<id>` (`msteams`, `googlechat`, `line`), and without `--public-url` the channel shows
 an error saying so instead of starting. Every post is checked before anything in it is read: Teams' and Google's
 signed tokens against their published keys, LINE's signature against the channel secret.
+
+Teams, Google Chat and LINE get the files a run made as links to the gateway's public address:
+`<public-url>/hooks/channels/<channel>?file=<random token>`. Each link works for 7 days (across restarts; the
+files are kept in the channel's own folder and deleted once they expire), and the link is the only key, like any
+shared download link: whoever has it can download the file. Photos, audio and video open in place; anything else
+is a download, never a page that could run on the gateway. Without an HTTPS public address no link is made, and the
+files are listed by name to open in the Myrmidon app.
 
 ## Troubleshooting
 

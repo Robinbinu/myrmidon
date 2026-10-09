@@ -311,7 +311,7 @@ test('button presses, files in and out, and forum topics', async () => {
   await voice?.read().catch(() => {})
   expect(calls.some((c) => c.method === 'getFile' && c.body.file_id === 'v1')).toBe(true)
 
-  await adapter.answerPress({ id: 'cbq-1', data: '' }, 'Allowed')
+  await adapter.answerPress({ id: 'cbq-1', data: '' }, { text: 'Allowed', echo: true })
   expect(calls.at(-1)).toMatchObject({
     method: 'answerCallbackQuery',
     body: { callback_query_id: 'cbq-1', text: 'Allowed' },

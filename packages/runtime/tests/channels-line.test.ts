@@ -1,5 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createHmac } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { LineAdapter } from '../src/channels/index.ts'
 import { type Call, fakeServer, testIO, until } from './fixtures/channel-server.ts'
 
@@ -8,9 +11,11 @@ const HOOK = 'https://box.example/hooks/channels/line'
 
 const servers: { stop(force?: boolean): unknown }[] = []
 const adapters: LineAdapter[] = []
+const dirs: string[] = []
 afterEach(async () => {
   for (const a of adapters.splice(0)) await a.stop()
   for (const s of servers.splice(0)) s.stop(true)
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
 /** The Messaging API (and its content host) on one fake server; a reply token named `used` is refused. */
@@ -251,9 +256,55 @@ test("a press's note is the reply to that press", async () => {
   ])
   const press = received[0]?.press
   if (!press) throw new Error('no press')
-  await adapter.answerPress(press, 'Allowed')
+  await adapter.answerPress(press, { text: 'Allowed' })
   expect(fake.calls.at(-1)).toMatchObject({
     path: '/v2/bot/message/reply',
     body: { replyToken: 'press-token', messages: [{ type: 'text', text: 'Allowed' }] },
   })
+})
+
+test('files: a small JPEG or PNG is an image LINE fetches from the gateway, anything else a link', async () => {
+  const fake = line()
+  const adapter = make(fake.base)
+  const dir = mkdtempSync(join(tmpdir(), 'myr-line-'))
+  dirs.push(dir)
+  const { handle, statuses } = testIO(HOOK, dir)
+  await adapter.start(handle)
+  await until(() => statuses.some((s) => s.state === 'on'))
+  expect(adapter.can.files).toBe(true)
+
+  const png = new Uint8Array([137, 80, 78, 71])
+  await adapter.sendFile('U1', { name: 'chart.png', mimeType: 'image/png', data: png, caption: '**Sales**' })
+  const sent = fake.calls.at(-1)?.body as { messages: Record<string, string>[] }
+  expect(sent.messages[0]).toEqual({ type: 'text', text: 'Sales' })
+  const image = sent.messages[1]
+  expect(image).toMatchObject({ type: 'image' })
+  expect(image?.originalContentUrl).toMatch(/^https:\/\/box\.example\/hooks\/channels\/line\?file=[\w-]{32}$/)
+  expect(image?.previewImageUrl).toBe(image?.originalContentUrl)
+  // What LINE fetches is served by the same webhook, without a signature.
+  const served = await adapter.webhook(new Request(image?.originalContentUrl ?? ''))
+  expect(served.headers.get('content-type')).toBe('image/png')
+  expect(new Uint8Array(await served.arrayBuffer())).toEqual(png)
+
+  // Video needs a preview image and audio its length; they, and every other file, go as a link.
+  await adapter.sendFile('U1', { name: 'talk.mp4', mimeType: 'video/mp4', data: new Uint8Array([1]) })
+  const link = ((fake.calls.at(-1)?.body ?? {}) as { messages: Record<string, string>[] }).messages[0]
+  expect(link?.type).toBe('text')
+  expect(link?.text).toMatch(
+    /^📎 talk\.mp4 \(https:\/\/box\.example\/hooks\/channels\/line\?file=[\w-]{32}\) \(the link works for 7 days\)$/,
+  )
+})
+
+test('without an HTTPS public address a file is refused, so the hub lists it by name', async () => {
+  const fake = line()
+  const adapter = make(fake.base)
+  const { handle } = testIO(
+    'http://box.example/hooks/channels/line',
+    mkdtempSync(join(tmpdir(), 'myr-line-')),
+  )
+  dirs.push(handle.dir)
+  await adapter.start(handle)
+  await expect(
+    adapter.sendFile('U1', { name: 'a.pdf', mimeType: 'application/pdf', data: new Uint8Array([1]) }),
+  ).rejects.toThrow(/public HTTPS address/)
 })
