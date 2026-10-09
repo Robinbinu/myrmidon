@@ -608,3 +608,110 @@ export function tightened(
   const stricter = STRICTNESS[a] > STRICTNESS[effectivePreset(before).preset]
   return { denied: added('deny'), asked: added('ask'), groups, ...(stricter ? { preset: a } : {}) }
 }
+
+// --- What agents were told ------------------------------------------------------------------------------------------
+
+/**
+ * What a round's agents may do, as they were last told it: logged when a round starts and when the person changes
+ * permissions mid-round, so the next change can be told as a change. `preset` is absent only in logs from before this
+ * was kept, which knew nothing but full access.
+ */
+export interface RoundAccess {
+  readonly preset?: PermissionPreset
+  readonly fullAccess?: boolean
+  /** The folders beyond the defaults sandboxed agents may read (Settings, the project, the chat's grants). */
+  readonly reads?: readonly string[]
+  /** Every level's rules, nearest level first. */
+  readonly rules?: readonly PermissionRule[]
+  /** The tool groups each role does not get. */
+  readonly off?: { readonly lead?: readonly AccessGroup[]; readonly crew?: readonly AccessGroup[] }
+}
+
+export function accessOf(
+  levels: PermissionLevels,
+  fullAccess: boolean,
+  reads: readonly string[],
+): RoundAccess {
+  const rules = rulesIn(levels).map(({ scope: _, ...rule }) => rule)
+  const lead = groupsOff(levels, 'lead')
+  const crew = groupsOff(levels, 'crew')
+  return {
+    preset: effectivePreset(levels).preset,
+    ...(fullAccess ? { fullAccess: true } : {}),
+    ...(reads.length ? { reads: [...new Set(reads)].sort() } : {}),
+    ...(rules.length ? { rules } : {}),
+    ...(lead.length || crew.length
+      ? { off: { ...(lead.length ? { lead } : {}), ...(crew.length ? { crew } : {}) } }
+      : {}),
+  }
+}
+
+/** What changed for one role between what it was told and what holds now; rules by target. */
+export interface AccessChange {
+  readonly preset?: { readonly from: PermissionPreset; readonly to: PermissionPreset }
+  readonly fullAccess?: boolean
+  readonly opened: readonly string[]
+  readonly closed: readonly string[]
+  readonly allowed: readonly string[]
+  readonly asked: readonly string[]
+  readonly denied: readonly string[]
+  /** Targets no rule covers any more. */
+  readonly dropped: readonly string[]
+  readonly groupsOn: readonly AccessGroup[]
+  readonly groupsOff: readonly AccessGroup[]
+}
+
+/**
+ * The change `role` should be told about, or none when nothing it may do changed. Against a log from before this was
+ * kept (no preset), only full access can be compared.
+ */
+export function accessChange(
+  before: RoundAccess,
+  after: RoundAccess,
+  role: AgentRole,
+): AccessChange | undefined {
+  const known = before.preset !== undefined
+  // The nearest rule for a target is the one that holds, as in `decide`.
+  const rules = (a: RoundAccess) => {
+    const out = new Map<string, { target: string; decision: RuleDecision }>()
+    for (const r of known ? (a.rules ?? []) : [])
+      if (appliesTo(r, role) && !out.has(`${r.kind}:${r.target}`))
+        out.set(`${r.kind}:${r.target}`, { target: r.target, decision: r.decision })
+    return out
+  }
+  const was = rules(before)
+  const now = rules(after)
+  const to = (decision: RuleDecision) =>
+    [...now.entries()]
+      .filter(([k, r]) => r.decision === decision && was.get(k)?.decision !== decision)
+      .map(([, r]) => r.target)
+  const minus = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined) =>
+    known ? (a ?? []).filter((x) => !(b ?? []).includes(x)) : []
+  const change: AccessChange = {
+    ...(known && after.preset && after.preset !== before.preset
+      ? { preset: { from: before.preset, to: after.preset } }
+      : {}),
+    ...(!!after.fullAccess !== !!before.fullAccess ? { fullAccess: !!after.fullAccess } : {}),
+    opened: minus(after.reads, before.reads),
+    closed: minus(before.reads, after.reads),
+    allowed: to('allow'),
+    asked: to('ask'),
+    denied: to('deny'),
+    dropped: [...was.entries()].filter(([k]) => !now.has(k)).map(([, r]) => r.target),
+    groupsOn: minus(before.off?.[role], after.off?.[role]),
+    groupsOff: minus(after.off?.[role], before.off?.[role]),
+  }
+  const { preset, fullAccess, ...lists } = change
+  return preset || fullAccess !== undefined || Object.values(lists).some((l) => l.length) ? change : undefined
+}
+
+/** Whether a change lets the agent do something it could not before (so what it declined may work now). */
+export function accessLoosened(c: AccessChange): boolean {
+  return (
+    c.fullAccess === true ||
+    (!!c.preset?.from && STRICTNESS[c.preset.to] < STRICTNESS[c.preset.from]) ||
+    c.opened.length > 0 ||
+    c.allowed.length > 0 ||
+    c.groupsOn.length > 0
+  )
+}

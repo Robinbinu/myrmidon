@@ -42,6 +42,16 @@ const permissionLevel = Schema.object({
   access: optional(Schema.object({ lead: optional(access), crew: optional(access) })),
 })
 
+const groups = optional(Schema.array(Schema.string()))
+/** What a round's agents were told they may do (protocol's RoundAccess). */
+const roundAccess = Schema.object({
+  preset: presetOf,
+  fullAccess: Schema.boolean(),
+  reads: optional(Schema.array(Schema.string())),
+  rules: optional(Schema.array(rule)),
+  off: optional(Schema.object({ lead: groups, crew: groups })),
+})
+
 /** How a colony (or a chat round in it) was set up: everything needed to run or resume it. */
 const colonySpec = Schema.object({
   name: str(),
@@ -117,6 +127,7 @@ const colonySpec = Schema.object({
   review: Schema.union(['off', 'auto', 'always']),
   fullAccess: Schema.boolean(),
   computerUse: Schema.boolean(),
+  access: optional(roundAccess),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -297,6 +308,7 @@ const defs: EventTypeDefinition[] = [
       key: Schema.string(),
       grant: optional(Schema.union(['file', 'command'])),
       read: Schema.string(),
+      sensitive: Schema.boolean(),
       offer: optional(Schema.array(Schema.object(ruleTarget))),
       why: optional(Schema.dict(Schema.any())),
       call: optional(Schema.dict(Schema.any())),
@@ -369,6 +381,7 @@ const defs: EventTypeDefinition[] = [
       askAll: Schema.boolean(),
       fullAccess: Schema.boolean(),
       interrupted: strs(),
+      access: optional(roundAccess),
     }),
   },
   {

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  accessChange,
+  accessLoosened,
+  accessOf,
   commandPrefix,
   decide,
   destructiveCommand,
@@ -350,4 +353,35 @@ test('tightened names new denies and asks, groups taken away, and a stricter pre
     preset: 'ask',
   })
   expect(tightened(after, before)).toEqual({ denied: [], asked: [], groups: [] })
+})
+
+test('accessChange tells a role what changed since it was told, and nothing when nothing did', () => {
+  const ask: PermissionLevels = { global: { preset: 'auto', rules: [] }, chat: { preset: 'ask', rules: [] } }
+  const told = accessOf(ask, false, [])
+  expect(accessChange(told, accessOf(ask, false, []), 'lead')).toBeUndefined()
+  const full = accessOf({ ...ask, chat: { preset: 'full', rules: [] } }, true, [])
+  const change = accessChange(told, full, 'lead')
+  expect(change).toMatchObject({ preset: { from: 'ask', to: 'full' }, fullAccess: true })
+  expect(change && accessLoosened(change)).toBe(true)
+  // Rules by target and role, folders opened and closed.
+  const after = accessOf(
+    {
+      global: {
+        preset: 'auto',
+        rules: [{ kind: 'command', target: 'git push', decision: 'deny', who: 'crew' }],
+      },
+      chat: { preset: 'ask', rules: [{ kind: 'command', target: 'bun test', decision: 'allow' }] },
+    },
+    false,
+    ['/h/.ssh'],
+  )
+  const lead = accessChange(accessOf(ask, false, ['/h/notes']), after, 'lead')
+  expect(lead).toMatchObject({ allowed: ['bun test'], denied: [], opened: ['/h/.ssh'], closed: ['/h/notes'] })
+  expect(accessChange(told, after, 'crew')?.denied).toEqual(['git push'])
+  const stricter = accessChange(full, told, 'lead')
+  expect(stricter).toMatchObject({ preset: { from: 'full', to: 'ask' }, fullAccess: false })
+  expect(stricter && accessLoosened(stricter)).toBe(false)
+  // A log from before access was kept knows only full access.
+  expect(accessChange({}, after, 'lead')).toBeUndefined()
+  expect(accessChange({}, full, 'lead')).toMatchObject({ fullAccess: true, allowed: [], opened: [] })
 })
