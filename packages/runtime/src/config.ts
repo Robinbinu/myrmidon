@@ -153,6 +153,8 @@ export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
 
 // Setup assistant (setup.ts)
 
+/** The smallest context window that can lead a crew; the client's AGENT_MIN_WINDOW (ui-config.ts) is the same. */
+export const SETUP_LEAD_MIN_WINDOW = 32_000
 /** How long setup waits for a model server on this computer before it counts as not running. */
 export const SETUP_PROBE_MS = 800
 /**

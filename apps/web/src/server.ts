@@ -24,6 +24,7 @@ import {
   type ChatService,
   CUSTOM_APIS,
   type CustomApi,
+  canLeadACrew,
   channelSendTool,
   detectSetup,
   finishSetup,
@@ -391,17 +392,23 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
-  const modelReady = () => (options.omp?.available().length ?? 0) > 0
+  /** A model that can lead a crew can be called now, however it came (a key here, the environment, a cloud profile). */
+  const modelReady = () =>
+    !!options.omp &&
+    canLeadACrew(buildCatalog(options.omp, options.settings, false, options.resolver?.windows))
+  /** A model the person connected in Myrmidon itself: a key or sign-in it keeps, or an endpoint they added. */
+  const modelConnected = () => (options.omp?.providers() ?? []).some((p) => p.ready && (p.stored || p.custom))
   /**
    * Setup as it stands. The first time it is asked about it is decided from what this install has, and kept: one
-   * from before the assistant existed, with a chat or a model already, counts as set up.
+   * from before the assistant existed, with a chat or a model the person connected, counts as set up. Models the
+   * computer offers by itself (a cloud profile, an on-device model) do not: a new install has those too.
    */
   const currentSetup = async (): Promise<SetupState | undefined> => {
     const settings = options.settings
     if (!settings) return undefined
     const saved = settings.get().setup
     if (saved) return saved
-    const setup = firstSetup({ chats: (await chats?.list())?.length ?? 0, modelReady: modelReady() })
+    const setup = firstSetup({ chats: (await chats?.list())?.length ?? 0, modelConnected: modelConnected() })
     settings.set({ ...settings.get(), setup })
     return setup
   }

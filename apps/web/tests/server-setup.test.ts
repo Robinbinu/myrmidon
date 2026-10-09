@@ -2,7 +2,14 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type ChatService, detectSetup, ProjectStore, SettingsStore } from '@myrmidon/runtime'
+import {
+  type ChatService,
+  canLeadACrew,
+  detectSetup,
+  firstSetup,
+  ProjectStore,
+  SettingsStore,
+} from '@myrmidon/runtime'
 import { startServer, type WebServer } from '../src/server.ts'
 
 const homes: string[] = []
@@ -94,6 +101,31 @@ test('a model server already added as a provider is said to be added', async () 
     servers: [{ id: 'ollama', baseUrl: ollama, provider: 'ollama-local' }],
   })
   expect(found.local[0]?.added).toBe(true)
+})
+
+test("omp's own provider for a local server is offered once, as that server", async () => {
+  const ollama = fakeOllama(['llama3.2'])
+  const found = await detectSetup({
+    providers: [
+      { id: 'ollama', models: 1, ready: true, custom: false },
+      { id: 'openai', models: 3, ready: true, custom: false },
+    ],
+    env: {},
+    servers: [{ id: 'ollama', baseUrl: ollama, provider: 'ollama-local' }],
+  })
+  expect(found.local).toMatchObject([{ id: 'ollama', provider: 'ollama', added: true }])
+  expect(found.ready.map((p) => p.id)).toEqual(['openai'])
+})
+
+test('only a model the person connected, or a chat, makes an install count as set up already', () => {
+  const now = new Date('2026-10-09T10:00:00Z')
+  expect(firstSetup({ chats: 0, modelConnected: false }, now)).toEqual({ steps: {} })
+  expect(firstSetup({ chats: 2, modelConnected: false }, now).finishedAt).toBe(now.toISOString())
+  expect(firstSetup({ chats: 0, modelConnected: true }, now).finishedAt).toBe(now.toISOString())
+  // An on-device model with a small window cannot lead a crew; one whose window is not known may.
+  expect(canLeadACrew([{ contextWindow: 4096 }])).toBe(false)
+  expect(canLeadACrew([{ contextWindow: 4096 }, {}])).toBe(true)
+  expect(canLeadACrew([])).toBe(false)
 })
 
 test('GET /api/setup/detect answers with what the page can offer, from the servers it was told to look at', async () => {

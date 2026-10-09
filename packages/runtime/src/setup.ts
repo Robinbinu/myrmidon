@@ -5,7 +5,7 @@ import {
   type SetupState,
   type SetupStep,
 } from '@myrmidon/protocol'
-import { SETUP_ENV_KEYS, SETUP_LOCAL_SERVERS, SETUP_PROBE_MS } from './config.ts'
+import { SETUP_ENV_KEYS, SETUP_LEAD_MIN_WINDOW, SETUP_LOCAL_SERVERS, SETUP_PROBE_MS } from './config.ts'
 import type { ProviderInfo } from './omp/runtime.ts'
 import type { MyrSettings } from './settings.ts'
 
@@ -52,8 +52,7 @@ export async function detectSetup(input: {
   timeoutMs?: number
 }): Promise<SetupDetection> {
   const env = input.env ?? process.env
-  const ready = input.providers.filter((p) => p.ready).map((p) => ({ id: p.id, models: p.models }))
-  const readyIds = new Set(ready.map((p) => p.id))
+  const readyIds = new Set(input.providers.filter((p) => p.ready).map((p) => p.id))
   const found = Object.entries(SETUP_ENV_KEYS)
     .filter(([, variable]) => !!env[variable]?.trim())
     .map(([provider, variable]) => ({ provider, variable, ready: readyIds.has(provider) }))
@@ -64,21 +63,37 @@ export async function detectSetup(input: {
   const local = servers.flatMap((s, i) => {
     const models = listed[i]
     if (!models) return []
-    const added = input.providers.some(
+    // omp has built-in providers for some local servers (`ollama`, `lm-studio`), ready once the server answers.
+    const builtIn = readyIds.has(s.id) ? s.id : undefined
+    const custom = input.providers.find(
       (p) =>
         p.id === s.provider || (p.baseUrl !== undefined && trimSlash(p.baseUrl) === trimSlash(s.baseUrl)),
     )
-    return [{ id: s.id, baseUrl: s.baseUrl, provider: s.provider, models, added }]
+    const provider = builtIn ?? custom?.id ?? s.provider
+    return [{ id: s.id, baseUrl: s.baseUrl, provider, models, added: !!builtIn || !!custom }]
   })
+  // A provider that is one of those servers is offered once, as the server.
+  const covered = new Set(local.filter((l) => l.added).map((l) => l.provider))
+  const ready = input.providers
+    .filter((p) => p.ready && !covered.has(p.id))
+    .map((p) => ({ id: p.id, models: p.models }))
   return { ready, env: found, local }
 }
 
 /**
- * The state setup starts in when it is first asked about. An install from before the assistant existed, one that
- * already has a chat or a model, counts as set up; a new one starts at the beginning.
+ * Whether any of these models can lead a crew: one whose context window, when known, holds an agent. Small
+ * on-device models a computer brings along (Apple's) cannot, so they do not make the Connect models step done.
  */
-export function firstSetup(seen: { chats: number; modelReady: boolean }, now = new Date()): SetupState {
-  return seen.chats > 0 || seen.modelReady ? { finishedAt: now.toISOString(), steps: {} } : { steps: {} }
+export function canLeadACrew(models: readonly { contextWindow?: number }[]): boolean {
+  return models.some((m) => (m.contextWindow ?? SETUP_LEAD_MIN_WINDOW) >= SETUP_LEAD_MIN_WINDOW)
+}
+
+/**
+ * The state setup starts in when it is first asked about. An install from before the assistant existed, one that
+ * already has a chat or a model the person connected, counts as set up; a new one starts at the beginning.
+ */
+export function firstSetup(seen: { chats: number; modelConnected: boolean }, now = new Date()): SetupState {
+  return seen.chats > 0 || seen.modelConnected ? { finishedAt: now.toISOString(), steps: {} } : { steps: {} }
 }
 
 /** What exists already, from the settings and stores, whoever set it up. Alerts live in each browser, not here. */
