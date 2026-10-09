@@ -157,3 +157,34 @@ test('the new-chat mascot spells out what is typed in its own grid, then its eye
     host.remove()
   }
 })
+
+test('the letters change colour after every few words, and start again from the eyes when cleared', async () => {
+  const { useTypingColor } = await import('../src/client/chat/Hero.tsx')
+  // random() of 0 makes every run of words the shortest (two) and every pick the first other colour.
+  const palette = ['red', 'green', 'blue']
+  let shown = ''
+  function Probe(props: { draft: string }) {
+    shown = useTypingColor(props.draft, 'eye', palette, () => 0)
+    return null
+  }
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const type = (draft: string) => act(async () => root.render(<Probe draft={draft} />))
+  try {
+    await type('one')
+    expect(shown).toBe('eye')
+    await type('one two')
+    expect(shown).toBe('eye')
+    await type('one two three')
+    expect(shown).toBe('red')
+    await type('one two three four')
+    expect(shown).toBe('red')
+    await type('one two three four five')
+    expect(shown).toBe('green')
+    await type('')
+    expect(shown).toBe('eye')
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

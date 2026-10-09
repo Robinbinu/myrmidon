@@ -123,6 +123,30 @@ export function useTypedText(
 }
 
 /**
+ * The colour the typed letters take: `base` (the eyes' colour) to begin with, then another of the mascot's colours
+ * after every few words, a random count in MASCOT_TYPING.colorEveryWords. Clearing the box starts again from `base`.
+ */
+export function useTypingColor(
+  draft: string,
+  base: string,
+  palette: readonly string[] = Object.values(MASCOT_COLORS),
+  random: () => number = Math.random,
+): string {
+  const words = draft.trim() ? draft.trim().split(/\s+/).length : 0
+  const [min, max] = MASCOT_TYPING.colorEveryWords
+  const gap = () => min + Math.floor(random() * (max - min + 1))
+  const state = useRef<{ color?: string; next: number }>({ next: gap() })
+  if (words === 0) state.current = { next: gap() }
+  else if (words > state.current.next) {
+    const current = state.current.color ?? base
+    const others = palette.filter((c) => c !== current)
+    const color = others[Math.floor(random() * others.length)] ?? current
+    state.current = { color, next: words + gap() - 1 }
+  }
+  return state.current.color ?? base
+}
+
+/**
  * The readout in the screen's corner, as the person chose: the clock, a hello with their name, how many crews are at
  * work (the clock when none are), all of these in turn, or nothing.
  */
@@ -399,6 +423,7 @@ export function Hero(props: {
     () => (emotion.color === LEAD_COLOR ? MASCOT_COLORS[mascot.color] : resolveColor(emotion.color)),
     [emotion.color, mascot.color],
   )
+  const typedColor = useTypingColor(props.draft, eyes)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
@@ -436,7 +461,7 @@ export function Hero(props: {
                   {/* While the person types, the screen spells out their message in its own cells. */}
                   <PixelFace
                     mood={emotion.mood}
-                    color={eyes}
+                    color={typed !== undefined ? typedColor : eyes}
                     cols={15}
                     rows={8}
                     cell={20}

@@ -130,6 +130,8 @@ export const MASCOT_TYPING = {
   throttleMs: 80,
   /** The cursor bar after the letters turns on and off this often (it stays lit with less motion). */
   blinkMs: 530,
+  /** The letters take another of the mascot's colours after a random number of words in this range. */
+  colorEveryWords: [2, 4],
 } as const
 /**
  * Windows shorter than this leave the mascot off the new-chat view: its screen (about 300px) would push the message
