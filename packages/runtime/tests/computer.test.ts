@@ -3,7 +3,15 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore } from '@myrmidon/core'
-import { type ColonyState, type ComputerApp, type EventDraft, foldColony } from '@myrmidon/protocol'
+import {
+  type ColonyState,
+  type ComputerApp,
+  decide,
+  type EventDraft,
+  foldColony,
+  type PermissionCall,
+  type PermissionRule,
+} from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { Model } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
@@ -78,14 +86,16 @@ const textOf = (r: AgentToolResult) =>
 
 /** A round's host as far as the computer tool uses it; the person's answers to cards come from `decide`. */
 function fakeHost(
-  options: { decide?: (summary: string) => boolean; askAll?: boolean; askTools?: string[] } = {},
+  options: { decide?: (summary: string) => boolean; askAll?: boolean; rules?: PermissionRule[] } = {},
 ) {
   const events: EventDraft[] = []
   const cards: string[] = []
   let apps: ComputerApp[] = []
   const host = {
     id: 'colony-test',
-    spec: { askAll: options.askAll, askTools: options.askTools ?? [] },
+    spec: { askAll: options.askAll },
+    permit: (_agent: string, call: PermissionCall) =>
+      decide({ global: { preset: 'auto', rules: options.rules ?? [] } }, call, { askAll: !!options.askAll }),
     boundary: 'b0undary',
     blobs: new BlobStore(join(home, 'blobs')),
     get computer() {
@@ -223,7 +233,7 @@ test('a consequential-looking step waits for the person, and secrets are never t
 })
 
 test('computer set to ask in Settings asks before every step', async () => {
-  const { host, cards } = fakeHost({ askTools: ['computer'] })
+  const { host, cards } = fakeHost({ rules: [{ kind: 'tool', target: 'computer', decision: 'ask' }] })
   const tool = generic(host)
   await call(tool, { action: 'open_app', app: 'Notes' })
   await call(tool, { action: 'scroll', coordinate: [10, 10], scroll_direction: 'down' })

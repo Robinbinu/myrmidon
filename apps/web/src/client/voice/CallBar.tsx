@@ -36,6 +36,8 @@ export function setMicLevel(next: number) {
   level = next
   for (const l of listeners) l()
 }
+/** The mic's level as it is now, for anything that samples it on its own clock (the mascot's equaliser). */
+export const micLevel = () => level
 const subscribe = (l: () => void) => {
   listeners.add(l)
   return () => listeners.delete(l)

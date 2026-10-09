@@ -2,11 +2,11 @@ import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { activeGateway, api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { presetLabel } from '../permissions/describe.ts'
 import { desktop } from '../ui/desktop.ts'
 import { Button, TextInput } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { PermissionMark } from './ProjectPermissions.tsx'
 
 interface Listing {
   path: string
@@ -159,15 +159,17 @@ export function ProjectPill(props: {
   const pill =
     'inline-flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-md px-2 text-body text-muted'
   if (props.fixed) {
-    const mode = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.mode
+    const preset = props.projects.find((p) => p.id === props.fixed?.id)?.permissions?.preset
     return (
       <span
         className={pill}
-        title={copy.folderPicker.pill.worksIn(props.fixed.name, mode && mode !== 'auto' ? mode : '')}
+        title={copy.folderPicker.pill.worksIn(
+          props.fixed.name,
+          preset && preset !== 'auto' ? presetLabel(preset) : '',
+        )}
       >
         <Folder className="size-3.5 shrink-0" />
         <span className="truncate">{props.fixed.name}</span>
-        <PermissionMark {...(mode ? { mode } : {})} />
       </span>
     )
   }
@@ -179,7 +181,7 @@ export function ProjectPill(props: {
     >
       <Folder className="size-3.5 shrink-0" />
       <span className="truncate">{current?.name ?? copy.folderPicker.pill.none}</span>
-      <PermissionMark {...(current?.permissions ? { mode: current.permissions.mode } : {})} />
+
       <select
         aria-label={copy.folderPicker.pill.label}
         value={current?.id ?? ''}

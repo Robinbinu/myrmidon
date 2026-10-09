@@ -159,8 +159,11 @@ class FakeChats implements ChannelChats {
     this.decided.push({ colonyId, id, approved })
     this.emit(colonyId, 'approval/decided', { id, approved, by: 'person' })
   }
-  async allowAlways(tool: string) {
-    this.alwaysAllowed.push(tool)
+  async allowAlways(colonyId: string, approvalId: string) {
+    const asked = (this.events.get(colonyId) ?? []).find(
+      (e) => e.type === 'approval/requested' && (e.payload as { id: string }).id === approvalId,
+    )
+    this.alwaysAllowed.push((asked?.payload as { tool?: string } | undefined)?.tool ?? approvalId)
   }
   async artifact(_colonyId: string, name: string) {
     return { data: new TextEncoder().encode(`contents of ${name}`), mediaType: 'text/markdown' }

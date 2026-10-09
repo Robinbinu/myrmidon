@@ -33,7 +33,7 @@ test("a project's readable folders are saved with its permissions", async () => 
     name: 'site',
     path: '/tmp/site',
     addedAt: '',
-    permissions: { mode: 'auto' as const, allow: [], read: ['~/Documents/specs'] },
+    permissions: { rules: [], read: ['~/Documents/specs'] },
   }
   const { host, unmount } = await mount(
     <MotionConfig reducedMotion="always">
@@ -48,7 +48,12 @@ test("a project's readable folders are saved with its permissions", async () => 
       buttonIn(doc, copy.permissions.save).click()
       await Bun.sleep(10)
     })
-    expect(sent[0]?.body).toMatchObject({ mode: 'auto', read: ['~/Documents/specs'] })
+    // The sheet reads the global level and the tool catalog first; the save is the one PUT.
+    expect(sent.find((r) => r.method === 'PUT')?.body).toMatchObject({
+      preset: null,
+      rules: [],
+      read: ['~/Documents/specs'],
+    })
   } finally {
     await unmount()
   }
@@ -56,7 +61,7 @@ test("a project's readable folders are saved with its permissions", async () => 
 
 test('a request to read a folder is allowed once or for the chat; the chat’s folder shows as a chip that hides it again', async () => {
   const sent = recordFetch((url) => (url.includes('/readable') ? { reads: [] } : {}))
-  const { Approval, ChatGrantChips } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { Approval, ChatReadChips } = await import('../src/client/chat/ApprovalCards.tsx')
   const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
   const { copy } = await import('../src/client/copy.ts')
   const request = {
@@ -71,13 +76,13 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
     <MotionConfig reducedMotion="always">
       <ToastProvider>
         <Approval colonyId="colony-1" chatId="chat-1" request={request} />
-        <ChatGrantChips chatId="chat-1" grants={[]} reads={['/Users/me/notes']} onChanged={() => {}} />
+        <ChatReadChips chatId="chat-1" reads={['/Users/me/notes']} onChanged={() => {}} />
       </ToastProvider>
     </MotionConfig>,
   )
   const doc = host.ownerDocument
   try {
-    expect(buttonIn(doc, copy.approvals.approval.approveOnce)).toBeDefined()
+    expect(buttonIn(doc, copy.permissions.card.allowOnce)).toBeDefined()
     await act(async () => {
       buttonIn(doc, copy.approvals.reads.approveAll).click()
       await Bun.sleep(10)
@@ -97,6 +102,58 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
       await Bun.sleep(10)
     })
     expect(sent[1]).toMatchObject({ method: 'PUT', body: { folder: '/Users/me/notes', allowed: false } })
+  } finally {
+    await unmount()
+  }
+})
+
+test('a request to read a folder of keys warns, and offers it once or for this chat only', async () => {
+  const sent = recordFetch((url) => (url.includes('/readable') ? { reads: [] } : {}))
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const request = {
+    id: 'approval-2',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/.ssh (to list the keys)',
+    read: '/Users/me/.ssh',
+    sensitive: true,
+    // Even offered rules (none are, for a read) could not remember it for the project or everywhere.
+    offer: [{ kind: 'tool' as const, target: 'request_read' }],
+    time: '',
+  }
+  const { host, unmount } = await mount(
+    <MotionConfig reducedMotion="always">
+      <ToastProvider>
+        <Approval colonyId="colony-1" chatId="chat-1" project="site" request={request} />
+      </ToastProvider>
+    </MotionConfig>,
+  )
+  const doc = host.ownerDocument
+  try {
+    expect(doc.querySelector('[role="note"]')?.textContent).toBe(copy.approvals.reads.sensitive)
+    const labels = [...doc.querySelectorAll('button')].map(
+      (b) => b.textContent?.trim() || b.getAttribute('aria-label'),
+    )
+    expect(labels).toEqual([
+      copy.permissions.card.denyOnce,
+      copy.approvals.reads.approveAll,
+      copy.permissions.card.allowOnce,
+    ])
+    expect(doc.body.textContent).not.toContain(copy.permissions.card.scopes.project)
+    expect(doc.body.textContent).not.toContain(copy.permissions.card.scopes.global)
+    await act(async () => {
+      buttonIn(doc, copy.permissions.card.allowOnce).click()
+      await Bun.sleep(10)
+    })
+    expect(sent).toEqual([
+      {
+        url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-2'),
+        method: 'POST',
+        body: { approved: true },
+      },
+    ])
   } finally {
     await unmount()
   }

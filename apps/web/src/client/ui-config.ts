@@ -141,6 +141,86 @@ export const HERO_MASCOT_MIN_HEIGHT = 760
 /** How many of the latest chats the new-chat view lists under its starters. */
 export const HERO_RECENT_CHATS = 5
 
+/** The new-chat mascot's dot screen, in cells; its clips and shows are drawn for this grid. */
+export const MASCOT_GRID = { cols: 15, rows: 8 } as const
+/** The beats the mascot's eye clips are built from, so they share one tempo; each frame lasts one of these. */
+export const MASCOT_BEATS = {
+  /** The eyes shut for a blink. */
+  blink: 120,
+  /** One quick step of a movement, such as the eyes sliding a cell. */
+  step: 90,
+  /** A glance landing somewhere. */
+  glance: 260,
+  /** Holding a look long enough to read it. */
+  hold: 700,
+  /** Lingering on an expression: a side-eye, drooping lids, a peek. */
+  linger: 1400,
+} as const
+/** The tricks the new-chat mascot plays while nobody types. */
+export const MASCOT_IDLE = {
+  /** How often it considers playing one, and the chance it does each time. */
+  everyMs: 1000,
+  chance: 0.12,
+  /** The share of its tricks that are the Pac-Man show rather than something its eyes do. */
+  showShare: 0.1,
+} as const
+/** Shows that take the mascot's whole screen. */
+export const MASCOT_SHOWS = {
+  /** The scanline sweeping down as the screen opens, per row. */
+  bootRowMs: 55,
+  /** Confetti when a run finishes: how many bits, how long they fall, a frame, and gravity in cells/s². */
+  confetti: { count: 18, ms: 1500, frameMs: 50, gravity: 22 },
+  /** Pac-Man eating a row of dots, one cell per step. */
+  pacmanStepMs: 120,
+  /**
+   * The Game of Life while it sleeps: how long asleep before it starts, a generation, the most generations before it
+   * starts over (it also does when every cell dies or nothing changes), and how thickly the eyes' cells seed it.
+   */
+  life: { afterMs: 20_000, stepMs: 380, maxGenerations: 120, seedDensity: 0.35 },
+  /** Equaliser bars while a voice call is on: a frame, and how much the mic's level is raised to fill them. */
+  equaliser: { frameMs: 70, gain: 8 },
+} as const
+/** The mascot's drawn reactions. */
+export const MASCOT_REACTIONS = {
+  /** How long a plain reaction's expression shows before it settles back. */
+  ms: 1600,
+  /** Star eyes after a run finishes, twinkling at this rate. */
+  starsMs: 2400,
+  twinkleMs: 220,
+  /** Spiral eyes when dizzy: a quarter turn per step. */
+  spiralStepMs: 110,
+  /** Tears after a run fails, one cell of a tear's fall per step. */
+  tearsMs: 3200,
+  dropMs: 150,
+  /** The sweat drop while it is concerned: one cell down per step, then a pause before the next. */
+  sweatStepMs: 170,
+  sweatPauseMs: 900,
+  /** Flames under its eyes once at least this many crews work at once, flickering at this rate. */
+  fireAt: 2,
+  fireFlickerMs: 110,
+  /** The z's floating up while it sleeps, a cell per step. */
+  zzzStepMs: 420,
+} as const
+/** Touching the mascot's screen. */
+export const MASCOT_TOUCH = {
+  /** A press held this long without moving starts charging; it fills the screen over `chargeMs`, then pops. */
+  holdMs: 380,
+  chargeMs: 1500,
+  chargeFrameMs: 60,
+  /** Moving this far while pressed is a drag: the eyes follow, squashing or stretching a cell per this much speed (px/ms). */
+  dragPx: 6,
+  stretchSpeed: 0.7,
+  /** A click's ripple: one ring outward per step. */
+  rippleStepMs: 45,
+  /** The pop when a charge is full: the flash, then each ring of its burst. */
+  popFlashMs: 70,
+  popRingMs: 55,
+  /** This many clicks within the window confuse it: its eyes swirl for `confusedMs` and its crew falls down. */
+  confusedClicks: 5,
+  confusedWindowMs: 2000,
+  confusedMs: 3200,
+} as const
+
 /* ------------------------------------------------------------------ crew cursors */
 
 /*
@@ -167,6 +247,76 @@ export const CURSOR = {
   labelPop: { type: 'spring', stiffness: 500, damping: 26, delay: 0.05 },
   /** The ring a click leaves. */
   clickRing: { duration: 0.5, ease: 'easeOut' },
+} as const
+
+/**
+ * The new-chat mascot's crew cursors, which steer themselves (Reynolds' steering behaviours, ui/steering.ts). Distances
+ * are px from the mascot's centre, speeds px/s, forces px/s².
+ */
+export const MASCOT_CREW = {
+  /** How many cursors hang around it. */
+  count: 3,
+  /**
+   * Each cursor's personality, drawn from these ranges once per visit: top speed and force, curiosity (how often it
+   * flies over to poke), nerve (courage: how far it runs, how readily it freezes, how long it lies dazed) and how much
+   * its wandering wobbles.
+   */
+  personality: {
+    maxSpeed: [320, 520],
+    maxForce: [1400, 2400],
+    curiosity: [0.3, 1],
+    nerve: [0.2, 1],
+    jitter: [0.6, 1.6],
+  },
+  /** How hard it pulls toward the velocity it wants, per second (see STEER_GAIN). */
+  gain: 6,
+  /** Arrival slows down within this distance of where it is going. */
+  slowRadius: 140,
+  /** The wander circle: how far ahead, how big, and how fast its point drifts (radians/s at a jitter of 1). */
+  wander: { distance: 60, radius: 34, jitter: 5 },
+  /** Cursors closer than this push each other away. */
+  separationRadius: 110,
+  /** How strongly each behaviour counts when they are added up. */
+  weights: { wander: 3, separation: 1600, avoid: 1800, contain: 2400 },
+  /** Room it keeps around the mascot's screen when not poking it, and how far ahead (s) it looks for the screen. */
+  faceMargin: 26,
+  lookahead: 0.35,
+  /**
+   * How far inside the canvas's edges it stays, the extra room on the right for its name tag, and how far above the
+   * canvas's floor it lands when it falls.
+   */
+  edge: 24,
+  tagRoom: 90,
+  floorPad: 56,
+  /** How long it stays around one spot while roaming. */
+  roamMs: [2800, 7000],
+  /** Chance per second it flies over to poke the mascot, at full curiosity; the click and the pause after it. */
+  pokePerSecond: 0.12,
+  clickMs: 240,
+  lingerMs: 650,
+  /** Scattering when the mascot is startled: how long it runs (longer with less nerve), and how much faster. */
+  scatterMs: 1100,
+  scatterBoost: 1.5,
+  /** The share of its top speed it gathers at (when the mascot is happy) and sneaks up at (while it sleeps). */
+  gatherSpeed: 0.55,
+  sneakSpeed: 0.16,
+  /** It freezes when the mascot's eyes point within this cosine of it; more nerve narrows the cone by up to `freezeNerve`. */
+  freezeCos: 0.88,
+  freezeNerve: 0.08,
+  /** Falling down: gravity, the share of speed a bounce keeps, sideways friction, and the landing speed it stops at. */
+  gravity: 2600,
+  restitution: 0.45,
+  friction: 0.75,
+  restSpeed: 110,
+  /** The first knock as it falls: upward and sideways speed, and its spin in degrees/s. */
+  knock: { up: [150, 380], side: [60, 240], spin: [360, 900] },
+  /** Lying dazed on the floor (shorter with more nerve), then getting up: speed builds over `riseMs` to `riseSpeed`. */
+  dazedMs: 1700,
+  riseMs: 2400,
+  riseSpeed: 0.6,
+  /** How quickly the arrow turns to point where it goes (per second), and the speed at which it points fully along it. */
+  turnRate: 9,
+  fullTurnSpeed: 900,
 } as const
 
 /* ------------------------------------------------------------------ connection */
@@ -279,3 +429,13 @@ export const VOICE_RUNTIME_BYTES = 1_100_000_000
 export const COMPUTER_POLL_MS = 2_000
 export const COMPUTER_IDLE_POLL_MS = 15_000
 export const COMPUTER_SETTINGS_POLL_MS = 1_500
+
+// Permissions (permissions/)
+
+/** Width of the chat's permission popover in the composer, and of an approval card's remember menu. */
+export const PERMISSIONS_POPOVER_PX = 320
+export const APPROVAL_MENU_PX = 260
+/** Room an approval card's menu needs above its button to open upward; with less it opens downward. */
+export const APPROVAL_MENU_ROOM_PX = 340
+/** How tall the rules table grows before it scrolls. */
+export const RULES_LIST_MAX_PX = 420

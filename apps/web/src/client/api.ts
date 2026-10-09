@@ -1,4 +1,4 @@
-import type { ChatGrant, ColonyMetrics, MyrEvent } from '@myrmidon/protocol'
+import type { ColonyMetrics, MyrEvent, PermissionLevel, ProjectPermissions } from '@myrmidon/protocol'
 import { copy } from './copy.ts'
 import { STREAM_RETRY_MAX_MS, STREAM_RETRY_MS } from './ui-config.ts'
 
@@ -508,8 +508,8 @@ export interface ChatSummary {
   project?: { id: string; name: string }
   /** Crew members the person can write to directly (@name), the lead aside. */
   crew?: CrewMember[]
-  /** Kinds of step the person allowed for the rest of the chat from an approval card. */
-  grants?: ChatGrant[]
+  /** The chat's level of the permission model, when anything was set for it. */
+  permissions?: PermissionLevel
   /** Folders the person let sandboxed agents read for the rest of the chat. */
   reads?: string[]
   /** The latest round runs with full access (no sandbox). */
@@ -528,9 +528,11 @@ export interface Project {
   name: string
   path: string
   addedAt: string
-  /** How freely agents may change the folder. New folders start on ask; absent (an older folder) means autonomous. */
-  /** `read`: folders beyond the project its chats' sandboxed agents may read. */
-  permissions?: { mode: 'auto' | 'ask' | 'read-only' | 'full'; allow: string[]; read?: string[] }
+  /**
+   * The project's level of the permission model (no preset: it uses the global one), and `read`: folders beyond the
+   * project its chats' sandboxed agents may read. Absent from servers before the permission model.
+   */
+  permissions?: ProjectPermissions
 }
 
 /** Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. */

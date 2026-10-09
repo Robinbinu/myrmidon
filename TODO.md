@@ -473,7 +473,7 @@ Open work, in the order it will be done:
       (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
       find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
-12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
+12q. - [x] **Prompts rewritten** (done, merged 2c176a1; left: eval A/B, learned rules, failure counts per family, descriptions from transcripts) — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
       then rewrite Myrmidon's prompts to that standard.
       The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
       tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
@@ -485,13 +485,26 @@ Open work, in the order it will be done:
 12r. - [x] **Computer use** (asked 2026-10-09) — done: Cua Driver embedded as an MCP server; one app at a time once
       approved, like Claude Code; Settings → Computer use (off by default). Untested live: Esc to stop; Gemini uses the
       generic tool.
-12s. - [ ] **The mascot comes alive** (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
+12s. - [x] **The mascot comes alive** (done, merged 7966d27) (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
       sweep, yawn, sneeze, side-eye, peek, bored, cross-eyed); reactions drawn in dots (stars, spirals, ! ?, tears, sweat,
       fire, ZZZ); screen shows (boot scanline, confetti on a finished run, Pac-Man, Game of Life asleep, voice equaliser);
       interactive (click to look with a ripple, drag with squash-stretch, double-click sneeze, hold to charge and pop).
       Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
       Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
       react to the eyes, and are named after random Minions.
+12t. - [x] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
+      calls etc; the ui should be well thought out", like Claude Code and Codex) — today approvals are spread over
+      Settings → Tools rules, project modes, chat grants (file/command only) and full access; MCP has no per-chat or
+      per-project allow and approval cards have no "don't ask again for this tool/server". Also: a team lead has no web, browser, shell or
+      file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
+      team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
+      by default with a role x tool-group control. Building on branch `permissions`.
+12u. - [ ] **Voice providers from Models & providers** (asked 2026-10-09) — any cloud STT/TTS and realtime
+      (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
+      similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
+      Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
+12v. - [ ] **Themes like VS Code, and more mascot settings** (asked 2026-10-09) — the themes developers love
+      (research which), applied to the whole UI; more ways to tune the mascot.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

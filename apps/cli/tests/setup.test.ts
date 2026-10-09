@@ -223,5 +223,8 @@ test('doctor says whether agents run sandboxed or with full access', async () =>
   expect(
     await report({ projects: [{ name: 'site', permissions: { mode: 'full' } }], fullAccess: false }),
   ).toContain('except with full access in site')
+  expect(
+    await report({ projects: [{ name: 'app', permissions: { preset: 'full' } }], fullAccess: false }),
+  ).toContain('except with full access in app')
   expect(await report({ projects: [], fullAccess: true })).toContain('the sandbox is off')
 })

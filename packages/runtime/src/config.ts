@@ -40,6 +40,50 @@ export const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 export const MAX_VERIFY_ROUNDS = 3
 
+// Prompts (prompt/lint.ts)
+
+/**
+ * The most words Myrmidon's own text may take under each heading of an agent's system prompt (data it carries, such as
+ * memory, project instructions and roster lines, does not count). The research targets
+ * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
+ * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
+ * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
+ * hands-on tools, the lead's method too) under "How to work".
+ */
+export const PROMPT_HEADING_WORDS = {
+  you: 210,
+  finish: 150,
+  safety: 350,
+  method: 710,
+  others: 230,
+  person: 210,
+  instructions: 90,
+  environment: 260,
+} as const
+/**
+ * The most words of the stable part (every heading before the person's own text) per kind of agent, the worst case
+ * over the test matrix. §4.4's targets: answer ~350, solo 900-1,100, team lead 700-900, worker 600-800, crewmate
+ * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
+ */
+export const PROMPT_ROLE_WORDS = {
+  answer: 650,
+  solo: 1340,
+  crewmate: 1040,
+  'team-lead': 940,
+  'team-lead-hands-on': 1620,
+  'team-worker': 1180,
+  'swarm-peer': 1070,
+  'colony-lead': 1000,
+  'colony-worker': 1000,
+  'colony-peer': 1000,
+} as const
+
+/**
+ * The most words the model-family blocks (prompt/families.ts) may add for one model, counted apart from the role's
+ * budget since they follow the model the agent runs on; the largest today, Gemini's two, is about 105.
+ */
+export const PROMPT_FAMILY_WORDS = 130
+
 // Chats (chat.ts)
 
 /**
@@ -104,6 +148,10 @@ export const GREP_LIMIT = 100
 export const GLOB_LIMIT = 200
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 export const PAGE_EXCERPT = 8_000
+/** How much of a fetched page an agent without file tools gets, since nothing is saved for it to read on. */
+export const FETCH_SHOWN_CHARS = 16_000
+/** Most tools a find_tools query loads by description alone; the rest that match are named for loading by name. */
+export const FIND_TOOLS_LIMIT = 12
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
 /** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */
@@ -182,9 +230,10 @@ export const SANDBOX_TOOLCHAINS = [
 ] as const
 /**
  * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
- * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project or a chat can
- * never grant them; only naming one exactly in Settings → Tools opens it. Myrmidon's own data folder, which holds
- * every chat, is treated the same way except for the chat's own folder.
+ * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project can never
+ * grant them. Naming one exactly in Settings → Permissions opens it everywhere; in one chat, the person may allow an
+ * agent's request_read of one (once or for that chat, with a warning on the card). Myrmidon's own data folder, which
+ * holds every chat, stays hidden except for the chat's own folder: no request can open it.
  */
 export const SANDBOX_SECRETS = [
   '.ssh',
@@ -223,14 +272,6 @@ export const HOOK_MAX_OUTPUT = 20_000
 
 /** How long a leashed command's processes get to exit on SIGTERM, once Myrmidon has gone, before they are killed. */
 export const LEASH_GRACE_MS = 2_000
-
-// Projects (projects.ts)
-
-/**
- * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
- * mode and stays autonomous, so nothing changes under the person's feet.
- */
-export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
 
 // Setup assistant (setup.ts)
 

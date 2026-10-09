@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
-import { type Environment, skillsFor, startsAwake, systemPrompt, toolsFor } from '../src/patterns.ts'
+import { type Environment, skillsFor, startsAwake, toolsFor } from '../src/patterns.ts'
+import { systemPrompt } from '../src/prompt/assemble.ts'
 import type { AgentSpec, ColonySpec } from '../src/spec.ts'
 import { TOOL_DEFS } from '../src/tools.ts'
 
@@ -27,7 +28,7 @@ function chat(
 
 const project = { project: { id: 'p1', name: 'site', path: '/tmp/site' } }
 const readOnly = {
-  project: { ...project.project, permissions: { mode: 'read-only' as const, allow: [] } },
+  project: { ...project.project, permissions: { preset: 'read-only' as const, rules: [] } },
 }
 const swarm = { mode: 'swarm' as const, maxWorkers: 0, workerModels: ['mock/a'] }
 const orchestrated = { mode: 'orchestrated' as const, maxWorkers: 2, workerModels: ['mock/kai'] }
@@ -144,7 +145,7 @@ test("a crewmate's brief matches its real situation: its job, the lead, one way 
   const prompt = systemPrompt(spec, agent, env).join('\n')
   expect(prompt).not.toContain('This round: solo (one agent, all tools)')
   expect(prompt).toContain('This round: one job for lead')
-  expect(prompt).toContain('overrides the general rules')
+  expect(prompt).toContain('override these defaults')
   expect(prompt).not.toContain('reply with one short line')
   expect(prompt.match(/answer lead once/g)).toHaveLength(1)
   // It wakes for its job, not for the person's request.
@@ -152,7 +153,7 @@ test("a crewmate's brief matches its real situation: its job, the lead, one way 
   // Workers on a team are told their task overrides the defaults too.
   const [, team, worker] = roles.find(([l]) => l === 'team worker') ?? []
   if (!team || !worker) throw new Error('no team worker')
-  expect(systemPrompt(team, worker, env).join('\n')).toContain('overrides the general rules')
+  expect(systemPrompt(team, worker, env).join('\n')).toContain('override these defaults')
   // Nobody is told twice not to fabricate.
   for (const [, s, a] of roles)
     expect(

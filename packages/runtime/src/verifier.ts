@@ -32,6 +32,19 @@ export interface ColonyVerification {
 
 const actor = (id: string): ActorRef => ({ kind: 'verifier', id })
 
+/**
+ * The "Done when" part of a task brief (prompts.system.brief): its lines up to the next head, or undefined when the
+ * brief has none.
+ */
+export function doneWhen(description: string): string | undefined {
+  const match =
+    /(?:^|\s)Done when:\s*([\s\S]*?)(?=(?:^|\s)(?:Goal|Context|Deliverable|Approach|Not yours|Not in scope):|$(?![\s\S]))/m.exec(
+      description,
+    )
+  const text = match?.[1]?.trim()
+  return text ? text : undefined
+}
+
 /** Independent judge of colony output. Only this component appends `verifier/verdict` events. */
 export class Verifier {
   constructor(
@@ -53,7 +66,7 @@ export class Verifier {
     if (outcome.pass && this.host.spec.taskJudge) {
       outcome = await this.judge(
         this.host.spec.taskJudge,
-        prompts.judge.task(task.subject, task.description),
+        prompts.judge.task(task.subject, task.description, doneWhen(task.description)),
         0.7,
         task.artifacts,
       )
@@ -309,6 +322,7 @@ export class Verifier {
     const context: LlmContext = {
       systemPrompt: [
         prompts.judge.role,
+        prompts.judge.threshold(threshold),
         prompts.judge.today(localDate()),
         prompts.judge.kinds(kinds.join(' + '), kinds.map((k) => `- ${prompts.judge.judging[k]}`).join('\n')),
         ...(sources ? [prompts.judge.sources(this.host.boundary)] : []),

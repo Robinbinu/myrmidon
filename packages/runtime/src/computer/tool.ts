@@ -17,7 +17,7 @@ import {
 import { agentActor, type ColonyHost } from '../host.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
-import { needsApproval, spotlight } from '../tools.ts'
+import { spotlight } from '../tools.ts'
 import {
   type ComputerProtocol,
   type DesktopAction,
@@ -88,7 +88,8 @@ function deskOf(host: ColonyHost, agent: string): Desk {
   return desk
 }
 
-const parameters = type({
+/** The computer tool's parameters, one schema for every action (exported for the prompt lint). */
+export const computerParameters = type({
   action: type(
     "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position' | 'open_app' | 'list_apps'",
   ).describe(prompts.tools.computer.params.action),
@@ -121,7 +122,7 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
     name: COMPUTER_TOOL,
     label: COMPUTER_TOOL,
     description: prompts.tools.computer.description,
-    parameters,
+    parameters: computerParameters,
     // OpenAI's computer-use models get the native tool; every other model this definition as a function tool.
     native: { type: 'computer' },
     intent: 'omit',
@@ -330,8 +331,11 @@ async function perform(
       t.grants(missing.map((m) => (m === 'screen-recording' ? 'Screen Recording' : 'Accessibility'))),
     )
   }
-  if (needsApproval(host.spec, COMPUTER_TOOL, false))
-    await approveStep(host, agent, actions, t.review.ruleAsk)
+  // Apps are approved one at a time below; the permission model can also ask before every step, or refuse them all.
+  const verdict = host.permit(agent, { tool: COMPUTER_TOOL, kind: 'other', readOnly: false })
+  if (verdict.decision === 'deny')
+    throw new Error(prompts.toolResults.denied('computer use', prompts.permissionSource(verdict.source)))
+  if (verdict.decision === 'ask') await approveStep(host, agent, actions, t.review.ruleAsk)
   if (meta?.pendingSafetyChecks.length) await approveSafety(host, agent, meta)
   await hub.ensure()
   const desk = deskOf(host, agent)

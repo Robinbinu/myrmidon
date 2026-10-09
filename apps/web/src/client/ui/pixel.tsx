@@ -3,6 +3,7 @@ import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
 import { AGENT_DOZE_MS, MASCOT_TYPING, popSpring } from '../ui-config.ts'
+import { type Clip, type Dot, type EyeTweak, forEye, useClip } from './clips.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -110,7 +111,7 @@ export function Snore(props: { size: number }) {
   )
 }
 
-type Cell = readonly [number, number]
+export type Cell = readonly [number, number]
 
 /**
  * The resting shape of the mascot's eyes, chosen in Settings: `happy` rests as arcs, `tall` as narrow ovals, `sleepy`
@@ -123,7 +124,53 @@ const HEART = ['.#.#.', '#####', '.###.', '..#..']
 /** Moods whose eyes are open and can follow something. */
 const OPEN: ReadonlySet<Mood> = new Set(['idle', 'listening', 'waiting', 'wink', 'surprised', 'love'])
 
-function eyeCells(
+/** A star and a twinkle, five cells across like the hearts. */
+const STAR = ['..#..', '.###.', '#####', '.###.', '.#.#.']
+const SPARKLE = ['..#..', '..#..', '##.##', '..#..', '..#..']
+/** A square spiral from its rim in to its middle; it turns a quarter at a time. */
+const SPIRAL = ['#####', '....#', '###.#', '#...#', '#####']
+const BANG = ['##', '##', '##', '##', '..', '##']
+const ASK = ['.##.', '#..#', '...#', '..#.', '....', '..#.']
+
+/** Turns a square picture a quarter clockwise `turns` times (counter-clockwise when negative). */
+function rotate(rows: readonly string[], turns: number): string[] {
+  let out = [...rows]
+  const n = out.length
+  for (let t = 0; t < ((turns % 4) + 4) % 4; t++)
+    out = Array.from({ length: n }, (_, r) =>
+      Array.from({ length: n }, (_, c) => out[n - 1 - c]?.[r] ?? '.').join(''),
+    )
+  return out
+}
+
+const stampInto = (out: Cell[], rows: readonly string[], x: number, y: number) => {
+  for (const [dy, row] of rows.entries())
+    for (const [dx, ch] of [...row].entries()) if (ch === '#') out.push([x + dx, y + dy])
+}
+
+/** Brings an eye's lids in: drops its top `lids` share of rows and its bottom `lower` share, shut to a line at most. */
+function lidded(cells: Cell[], lids: number, lower: number): Cell[] {
+  if (cells.length === 0 || (lids <= 0 && lower <= 0)) return cells
+  const ys = cells.map(([, y]) => y)
+  const xs = cells.map(([x]) => x)
+  const top = Math.min(...ys)
+  const bottom = Math.max(...ys)
+  const h = bottom - top + 1
+  const from = top + Math.round(Math.max(0, lids) * h)
+  const to = bottom - Math.round(Math.max(0, lower) * h)
+  const kept = cells.filter(([, y]) => y >= from && y <= to)
+  if (kept.length > 0) return kept
+  const line: Cell[] = []
+  const y = Math.min(bottom, Math.max(top, from))
+  for (let x = Math.min(...xs); x <= Math.max(...xs); x++) line.push([x, y])
+  return line
+}
+
+/**
+ * The cells a face's two eyes light, for a mood. `tweak` changes them for a frame of a clip or a touch: their shape,
+ * where each looks, their lids, a squash or stretch, a shift past the edges, or only the rows a scanline has reached.
+ */
+export function eyeCells(
   mood: Mood,
   cols: number,
   rows: number,
@@ -131,7 +178,9 @@ function eyeCells(
   blinking: boolean,
   look: readonly [number, number],
   style: EyeStyle = 'round',
+  tweak: EyeTweak = {},
 ): Cell[] {
+  const m = tweak.mood ?? mood
   const ew = Math.max(1, Math.round(cols * 0.24))
   const eh = Math.max(2, Math.round(rows * 0.46))
   // Keep the pair dead center: the leftover columns must split evenly on both sides.
@@ -143,84 +192,88 @@ function eyeCells(
     thinking: [0, 0, -1, -1, 0, 1, 1, 0][frame % 8] ?? 0,
     working: [-1, 0, 1, 0][frame % 4] ?? 0,
   }
-  const open = OPEN.has(mood)
-  const dx = mood === 'thinking' ? scan.thinking : mood === 'working' ? scan.working : open ? look[0] : 0
-  const dy =
-    mood === 'thinking'
-      ? -Math.min(1, Math.floor(rows / 8))
-      : mood === 'listening'
-        ? Math.min(1, Math.floor(rows / 6)) + Math.min(0, look[1])
-        : open
-          ? look[1]
-          : 0
+  const open = OPEN.has(m)
+  const stretch = Math.max(-(eh - 1), Math.min(ew - 1, Math.round(tweak.stretch ?? 0)))
+  const w = ew - stretch
+  const shift = tweak.shift ?? [0, 0]
   const out: Cell[] = []
-  const line = (x0: number, y: number) => {
-    for (let i = 0; i < ew; i++) out.push([x0 + i, y])
-  }
   // Narrow eyes stand a cell taller, so they read as ovals rather than slits.
-  const narrow = style === 'tall' && ew >= 3
-  const blob = (x0: number, yStart: number, yEnd: number, eye?: number) => {
-    const xs = narrow ? x0 + 1 : x0
-    const xe = narrow ? x0 + ew - 1 : x0 + ew
-    const ys = narrow ? yStart - 1 : yStart
-    for (let y = ys; y < yEnd; y++) {
-      for (let x = xs; x < xe; x++) {
-        const corner =
-          xe - xs >= 4 && yEnd - ys >= 4 && (x === xs || x === xe - 1) && (y === ys || y === yEnd - 1)
-        if (!corner) out.push([x, y])
-      }
-    }
-    if (style === 'lashes' && eye !== undefined) out.push(eye === 0 ? [xs - 1, ys - 1] : [xe, ys - 1])
-  }
+  const narrow = style === 'tall' && w >= 3
   for (const [eye, base] of [left, left + ew + between].entries()) {
-    const x0 = base + dx
-    const y0 = top + dy
-    const mid = y0 + Math.floor(eh / 2)
-    const resting = mood === 'idle' || mood === 'listening'
-    if (mood === 'happy' || (mood === 'love' && ew < 4) || (style === 'happy' && resting && !blinking)) {
+    const side = eye as 0 | 1
+    const l = tweak.looks?.[side] ?? tweak.look ?? look
+    const dx = m === 'thinking' ? scan.thinking : m === 'working' ? scan.working : open ? l[0] : 0
+    const dy =
+      m === 'thinking'
+        ? -Math.min(1, Math.floor(rows / 8))
+        : m === 'listening'
+          ? Math.min(1, Math.floor(rows / 6)) + Math.min(0, l[1])
+          : open
+            ? l[1]
+            : 0
+    // A squashed or stretched eye stays centred on its pair's middle: the odd cell goes to the inner side.
+    const x0 = base + dx + shift[0] + (side === 0 ? Math.ceil(stretch / 2) : Math.floor(stretch / 2))
+    const y0 = top + dy + shift[1] - Math.ceil(stretch / 2)
+    const h = eh + stretch
+    const mid = y0 + Math.floor(h / 2)
+    const cells: Cell[] = []
+    const line = (y: number) => {
+      for (let i = 0; i < w; i++) cells.push([x0 + i, y])
+    }
+    const blob = (yStart: number, yEnd: number) => {
+      const xs = narrow ? x0 + 1 : x0
+      const xe = narrow ? x0 + w - 1 : x0 + w
+      const ys = narrow ? yStart - 1 : yStart
+      for (let y = ys; y < yEnd; y++) {
+        for (let x = xs; x < xe; x++) {
+          const corner =
+            xe - xs >= 4 && yEnd - ys >= 4 && (x === xs || x === xe - 1) && (y === ys || y === yEnd - 1)
+          if (!corner) cells.push([x, y])
+        }
+      }
+      if (style === 'lashes') cells.push(side === 0 ? [xs - 1, ys - 1] : [xe, ys - 1])
+    }
+    const arc = () => {
       // ^ ^ : each eye becomes an upturned arc.
-      const aw = Math.max(3, ew)
-      for (let i = 0; i < aw; i++) out.push([x0 + i, mid - Math.min(i, aw - 1 - i)])
-      continue
+      const aw = Math.max(3, w)
+      for (let i = 0; i < aw; i++) cells.push([x0 + i, mid - Math.min(i, aw - 1 - i)])
     }
-    if (mood === 'error') {
-      const s = Math.max(3, Math.min(ew + 1, eh))
+    const cross = () => {
+      const s = Math.max(3, Math.min(w + 1, h))
       const sy = mid - Math.floor(s / 2)
-      for (let i = 0; i < s; i++) out.push([x0 + i, sy + i], [x0 + s - 1 - i, sy + i])
-      continue
+      for (let i = 0; i < s; i++) cells.push([x0 + i, sy + i], [x0 + s - 1 - i, sy + i])
     }
-    if (mood === 'sleep') {
-      line(x0, y0 + eh - 2)
-      continue
-    }
-    if (mood === 'love') {
-      // Hearts are one cell wider than an eye; shift them outward so the pair stays symmetric.
-      const hx = eye === 0 ? x0 - 1 : x0
-      for (const [ry, row] of HEART.entries())
-        for (const [rx, ch] of [...row].entries()) if (ch === '#') out.push([hx + rx, y0 + ry])
-      continue
-    }
-    if (blinking || (mood === 'wink' && eye === 1)) {
-      line(x0, mid)
-      continue
-    }
-    if (mood === 'surprised') {
-      blob(x0, y0 - 1, y0 + eh + 1, eye)
-      continue
-    }
-    if (mood === 'working') {
-      const h = Math.max(2, Math.round(eh * 0.62))
-      const ys = y0 + Math.floor((eh - h) / 2)
-      blob(x0, ys, ys + h, eye)
-      continue
-    }
-    if (mood === 'waiting' || (style === 'sleepy' && mood === 'idle')) {
-      blob(x0, mid, y0 + eh, eye)
-      continue
-    }
-    blob(x0, y0, y0 + eh, eye)
+    // Pictures one cell wider than an eye shift outward, so the pair stays symmetric.
+    const wide = (pic: readonly string[], y = y0) => stampInto(cells, pic, side === 0 ? x0 - 1 : x0, y)
+    const shape = forEye(tweak.shape, side)
+    const resting = m === 'idle' || m === 'listening'
+    if (shape === 'open') blob(y0, y0 + h)
+    else if (shape === 'closed') line(mid)
+    else if (shape === 'arc') arc()
+    else if (shape === 'x') cross()
+    else if (shape === 'heart') wide(HEART)
+    else if (shape === 'star') wide(STAR, y0 - 1)
+    else if (shape === 'sparkle') wide(SPARKLE, y0 - 1)
+    // The left eye turns clockwise, the right the other way, as cartoon dizzy eyes do.
+    else if (shape === 'spiral')
+      wide(rotate(SPIRAL, side === 0 ? (tweak.turn ?? 0) : -(tweak.turn ?? 0)), y0 - 1)
+    else if (shape === 'bang') stampInto(cells, BANG, x0 + Math.floor((w - 2) / 2), y0 - 1)
+    else if (shape === 'ask') stampInto(cells, ASK, x0, y0 - 1)
+    else if (m === 'happy' || (m === 'love' && ew < 4) || (style === 'happy' && resting && !blinking)) arc()
+    else if (m === 'error') cross()
+    else if (m === 'sleep') line(y0 + h - 2)
+    else if (m === 'love') wide(HEART)
+    else if (blinking || (m === 'wink' && side === 1)) line(mid)
+    else if (m === 'surprised') blob(y0 - 1, y0 + h + 1)
+    else if (m === 'working') {
+      const hh = Math.max(2, Math.round(h * 0.62))
+      const ys = y0 + Math.floor((h - hh) / 2)
+      blob(ys, ys + hh)
+    } else if (m === 'waiting' || (style === 'sleepy' && m === 'idle')) blob(mid, y0 + h)
+    else blob(y0, y0 + h)
+    out.push(...lidded(cells, forEye(tweak.lids, side) ?? 0, forEye(tweak.lower, side) ?? 0))
   }
-  return out
+  return tweak.reveal === undefined ? out : out.filter(([, y]) => y < (tweak.reveal ?? rows))
 }
 
 /** Letters five cells tall, for spelling in a face's own screen cells; most are three wide. */
@@ -347,6 +400,13 @@ export function PixelFace(props: {
   eyes?: EyeStyle
   /** Spells this on the screen in place of the eyes (its end, as much as fits), with a blinking cursor bar. */
   text?: string
+  /** Changes to how the eyes are drawn, such as a squash while they are dragged; a clip's frames change them further. */
+  tweak?: EyeTweak
+  /** An animation to play in the screen's cells (not with reduced motion); `playId` names one playing of it. */
+  clip?: Clip
+  playId?: string | number
+  /** A clip that does not loop has shown its last frame. */
+  onClipEnd?: () => void
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
@@ -424,17 +484,52 @@ export function PixelFace(props: {
     return () => clearInterval(t)
   }, [props.text, spelling, reduce])
 
+  const shown = useClip(props.clip, props.playId ?? props.clip?.name, reduce ?? false, props.onClipEnd)
   const lookX = props.look?.[0] ?? glance[0]
   const lookY = props.look?.[1] ?? glance[1]
+  // Each lit cell's fill: the face's colour, a dot's own colour, or a dot's level of the face's colour.
   const lit = useMemo(() => {
-    const set = new Set<string>()
-    const on =
-      props.text !== undefined
-        ? textCells(props.text, cols, rows, cursorOn)
-        : eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes)
-    for (const [x, y] of on) if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
-    return set
-  }, [props.mood, props.text, cursorOn, cols, rows, frame, blinking, lookX, lookY, props.eyes])
+    const fills = new Map<string, string>()
+    const paint = ([x, y, ink]: Dot) => {
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return
+      const fill =
+        ink === undefined
+          ? props.color
+          : typeof ink === 'string'
+            ? ink
+            : `color-mix(in srgb, ${props.color} ${Math.round(Math.max(0, Math.min(1, ink)) * 100)}%, var(--screen-cell))`
+      fills.set(`${x},${y}`, fill)
+    }
+    if (props.text !== undefined) {
+      for (const c of textCells(props.text, cols, rows, cursorOn)) paint(c)
+      return fills
+    }
+    // Glowing dots (a level of the face's colour) sit behind the eyes; dots of their own colour go over them.
+    const dots = shown?.dots ?? []
+    for (const d of dots) if (typeof d[2] === 'number') paint(d)
+    if (shown?.eyes !== null) {
+      const tweak = { ...props.tweak, ...shown?.eyes }
+      const blink = blinking && forEye(tweak.shape, 0) === undefined
+      for (const c of eyeCells(props.mood, cols, rows, frame, blink, [lookX, lookY], props.eyes, tweak))
+        paint(c)
+    }
+    for (const d of dots) if (typeof d[2] !== 'number') paint(d)
+    return fills
+  }, [
+    props.mood,
+    props.text,
+    props.color,
+    props.tweak,
+    shown,
+    cursorOn,
+    cols,
+    rows,
+    frame,
+    blinking,
+    lookX,
+    lookY,
+    props.eyes,
+  ])
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap
@@ -442,7 +537,6 @@ export function PixelFace(props: {
   const cells = []
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
-      const on = lit.has(`${x},${y}`)
       cells.push(
         <rect
           key={`${x},${y}`}
@@ -452,8 +546,9 @@ export function PixelFace(props: {
           height={cell}
           rx={r}
           style={{
-            fill: on ? props.color : 'var(--screen-cell)',
-            transition: 'fill 180ms ease-out',
+            fill: lit.get(`${x},${y}`) ?? 'var(--screen-cell)',
+            // A clip sets its own pace; the fade would smear its frames together.
+            transition: shown ? 'fill 60ms linear' : 'fill 180ms ease-out',
           }}
         />,
       )
@@ -466,6 +561,7 @@ export function PixelFace(props: {
       viewBox={`0 0 ${w} ${h}`}
       className={props.className}
       data-typed={spelling || undefined}
+      data-clip={shown ? props.clip?.name : undefined}
       style={
         props.glow
           ? {
