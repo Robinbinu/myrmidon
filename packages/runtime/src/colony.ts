@@ -314,6 +314,11 @@ export class ColonyRun implements ColonyHost {
   private readonly _servers = new Map<string, SandboxProcess>()
   /** The localhost port each running server opened (see `localPorts`). */
   private readonly _serverPorts = new WeakMap<SandboxProcess, number>()
+  /** Who started each running server, and under which rules (see `_stopLooserServers`). */
+  private readonly _serverRules = new WeakMap<
+    SandboxProcess,
+    { agent: string; fullAccess: boolean; readOnly: boolean }
+  >()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
@@ -620,6 +625,7 @@ export class ColonyRun implements ColonyHost {
       ...(port ? { env: { PORT: String(port) } } : {}),
     })
     this._servers.set(name, proc)
+    this._serverRules.set(proc, { agent, fullAccess: this.fullAccess, readOnly })
     let ended = false
     void proc.exited.then(() => {
       ended = true
@@ -692,6 +698,25 @@ export class ColonyRun implements ColonyHost {
     this._servers.delete(name)
     proc.stop()
     await this.append({ type: 'server/stopped', actor: SYSTEM, payload: { name, reason } })
+  }
+
+  /**
+   * Stops the servers started under looser rules than the round has now (full access since taken back, a project
+   * since made read-only): a running process keeps the sandbox it started in. Their agents hear of it next turn,
+   * told before anything is awaited so an agent just interrupted hears it in the turn that follows.
+   */
+  private async _stopLooserServers() {
+    const readOnly = this.spec.chat?.project?.permissions?.mode === 'read-only'
+    const byAgent = new Map<string, string[]>()
+    for (const [name, proc] of this._servers) {
+      const rules = this._serverRules.get(proc)
+      if (rules && ((rules.fullAccess && !this.fullAccess) || (!rules.readOnly && readOnly)))
+        byAgent.set(rules.agent, [...(byAgent.get(rules.agent) ?? []), name])
+    }
+    for (const [agent, names] of byAgent)
+      this._wake(agent, prompts.colony.serversStopped(names), 'permissions', { quiet: true })
+    for (const name of [...byAgent.values()].flat())
+      if (this._servers.has(name)) await this.stopServer(name, 'it ran with access this round no longer has')
   }
 
   projectDiff(): Promise<string | undefined> {
@@ -823,6 +848,7 @@ export class ColonyRun implements ColonyHost {
       actor: { kind: 'user', id: 'user' },
       payload: { off: [], ask: [], allow: [], askAll: true, interrupted: [] },
     })
+    await this._stopLooserServers()
   }
 
   /**
@@ -890,6 +916,7 @@ export class ColonyRun implements ColonyHost {
       confined,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
+    if (stricter || confined) await this._stopLooserServers()
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */

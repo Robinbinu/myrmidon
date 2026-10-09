@@ -531,6 +531,10 @@ nobody owns, publish artifacts, and request final verification once the output m
       ]
         .filter(Boolean)
         .join('\n'),
+    serversStopped: (names: readonly string[]) =>
+      names.length === 1
+        ? `Your server ${names[0]} was stopped: it ran with access this round no longer has. Start it again with start_server if you still need it; it runs within the round's rules now.`
+        : `Your servers ${names.join(', ')} were stopped: they ran with access this round no longer has. Start them again with start_server if you still need them; they run within the round's rules now.`,
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
     leadVerdict: (p: {
