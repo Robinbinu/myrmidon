@@ -928,7 +928,8 @@ test('a phone caller is let in by the channel’s own rules: listed people as me
   expect(await hub.caller('telegram', '+15559999999', true)).toEqual({ refused: 'ignored' })
   const listed = await hub.caller('telegram', '+15550002222', true)
   expect(listed).toMatchObject({ person: { id: '+15550002222', role: 'member' }, label: 'Telegram' })
-  expect(hub.activity('telegram')[0]?.text).toBe('Phone call with +15550002222')
+  // The adapter's own start-up line may land before or after it, so the call is looked for, not taken as the newest.
+  expect(hub.activity('telegram').map((a) => a.text)).toContain('Phone call with +15550002222')
   // A call that made a chat: the number's texts and next calls continue it, named as their texts' would be.
   await hub.callChat('telegram', '+15550002222', 'chat-9')
   expect(chats.renamed['chat-9']).toBe('Telegram · +15550002222')
