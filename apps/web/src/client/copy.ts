@@ -2415,7 +2415,8 @@ export const copy = {
       range: (min: string, max: string) => `Between ${min} and ${max}.`,
     },
     sections: {
-      general: { label: 'General', hint: 'Theme, motion, shortcuts' },
+      general: { label: 'General', hint: 'Motion, notifications, shortcuts' },
+      appearance: { label: 'Appearance', hint: 'Light, dark and VS Code themes' },
       mascot: { label: 'You & mascot', hint: 'Your name, the greeting, its look' },
       specialists: { label: 'Specialists', hint: 'Agents you keep and bring back' },
       devices: { label: 'Devices', hint: 'Who can use this Myrmidon' },
@@ -2464,9 +2465,7 @@ export const copy = {
     },
     general: {
       title: 'General',
-      intro: 'How Myrmidon looks and feels on this device.',
-      theme: 'Theme',
-      themeHint: 'System follows your operating system.',
+      intro: 'How Myrmidon feels on this device.',
       themeSystem: 'System',
       themeLight: 'Light',
       themeDark: 'Dark',
@@ -2477,6 +2476,45 @@ export const copy = {
       runSetup: 'Run setup again',
       setupStep: 'One step',
       setupStepHint: 'Open a single step on its own; when it is done you come back here.',
+    },
+    appearance: {
+      title: 'Appearance',
+      intro:
+        "Myrmidon's own look, or a theme developers love from VS Code, across the whole app: chats, code, diffs and the terminal. Hover or focus a theme to try it, Esc puts yours back, and a click keeps it. Kept on this device.",
+      gallery: 'Themes',
+      groups: { myrmidon: 'Myrmidon', dark: 'Dark', light: 'Light', imported: 'Imported' },
+      myrmidonHint: 'The default look, with its amber accent.',
+      inUse: 'In use',
+      by: (author: string) => `by ${author}`,
+      importTitle: 'Import a VS Code theme',
+      importHint:
+        "Paste a theme's .json or drop the file here. Only its colours are kept; text is adjusted where needed so it stays readable.",
+      importLabel: 'Theme file contents',
+      importPlaceholder:
+        '{ "name": "My theme", "type": "dark", "colors": { "editor.background": "#1e1e2e" } }',
+      chooseFile: 'Choose file…',
+      check: 'Preview',
+      add: 'Add and use',
+      cancel: 'Cancel',
+      dropped: (n: number) =>
+        `${n} ${n === 1 ? 'value was' : 'values were'} not ${n === 1 ? 'a colour' : 'colours'} and ${n === 1 ? 'was' : 'were'} left out.`,
+      ready: (name: string) => `${name} is ready. Try it here, then add it.`,
+      remove: (name: string) => `Delete ${name}`,
+      removeConfirm: 'Delete?',
+      importedName: 'Imported theme',
+      noImported: 'Themes you import show here.',
+      full: (n: number) => `You can keep ${n} imported themes; delete one to add another.`,
+      importErrors: {
+        empty: "Paste a theme's .json first, or drop the file here.",
+        tooBig: 'This file is too large for a colour theme.',
+        notJson: "This isn't valid JSON. Copy the whole theme file, including its first { and last }.",
+        notTheme: "This JSON isn't a VS Code colour theme: it has no colors section.",
+        include:
+          'This theme builds on another file (its "include"), which can\'t be followed from here. Paste the theme it includes, or a complete one.',
+        noBackground:
+          'This theme has no editor.background colour, so there is nothing to build the look from.',
+        unreadable: "This file couldn't be read.",
+      },
     },
     models: {
       title: 'Models',

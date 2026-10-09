@@ -27,6 +27,7 @@ import { api, type ChatSummary, type Project } from '../api.ts'
 import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { useStatus } from '../status.tsx'
+import { isPalette, themeLabel } from '../themes/apply.ts'
 import { ChannelLogo } from '../ui/ChannelLogo.tsx'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
@@ -482,7 +483,9 @@ export function Sidebar(props: {
     )
   }
 
-  const ThemeIcon = props.theme === 'dark' ? Moon : props.theme === 'light' ? Sun : Monitor
+  // A theme from the gallery shows its kind's glyph; the switch cycles Myrmidon's own looks, back to System from a theme.
+  const kind = isPalette(props.theme) ? document.documentElement.dataset.theme : props.theme
+  const ThemeIcon = kind === 'dark' ? Moon : kind === 'light' ? Sun : Monitor
   const nextTheme: ThemeChoice =
     props.theme === 'system' ? 'light' : props.theme === 'light' ? 'dark' : 'system'
   const navItem = (on: boolean) =>
@@ -737,7 +740,7 @@ export function Sidebar(props: {
             )}
           </button>
           <IconButton
-            label={copy.sidebar.theme(props.theme, nextTheme)}
+            label={copy.sidebar.theme(themeLabel(props.theme), themeLabel(nextTheme))}
             onClick={() => props.onTheme(nextTheme)}
           >
             <motion.span
