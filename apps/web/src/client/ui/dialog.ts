@@ -13,6 +13,15 @@ const openDialogs: OpenDialog[] = []
 /** Whether a sheet, popover or menu is open, so window-wide keys (⌘. stopping a round) leave it the key. */
 export const anyDialogOpen = () => openDialogs.length > 0
 
+/** Told whenever a dialog opens or closes. */
+const watchers = new Set<() => void>()
+
+/** Calls `onChange` whenever a dialog opens or closes (ask `anyDialogOpen` which); returns how to stop. */
+export function watchDialogs(onChange: () => void): () => void {
+  watchers.add(onChange)
+  return () => watchers.delete(onChange)
+}
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe, [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
 
@@ -66,10 +75,12 @@ export function useDialog(box: RefObject<HTMLElement | null>, onClose: () => voi
     openDialogs.splice(inside === -1 ? openDialogs.length : inside, 0, entry)
     if (openDialogs.length === 1) window.addEventListener('keydown', onDialogKey)
     if (!box.current?.contains(document.activeElement)) box.current?.focus()
+    for (const w of watchers) w()
     return () => {
       openDialogs.splice(openDialogs.indexOf(entry), 1)
       if (openDialogs.length === 0) window.removeEventListener('keydown', onDialogKey)
       previous?.focus()
+      for (const w of watchers) w()
     }
   }, [box, present])
 }

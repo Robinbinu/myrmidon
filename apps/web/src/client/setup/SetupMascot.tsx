@@ -11,12 +11,12 @@ import {
   useState,
 } from 'react'
 import type { Emotion } from '../chat/emotion.ts'
-import { gaze, resolveColor } from '../chat/Hero.tsx'
+import { gaze, resolveColor, useOnStage } from '../chat/Hero.tsx'
 import { copy } from '../copy.ts'
 import { MASCOT_LAYOUT_ID, type MascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
 import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
-import { MASCOT_COLORS, SETUP_MASCOT } from '../ui-config.ts'
+import { MASCOT_COLORS, MASCOT_GRID, SETUP_MASCOT } from '../ui-config.ts'
 import {
   CHOREOGRAPHY,
   placement,
@@ -89,6 +89,8 @@ export function MascotStage(props: {
   const reduce = !!useReducedMotionConfig()
   const choreo = CHOREOGRAPHY[props.screen]
   const [scope, animate] = useAnimate<HTMLDivElement>()
+  // Behind another window its face holds still, as the new-chat mascot's does.
+  const onStage = useOnStage(scope)
   const stage = useRef<HTMLDivElement>(null)
   const frame = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -103,7 +105,8 @@ export function MascotStage(props: {
   const [level, setLevel] = useState(0)
   const [look, setLook] = useState<[number, number]>()
   const [cursors, setCursors] = useState<Cursor[]>([])
-  const crewTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  // The crew's timers still to fire, each gone from here as it does, so they can be cleared if setup closes first.
+  const crewTimers = useRef(new Set<ReturnType<typeof setTimeout>>())
   // Waking up plays once, the first time Welcome shows.
   const [wake, setWake] = useState<number | undefined>(props.screen === 'welcome' ? 0 : undefined)
   const [typed, setTyped] = useState(0)
@@ -136,6 +139,7 @@ export function MascotStage(props: {
     () => () => {
       clearTimeout(reactionTimer.current)
       for (const t of crewTimers.current) clearTimeout(t)
+      crewTimers.current.clear()
     },
     [],
   )
@@ -232,7 +236,11 @@ export function MascotStage(props: {
   const crew = useCallback(
     (names: readonly string[]) => {
       const wait = (ms: number, run: () => void) => {
-        crewTimers.current.push(setTimeout(run, ms))
+        const t = setTimeout(() => {
+          crewTimers.current.delete(t)
+          run()
+        }, ms)
+        crewTimers.current.add(t)
       }
       const setCursor = (key: string, patch: Partial<Cursor>) =>
         setCursors((cs) => cs.map((c) => (c.key === key ? { ...c, ...patch } : c)))
@@ -370,11 +378,12 @@ export function MascotStage(props: {
                 <PixelFace
                   mood={emotion.mood}
                   color={eyes}
-                  cols={15}
-                  rows={8}
+                  cols={MASCOT_GRID.cols}
+                  rows={MASCOT_GRID.rows}
                   cell={20}
                   gap={6}
                   glow
+                  paused={!onStage}
                   eyes={props.look.eyes}
                   {...(eyesOn ? { look: eyesOn } : {})}
                   className="h-auto w-full"

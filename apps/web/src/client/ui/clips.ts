@@ -99,12 +99,17 @@ export function useClip(
   id: string | number | undefined,
   still: boolean,
   onEnd?: () => void,
+  /** Holds the clip on its frame, to carry on from there (for the rest of that frame's time) once let go. */
+  paused = false,
 ): Frame | undefined {
   const [frame, setFrame] = useState<Frame>()
   const ended = useRef(onEnd)
   ended.current = onEnd
   const playing = useRef(clip)
   playing.current = clip
+  const held = useRef(paused)
+  held.current = paused
+  const player = useRef<{ pause(): void; resume(): void }>(undefined)
   // biome-ignore lint/correctness/useExhaustiveDependencies: `id` names the playing; a new clip object alone does not restart it
   useEffect(() => {
     setFrame(undefined)
@@ -112,6 +117,14 @@ export function useClip(
     if (!c || still) return
     let it = c.frames[Symbol.iterator]()
     let timer: ReturnType<typeof setTimeout> | undefined
+    // When the frame on show is due to end, and how much of it was left when the clip was held.
+    let due = 0
+    let left = 0
+    const wait = (ms: number) => {
+      due = performance.now() + ms
+      left = ms
+      timer = held.current ? undefined : setTimeout(next, ms)
+    }
     const next = () => {
       let step = it.next()
       if (step.done && c.loop) {
@@ -124,11 +137,31 @@ export function useClip(
         return
       }
       setFrame(step.value)
-      timer = setTimeout(next, step.value.ms)
+      wait(step.value.ms)
+    }
+    player.current = {
+      pause() {
+        if (timer === undefined) return
+        clearTimeout(timer)
+        timer = undefined
+        left = Math.max(0, due - performance.now())
+      },
+      resume() {
+        if (timer !== undefined) return
+        due = performance.now() + left
+        timer = setTimeout(next, left)
+      },
     }
     next()
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      player.current = undefined
+    }
   }, [id, still])
+  useEffect(() => {
+    if (paused) player.current?.pause()
+    else player.current?.resume()
+  }, [paused])
   return frame
 }
 

@@ -1,6 +1,6 @@
 import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'motion/react'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import {
@@ -16,15 +16,18 @@ import {
   tears,
   ZZZ,
 } from '../ui/clips.ts'
-import { ago } from '../ui/hooks.ts'
+import { anyDialogOpen, watchDialogs } from '../ui/dialog.ts'
+import { ago, useMinWidth } from '../ui/hooks.ts'
 import { BOW, DotMatrix, eyeCells, FLOWER, LEAD_COLOR, moodFor, PixelSprite } from '../ui/pixel.tsx'
 import { cn, Dot } from '../ui/primitives.tsx'
 import { boot, charge, confetti, equaliser, life, pacman, pop, ripple } from '../ui/shows.ts'
 import {
+  HERO_CREW_MIN_WIDTH,
   HERO_MASCOT_MIN_HEIGHT,
   HERO_RECENT_CHATS,
   MASCOT_COLORS,
   MASCOT_DOZE_MS,
+  MASCOT_GAZE_PX,
   MASCOT_GRID,
   MASCOT_IDLE,
   MASCOT_PAT_MS,
@@ -90,9 +93,50 @@ const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.lengt
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Pixel offset from the face's center → where the eyes point, in cells. */
 export const gaze = (dx: number, dy: number): [number, number] => [
-  clamp(Math.round(dx / 110), -2, 2),
-  clamp(Math.round(dy / 90), -1, 1),
+  clamp(Math.round(dx / MASCOT_GAZE_PX.x), -2, 2),
+  clamp(Math.round(dy / MASCOT_GAZE_PX.y), -1, 1),
 ]
+
+/**
+ * Whether `el` is on show: the page visible, its window the one in use, `el` scrolled into view, and no sheet or
+ * dialog open over the page. The mascot's loops run only while it is, so a desktop window left open behind another,
+ * or a sheet over the new-chat view, costs nothing. `mounted` says when `el` is on the page to be watched.
+ */
+export function useOnStage(el: RefObject<Element | null>, mounted = true): boolean {
+  const [shown, setShown] = useState(() => document.visibilityState !== 'hidden')
+  const [focused, setFocused] = useState(() => document.hasFocus())
+  const [inView, setInView] = useState(true)
+  const [covered, setCovered] = useState(anyDialogOpen)
+  useEffect(() => {
+    const visibility = () => setShown(document.visibilityState !== 'hidden')
+    const focus = () => setFocused(true)
+    const blur = () => setFocused(false)
+    document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('focus', focus)
+    window.addEventListener('blur', blur)
+    const unwatch = watchDialogs(() => setCovered(anyDialogOpen()))
+    return () => {
+      document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('focus', focus)
+      window.removeEventListener('blur', blur)
+      unwatch()
+    }
+  }, [])
+  useEffect(() => {
+    const node = el.current
+    if (!mounted || !node || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      const last = entries.at(-1)
+      if (last) setInView(last.isIntersecting)
+    })
+    observer.observe(node)
+    return () => {
+      observer.disconnect()
+      setInView(true)
+    }
+  }, [el, mounted])
+  return shown && focused && inView && !covered
+}
 
 /**
  * What the mascot's screen spells out of the message box: the draft from the moment the person
@@ -137,28 +181,63 @@ export function useTypedText(
   return shown
 }
 
+const PALETTE: readonly string[] = Object.values(MASCOT_COLORS)
+
+/** A number in [0, 1) for draw `k` of run `run` under `seed`: the same every time it is asked for (a 32-bit mix). */
+function roll(seed: number, run: number, k: number): number {
+  let t = (seed ^ Math.imul(run + 1, 0x9e3779b1) ^ Math.imul(k + 1, 0x85ebca6b)) >>> 0
+  t = Math.imul(t ^ (t >>> 15), t | 1)
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+
+/**
+ * The colour of `words` typed letters: `base` for the first few, then another of `palette` after every few more, a
+ * count in MASCOT_TYPING.colorEveryWords. `draw(k)` is the k-th random number of this run of words.
+ */
+export function typingColor(
+  words: number,
+  base: string,
+  palette: readonly string[],
+  draw: (k: number) => number,
+): string {
+  const [min, max] = MASCOT_TYPING.colorEveryWords
+  let k = 0
+  const gap = () => min + Math.floor(draw(k++) * (max - min + 1))
+  let color: string | undefined
+  let next = gap()
+  for (let w = 1; w <= words; w++) {
+    if (w <= next) continue
+    const current = color ?? base
+    const others = palette.filter((c) => c !== current)
+    color = others[Math.floor(draw(k++) * others.length)] ?? current
+    next = w + gap() - 1
+  }
+  return color ?? base
+}
+
 /**
  * The colour the typed letters take: `base` (the eyes' colour) to begin with, then another of the mascot's colours
- * after every few words, a random count in MASCOT_TYPING.colorEveryWords. Clearing the box starts again from `base`.
+ * after every few words, a random count in MASCOT_TYPING.colorEveryWords. Clearing the box starts again from `base`,
+ * with new random counts. `draw(k)` stands in for the k-th random number of a run, in tests.
  */
 export function useTypingColor(
   draft: string,
   base: string,
-  palette: readonly string[] = Object.values(MASCOT_COLORS),
-  random: () => number = Math.random,
+  palette: readonly string[] = PALETTE,
+  draw?: (k: number) => number,
 ): string {
   const words = draft.trim() ? draft.trim().split(/\s+/).length : 0
-  const [min, max] = MASCOT_TYPING.colorEveryWords
-  const gap = () => min + Math.floor(random() * (max - min + 1))
-  const state = useRef<{ color?: string; next: number }>({ next: gap() })
-  if (words === 0) state.current = { next: gap() }
-  else if (words > state.current.next) {
-    const current = state.current.color ?? base
-    const others = palette.filter((c) => c !== current)
-    const color = others[Math.floor(random() * others.length)] ?? current
-    state.current = { color, next: words + gap() - 1 }
-  }
-  return state.current.color ?? base
+  // Each clearing of the box starts a new run of words, with draws of its own.
+  const [run, setRun] = useState({ n: 0, empty: words === 0 })
+  if ((words === 0) !== run.empty) setRun({ n: run.n + (words === 0 ? 1 : 0), empty: words === 0 })
+  // The seed is drawn after the first render, which keeps rendering pure; until then no letters are on show.
+  const [seed, setSeed] = useState(0)
+  useEffect(() => setSeed((Math.random() * 2 ** 32) >>> 0), [])
+  return useMemo(
+    () => typingColor(words, base, palette, draw ?? ((k) => roll(seed, run.n, k))),
+    [words, base, palette, draw, seed, run.n],
+  )
 }
 
 /**
@@ -235,6 +314,8 @@ export function Hero(props: {
 }) {
   const reduce = useReducedMotionConfig()
   const roomy = useTallerThan(HERO_MASCOT_MIN_HEIGHT)
+  // The crew shows only beside a wide enough page; on a narrower one it is not there at all, poking included.
+  const crewFits = useMinWidth(HERO_CREW_MIN_WIDTH)
   const mascot = useMascotLook()
   const { greeting, name } = useGreeting(props.news)
   const headline = greeting?.headline ?? copy.hero.headline
@@ -273,6 +354,10 @@ export function Hero(props: {
   const callRef = useRef(props.call)
   callRef.current = props.call
   const moodRef = useRef<Emotion['mood']>('idle')
+  // Out of sight, or behind another window, the screen holds still and plays no tricks.
+  const onStage = useOnStage(scope, roomy)
+  const onStageRef = useRef(onStage)
+  onStageRef.current = onStage
 
   const wake = useCallback(() => {
     asleepRef.current = false
@@ -372,6 +457,21 @@ export function Hero(props: {
     return () => window.removeEventListener('pointermove', onMove)
   }, [reactTo, scope])
 
+  // Typing, or going through the page from the keyboard, is someone being here too: it wakes the mascot quietly (its
+  // screen is about to spell what they type) and keeps it from dozing off.
+  useEffect(() => {
+    const here = () => {
+      lastUser.current = Date.now()
+      if (asleepRef.current) wake()
+    }
+    window.addEventListener('keydown', here)
+    document.addEventListener('focusin', here)
+    return () => {
+      window.removeEventListener('keydown', here)
+      document.removeEventListener('focusin', here)
+    }
+  }, [wake])
+
   // Dozing off, and the occasional trick while nobody is around: something its eyes do, now and then a show.
   useEffect(() => {
     if (reduce) return
@@ -383,7 +483,7 @@ export function Hero(props: {
       if (quiet > MASCOT_DOZE_MS) {
         asleepRef.current = true
         setAsleep(true)
-      } else if (moodRef.current === 'idle' && Math.random() < MASCOT_IDLE.chance) {
+      } else if (onStageRef.current && moodRef.current === 'idle' && Math.random() < MASCOT_IDLE.chance) {
         perform({ clip: Math.random() < MASCOT_IDLE.showShare ? pacman() : pick(IDLE_CLIPS) })
       }
     }, MASCOT_IDLE.everyMs)
@@ -544,6 +644,7 @@ export function Hero(props: {
                   {...(typed !== undefined ? { text: typed } : {})}
                   {...(asking ? { tweak: { mood: 'idle', shape: ['open', 'ask'], look: [-1, -1] } } : {})}
                   {...(shown ? { clip: shown, playId: act ? act.id : shown.name } : {})}
+                  paused={!onStage}
                   onClipEnd={endAct}
                   onTap={tap}
                   onPress={() => reactTo(pick(POKED))}
@@ -603,26 +704,29 @@ export function Hero(props: {
               )}
             </motion.div>
 
-            <motion.div
-              className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
-              aria-hidden
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4, duration: 0.3 }}
-            >
-              <HeroCrew
-                signal={signal}
-                {...(look ? { look } : {})}
-                typing={typing}
-                knocked={knocked}
-                face={scope}
-                canvas={canvas}
-                onPoke={() => reactTo(pick(POKED))}
-                onWatch={(x, y) => {
-                  if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
-                }}
-              />
-            </motion.div>
+            {crewFits && (
+              <motion.div
+                className="pointer-events-none absolute left-1/2 top-1/2 z-10"
+                aria-hidden
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.4, duration: 0.3 }}
+              >
+                <HeroCrew
+                  signal={signal}
+                  {...(look ? { look } : {})}
+                  typing={typing}
+                  knocked={knocked}
+                  active={onStage}
+                  face={scope}
+                  canvas={canvas}
+                  onPoke={() => reactTo(pick(POKED))}
+                  onWatch={(x, y) => {
+                    if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
+                  }}
+                />
+              </motion.div>
+            )}
           </div>
         )}
 

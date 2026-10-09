@@ -4,8 +4,9 @@
  * velocity; each behaviour returns a steering force, the caller adds them up with weights, and `integrate` moves the
  * body as Reynolds' simple vehicle does: the force truncated to a most, then the speed. Units are px and seconds.
  *
- * Bodies are changed in place by `integrate` and `fall`: they run every frame for a handful of cursors, and nothing
- * else holds on to them.
+ * Bodies are changed in place by `integrate`, `fall` and `keepInside`: they run every frame for a handful of cursors,
+ * and nothing else holds on to them. For the same reason each behaviour can write its force into an `out` vector the
+ * caller keeps, so a frame allocates nothing.
  */
 
 export interface Vec {
@@ -40,57 +41,48 @@ export interface Bounds {
   bottom: number
 }
 
-export const ZERO: Readonly<Vec> = { x: 0, y: 0 }
-
-export const length = (v: Vec) => Math.hypot(v.x, v.y)
-export const add = (...vs: Vec[]): Vec =>
-  vs.reduce((a, v) => ({ x: a.x + v.x, y: a.y + v.y }), { x: 0, y: 0 })
-export const scale = (v: Vec, k: number): Vec => ({ x: v.x * k, y: v.y * k })
-export const speedOf = (b: Body) => Math.hypot(b.vx, b.vy)
-
-/** The same direction, at most `max` long. */
-export function truncate(v: Vec, max: number): Vec {
-  const n = length(v)
-  return n > max && n > 0 ? scale(v, max / n) : v
+const vec = (out: Vec | undefined, x: number, y: number): Vec => {
+  const v = out ?? { x: 0, y: 0 }
+  v.x = x
+  v.y = y
+  return v
 }
 
+export const speedOf = (b: Body) => Math.hypot(b.vx, b.vy)
+
 /**
- * How hard seek, flee and arrival pull toward the velocity they want, per second. Reynolds applies "wanted minus
- * current velocity" once a frame; over a time step that is this gain, so the pull does not depend on the frame rate.
+ * How hard flee and arrival pull toward the velocity they want, per second. Reynolds applies "wanted minus current
+ * velocity" once a frame; over a time step that is this gain, so the pull does not depend on the frame rate.
  */
 export const STEER_GAIN = 8
 
 /** Toward the wanted velocity (ux, uy at `speed`), as a force. */
-const toward = (b: Body, ux: number, uy: number, speed: number, gain: number): Vec => ({
-  x: (ux * speed - b.vx) * gain,
-  y: (uy * speed - b.vy) * gain,
-})
-
-/** Seek: head straight for `target` at full speed. */
-export function seek(b: Body, target: Vec, maxSpeed: number, gain = STEER_GAIN): Vec {
-  const dx = target.x - b.x
-  const dy = target.y - b.y
-  const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return toward(b, 0, 0, 0, gain)
-  return toward(b, dx / d, dy / d, maxSpeed, gain)
-}
+const toward = (b: Body, ux: number, uy: number, speed: number, gain: number, out?: Vec): Vec =>
+  vec(out, (ux * speed - b.vx) * gain, (uy * speed - b.vy) * gain)
 
 /** Flee: head straight away from `from` at full speed. */
-export function flee(b: Body, from: Vec, maxSpeed: number, gain = STEER_GAIN): Vec {
+export function flee(b: Body, from: Vec, maxSpeed: number, gain = STEER_GAIN, out?: Vec): Vec {
   const dx = b.x - from.x
   const dy = b.y - from.y
   const d = Math.hypot(dx, dy)
   // Standing right on it, any way out will do.
-  return d < 1e-6 ? toward(b, 1, 0, maxSpeed, gain) : toward(b, dx / d, dy / d, maxSpeed, gain)
+  return d < 1e-6 ? toward(b, 1, 0, maxSpeed, gain, out) : toward(b, dx / d, dy / d, maxSpeed, gain, out)
 }
 
-/** Arrival: seek, but within `slowRadius` the wanted speed falls with the distance left, so it stops on the spot. */
-export function arrive(b: Body, target: Vec, maxSpeed: number, slowRadius: number, gain = STEER_GAIN): Vec {
+/** Arrival: head for `target`, but within `slowRadius` the wanted speed falls with the distance left, so it stops on the spot. */
+export function arrive(
+  b: Body,
+  target: Vec,
+  maxSpeed: number,
+  slowRadius: number,
+  gain = STEER_GAIN,
+  out?: Vec,
+): Vec {
   const dx = target.x - b.x
   const dy = target.y - b.y
   const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return toward(b, 0, 0, 0, gain)
-  return toward(b, dx / d, dy / d, maxSpeed * Math.min(1, d / slowRadius), gain)
+  if (d < 1e-6) return toward(b, 0, 0, 0, gain, out)
+  return toward(b, dx / d, dy / d, maxSpeed * Math.min(1, d / slowRadius), gain, out)
 }
 
 export interface WanderState {
@@ -100,8 +92,10 @@ export interface WanderState {
 
 /**
  * Wander: a point on a circle `distance` ahead of the body is the way it steers; each step nudges that point by a
- * random amount (up to `jitter` radians a second), so the path meanders without twitching. Returns a unit-scaled
- * force for the caller to weight.
+ * random amount, so the path meanders without twitching. The nudges are a random walk, whose spread grows with the
+ * square root of time: scaling each by √dt (`jitter` is radians per √s) keeps the meander the same at any frame rate,
+ * where scaling by dt would make it wobble more the slower the frames. Returns a unit-scaled force for the caller to
+ * weight.
  */
 export function wander(
   b: Body,
@@ -109,24 +103,29 @@ export function wander(
   opts: { distance: number; radius: number; jitter: number },
   dt: number,
   random: () => number = Math.random,
+  out?: Vec,
 ): Vec {
-  state.angle += (random() * 2 - 1) * opts.jitter * dt
+  state.angle += (random() * 2 - 1) * opts.jitter * Math.sqrt(dt)
   const speed = speedOf(b)
-  const heading = speed > 1e-3 ? { x: b.vx / speed, y: b.vy / speed } : { x: 1, y: 0 }
-  return {
-    x: heading.x * opts.distance + Math.cos(state.angle) * opts.radius,
-    y: heading.y * opts.distance + Math.sin(state.angle) * opts.radius,
-  }
+  const hx = speed > 1e-3 ? b.vx / speed : 1
+  const hy = speed > 1e-3 ? b.vy / speed : 0
+  return vec(
+    out,
+    hx * opts.distance + Math.cos(state.angle) * opts.radius,
+    hy * opts.distance + Math.sin(state.angle) * opts.radius,
+  )
 }
 
 /**
  * Separation: away from every neighbour closer than `radius`, more strongly the closer it is (falling off to nothing
- * at the radius). Returns the sum of those unit pushes; the caller weights it.
+ * at the radius). `others` may hold the body itself, which is skipped. Returns the sum of those unit pushes; the
+ * caller weights it.
  */
-export function separation(b: Body, others: readonly Vec[], radius: number): Vec {
+export function separation(b: Body, others: readonly Vec[], radius: number, out?: Vec): Vec {
   let x = 0
   let y = 0
   for (const o of others) {
+    if (o === b) continue
     const dx = b.x - o.x
     const dy = b.y - o.y
     const d = Math.hypot(dx, dy)
@@ -140,44 +139,69 @@ export function separation(b: Body, others: readonly Vec[], radius: number): Vec
     x += (dx / d) * k
     y += (dy / d) * k
   }
-  return { x, y }
+  return vec(out, x, y)
 }
 
 /**
  * Obstacle avoidance for one box: if the body is inside the box grown by `margin`, or will be within `lookahead`
  * seconds at its speed, a unit push out of it along the axis it is least deep in; otherwise nothing.
  */
-export function avoidBox(b: Body, box: Box, margin: number, lookahead: number): Vec {
+export function avoidBox(b: Body, box: Box, margin: number, lookahead: number, out?: Vec): Vec {
   const hw = box.hw + margin
   const hh = box.hh + margin
-  const inside = (p: Vec) => Math.abs(p.x - box.x) < hw && Math.abs(p.y - box.y) < hh
-  const ahead = { x: b.x + b.vx * lookahead, y: b.y + b.vy * lookahead }
-  const p = inside(b) ? b : inside(ahead) ? ahead : undefined
-  if (!p) return { x: 0, y: 0 }
-  const dx = p.x - box.x
-  const dy = p.y - box.y
+  let dx = b.x - box.x
+  let dy = b.y - box.y
+  if (Math.abs(dx) >= hw || Math.abs(dy) >= hh) {
+    dx += b.vx * lookahead
+    dy += b.vy * lookahead
+    if (Math.abs(dx) >= hw || Math.abs(dy) >= hh) return vec(out, 0, 0)
+  }
   const deepX = hw - Math.abs(dx)
   const deepY = hh - Math.abs(dy)
-  return deepX < deepY ? { x: Math.sign(dx) || 1, y: 0 } : { x: 0, y: Math.sign(dy) || 1 }
+  return deepX < deepY ? vec(out, Math.sign(dx) || 1, 0) : vec(out, 0, Math.sign(dy) || 1)
 }
 
+const past = (depth: number, margin: number) => Math.max(0, depth) / margin
+
 /** Containment: back inside `bounds`, harder the further past `margin` from an edge the body is. */
-export function contain(b: Body, bounds: Bounds, margin: number): Vec {
-  const push = (depth: number) => Math.max(0, depth) / margin
-  return {
-    x: push(bounds.left + margin - b.x) - push(b.x - (bounds.right - margin)),
-    y: push(bounds.top + margin - b.y) - push(b.y - (bounds.bottom - margin)),
+export function contain(b: Body, bounds: Bounds, margin: number, out?: Vec): Vec {
+  return vec(
+    out,
+    past(bounds.left + margin - b.x, margin) - past(b.x - (bounds.right - margin), margin),
+    past(bounds.top + margin - b.y, margin) - past(b.y - (bounds.bottom - margin), margin),
+  )
+}
+
+/**
+ * Containment's hard stop: a body past an edge of `bounds` is put back on it, and loses the speed that carried it
+ * out. Containment alone is a spring, and a strong enough pull the other way (fleeing) stretches it past the edge.
+ */
+export function keepInside(b: Body, bounds: Bounds): void {
+  if (b.x < bounds.left || b.x > bounds.right) {
+    b.x = Math.max(bounds.left, Math.min(bounds.right, b.x))
+    b.vx = 0
+  }
+  if (b.y < bounds.top || b.y > bounds.bottom) {
+    b.y = Math.max(bounds.top, Math.min(bounds.bottom, b.y))
+    b.vy = 0
   }
 }
 
 /** One step of Reynolds' vehicle: the force truncated to `maxForce`, the velocity to `maxSpeed`, then the move. */
 export function integrate(b: Body, force: Vec, limits: Limits, dt: number): void {
-  const f = truncate(force, limits.maxForce)
-  const v = truncate({ x: b.vx + f.x * dt, y: b.vy + f.y * dt }, limits.maxSpeed)
-  b.vx = v.x
-  b.vy = v.y
-  b.x += v.x * dt
-  b.y += v.y * dt
+  const f = Math.hypot(force.x, force.y)
+  const fk = f > limits.maxForce ? limits.maxForce / f : 1
+  let vx = b.vx + force.x * fk * dt
+  let vy = b.vy + force.y * fk * dt
+  const v = Math.hypot(vx, vy)
+  if (v > limits.maxSpeed) {
+    vx *= limits.maxSpeed / v
+    vy *= limits.maxSpeed / v
+  }
+  b.vx = vx
+  b.vy = vy
+  b.x += vx * dt
+  b.y += vy * dt
 }
 
 export interface FallOptions {
