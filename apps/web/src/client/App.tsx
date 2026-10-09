@@ -48,6 +48,7 @@ import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
+import { useHeldDeletes } from './chat/held-deletes.ts'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
@@ -81,16 +82,15 @@ import { comboLabel, pressShortcut } from './ui/shortcuts.ts'
 import { needsYou, runPhase } from './ui/status.ts'
 import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
-import { holdBack } from './ui/undo.ts'
 import {
   AGENT_MIN_WINDOW,
   CALL_HANG_UP_COMBO,
   CALL_LINES,
   CALL_MUTE_COMBO,
+  DELETE_TITLES_SHOWN,
   MAX_FILE_BYTES,
   softSpring,
   UNDO_DELETE_COMBO,
-  UNDO_DELETE_MS,
 } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
@@ -199,6 +199,48 @@ async function exportChat(chat: ChatSummary) {
   URL.revokeObjectURL(url)
 }
 
+/** The delete sheet's question: one chat by its title, several by how many with their titles listed. */
+function DeleteChats(props: { chats: readonly ChatSummary[]; onCancel(): void; onConfirm(): void }) {
+  const t = copy.app.deleteChat
+  const [one] = props.chats
+  const many = props.chats.length > 1
+  const running = props.chats.filter((c) => isRunning(c.status)).length
+  const listed = props.chats.slice(0, DELETE_TITLES_SHOWN)
+  return (
+    <div className="flex flex-col gap-4">
+      {many || !one ? (
+        <>
+          <p className="text-title leading-relaxed text-fg-2">{t.bodyMany(props.chats.length)}</p>
+          <ul className="flex flex-col gap-1 text-body text-fg">
+            {listed.map((c) => (
+              <li key={c.chatId} className="truncate font-medium">
+                {t.quotedTitle(c.title)}
+              </li>
+            ))}
+            {props.chats.length > listed.length && (
+              <li className="text-muted">{t.andMore(props.chats.length - listed.length)}</li>
+            )}
+          </ul>
+        </>
+      ) : (
+        <p className="text-title leading-relaxed text-fg-2">
+          <span className="font-semibold text-fg">{t.quotedTitle(one.title)}</span>
+          {t.body(one.rounds.length)}
+        </p>
+      )}
+      {running > 0 && <Banner tone="warn">{many ? t.stillRunningMany(running) : t.stillRunning}</Banner>}
+      <div className="flex justify-end gap-2">
+        <Button variant="borderless" onClick={props.onCancel}>
+          {t.cancel}
+        </Button>
+        <Button variant="destructive" onClick={props.onConfirm} icon={<Trash2 className="size-3.5" />}>
+          {many ? t.confirmMany(props.chats.length) : t.confirm}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /** A desktop notification while Myrmidon is in the background, if the person turned them on in Settings. */
 function notify(text: string, chatId?: string, tag = chatId) {
   try {
@@ -282,11 +324,16 @@ export function App() {
     (go: () => void) => (settingsGuard.current ? settingsGuard.current(go) : go()),
     [],
   )
-  const [deleting, setDeleting] = useState<ChatSummary>()
-  /** Chats deleted from this window: hidden at once, and deleted for good only once their undo lapses. */
-  const [deleted, setDeleted] = useState<ReadonlySet<string>>(new Set())
-  /** The deletes that can still be taken back, latest last. */
-  const [undoable, setUndoable] = useState<readonly { chatId: string; undo(): void }[]>([])
+  /** The chats the delete sheet asks about: one, or the sidebar's selection. */
+  const [deleting, setDeleting] = useState<readonly ChatSummary[]>()
+  const deletes = useHeldDeletes({
+    remove: (chatId) => request('DELETE', `/api/chats/${chatId}`),
+    gone: (chatIds) => {
+      for (const id of chatIds) forgetDraft(id)
+      refreshChats()
+    },
+  })
+  const { deleted } = deletes
   const chats = useMemo(() => listed.filter((c) => !deleted.has(c.chatId)), [listed, deleted])
   // The tab says how many chats wait for the person, so it shows from another tab or app.
   const needYou = chats.filter(needsYou).length
@@ -657,7 +704,7 @@ export function App() {
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     // Only while a delete can be taken back, so ⌘Z is otherwise left alone.
-    ...(undoable.length ? [{ combo: UNDO_DELETE_COMBO, run: () => undoable.at(-1)?.undo() }] : []),
+    ...(deletes.undoLast ? [{ combo: UNDO_DELETE_COMBO, run: deletes.undoLast }] : []),
     {
       combo: 'mod+,',
       run: () => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info')),
@@ -850,60 +897,23 @@ export function App() {
       .catch((err) => toast(String(err.message ?? err), 'error'))
   }
 
-  /**
-   * A confirmed delete hides the chat at once and is sent only once its undo lapses. Until then it lives in this window
-   * alone, so closing or reloading it keeps the chat: nothing is gone that the person could still have taken back.
-   */
+  /** A confirmed delete hides the chats at once and is sent only once its undo lapses (`useHeldDeletes`). */
   const confirmDelete = () => {
-    if (!deleting) return
-    const { chatId, title } = deleting
-    const wasOpen = chatId === activeChat
+    if (!deleting?.length) return
+    const wasOpen = deleting.find((c) => c.chatId === activeChat)?.chatId
     setDeleting(undefined)
-    setDeleted((s) => new Set(s).add(chatId))
-    if (wasOpen) newTask()
-    const show = () =>
-      setDeleted((s) => {
-        const next = new Set(s)
-        next.delete(chatId)
-        return next
-      })
-    const settle = () => setUndoable((u) => u.filter((x) => x.chatId !== chatId))
-    const takeBack = holdBack(() => {
-      settle()
-      // A chat deleted for good stays hidden: the list forgets it at its next look.
-      request('DELETE', `/api/chats/${chatId}`)
-        .then(() => {
-          forgetDraft(chatId)
-          refreshChats()
-        })
-        .catch((err) => {
-          show()
-          toast(copy.app.toasts.deleteFailed(title, String((err as Error).message ?? err)), 'error')
-        })
-    }, UNDO_DELETE_MS)
-    const undo = () => {
-      if (!takeBack()) return
-      settle()
-      show()
-      shown.close()
-      if (wasOpen)
-        leaveSettings(() => {
-          setActiveChat(chatId)
-          setView('chat')
-          setSettingsOpen(false)
-        })
-    }
-    const shown = heldToast(
-      copy.app.toasts.deleted(title),
-      'success',
-      {
-        label: copy.app.toasts.undoDelete,
-        title: copy.app.toasts.undoDeleteTitle(comboLabel(UNDO_DELETE_COMBO, isMac)),
-        run: undo,
-      },
-      { ms: UNDO_DELETE_MS },
+    deletes.hold(
+      deleting,
+      wasOpen
+        ? () =>
+            leaveSettings(() => {
+              setActiveChat(wasOpen)
+              setView('chat')
+              setSettingsOpen(false)
+            })
+        : undefined,
     )
-    setUndoable((u) => [...u, { chatId, undo }])
+    if (wasOpen) newTask()
   }
 
   const sidebar = (
@@ -1391,30 +1401,18 @@ export function App() {
       </div>
 
       <AnimatePresence>
-        {deleting && (
+        {deleting && deleting.length > 0 && (
           <Sheet
             key="delete"
-            title={copy.app.deleteChat.title}
+            title={
+              deleting.length === 1
+                ? copy.app.deleteChat.title
+                : copy.app.deleteChat.titleMany(deleting.length)
+            }
             onClose={() => setDeleting(undefined)}
             size="sm"
           >
-            <div className="flex flex-col gap-4">
-              <p className="text-title leading-relaxed text-fg-2">
-                <span className="font-semibold text-fg">
-                  {copy.app.deleteChat.quotedTitle(deleting.title)}
-                </span>
-                {copy.app.deleteChat.body(deleting.rounds.length)}
-              </p>
-              {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
-              <div className="flex justify-end gap-2">
-                <Button variant="borderless" onClick={() => setDeleting(undefined)}>
-                  {copy.app.deleteChat.cancel}
-                </Button>
-                <Button variant="destructive" onClick={confirmDelete} icon={<Trash2 className="size-3.5" />}>
-                  {copy.app.deleteChat.confirm}
-                </Button>
-              </div>
-            </div>
+            <DeleteChats chats={deleting} onCancel={() => setDeleting(undefined)} onConfirm={confirmDelete} />
           </Sheet>
         )}
         {permissionsFor && (
