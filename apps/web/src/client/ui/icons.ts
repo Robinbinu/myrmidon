@@ -13,6 +13,7 @@ import {
   FileCode,
   FileSearch,
   FishingHook,
+  FolderTree,
   Gavel,
   GitBranch,
   Globe,
@@ -146,6 +147,8 @@ export const FEATURE_ICONS = {
   scratchFiles: SlidersHorizontal,
   /** Files the crew published. */
   files: FileCode,
+  /** The project folder as a tree in the workspace (Explorer). */
+  explorer: FolderTree,
   /** A file in the chat's project folder, opened to read as it is now. */
   projectFile: FileSearch,
   /** The project's git history. */

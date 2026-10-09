@@ -879,6 +879,26 @@ export const copy = {
       'This Myrmidon has no preview address for this device yet, so here is the code. docs/remote.md explains how to add one.',
   },
 
+  /** The workspace's Explorer: the project folder as a tree, like an editor's. */
+  explorer: {
+    label: (project: string) => `Files in ${project}`,
+    filter: 'Find a file by name',
+    filterPlaceholder: 'Find a file…',
+    refresh: 'Refresh',
+    collapseAll: 'Collapse folders',
+    loading: 'Loading…',
+    empty: 'This folder is empty',
+    noMatches: (q: string) => `No file names contain “${q}”`,
+    moreMatches: 'More files match; type more of the name to narrow it down.',
+    truncated: 'This folder has more files than are shown.',
+    /** A folder holding changed or new files. */
+    changedInside: 'Has changes',
+    ignored: 'Ignored by git',
+    conflict: 'Conflict',
+    /** Marks a file the crew changed in this chat. */
+    editedHere: 'Changed in this chat',
+  },
+
   /** A file in the chat's project folder, opened from a step, an approval or the change list. */
   projectFile: {
     /** Under the file's name: whose folder, and that this is the file as it is now (not as an agent left it). */
@@ -1327,6 +1347,7 @@ export const copy = {
   workspace: {
     views: {
       files: 'Files',
+      explorer: 'Explorer',
       git: 'Git',
       shell: 'Terminal',
       computer: 'Computer',

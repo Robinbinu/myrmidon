@@ -53,6 +53,7 @@ import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
 import { ColonyTools } from './MadeTools.tsx'
+import { ProjectExplorer } from './ProjectExplorer.tsx'
 import { ProjectFiles, useOpenProjectFile } from './ProjectFiles.tsx'
 import { ShellTerminal } from './ShellTerminal.tsx'
 import { deriveSteps, editedFiles } from './steps.ts'
@@ -61,6 +62,7 @@ import { TaskBoard } from './TaskBoard.tsx'
 type Tab =
   | `plugin:${string}`
   | 'files'
+  | 'explorer'
   | 'git'
   | 'shell'
   | 'computer'
@@ -90,6 +92,13 @@ interface ViewDef {
  */
 export const VIEWS: ViewDef[] = [
   { value: 'files', label: copy.workspace.views.files, icon: FEATURE_ICONS.files, group: 0, key: '1' },
+  {
+    value: 'explorer',
+    label: copy.workspace.views.explorer,
+    icon: FEATURE_ICONS.explorer,
+    group: 0,
+    projectOnly: true,
+  },
   {
     value: 'git',
     label: copy.workspace.views.git,
@@ -270,7 +279,7 @@ function WorkspaceBody({
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return (t === 'git' && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
+    return ((t === 'git' || t === 'explorer') && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)
@@ -447,9 +456,10 @@ function WorkspaceBody({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
                     // An open conversation fills the panel and scrolls on its own, opening at its newest message.
-                    className={tab === 'mail' ? 'h-full' : undefined}
+                    className={tab === 'mail' || tab === 'explorer' ? 'h-full' : undefined}
                   >
                     {tab === 'git' && project && <GitView project={project.id} />}
+                    {tab === 'explorer' && project && <ProjectExplorer project={project} edited={changed} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}
                     {tab === 'files' && project && changed.length > 0 && openFile && (
                       <div className="flex flex-col p-2">

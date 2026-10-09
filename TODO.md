@@ -626,7 +626,8 @@ Earlier items:
       through) that expands to the change and opens the file; an allowed edit expands to what was allowed; Files
       lists "Changed in <project>"; a viewer opens a file as it is now (`GET /api/projects/:id/file`, contained to
       the folder, text only, 2 MB cap); a rewound run keeps View diff, with Open on each file.
-- [ ] **File browser like VS Code's Explorer** (the person's ask) — the project folder as a tree in the workspace:
-      folders fold, files open in the viewer, files the crew changed marked, filter by name. Server side done
-      (`GET /api/projects/:id/tree?path=` one folder with git status/ignored, `/find?q=` by name); the workspace
-      view (tree, badges, filter, keyboard) is still to build on `ProjectFiles`.
+- [x] **File browser like VS Code's Explorer** (the person's ask) — an Explorer view in project chats: the folder as
+      a tree, one level loaded per folder opened (`GET /api/projects/:id/tree`), git status letters, folders with
+      changes tinted, ignored entries dimmed, files the crew changed in this chat ringed, a name filter across the
+      folder (`/find`, skipping what git ignores), arrow keys as in an editor, files open in the viewer. Refreshes on
+      a rewind or commit and when the crew changes a file.
