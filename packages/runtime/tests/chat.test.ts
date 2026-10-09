@@ -492,10 +492,12 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   const resolver = new ModelResolver()
   const seen: { system?: string; tools?: string[]; results?: string } = {}
   const names = (system: string) =>
-    [...(system.split('Your crewmates, on call')[1] ?? '').matchAll(/^- (\w+): (\w+) \(/gm)].map((m) => [
-      m[2],
-      m[1],
-    ])
+    [
+      // Only the roster lines, up to the instructions after them.
+      ...((system.split('Your crewmates, on call')[1] ?? '').split('\n- When')[0] ?? '').matchAll(
+        /^- (\w+): (\w+) \(/gm,
+      ),
+    ].map((m) => [m[2], m[1]])
   scripted(resolver, 'mock/lead', [
     (ctx) => {
       seen.system = ctx.systemPrompt?.join('\n') ?? ''
@@ -1765,7 +1767,7 @@ test.skipIf(!findChrome())(
         tool('publish_artifact', { name: 'data.json', content: '{"count": 300000}' }),
         tool('publish_artifact', {
           name: 'lib/label.js',
-          content: 'export const label = (n) => `${n} ants`',
+          content: "export const label = (n) => n + ' ants'",
         }),
         tool('publish_artifact', { name: 'index.html', content: page }),
       ],
