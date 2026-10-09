@@ -206,16 +206,26 @@ function listeningPorts(): Set<number> | undefined {
       return ports
     }
     if (process.platform === 'darwin') {
-      const out = Bun.spawnSync(['netstat', '-an', '-p', 'tcp'])
-      if (out.exitCode !== 0) return undefined
+      // netstat sees every user's listeners, but the kernel can hand a process an empty socket table (seen under
+      // `bun test` on macOS 27), and netstat then exits 0 listing none. lsof reads this user's processes directly, so
+      // the dashboard and the person's own apps are seen either way.
       const ports = new Set<number>()
-      for (const line of new TextDecoder().decode(out.stdout).split('\n')) {
+      const netstat = Bun.spawnSync(['netstat', '-an', '-p', 'tcp'])
+      for (const line of netstat.exitCode === 0 ? new TextDecoder().decode(netstat.stdout).split('\n') : []) {
         // "tcp4  0  0  127.0.0.1.4318  *.*  LISTEN": the port is the last dotted part of the local address.
         const columns = line.trim().split(/\s+/)
         const port = /\.(\d+)$/.exec(columns[3] ?? '')?.[1]
         if (columns.at(-1) === 'LISTEN' && port) ports.add(Number(port))
       }
-      return ports
+      const lsof = Bun.spawnSync(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-Fn'])
+      // lsof exits 1, silently, when nothing listens.
+      const lsofRead = lsof.exitCode === 0 || (lsof.exitCode === 1 && lsof.stderr.length === 0)
+      for (const line of lsofRead ? new TextDecoder().decode(lsof.stdout).split('\n') : []) {
+        // "n*:5173", "n127.0.0.1:4318", "n[::1]:3000": a name field, the port after its last colon.
+        const port = /^n.*:(\d+)$/.exec(line)?.[1]
+        if (port) ports.add(Number(port))
+      }
+      return netstat.exitCode === 0 || lsofRead ? ports : undefined
     }
   } catch {
     return undefined
