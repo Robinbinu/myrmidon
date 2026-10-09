@@ -76,6 +76,8 @@ export interface SetupContext {
    * is a git repository is known only for one chosen here.
    */
   project?: { project: Project; isGit?: boolean }
+  /** The project the first chat starts in: one this run picked, or Continued past on its step. */
+  chatProject?: Project
   setProject(chosen: { project: Project; isGit: boolean }): void
   onProjects(all: Project[]): void
   /** One step opened on its own: Back, done and Set up later go back where it was opened from. */
@@ -116,7 +118,7 @@ function StepFrame(props: {
   children?: ReactNode
   /** No Set up later on Welcome and Ready. */
   later?: SetupStep
-  next?: { label?: string; disabled?: boolean; hint?: string; onClick(): void }
+  next?: { label?: string; disabled?: boolean; loading?: boolean; hint?: string; onClick(): void }
   /** Welcome has nothing to go back to. */
   noBack?: boolean
 }) {
@@ -165,6 +167,7 @@ function StepFrame(props: {
           <Button
             variant="primary"
             disabled={props.next.disabled}
+            loading={props.next.loading}
             title={props.next.disabled ? props.next.hint : undefined}
             onClick={props.next.onClick}
           >
@@ -387,15 +390,20 @@ export function ModelsStep() {
     answered && chosen && ctx.config && (ctx.config.leadModel !== chosen || !ctx.config.judgeModel)
       ? { config: ctx.config, model: chosen, reviewerToo: !ctx.config.judgeModel }
       : undefined
-  const proceed = () => {
+  const [saving, setSaving] = useState(false)
+  // Only the lead (and an empty reviewer) changes, here and on the server: the rest of the crew stays as it is.
+  const proceed = async () => {
     if (adopting) {
-      const next = {
-        ...adopting.config,
-        leadModel: adopting.model,
-        judgeModel: adopting.config.judgeModel || adopting.model,
-      }
-      ctx.onConfig(next)
-      ctx.settings.update((s) => withDefaultCrew(s, next), true)
+      const { config, model } = adopting
+      setSaving(true)
+      const saved = await ctx.settings.saveNow((s) => ({
+        ...s,
+        team: { ...s.team, leadModel: model, judgeModel: s.team.judgeModel || model },
+      }))
+      setSaving(false)
+      // The save failing says why in a toast; the step stays, so Continue can be pressed again.
+      if (!saved) return
+      ctx.onConfig({ ...config, leadModel: model, judgeModel: config.judgeModel || model })
     }
     ctx.done('models')
   }
@@ -408,7 +416,7 @@ export function ModelsStep() {
       title={t.models.title}
       intro={t.models.intro}
       later="models"
-      next={{ disabled: !answered, hint: t.models.gate, onClick: proceed }}
+      next={{ disabled: !answered, loading: saving, hint: t.models.gate, onClick: () => void proceed() }}
     >
       <section aria-labelledby="setup-found">
         <SectionHeader as="h2" className="mb-2" title={<span id="setup-found">{t.models.found}</span>} />
@@ -653,19 +661,25 @@ export function CrewStep() {
   }
   const data = ctx.settings.data
   const reviewer = data?.settings.verification.reviewer ?? 'auto'
+  const [saving, setSaving] = useState(false)
+  // With no crew saved yet, Continue keeps the one shown, so new chats, channels and calls start with it. A crew saved
+  // already stays as it is: the one shown carries this browser's message-box choices, which are not the default.
+  const proceed = async () => {
+    if (data && !data.settings.team.leadModel && config) {
+      setSaving(true)
+      const saved = await ctx.settings.saveNow((s) => withDefaultCrew(s, config))
+      setSaving(false)
+      if (!saved) return
+    }
+    ctx.done('crew')
+  }
   return (
     <StepFrame
       screen="crew"
       title={t.crew.title}
       intro={t.crew.intro}
       later="crew"
-      next={{
-        onClick: () => {
-          // The crew shown is the one new chats start with: Continue keeps it, so the step is set up.
-          if (config) ctx.settings.update((s) => withDefaultCrew(s, config), true)
-          ctx.done('crew')
-        },
-      }}
+      next={{ disabled: !data, loading: saving, hint: t.loading, onClick: () => void proceed() }}
     >
       {config && ctx.models.some(canLead) ? (
         <>
@@ -1333,7 +1347,7 @@ const READY_STATUS: Record<StepStatus, string> = {
 
 export function ReadyStep(props: { steps: readonly SetupStep[] }) {
   const ctx = useSetup()
-  const offers = starters(ctx.project ? { project: ctx.project.project.name } : {})
+  const offers = starters(ctx.chatProject ? { project: ctx.chatProject.name } : {})
   return (
     <StepFrame
       screen="ready"

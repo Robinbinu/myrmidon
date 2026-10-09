@@ -1,12 +1,15 @@
 import type { SetupStep } from '@myrmidon/protocol'
 import { X } from 'lucide-react'
+import { useRef } from 'react'
 import { copy } from '../copy.ts'
 import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Button } from '../ui/primitives.tsx'
 
+const TYPING = 'textarea:not([disabled]), [contenteditable="true"]'
+
 /**
- * On the home screen once setup is finished: what was gone past and is still not there, and a way back to it.
+ * On the home screen once setup is finished: what was set up later and is still not there, and a way back to it.
  * Dismissing it hides it for good, so its close button asks once; the steps stay in Settings → General.
  */
 export function SetupNudge(props: {
@@ -15,10 +18,25 @@ export function SetupNudge(props: {
   onDismiss(): void
 }) {
   const t = copy.setup
+  const card = useRef<HTMLDivElement>(null)
+  // The card goes with the button that hid it, so focus moves on to the message box after it rather than the page.
+  const hide = () => {
+    for (let next = card.current?.nextElementSibling; next; next = next.nextElementSibling) {
+      const box = next.matches(TYPING) ? next : next.querySelector(TYPING)
+      if (box instanceof HTMLElement) {
+        box.focus()
+        break
+      }
+    }
+    props.onDismiss()
+  }
   const first = props.left[0]
   if (!first) return null
   return (
-    <div className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop">
+    <div
+      ref={card}
+      className="mb-3 flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-pop"
+    >
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent-fg">
         <FEATURE_ICONS.setup className="size-4" />
       </span>
@@ -34,7 +52,7 @@ export function SetupNudge(props: {
         label={t.nudge.dismiss}
         title={t.nudge.dismissTitle}
         confirm={t.nudge.dismissConfirm}
-        onConfirm={props.onDismiss}
+        onConfirm={hide}
       />
     </div>
   )

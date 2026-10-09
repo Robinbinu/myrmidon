@@ -729,7 +729,7 @@ export const copy = {
       answeredSilently: 'It answered',
       /** Under the answer: what Continue does with the model that answered. */
       leadNote: (button: string, model: string, reviewerToo: boolean) =>
-        `${button} makes ${model} the lead of every new chat${reviewerToo ? ', and its reviewer' : ''}. You can change it in Your crew.`,
+        `${button} makes ${model} the model every new chat starts with${reviewerToo ? ', and the reviewer' : ''}. You can change it in Your crew.`,
       failed: 'The model did not answer',
       noModel: 'Connect a model above, then test it here.',
       gate: 'Continue opens once a model answers.',
@@ -739,7 +739,7 @@ export const copy = {
       intro:
         'Every new chat starts with this crew; the message box changes it for one chat. The lead does the talking and asks crewmates for work.',
       waiting: 'The crew can be set once a model is connected.',
-      cost: 'Each crewmate makes its own model calls, so more crewmates and bigger models cost more. The spend limit stops a run once it costs that much.',
+      cost: 'Each crewmate makes its own calls to the model shown beside it, so more crewmates and bigger models cost more.',
       spend: 'Spend limit per run',
       spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
       reviewer: 'Review the work',
@@ -827,7 +827,7 @@ export const copy = {
     },
     ready: {
       title: 'You’re ready',
-      intro: 'Here is where each step stands. Anything not set up waits on the home screen.',
+      intro: 'Here is where each step stands. Anything set up later waits on the home screen.',
       done: 'Set up',
       later: 'Set up later',
       skipped: 'Skipped',
