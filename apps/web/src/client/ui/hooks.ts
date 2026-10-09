@@ -1,10 +1,12 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
+import { applyTheme, isPalette, resolvable, type ThemeChoice } from '../themes/apply.ts'
+import type { ImportedTheme } from '../themes/vscode.ts'
 import { STICK_SLACK_PX, USER_SCROLL_MS } from '../ui-config.ts'
 import { DESKTOP_SHORTCUT_EVENT } from './desktop.ts'
 import { matchCombo } from './shortcuts.ts'
 
-export type ThemeChoice = 'system' | 'light' | 'dark'
+export type { ThemeChoice } from '../themes/apply.ts'
 
 export function readStored<T extends string>(key: string, fallback: T): T {
   try {
@@ -22,15 +24,21 @@ export function store(key: string, value: string) {
   }
 }
 
-/** Light / dark / system theme, applied as `data-theme` on <html>. */
-export function useTheme(): [ThemeChoice, (t: ThemeChoice) => void] {
-  const [theme, setTheme] = useState<ThemeChoice>(() => readStored('myr-theme', 'system'))
-  useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'system') root.removeAttribute('data-theme')
-    else root.setAttribute('data-theme', theme)
+/**
+ * The theme: Myrmidon's own light, dark or system look, or a theme from Settings → Appearance (`imported` are the
+ * person's own, undefined until loaded). Kept in this browser and shown on <html> (themes/apply.ts). A choice that can
+ * no longer be shown (an imported theme deleted, and so no longer in the list or this browser's cache) falls back to
+ * System once the list has loaded.
+ */
+export function useTheme(imported?: readonly ImportedTheme[]): [ThemeChoice, (t: ThemeChoice) => void] {
+  const [theme, setTheme] = useState<ThemeChoice>(() => readStored<ThemeChoice>('myr-theme', 'system'))
+  useLayoutEffect(() => {
+    applyTheme(theme, imported)
     store('myr-theme', theme)
-  }, [theme])
+  }, [theme, imported])
+  useEffect(() => {
+    if (imported && isPalette(theme) && !resolvable(theme, imported)) setTheme('system')
+  }, [theme, imported])
   return [theme, setTheme]
 }
 

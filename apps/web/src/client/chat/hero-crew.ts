@@ -18,7 +18,7 @@ import {
   type WanderState,
   wander,
 } from '../ui/steering.ts'
-import { CURSOR, MASCOT_CREW as K } from '../ui-config.ts'
+import { CREW_BOLDNESS, CURSOR, MASCOT_CREW as K } from '../ui-config.ts'
 
 /**
  * The crew cursors around the new-chat mascot, each steering itself (ui/steering.ts). Each picks a state the way
@@ -115,13 +115,33 @@ export function pickCrew(
   return picked
 }
 
-/** A new member at `at`, with a personality drawn from MASCOT_CREW's ranges. */
+/**
+ * The crew for a visit: `count` cursors named from the person's own names first (their specialists or their list),
+ * with Minions filling any places left.
+ */
+export function crewFor(
+  count: number,
+  own: readonly string[] = [],
+  random: Random = Math.random,
+): { name: string; color: string }[] {
+  const mine = pickCrew(Math.min(count, own.length), random, own)
+  if (mine.length >= count) return mine
+  const taken = new Set(own.map((n) => n.toLowerCase()))
+  const minions = copy.hero.crewNames.filter((n) => !taken.has(n.toLowerCase()))
+  return [...mine, ...pickCrew(count - mine.length, random, minions)]
+}
+
+/**
+ * A new member at `at`, with a personality drawn from MASCOT_CREW's ranges; how bold the person set the crew decides
+ * the ranges its curiosity and nerve come from.
+ */
 export function makeMember(
   spec: { name: string; color: string },
   at: Vec,
   random: Random = Math.random,
+  boldness: keyof typeof CREW_BOLDNESS = 'curious',
 ): Member {
-  const p = K.personality
+  const p = { ...K.personality, ...CREW_BOLDNESS[boldness] }
   return {
     ...spec,
     traits: {

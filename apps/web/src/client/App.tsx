@@ -82,6 +82,7 @@ import {
   type Starter,
 } from './setup/state.ts'
 import { useStatus } from './status.tsx'
+import { useImportedThemes } from './themes/imported.ts'
 import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
@@ -306,7 +307,7 @@ function sectionFromAddress(): Section | undefined {
 export function App() {
   const toast = useToast()
   const heldToast = useToastHandle()
-  const [theme, setTheme] = useTheme()
+  const [theme, setTheme] = useTheme(useImportedThemes())
   const [reduceMotion, setReduceMotion] = useReduceMotion()
   const [listed, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
   const online = useReachable()
