@@ -33,7 +33,7 @@ import { Logo } from '../ui/Logo.tsx'
 import { isMac } from '../ui/platform.ts'
 import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
-import { runPhase } from '../ui/status.ts'
+import { needsYou, runPhase } from '../ui/status.ts'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
@@ -177,19 +177,22 @@ export function Sidebar(props: {
     const q = query.trim().toLowerCase()
     return props.chats.filter((c) => !q || titled(c, q) || said?.has(c.chatId))
   }, [props.chats, query, said])
+  // Chats waiting on the person come first, as in Codex and Claude Code, out of their project or date group.
+  const waitingOnYou = useMemo(() => hits.filter(needsYou), [hits])
+  const rest = useMemo(() => hits.filter((c) => !needsYou(c)), [hits])
   // A chat whose project was removed from the list falls back to the date groups.
   const known = useMemo(() => new Set(props.projects.map((p) => p.id)), [props.projects])
   const byProject = useMemo(() => {
     const out = new Map<string, ChatSummary[]>()
-    for (const c of hits) {
+    for (const c of rest) {
       if (!c.project || !known.has(c.project.id)) continue
       out.set(c.project.id, [...(out.get(c.project.id) ?? []), c])
     }
     return out
-  }, [hits, known])
+  }, [rest, known])
   const grouped = useMemo(() => {
     const out: { label: string; chats: ChatSummary[] }[] = []
-    for (const c of hits) {
+    for (const c of rest) {
       if (c.project && known.has(c.project.id)) continue
       const label =
         GROUPS.find((g) => (c.updatedAt ? ageDays(c.updatedAt) : 0) < g.maxAgeDays)?.label ??
@@ -199,12 +202,13 @@ export function Sidebar(props: {
       else out.push({ label, chats: [c] })
     }
     return out
-  }, [hits, known])
+  }, [rest, known])
   // The chat list is one Tab stop: the row last focused (or the open chat, or the first) takes it, and the arrow keys
   // walk the rest. Its rename and delete buttons are for the pointer; F2 and Delete do the same from the keyboard.
   const [lastRow, setLastRow] = useState<string>()
   // Only rows on screen can hold it: a chat inside a folded project has no row to Tab to.
   const shownRows = [
+    ...waitingOnYou,
     ...props.projects.filter((p) => !closed.has(p.id)).flatMap((p) => byProject.get(p.id) ?? []),
     ...grouped.flatMap((g) => g.chats),
   ].map((c) => c.chatId)
@@ -416,6 +420,14 @@ export function Sidebar(props: {
         </div>
       </div>
       <nav ref={nav} onKeyDown={walkRows} className="min-h-0 flex-1 overflow-auto px-2.5 pb-3">
+        {waitingOnYou.length > 0 && (
+          <div>
+            <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">
+              {copy.sidebar.groups.needsYou}
+            </div>
+            {waitingOnYou.map(row)}
+          </div>
+        )}
         {(props.projects.length > 0 || props.onAddProject) && (
           <div className="group/projects flex items-center px-2 pb-1 pt-3">
             <span className="flex-1 text-caption font-semibold text-muted">

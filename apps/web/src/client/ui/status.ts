@@ -71,6 +71,9 @@ export function runPhase(run: { status: string; awaiting?: boolean; failed?: boo
   return 'stopped'
 }
 
+/** A chat waiting on the person's answer or approval: it heads the sidebar and is counted in the window title. */
+export const needsYou = (run: Parameters<typeof runPhase>[0]) => runPhase(run) === 'awaiting'
+
 export type AgentPhase =
   | 'provisioning'
   | 'ready'

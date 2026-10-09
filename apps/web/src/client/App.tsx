@@ -17,7 +17,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   api,
   type ChatRound,
@@ -65,9 +65,10 @@ import { isMac } from './ui/platform.ts'
 import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
-import { runPhase } from './ui/status.ts'
-import { useToast } from './ui/Toast.tsx'
+import { needsYou, runPhase } from './ui/status.ts'
+import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
+import { holdBack } from './ui/undo.ts'
 import {
   AGENT_MIN_WINDOW,
   CALL_HANG_UP_COMBO,
@@ -75,6 +76,8 @@ import {
   CALL_MUTE_COMBO,
   MAX_FILE_BYTES,
   softSpring,
+  UNDO_DELETE_COMBO,
+  UNDO_DELETE_MS,
 } from './ui-config.ts'
 import { type ColonyView, useColony } from './use-colony.ts'
 import { CallBar, type CallLine, setMicLevel } from './voice/CallBar.tsx'
@@ -219,9 +222,10 @@ function sectionFromAddress(): Section | undefined {
 
 export function App() {
   const toast = useToast()
+  const heldToast = useToastHandle()
   const [theme, setTheme] = useTheme()
   const [reduceMotion, setReduceMotion] = useReduceMotion()
-  const [chats, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
+  const [listed, refreshChats, chatsError, chatsLoaded] = usePoll<ChatSummary[]>('/api/chats', [], 2500)
   const online = useReachable()
   const fullAccess = useScope() === 'full'
   const [models, setModels] = useState<ModelOption[]>([])
@@ -257,7 +261,16 @@ export function App() {
     [],
   )
   const [deleting, setDeleting] = useState<ChatSummary>()
-  const [deleteBusy, setDeleteBusy] = useState(false)
+  /** Chats deleted from this window: hidden at once, and deleted for good only once their undo lapses. */
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(new Set())
+  /** The deletes that can still be taken back, latest last. */
+  const [undoable, setUndoable] = useState<readonly { chatId: string; undo(): void }[]>([])
+  const chats = useMemo(() => listed.filter((c) => !deleted.has(c.chatId)), [listed, deleted])
+  // The tab says how many chats wait for the person, so it shows from another tab or app.
+  const needYou = chats.filter(needsYou).length
+  useEffect(() => {
+    document.title = copy.app.documentTitle(needYou)
+  }, [needYou])
   const [busy, setBusy] = useState(false)
   /** A request on its way: shown at once, until its round appears in the chat list. */
   const [pending, setPending] = useState<{
@@ -274,6 +287,8 @@ export function App() {
   const [permissionsFor, setPermissionsFor] = useState<Project>()
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
+  /** Chats a skill review is reading now: asking again waits for the answer already on its way. */
+  const learning = useRef(new Set<string>())
 
   const setActiveChat = useCallback((id: string | undefined) => {
     setActiveChatState(id)
@@ -576,6 +591,8 @@ export function App() {
     { combo: 'mod+n', run: () => newTask(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
+    // Only while a delete can be taken back, so ⌘Z is otherwise left alone.
+    ...(undoable.length ? [{ combo: UNDO_DELETE_COMBO, run: () => undoable.at(-1)?.undo() }] : []),
     {
       combo: 'mod+,',
       run: () => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info')),
@@ -652,18 +669,27 @@ export function App() {
   }
 
   /** Slash commands from the composer (the ones it does not handle itself). */
-  /** Asks a reviewer to read the open chat for a skill worth keeping; the proposal appears as a card in the chat. */
+  /**
+   * Asks a reviewer to read the open chat for a skill worth keeping; the proposal appears as a card in the chat. The
+   * review is a model reading the whole run, which can take minutes, so its toast stays until it answers.
+   */
   const learn = async () => {
     if (!activeChat) return toast(copy.app.toasts.openChatToLearn, 'info')
-    toast(copy.app.toasts.learning, 'info')
+    const chatId = activeChat
+    const title = chat?.title ?? copy.app.titles.newTask
+    if (learning.current.has(chatId)) return toast(copy.app.toasts.stillLearning(title), 'info')
+    learning.current.add(chatId)
+    const progress = heldToast(copy.app.toasts.learning(title), 'progress')
     try {
-      const r = await post<{ proposal: { name: string } | null }>(`/api/chats/${activeChat}/learn`, {})
-      toast(
-        r.proposal ? copy.app.toasts.learned(r.proposal.name) : copy.app.toasts.nothingToLearn,
+      const r = await post<{ proposal: { name: string } | null }>(`/api/chats/${chatId}/learn`, {})
+      progress.settle(
+        r.proposal ? copy.app.toasts.learned(r.proposal.name, title) : copy.app.toasts.nothingToLearn(title),
         r.proposal ? 'success' : 'info',
       )
     } catch (err) {
-      toast(String((err as Error).message), 'error')
+      progress.settle(copy.app.toasts.learnFailed(title, String((err as Error).message ?? err)), 'error')
+    } finally {
+      learning.current.delete(chatId)
     }
   }
 
@@ -759,21 +785,60 @@ export function App() {
       .catch((err) => toast(String(err.message ?? err), 'error'))
   }
 
-  const confirmDelete = async () => {
+  /**
+   * A confirmed delete hides the chat at once and is sent only once its undo lapses. Until then it lives in this window
+   * alone, so closing or reloading it keeps the chat: nothing is gone that the person could still have taken back.
+   */
+  const confirmDelete = () => {
     if (!deleting) return
-    setDeleteBusy(true)
-    try {
-      await request('DELETE', `/api/chats/${deleting.chatId}`)
-      forgetDraft(deleting.chatId)
-      toast(copy.app.toasts.deleted(deleting.title), 'success')
-      if (deleting.chatId === activeChat) newTask()
-      setDeleting(undefined)
-      refreshChats()
-    } catch (err) {
-      toast(String((err as Error).message ?? err), 'error')
-    } finally {
-      setDeleteBusy(false)
+    const { chatId, title } = deleting
+    const wasOpen = chatId === activeChat
+    setDeleting(undefined)
+    setDeleted((s) => new Set(s).add(chatId))
+    if (wasOpen) newTask()
+    const show = () =>
+      setDeleted((s) => {
+        const next = new Set(s)
+        next.delete(chatId)
+        return next
+      })
+    const settle = () => setUndoable((u) => u.filter((x) => x.chatId !== chatId))
+    const takeBack = holdBack(() => {
+      settle()
+      // A chat deleted for good stays hidden: the list forgets it at its next look.
+      request('DELETE', `/api/chats/${chatId}`)
+        .then(() => {
+          forgetDraft(chatId)
+          refreshChats()
+        })
+        .catch((err) => {
+          show()
+          toast(copy.app.toasts.deleteFailed(title, String((err as Error).message ?? err)), 'error')
+        })
+    }, UNDO_DELETE_MS)
+    const undo = () => {
+      if (!takeBack()) return
+      settle()
+      show()
+      shown.close()
+      if (wasOpen)
+        leaveSettings(() => {
+          setActiveChat(chatId)
+          setView('chat')
+          setSettingsOpen(false)
+        })
     }
+    const shown = heldToast(
+      copy.app.toasts.deleted(title),
+      'success',
+      {
+        label: copy.app.toasts.undoDelete,
+        title: copy.app.toasts.undoDeleteTitle(comboLabel(UNDO_DELETE_COMBO, isMac)),
+        run: undo,
+      },
+      { ms: UNDO_DELETE_MS },
+    )
+    setUndoable((u) => [...u, { chatId, undo }])
   }
 
   const sidebar = (
@@ -1125,7 +1190,7 @@ export function App() {
           <Modal
             key="delete"
             title={copy.app.deleteChat.title}
-            onClose={() => !deleteBusy && setDeleting(undefined)}
+            onClose={() => setDeleting(undefined)}
             size="sm"
           >
             <div className="flex flex-col gap-4">
@@ -1137,16 +1202,11 @@ export function App() {
               </p>
               {isRunning(deleting.status) && <Banner tone="warn">{copy.app.deleteChat.stillRunning}</Banner>}
               <div className="flex justify-end gap-2">
-                <Button variant="borderless" onClick={() => setDeleting(undefined)} disabled={deleteBusy}>
+                <Button variant="borderless" onClick={() => setDeleting(undefined)}>
                   {copy.app.deleteChat.cancel}
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => void confirmDelete()}
-                  disabled={deleteBusy}
-                  icon={<Trash2 className="size-3.5" />}
-                >
-                  {deleteBusy ? copy.app.deleteChat.deleting : copy.app.deleteChat.confirm}
+                <Button variant="destructive" onClick={confirmDelete} icon={<Trash2 className="size-3.5" />}>
+                  {copy.app.deleteChat.confirm}
                 </Button>
               </div>
             </div>
