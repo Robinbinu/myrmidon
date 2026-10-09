@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MASCOT_TYPING } from '../src/client/ui-config.ts'
+import { textCells } from '../src/client/ui/pixel.tsx'
 import { withDom } from './dom.ts'
 
 withDom()
@@ -72,17 +72,42 @@ test('clearing the box brings the eyes back at once, and blank space is not text
   }
 })
 
-test('a draft already in the box when the screen opens is not typing; a long one shows its end', async () => {
+test('a draft already in the box when the screen opens is not typing', async () => {
   const p = await probe(10_000, 0, 'left over from before')
   try {
     expect(p.screen()).toBe('eyes')
-    const long = `${'a'.repeat(100)}END`
-    await p.type(long)
-    expect(p.screen()).toBe(long.slice(-MASCOT_TYPING.maxChars))
-    expect(p.screen()?.endsWith('END')).toBe(true)
+    await p.type('left over from before!')
+    expect(p.screen()).toBe('left over from before!')
   } finally {
     await p.unmount()
   }
+})
+
+/** The lit cells as rows of `#` and `.`, to read a letter off the screen. */
+const draw = (cells: readonly (readonly [number, number])[], cols: number, rows: number) =>
+  Array.from({ length: rows }, (_, y) =>
+    Array.from({ length: cols }, (_, x) => (cells.some(([cx, cy]) => cx === x && cy === y) ? '#' : '.')).join(
+      '',
+    ),
+  )
+
+test("letters sit in the screen's own cells: only the last ones that fit, then the cursor bar", () => {
+  // 15 by 8, like the new-chat mascot, with a one-cell margin: "hi crew" keeps its last two letters (W is five wide).
+  expect(draw(textCells('hi crew', 15, 8, true), 15, 8)).toEqual([
+    '...............',
+    '.###.#...#.#...',
+    '.#...#...#.#...',
+    '.##..#.#.#.#...',
+    '.#...##.##.#...',
+    '.###.#...#.#...',
+    '...............',
+    '...............',
+  ])
+  // The bar blinks off; narrow letters fit more of them, and accents read as their letter.
+  expect(draw(textCells('ÉTÉ', 15, 8, false), 15, 8).slice(1, 3)).toEqual([
+    '.###.###.###...',
+    '.#....#..#.....',
+  ])
 })
 
 test('fast typing redraws the screen at most once per throttle, ending on the last text', async () => {
@@ -101,7 +126,7 @@ test('fast typing redraws the screen at most once per throttle, ending on the la
   }
 })
 
-test('the new-chat mascot spells out what is typed with a cursor bar, then its eyes come back', async () => {
+test('the new-chat mascot spells out what is typed in its own grid, then its eyes come back', async () => {
   globalThis.fetch = (async () => Response.json({})) as unknown as typeof fetch
   const { Hero } = await import('../src/client/chat/Hero.tsx')
   const host = document.body.appendChild(document.createElement('div'))
@@ -120,17 +145,13 @@ test('the new-chat mascot spells out what is typed with a cursor bar, then its e
     await show('')
     expect(host.querySelector('[data-typed]')).toBeNull()
     await show('Hi crew')
-    const typed = host.querySelector('[data-typed]')
-    expect(typed?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Hi crew')
-    // The cursor bar blinks (quieted by the less-motion rule in styles.css), and with less motion nothing scrolls.
-    expect(typed?.querySelector('svg.caret')).not.toBeNull()
-    expect(typed?.querySelector('[data-scrolling]')).toBeNull()
-    // The eyes are faded out under the text, not removed, so the screen keeps its size.
-    expect(host.querySelector('button svg[aria-hidden].opacity-0')).not.toBeNull()
+    // The screen keeps its cells and spells the text in them: no second layer, nothing scrolls.
+    const screen = host.querySelector('button svg[data-typed]')
+    expect(screen).not.toBeNull()
+    expect(screen?.querySelectorAll('rect').length).toBe(15 * 8)
     await show('')
     await act(async () => Bun.sleep(300))
     expect(host.querySelector('[data-typed]')).toBeNull()
-    expect(host.querySelector('button svg.opacity-0')).toBeNull()
   } finally {
     await act(async () => root.unmount())
     host.remove()

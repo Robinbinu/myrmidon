@@ -1,8 +1,8 @@
 import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
-import { type CSSProperties, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { AGENT_DOZE_MS, popSpring } from '../ui-config.ts'
+import { AGENT_DOZE_MS, MASCOT_TYPING, popSpring } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -223,6 +223,97 @@ function eyeCells(
   return out
 }
 
+/** Letters five cells tall, for spelling in a face's own screen cells; most are three wide. */
+const SCREEN_GLYPHS: Record<string, readonly string[]> = {
+  A: ['.#.', '#.#', '###', '#.#', '#.#'],
+  B: ['##.', '#.#', '##.', '#.#', '##.'],
+  C: ['.##', '#..', '#..', '#..', '.##'],
+  D: ['##.', '#.#', '#.#', '#.#', '##.'],
+  E: ['###', '#..', '##.', '#..', '###'],
+  F: ['###', '#..', '##.', '#..', '#..'],
+  G: ['.##', '#..', '#.#', '#.#', '.##'],
+  H: ['#.#', '#.#', '###', '#.#', '#.#'],
+  I: ['###', '.#.', '.#.', '.#.', '###'],
+  J: ['..#', '..#', '..#', '#.#', '.#.'],
+  K: ['#.#', '#.#', '##.', '#.#', '#.#'],
+  L: ['#..', '#..', '#..', '#..', '###'],
+  M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
+  N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
+  O: ['.#.', '#.#', '#.#', '#.#', '.#.'],
+  P: ['##.', '#.#', '##.', '#..', '#..'],
+  Q: ['.#.', '#.#', '#.#', '##.', '.##'],
+  R: ['##.', '#.#', '##.', '#.#', '#.#'],
+  S: ['.##', '#..', '.#.', '..#', '##.'],
+  T: ['###', '.#.', '.#.', '.#.', '.#.'],
+  U: ['#.#', '#.#', '#.#', '#.#', '###'],
+  V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
+  W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
+  Z: ['###', '..#', '.#.', '#..', '###'],
+  '0': ['###', '#.#', '#.#', '#.#', '###'],
+  '1': ['.#.', '##.', '.#.', '.#.', '###'],
+  '2': ['##.', '..#', '.#.', '#..', '###'],
+  '3': ['##.', '..#', '.#.', '..#', '##.'],
+  '4': ['#.#', '#.#', '###', '..#', '..#'],
+  '5': ['###', '#..', '##.', '..#', '##.'],
+  '6': ['.##', '#..', '###', '#.#', '###'],
+  '7': ['###', '..#', '.#.', '.#.', '.#.'],
+  '8': ['###', '#.#', '###', '#.#', '###'],
+  '9': ['###', '#.#', '###', '..#', '##.'],
+  ' ': ['..', '..', '..', '..', '..'],
+  '.': ['.', '.', '.', '.', '#'],
+  ',': ['..', '..', '..', '.#', '#.'],
+  ':': ['.', '#', '.', '#', '.'],
+  ';': ['..', '.#', '..', '.#', '#.'],
+  '!': ['#', '#', '#', '.', '#'],
+  '?': ['##.', '..#', '.#.', '...', '.#.'],
+  "'": ['#', '#', '.', '.', '.'],
+  '"': ['#.#', '#.#', '...', '...', '...'],
+  '-': ['...', '...', '###', '...', '...'],
+  _: ['...', '...', '...', '...', '###'],
+  '+': ['...', '.#.', '###', '.#.', '...'],
+  '=': ['...', '###', '...', '###', '...'],
+  '*': ['...', '#.#', '.#.', '#.#', '...'],
+  '/': ['..#', '..#', '.#.', '#..', '#..'],
+  '(': ['.#', '#.', '#.', '#.', '.#'],
+  ')': ['#.', '.#', '.#', '.#', '#.'],
+  '#': ['#.#', '###', '#.#', '###', '#.#'],
+  '%': ['#.#', '..#', '.#.', '#..', '#.#'],
+  '@': ['.#.', '#.#', '#.#', '#..', '.##'],
+}
+const SCREEN_GLYPH_ROWS = 5
+
+/**
+ * The cells that spell `text` on a face's screen, letter by letter in its own cells, then the cursor bar: only the
+ * last letters that fit inside a one-cell margin, never scrolled or shrunk. Accents are dropped; other characters
+ * read as spaces.
+ */
+export function textCells(text: string, cols: number, rows: number, cursor: boolean): Cell[] {
+  const room = cols - 2
+  const shown: (readonly string[])[] = []
+  let used = 1
+  const chars = [...text.toUpperCase()]
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const base = chars[i]?.normalize('NFD')[0] ?? ' '
+    const glyph = SCREEN_GLYPHS[base] ?? (SCREEN_GLYPHS[' '] as readonly string[])
+    const width = (glyph[0]?.length ?? 0) + 1
+    if (used + width > room) break
+    shown.unshift(glyph)
+    used += width
+  }
+  const top = Math.floor((rows - SCREEN_GLYPH_ROWS) / 2)
+  const out: Cell[] = []
+  let x = 1
+  for (const glyph of shown) {
+    for (const [y, row] of glyph.entries())
+      for (const [dx, ch] of [...row].entries()) if (ch === '#') out.push([x + dx, top + y])
+    x += (glyph[0]?.length ?? 0) + 1
+  }
+  if (cursor) for (let y = 0; y < SCREEN_GLYPH_ROWS; y++) out.push([x, top + y])
+  return out
+}
+
 const TICK: Record<Mood, number> = {
   idle: 0,
   wink: 0,
@@ -254,6 +345,8 @@ export function PixelFace(props: {
   /** Where the eyes look, in cells (x, y). Omit to let an idle face glance around on its own. */
   look?: readonly [number, number]
   eyes?: EyeStyle
+  /** Spells this on the screen in place of the eyes (its end, as much as fits), with a blinking cursor bar. */
+  text?: string
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
@@ -320,14 +413,28 @@ export function PixelFace(props: {
     return () => clearTimeout(timer)
   }, [props.mood, reduce])
 
+  // The cursor shows at once on every change, then blinks while the text stays put.
+  const [cursorOn, setCursorOn] = useState(true)
+  const spelling = props.text !== undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new text restarts the blink
+  useEffect(() => {
+    setCursorOn(true)
+    if (!spelling || reduce) return
+    const t = setInterval(() => setCursorOn((on) => !on), MASCOT_TYPING.blinkMs)
+    return () => clearInterval(t)
+  }, [props.text, spelling, reduce])
+
   const lookX = props.look?.[0] ?? glance[0]
   const lookY = props.look?.[1] ?? glance[1]
   const lit = useMemo(() => {
     const set = new Set<string>()
-    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes))
-      if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
+    const on =
+      props.text !== undefined
+        ? textCells(props.text, cols, rows, cursorOn)
+        : eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes)
+    for (const [x, y] of on) if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
     return set
-  }, [props.mood, cols, rows, frame, blinking, lookX, lookY, props.eyes])
+  }, [props.mood, props.text, cursorOn, cols, rows, frame, blinking, lookX, lookY, props.eyes])
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap
@@ -358,6 +465,7 @@ export function PixelFace(props: {
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       className={props.className}
+      data-typed={spelling || undefined}
       style={
         props.glow
           ? {
@@ -574,111 +682,6 @@ export function DotMatrix(props: {
     </svg>
   )
 }
-
-/** The cursor bar after dot-matrix text: one column of dots as tall as a letter, blinking unless motion is reduced. */
-function DotCursor(props: { dot: number }) {
-  const pitch = props.dot * 1.45
-  const h = 6 * pitch + props.dot
-  return (
-    <svg
-      width={props.dot}
-      height={h}
-      viewBox={`0 0 ${props.dot} ${h}`}
-      className="caret shrink-0"
-      aria-hidden
-    >
-      {Array.from({ length: 7 }, (_, row) => (
-        <circle
-          // biome-ignore lint/suspicious/noArrayIndexKey: the rows of a fixed column
-          key={row}
-          cx={props.dot / 2}
-          cy={row * pitch + props.dot / 2}
-          r={props.dot / 2}
-          fill="currentColor"
-        />
-      ))}
-    </svg>
-  )
-}
-
-/**
- * A line of dot-matrix text and a blinking cursor bar, filling the screen it sits on. A line too long for it scrolls
- * through as a ticker and comes round again; each time the text changes it starts from its end, so what was just
- * typed is in view. With less motion it does not move and shows the line's end.
- */
-export const DotTicker = memo(function DotTicker(props: {
-  text: string
-  color: string
-  /** Dot diameter in px. */
-  dot: number
-  /** How fast a long line scrolls, in px a second. */
-  speed: number
-  /** The space before a scrolling line comes round again, in px. */
-  gap: number
-  reduce: boolean
-  className?: string
-}) {
-  const box = useRef<HTMLDivElement>(null)
-  const track = useRef<HTMLDivElement>(null)
-  const line = useRef<HTMLDivElement>(null)
-  const [fit, setFit] = useState({ line: 0, box: 0 })
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the line is measured again whenever its text changes
-  useLayoutEffect(() => {
-    const measure = () => setFit({ line: line.current?.offsetWidth ?? 0, box: box.current?.clientWidth ?? 0 })
-    measure()
-    if (typeof ResizeObserver === 'undefined' || !box.current) return
-    const observer = new ResizeObserver(measure)
-    observer.observe(box.current)
-    return () => observer.disconnect()
-  }, [props.text])
-  const over = fit.line > fit.box && fit.box > 0
-  const scrolls = over && !props.reduce
-  // Drawn on each frame straight onto the element, not through React, so a scrolling line costs no renders.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new text starts again from its end
-  useEffect(() => {
-    const el = track.current
-    if (!el) return
-    const tail = over ? fit.box - fit.line : 0
-    el.style.transform = `translateX(${tail}px)`
-    if (!scrolls) return
-    const period = fit.line + props.gap
-    let offset = tail
-    let last = performance.now()
-    let frame = requestAnimationFrame(function step(now) {
-      offset -= (props.speed * (now - last)) / 1000
-      last = now
-      if (offset <= -period) offset += period
-      el.style.transform = `translateX(${offset}px)`
-      frame = requestAnimationFrame(step)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [props.text, fit, over, scrolls, props.gap, props.speed])
-  const pitch = props.dot * 1.45
-  const copyOf = (hidden?: boolean) => (
-    <div ref={hidden ? undefined : line} className="flex shrink-0 items-center" style={{ gap: pitch }}>
-      <DotMatrix text={props.text} dot={props.dot} />
-      <DotCursor dot={props.dot} />
-    </div>
-  )
-  return (
-    <div
-      ref={box}
-      className={cn('flex items-center overflow-hidden', props.className)}
-      style={{ color: props.color, filter: `drop-shadow(0 0 ${props.dot * 1.6}px ${props.color}66)` }}
-      data-scrolling={scrolls || undefined}
-      aria-hidden
-    >
-      <div
-        ref={track}
-        className="flex shrink-0 items-center will-change-transform"
-        style={{ gap: props.gap }}
-      >
-        {copyOf()}
-        {scrolls && copyOf(true)}
-      </div>
-    </div>
-  )
-})
 
 /** Inline agent chip for lists: mini face + name, tinted with the agent's color. */
 export function AgentChip(props: {
