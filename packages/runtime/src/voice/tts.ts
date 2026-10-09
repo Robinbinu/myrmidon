@@ -84,7 +84,11 @@ export type KittenState =
   | { state: 'running' }
   | { state: 'error'; error: string }
 
+/** The command that makes a compiled Myrmidon run the worker it carries (see apps/desktop/src/sidecar.ts). */
+export const KITTEN_WORKER_COMMAND = 'kitten-worker'
 const WORKER = join(import.meta.dir, 'kitten-worker.ts')
+// A compiled Myrmidon (the desktop app's server) has no kitten-worker.ts on disk to run, so it starts itself.
+const WORKER_ARGV = [process.execPath, existsSync(WORKER) ? WORKER : KITTEN_WORKER_COMMAND]
 /** In a model's folder: the pinned revision its files were checked against. */
 const PINNED = '.pinned'
 
@@ -258,7 +262,7 @@ export class KittenTts implements TextToSpeech {
   private async _spawn(): Promise<void> {
     const { model } = this.options()
     await this.download(model)
-    const proc = Bun.spawn([process.execPath, WORKER, this._dir(model)], {
+    const proc = Bun.spawn([...WORKER_ARGV, this._dir(model)], {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
@@ -278,12 +282,13 @@ export class KittenTts implements TextToSpeech {
     })
     void (async () => {
       for await (const line of lines(proc.stdout)) {
-        const msg = JSON.parse(line) as {
-          ready?: true
-          id?: number
-          rate?: number
-          pcm?: string
-          error?: string
+        let msg: { ready?: true; id?: number; rate?: number; pcm?: string; error?: string }
+        try {
+          msg = JSON.parse(line)
+        } catch {
+          // Not an answer (what else printed to stdout); thrown here it would be unhandled and end the server.
+          this.log(`kitten: ${line.slice(0, 300)}`)
+          continue
         }
         if (msg.ready) {
           ready()
