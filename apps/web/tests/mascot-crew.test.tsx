@@ -214,8 +214,8 @@ test("the crew is the install's own: the same names every time, picked again onl
   const { keptCrew } = await import('../src/client/chat/hero-crew.ts')
   const kept = new Map<string, string>()
   const storage = {
-    getItem: (k: string) => kept.get(k) ?? null,
-    setItem: (k: string, v: string) => void kept.set(k, v),
+    read: (k: string) => kept.get(k) ?? '',
+    write: (k: string, v: string) => void kept.set(k, v),
   }
   const first = keptCrew(3, storage, seeded(1))
   for (let seed = 2; seed < 10; seed++) expect(keptCrew(3, storage, seeded(seed))).toEqual(first)
@@ -226,10 +226,10 @@ test("the crew is the install's own: the same names every time, picked again onl
   expect(keptCrew(3, storage, seeded(5), names)).toEqual(again)
   // Storage that throws still gives a crew.
   const broken = {
-    getItem: () => {
+    read: () => {
       throw new Error('blocked')
     },
-    setItem: () => {
+    write: () => {
       throw new Error('blocked')
     },
   }
@@ -310,13 +310,20 @@ test('a right-click does not make the next key press a tap, and a cancelled drag
 test('the mascot is on stage only while it can be seen: no sheet over it, its window in front', async () => {
   const { useOnStage } = await import('../src/client/chat/Hero.tsx')
   const { Sheet } = await import('../src/client/ui/Sheet.tsx')
+  const { usePopover } = await import('../src/client/ui/Popover.tsx')
   const { useRef } = await import('react')
   const seen: boolean[] = []
-  function Probe(props: { sheet: boolean }) {
+  function Menu() {
+    const box = useRef<HTMLDivElement>(null)
+    usePopover(box, () => {})
+    return <div ref={box} tabIndex={-1} />
+  }
+  function Probe(props: { sheet?: boolean; menu?: boolean }) {
     const el = useRef<HTMLDivElement>(null)
     seen.push(useOnStage(el))
     return (
       <div ref={el}>
+        {props.menu && <Menu />}
         {props.sheet && (
           <Sheet title="Over it" onClose={() => {}}>
             <p>…</p>
@@ -328,9 +335,13 @@ test('the mascot is on stage only while it can be seen: no sheet over it, its wi
   const { createRoot } = await import('react-dom/client')
   const host = document.body.appendChild(document.createElement('div'))
   const root = createRoot(host)
-  const show = (sheet: boolean) => act(async () => root.render(<Probe sheet={sheet} />))
+  const show = (sheet: boolean, menu = false) =>
+    act(async () => root.render(<Probe sheet={sheet} menu={menu} />))
   try {
     await show(false)
+    expect(seen.at(-1)).toBe(true)
+    // A menu beside it leaves it in view; a sheet over the page does not.
+    await show(false, true)
     expect(seen.at(-1)).toBe(true)
     await show(true)
     expect(seen.at(-1)).toBe(false)

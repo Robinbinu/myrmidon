@@ -213,3 +213,34 @@ test('a held face waits on its frame, then plays on from there', async () => {
     host.remove()
   }
 })
+
+test('a clip that has ended stays ended when the face is held and let go again', async () => {
+  let ended = 0
+  const face = (paused: boolean) => (
+    <MotionConfig reducedMotion="never">
+      <PixelFace
+        mood="idle"
+        color="#ffffff"
+        cols={cols}
+        rows={rows}
+        clip={clip}
+        playId="once"
+        paused={paused}
+        onClipEnd={() => ended++}
+      />
+    </MotionConfig>
+  )
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(face(false)))
+    await until(() => ended > 0)
+    await act(async () => root.render(face(true)))
+    await act(async () => root.render(face(false)))
+    await act(async () => Bun.sleep(120))
+    expect(ended).toBe(1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})

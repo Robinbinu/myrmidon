@@ -16,7 +16,7 @@ import {
   tears,
   ZZZ,
 } from '../ui/clips.ts'
-import { anyDialogOpen, watchDialogs } from '../ui/dialog.ts'
+import { pageCovered, watchDialogs } from '../ui/dialog.ts'
 import { ago, useMinWidth } from '../ui/hooks.ts'
 import { BOW, DotMatrix, eyeCells, FLOWER, LEAD_COLOR, moodFor, PixelSprite } from '../ui/pixel.tsx'
 import { cn, Dot } from '../ui/primitives.tsx'
@@ -99,14 +99,15 @@ export const gaze = (dx: number, dy: number): [number, number] => [
 
 /**
  * Whether `el` is on show: the page visible, its window the one in use, `el` scrolled into view, and no sheet or
- * dialog open over the page. The mascot's loops run only while it is, so a desktop window left open behind another,
- * or a sheet over the new-chat view, costs nothing. `mounted` says when `el` is on the page to be watched.
+ * palette lying over the page (a menu opened beside it leaves it in view). The mascot's loops run only while it is,
+ * so a desktop window left open behind another, or a sheet over the new-chat view, costs nothing. `mounted` says when
+ * `el` is on the page to be watched.
  */
 export function useOnStage(el: RefObject<Element | null>, mounted = true): boolean {
   const [shown, setShown] = useState(() => document.visibilityState !== 'hidden')
   const [focused, setFocused] = useState(() => document.hasFocus())
   const [inView, setInView] = useState(true)
-  const [covered, setCovered] = useState(anyDialogOpen)
+  const [covered, setCovered] = useState(pageCovered)
   useEffect(() => {
     const visibility = () => setShown(document.visibilityState !== 'hidden')
     const focus = () => setFocused(true)
@@ -114,7 +115,7 @@ export function useOnStage(el: RefObject<Element | null>, mounted = true): boole
     document.addEventListener('visibilitychange', visibility)
     window.addEventListener('focus', focus)
     window.addEventListener('blur', blur)
-    const unwatch = watchDialogs(() => setCovered(anyDialogOpen()))
+    const unwatch = watchDialogs(() => setCovered(pageCovered()))
     return () => {
       document.removeEventListener('visibilitychange', visibility)
       window.removeEventListener('focus', focus)

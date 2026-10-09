@@ -14,6 +14,20 @@ import {
   type World,
 } from './hero-crew.ts'
 
+/**
+ * Where `el`'s box sits on the page as laid out, ignoring transforms: the screen may still be scaling or sliding into
+ * place (its entry, or the setup mascot settling into it), and a transform moves nothing that a resize would report.
+ */
+function laidOut(el: HTMLElement): { x: number; y: number } {
+  let x = 0
+  let y = 0
+  for (let n: Element | null = el; n instanceof HTMLElement; n = n.offsetParent) {
+    x += n.offsetLeft
+    y += n.offsetTop
+  }
+  return { x, y }
+}
+
 /** The crew of this visit: who they are and where, kept while the person goes to a chat and back. */
 let visit: Member[] | undefined
 
@@ -73,18 +87,21 @@ export function HeroCrew(props: {
   })
   useEffect(() => {
     const measure = () => {
-      const face = props.face.current?.getBoundingClientRect()
-      const canvas = props.canvas.current?.getBoundingClientRect()
-      if (!face || !canvas || face.width === 0 || canvas.width === 0) return
-      const cx = face.left + face.width / 2
-      const cy = face.top + face.height / 2
+      const face = props.face.current
+      const canvas = props.canvas.current
+      if (!face || !canvas || face.offsetWidth === 0 || canvas.clientWidth === 0) return
+      // The screen's centre within the canvas's visible area, where the crew may go.
+      const at = laidOut(face)
+      const box = laidOut(canvas)
+      const cx = at.x - box.x - canvas.scrollLeft + face.offsetWidth / 2
+      const cy = at.y - box.y - canvas.scrollTop + face.offsetHeight / 2
       const w = world.current
-      w.face = { hw: face.width / 2, hh: face.height / 2 }
+      w.face = { hw: face.offsetWidth / 2, hh: face.offsetHeight / 2 }
       w.bounds = {
-        left: canvas.left - cx + K.edge,
-        right: canvas.right - cx - K.edge - K.tagRoom,
-        top: canvas.top - cy,
-        bottom: canvas.bottom - cy - K.floorPad,
+        left: -cx + K.edge,
+        right: canvas.clientWidth - cx - K.edge - K.tagRoom,
+        top: -cy,
+        bottom: canvas.clientHeight - cy - K.floorPad,
       }
     }
     measure()

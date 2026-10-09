@@ -1,5 +1,6 @@
 import { copy } from '../copy.ts'
 import { TIP_HEADING, turn } from '../ui/cursor.tsx'
+import { readStored, store } from '../ui/hooks.ts'
 import { agentColor } from '../ui/pixel.tsx'
 import {
   arrive,
@@ -127,12 +128,15 @@ const CREW_KEY = 'myr-hero-crew'
  */
 export function keptCrew(
   count: number,
-  storage: Pick<Storage, 'getItem' | 'setItem'> | undefined = globalThis.localStorage,
+  storage: { read(key: string): string; write(key: string, value: string): void } = {
+    read: (key) => readStored(key, ''),
+    write: store,
+  },
   random: Random = Math.random,
   names: readonly string[] = copy.hero.crewNames,
 ): { name: string; color: string }[] {
   try {
-    const kept: unknown = JSON.parse(storage?.getItem(CREW_KEY) ?? 'null')
+    const kept: unknown = JSON.parse(storage.read(CREW_KEY) || 'null')
     if (
       Array.isArray(kept) &&
       kept.length === Math.min(count, names.length) &&
@@ -145,7 +149,7 @@ export function keptCrew(
   }
   const picked = pickCrew(count, random, names)
   try {
-    storage?.setItem(CREW_KEY, JSON.stringify(picked.map((p) => p.name)))
+    storage.write(CREW_KEY, JSON.stringify(picked.map((p) => p.name)))
   } catch {
     // Storage full or blocked: this visit's crew still stands; the next picks again.
   }

@@ -108,6 +108,34 @@ test('the content and the mascot are centred together across, right of the step 
   expect(narrow.scale).toBeLessThan(side.scale)
 })
 
+test('on a stage too narrow to share, the mascot sits small above the content, which takes the whole width', () => {
+  const { stackEdge, stackBelow } = SETUP_MASCOT
+  const stacked = stageLayout({
+    place: 'side',
+    width: 420,
+    height: 860,
+    frameHeight: 230,
+    contentHeight: 600,
+  })
+  // The content is the stage less its padding, with nothing kept on its right for the mascot.
+  expect(stacked.content.width).toBe(420 - stackEdge * 2)
+  expect(stacked.content.left).toBe(stackEdge)
+  expect(stacked.content.paddingRight).toBe(0)
+  // The mascot is centred above it, smaller than beside, and the content starts below it.
+  expect(stacked.x).toBe(0)
+  const beside = stageLayout({
+    place: 'side',
+    width: stackBelow,
+    height: 860,
+    frameHeight: 230,
+    contentHeight: 600,
+  })
+  expect(stacked.scale).toBeLessThan(beside.scale)
+  expect(stacked.content.paddingTop).toBeGreaterThanOrEqual(stacked.top + 230 * stacked.scale)
+  // From the stack's width up, it is beside the content again.
+  expect(beside.content.paddingRight).toBeGreaterThan(0)
+})
+
 /* ------------------------------------------------------------------ where it opens and what it shows */
 
 test('it opens at the first step neither done nor set up later, and on Ready once there is none', () => {

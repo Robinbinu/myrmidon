@@ -356,9 +356,17 @@ export function MascotStage(props: {
         <motion.div
           layoutId={MASCOT_LAYOUT_ID}
           initial={false}
-          className="pointer-events-none absolute inset-x-0 z-10 mx-auto"
+          className="pointer-events-none absolute left-1/2 z-10"
           {...framePlace}
-          style={{ top, width, originX: 0.5, originY: 0, ...('style' in framePlace ? framePlace.style : {}) }}
+          // Centred by its own half width, not by auto margins, which give up centring on a stage narrower than it.
+          style={{
+            top,
+            width,
+            marginLeft: -width / 2,
+            originX: 0.5,
+            originY: 0,
+            ...('style' in framePlace ? framePlace.style : {}),
+          }}
           data-place={place}
         >
           <div ref={scope} className="relative">

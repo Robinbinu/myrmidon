@@ -414,9 +414,15 @@ export const ATTACH_THUMB_PX = 64
  * the content on the rest, travelling between the two on `travel`.
  */
 export const SETUP_MASCOT = {
-  /** Its screen's width, in px, in each place; beside the content in a window narrower than `narrowBelow`, smaller. */
-  width: { center: 340, side: 220, narrowSide: 150 },
+  /**
+   * Its screen's width, in px, in each place; beside the content on a stage narrower than `narrowBelow`, smaller. On a
+   * stage narrower than `stackBelow` there is no room beside the content: it sits above it instead (`stacked`), the
+   * content takes the stage's whole width, and both keep `stackEdge` from the sides.
+   */
+  width: { center: 340, side: 220, narrowSide: 150, stacked: 120 },
   narrowBelow: 860,
+  stackBelow: 768,
+  stackEdge: 16,
   /** On a stage shorter than this, it sits smaller in the centre place too. */
   shortBelow: 700,
   shortScale: 0.66,

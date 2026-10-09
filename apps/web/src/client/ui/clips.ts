@@ -120,6 +120,8 @@ export function useClip(
     // When the frame on show is due to end, and how much of it was left when the clip was held.
     let due = 0
     let left = 0
+    // A clip that has played to its end stays ended: letting it go after a hold must not end it again.
+    let done = false
     const wait = (ms: number) => {
       due = performance.now() + ms
       left = ms
@@ -132,6 +134,8 @@ export function useClip(
         step = it.next()
       }
       if (step.done) {
+        done = true
+        timer = undefined
         setFrame(undefined)
         ended.current?.()
         return
@@ -147,7 +151,7 @@ export function useClip(
         left = Math.max(0, due - performance.now())
       },
       resume() {
-        if (timer !== undefined) return
+        if (done || timer !== undefined) return
         due = performance.now() + left
         timer = setTimeout(next, left)
       },
