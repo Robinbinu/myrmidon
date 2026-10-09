@@ -675,6 +675,26 @@ export const copy = {
     footer: { move: 'move', choose: 'choose', run: 'run', complete: 'complete', close: 'close' },
   },
 
+  /** The ⌘K menu: one field to reach any chat, project, Settings page or app action. */
+  palette: {
+    label: 'Command menu',
+    placeholder: 'Search chats, projects, settings and actions',
+    results: 'Results',
+    groups: { actions: 'Actions', chats: 'Chats', projects: 'Projects', settings: 'Settings' },
+    actions: {
+      newChat: 'New chat',
+      toggleSidebar: 'Show or hide the sidebar',
+      toggleWorkspace: 'Show or hide the workspace',
+      settings: 'Open Settings',
+      shortcuts: 'Keyboard shortcuts',
+      export: 'Export this chat as Markdown',
+      crewConsole: 'Open the crew console',
+    },
+    newChatIn: (name: string) => `New chat in ${name}`,
+    noMatches: (query: string) => `Nothing matches “${query}”.`,
+    footer: { move: 'move', open: 'open', close: 'close' },
+  },
+
   sidebar: {
     label: 'Chats',
     hide: 'Hide sidebar',
@@ -2472,11 +2492,19 @@ export const copy = {
       openSettings: 'Open settings',
       send: 'Send message',
       newLine: 'New line',
-      close: 'Close dialogs and panels',
+      close: 'Close sheets, menus and panels',
       muteCall: 'Mute or unmute a call',
       hangUp: 'Hang up a call',
       /** ⌥⌘1 to ⌥⌘0 open the workspace panel's views in the order they sit down its rail. */
       workspaceView: 'Show a workspace view, in rail order',
+      commandMenu: 'Command menu: chats, projects, settings and actions',
+      showShortcuts: 'Show keyboard shortcuts',
+      /** ⌘1 to ⌘9 open the chats in the order the sidebar lists them. */
+      jumpToChat: 'Open a chat, in sidebar order',
+      previousChat: 'Previous chat',
+      nextChat: 'Next chat',
+      stopRun: 'Stop the run',
+      groups: { app: 'App', window: 'Window', chat: 'Chat', calls: 'Calls' },
     },
     about: {
       title: 'About Myrmidon',

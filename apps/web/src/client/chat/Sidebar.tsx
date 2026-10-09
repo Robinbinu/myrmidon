@@ -509,7 +509,7 @@ export function Sidebar(props: {
         })}
         {props.loaded && props.chats.length === 0 && (
           <p className="px-2 py-4 text-callout text-muted">
-            {copy.sidebar.empty(comboLabel('mod+k', isMac))}
+            {copy.sidebar.empty(comboLabel('mod+n', isMac))}
           </p>
         )}
         {props.chats.length > 0 && hits.length === 0 && (

@@ -91,6 +91,7 @@ import {
   tabPanel,
 } from './ui/primitives.tsx'
 import { Sheet } from './ui/Sheet.tsx'
+import { ShortcutList } from './ui/ShortcutList.tsx'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
@@ -5321,36 +5322,11 @@ function MemorySection() {
   )
 }
 
-const SHORTCUTS: [string, string[]][] = [
-  [copy.settings.shortcuts.newTask, ['⌘', 'K']],
-  [copy.settings.shortcuts.focusComposer, ['/']],
-  [copy.settings.shortcuts.toggleSidebar, ['⌘', 'B']],
-  [copy.settings.shortcuts.toggleWorkspace, ['⌘', 'J']],
-  [copy.settings.shortcuts.workspaceView, ['⌥', '⌘', '1–0']],
-  [copy.settings.shortcuts.openSettings, ['⌘', ',']],
-  [copy.settings.shortcuts.send, ['Enter']],
-  [copy.settings.shortcuts.newLine, ['Shift', 'Enter']],
-  [copy.settings.shortcuts.close, ['Esc']],
-  [copy.settings.shortcuts.muteCall, ['⌘', 'D']],
-  [copy.settings.shortcuts.hangUp, ['⌘', '⇧', 'H']],
-]
-
 function Shortcuts() {
   return (
     <>
       <PageHeader title={copy.settings.shortcuts.title} />
-      <Card>
-        {SHORTCUTS.map(([label, keys]) => (
-          <div key={label} className="flex items-center justify-between px-4 py-3 text-reading">
-            <span>{label}</span>
-            <span className="flex gap-1">
-              {keys.map((k) => (
-                <Kbd key={k}>{k}</Kbd>
-              ))}
-            </span>
-          </div>
-        ))}
-      </Card>
+      <ShortcutList />
     </>
   )
 }

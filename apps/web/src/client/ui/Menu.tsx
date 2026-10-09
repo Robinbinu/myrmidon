@@ -214,7 +214,9 @@ export function useContextMenu(): ContextMenuHandle {
   const [shown, setShown] = useState<OpenMenu>()
   // Server rendering has no document to draw over; the menu only ever opens after the page is live.
   const [live, setLive] = useState(false)
-  useEffect(() => setLive(true), [])
+  useEffect(() => {
+    setLive(true)
+  }, [])
   const close = useCallback(() => setShown(undefined), [])
   const open = useCallback((e: MouseEvent<HTMLElement>, label: string, entries: MenuEntries) => {
     if (wantsBrowserMenu(e)) return

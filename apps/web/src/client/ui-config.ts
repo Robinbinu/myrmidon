@@ -50,6 +50,14 @@ export const TOOLBAR_FOLD_SLACK_PX = 24
  */
 export const WORKSPACE_DOCK_PX = 1280
 
+/* ------------------------------------------------------------------ command menu */
+
+/** How many of each group the command menu (⌘K) lists: with nothing typed, and while typing. */
+export const PALETTE_LIMITS = {
+  idle: { actions: 8, chats: 5, projects: 3, settings: 0 },
+  searching: { actions: 6, chats: 8, projects: 5, settings: 6 },
+} as const
+
 /* ------------------------------------------------------------------ sidebar */
 
 /** How long typing in the chat search pauses before the server searches what was said; titles match at once. */
