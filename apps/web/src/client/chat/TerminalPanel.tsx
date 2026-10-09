@@ -26,8 +26,23 @@ interface Tab {
   n: number
   /** The foreground command, or null while the shell waits at its prompt. */
   process: string | null
-  /** A title the shell set, used while nothing else names the tab. */
-  title?: string
+  /** The folder the shell's title names (see folderOfTitle), once it set one. */
+  cwd?: string
+}
+
+/**
+ * The folder a shell's title names, as zsh and bash set it by default or with oh-my-zsh ("robin@mac:~/code/app",
+ * "~/code/app"): its last part, so the tab follows `cd` as Claude Code's does. Titles that name no folder (a program's
+ * own) give nothing, and the tab keeps the folder it started in.
+ */
+function folderOfTitle(title: string): string | undefined {
+  const path =
+    title
+      .trim()
+      .split(/[\s:]+/)
+      .at(-1) ?? ''
+  if (path !== '~' && !path.startsWith('~/') && !path.startsWith('/')) return undefined
+  return path.replace(/\/+$/, '').split('/').at(-1) || path
 }
 
 const CURSOR_STYLES = ['block', 'bar', 'underline'] as const
@@ -89,7 +104,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
   const newCombo = isMac ? TERMINAL_COMBOS.newMac : TERMINAL_COMBOS.new
 
   const nameOf = (tab: Tab) => t.name(tab.n)
-  const labelOf = (tab: Tab) => t.tab(tab.n, tab.process ?? tab.title ?? folder)
+  const labelOf = (tab: Tab) => t.tab(tab.n, tab.process ?? tab.cwd ?? folder)
   const update = (id: number, change: Partial<Tab>) =>
     setTabs((list) => list.map((tab) => (tab.id === id ? { ...tab, ...change } : tab)))
   const show = (id: number) => {
@@ -207,7 +222,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
                   title={labelOf(tab)}
                   onClick={() => show(tab.id)}
                   className={cn(
-                    'group flex h-7 min-w-0 max-w-60 shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 text-small transition-colors',
+                    'group flex h-7 min-w-28 max-w-60 shrink items-center gap-1 rounded-md pl-2.5 pr-1 text-small transition-colors',
                     selected ? 'bg-fill-strong text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
                   )}
                 >
@@ -305,7 +320,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
             focusRequest={focusRequest}
             prefs={prefs}
             onProcess={(process) => update(tab.id, { process })}
-            onTitle={(title) => update(tab.id, { title })}
+            onTitle={(title) => update(tab.id, { cwd: folderOfTitle(title) })}
           />
         </div>
       ))}
