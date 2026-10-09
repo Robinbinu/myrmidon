@@ -1,6 +1,6 @@
 import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { AGENT_DOZE_MS, popSpring } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
@@ -518,6 +518,9 @@ const GLYPHS: Record<string, string[]> = {
   Y: ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '],
   Z: ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
   "'": ['#', '#', ' ', ' ', ' ', ' ', ' '],
+  '?': [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '],
+  '!': ['#', '#', '#', '#', '#', ' ', '#'],
+  ',': ['  ', '  ', '  ', '  ', '  ', ' #', '# '],
 }
 
 /** Numbers and short labels set in a 5×7 dot-matrix face, like an LED readout. */
@@ -571,6 +574,111 @@ export function DotMatrix(props: {
     </svg>
   )
 }
+
+/** The cursor bar after dot-matrix text: one column of dots as tall as a letter, blinking unless motion is reduced. */
+function DotCursor(props: { dot: number }) {
+  const pitch = props.dot * 1.45
+  const h = 6 * pitch + props.dot
+  return (
+    <svg
+      width={props.dot}
+      height={h}
+      viewBox={`0 0 ${props.dot} ${h}`}
+      className="caret shrink-0"
+      aria-hidden
+    >
+      {Array.from({ length: 7 }, (_, row) => (
+        <circle
+          // biome-ignore lint/suspicious/noArrayIndexKey: the rows of a fixed column
+          key={row}
+          cx={props.dot / 2}
+          cy={row * pitch + props.dot / 2}
+          r={props.dot / 2}
+          fill="currentColor"
+        />
+      ))}
+    </svg>
+  )
+}
+
+/**
+ * A line of dot-matrix text and a blinking cursor bar, filling the screen it sits on. A line too long for it scrolls
+ * through as a ticker and comes round again; each time the text changes it starts from its end, so what was just
+ * typed is in view. With less motion it does not move and shows the line's end.
+ */
+export const DotTicker = memo(function DotTicker(props: {
+  text: string
+  color: string
+  /** Dot diameter in px. */
+  dot: number
+  /** How fast a long line scrolls, in px a second. */
+  speed: number
+  /** The space before a scrolling line comes round again, in px. */
+  gap: number
+  reduce: boolean
+  className?: string
+}) {
+  const box = useRef<HTMLDivElement>(null)
+  const track = useRef<HTMLDivElement>(null)
+  const line = useRef<HTMLDivElement>(null)
+  const [fit, setFit] = useState({ line: 0, box: 0 })
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the line is measured again whenever its text changes
+  useLayoutEffect(() => {
+    const measure = () => setFit({ line: line.current?.offsetWidth ?? 0, box: box.current?.clientWidth ?? 0 })
+    measure()
+    if (typeof ResizeObserver === 'undefined' || !box.current) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(box.current)
+    return () => observer.disconnect()
+  }, [props.text])
+  const over = fit.line > fit.box && fit.box > 0
+  const scrolls = over && !props.reduce
+  // Drawn on each frame straight onto the element, not through React, so a scrolling line costs no renders.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new text starts again from its end
+  useEffect(() => {
+    const el = track.current
+    if (!el) return
+    const tail = over ? fit.box - fit.line : 0
+    el.style.transform = `translateX(${tail}px)`
+    if (!scrolls) return
+    const period = fit.line + props.gap
+    let offset = tail
+    let last = performance.now()
+    let frame = requestAnimationFrame(function step(now) {
+      offset -= (props.speed * (now - last)) / 1000
+      last = now
+      if (offset <= -period) offset += period
+      el.style.transform = `translateX(${offset}px)`
+      frame = requestAnimationFrame(step)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [props.text, fit, over, scrolls, props.gap, props.speed])
+  const pitch = props.dot * 1.45
+  const copyOf = (hidden?: boolean) => (
+    <div ref={hidden ? undefined : line} className="flex shrink-0 items-center" style={{ gap: pitch }}>
+      <DotMatrix text={props.text} dot={props.dot} />
+      <DotCursor dot={props.dot} />
+    </div>
+  )
+  return (
+    <div
+      ref={box}
+      className={cn('flex items-center overflow-hidden', props.className)}
+      style={{ color: props.color, filter: `drop-shadow(0 0 ${props.dot * 1.6}px ${props.color}66)` }}
+      data-scrolling={scrolls || undefined}
+      aria-hidden
+    >
+      <div
+        ref={track}
+        className="flex shrink-0 items-center will-change-transform"
+        style={{ gap: props.gap }}
+      >
+        {copyOf()}
+        {scrolls && copyOf(true)}
+      </div>
+    </div>
+  )
+})
 
 /** Inline agent chip for lists: mini face + name, tinted with the agent's color. */
 export function AgentChip(props: {

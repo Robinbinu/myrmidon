@@ -599,6 +599,8 @@ export const copy = {
     navLabel: 'Setup steps',
     finishLater: 'Finish later',
     finishLaterTitle: 'Close the assistant. What is left waits on the home screen.',
+    /** One step opened on its own, from the home screen or Settings: it goes back there when done. */
+    single: { close: 'Close', done: 'Done' },
     back: 'Back',
     continue: 'Continue',
     later: 'Set up later',
@@ -757,7 +759,17 @@ export const copy = {
       notifyHint: 'A notification on this device, only while Myrmidon is not in front.',
       test: 'Send a test notification',
       testBody: 'This is how Myrmidon tells you a chat is done.',
-      sent: 'Sent. Look for it in the corner of your screen.',
+      /** How the test went, under its button. */
+      result: {
+        sent: 'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus or Do Not Disturb is off and that your system lets this browser notify.',
+        sentDesktop:
+          'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus is off and that System Settings → Notifications → Myrmidon allows them.',
+        waiting:
+          'Switch to another app to see it: macOS shows Myrmidon’s notifications while it is in the background, so the test arrives as you leave.',
+        blocked:
+          'Blocked: this browser does not let Myrmidon notify. Allow notifications in the site settings from the address bar, then try again.',
+        failed: (error: string) => `The notification could not be sent: ${error}`,
+      },
       badge: 'Count on the Dock icon',
       badgeHint: 'The number of chats waiting for you.',
       unsupported: 'This browser cannot show notifications.',
@@ -807,6 +819,9 @@ export const copy = {
       title: (n: number) => `Finish setting up · ${n} left`,
       body: (steps: string) => `Still to do: ${steps}.`,
       action: 'Continue',
+      dismiss: 'Not now',
+      dismissTitle: 'Hide this for good. Every step stays in Settings → General.',
+      dismissed: 'Hidden for good. You can run any step from Settings → General.',
     },
   },
 
@@ -2157,6 +2172,8 @@ export const copy = {
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',
+      setupStep: 'One step',
+      setupStepHint: 'Open a single step on its own; when it is done you come back here.',
     },
     models: {
       title: 'Models',

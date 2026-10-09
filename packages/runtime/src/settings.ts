@@ -184,6 +184,7 @@ export const settingsSchema = Schema.object({
   }).default({}),
   setup: Schema.object({
     finishedAt: Schema.string().max(40),
+    dismissedAt: Schema.string().max(40),
     steps: Schema.dict(Schema.union(['done', 'later'])).default({}),
   }),
 })
@@ -226,6 +227,7 @@ function parse(input: unknown): MyrSettings {
       ? {
           setup: {
             ...(setup.finishedAt ? { finishedAt: setup.finishedAt } : {}),
+            ...(setup.dismissedAt ? { dismissedAt: setup.dismissedAt } : {}),
             steps: Object.fromEntries(Object.entries(setup.steps).filter(([step]) => isSetupStep(step))),
           },
         }

@@ -21,6 +21,8 @@ export type SetupMark = 'done' | 'later'
 export interface SetupState {
   /** When the assistant was finished (or left with Finish later); until then it opens in place of the home screen. */
   finishedAt?: string
+  /** When the person dismissed the home screen's Finish setting up card: from then on it never shows by itself. */
+  dismissedAt?: string
   steps: Partial<Record<SetupStep, SetupMark>>
 }
 

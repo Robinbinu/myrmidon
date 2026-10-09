@@ -26,6 +26,7 @@ import {
 import { desktop } from '../ui/desktop.ts'
 import { DOCK_BADGE_KEY, NOTIFY_KEY, type ThemeChoice, usePersistentFlag } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { type TestNotice, testNotification } from '../ui/notify-test.ts'
 import {
   Badge,
   Banner,
@@ -65,11 +66,13 @@ export interface SetupContext {
   project?: { project: Project; isGit: boolean }
   setProject(chosen: { project: Project; isGit: boolean }): void
   onProjects(all: Project[]): void
+  /** One step opened on its own: Back, done and Set up later go back where it was opened from. */
+  single: boolean
   go(screen: SetupScreen): void
   back(): void
-  /** Marks the step done and moves on. */
+  /** Marks the step done and moves on (or, opened on its own, goes back). */
   done(step: SetupStep): void
-  /** Marks the step set up later and moves on. */
+  /** Marks the step set up later and moves on (or, opened on its own, goes back). */
   later(step: SetupStep): void
   /** Asks again what exists, after something was set up. */
   refresh(): void
@@ -153,7 +156,7 @@ function StepFrame(props: {
             title={props.next.disabled ? props.next.hint : undefined}
             onClick={props.next.onClick}
           >
-            {props.next.label ?? t.continue}
+            {ctx.single ? t.single.done : (props.next.label ?? t.continue)}
           </Button>
         )}
       </div>
@@ -1137,7 +1140,9 @@ export function AlertsStep() {
   const supported = !!shell || typeof Notification !== 'undefined'
   const [notify, setNotify] = usePersistentFlag(NOTIFY_KEY, false)
   const [badge, setBadge] = usePersistentFlag(DOCK_BADGE_KEY, true)
-  const [sent, setSent] = useState(false)
+  const [result, setResult] = useState<TestNotice>()
+  const testing = useRef<AbortController>(undefined)
+  useEffect(() => () => testing.current?.abort(), [])
 
   const denied = () => {
     setNotify(false)
@@ -1145,17 +1150,22 @@ export function AlertsStep() {
     mascot.react('shrug')
     ctx.later('alerts')
   }
-  // The mascot sends itself one, and is pleased when it lands.
+  // The mascot sends itself one, and is pleased when it lands; how it went shows under the button.
   const sendTest = async () => {
-    try {
-      if (shell) await shell.notify(copy.brand.name, t.alerts.testBody)
-      else new Notification(copy.brand.name, { body: t.alerts.testBody, tag: 'myr-setup-test' })
-      setSent(true)
+    testing.current?.abort()
+    const asked = new AbortController()
+    testing.current = asked
+    setResult(undefined)
+    const r = await testNotification(copy.brand.name, t.alerts.testBody, {
+      signal: asked.signal,
+      onWaiting: () => setResult({ state: 'waiting' }),
+    })
+    if (asked.signal.aborted) return
+    setResult(r)
+    if (r.state === 'sent') {
       mascot.react('love')
       mascot.screen(copy.setup.screen.ping)
-    } catch {
-      denied()
-    }
+    } else if (r.state !== 'cancelled') mascot.react('shrug')
   }
   const turnOn = async (next: boolean) => {
     if (!next) return setNotify(false)
@@ -1187,11 +1197,18 @@ export function AlertsStep() {
             />
           </Field>
         </CardRow>
-        {notify && alertsAllowed() && (
+        {(supported || result) && (
           <CardRow>
             <div className="flex items-center gap-3">
-              <p className="min-w-0 flex-1 text-callout text-muted" aria-live="polite">
-                {sent ? t.alerts.sent : ''}
+              <p
+                role="status"
+                data-result={result?.state}
+                className={cn(
+                  'min-w-0 flex-1 text-callout',
+                  result?.state === 'blocked' || result?.state === 'failed' ? 'text-bad-ink' : 'text-muted',
+                )}
+              >
+                {result ? testResultText(result) : ''}
               </p>
               <Button
                 size="sm"
@@ -1220,6 +1237,25 @@ export function AlertsStep() {
       </Card>
     </StepFrame>
   )
+}
+
+/** What the Alerts step says under its test button about how the test went. */
+function testResultText(r: TestNotice): string {
+  const said = t.alerts.result
+  switch (r.state) {
+    case 'sent':
+      return r.desktop ? said.sentDesktop : said.sent
+    case 'waiting':
+      return said.waiting
+    case 'blocked':
+      return said.blocked
+    case 'unsupported':
+      return t.alerts.unsupported
+    case 'failed':
+      return said.failed(r.error)
+    case 'cancelled':
+      return ''
+  }
 }
 
 /* ------------------------------------------------------------------ 9 ready */

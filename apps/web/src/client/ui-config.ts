@@ -122,6 +122,21 @@ export const MASCOT_PAT_MS = 700
 export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
+/** The new-chat mascot spelling out what the person types on its screen, with a blinking cursor bar. */
+export const MASCOT_TYPING = {
+  /** This long without typing, its eyes come back (at once when the box is cleared). */
+  idleMs: 5_000,
+  /** Its screen follows the message box at most this often, so fast typing does not redraw it on every key. */
+  throttleMs: 80,
+  /** The most letters it shows: the end of a longer message. */
+  maxChars: 40,
+  /** Its letters, in px per dot. */
+  dot: 5,
+  /** A line too long for the screen scrolls through at this speed, in px a second, and comes round again. */
+  scrollPxPerSecond: 70,
+  /** The space before a scrolling line comes round again, in dots. */
+  loopGapDots: 12,
+} as const
 /**
  * Windows shorter than this leave the mascot off the new-chat view: its screen (about 300px) would push the message
  * box and the starters below the fold, and they matter more.

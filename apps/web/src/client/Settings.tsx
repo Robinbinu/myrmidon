@@ -1,3 +1,4 @@
+import { SETUP_STEPS, type SetupStep } from '@myrmidon/protocol'
 import {
   ArchiveRestore,
   ArrowLeft,
@@ -370,6 +371,8 @@ export function Settings(props: {
   onSection?(section: Section): void
   /** Opens the setup assistant again from its first step (Settings → General). */
   onRunSetup?(): void
+  /** Opens one step of the setup assistant on its own, which comes back here when done. */
+  onOpenSetupStep?(step: SetupStep): void
 }) {
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const onSection = useRef(props.onSection)
@@ -588,6 +591,7 @@ export function Settings(props: {
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
                     {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
+                    {...(props.onOpenSetupStep ? { onOpenSetupStep: props.onOpenSetupStep } : {})}
                   />
                   <Shortcuts />
                   <About data={data} />
@@ -858,6 +862,7 @@ function General(props: {
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
   onRunSetup?(): void
+  onOpenSetupStep?(step: SetupStep): void
 }) {
   return (
     <>
@@ -890,6 +895,19 @@ function General(props: {
               <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
                 {copy.settings.general.runSetup}
               </Button>
+            </Field>
+          </CardRow>
+        )}
+        {props.onOpenSetupStep && (
+          <CardRow>
+            <Field label={copy.settings.general.setupStep} hint={copy.settings.general.setupStepHint}>
+              <div className="flex flex-wrap gap-1.5">
+                {SETUP_STEPS.filter((s) => s !== 'welcome').map((s) => (
+                  <Button key={s} size="sm" onClick={() => props.onOpenSetupStep?.(s)}>
+                    {copy.setup.steps[s]}
+                  </Button>
+                ))}
+              </div>
             </Field>
           </CardRow>
         )}

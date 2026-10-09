@@ -14,7 +14,9 @@ import {
   leftToSetUp,
   opensOnLoad,
   resumeAt,
+  returnFromAddress,
   SETUP_SCREENS,
+  type SetupReturn,
   type SetupScreen,
   type SetupView,
   starters,
@@ -136,6 +138,28 @@ test('the list shows done once a thing exists, later as set up later, and the ho
   expect(stepStatus('project', v, 'crew')).toBe('todo')
   expect(leftToSetUp(v)).toEqual(['models'])
   expect(leftToSetUp(view({ steps: { models: 'later' } }))).toEqual([])
+  // Dismissed, the card is gone for good, whatever is still left.
+  expect(leftToSetUp(view({ ...v.setup, dismissedAt: '2026-10-09T11:00:00Z' }, v.have))).toEqual([])
+})
+
+test('the home screen card says what is left and is dismissed with its close button', async () => {
+  const { SetupNudge } = await import('../src/client/setup/Nudge.tsx')
+  const opened: string[] = []
+  let dismissed = 0
+  const { host, unmount } = await mount(
+    <SetupNudge left={['voice', 'alerts']} onOpen={(s) => opened.push(s)} onDismiss={() => dismissed++} />,
+  )
+  try {
+    expect(host.textContent).toContain('Finish setting up · 2 left')
+    const close = host.querySelector('button[aria-label="Not now"]') as HTMLButtonElement
+    expect(close.title).toContain('for good')
+    await act(async () => close.click())
+    expect(dismissed).toBe(1)
+    await act(async () => (host.querySelector('button') as HTMLButtonElement).click())
+    expect(opened).toEqual(['voice'])
+  } finally {
+    await unmount()
+  }
 })
 
 test('starter prompts are about the project when there is one', () => {
@@ -230,7 +254,11 @@ function fakeServer(start: SetupState, answers: { test?: { ok: boolean; error?: 
   return { puts }
 }
 
-async function showSetup(screen: SetupScreen, start: SetupState) {
+async function showSetup(
+  screen: SetupScreen,
+  start: SetupState,
+  extra: { returnTo?: SetupReturn; onClose?(result: unknown): void } = {},
+) {
   const { Setup } = await import('../src/client/setup/Setup.tsx')
   const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
   const config = {
@@ -255,7 +283,8 @@ async function showSetup(screen: SetupScreen, start: SetupState) {
           onConfig={() => {}}
           online
           onProjects={() => {}}
-          onClose={() => {}}
+          {...(extra.returnTo ? { returnTo: extra.returnTo } : {})}
+          onClose={extra.onClose ?? (() => {})}
         />
       </ToastProvider>
     </MotionConfig>,
@@ -387,6 +416,151 @@ test('notifications refused: it says how to allow them later, marks alerts later
     expect(puts).toContainEqual({ step: 'alerts', mark: 'later' })
     expect(heading()).toBe('You’re ready')
   } finally {
+    await unmount()
+  }
+})
+
+/* ------------------------------------------------------------------ one step on its own */
+
+test('one step opened on its own goes back when set up later, instead of walking on to the next step', async () => {
+  const start: SetupState = { finishedAt: '2026-10-09T10:00:00Z', steps: { welcome: 'done', voice: 'later' } }
+  const { puts } = fakeServer(start)
+  const closed: unknown[] = []
+  const { unmount } = await showSetup('voice', start, { returnTo: 'home', onClose: (r) => closed.push(r) })
+  try {
+    await settle()
+    expect(heading()).toBe('Voice calls')
+    // The address keeps where it goes back to, so a reload still does this step alone.
+    expect(returnFromAddress()).toBe('home')
+    expect(button('Done')).toBeTruthy()
+    expect(button('Continue')).toBeUndefined()
+    expect(button('Finish later')).toBeUndefined()
+    const later = [...document.querySelectorAll('button')].filter(
+      (b) => b.textContent?.trim() === 'Set up later',
+    )
+    await act(async () => (later.at(-1) as HTMLButtonElement).click())
+    await settle()
+    expect(puts).toContainEqual({ step: 'voice', mark: 'later' })
+    expect(closed).toEqual([{}])
+    expect(heading()).toBe('Voice calls')
+    expect(puts.some((p) => (p as { finish?: boolean }).finish)).toBe(false)
+  } finally {
+    await unmount()
+  }
+})
+
+test('one step opened from Settings goes back when done, and Back and Close go back without marking it', async () => {
+  const start: SetupState = { finishedAt: '2026-10-09T10:00:00Z', steps: { welcome: 'done' } }
+  const { puts } = fakeServer(start)
+  const closed: unknown[] = []
+  const { unmount } = await showSetup('channels', start, {
+    returnTo: 'settings',
+    onClose: (r) => closed.push(r),
+  })
+  try {
+    await settle()
+    expect(returnFromAddress()).toBe('settings')
+    await act(async () => button('Back').click())
+    await act(async () => button('Close').click())
+    expect(closed).toHaveLength(2)
+    expect(puts).toEqual([])
+    await act(async () => button('Done').click())
+    await settle()
+    expect(puts).toContainEqual({ step: 'channels', mark: 'done' })
+    expect(closed).toHaveLength(3)
+    expect(heading()).toBe('Messaging apps')
+  } finally {
+    await unmount()
+  }
+})
+
+test('the whole assistant run again still walks on to the next step', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  const { unmount } = await showSetup('channels', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    expect(returnFromAddress()).toBeUndefined()
+    await act(async () => button('Continue').click())
+    await settle()
+    expect(heading()).toBe('Alerts')
+  } finally {
+    await unmount()
+  }
+})
+
+/* ------------------------------------------------------------------ the test notification */
+
+test('the test notification says how it went: sent, or blocked with how to allow it', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  localStorage.setItem('myr-notify', '1')
+  const made: string[] = []
+  const permission = { now: 'granted' }
+  ;(globalThis as { Notification?: unknown }).Notification = class {
+    static get permission() {
+      return permission.now
+    }
+    static requestPermission = async () => permission.now
+    constructor(title: string) {
+      made.push(title)
+    }
+  }
+  const { unmount } = await showSetup('alerts', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    const status = () => document.querySelector('[role="status"][data-result]')
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(made).toEqual(['Myrmidon'])
+    expect(status()?.getAttribute('data-result')).toBe('sent')
+    expect(status()?.textContent).toContain('Sent.')
+    // Allowed when the switch went on, blocked since: it says so and how to allow it, and stays on the step.
+    permission.now = 'denied'
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(status()?.getAttribute('data-result')).toBe('blocked')
+    expect(status()?.textContent).toContain('Allow notifications in the site settings')
+    expect(heading()).toBe('Alerts')
+  } finally {
+    localStorage.removeItem('myr-notify')
+    await unmount()
+  }
+})
+
+test('in the desktop app in front, the test waits for Myrmidon to go to the background, then is sent', async () => {
+  fakeServer({ steps: { welcome: 'done' } })
+  localStorage.setItem('myr-notify', '1')
+  const sent: string[] = []
+  window.myrmidonDesktop = {
+    pickFolder: async () => undefined,
+    reveal: async () => {},
+    setBadge: async () => {},
+    notify: async (_title, body) => {
+      sent.push(body)
+    },
+  }
+  const hasFocus = document.hasFocus.bind(document)
+  let focused = true
+  document.hasFocus = () => focused
+  const { unmount } = await showSetup('alerts', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    const status = () => document.querySelector('[role="status"][data-result]')
+    await act(async () => button('Send a test notification').click())
+    await settle()
+    expect(status()?.getAttribute('data-result')).toBe('waiting')
+    expect(sent).toEqual([])
+    focused = false
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(sent).toEqual(['This is how Myrmidon tells you a chat is done.'])
+    expect(status()?.getAttribute('data-result')).toBe('sent')
+    expect(status()?.textContent).toContain('System Settings → Notifications → Myrmidon')
+  } finally {
+    document.hasFocus = hasFocus
+    delete window.myrmidonDesktop
+    localStorage.removeItem('myr-notify')
     await unmount()
   }
 })
