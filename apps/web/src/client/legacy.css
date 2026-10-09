@@ -1,6 +1,6 @@
 /* Styles for the React Flow colony map and the compare table, which are not yet on Tailwind utilities. */
 .muted {
-  color: var(--muted);
+  color: var(--label-3);
 }
 .small {
   font-size: var(--text-callout);
@@ -9,21 +9,21 @@
   font-family: var(--mono);
 }
 .empty {
-  color: var(--muted);
+  color: var(--label-3);
   padding: 28px 16px;
   text-align: center;
 }
 
 .react-flow {
-  --xy-background-pattern-dots-color-default: var(--border-strong);
+  --xy-background-pattern-dots-color-default: var(--separator-strong);
   --xy-edge-stroke-default: var(--edge);
 }
 .react-flow__edge-text {
-  fill: var(--muted);
+  fill: var(--label-3);
   font-size: var(--text-caption);
 }
 .react-flow__edge-textbg {
-  fill: var(--bg);
+  fill: var(--window);
 }
 .edge-active .react-flow__edge-path {
   stroke: var(--accent);
@@ -33,8 +33,8 @@
   width: 220px;
   padding: 10px 12px;
   border-radius: var(--radius-xl);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--content);
+  border: 1px solid var(--separator);
   box-shadow: var(--shadow-md);
   font-size: var(--text-body);
 }
@@ -55,7 +55,7 @@
 .agent-node-model {
   font-family: var(--mono);
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,7 +64,7 @@
   display: flex;
   gap: 8px;
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   margin-top: 2px;
 }
 .agent-node-task {
@@ -75,7 +75,7 @@
 .agent-node-detail {
   margin-top: 2px;
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -90,15 +90,15 @@
 .compare table {
   border-collapse: collapse;
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--content);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-xl);
   overflow: hidden;
 }
 .compare th,
 .compare td {
   padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--separator);
   text-align: left;
   vertical-align: top;
   font-size: var(--text-body);
@@ -107,7 +107,7 @@
 .compare th {
   font-family: var(--mono);
   font-size: var(--text-caption);
-  color: var(--muted);
+  color: var(--label-3);
   font-weight: 400;
   white-space: nowrap;
   text-transform: uppercase;

@@ -607,9 +607,9 @@ function WorkspaceBody({
                                         label={<span className="block truncate">{t.subject}</span>}
                                         className="check-line"
                                         checked={t.status === 'verified'}
-                                        color="var(--text)"
+                                        color="var(--label)"
                                         fillColor="var(--ok)"
-                                        checkColor="var(--bg)"
+                                        checkColor="var(--window)"
                                         boxSize={18}
                                         boxRadius={6}
                                         fontSize={13.5}

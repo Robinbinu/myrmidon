@@ -30,13 +30,13 @@
 @theme inline {
   --font-sans: var(--font);
   --font-mono: var(--mono);
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-line: var(--border);
-  --color-line-strong: var(--border-strong);
-  --color-fg: var(--text);
-  --color-fg-2: var(--text-2);
-  --color-muted: var(--muted);
+  --color-bg: var(--window);
+  --color-surface: var(--content);
+  --color-line: var(--separator);
+  --color-line-strong: var(--separator-strong);
+  --color-fg: var(--label);
+  --color-fg-2: var(--label-2);
+  --color-muted: var(--label-3);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
@@ -286,7 +286,5 @@
 :root[data-window-active="false"] [data-toolbar] {
   --label: var(--label-3);
   --label-2: var(--label-3);
-  --text: var(--label-3);
-  --text-2: var(--label-3);
   color: var(--label-3);
 }
