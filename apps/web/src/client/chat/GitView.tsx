@@ -80,7 +80,6 @@ const initials = (name: string) =>
     .slice(0, 2)
     .toUpperCase()
 
-/** A stable colour per author, for the avatar dots in the history. */
 const SECTIONS_KEY = 'myr-git-closed'
 
 function useClosedSections(): [ReadonlySet<string>, (key: string) => void] {

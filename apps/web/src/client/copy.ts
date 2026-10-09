@@ -1,3 +1,5 @@
+import type { EventPayloads } from '@myrmidon/protocol'
+
 /**
  * Every word the web client shows, grouped by screen and component. Text with values in it is a function of
  * those values; the components keep the layout and logic.
@@ -469,6 +471,65 @@ export const copy = {
     observer: (kind: string, severity: string, facts: string) => `check-in, ${kind} (${severity}): ${facts}`,
     verificationRequested: (by: string) => `${by} asked for a review`,
     verdict: (target: string, pass: boolean) => `review of ${target}: ${pass ? 'passed' : 'failed'}`,
+    /** A plain name for every kind of log event, for the replay bar and any line with nothing more specific to say. */
+    types: {
+      'colony/created': 'crew created',
+      'colony/started': 'crew started',
+      'colony/stopped': 'crew stopped',
+      'round/started': 'run started',
+      'memory/proposed': 'memory suggested',
+      'memory/decided': 'memory kept or discarded',
+      'skill/proposed': 'skill suggested',
+      'skill/decided': 'skill kept or discarded',
+      'hook/ran': 'hook ran',
+      'skill/used': 'skill used',
+      'colony/escalated': 'run handed to a bigger crew',
+      'agent/joined': 'crewmate joined',
+      'browser/keyframe': 'browser step',
+      'agent/error': 'model error',
+      'agent/dismissed': 'crewmate let go',
+      'approval/requested': 'approval asked',
+      'login/requested': 'sign-in asked',
+      'login/finished': 'sign-in finished',
+      'safety/flagged': 'step flagged as unsafe',
+      'server/started': 'server started',
+      'server/stopped': 'server stopped',
+      'worktree/created': 'worktree created',
+      'worktree/merged': 'worktree merged',
+      'worktree/updated': 'worktree updated',
+      'worktree/conflict': 'worktree conflict',
+      'worktree/closed': 'worktree closed',
+      'approval/decided': 'approval answered',
+      'review/done': 'approved step ran',
+      'checkpoint/created': 'checkpoint saved',
+      'checkpoint/restored': 'files rewound',
+      'permissions/changed': 'permissions changed',
+      'plugin/event': 'plugin event',
+      'agent/compacted': 'older messages summarized',
+      'agent/model': 'model switched',
+      'tool/created': 'tool made',
+      'chat/user': 'message from you',
+      'chat/reply': 'reply',
+      'chat/renamed': 'chat renamed',
+      'colony/failed': 'crew failed',
+      'colony/completed': 'crew completed',
+      'agent/status': 'status changed',
+      'agent/turn': 'turn',
+      'llm/response': 'model reply',
+      'tool/call': 'tool call',
+      'tool/result': 'tool result',
+      'board/posted': 'posted to the board',
+      'note/appended': 'note added',
+      'mail/sent': 'mail sent',
+      'group/created': 'group created',
+      'group/changed': 'group changed',
+      'mail/delivered': 'mail delivered',
+      'task/changed': 'task changed',
+      'artifact/versioned': 'file published',
+      'observer/signal': 'check-in',
+      'verifier/requested': 'review asked',
+      'verifier/verdict': 'review',
+    } satisfies Record<keyof EventPayloads, string>,
   },
 
   /** What a check-in noticed, keyed by the runtime's signal kind and severity. */
@@ -1491,6 +1552,7 @@ export const copy = {
       you: 'you',
       observer: 'check-in',
       colony: 'crew',
+      reviewer: 'reviewer',
     },
     activity: {
       postedToBoard: 'posted to the board',
@@ -1616,6 +1678,8 @@ export const copy = {
     turn: (n: number) => `turn ${n}`,
     tokens: (n: string) => `${n} tok`,
     noAgents: 'No agents yet. The lead and its crewmates show here once the run starts.',
+    /** A link between two agents on the crew map, for screen readers. */
+    link: (a: string, b: string, n: number) => `${a} and ${b}: ${n} message${n === 1 ? '' : 's'}`,
   },
 
   git: {

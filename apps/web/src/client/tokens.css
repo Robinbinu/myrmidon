@@ -58,7 +58,8 @@
   --idle: #aeaeb2;
   /* A finished result the person has not looked at yet, as Codex and Claude Code mark one: Apple's system blue. */
   --unread: #007aff;
-  --edge: #c7c7cc;
+  /* Crew map links: 3:1 on the window, as WCAG asks of lines that carry meaning. */
+  --edge: #86868b;
   --code-bg: #f5f5f7;
   --add: #e6f6ec;
   --del: #fdecec;
@@ -166,7 +167,7 @@
     --work-ink: #ffb31a;
     --idle: #5c5c66;
     --unread: #0a84ff;
-    --edge: #3a3a42;
+    --edge: #6e6e78;
     --code-bg: #0c0c0f;
     --add: #0f2a1d;
     --del: #351719;

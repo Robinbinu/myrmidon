@@ -73,6 +73,7 @@ export function describeEvent(e: MyrEvent): string {
       return copy.events.verdict(copy.reviewTarget(s.target), s.pass)
     }
     default:
-      return e.type
+      // A type this client does not know yet (a newer runtime's) still shows, by its id.
+      return copy.events.types[e.type as keyof EventPayloads] ?? e.type
   }
 }
