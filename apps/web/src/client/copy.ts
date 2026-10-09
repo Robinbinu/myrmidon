@@ -256,6 +256,9 @@ export const copy = {
     openVoiceSettings: 'Open Settings → Voice',
     card: {
       title: (minutes: number) => `Call · ${minutes < 1 ? 'under a minute' : `${minutes} min`}`,
+      /** A call on the phone line, with the number on the other end. */
+      phone: (minutes: number, number: string) =>
+        `Phone call with ${number} · ${minutes < 1 ? 'under a minute' : `${minutes} min`}`,
       show: 'Show transcript',
       hide: 'Hide transcript',
       crew: 'Crew update',
@@ -2281,6 +2284,17 @@ export const copy = {
       sensitivityHint:
         'Lower it if background noise interrupts the call; raise it if quiet speech is missed.',
       sensitivities: { low: 'Low', normal: 'Normal', high: 'High' },
+      phone: {
+        title: 'Phone calls',
+        enabled: 'Answer calls to the SMS number',
+        hint: 'Calls to the Twilio number set up under Settings → Channels → SMS reach the call assistant, from the people SMS lets in; other numbers are turned away unanswered (or texted a code, if SMS sends strangers one). Turning this on points the number’s voice webhook at this Myrmidon, which needs a public https address. Twilio charges for each call minute.',
+        connecting: 'Connecting to Twilio…',
+        on: (number: string) => `Answering calls to ${number}.`,
+        callMe: 'Call my phone',
+        callMeHint:
+          'The Twilio number calls the SMS owner, who talks with the call assistant as on any call.',
+        calling: (to: string) => `Calling ${to}…`,
+      },
     },
     gateways: {
       title: 'Gateways',

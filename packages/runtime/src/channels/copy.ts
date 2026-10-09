@@ -128,6 +128,16 @@ export const channelCopy = {
     smsNumber: (number: string) => `${number} is not a number on this Twilio account`,
     smsPublic:
       "SMS needs this Myrmidon's public address (start it with --public-url): Twilio delivers texts by posting to it",
+    /** Phone calls on the SMS number (Settings → Voice). */
+    phoneOff: 'Phone calls are off: turn them on in Settings → Voice',
+    phoneSms: 'Phone calls use the SMS channel’s Twilio number: set up SMS in Settings → Channels first',
+    phonePublic:
+      "Phone calls need this Myrmidon's public https address (start it with --public-url https://…): Twilio streams the call's audio to it",
+    phoneApp: (number: string) =>
+      `${number} answers calls with a TwiML app or a SIP trunk, which Twilio uses instead of a webhook: remove it from the number in the Twilio console`,
+    phoneNotAllowed: (number: string) =>
+      `${number} is not someone SMS lets in: approve them, or list them under 'let in without a code'`,
+    phoneNoOwner: 'No one to call: make yourself the owner under SMS → People',
     ntfyRefused: 'The ntfy server refused access to this topic; check the access token',
     ntfyTopic: 'A topic is letters, digits, - and _, up to 64 characters',
     ntfyGuessable:
@@ -274,6 +284,7 @@ export const channelCopy = {
     connected: (account: string) => `Connected as ${account}`,
     in: (name: string, group?: string) =>
       group ? `Message from ${name} in ${group}` : `Message from ${name}`,
+    call: (name: string) => `Phone call with ${name}`,
     out: 'Answer delivered',
     failed: (why: string, retrying: boolean) => `Couldn't send: ${why}${retrying ? ' (will retry)' : ''}`,
     pairing: (name: string) => `Sent ${name} a code to approve`,

@@ -101,6 +101,44 @@ messages.
 Calls need the microphone, which browsers allow on this machine or over https. Devices paired for chats only can call;
 installing engines and keys needs full access.
 
+## Phone calls (Twilio)
+
+Call your Twilio number from any phone and you reach the same call assistant, with the same crew hand-off, approvals
+by a plain yes or no, and transcript kept as a call card in the chat (marked as a phone call, with the number). Or
+press **Call my phone** in Settings → Voice and the number calls you. It works as OpenClaw's voice-call plugin does:
+Twilio posts each call to the number's voice webhook, which answers with TwiML connecting the call to a bidirectional
+[Media Stream](https://www.twilio.com/docs/voice/twiml/stream) (`<Connect><Stream url="wss://…"/></Connect>`). The
+call's audio then comes over a WebSocket as base64 μ-law at 8 kHz ([messages](https://www.twilio.com/docs/voice/media-streams/websocket-messages):
+`start`, `media`, `mark`, `stop`), is resampled to the 16 kHz the speech detector and turn model use, and goes into the
+same pipeline as a call in the app. Speech goes back as `media` messages with the stream's sid, resampled to 8 kHz and
+μ-law coded; talking over it sends `clear`, which empties what Twilio has buffered.
+
+What you need:
+
+1. **SMS set up** (Settings → Channels → SMS, see `channels.md`): calls use its Account SID, auth token and number.
+   The number must be able to take voice calls.
+2. **A public https address** (`--public-url https://…`, see `remote.md`): Twilio posts calls to
+   `<public-url>/hooks/channels/sms/voice` and streams their audio to `wss://<host>/hooks/channels/sms/stream`; it only
+   speaks wss, so plain http will not do. Port 443 must be open to Twilio (a Tailscale Funnel or similar works).
+3. **Voice calls on**, with engines ready, and **Answer calls to the SMS number** turned on (Settings → Voice → Phone
+   calls). Turning it on points the number's voice webhook at this Myrmidon, replacing what was there (it says what it
+   was in the log); turning it off leaves the number alone, and calls are then rejected unanswered. A number answered
+   by a TwiML app or a SIP trunk never calls its webhook: Settings says so; remove it in the Twilio console.
+
+Who may call is the SMS channel's business, by its own rules for a text from that number: people it has approved and
+numbers listed under *let in without a code* get through; anyone else is rejected without the call being answered
+(`<Reject>`, not billed), or, when SMS sends strangers a code, told so and texted one. A caller who is not the owner is
+a member: what they ask reaches the crew marked as theirs and asks before every step that changes something, as their
+texts do, and approvals are the owner's to give in Myrmidon, never theirs on the call. A number's calls and texts
+continue one chat. Myrmidon calls out only to people SMS lets in, and only from Settings (full access).
+
+Checks: every webhook post is verified against `X-Twilio-Signature` with the auth token
+([webhook security](https://www.twilio.com/docs/usage/webhooks/webhooks-security)), and so is each stream's WebSocket
+upgrade (signed over the wss address, with no parameters). Each answer carries a one-time ticket (a `<Parameter>`, since
+the stream URL takes no query string) that the stream's `start` must bring back within two minutes, for the account
+that was called. Phone audio is narrow (telephone band, 8 kHz): speech to text does a little worse than in the app.
+Twilio charges per call minute.
+
 ## Troubleshooting
 
 - **A call will not start**: it says why. One call per chat (another window may have it), at most four at once on

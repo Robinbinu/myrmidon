@@ -368,3 +368,46 @@ test("deleting a chat deletes its calls' transcripts", async () => {
   expect(res.status).toBe(200)
   expect(readdirSync(join(home, 'calls'))).toEqual(['b.json'])
 })
+
+test('the phone line’s hooks refuse what Twilio did not sign, and calling out needs full access', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-voice-server-'))
+  homes.push(home)
+  const settings = new SettingsStore(home)
+  const chats = {
+    list: async () => [],
+    onEvents: () => () => {},
+    onStream: () => () => {},
+  } as unknown as ChatService
+  const offline = 'http://127.0.0.1:9/no-model.onnx'
+  const voiceModels = { vad: new SileroVad(home, offline), turn: new SmartTurn(home, offline) }
+  const server = startServer({ home, port: 0, chats, resolver: new ModelResolver(), settings, voiceModels })
+  servers.push(server)
+  const origin = new URL(server.url.replace(/#.*$/, ''))
+  const auth = { authorization: `Bearer ${server.token}` }
+  const status = await (await fetch(new URL('/api/voice', origin), { headers: auth })).json()
+  expect(status.phone).toEqual({ state: 'off' })
+  // No SMS channel, no public address: nothing Twilio could have signed.
+  const hook = await fetch(new URL('/hooks/channels/sms/voice', origin), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': 'x' },
+    body: 'From=%2B15550002222&Direction=inbound',
+  })
+  expect(hook.status).toBe(403)
+  expect((await fetch(new URL('/hooks/channels/sms/stream', origin))).status).toBe(400)
+  const stream = await fetch(new URL('/hooks/channels/sms/stream', origin), {
+    headers: {
+      upgrade: 'websocket',
+      connection: 'upgrade',
+      'sec-websocket-version': '13',
+      'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+    },
+  })
+  expect(stream.status).toBe(403)
+  const dial = await fetch(new URL('/api/voice/phone/call', origin), {
+    method: 'POST',
+    headers: auth,
+    body: '{}',
+  })
+  expect(dial.status).toBe(400)
+  expect(needsFull('POST', '/api/voice/phone/call')).toBe(true)
+})

@@ -36,7 +36,7 @@ export interface CallChats {
   send(
     text: string,
     chatId: string | undefined,
-    options?: { project?: string; voice?: boolean },
+    options?: { project?: string; voice?: boolean; askAll?: boolean },
   ): Promise<{ chatId: string; colonyId: string; started: boolean; round?: number }>
   onEvents(listener: (colonyId: string, events: readonly MyrEvent[]) => void): () => void
   /**
@@ -74,6 +74,14 @@ export interface CallOptions {
   readonly talkTo?: string
   /** The chat's crew besides the lead, so the call assistant can ask one of them (ask_crew). */
   readonly crew?: readonly { name: string; role?: string }[]
+  /**
+   * The person is an approved member of a channel (`channel`, its label), not the owner: a phone caller listed under
+   * SMS. What they ask reaches the crew marked as theirs and asks before every step that changes something, as their
+   * texts do, and approvals are the owner's to decide, never theirs.
+   */
+  readonly member?: { readonly name: string; readonly channel: string }
+  /** The phone number on the other end of a phone call, kept with its transcript. */
+  readonly phone?: string
 }
 
 export interface CallTurn {
@@ -365,6 +373,25 @@ export class CallSession {
     return this.options.talkTo
   }
 
+  /** The number on the other end, on a phone call. */
+  get phone(): string | undefined {
+    return this.options.phone
+  }
+
+  /** A message from the person to the crew, marked as a member's when they are one. */
+  private _send(text: string, voice = false) {
+    const member = this.options.member
+    return this.ports.chats.send(
+      member ? prompts.channels.member(member.name, member.channel, text) : text,
+      this._chatId,
+      {
+        ...(voice ? { voice: true } : {}),
+        ...(this.options.project ? { project: this.options.project } : {}),
+        ...(member ? { askAll: true } : {}),
+      },
+    )
+  }
+
   /** Says who answered, greets the person; the call is then listening. */
   async start() {
     // While the greeting plays, so the person's first turn is not the one to pay for them.
@@ -583,11 +610,7 @@ export class CallSession {
     this._askNext()
     this._state('thinking')
     try {
-      const message = this.direct === 'lead' ? text : `@${this.direct} ${text}`
-      const sent = await this.ports.chats.send(message, this._chatId, {
-        voice: true,
-        ...(this.options.project ? { project: this.options.project } : {}),
-      })
+      const sent = await this._send(this.direct === 'lead' ? text : `@${this.direct} ${text}`, true)
       this._track(sent, text, { question: true, ...(this.direct === 'lead' ? {} : { to: this.direct }) })
     } catch (err) {
       this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
@@ -792,9 +815,7 @@ export class CallSession {
     if (call.name === 'start_task') {
       const request = String(args.request ?? '').trim()
       if (!request) return 'request is required'
-      const sent = await this.ports.chats.send(request, this._chatId, {
-        ...(this.options.project ? { project: this.options.project } : {}),
-      })
+      const sent = await this._send(request)
       this._track(sent, request)
       return r.started
     }
@@ -804,9 +825,7 @@ export class CallSession {
       const to =
         typeof args.to === 'string' && args.to.trim() && args.to !== 'lead' ? args.to.trim() : undefined
       if (to && !(this.options.crew ?? []).some((c) => c.name === to)) return r.noSuchAgent(to)
-      const sent = await this.ports.chats.send(to ? `@${to} ${question}` : question, this._chatId, {
-        ...(this.options.project ? { project: this.options.project } : {}),
-      })
+      const sent = await this._send(to ? `@${to} ${question}` : question)
       this._track(sent, question, { question: true, ...(to ? { to } : {}) })
       return r.asked(to ?? 'the lead')
     }
@@ -944,8 +963,12 @@ export class CallSession {
           this._updates.push({ text: u.question(p.text), note: n.question(p.text) })
         else for (const t of mine) if (!t.question && !t.done) t.answer = p.text
       } else if (e.type === 'approval/requested' && typeof p.id === 'string') {
-        this._approvals.set(p.id, { colonyId, tool: String(p.tool ?? ''), summary: String(p.summary ?? '') })
-        this._askNext()
+        if (this.options.member)
+          this._updates.push({
+            text: u.ownerApproval(String(p.tool ?? ''), String(p.summary ?? '')),
+            note: n.approval(String(p.summary ?? '')),
+          })
+        else this._requested(colonyId, p)
       } else if (e.type === 'approval/decided' && typeof p.id === 'string') {
         if (this._approvals.delete(p.id)) {
           this._settled(p.id, p.approved === true)
@@ -1032,6 +1055,16 @@ export class CallSession {
     })
   }
 
+  /** An approval the crew asks for, to be put to the person in its turn. */
+  private _requested(colonyId: string, p: Record<string, unknown>) {
+    this._approvals.set(String(p.id), {
+      colonyId,
+      tool: String(p.tool ?? ''),
+      summary: String(p.summary ?? ''),
+    })
+    this._askNext()
+  }
+
   /** On a direct call, the replies of whoever the person talks to are read aloud, and approvals put to them. */
   private _directEvents(colonyId: string, events: readonly MyrEvent[]) {
     for (const e of events) {
@@ -1044,8 +1077,9 @@ export class CallSession {
         this._thought()
         this._speak(p.text, agent)
       } else if (e.type === 'approval/requested' && typeof p.id === 'string') {
-        this._approvals.set(p.id, { colonyId, tool: String(p.tool ?? ''), summary: String(p.summary ?? '') })
-        this._askNext()
+        if (this.options.member)
+          this._speak(prompts.voice.direct.ownerApproval(String(p.summary ?? '')), this._voice)
+        else this._requested(colonyId, p)
       } else if (e.type === 'approval/decided' && typeof p.id === 'string') {
         if (this._approvals.delete(p.id)) {
           this._settled(p.id, p.approved === true)

@@ -26,6 +26,7 @@ import {
   MessagesSquare,
   MonitorSmartphone,
   Palette,
+  PhoneIncoming,
   Plug,
   Puzzle,
   ScreenShare,
@@ -133,6 +134,8 @@ export const FEATURE_ICONS = {
   mascot: Smile,
   /** Voice calls with the crew. */
   voice: AudioLines,
+  /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
+  phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */
   web: Globe,
   /** Scratch files: private drafts before publishing. */

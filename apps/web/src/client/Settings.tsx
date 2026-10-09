@@ -165,6 +165,8 @@ export interface ServerSettings {
       endpointVoice?: string
     }
     sensitivity: 'low' | 'normal' | 'high'
+    /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
+    phone?: boolean
   }
 }
 
@@ -3244,6 +3246,8 @@ interface VoiceStatusView {
   sizes?: { phonon: number; kitten: Record<'nano' | 'micro' | 'mini', number>; vad: number; turn: number }
   /** Days a call's transcript is kept. */
   transcriptDays?: number
+  /** The phone line on the SMS number; absent where there are no channels. */
+  phone?: { state: 'off' | 'connecting' | 'on' | 'error'; number?: string; error?: string }
 }
 
 /** An engine installing, starting or downloading: Settings → Voice looks again until it is done. */
@@ -3252,7 +3256,8 @@ function voiceBusy(s: VoiceStatusView | undefined): boolean {
     !!s &&
     (s.stt.phonon.state === 'installing' ||
       s.stt.phonon.state === 'starting' ||
-      s.tts.kitten.state === 'downloading')
+      s.tts.kitten.state === 'downloading' ||
+      s.phone?.state === 'connecting')
   )
 }
 
@@ -3687,6 +3692,58 @@ function VoiceSection(props: {
           </Button>
         </CardRow>
       </Card>
+
+      {status?.phone && (
+        <>
+          <SectionHeader
+            as="h3"
+            className="mb-2"
+            icon={<FEATURE_ICONS.phoneCalls className="size-4 text-muted" />}
+            title={t.phone.title}
+          />
+          <Card className="mb-6">
+            <CardRow>
+              <Field
+                label={t.phone.enabled}
+                hint={
+                  <>
+                    {t.phone.hint}
+                    {status.phone.state === 'connecting' && ` ${t.phone.connecting}`}
+                    {status.phone.state === 'on' &&
+                      status.phone.number &&
+                      ` ${t.phone.on(status.phone.number)}`}
+                  </>
+                }
+                error={status.phone.state === 'error' ? status.phone.error : undefined}
+                inline
+              >
+                <Switch
+                  checked={v.phone === true}
+                  onChange={(phone) => set((x) => ({ ...x, phone }))}
+                  label={t.phone.enabled}
+                />
+              </Field>
+            </CardRow>
+            {status.phone.state === 'on' && (
+              <CardRow>
+                <Field label={t.phone.callMe} hint={t.phone.callMeHint} inline>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      void post<{ to: string }>('/api/voice/phone/call', {}).then(
+                        (r) => toast(t.phone.calling(r.to)),
+                        (err: Error) => toast(err.message, 'error'),
+                      )
+                    }
+                  >
+                    {t.phone.callMe}
+                  </Button>
+                </Field>
+              </CardRow>
+            )}
+          </Card>
+        </>
+      )}
     </>
   )
 }

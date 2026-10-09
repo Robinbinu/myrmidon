@@ -98,3 +98,108 @@ export function trimSilence(
 
 /** Below this level (RMS of 16-bit samples) a 10 ms stretch of synthesized speech counts as quiet. */
 const SILENCE_RMS = 300
+
+/** G.711 μ-law's bias and the largest magnitude it codes (ITU-T G.711, as Sun's g711.c). */
+const MULAW_BIAS = 0x84
+const MULAW_CLIP = 32635
+
+/** 16-bit samples as G.711 μ-law bytes, a phone line's 8 kHz audio (Twilio Media Streams' `audio/x-mulaw`). */
+export function mulawEncode(pcm: Int16Array): Uint8Array {
+  const out = new Uint8Array(pcm.length)
+  for (let i = 0; i < pcm.length; i++) {
+    let sample = pcm[i] ?? 0
+    const sign = sample < 0 ? 0x80 : 0
+    if (sign) sample = -sample
+    sample = Math.min(sample, MULAW_CLIP) + MULAW_BIAS
+    let exponent = 7
+    for (let mask = 0x4000; (sample & mask) === 0 && exponent > 0; mask >>= 1) exponent--
+    const mantissa = (sample >> (exponent + 3)) & 0x0f
+    out[i] = ~(sign | (exponent << 4) | mantissa) & 0xff
+  }
+  return out
+}
+
+/** G.711 μ-law bytes as 16-bit samples. */
+export function mulawDecode(bytes: Uint8Array): Int16Array {
+  const out = new Int16Array(bytes.length)
+  for (let i = 0; i < bytes.length; i++) {
+    const u = ~(bytes[i] ?? 0) & 0xff
+    const exponent = (u >> 4) & 0x07
+    const magnitude = ((((u & 0x0f) << 3) + MULAW_BIAS) << exponent) - MULAW_BIAS
+    out[i] = u & 0x80 ? -magnitude : magnitude
+  }
+  return out
+}
+
+/** Zero crossings of the resampling kernel on each side: more is a sharper filter, and more work per sample. */
+const RESAMPLE_ZEROS = 8
+
+/**
+ * Changes a stream's sample rate as it arrives (a phone line's 8 kHz up to the 16 kHz the speech detector and the
+ * turn model expect, or a voice's 24 kHz down to the line's 8 kHz), with a Hann-windowed sinc. Going down, the
+ * kernel is widened to cut at the new rate's Nyquist, so what the line cannot carry does not fold back in as noise.
+ * Each push keeps the input the next samples still need, so a stream sent in 20 ms frames has no seams.
+ */
+export class Resampler {
+  private readonly _ratio: number
+  private readonly _cutoff: number
+  /** The kernel's half-width, in input samples. */
+  readonly half: number
+  private _buf: Float32Array
+  /** The stream position of `_buf[0]`; quiet is assumed before the stream starts. */
+  private _first: number
+  private _made = 0
+
+  constructor(
+    readonly from: number,
+    readonly to: number,
+  ) {
+    this._ratio = from / to
+    this._cutoff = Math.min(1, to / from)
+    this.half = Math.ceil(RESAMPLE_ZEROS / this._cutoff)
+    this._buf = new Float32Array(this.half)
+    this._first = -this.half
+  }
+
+  push(pcm: Int16Array): Int16Array {
+    if (this.from === this.to) return pcm
+    const buf = new Float32Array(this._buf.length + pcm.length)
+    buf.set(this._buf)
+    buf.set(pcm, this._buf.length)
+    const end = this._first + buf.length
+    const out: number[] = []
+    for (;;) {
+      const center = this._made * this._ratio
+      if (Math.floor(center + this.half) >= end) break
+      let sum = 0
+      let weight = 0
+      for (let j = Math.ceil(center - this.half); j <= center + this.half; j++) {
+        const x = j - center
+        const t = this._cutoff * x
+        const sinc = t === 0 ? 1 : Math.sin(Math.PI * t) / (Math.PI * t)
+        const w = sinc * 0.5 * (1 + Math.cos((Math.PI * x) / this.half))
+        sum += (buf[j - this._first] ?? 0) * w
+        weight += w
+      }
+      out.push(weight ? sum / weight : 0)
+      this._made++
+    }
+    const keep = Math.max(this._first, Math.floor(this._made * this._ratio - this.half))
+    this._buf = buf.slice(keep - this._first)
+    this._first = keep
+    return Int16Array.from(out, (x) => Math.max(-32768, Math.min(32767, Math.round(x))))
+  }
+}
+
+/** A whole clip at another sample rate (one sentence of speech), its end followed by quiet. */
+export function resample(pcm: Int16Array, from: number, to: number): Int16Array {
+  if (from === to) return pcm
+  const r = new Resampler(from, to)
+  const length = Math.floor((pcm.length * to) / from)
+  const head = r.push(pcm)
+  const tail = r.push(new Int16Array(r.half + 1))
+  const out = new Int16Array(length)
+  out.set(head.subarray(0, length))
+  if (head.length < length) out.set(tail.subarray(0, length - head.length), head.length)
+  return out
+}

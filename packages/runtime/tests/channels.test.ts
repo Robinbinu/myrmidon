@@ -918,3 +918,28 @@ test('health and activity: last message in and out, events by name only, and whi
   adapter.io?.status({ state: 'retrying', error: 'network down' })
   expect(hub.list()[0]?.health).toMatchObject({ reconnects: 1, lastError: 'network down' })
 })
+
+test('a phone caller is let in by the channel’s own rules: listed people as members, strangers coded or ignored', async () => {
+  const { adapter, hub, chats } = await setup({ dm: 'allowlist', allow: ['+15550002222'] })
+  expect(hub.account('telegram')).toEqual({ token: 'tok' })
+  expect(await hub.caller('telegram', '+15559999999', true)).toEqual({ refused: 'ignored' })
+  const listed = await hub.caller('telegram', '+15550002222', true)
+  expect(listed).toMatchObject({ person: { id: '+15550002222', role: 'member' }, label: 'Telegram' })
+  expect(hub.activity('telegram')[0]?.text).toBe('Phone call with +15550002222')
+  // A call that made a chat: the number's texts and next calls continue it, named as their texts' would be.
+  await hub.callChat('telegram', '+15550002222', 'chat-9')
+  expect(chats.renamed['chat-9']).toBe('Telegram · +15550002222')
+  expect(await hub.caller('telegram', '+15550002222', false)).toMatchObject({ chatId: 'chat-9' })
+
+  // Under pairing a stranger is texted a code only when asked to (an incoming call), never for a call made to them.
+  await hub.configure('telegram', { dm: 'pairing' })
+  expect(await hub.caller('telegram', '+15553333333', false)).toEqual({ refused: 'ignored' })
+  expect(adapter.to('+15553333333')).toEqual([])
+  expect(await hub.caller('telegram', '+15553333333', true)).toEqual({ refused: 'pairing' })
+  expect(codeIn(adapter.to('+15553333333')[0] ?? '')).toHaveLength(8)
+  expect(chats.sends).toEqual([])
+
+  await hub.configure('telegram', { enabled: false })
+  expect(hub.account('telegram')).toBeUndefined()
+  expect(await hub.caller('telegram', '+15550002222', true)).toEqual({ refused: 'ignored' })
+})

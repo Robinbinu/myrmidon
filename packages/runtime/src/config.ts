@@ -300,6 +300,14 @@ export const VOICE_MAX_CALLS = 4
 export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
+/**
+ * Phone calls (Twilio Media Streams): how long a call's one-time ticket (in its TwiML) stands, long enough for a call
+ * Myrmidon makes to ring out (Twilio's default ring timeout is 60 s); how long a stream may stay open before its
+ * `start` (OpenClaw's 5 s); the largest message a stream may send (OpenClaw's 64 KB; Twilio's are ~20 ms of audio).
+ */
+export const PHONE_TICKET_MS = 2 * 60_000
+export const PHONE_START_MS = 5_000
+export const PHONE_MESSAGE_MAX = 64 * 1024
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3
