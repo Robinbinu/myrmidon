@@ -11,7 +11,13 @@ import {
   rulesFromToolDict,
   type SetupState,
 } from '@myrmidon/protocol'
-import { DEFAULT_COST_USD, MAX_READ_FOLDERS } from './config.ts'
+import {
+  DEFAULT_COST_USD,
+  MAX_CREW_NAMES,
+  MAX_IMPORTED_THEMES,
+  MAX_READ_FOLDERS,
+  MAX_THEME_COLORS,
+} from './config.ts'
 
 /** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
@@ -93,7 +99,36 @@ export interface MyrSettings {
     look: 'neutral' | 'flower' | 'bow'
     color: 'amber' | 'ice' | 'mint' | 'pink' | 'violet' | 'white'
     screen: 'face' | 'clock' | 'name' | 'crew' | 'rotate'
+    /** How often it plays a trick while left alone. */
+    idle: 'off' | 'rare' | 'normal' | 'often'
+    /** The shows that may take its whole screen. */
+    shows: { pacman: boolean; life: boolean; confetti: boolean; boot: boolean }
+    /** `calm`: no bouncing, dizzy spells or knocked-over crew, and only quiet eye tricks. */
+    temper: 'calm' | 'playful'
+    /** The crew cursors around it: whether they show, how many, whose names they wear, and how bold they are. */
+    crew: {
+      show: boolean
+      count: number
+      names: 'minions' | 'specialists' | 'custom'
+      custom: string[]
+      boldness: 'shy' | 'curious' | 'bold'
+    }
+    /** Its dot screen: the dots' shape, the unlit grid, the glow, the eyes' colour (its own or the theme's), the size. */
+    display: {
+      dots: 'led' | 'round' | 'square'
+      grid: 'faint' | 'tinted' | 'off'
+      glow: 'off' | 'soft' | 'strong'
+      eyeColor: 'own' | 'theme'
+      size: 'small' | 'medium' | 'large'
+    }
+    /** Soft blips made in the page (Web Audio) when it reacts and while the person types; off until turned on. */
+    sounds: { enabled: boolean; reactions: boolean; typing: boolean; volume: 'quiet' | 'normal' | 'loud' }
   }
+  /**
+   * VS Code themes the person imported (Settings → Appearance), cut down to the hex colours Myrmidon reads. Which theme
+   * is in use is kept by each browser, like light and dark.
+   */
+  appearance: { imported: ImportedTheme[] }
   /**
    * Voice calls: the call model (the lead's when unset), speech to text and text to speech (on this machine by
    * default, omp's cloud models, or any OpenAI-compatible endpoint, whose keys live in `voice/secrets.json`), and how
@@ -126,6 +161,19 @@ export interface MyrSettings {
    */
   setup?: SetupState
 }
+
+/** An imported VS Code theme as saved: only `#hex` colours, by VS Code key and by syntax role. */
+export interface ImportedTheme {
+  id: string
+  name: string
+  type: 'dark' | 'light'
+  colors: Record<string, string>
+  syntax: Record<string, string>
+}
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
+const THEME_KEY = /^[A-Za-z][A-Za-z.]{0,59}$/
+const SYNTAX_ROLES = new Set(['comment', 'string', 'keyword', 'function', 'number'])
 
 export const settingsSchema = Schema.object({
   version: Schema.const(1).default(1),
@@ -181,6 +229,49 @@ export const settingsSchema = Schema.object({
     look: Schema.union(['neutral', 'flower', 'bow']).default('neutral'),
     color: Schema.union(['amber', 'ice', 'mint', 'pink', 'violet', 'white']).default('amber'),
     screen: Schema.union(['face', 'clock', 'name', 'crew', 'rotate']).default('rotate'),
+    idle: Schema.union(['off', 'rare', 'normal', 'often']).default('normal'),
+    shows: Schema.object({
+      pacman: Schema.boolean().default(true),
+      life: Schema.boolean().default(true),
+      confetti: Schema.boolean().default(true),
+      boot: Schema.boolean().default(true),
+    }).default({}),
+    temper: Schema.union(['calm', 'playful']).default('playful'),
+    crew: Schema.object({
+      show: Schema.boolean().default(true),
+      count: Schema.natural().min(1).max(6).default(3),
+      names: Schema.union(['minions', 'specialists', 'custom']).default('minions'),
+      custom: Schema.array(Schema.string().max(16)).max(MAX_CREW_NAMES).default([]),
+      boldness: Schema.union(['shy', 'curious', 'bold']).default('curious'),
+    }).default({}),
+    display: Schema.object({
+      dots: Schema.union(['led', 'round', 'square']).default('led'),
+      grid: Schema.union(['faint', 'tinted', 'off']).default('faint'),
+      glow: Schema.union(['off', 'soft', 'strong']).default('soft'),
+      eyeColor: Schema.union(['own', 'theme']).default('own'),
+      size: Schema.union(['small', 'medium', 'large']).default('medium'),
+    }).default({}),
+    sounds: Schema.object({
+      enabled: Schema.boolean().default(false),
+      reactions: Schema.boolean().default(true),
+      typing: Schema.boolean().default(true),
+      volume: Schema.union(['quiet', 'normal', 'loud']).default('quiet'),
+    }).default({}),
+  }).default({}),
+  appearance: Schema.object({
+    imported: Schema.array(
+      Schema.object({
+        id: Schema.string()
+          .pattern(/^imported-[a-z0-9]{1,16}$/)
+          .required(),
+        name: Schema.string().max(60).required(),
+        type: Schema.union(['dark', 'light']).required(),
+        colors: Schema.dict(Schema.string().pattern(HEX_COLOR)).default({}),
+        syntax: Schema.dict(Schema.string().pattern(HEX_COLOR)).default({}),
+      }),
+    )
+      .max(MAX_IMPORTED_THEMES)
+      .default([]),
   }).default({}),
   voice: Schema.object({
     enabled: Schema.boolean().default(false),
@@ -274,7 +365,26 @@ function parse(input: unknown): MyrSettings {
       greeting: s.profile.greeting,
       titles: s.profile.titles,
     },
-    mascot: s.mascot,
+    mascot: {
+      ...s.mascot,
+      crew: {
+        ...s.mascot.crew,
+        custom: [...new Set(s.mascot.crew.custom.map((n) => n.trim()).filter(Boolean))],
+      },
+    },
+    appearance: {
+      imported: [...new Map(s.appearance.imported.map((t) => [t.id, t])).values()].map((t) => ({
+        id: t.id,
+        name: t.name.trim(),
+        type: t.type,
+        colors: Object.fromEntries(
+          Object.entries(t.colors)
+            .filter(([k]) => THEME_KEY.test(k))
+            .slice(0, MAX_THEME_COLORS),
+        ),
+        syntax: Object.fromEntries(Object.entries(t.syntax).filter(([k]) => SYNTAX_ROLES.has(k))),
+      })),
+    },
     voice: {
       enabled: s.voice.enabled,
       ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),

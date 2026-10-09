@@ -263,6 +263,11 @@ export const SANDBOX_SECRETS = [
 ] as const
 /** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
 export const MAX_READ_FOLDERS = 50
+/** Imported VS Code themes kept in settings, and the most colours one keeps (Myrmidon reads 34). */
+export const MAX_IMPORTED_THEMES = 12
+export const MAX_THEME_COLORS = 64
+/** Names the person may give the mascot's crew cursors (Settings → You & mascot). */
+export const MAX_CREW_NAMES = 8
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
