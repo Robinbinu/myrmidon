@@ -439,3 +439,14 @@ export const APPROVAL_MENU_PX = 260
 export const APPROVAL_MENU_ROOM_PX = 340
 /** How tall the rules table grows before it scrolls. */
 export const RULES_LIST_MAX_PX = 420
+
+// Suggestions in the composer (chat/suggest.ts)
+
+/** Characters typed before one of the person's past messages is offered back. */
+export const SUGGEST_MIN_HISTORY_CHARS = 3
+/** Letters of a word typed before it is finished for them. */
+export const SUGGEST_MIN_WORD_PREFIX = 2
+/** Times a next word must have followed the words before it to be predicted: one sighting is chance. */
+export const SUGGEST_MIN_COUNT = 2
+/** The longest ghost text shown; a longer past message is cut at a word. */
+export const SUGGEST_MAX_CHARS = 80

@@ -72,6 +72,7 @@ import {
   ago,
   day,
   NOTIFY_KEY,
+  SUGGEST_KEY,
   type ThemeChoice,
   useCopy,
   useMinWidth,
@@ -838,6 +839,16 @@ export function useSettingsData(onModelsChanged: () => void) {
   return { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved }
 }
 
+/** Ghost-text suggestions in the composer (this browser only). */
+function SuggestToggle() {
+  const [on, setOn] = usePersistentFlag(SUGGEST_KEY, true)
+  return (
+    <Field label={copy.settings.general.suggest} hint={copy.settings.general.suggestHint} inline>
+      <Switch checked={on} label={copy.settings.general.suggest} onChange={setOn} />
+    </Field>
+  )
+}
+
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
@@ -938,6 +949,9 @@ function General(props: {
         </CardRow>
         <CardRow>
           <NotifyToggle />
+        </CardRow>
+        <CardRow>
+          <SuggestToggle />
         </CardRow>
         {props.onRunSetup && (
           <CardRow>

@@ -52,7 +52,7 @@ export function matchCombo(combo: string, e: KeyInput): boolean {
   return key === c.key
 }
 
-const NAMES: Record<string, string> = { escape: 'Esc', enter: 'Enter' }
+const NAMES: Record<string, string> = { escape: 'Esc', enter: 'Enter', tab: 'Tab', arrowright: '→' }
 /** Keys a Mac writes as a symbol, as its menus do. */
 const MAC_NAMES: Record<string, string> = { enter: '↩' }
 

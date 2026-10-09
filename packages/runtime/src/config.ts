@@ -468,6 +468,8 @@ export const RECOVERY_GRACE_MS = 60_000
 
 /** The most chats one message search returns, and how much of the matching message shows around the match. */
 export const CHAT_SEARCH_LIMIT = 50
+/** The person's past messages the composer learns its suggestions from, most recent first. */
+export const SUGGEST_CORPUS = 2_000
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
 
