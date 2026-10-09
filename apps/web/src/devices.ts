@@ -156,6 +156,10 @@ export function needsFull(method: string, path: string): boolean {
   if (/^\/api\/projects\/[^/]+\/(permissions|git\/(?!changes|diff|commits)[^/]+)$/.test(path)) return true
   // Skills and schedules are managed in Settings; a schedule can also deliver to a channel.
   if (write && /^\/api\/(settings|plugins|mcp|hooks|skills|schedules)(\/|$)/.test(path)) return true
+  // Taking back apps a chat may control on the person's Mac is a permission change.
+  if (write && /^\/api\/chats\/[^/]+\/computer-apps$/.test(path)) return true
+  // Installing the computer-use driver and asking for its grants; Stop stays open to every device, as a safety stop.
+  if (write && /^\/api\/computer\/(install|grants|restart)(\/|$)/.test(path)) return true
   // Installing speech engines, keys and samples, and phoning someone; calling (a GET that upgrades) stays open.
   if (write && /^\/api\/voice\/(phonon|kitten|keys|sample|phone)(\/|$)/.test(path)) return true
   // Adding or removing a project; reading the list stays open so chats show their folder.

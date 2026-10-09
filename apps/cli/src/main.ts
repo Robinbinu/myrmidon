@@ -22,6 +22,7 @@ import {
   ChatService,
   Checkpoints,
   ColonyRun,
+  ComputerHub,
   ContextWindows,
   detectSandbox,
   HookStore,
@@ -322,6 +323,13 @@ async function main() {
         .catch((err) => console.error(c.yellow(`plugins: ${err instanceof Error ? err.message : err}`)))
       const mcp = new McpHub(omp.agentDir, () => plugins.mcpServers())
       const browser = new BrowserHub(join(home, 'browser'))
+      const computer = new ComputerHub(home, {
+        mcp,
+        enabled: () => settings.get().computerUse.enabled,
+        log: (line) => (values.debug ? console.log(c.dim(line)) : undefined),
+        // macOS names the app this server runs in (the desktop app, or the terminal) for the driver's diagnostics.
+        ...(process.env.__CFBundleIdentifier ? { hostBundleId: process.env.__CFBundleIdentifier } : {}),
+      })
       const projects = new ProjectStore(home)
       const specialists = new SpecialistStore(home)
       const skillProposals = new SkillProposalStore(home)
@@ -347,6 +355,7 @@ async function main() {
         unsafeNoSandbox: values['unsafe-no-sandbox'],
         mcp,
         browser,
+        computer,
         projects,
         specialists,
         skillProposals,
@@ -366,6 +375,7 @@ async function main() {
         omp,
         mcp,
         browser,
+        computer,
         projects,
         specialists,
         skillProposals,
@@ -428,6 +438,7 @@ async function main() {
         rmSync(serverFile, { force: true })
         await chats.stopAll()
         await browser.close().catch(() => {})
+        await computer.stop().catch(() => {})
         await mcp.close().catch(() => {})
         await server.stop()
         await runtime.dispose()
