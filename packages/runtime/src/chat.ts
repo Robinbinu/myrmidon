@@ -275,6 +275,8 @@ export class ChatService {
   private readonly _deleting = new Set<string>()
   /** A chat's name on its way into the log, which deleting the chat waits for. */
   private readonly _naming = new Map<string, Promise<unknown>>()
+  /** What each round does once it ends (its owner file, its end checkpoint); shutting down waits for it. */
+  private readonly _wrapUps = new Set<Promise<unknown>>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -309,6 +311,8 @@ export class ChatService {
       specialists?: SpecialistStore
       /** Skills a reviewer proposed from finished work, waiting for the person or decided. */
       skillProposals?: SkillProposalStore
+      /** How long a round's crew sits quiet before it is nudged, or a wound-down round closes (see RunOptions). */
+      quietMs?: number
     },
   ) {}
 
@@ -634,6 +638,7 @@ export class ChatService {
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
+      ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
@@ -696,12 +701,14 @@ export class ChatService {
       this._release(run)
       throw err
     }
-    void run.done.finally(() => {
-      this._release(run)
-      this.index.noteMessages(run.id, run.state())
-      if (this._live.get(id) === run) this._live.delete(id)
-      void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
-    })
+    this._wrapUp(
+      run.done.finally(() => {
+        this._release(run)
+        this.index.noteMessages(run.id, run.state())
+        if (this._live.get(id) === run) this._live.delete(id)
+        return this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
+      }),
+    )
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, {
@@ -1168,6 +1175,7 @@ export class ChatService {
       projectDiff: () => this._roundDiff(run, last.state.chat?.project),
       resolver: this.options.resolver,
       resumeId: last.id as ColonyId,
+      ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
@@ -1194,18 +1202,20 @@ export class ChatService {
       this._release(run)
       throw err
     }
-    void run.done.finally(() => {
-      this._release(run)
-      this.index.noteMessages(run.id, run.state())
-      if (this._live.get(chatId) === run) this._live.delete(chatId)
-      void this._checkpoint(
-        run.id,
-        last.state.chat?.project,
-        'end',
-        `after resumed round ${last.round.round}`,
-        last.round.round,
-      )
-    })
+    this._wrapUp(
+      run.done.finally(() => {
+        this._release(run)
+        this.index.noteMessages(run.id, run.state())
+        if (this._live.get(chatId) === run) this._live.delete(chatId)
+        return this._checkpoint(
+          run.id,
+          last.state.chat?.project,
+          'end',
+          `after resumed round ${last.round.round}`,
+          last.round.round,
+        )
+      }),
+    )
     return { chatId, colonyId: run.id }
   }
 
@@ -1337,8 +1347,15 @@ export class ChatService {
     for (const listener of this._streams) listener(colonyId, agent, text, done, plain)
   }
 
+  private _wrapUp(work: Promise<unknown>) {
+    this._wrapUps.add(work)
+    void work.finally(() => this._wrapUps.delete(work))
+  }
+
+  /** Stops every round, a crew still winding down included, and waits until nothing of theirs runs any more. */
   async stopAll(): Promise<void> {
     await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
+    await Promise.allSettled([...this._wrapUps])
   }
 
   private buildSpec(

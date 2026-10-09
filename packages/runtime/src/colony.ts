@@ -1294,6 +1294,8 @@ export class ColonyRun implements ColonyHost {
 
   async stop(reason: string): Promise<void> {
     if (this._state.status !== 'running') return
+    // Winding down, the round already has its answer: stopping only closes it now.
+    if (this._settling) return this._closeSettled()
     await this.append({ type: 'colony/stopped', actor: SYSTEM, payload: { reason } })
     await this._end()
   }
@@ -1657,6 +1659,25 @@ export class ColonyRun implements ColonyHost {
     void this._end()
   }
 
+  /** Ends the wind-down: the round completes with the verdicts its answer earned. */
+  private async _closeSettled() {
+    const settle = this._settling
+    if (!settle) return
+    this._settling = undefined
+    await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
+    await this._end()
+  }
+
+  /**
+   * The conversation picked up again before the round closed (the person wrote, or the latest answer was rejected):
+   * it runs as before the answer, and winds down again after the next one.
+   */
+  private _reopen() {
+    if (!this._settling) return
+    this._settling = undefined
+    for (const a of this._agents.values()) a.reopen('wind-down')
+  }
+
   closing(agent: string): string | undefined {
     const settle = this._settling
     if (!settle) return undefined
@@ -1673,6 +1694,8 @@ export class ColonyRun implements ColonyHost {
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
   private async _verifyFinalAnswer(by: string) {
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
+      // Winding down, the round has its delivered verdict already, and nobody reviews this answer either.
+      if (this._settling) return
       // Completion always cites a passing verdict; an unjudged direct answer records that it was delivered.
       const verdict = await this.append({
         type: 'verifier/verdict',
@@ -1689,8 +1712,13 @@ export class ColonyRun implements ColonyHost {
       })
       return void (await this._complete([verdict.id], by))
     }
+    const before = this._state.verdicts.length
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return
+    // Passed with a crew: the round winds down on this answer instead of completing, so it is still running.
+    const judged = this._state.verdicts.slice(before).filter((v) => v.target === 'colony')
+    if (judged.length > 0 && judged.every((v) => v.pass)) return
+    this._reopen()
     this._failedVerifications += 1
     if (this._failedVerifications >= MAX_VERIFY_ROUNDS)
       return void this.stop(`verification failed ${MAX_VERIFY_ROUNDS} times; see the last verdict`)
@@ -1747,6 +1775,7 @@ export class ColonyRun implements ColonyHost {
       case 'chat/user': {
         const p = e.payload as EventPayloads['chat/user']
         this._awaiting = false
+        this._reopen()
         const held = this._held.splice(0)
         // The event id doubles as a mail id, so the agent's mail/delivered marks the message read.
         const delivery: Delivery = { mail: e.id, ...(p.mode === 'queue' ? { queue: true } : {}) }
@@ -1777,7 +1806,7 @@ export class ColonyRun implements ColonyHost {
         else if (p.final && this.spec.chat) {
           // Whoever gave the final answer has signed off; it still hears anything written to it afterwards.
           this._agents.get(p.agent)?.endTurnAfterStep()
-          if (!this._settling) void this._verifyFinalAnswer(p.agent)
+          void this._verifyFinalAnswer(p.agent)
         }
         break
       }
@@ -2100,11 +2129,8 @@ export class ColonyRun implements ColonyHost {
       if (still) settle.quietSince ??= now
       else settle.quietSince = undefined
       const quietFor = Math.min(this.options.quietMs ?? SETTLE_QUIET_MS, SETTLE_QUIET_MS)
-      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until) {
-        this._settling = undefined
-        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
-        return void this._end()
-      }
+      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until)
+        await this._closeSettled()
       return
     }
     if (!this._awaiting) {

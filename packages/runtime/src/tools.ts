@@ -893,6 +893,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       if (unknown.length) throw new Error(`not on the crew: ${unknown.join(', ')}`)
       const members = [...new Set([agent, ...args.members])]
       if (members.length < 2) throw new Error('a group needs at least one crewmate besides you')
+      const closing = args.text ? host.closing?.(agent) : undefined
+      if (closing) return closing
       await host.append({
         type: 'group/created',
         actor: agentActor(agent),
