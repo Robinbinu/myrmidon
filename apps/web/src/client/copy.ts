@@ -2798,19 +2798,60 @@ export const copy = {
       workersPlaceholder: 'e.g. Write tests first. Report blockers immediately.',
     },
     schedules: {
-      presets: {
+      repeat: {
+        label: 'Repeat',
         hourly: 'Every hour',
-        daily: 'Every day at 9:00',
-        weekdays: 'Weekdays at 9:00',
-        mondays: 'Mondays at 9:00',
+        daily: 'Every day',
+        weekdays: 'Weekdays',
+        weekly: 'On chosen days',
+        monthly: 'Monthly',
+        custom: 'Custom (cron)',
       },
+      time: 'Time',
+      minutePast: 'Minutes past the hour',
+      dayOfMonth: 'Day of the month',
+      days: 'Days',
+      /** Sunday first, as cron counts them (0 = Sunday). */
+      dayShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      dayPlural: ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'],
+      /** "A, B and C". */
+      list: (items: readonly string[]) =>
+        items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`,
+      ordinal: (n: number) => {
+        const tens = n % 100
+        const suffix =
+          tens >= 11 && tens <= 13
+            ? 'th'
+            : n % 10 === 1
+              ? 'st'
+              : n % 10 === 2
+                ? 'nd'
+                : n % 10 === 3
+                  ? 'rd'
+                  : 'th'
+        return `${n}${suffix}`
+      },
+      describe: {
+        hourly: (minute: string) => `Every hour at :${minute}`,
+        daily: (time: string) => `Every day at ${time}`,
+        weekdays: (time: string) => `Weekdays at ${time}`,
+        days: (days: string, time: string) => `${days} at ${time}`,
+        monthly: (day: string, time: string) => `Monthly on the ${day} at ${time}`,
+        custom: (cron: string) => `Custom: ${cron}`,
+      },
+      localTime: 'in this computer’s time zone',
+      pickADay: 'Pick at least one day',
+      shortMonths: (day: string) => `Months without a ${day} are skipped`,
+      change: 'Change',
+      save: 'Save',
+      cancel: 'Cancel',
+      updated: 'Schedule updated',
       title: 'Schedules',
       intro:
         'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running. Turn on notifications in General to hear when one ends.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
-      when: 'When',
-      custom: 'Custom (cron)',
       cronExpression: 'Cron expression',
       cronPlaceholder: 'e.g. 0 9 * * 1-5 (minute hour day month weekday)',
       project: 'Project',
