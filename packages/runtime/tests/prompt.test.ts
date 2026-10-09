@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newColonyId } from '@myrmidon/core'
-import { emptyColonyState, foldColony } from '@myrmidon/protocol'
+import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { canonicalZone } from '../src/clock.ts'
@@ -54,8 +54,16 @@ const handsOn: AgentSpec = {
 const onCall = { ...orchestrated, maxWorkers: 0, crewmates: [pax] }
 const swarm = { mode: 'swarm' as const, maxWorkers: 0, workerModels: ['mock/a'] }
 const site = { id: 'p1', name: 'site', path: '/tmp/site' }
+// Written as projects were saved before the permission model; projectLevelFrom turns it into today's level.
+const planningLead = {
+  global: {
+    preset: 'auto' as const,
+    rules: [],
+    access: { lead: { files: false, shell: false, web: false, browser: false, mcp: false, computer: false } },
+  },
+}
 const inProject = (mode: 'auto' | 'ask' | 'read-only') => ({
-  project: { ...site, permissions: { mode, allow: mode === 'ask' ? ['git status'] : [] } },
+  project: { ...site, permissions: projectLevelFrom({ mode, allow: mode === 'ask' ? ['git status'] : [] }) },
 })
 
 function chat(
@@ -85,7 +93,8 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
   ['solo lead with crewmates on call', chat({ agents: [lead], team: onCall }, { escalate: ['team'] }), lead],
   ['crewmate on call', chat({ agents: [lead, asked], team: onCall }), asked],
   ['crewmate on call in a project', chat({ agents: [lead, asked], team: onCall }, inProject('auto')), asked],
-  ['team lead', chat({ tier: 'team', agents: [lead, kai], team: orchestrated }), lead],
+  // The lead gets its crew's build tools by default; the person can switch them off (Settings → Permissions).
+  ['team lead', chat({ tier: 'team', agents: [lead, kai], team: orchestrated, permissions: planningLead }), lead],
   [
     'team lead with hands-on tools',
     chat({ tier: 'team', agents: [handsOn, kai], team: orchestrated }, inProject('auto')),

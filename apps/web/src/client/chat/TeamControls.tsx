@@ -18,7 +18,7 @@ const PILL = cn('inline-flex h-7 min-w-0 items-center gap-1.5 px-2.5', POPUP)
  * A glass pill in the composer toolbar that opens its own panel above it. The pill reads as its value (the label is
  * its tooltip and description), so what a person sees is what a screen reader says and what voice control matches.
  */
-function ChipMenu(props: {
+export function ChipMenu(props: {
   label: string
   icon: ReactNode
   value: string
@@ -72,7 +72,7 @@ function ChipMenu(props: {
 }
 
 /** One choice in a chip menu: an icon tile, a name, a line on what it does, and a check when chosen. */
-function Option(props: {
+export function Option(props: {
   icon: ReactNode
   title: string
   hint: string
@@ -106,7 +106,7 @@ function Option(props: {
 }
 
 /** A heading for a chip menu: small caps on the left, the current setting on the right. */
-function MenuHead(props: { title: string; note?: string }) {
+export function MenuHead(props: { title: string; note?: string }) {
   return (
     <div className="flex items-baseline justify-between px-2 pb-1 pt-1.5">
       <span className="section-label text-muted">{props.title}</span>

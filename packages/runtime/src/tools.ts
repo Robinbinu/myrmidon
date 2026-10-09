@@ -13,6 +13,8 @@ import {
   linesOf,
   type MyrEvent,
   mentionsIn,
+  type PermissionCall,
+  type PermissionVerdict,
   type Review,
   type ReviewField,
   resolveConversation,
@@ -62,7 +64,7 @@ import {
   REVIEW_MAX_CHARS,
 } from './config.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
-import { agentActor, type ColonyHost } from './host.ts'
+import { agentActor, type ColonyHost, type ReviewDecision } from './host.ts'
 import {
   browserSteps,
   checkedArgs,
@@ -74,6 +76,7 @@ import {
   scriptCommand,
 } from './made-tools.ts'
 import { toolsFor } from './patterns.ts'
+import { presetOf } from './permissions.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
@@ -340,7 +343,7 @@ const DOCS: Record<string, string> = {
  */
 function writableFor(host: ColonyHost, agent: string): string[] {
   const scratch = host.workspace.scratch(agent)
-  if (host.spec.chat?.project?.permissions?.mode === 'read-only') return [scratch]
+  if (presetOf(host.spec) === 'read-only') return [scratch]
   return [...new Set([host.workspace.workdir(agent), scratch])]
 }
 
@@ -416,25 +419,41 @@ function readsProject(host: ColonyHost, agent: string, tool: string, params: unk
   return target !== scratch && !target.startsWith(scratch + sep)
 }
 
+/** Tools that decide their own calls once they know what they would do (the file, the command, the proposal). */
+const GUARDED = new Set(['fs_write', 'fs_edit', 'shell', 'start_server', 'propose'])
+
+/** Tools that reach the web, in the agent's own fetcher or browser. */
+const WEB_TOOL = (name: string) =>
+  name === 'web_search' || name === 'web_fetch' || name.startsWith('browser_')
+
 /**
- * Whether a call needs the person's approval first. A round started by someone else (`askAll`) asks for every call
- * that is not `readOnly`, whatever the person allowed. Otherwise a tool's own rule wins, then the rule for every MCP
- * tool; with neither, an MCP tool asks unless its server marks it read-only, and other tools follow their groups.
- * `readOnly`: the call changes nothing outside the colony.
+ * A built-in tool's call as the permission engine sees it. `readOnly` (it changes nothing outside the colony) is what a
+ * round that asks for everything still lets run: reads that stay out of the person's project, and the colony's own
+ * notes, tasks and messages.
  */
-export function needsApproval(
-  spec: Pick<ColonyHost['spec'], 'askTools' | 'allowTools' | 'askAll'>,
+function callOf(
+  host: ColonyHost,
+  agent: string,
+  tier: string,
   tool: string,
-  readOnly: boolean,
-): boolean {
-  const ask = spec.askTools ?? []
-  const allow = spec.allowTools ?? []
-  if (spec.askAll && !readOnly) return true
-  if (ask.includes(tool)) return true
-  if (allow.includes(tool) || !tool.startsWith('mcp__')) return false
-  if (ask.includes('mcp')) return true
-  if (allow.includes('mcp')) return false
-  return !readOnly
+  params: unknown,
+): PermissionCall {
+  if (COLONY_ONLY.has(tool)) return { tool, kind: 'colony', readOnly: true }
+  const quiet = tier === 'read' && !readsProject(host, agent, tool, params)
+  if (WEB_TOOL(tool)) return { tool, kind: 'web', readOnly: quiet }
+  return { tool, kind: tier === 'read' ? 'read' : 'other', readOnly: quiet }
+}
+
+/** An MCP or plugin tool's call: MCP tools by their server, with its read-only hint. */
+function mcpCallOf(host: ColonyHost, tool: string): PermissionCall {
+  if (!tool.startsWith('mcp__')) return { tool, kind: 'other', readOnly: false }
+  const readOnly = host.mcpReadOnly(tool)
+  return { tool, kind: 'mcp', mcp: { server: host.mcpServer(tool) ?? '', readOnly }, readOnly }
+}
+
+/** A refusal the agent reads as final: what was refused and which rule or preset refused it. */
+function denied(what: string, verdict: PermissionVerdict): Error {
+  return new Error(prompts.toolResults.denied(what, prompts.permissionSource(verdict.source)))
 }
 
 /** Object keys sorted, so the same arguments always read the same. */
@@ -502,24 +521,26 @@ function callReview(tool: string, params: unknown): Review {
 }
 
 /**
- * Tools the person set to "ask" in Settings wait for their approval on every call, showing the call in full; the
- * person may rewrite its text arguments first. Returns whether they did.
+ * A call the permission model asks about waits for the person, showing the call in full; they may rewrite its text
+ * arguments first. A denied call is refused. Returns whether the person rewrote it.
  */
 async function askFirst(
   host: ColonyHost,
   agent: string,
   tool: string,
   params: unknown,
-  readOnly: boolean,
+  call: PermissionCall,
   key?: string,
 ): Promise<boolean> {
-  if (!needsApproval(host.spec, tool, readOnly)) return false
+  const verdict = host.permit(agent, call)
+  if (verdict.decision === 'deny') throw denied(`${tool}`, verdict)
+  if (verdict.decision === 'allow') return false
   const args = JSON.stringify(params ?? {})
   const decision = await host.reviewChange(
     agent,
     tool,
     `${tool} ${args.length > 280 ? `${args.slice(0, 280)}…` : args}`,
-    { review: callReview(tool, params), ...(key ? { key } : {}) },
+    { review: callReview(tool, params), ...(key ? { key } : {}), permission: { call, verdict } },
   )
   if (!decision.approved) throw new Error(prompts.toolResults.declined(`this ${tool} call`, decision.note))
   const edits = Object.entries(decision.edits ?? {})
@@ -528,9 +549,9 @@ async function askFirst(
 }
 
 /**
- * A write to a file in the project folder (not scratch) follows the project's permissions. In an "ask" project the
- * person sees the new content against the file as it is, and may rewrite it; returns the content to write. With full
- * access an "ask" project asks before writes anywhere else on the computer too.
+ * A file change follows the permission model: where it lands (the project, the agent's own scratch or worktree, or
+ * elsewhere, which only full access reaches) and the preset and rules in effect. When it asks, the person sees the new
+ * content against the file as it is, and may rewrite it; returns the content to write.
  */
 async function guardProjectEdit(
   host: ColonyHost,
@@ -541,29 +562,32 @@ async function guardProjectEdit(
 ): Promise<{ content: string; edited: boolean }> {
   const unchanged = { content: change.after, edited: false }
   const project = host.spec.chat?.project
-  const mode = project?.permissions?.mode ?? 'auto'
-  if (!project || mode === 'auto' || mode === 'full') return unchanged
   const within = (root: string) => path === root || path.startsWith(`${root}/`)
   const scratch = host.workspace.scratch(agent)
-  const inProject = within(project.path) && !within(scratch)
-  // Only full access reaches past the project, scratch and the agent's own worktree.
-  const elsewhere = !within(project.path) && !within(scratch) && !within(host.workspace.workdir(agent))
-  if (!inProject && !elsewhere) return unchanged
-  const where = inProject ? relative(project.path, path) : path
-  if (mode === 'read-only')
-    throw new Error(
-      `${project.name} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
-    )
-  const decision = await host.reviewChange(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${where}`, {
+  const inProject = !!project && within(project.path) && !within(scratch)
+  const where = inProject
+    ? 'project'
+    : within(scratch) || within(host.workspace.workdir(agent))
+      ? 'private'
+      : 'outside'
+  const call: PermissionCall = { tool, kind: 'edit', where, readOnly: false }
+  const verdict = host.permit(agent, call)
+  const shown = inProject && project ? relative(project.path, path) : path
+  if (verdict.decision === 'deny')
+    throw verdict.source.by === 'read-only'
+      ? new Error(prompts.toolResults.readOnly(project?.name ?? 'this chat', shown))
+      : denied(`changing ${shown}`, verdict)
+  if (verdict.decision === 'allow') return unchanged
+  const decision = await host.reviewChange(agent, tool, `${tool === 'fs_edit' ? 'edit' : 'write'} ${shown}`, {
     review: fileReview(
-      tool === 'fs_edit' ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where),
-      where,
+      tool === 'fs_edit' ? prompts.reviewCard.edit(shown) : prompts.reviewCard.write(shown),
+      shown,
       change,
     ),
     key: change.key,
-    grant: 'file',
+    permission: { call, verdict },
   })
-  if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${where}`, decision.note))
+  if (!decision.approved) throw new Error(prompts.toolResults.declined(`changing ${shown}`, decision.note))
   const edited = decision.edits?.content
   return edited === undefined ? unchanged : { content: edited, edited: true }
 }
@@ -588,8 +612,9 @@ function fileReview(title: string, where: string, change: { before: string; afte
 }
 
 /**
- * In an "ask" project, a command runs only if it starts with an allowed prefix or the person approves it; where the
- * command is real (`editable`), they may rewrite it first. Returns the command to run.
+ * A command follows the permission model: the preset in effect (Ask asks unless it only looks, Auto before destructive
+ * commands) and command rules (a prefix covers a command only when every part of a plain command starts with it).
+ * When it asks and the command is real (`editable`), the person may rewrite it first. Returns the command to run.
  */
 async function guardProjectCommand(
   host: ColonyHost,
@@ -598,21 +623,18 @@ async function guardProjectCommand(
   command: string,
   editable = false,
 ): Promise<string> {
-  const permissions = host.spec.chat?.project?.permissions
-  if (permissions?.mode !== 'ask') return command
   const line = command.trim()
-  // "bun test && rm -rf src" starts with an allowed prefix but runs more: anything chained, piped, substituted or
-  // redirected always asks.
-  const simple = !/[;&|`<>\n]|\$\(/.test(line)
-  if (simple && permissions.allow.some((prefix) => line === prefix || line.startsWith(`${prefix} `)))
-    return command
+  const call: PermissionCall = { tool, kind: 'command', command: line, readOnly: false }
+  const verdict = host.permit(agent, call)
+  if (verdict.decision === 'deny') throw denied('this command', verdict)
+  if (verdict.decision === 'allow') return command
   const decision = await host.reviewChange(agent, tool, line.length > 300 ? `${line.slice(0, 300)}…` : line, {
     review: {
       kind: 'command',
       title: prompts.reviewCard.command,
       fields: [{ key: 'command', label: tool, value: line, format: 'code', editable }],
     },
-    grant: 'command',
+    permission: { call, verdict },
   })
   if (!decision.approved) throw new Error(prompts.toolResults.declined('this command', decision.note))
   return decision.edits?.command ?? command
@@ -892,6 +914,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         throw new Error(`you are not in the group ${args.to}; ask a member to add you`)
       if (args.reply_to !== undefined && !linesOf(state, chat.id).some((l) => l.seq === args.reply_to))
         throw new Error(`#${args.reply_to} is not a message in your conversation with ${args.to}`)
+      const closing = host.closing?.(agent)
+      if (closing) return closing
       const replyTo = args.reply_to !== undefined ? { replyTo: args.reply_to } : {}
       if (chat.kind === 'team') {
         const mentions = mentionsIn(args.text, chat.members).filter((m) => m !== agent)
@@ -1900,12 +1924,18 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         const where = relative(project.path, path)
         const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
         const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
-        // A proposed file is a file change like any other, so "allow all file changes" covers it; a commit still asks.
-        const decision = await host.reviewChange(agent, 'propose', args.why, {
-          review: fileReview(title, where, { before, after: args.content }),
-          key,
-          grant: 'file',
-        })
+        // A proposed file is a file change like any other, so a rule allowing file changes covers it.
+        const call: PermissionCall = { tool: 'propose', kind: 'proposal', edits: true, readOnly: false }
+        const verdict = host.permit(agent, call)
+        if (verdict.decision === 'deny') throw denied(`writing ${where}`, verdict)
+        const decision =
+          verdict.decision === 'allow'
+            ? { approved: true as const }
+            : await host.reviewChange(agent, 'propose', args.why, {
+                review: fileReview(title, where, { before, after: args.content }),
+                key,
+                permission: { call, verdict },
+              })
         if (!decision.approved) return prompts.toolResults.declined(`writing ${where}`, decision.note)
         const content = decision.edits?.content ?? args.content
         mkdirSync(dirname(path), { recursive: true })
@@ -1916,28 +1946,35 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const changes = await gitWorkingChanges(project.path).catch(() => undefined)
       if (!changes) throw new Error(`${project.name} is not a git repository`)
       if (changes.files.length === 0) throw new Error('there is nothing to commit')
-      const decision = await host.reviewChange(agent, 'propose', args.why, {
-        review: {
-          kind: 'commit',
-          title: prompts.reviewCard.commit(project.name),
-          fields: [
-            {
-              key: 'message',
-              label: prompts.reviewCard.message,
-              format: 'text',
-              ...reviewText(args.message),
-            },
-            {
-              key: 'patch',
-              label: prompts.reviewCard.changes(changes.files.length),
-              value: changes.patch,
-              format: 'patch',
-              editable: false,
-            },
-          ],
-        },
-        key,
-      })
+      const call: PermissionCall = { tool: 'propose', kind: 'proposal', readOnly: false }
+      const verdict = host.permit(agent, call)
+      if (verdict.decision === 'deny') throw denied('this commit', verdict)
+      const decision: ReviewDecision =
+        verdict.decision === 'allow'
+          ? { approved: true }
+          : await host.reviewChange(agent, 'propose', args.why, {
+              permission: { call, verdict },
+              review: {
+                kind: 'commit',
+                title: prompts.reviewCard.commit(project.name),
+                fields: [
+                  {
+                    key: 'message',
+                    label: prompts.reviewCard.message,
+                    format: 'text',
+                    ...reviewText(args.message),
+                  },
+                  {
+                    key: 'patch',
+                    label: prompts.reviewCard.changes(changes.files.length),
+                    value: changes.patch,
+                    format: 'patch',
+                    editable: false,
+                  },
+                ],
+              },
+              key,
+            })
       if (!decision.approved) return prompts.toolResults.declined('this commit', decision.note)
       const message = decision.edits?.message ?? args.message
       const hash = await gitCommitChanges(project.path, message, true)
@@ -2674,7 +2711,11 @@ export function buildAgentTools(
   const mcp = allow.has('mcp')
     ? [...host.mcpTools(), ...host.pluginTools(agent)]
         // A single MCP tool switched off in Settings is left out like any disabled tool.
-        .filter((t) => !host.spec.disabledTools?.includes(t.name))
+        .filter(
+          (t) =>
+            !host.spec.disabledTools?.includes(t.name) &&
+            !host.hidden(agent, t.name, t.name.startsWith('mcp__') ? host.mcpServer(t.name) : undefined),
+        )
         .map((t) => logged(agent, t, host))
     : []
   // Scripts run in the sandbox, so they need shell; browser flows drive the agent's browser.
@@ -2969,8 +3010,7 @@ function logged(agent: string, tool: AgentTool, host: ColonyHost): AgentTool {
         } else {
           const refused = breaker?.refusal()
           if (refused) throw new Error(refused)
-          const readOnly = tool.name.startsWith('mcp__') && host.mcpReadOnly(tool.name)
-          const edited = await askFirst(host, agent, tool.name, params, readOnly, key)
+          const edited = await askFirst(host, agent, tool.name, params, mcpCallOf(host, tool.name), key)
           await host.beforeTool(agent, tool.name, params)
           ran = true
           result = await untilAborted(tool.execute(callId, params as never, signal), signal)
@@ -3066,10 +3106,17 @@ function harnessTools(
             if (host.huddling() && !HUDDLE_TOOLS.has(def.name)) throw new Error(prompts.toolResults.huddling)
             if (kept !== undefined) throw new AlreadyDone(kept)
             if (COPY_CHECKED.has(def.name)) await flagIfCopied(host, agent, def.name, params)
-            const readOnly =
-              (def.tier === 'read' && !readsProject(host, agent, def.name, params)) ||
-              COLONY_ONLY.has(def.name)
-            const edited = await askFirst(host, agent, def.name, params, readOnly, key)
+            // File changes, commands and proposals are decided where the change is known (guardProject*).
+            const edited = GUARDED.has(def.name)
+              ? false
+              : await askFirst(
+                  host,
+                  agent,
+                  def.name,
+                  params,
+                  callOf(host, agent, def.tier, def.name, params),
+                  key,
+                )
             await host.beforeTool(agent, def.name, params)
             const run = () => def.run(params ?? {}, agent, host)
             const result =

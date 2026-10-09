@@ -155,6 +155,8 @@ export class GreetingWriter {
     const reply = resolved.streamFn
       ? await (await resolved.streamFn(resolved.model, context, { apiKey, signal: abort })).result()
       : await completeSimple(resolved.model, context, { apiKey, signal: abort })
+    if (reply.stopReason === 'aborted')
+      throw new Error(`${ref} did not answer within ${GREETING_MS / 1000} s; the rules' line stands`)
     if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the model failed')
     const text = reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('')
     return parseGreeting(text)

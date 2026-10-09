@@ -232,13 +232,29 @@ export class McpHub {
     return this._readOnly.has(name)
   }
 
-  /** Every connected tool, for the per-tool rules in Settings. */
-  toolList(): { name: string; description: string; readOnly: boolean }[] {
-    return [...this._adapters.values()].map((t) => ({
-      name: t.name,
-      description: t.description ?? '',
-      readOnly: this._readOnly.has(t.name),
-    }))
+  /**
+   * The configured server a tool comes from. omp names tools `mcp__<server>_<tool>` with the server's name folded to
+   * `[a-z0-9_]`, so the longest server prefix that fits wins (`git` and `git_hub` both fit `mcp__git_hub_x`).
+   */
+  serverOf(name: string): string | undefined {
+    if (!name.startsWith('mcp__')) return undefined
+    // The servers the last start connected: tools only come from those.
+    return [...this._connected]
+      .filter((server) => name.startsWith(toolPrefix(server)))
+      .sort((a, b) => toolPrefix(b).length - toolPrefix(a).length)[0]
+  }
+
+  /** Every connected tool, for the permission rules in Settings, with the server it comes from. */
+  toolList(): { name: string; description: string; readOnly: boolean; server?: string }[] {
+    return [...this._adapters.values()].map((t) => {
+      const server = this.serverOf(t.name)
+      return {
+        name: t.name,
+        description: t.description ?? '',
+        readOnly: this._readOnly.has(t.name),
+        ...(server ? { server } : {}),
+      }
+    })
   }
 
   servers(): McpServerInfo[] {

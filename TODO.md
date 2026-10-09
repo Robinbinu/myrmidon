@@ -485,13 +485,20 @@ Open work, in the order it will be done:
 12r. - [x] **Computer use** (asked 2026-10-09) — done: Cua Driver embedded as an MCP server; one app at a time once
       approved, like Claude Code; Settings → Computer use (off by default). Untested live: Esc to stop; Gemini uses the
       generic tool.
-12s. - [ ] **The mascot comes alive** (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
+12s. - [x] **The mascot comes alive** (done, merged 7966d27) (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
       sweep, yawn, sneeze, side-eye, peek, bored, cross-eyed); reactions drawn in dots (stars, spirals, ! ?, tears, sweat,
       fire, ZZZ); screen shows (boot scanline, confetti on a finished run, Pac-Man, Game of Life asleep, voice equaliser);
       interactive (click to look with a ripple, drag with squash-stretch, double-click sneeze, hold to charge and pop).
       Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
       Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
       react to the eyes, and are named after random Minions.
+12t. - [ ] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
+      calls etc; the ui should be well thought out", like Claude Code and Codex) — today approvals are spread over
+      Settings → Tools rules, project modes, chat grants (file/command only) and full access; MCP has no per-chat or
+      per-project allow and approval cards have no "don't ask again for this tool/server". Also: a team lead has no web, browser, shell or
+      file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
+      team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
+      by default with a role x tool-group control. Building on branch `permissions`.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use

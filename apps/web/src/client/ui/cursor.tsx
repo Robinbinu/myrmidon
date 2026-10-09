@@ -1,6 +1,7 @@
 import {
   AnimatePresence,
   animate,
+  type MotionValue,
   motion,
   useAnimationFrame,
   useMotionValue,
@@ -13,12 +14,12 @@ import { CURSOR } from '../ui-config.ts'
 import { inkOn } from './pixel.tsx'
 
 /** The glyph's tip points up-left, at -135° in screen angles. */
-const TIP_HEADING = -135
+export const TIP_HEADING = -135
 const LABEL_OFFSET = { x: CURSOR.size * 0.9, y: CURSOR.size * 0.2 + 6 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Signed difference between two angles in degrees, in (-180, 180]. */
-const turn = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180
+export const turn = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180
 
 /** Each cursor's last angle by name, so one that comes back into view faces the way it did, not a default. */
 const lastAngle = new Map<string, number>()
@@ -53,13 +54,8 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
   const py = useMotionValue(props.y)
   const ax = useSpring(px, CURSOR.arrowSpring)
   const ay = useSpring(py, CURSOR.arrowSpring)
-  const lx = useSpring(px, CURSOR.labelSpring)
-  const ly = useSpring(py, CURSOR.labelSpring)
-  const labelX = useTransform(lx, (v) => v + LABEL_OFFSET.x)
-  const labelY = useTransform(ly, (v) => v + LABEL_OFFSET.y)
   const aim = useMotionValue(lastAngle.get(props.name) ?? CURSOR.startTilt)
   const rotate = useSpring(aim, CURSOR.turnSpring)
-  const swing = useMotionValue(0)
   const bend = useRef(1)
 
   // The hand: an eased trip along a quadratic curve that bows to alternating sides.
@@ -98,14 +94,57 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
     const current = rotate.get()
     aim.set(current + turn(current, pointing) * weight)
     lastAngle.set(props.name, current)
+  })
+
+  return (
+    <CursorBody
+      name={props.name}
+      color={props.color}
+      x={px}
+      y={py}
+      arrowX={ax}
+      arrowY={ay}
+      rotate={rotate}
+      clicking={props.clicking}
+    />
+  )
+}
+
+/**
+ * How a crew cursor looks wherever it is moved from: the arrow at (arrowX, arrowY) turned by `rotate`, a ring when it
+ * clicks, and its name tag following (x, y) on a softer spring, so the tag trails and swings by how far it lags.
+ */
+export function CursorBody(props: {
+  name: string
+  color: string
+  x: MotionValue<number>
+  y: MotionValue<number>
+  arrowX: MotionValue<number>
+  arrowY: MotionValue<number>
+  rotate: MotionValue<number>
+  clicking: boolean
+}) {
+  const reduce = useReducedMotionConfig()
+  const lx = useSpring(props.x, CURSOR.labelSpring)
+  const ly = useSpring(props.y, CURSOR.labelSpring)
+  const labelX = useTransform(lx, (v) => v + LABEL_OFFSET.x)
+  const labelY = useTransform(ly, (v) => v + LABEL_OFFSET.y)
+  const swing = useMotionValue(0)
+
+  useAnimationFrame(() => {
+    if (reduce) return
     swing.set(
-      clamp(-(lx.get() - ax.get()) * CURSOR.labelTiltPerPx, -CURSOR.labelTiltMax, CURSOR.labelTiltMax),
+      clamp(
+        -(lx.get() - props.arrowX.get()) * CURSOR.labelTiltPerPx,
+        -CURSOR.labelTiltMax,
+        CURSOR.labelTiltMax,
+      ),
     )
   })
 
   return (
     <>
-      <motion.div className="absolute left-0 top-0" style={{ x: ax, y: ay }}>
+      <motion.div className="absolute left-0 top-0" style={{ x: props.arrowX, y: props.arrowY }}>
         <AnimatePresence>
           {props.clicking && (
             <motion.span
@@ -120,7 +159,7 @@ export function CrewCursor(props: { name: string; color: string; x: number; y: n
         </AnimatePresence>
         <motion.div
           className="-ml-[3px] -mt-[2.5px]"
-          style={{ rotate, originX: 3 / 24, originY: 2.5 / 24 }}
+          style={{ rotate: props.rotate, originX: 3 / 24, originY: 2.5 / 24 }}
           initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: props.clicking ? CURSOR.pressScale : 1, opacity: 1 }}
           transition={CURSOR.arrowPop}

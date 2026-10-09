@@ -28,7 +28,7 @@ function chat(
 
 const project = { project: { id: 'p1', name: 'site', path: '/tmp/site' } }
 const readOnly = {
-  project: { ...project.project, permissions: { mode: 'read-only' as const, allow: [] } },
+  project: { ...project.project, permissions: { preset: 'read-only' as const, rules: [] } },
 }
 const swarm = { mode: 'swarm' as const, maxWorkers: 0, workerModels: ['mock/a'] }
 const orchestrated = { mode: 'orchestrated' as const, maxWorkers: 2, workerModels: ['mock/kai'] }

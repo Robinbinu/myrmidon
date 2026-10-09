@@ -195,3 +195,137 @@ test('a message a crewmate never read when the round stopped is the first thing 
   expect(state.mail.length).toBeGreaterThan(0)
   await chats.stopAll()
 })
+
+test('after the final answer, goodbyes do not set off more goodbyes: the round winds down and closes', async () => {
+  const resolver = new ModelResolver()
+  const names: string[] = []
+  const seen: string[] = []
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      names.push(
+        ...[...(ctx.systemPrompt?.join('\n') ?? '').matchAll(/- ([a-z]+): (?:friend|pal) \(/g)].map(
+          (m) => m[1] as string,
+        ),
+      )
+      return [
+        tool('create_group', {
+          name: 'pub',
+          members: names,
+          text: `@${names[0]} @${names[1]} brains in computers?`,
+        }),
+      ]
+    },
+    [tool('reply_user', { text: 'We had a good chat.', final: true })],
+  ])
+  // Two crewmates who say GG to anything that wakes them, as polite models do.
+  const gg = (who: string) => (ctx: LlmContext) => {
+    seen.push(`${who}: ${JSON.stringify(ctx.messages.at(-1))}`)
+    return [tool('message', { to: 'pub', text: `GG, great chat from ${who}!` })]
+  }
+  scripted(resolver, 'mock/friend', [
+    async (ctx) => {
+      await Bun.sleep(300)
+      return gg('friend')(ctx)
+    },
+    ...Array.from({ length: 30 }, () => gg('friend')),
+  ])
+  scripted(resolver, 'mock/pal', [
+    async (ctx) => {
+      await Bun.sleep(300)
+      return gg('pal')(ctx)
+    },
+    ...Array.from({ length: 30 }, () => gg('pal')),
+  ])
+  const chats = chatService(resolver)
+  const started = Date.now()
+  const { colonyId } = await chats.send('Chat about brains in computers', {
+    ...config,
+    roster: [
+      { role: 'friend', model: 'mock/friend' },
+      { role: 'pal', model: 'mock/pal' },
+    ],
+  })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  // It closed once the crew went quiet, long before the cap.
+  expect(Date.now() - started).toBeLessThan(15_000)
+  const goodbyes = state.mail.filter((m) => m.body.startsWith('GG'))
+  // Each said goodbye once; nobody answered a goodbye with another.
+  expect(goodbyes.length).toBeLessThanOrEqual(2)
+  // And everyone read every goodbye: two ticks on all of them.
+  for (const m of state.mail)
+    expect({ body: m.body, delivered: m.delivered }).toEqual({ body: m.body, delivered: true })
+  await chats.stopAll()
+})
+
+test('a busy agent reads everything that came in at its next step, and nothing waiting is lost when it signs off', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  let caughtUp = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', {
+          name: 'pub',
+          members: [friend],
+          text: `@${friend} three facts about brains?`,
+        }),
+      ]
+    },
+    // A long step: the crewmate's three messages all arrive while it runs.
+    async () => {
+      await Bun.sleep(700)
+      return [tool('list_tasks', {})]
+    },
+    (ctx) => {
+      caughtUp = JSON.stringify(ctx.messages)
+      return [tool('reply_user', { text: 'Three facts, noted.', final: true })]
+    },
+  ])
+  scripted(resolver, 'mock/friend', [
+    [
+      tool('message', { to: 'pub', text: 'Fact one: 86 billion neurons.' }),
+      tool('message', { to: 'pub', text: 'Fact two: 20 watts.' }),
+      tool('message', { to: 'pub', text: 'Fact three: no clock.' }),
+    ],
+    ['done'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Chat about brains', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  // All three reached the lead together at its next step, not one per step.
+  for (const fact of ['Fact one', 'Fact two', 'Fact three']) expect(caughtUp).toContain(fact)
+  // Every crewmate message was read by the lead: two ticks, nothing dropped.
+  const facts = state.mail.filter((m) => m.body.startsWith('Fact'))
+  expect(facts).toHaveLength(3)
+  for (const m of facts) expect(m.readBy).toContain('lead')
+  await chats.stopAll()
+})
+
+test('a message still queued when an agent signs off is read at its next turn, not dropped', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [tool('create_group', { name: 'pub', members: [friend], text: `@${friend} one last thought?` })]
+    },
+    // Writing its summary while the crewmate's message arrives: it is queued, not yet shown.
+    async () => {
+      await Bun.sleep(500)
+      return [tool('reply_user', { text: 'Wrapping up.', final: true })]
+    },
+    ['noted'],
+  ])
+  scripted(resolver, 'mock/friend', [
+    [tool('message', { to: 'pub', text: 'Last thought: sleep matters.' })],
+    ['done'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Chat about brains', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(state.mail.find((m) => m.body.startsWith('Last thought'))?.readBy).toContain('lead')
+  await chats.stopAll()
+})
