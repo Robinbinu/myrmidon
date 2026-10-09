@@ -149,7 +149,7 @@ export function effectivePreset(levels: PermissionLevels): {
 const appliesTo = (rule: PermissionRule, role: AgentRole | undefined) =>
   !rule.who || rule.who === 'all' || rule.who === role
 
-/** Whether a rule names this call; `allow` rules match commands only when every part of a plain command does. */
+/** Whether a rule names this call; for commands, see `commandRuleMatches`. */
 export function ruleMatches(rule: PermissionRule, call: PermissionCall, role?: AgentRole): boolean {
   if (!appliesTo(rule, role)) return false
   switch (rule.kind) {
@@ -161,14 +161,8 @@ export function ruleMatches(rule: PermissionRule, call: PermissionCall, role?: A
       return call.kind === 'mcp' && !!call.mcp && (rule.target === '*' || rule.target === call.mcp.server)
     case 'edit':
       return call.kind === 'edit' || (call.kind === 'proposal' && !!call.edits)
-    case 'command': {
-      if (call.kind !== 'command') return false
-      if (rule.target === '*') return true
-      const { segments, simple } = splitCommand(call.command ?? '')
-      if (segments.length === 0) return false
-      const hit = (s: string) => prefixMatch(s, rule.target)
-      return rule.decision === 'allow' ? simple && segments.every(hit) : segments.some(hit)
-    }
+    case 'command':
+      return call.kind === 'command' && commandRuleMatches(rule, call.command ?? '')
   }
 }
 
@@ -184,13 +178,18 @@ export function decide(
     source,
     preset: eff.preset,
   })
-  if (eff.preset === 'read-only' && call.kind === 'edit' && call.where !== 'private')
+  const readOnly = eff.preset === 'read-only'
+  if (readOnly && call.kind === 'edit' && call.where !== 'private')
     return verdict('deny', { by: 'read-only', scope: eff.scope })
   const order = present(levels)
   for (const { scope, level } of order) {
     const rule = level.rules.find((r) => r.decision === 'deny' && ruleMatches(r, call, options.role))
     if (rule) return verdict('deny', { by: 'rule', scope, rule })
   }
+  // A proposed file is the one way into a read-only project (the agents' prompt says so), and only through the
+  // person's card: no rule or preset writes it unseen.
+  if (readOnly && call.kind === 'proposal' && call.edits)
+    return verdict('ask', { by: 'read-only', scope: eff.scope })
   const quiet =
     call.readOnly ?? (call.kind === 'colony' || (call.kind === 'mcp' && call.mcp?.readOnly === true))
   if (options.askAll && !quiet) return verdict('ask', { by: 'askAll' })
@@ -274,61 +273,365 @@ export function groupsOff(levels: PermissionLevels, role: AgentRole): AccessGrou
 
 // --- Commands -------------------------------------------------------------------------------------------------------
 
+/** One command's words as the shell passes them on: quotes and backslashes resolved. */
+type Words = readonly string[]
+
 /**
- * A command's parts, split where the shell would run another command (`&&`, `||`, `;`, `|`, `&`, newlines) outside
- * quotes, each with leading variable assignments and wrappers (`timeout 30`, `nice`, `nohup`, `time`, `env`) taken
- * off. `simple`: no substitution or redirection, so rules may match it (as Codex and Claude Code both require).
+ * One command of a line. `text`: its words with leading assignments and plain wrappers (`timeout 30`, `env A=1`)
+ * taken off, which allow rules, Ask's read-only check and the card's offers read. `views`: `text` and what it runs
+ * once wrappers that change who runs it (`sudo`, `xargs`), a program's path and case, and git's global options are
+ * taken off too, which deny and ask rules and the destructive check read, so `sudo /usr/bin/git -C . push` is still
+ * `git push` to a deny rule.
  */
-export function splitCommand(line: string): { segments: string[]; simple: boolean } {
-  const parts: string[] = []
-  let current = ''
-  let quote: '"' | "'" | undefined
+interface Segment {
+  readonly words: Words
+  readonly text: string
+  readonly views: readonly string[]
+}
+
+/** How deep `sh -c '…'`, `eval` and `env -S` strings inside a command are read before giving up on them. */
+const MAX_NESTING = 4
+
+/**
+ * A line's commands, read as /bin/sh would: quotes, backslashes, `$(…)`, backticks and subshells (whose commands are
+ * read too), split where the shell would run another command (`&&`, `||`, `;`, `|`, `&`, newlines). `simple`: nothing
+ * in it is substituted, redirected, run as a string, or left unbalanced, so rules may match it (as Codex and Claude
+ * Code both require); anything this cannot read for sure is not simple.
+ */
+function scan(line: string): { commands: Words[]; simple: boolean } {
+  const commands: Words[] = []
   let simple = true
+  let words: string[] = []
+  let word = ''
+  let inWord = false
+  let quote: '"' | "'" | undefined
+  // Open substitutions and subshells, each with what was being read outside it.
+  const outer: {
+    close: ')' | '`'
+    sub: boolean
+    words: string[]
+    word: string
+    inWord: boolean
+    quote: '"' | "'" | undefined
+  }[] = []
+  const endWord = () => {
+    if (inWord) words.push(word)
+    word = ''
+    inWord = false
+  }
+  const endCommand = () => {
+    endWord()
+    if (words.length) commands.push(words)
+    words = []
+  }
+  const open = (close: ')' | '`', sub: boolean) => {
+    simple = false
+    outer.push({ close, sub, words, word, inWord, quote })
+    words = []
+    word = ''
+    inWord = false
+    quote = undefined
+  }
+  const close = () => {
+    endCommand()
+    const o = outer.pop()
+    if (!o) return
+    words = o.words
+    // A substitution's output is part of a word whose value is only known when it runs.
+    word = o.sub ? `${o.word}$()` : o.word
+    inWord = o.inWord || o.sub
+    quote = o.quote
+  }
   for (let i = 0; i < line.length; i++) {
     const c = line[i] as string
     const next = line[i + 1]
-    if (quote) {
-      if (c === quote) quote = undefined
-      else if (quote === '"' && (c === '`' || (c === '$' && next === '('))) simple = false
-      current += c
+    if (quote === "'") {
+      if (c === "'") quote = undefined
+      else word += c
+      continue
+    }
+    if (c === '\\') {
+      if (next === undefined) {
+        simple = false
+        continue
+      }
+      i++
+      if (next === '\n') continue
+      // Inside double quotes a backslash escapes only these; before anything else it stays.
+      if (quote === '"' && !'$`"\\'.includes(next)) word += c
+      word += next
+      inWord = true
+      continue
+    }
+    if (c === '`') {
+      if (outer.at(-1)?.close === '`') close()
+      else open('`', true)
+      continue
+    }
+    if (c === '$' && next === '(') {
+      i++
+      open(')', true)
+      continue
+    }
+    if (quote === '"') {
+      if (c === '"') quote = undefined
+      else word += c
       continue
     }
     if (c === '"' || c === "'") {
       quote = c
-      current += c
+      inWord = true
       continue
     }
-    if (c === '`' || (c === '$' && next === '(') || c === '<' || c === '>') simple = false
+    if (c === '(') {
+      open(')', false)
+      continue
+    }
+    if (c === ')') {
+      if (outer.at(-1)?.close === ')') close()
+      else {
+        simple = false
+        endCommand()
+      }
+      continue
+    }
+    if (c === ' ' || c === '\t') {
+      endWord()
+      continue
+    }
+    if (c === '<' || c === '>' || (c === '&' && next === '>')) {
+      simple = false
+      // `2>&1`: the digits right before the operator name a file descriptor, not an argument.
+      if (/^\d+$/.test(word) && inWord) {
+        word = ''
+        inWord = false
+      } else endWord()
+      // The rest of the operator (`>>`, `>&`, `&>`, `<<<`, `>|`); a heredoc's lines are then read as commands, which
+      // can only make a rule match more often (ask, deny), never allow more.
+      while ('<>&|'.includes(line[i + 1] ?? ' ')) i++
+      if (line[i + 1] === '-' && line[i] === '<') i++
+      continue
+    }
     if (c === ';' || c === '\n' || c === '|' || c === '&') {
-      parts.push(current)
-      current = ''
-      if ((c === '|' || c === '&') && next === c) i++
+      endCommand()
+      if ((c === '|' || c === '&' || c === ';') && next === c) i++
+      else if (c === '|' && next === '&') i++
       continue
     }
-    current += c
+    word += c
+    inWord = true
   }
-  if (quote) simple = false
-  parts.push(current)
-  const segments = parts.map(normalizeSegment).filter(Boolean)
+  if (quote || outer.length) simple = false
+  while (outer.length) close()
+  endCommand()
+  return { commands, simple }
+}
+
+/** Shell words that start or end a compound command rather than name a program. */
+const RESERVED = new Set([
+  '{',
+  '}',
+  '!',
+  'if',
+  'then',
+  'else',
+  'elif',
+  'fi',
+  'do',
+  'done',
+  'while',
+  'until',
+  'for',
+  'case',
+  'esac',
+  'select',
+  'function',
+])
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+/** Leaves `words` after its leading options: `withArg` options take the next word unless written `--opt=value`. */
+function afterOptions(words: Words, withArg: ReadonlySet<string>): Words {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i] as string
+    if (w === '--') return words.slice(i + 1)
+    if (!w.startsWith('-') || w === '-') break
+    i += withArg.has(w) ? 2 : 1
+  }
+  return words.slice(i)
+}
+
+const TIMEOUT_ARGS = new Set(['-s', '--signal', '-k', '--kill-after'])
+const NICE_ARGS = new Set(['-n', '--adjustment'])
+const ENV_ARGS = new Set(['-u', '--unset', '-C', '--chdir'])
+const EXEC_ARGS = new Set(['-a'])
+const SUDO_ARGS = new Set(['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-T', '-U', '--user', '--group'])
+const DOAS_ARGS = new Set(['-u', '-C'])
+const XARGS_ARGS = new Set(['-I', '-L', '-n', '-P', '-s', '-d', '-E', '-a', '--arg-file', '--delimiter'])
+const GIT_ARGS = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--config-env',
+  '--super-prefix',
+])
+
+/**
+ * `words` without one wrapper in front that runs the rest as it is: an assignment, `timeout 30`, `time`, `nice`,
+ * `nohup`, `env` (without `-S`), `command`, `builtin`, `exec`. With `deep`, also those that change who runs it or
+ * feed it arguments (`sudo`, `doas`, `xargs`). Undefined when there is none to take off.
+ */
+function unwrap(words: Words, deep: boolean): Words | undefined {
+  const [w, ...rest] = words
+  if (w === undefined) return undefined
+  if (ASSIGNMENT.test(w)) return rest
+  switch (w) {
+    case 'time':
+    case 'nohup':
+    case 'builtin':
+    case 'noglob':
+    case 'nocorrect':
+      return afterOptions(rest, new Set())
+    case 'nice':
+      return afterOptions(rest, NICE_ARGS)
+    case 'exec':
+      return afterOptions(rest, EXEC_ARGS)
+    case 'timeout': {
+      const [, ...after] = afterOptions(rest, TIMEOUT_ARGS)
+      return after.length ? after : undefined
+    }
+    case 'command':
+      // `command -v rm` looks rm up; it runs nothing.
+      return rest[0] === '-v' || rest[0] === '-V' ? undefined : afterOptions(rest, new Set())
+    case 'env': {
+      // `env -S 'rm -rf x'` runs a string: read as a nested command instead (see nestedLine).
+      if (rest.some((a) => a === '-S' || a.startsWith('--split-string'))) return undefined
+      const after = afterOptions(rest, ENV_ARGS)
+      let i = 0
+      while (i < after.length && ASSIGNMENT.test(after[i] as string)) i++
+      return after.slice(i)
+    }
+  }
+  if (!deep) return undefined
+  switch (w) {
+    case 'sudo':
+      return afterOptions(rest, SUDO_ARGS)
+    case 'doas':
+      return afterOptions(rest, DOAS_ARGS)
+    case 'xargs': {
+      const after = afterOptions(rest, XARGS_ARGS)
+      return after.length ? after : ['echo']
+    }
+  }
+  return undefined
+}
+
+/** `words` with the program named as found on the PATH (`/bin/rm`, `RM` → `rm`), and git's global options dropped. */
+function canonical(words: Words): Words | undefined {
+  const [program, ...rest] = words
+  if (program === undefined) return undefined
+  const name = (program.split('/').at(-1) ?? program).toLowerCase()
+  if (name && name !== program) return [name, ...rest]
+  if (program === 'git' && rest[0]?.startsWith('-')) return ['git', ...afterOptions(rest, GIT_ARGS)]
+  return undefined
+}
+
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'])
+
+/** A command line a command runs as a string: `sh -c '…'`, `eval …`, `env -S '…'`. */
+function nestedLine(words: Words): string | undefined {
+  const [program, ...rest] = words
+  if (program === undefined) return undefined
+  if (program === 'eval') return rest.join(' ')
+  if (SHELLS.has(program)) {
+    const flag = rest.findIndex((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a))
+    return flag >= 0 ? rest.slice(flag + 1).find((a) => !a.startsWith('-')) : undefined
+  }
+  if (program === 'env') {
+    const at = rest.findIndex((a) => a === '-S' || a.startsWith('--split-string'))
+    if (at < 0) return undefined
+    const flag = rest[at] as string
+    return flag.includes('=') ? flag.slice(flag.indexOf('=') + 1) : rest[at + 1]
+  }
+  return undefined
+}
+
+/** The command `find … -exec CMD … ;` runs for each file. */
+function findExec(words: Words): Words | undefined {
+  if (words[0] !== 'find') return undefined
+  const at = words.findIndex((w) => /^-(?:exec|execdir|ok|okdir)$/.test(w))
+  if (at < 0) return undefined
+  const after = words.slice(at + 1)
+  const end = after.findIndex((w) => w === ';' || w === '+')
+  return end < 0 ? after : after.slice(0, end)
+}
+
+/** A word as the shell would need it written to read it back as one word. */
+const quoteWord = (w: string) => (/^[^\s;&|<>()$`"'\\]+$/.test(w) ? w : `'${w.replaceAll("'", `'\\''`)}'`)
+const join = (words: Words) => words.map(quoteWord).join(' ')
+
+/** A line's commands with their texts and views (see Segment), and whether it is simple (see scan). */
+function parseCommand(line: string, depth = 0): { segments: Segment[]; simple: boolean } {
+  const { commands, simple: plain } = scan(line)
+  let simple = plain
+  const segments: Segment[] = []
+  const seen = new Set<string>()
+  const add = (raw: Words) => {
+    let words = raw
+    // Words that open control flow (`if`, `do`, `{`, `!`) are not the program; a line using them is not simple.
+    while (words.length && RESERVED.has(words[0] as string)) {
+      simple = false
+      words = words.slice(1)
+    }
+    for (let w = unwrap(words, false); w; w = unwrap(words, false)) words = w
+    if (!words.length) return
+    // The program is known only when the line runs.
+    if ((words[0] as string).includes('$')) simple = false
+    const views: Words[] = [words]
+    for (let n = 0, v: Words | undefined = words; n < 16; n++) {
+      v = unwrap(v, true) ?? canonical(v)
+      if (!v?.length) break
+      views.push(v)
+    }
+    segments.push({ words, text: join(words), views: [...new Set(views.map(join))] })
+    for (const v of views) {
+      const nested = nestedLine(v)
+      if (nested !== undefined && !seen.has(`sh:${nested}`)) {
+        seen.add(`sh:${nested}`)
+        simple = false
+        if (depth < MAX_NESTING) segments.push(...parseCommand(nested, depth + 1).segments)
+      }
+      const each = findExec(v)
+      if (each?.length && !seen.has(`find:${join(each)}`)) {
+        seen.add(`find:${join(each)}`)
+        add(each)
+      }
+    }
+  }
+  for (const words of commands) add(words)
   return { segments, simple }
 }
 
-const WRAPPERS = /^(?:(?:timeout\s+(?:-\S+\s+)*\d+[smhd]?|time|nice(?:\s+-n\s*-?\d+)?|nohup|env)\s+)/
-const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+/
+/**
+ * A command's parts, split where the shell would run another command (see `scan`), each with leading variable
+ * assignments and plain wrappers (`timeout 30`, `nice`, `nohup`, `time`, `env`) taken off and its quoting resolved.
+ * `simple`: no substitution, redirection, string run as a command, or anything this could not read for sure, so rules
+ * may match it.
+ */
+export function splitCommand(line: string): { segments: string[]; simple: boolean } {
+  const { segments, simple } = parseCommand(line)
+  return { segments: segments.map((s) => s.text), simple }
+}
 
-function normalizeSegment(segment: string): string {
-  let s = segment.trim().replace(/\s+/g, ' ')
-  for (let changed = true; changed; ) {
-    const before = s
-    s = s.replace(ASSIGNMENT, '').replace(WRAPPERS, '')
-    changed = s !== before
-  }
-  return s.trim()
+/** A rule's command prefix written the way segments are, so `git "push"` in a rule is `git push`. */
+function targetText(target: string): string {
+  return parseCommand(target).segments[0]?.text ?? target.trim().replace(/\s+/g, ' ')
 }
 
 function prefixMatch(segment: string, prefix: string): boolean {
-  const p = prefix.trim().replace(/\s+/g, ' ')
-  return p.length > 0 && (segment === p || segment.startsWith(`${p} `))
+  return prefix.length > 0 && (segment === prefix || segment.startsWith(`${prefix} `))
 }
 
 /** Commands that delete, rewrite history, publish, or reach past the sandbox: Auto asks before these. */
@@ -337,12 +640,13 @@ export const DESTRUCTIVE_COMMANDS: readonly RegExp[] = [
   /^git\s+push\b/,
   /^git\s+reset\s+(?:\S+\s+)*--hard\b/,
   /^git\s+clean\b/,
-  /^git\s+checkout\s+(?:\S+\s+)*--(?:\s|$)/,
+  /^git\s+checkout\s+(?:\S+\s+)*(?:--|\.|-f|--force)(?:\s|$)/,
+  /^git\s+switch\s+(?:\S+\s+)*(?:-f|--force|--discard-changes)(?:\s|$)/,
   /^git\s+restore\b/,
-  /^git\s+branch\s+(?:\S+\s+)*-(?:D|-delete\s+--force)\b/,
+  /^git\s+branch\s+(?:\S+\s+)*(?:-[a-zA-Z]*[dD]|--delete)(?:\s|$)/,
   /^git\s+rebase\b/,
   /^git\s+stash\s+(?:drop|clear)\b/,
-  /^sudo\b/,
+  /^(?:sudo|doas|su)\b/,
   /^(?:npm|bun|pnpm|yarn)\s+publish\b/,
   /^dd\b/,
   /^mkfs/,
@@ -356,9 +660,37 @@ export const DESTRUCTIVE_COMMANDS: readonly RegExp[] = [
 /** A download piped straight into a shell, anywhere in the line. */
 const PIPED_INSTALL = /\b(?:curl|wget)\b[^|]*\|\s*(?:sudo\s+)?(?:ba|z)?sh\b/
 
-export function destructiveCommand(line: string): boolean {
+const destructiveSegment = (s: Segment) => s.views.some((v) => DESTRUCTIVE_COMMANDS.some((re) => re.test(v)))
+
+/** The program a view runs, by its first word. */
+const programOf = (view: string) => view.split(' ')[0] ?? ''
+
+/** Whether the line downloads something and hands it to a shell (`curl … | sh`, `wget -O- … | /bin/bash`). */
+function pipedInstall(line: string, segments: readonly Segment[]): boolean {
   if (PIPED_INSTALL.test(line)) return true
-  return splitCommand(line).segments.some((s) => DESTRUCTIVE_COMMANDS.some((re) => re.test(s)))
+  const runs = (names: (p: string) => boolean) =>
+    segments.some((s) => s.views.some((v) => names(programOf(v))))
+  return runs((p) => p === 'curl' || p === 'wget') && runs((p) => SHELLS.has(p))
+}
+
+export function destructiveCommand(line: string): boolean {
+  const { segments } = parseCommand(line)
+  return pipedInstall(line, segments) || segments.some(destructiveSegment)
+}
+
+/**
+ * Whether a command rule names this command. Deny and ask rules catch it when any part matches in any view (see
+ * Segment). An allow rule covers it only when the line is simple and every part matches as written; a destructive part
+ * only when the rule names it exactly, since a prefix remembered for `rm -rf build` must not cover `rm -rf build ~`.
+ */
+function commandRuleMatches(rule: PermissionRule, line: string): boolean {
+  if (rule.target === '*') return true
+  const { segments, simple } = parseCommand(line)
+  if (segments.length === 0) return false
+  const target = targetText(rule.target)
+  if (rule.decision !== 'allow') return segments.some((s) => s.views.some((v) => prefixMatch(v, target)))
+  if (!simple || pipedInstall(line, segments)) return false
+  return segments.every((s) => (destructiveSegment(s) ? s.text === target : prefixMatch(s.text, target)))
 }
 
 /** Commands that only look (Claude Code's built-in read-only set): Ask runs them without asking. */
@@ -387,14 +719,18 @@ const READ_ONLY_GIT = new Set(['status', 'log', 'diff', 'show', 'blame', 'rev-pa
 const READ_ONLY_GIT_BRANCH_FLAGS = new Set(['-a', '-r', '-v', '-vv', '--list', '--show-current'])
 
 export function readOnlyCommand(line: string): boolean {
-  const { segments, simple } = splitCommand(line)
+  const { segments, simple } = parseCommand(line)
   if (!simple || segments.length === 0) return false
   return segments.every((s) => {
-    const [program, ...args] = s.split(' ')
+    const [program, ...args] = s.words
     if (!program) return false
     if (program === 'find') return !args.some((a) => /^-(?:exec|execdir|ok|okdir|delete|fprint|fls)/.test(a))
+    // Options of otherwise read-only programs that run a program or write a file.
+    if (program === 'rg' && args.some((a) => a.startsWith('--pre'))) return false
+    if (program === 'tree' && args.some((a) => a === '-o')) return false
     if (program === 'git') {
       const [sub, ...rest] = args
+      if (rest.some((a) => a.startsWith('--output') || a === '--ext-diff')) return false
       if (sub === 'branch') return rest.every((a) => READ_ONLY_GIT_BRANCH_FLAGS.has(a))
       return sub !== undefined && READ_ONLY_GIT.has(sub)
     }
@@ -417,36 +753,98 @@ const SUBCOMMANDS = new Set([
   'kubectl',
   'gh',
   'make',
-  'python',
-  'python3',
-  'node',
   'deno',
   'uv',
   'pip',
   'brew',
 ])
 /** Their words that run something named next (`bun run build`): the prefix keeps that name too. */
-const RUNNERS = new Set(['run', 'exec', 'x', '-m'])
+const RUNNERS = new Set(['run', 'exec', 'x'])
+/** Their words that run code written right after them (`deno eval '…'`, `bun -e '…'`). */
+const INLINE = new Set(['eval', '-e', '--eval', '-p', '--print', '-c'])
+/** Programs that run code they are given, inline or from their input, or a script file named next. */
+const INTERPRETERS = new Set([
+  ...SHELLS,
+  'python',
+  'python3',
+  'node',
+  'perl',
+  'ruby',
+  'php',
+  'lua',
+  'osascript',
+  'awk',
+  'gawk',
+])
+/** Programs whose arguments are what they run or destroy: a prefix of them alone would allow anything. */
+const UNBOUNDED = new Set([
+  'sudo',
+  'doas',
+  'su',
+  'env',
+  'xargs',
+  'eval',
+  'exec',
+  'command',
+  'ssh',
+  'watch',
+  'rm',
+  'rmdir',
+  'unlink',
+  'shred',
+  'truncate',
+  'dd',
+  'mkfs',
+  'chmod',
+  'chown',
+  'kill',
+  'killall',
+  'pkill',
+])
 
-/** The prefix a person would remember for one part of a command: `bun test src/a.test.ts` → `bun test`. */
-export function commandPrefix(segment: string): string {
-  const words = normalizeSegment(segment).split(' ')
-  const [program, sub, name] = words
+/**
+ * The prefix a person would remember for one part of a command: `bun test src/a.test.ts` → `bun test`. Never wider
+ * than the part shown when a wider one could allow something else entirely: a destructive part, an interpreter's
+ * inline code, or a program like `rm` or `sudo` is offered as written (an interpreter's script by its name), and
+ * nothing is offered for a bare shell or interpreter, which runs whatever it is fed.
+ */
+function prefixOf(segment: Segment): string {
+  const [program, sub, name] = segment.words
   if (!program) return ''
-  if (!SUBCOMMANDS.has(program) || !sub || (sub.startsWith('-') && sub !== '-m')) return program
-  if (RUNNERS.has(sub) && name && !name.startsWith('-')) return `${program} ${sub} ${name}`
-  return `${program} ${sub}`
+  const whole = segment.text.length <= MAX_TARGET ? segment.text : ''
+  if (destructiveSegment(segment)) return whole
+  if (UNBOUNDED.has(program)) return sub === undefined ? '' : whole
+  if (INTERPRETERS.has(program)) {
+    if (sub === undefined) return ''
+    if (!sub.startsWith('-')) return join([program, sub])
+    return sub === '-m' && name && !name.startsWith('-') ? join([program, sub, name]) : whole
+  }
+  if (!SUBCOMMANDS.has(program) || !sub) return join([program])
+  if (sub.startsWith('-') || INLINE.has(sub)) return whole
+  if (RUNNERS.has(sub) && name && !name.startsWith('-')) return join([program, sub, name])
+  return join([program, sub])
+}
+
+/** The prefix a person would remember for a command of one part (see the card's offers). */
+export function commandPrefix(segment: string): string {
+  const first = parseCommand(segment).segments[0]
+  return first ? prefixOf(first) : ''
 }
 
 /**
  * What an approval card may remember for a call, most specific first: a command's prefixes then every command; an
- * MCP tool then its server; file changes; or the tool itself.
+ * MCP tool then its server; file changes; or the tool itself. A command offers its prefixes only when remembering them
+ * all would cover it: it is simple, no part lacks a prefix it may be remembered by, and it is not a download run by a
+ * shell.
  */
 export function offersFor(call: PermissionCall): Omit<PermissionRule, 'decision'>[] {
   switch (call.kind) {
     case 'command': {
-      const { segments, simple } = splitCommand(call.command ?? '')
-      const prefixes = simple ? [...new Set(segments.map(commandPrefix).filter(Boolean))].slice(0, 3) : []
+      const line = call.command ?? ''
+      const { segments, simple } = parseCommand(line)
+      const each = segments.map(prefixOf)
+      const prefixes =
+        simple && !each.includes('') && !pipedInstall(line, segments) ? [...new Set(each)].slice(0, 3) : []
       return [
         ...prefixes.map((target) => ({ kind: 'command' as const, target })),
         { kind: 'command', target: '*' },
@@ -464,6 +862,30 @@ export function offersFor(call: PermissionCall): Omit<PermissionRule, 'decision'
     default:
       return [{ kind: 'tool', target: call.tool }]
   }
+}
+
+/** Whether `rule` is one of a card's offers, as offered: same kind and target, for everyone. */
+export function offered(offers: readonly Omit<PermissionRule, 'decision'>[], rule: PermissionRule): boolean {
+  return offers.some((o) => sameTarget(o, rule))
+}
+
+/**
+ * What one "always" remembers from an approval, where there is no menu to choose from (a channel's button): the
+ * card's first choice (a compound command's parts together, else its most specific offer); the tool itself for a
+ * request from before offers; nothing for a read request (allowed once or for the chat only) or a card the permission
+ * model offers nothing on (a round someone else started, a read-only project, a commit).
+ */
+export function alwaysOffer(request: {
+  readonly tool: string
+  readonly offer?: readonly Omit<PermissionRule, 'decision'>[]
+  readonly call?: PermissionCall
+  readonly read?: string
+}): Omit<PermissionRule, 'decision'>[] {
+  if (request.read !== undefined) return []
+  const offers = request.offer ?? []
+  if (!offers.length) return request.call ? [] : [{ kind: 'tool', target: request.tool }]
+  const parts = offers.filter((o) => o.kind === 'command' && o.target !== '*')
+  return parts.length ? parts : offers.slice(0, 1)
 }
 
 // --- Editing levels -------------------------------------------------------------------------------------------------
