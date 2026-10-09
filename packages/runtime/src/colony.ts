@@ -663,10 +663,12 @@ export class ColonyRun implements ColonyHost {
 
   /**
    * What an approval card shows about the permission model: why it asked, and what it may remember from the answer
-   * (nothing when it asked because someone else started the round: no rule lifts that).
+   * (nothing when it asked because someone else started the round, or because the project is read-only: no rule
+   * lifts either).
    */
   private _permissionCard(agent: string, p: { call: PermissionCall; verdict: PermissionVerdict }) {
-    const offer = p.verdict.source.by === 'askAll' ? [] : offersFor(p.call)
+    const by = p.verdict.source.by
+    const offer = by === 'askAll' || by === 'read-only' ? [] : offersFor(p.call)
     return {
       why: p.verdict.source,
       call: p.call,

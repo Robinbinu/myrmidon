@@ -3,7 +3,7 @@ import type {
   AgentRole,
   PermissionCall,
   PermissionLevel,
-  PermissionRule,
+  PermissionOffer,
   PermissionSource,
   RoundAccess,
 } from './permissions.ts'
@@ -61,7 +61,7 @@ export interface ApprovalRequest {
   /** Old logs: the kind of step the person could allow for the rest of the chat. */
   grant?: ChatGrant
   /** What the card may remember from the answer, most specific first (a command's prefix, then every command). */
-  offer?: Omit<PermissionRule, 'decision'>[]
+  offer?: PermissionOffer[]
   /** Why the call asked: the rule or preset that decided it (or that someone else started the round). */
   why?: PermissionSource
   /** The call as the permission engine saw it, so a waiting request is decided again when the rules change. */

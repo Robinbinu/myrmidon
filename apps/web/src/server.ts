@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import {
+  alwaysOffer,
   type ColonyId,
   colonyMetrics,
   DEFAULT_PRESET,
@@ -11,6 +12,7 @@ import {
   foldColony,
   isSetupStep,
   normalizeLevel,
+  offered,
   PERMISSION_PRESETS,
   type PermissionScope,
   type ProjectPermissions,
@@ -497,13 +499,12 @@ export function startServer(options: ServeOptions): WebServer {
         onStream: (listener) => chats.onStream(listener),
         read: (colonyId) => chats.events(colonyId),
         decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
-        // "Always" on a channel remembers the card's first offer everywhere (a command's prefix, an MCP tool).
+        // "Always" on a channel remembers everywhere what its button names (see alwaysOffer).
         allowAlways: async (colonyId, approvalId) => {
           const state = foldColony(colonyId as ColonyId, await chats.events(colonyId))
           const request = state.approvals[approvalId]
-          const offer =
-            request?.offer?.[0] ?? (request ? { kind: 'tool' as const, target: request.tool } : undefined)
-          if (offer) await chats.remember(colonyId, 'global', [{ ...offer, decision: 'allow' }])
+          const rules = request ? alwaysOffer(request).map((o) => ({ ...o, decision: 'allow' as const })) : []
+          if (rules.length) await chats.remember(colonyId, 'global', rules)
         },
         artifact: async (colonyId, name) => {
           const found = await latestArtifact(colonyId, name)
@@ -1632,12 +1633,15 @@ export function startServer(options: ServeOptions): WebServer {
             Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
             // The project's level (`preset`, `rules`, `access`), or the shape from before it (`mode`, `allow`). A
-            // client that does not send the readable folders keeps them.
-            const read =
-              body.read === undefined
-                ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
-                : strings(body.read)
+            // client that does not send the readable folders keeps them, and one that sends only a preset (no mode,
+            // no rules) keeps the rules and who-can-use-what too.
+            const now = options.projects.get(req.params.id ?? '')?.permissions
+            const read = body.read === undefined ? (now?.read ?? []) : strings(body.read)
+            const keepRules = body.mode === undefined && body.allow === undefined && body.rules === undefined
             const project = options.projects.setPermissions(req.params.id ?? '', {
+              ...(keepRules
+                ? { rules: now?.rules ?? [], ...(now?.access ? { access: now.access } : {}) }
+                : {}),
               ...(body as unknown as ProjectPermissions),
               ...(body.mode !== undefined ? { allow: strings(body.allow) } : {}),
               read,
@@ -1928,8 +1932,8 @@ export function startServer(options: ServeOptions): WebServer {
             remember?: { scope?: unknown; rule?: unknown; rules?: unknown }
           }
           const { approved, edits, note, remember } = body
-          // "For this chat / project / everywhere": this call is decided, then the rule saved, which decides every
-          // other waiting call it covers.
+          // "For this chat / project / everywhere": the rule is saved, which decides every waiting call it covers
+          // (this one too, usually), then this call is decided with the answer given.
           const scope = remember?.scope
           if (remember !== undefined && scope !== 'chat' && scope !== 'project' && scope !== 'global')
             return json({ error: 'remember.scope is chat, project or global' }, 400)
@@ -1942,9 +1946,6 @@ export function startServer(options: ServeOptions): WebServer {
           const rules = normalizeLevel({ rules: given }).rules
           if (remember && (!rules.length || rules.length !== given.length))
             return json({ error: 'remember.rule is not a valid rule' }, 400)
-          // A chats-only device may remember an answer for the chat, as it may approve the step; wider levels are
-          // Settings and a project's permissions, which need full access.
-          if (rules.length && scope !== 'chat' && access.scope !== 'full') return forbidden()
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
           // The person may rewrite a review's text fields before approving; only strings, by field key.
           const fields =
@@ -1954,15 +1955,37 @@ export function startServer(options: ServeOptions): WebServer {
           if (fields.some(([, v]) => typeof v !== 'string')) return json({ error: 'edits must be text' }, 400)
           if (note !== undefined && (typeof note !== 'string' || note.length > 2000))
             return json({ error: 'note must be text, at most 2000 characters' }, 400)
+          const chats = options.chats
+          const colony = req.params.id ?? ''
+          const id = req.params.approval ?? ''
+          const outcome = async () => foldColony(colony as ColonyId, await chats.events(colony)).approvals[id]
+          if (rules.length) {
+            // Only what the card offered may be remembered, as allow when approving and deny when denying: an answer
+            // to one step cannot carry a wider rule.
+            const request = await outcome()
+            if (!request || request.decided) return json({ error: 'that request is no longer waiting' }, 409)
+            const decision = approved ? 'allow' : 'deny'
+            if (!rules.every((r) => r.decision === decision && offered(request.offer ?? [], r)))
+              return json({ error: `remember only what the card offers, as ${decision}` }, 400)
+            // A chats-only device may remember an answer for this chat, as it may approve the step, but not every
+            // command or file change there (that is the chat's permissions) nor wider levels (Settings, a project).
+            if (access.scope !== 'full' && (scope !== 'chat' || rules.some((r) => r.target === '*')))
+              return forbidden()
+          }
           try {
-            await options.chats.decideApproval(req.params.id ?? '', req.params.approval ?? '', approved, {
+            if (rules.length) await chats.remember(colony, scope as PermissionScope, rules)
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 409)
+          }
+          try {
+            await chats.decideApproval(colony, id, approved, {
               ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
               ...(typeof note === 'string' && note.trim() ? { note } : {}),
             })
-            if (rules.length)
-              await options.chats.remember(req.params.id ?? '', scope as PermissionScope, rules)
             return json({ ok: true })
           } catch (err) {
+            // Saving the rule already decided this step the way the person answered.
+            if (rules.length && (await outcome())?.decided?.approved === approved) return json({ ok: true })
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)
           }
         }),
