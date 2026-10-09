@@ -17,8 +17,8 @@ import { join } from 'node:path'
  */
 
 /**
- * `full`: everything. `chat`: chats, the changes their crews made, and approvals, but not the terminal, keys, Settings,
- * plugins, devices or browsing a project's files.
+ * `full`: everything. `chat`: chats, the changes their crews made, and approvals, but not the terminal, the person's
+ * own browser, keys, Settings, plugins, devices or browsing a project's files.
  */
 export type DeviceScope = 'full' | 'chat'
 
@@ -143,7 +143,7 @@ export class PairingCodes {
 }
 
 /**
- * Requests a `chat` device may not make: the terminal, keys and providers, Settings and permission changes, plugins,
+ * Requests a `chat` device may not make: the terminal, the person's own browser, keys and providers, Settings and permission changes, plugins,
  * MCP servers, hooks, browsing the server's folders or a project's files, git actions on projects, managing devices,
  * other gateways, and channels.
  */
@@ -152,7 +152,7 @@ export function needsFull(method: string, path: string): boolean {
   // Other gateways, reached through this one: a chats-only device must not borrow this hub's access to them.
   if (path.startsWith('/gw/')) return true
   if (
-    /^\/api\/(terminal|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
+    /^\/api\/(terminal|browser|credentials|providers|logins|devices|gateways|channels|import-omp|folders|mcp-reload|setup)(\/|$)/.test(
       path,
     )
   )

@@ -63,6 +63,11 @@ import {
   namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
+  PersonBrowser,
+  PersonBrowserError,
+  type PersonBrowserSettings,
+  type PersonInput,
+  type PersonTab,
   PHONE_HOOK,
   PHONE_STREAM,
   PhoneLine,
@@ -218,6 +223,8 @@ type StreamData = Opened &
         pending: (string | Uint8Array<ArrayBuffer>)[]
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
+    /** One of the person's own tabs (Browser view): its frames and the tab list out, input in. */
+    | { kind: 'person-browser'; tab: string; unwatch?: () => void }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
@@ -269,6 +276,8 @@ function cookie(req: Request, name: string): string | undefined {
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
+/** What the person's browser socket accepts; anything else is dropped. */
+const PERSON_INPUTS = new Set(['mouse', 'wheel', 'key', 'text', 'paste', 'resize'])
 
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
@@ -794,6 +803,30 @@ export function startServer(options: ServeOptions): WebServer {
         'cache-control': 'no-store',
       },
     })
+  /**
+   * The person's own browser: tabs in the agents' Chrome, in a context agents never see. It may always open this
+   * dashboard and the agent-built pages it serves; other ports on this computer only once the person allows them.
+   */
+  const personBrowser: PersonBrowser | undefined = options.browser
+    ? new PersonBrowser(() => (options.browser as BrowserHub).browser(), {
+        dir: join(options.home, 'person-browser'),
+        ownPorts: (): number[] =>
+          [server.port, preview.port].filter((p): p is number => typeof p === 'number'),
+      })
+    : undefined
+  /** A refusal from the person's browser, with what the Browser view needs to say why (and offer to allow a site). */
+  const browserFailure = (err: unknown) => {
+    if (!(err instanceof PersonBrowserError))
+      return json({ error: err instanceof Error ? err.message : String(err) }, 502)
+    const status = { scheme: 400, address: 400, size: 413, blocked: 403, full: 429, missing: 404 }[err.code]
+    return json({ error: err.message, code: err.code, ...(err.site ? { site: err.site } : {}) }, status)
+  }
+  const browserState = ():
+    | { tabs: PersonTab[]; settings: PersonBrowserSettings; maxTabs: number }
+    | undefined =>
+    personBrowser
+      ? { tabs: personBrowser.tabs(), settings: personBrowser.settings, maxTabs: personBrowser.maxTabs }
+      : undefined
   const preview = Bun.serve({
     hostname: bindHost,
     port: options.previewPort ?? 0,
@@ -2665,6 +2698,119 @@ export function startServer(options: ServeOptions): WebServer {
         if (server.upgrade(req, { data })) return undefined as unknown as Response
         return json({ error: 'websocket upgrade failed' }, 400)
       },
+      // The person's own browser (the Browser view). needsFull keeps chats-only devices out of every route here.
+      '/api/browser': guard(() => {
+        const state = browserState()
+        return state ? json(state) : json({ error: 'no browser on this server' }, 404)
+      }),
+      '/api/browser/settings': {
+        PUT: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+          const cookies = (['quit', 'always', 'never'] as const).find((m) => m === body.cookies)
+          const viewport = (['responsive', 'phone', 'tablet', 'desktop'] as const).find(
+            (v) => v === body.viewport,
+          )
+          const sites = Array.isArray(body.allowedSites)
+            ? body.allowedSites.filter((s): s is string => typeof s === 'string').slice(0, 100)
+            : undefined
+          personBrowser.updateSettings({
+            ...(cookies ? { cookies } : {}),
+            ...(viewport ? { viewport } : {}),
+            ...(sites ? { allowedSites: sites } : {}),
+          })
+          return json(browserState())
+        }),
+      },
+      '/api/browser/tabs': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as {
+            url?: unknown
+            html?: unknown
+            name?: unknown
+          }
+          try {
+            const tab = await personBrowser.open(
+              typeof body.html === 'string'
+                ? { html: body.html, name: typeof body.name === 'string' ? body.name : '' }
+                : typeof body.url === 'string'
+                  ? body.url
+                  : undefined,
+            )
+            return json({ tab })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id': {
+        DELETE: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          try {
+            await personBrowser.close(req.params.id ?? '')
+            return json(browserState())
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id/go': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          const body = (await req.json().catch(() => ({}))) as { url?: unknown; action?: unknown }
+          const action = (['back', 'forward', 'reload'] as const).find((a) => a === body.action)
+          if (!action && typeof body.url !== 'string') return json({ error: 'give a url or an action' }, 400)
+          try {
+            const tab = await personBrowser.go(
+              req.params.id ?? '',
+              action ? { action } : { url: String(body.url) },
+            )
+            return json({ tab })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/tabs/:id/screenshot': {
+        POST: guard(async (req) => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          try {
+            const png = await personBrowser.screenshot(req.params.id ?? '')
+            return new Response(Buffer.from(png), {
+              headers: {
+                'content-type': 'image/png',
+                'content-disposition': 'attachment; filename="screenshot.png"',
+                'cache-control': 'no-store',
+              },
+            })
+          } catch (err) {
+            return browserFailure(err)
+          }
+        }),
+      },
+      '/api/browser/clear': {
+        POST: guard(async () => {
+          if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+          await personBrowser.clear()
+          return json(browserState())
+        }),
+      },
+      '/api/browser/tabs/:id/live': (req: Request & { params: Record<string, string> }) => {
+        const url = new URL(req.url)
+        // As for the person's terminal: a socket that drives their browser must come from a page of this dashboard.
+        const access = req.headers.get('origin') ? authorized(req, url) : undefined
+        if (!access) return json({ error: 'unauthorized' }, 401)
+        if (access.scope !== 'full') return forbidden()
+        if (!personBrowser) return json({ error: 'no browser on this server' }, 404)
+        const data = {
+          kind: 'person-browser' as const,
+          tab: req.params.id ?? '',
+          ...(access.device ? { device: access.device.id } : {}),
+        }
+        if (server.upgrade(req, { data })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
+      },
       // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
       '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
         const url = new URL(req.url)
@@ -2793,6 +2939,18 @@ export function startServer(options: ServeOptions): WebServer {
           if (!ws.data.stream) ws.close(1011, 'phone calls are off')
           return
         }
+        if (ws.data.kind === 'person-browser') {
+          const data = ws.data
+          personBrowser
+            ?.watch(data.tab, (e) => ws.send(JSON.stringify(e)))
+            .then((unwatch) => {
+              // The socket may have closed while the tab was coming to the front.
+              if (ws.readyState === WebSocket.OPEN) data.unwatch = unwatch
+              else unwatch()
+            })
+            .catch((err) => ws.close(1011, err instanceof Error ? err.message.slice(0, 120) : 'no tab'))
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -2829,7 +2987,7 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.stream?.closed()
           return
         }
-        if (ws.data.kind === 'browser') ws.data.unwatch?.()
+        if (ws.data.kind === 'browser' || ws.data.kind === 'person-browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
@@ -2880,6 +3038,24 @@ export function startServer(options: ServeOptions): WebServer {
           if (msg.type === 'input' && typeof msg.data === 'string') term?.write(msg.data)
           else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number')
             term?.resize(Math.min(500, Math.max(10, msg.cols)), Math.min(500, Math.max(5, msg.rows)))
+          return
+        }
+        if (ws.data.kind === 'person-browser') {
+          const tab = ws.data.tab
+          let msg: PersonInput
+          try {
+            msg = JSON.parse(String(raw)) as PersonInput
+          } catch {
+            return
+          }
+          if (!PERSON_INPUTS.has(msg?.type)) return
+          void personBrowser
+            ?.input(tab, msg)
+            .catch((err) =>
+              ws.send(
+                JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : String(err) }),
+              ),
+            )
           return
         }
         if (ws.data.kind !== 'browser' || !options.browser) return
