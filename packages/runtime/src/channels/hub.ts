@@ -26,6 +26,7 @@ import type {
   ChannelAdapter,
   ChannelChat,
   ChannelField,
+  ChannelValues,
   Inbound,
   OutMessage,
   PressNote,
@@ -468,6 +469,64 @@ export class ChannelHub {
     const owner = this.store.get(channel).people.find((p) => p.role === 'owner' && p.dm)
     if (!adapter || !owner?.dm) throw new Error(t.notify.noOwner)
     await this._track(channel, adapter, { id: owner.dm, kind: 'dm' }, chatId, colonyId)
+  }
+
+  /**
+   * A running channel's saved settings, secret ones too, for another feature of the same platform account (phone
+   * calls on the SMS channel's Twilio number); undefined while it is off or not set up.
+   */
+  account(id: string): ChannelValues | undefined {
+    return this._running.has(id) ? this.store.get(id).values : undefined
+  }
+
+  /**
+   * Whether someone calling from (or to be called at) `number` may talk to the crew, by the channel's own rules for a
+   * direct chat from that sender: approved people and listed ones (added as members) are, and anyone under `open`.
+   * A stranger under `pairing` is texted a code as a text would get, when `ask`. Returns the person, the chat their
+   * conversation continues and the channel's project; or why not.
+   */
+  async caller(
+    id: string,
+    number: string,
+    ask: boolean,
+  ): Promise<
+    | { person: ChannelPerson; chatId?: string; project?: string; label: string }
+    | { refused: 'pairing' | 'ignored' }
+  > {
+    const adapter = this._running.get(id)
+    const kind = this.options.kinds()[id]
+    if (!adapter || !kind) return { refused: 'ignored' }
+    const c = this.store.get(id)
+    const m: Inbound = {
+      messageId: '',
+      chat: { id: number, kind: 'dm' },
+      sender: { id: number, name: number, handle: number },
+      text: '',
+      mentioned: true,
+      time: new Date().toISOString(),
+    }
+    const known = c.people.some((p) => p.id === number) || this._listed(c, m) || c.dm === 'open'
+    if (!known && !ask) return { refused: 'ignored' }
+    const person = await this._admit(id, adapter, c, m)
+    if (!person) return { refused: c.dm === 'pairing' ? 'pairing' : 'ignored' }
+    this._touch(id, { lastIn: new Date().toISOString() })
+    this._note(id, 'in', t.activity.call(person.name))
+    const chatId = this.store.get(id).chats[this._conversation(c, m)]
+    return {
+      person,
+      label: kind.label,
+      ...(chatId ? { chatId } : {}),
+      ...(c.project ? { project: c.project } : {}),
+    }
+  }
+
+  /** A call from `number` made a new chat: that number's texts continue it too, and it is named as theirs would be. */
+  async callChat(id: string, number: string, chatId: string) {
+    const kind = this._kind(id)
+    this.store.update(id, (cfg) => {
+      cfg.chats[number] = chatId
+    })
+    await this.options.chats.rename(chatId, t.title(kind.label, number)).catch(() => {})
   }
 
   /** A webhook for a channel, passed to its adapter (which checks the platform's signature). */

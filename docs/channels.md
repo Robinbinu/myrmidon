@@ -87,6 +87,9 @@ text (longer ones in marked parts); pictures you send by MMS reach the crew as a
 and the like are left to Twilio and the carriers. SMS has no buttons, edits or files out: approvals are answered by
 texting `/approve KEY`, and files the run made are listed by name.
 
+The same number can take **phone calls** to the call assistant (Settings → Voice → Phone calls), from the people SMS
+lets in by these same rules; see `voice.md`.
+
 ## Set up ntfy
 
 [ntfy](https://ntfy.sh) is a push-notification service: you subscribe to a **topic** in its app and anything posted

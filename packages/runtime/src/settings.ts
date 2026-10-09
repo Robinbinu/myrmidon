@@ -87,6 +87,11 @@ export interface MyrSettings {
       endpointVoice?: string
     }
     sensitivity: 'low' | 'normal' | 'high'
+    /**
+     * Phone calls on the SMS channel's Twilio number: answered (its voice webhook is pointed at this gateway) and
+     * made to the people SMS lets in. Off until the person turns it on, so the number's own voice setup is left alone.
+     */
+    phone: boolean
   }
 }
 
@@ -161,6 +166,7 @@ export const settingsSchema = Schema.object({
       endpointVoice: Schema.string().max(60),
     }).default({}),
     sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
+    phone: Schema.boolean().default(false),
   }).default({}),
 })
 
@@ -193,6 +199,7 @@ function parse(input: unknown): MyrSettings {
       stt: s.voice.stt,
       tts: s.voice.tts,
       sensitivity: s.voice.sensitivity,
+      phone: s.voice.phone,
     },
   }
 }

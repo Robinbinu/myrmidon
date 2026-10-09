@@ -36,6 +36,10 @@ import {
   type ModelResolver,
   normalizeTeamConfig,
   type OmpRuntime,
+  PHONE_HOOK,
+  PHONE_STREAM,
+  PhoneLine,
+  type PhoneStream,
   type PluginHost,
   type PluginStore,
   type ProjectStore,
@@ -53,6 +57,7 @@ import {
   startScheduler,
   TOOL_DEFS,
   type ToolLibrary,
+  TWILIO_API,
   VoiceHub,
   wav,
 } from '@myrmidon/runtime'
@@ -188,6 +193,8 @@ type StreamData = Opened &
         refusal?: { code: number; reason: string }
         closed?: boolean
       }
+    /** A phone call's audio from Twilio (Media Streams), checked by its signature before the upgrade. */
+    | { kind: 'phone'; stream?: PhoneStream }
   )
 
 /** Who a request comes from: the loopback token holder or a dev server (full), or a paired device. */
@@ -439,6 +446,46 @@ export function startServer(options: ServeOptions): WebServer {
           log: (line) => console.error(`voice: ${line}`),
         })
       : undefined
+  // Phone calls on the SMS channel's Twilio number, into the same calls (Settings → Voice → Phone calls).
+  const phone =
+    voice && channels && chatsPort && settingsStore
+      ? new PhoneLine({
+          account: () => {
+            const v = channels.account('sms')
+            if (!v?.sid || !v.token || !v.number) return undefined
+            return {
+              sid: v.sid,
+              token: v.token,
+              number: v.number.replace(/[\s()-]/g, ''),
+              api: process.env.MYR_TWILIO_API || TWILIO_API,
+            }
+          },
+          enabled: () => settingsStore.get().voice.enabled && settingsStore.get().voice.phone,
+          ...(publicUrl ? { publicUrl: publicUrl.origin } : {}),
+          admit: async (number, ask) => {
+            const found = await channels.caller('sms', number, ask)
+            if ('refused' in found) return found.refused === 'pairing' ? 'pairing' : undefined
+            return {
+              owner: found.person.role === 'owner',
+              name: found.person.name,
+              label: found.label,
+              ...(found.chatId ? { chatId: found.chatId } : {}),
+              ...(found.project ? { project: found.project } : {}),
+            }
+          },
+          chatMade: (number, chatId) => void channels.callChat('sms', number, chatId),
+          ownerName: () => settingsStore.get().profile.name ?? account,
+          describe: async (chatId) => {
+            const summary = (await chats?.list())?.find((c) => c.chatId === chatId)
+            return summary
+              ? { title: summary.title, ...(summary.crew ? { crew: summary.crew } : {}) }
+              : undefined
+          },
+          voice,
+          chats: chatsPort,
+          log: (line) => console.error(`phone: ${line}`),
+        })
+      : undefined
   // A new choice of engine is warmed at once, not when the next call starts.
   let voiceChoice = JSON.stringify(settingsStore?.get().voice)
   const offVoiceSettings = settingsStore?.onChange((next) => {
@@ -448,9 +495,11 @@ export function startServer(options: ServeOptions): WebServer {
     // Turned off: the engines stop and free their memory. On (or a new choice): what is missing downloads now.
     if (!next.voice.enabled) voice?.stop()
     else void voice?.warm()
+    void phone?.sync()
   })
   void channels
     ?.start()
+    .then(() => phone?.sync())
     .catch((err) => console.error(`channels: ${err instanceof Error ? err.message : err}`))
   // A plugin that adds or drops a platform is picked up without a restart.
   const offPlugins = options.pluginHost?.onChange(() => void channels?.refresh())
@@ -932,6 +981,8 @@ export function startServer(options: ServeOptions): WebServer {
                 ? { project: body.project as string | null }
                 : {}),
             })
+            // Phone calls ride on the SMS channel's number: a new number or account is pointed here too.
+            if (req.params.id === 'sms') void phone?.sync()
             return json({ channel })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 400)
@@ -1005,6 +1056,27 @@ export function startServer(options: ServeOptions): WebServer {
         if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
           return new Response('too large', { status: 413 })
         return channels.webhook(req.params.id ?? '', req)
+      },
+      // Calls to the SMS channel's number (Twilio's voice webhook), signed by Twilio; answered with a Media Stream.
+      [PHONE_HOOK]: async (req: Request) => {
+        if (!phone || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (Number(req.headers.get('content-length') ?? 0) > WEBHOOK_MAX)
+          return new Response('too large', { status: 413 })
+        return phone.incoming(req)
+      },
+      // A call's audio: Twilio opens it as the TwiML says, its upgrade signed like a webhook.
+      [PHONE_STREAM]: (req: Request) => {
+        if (!phone || !allowedHosts().has(req.headers.get('host') ?? ''))
+          return new Response('not found', { status: 404 })
+        if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket')
+          return new Response('expected a websocket', { status: 400 })
+        if (!phone.streamSigned(req)) {
+          console.error('phone: refused a media stream whose signature did not match')
+          return new Response('forbidden', { status: 403 })
+        }
+        if (server.upgrade(req, { data: { kind: 'phone' as const } })) return undefined as unknown as Response
+        return json({ error: 'websocket upgrade failed' }, 400)
       },
       '/api/gateways': {
         GET: guard(async () =>
@@ -2025,8 +2097,26 @@ export function startServer(options: ServeOptions): WebServer {
       }),
       // Voice calls (Settings → Voice): what is installed and chosen, installs, keys, a sample, calls per chat.
       '/api/voice': guard(() =>
-        voice ? json(voice.status()) : json({ error: 'voice needs the chat runtime' }, 503),
+        voice
+          ? json({ ...voice.status(), ...(phone ? { phone: phone.status() } : {}) })
+          : json({ error: 'voice needs the chat runtime' }, 503),
       ),
+      // Myrmidon calls someone SMS lets in (the owner unless `to` names another) from the Twilio number.
+      '/api/voice/phone/call': {
+        POST: guard(async (req) => {
+          if (!phone || !channels) return json({ error: 'phone calls need the chat runtime' }, 503)
+          const body = (await req.json().catch(() => ({}))) as { to?: unknown }
+          const to =
+            typeof body.to === 'string' && body.to.trim()
+              ? body.to.trim()
+              : channels.store.get('sms').people.find((p) => p.role === 'owner')?.id
+          try {
+            return json({ callSid: await phone.dial(to), to })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
+          }
+        }),
+      },
       '/api/voice/phonon/install': {
         POST: guard(() => {
           if (!voice) return json({ error: 'voice needs the chat runtime' }, 503)
@@ -2287,6 +2377,14 @@ export function startServer(options: ServeOptions): WebServer {
           )
           return
         }
+        if (ws.data.kind === 'phone') {
+          ws.data.stream = phone?.stream({
+            send: (text) => ws.send(text),
+            close: (code, reason) => ws.close(code, reason),
+          })
+          if (!ws.data.stream) ws.close(1011, 'phone calls are off')
+          return
+        }
         if (ws.data.kind === 'browser') {
           const data = ws.data
           options.browser
@@ -2319,10 +2417,18 @@ export function startServer(options: ServeOptions): WebServer {
           ws.data.session?.hangUp()
           return
         }
+        if (ws.data.kind === 'phone') {
+          ws.data.stream?.closed()
+          return
+        }
         if (ws.data.kind === 'browser') ws.data.unwatch?.()
         else sockets.delete(ws)
       },
       message(ws, raw) {
+        if (ws.data.kind === 'phone') {
+          ws.data.stream?.message(typeof raw === 'string' ? raw : new TextDecoder().decode(raw))
+          return
+        }
         if (ws.data.kind === 'call') {
           const session = ws.data.session
           if (!session) return

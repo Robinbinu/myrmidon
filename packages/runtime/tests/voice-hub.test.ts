@@ -55,6 +55,7 @@ test('voice settings default to the engines on this machine', () => {
     stt: { provider: 'phonon' },
     tts: { provider: 'kitten', kittenModel: 'nano', voice: 'Leo', speed: 1 },
     sensitivity: 'normal',
+    phone: false,
   })
   expect(hub.stt()).toBeInstanceOf(PhononStt)
   expect(hub.tts()).toBeInstanceOf(KittenTts)

@@ -44,7 +44,7 @@ const KEYWORDS = new Set([
 ])
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
 
-class TwilioError extends Error {
+export class TwilioError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -83,10 +83,49 @@ export function twilioSignature(authToken: string, url: string, params: URLSearc
   return createHmac('sha1', authToken).update(data, 'utf8').digest('base64')
 }
 
+/** Twilio's account credentials and the API host they are used with. */
+export interface TwilioAccount {
+  readonly sid: string
+  readonly token: string
+  readonly api: string
+}
+
+/** A call to the account's REST API (form-encoded in, JSON out). Never logs or throws the credentials. */
+export async function twilioRequest<T>(
+  account: TwilioAccount,
+  method: string,
+  path: string,
+  form?: Record<string, string>,
+): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(`${account.api}/2010-04-01/Accounts/${encodeURIComponent(account.sid)}${path}`, {
+      method,
+      headers: {
+        authorization: `Basic ${Buffer.from(`${account.sid}:${account.token}`).toString('base64')}`,
+        ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
+      },
+      ...(form ? { body: new URLSearchParams(form).toString() } : {}),
+      signal: AbortSignal.timeout(REQUEST_MS),
+    })
+  } catch (err) {
+    throw new TwilioError(0, `cannot reach Twilio: ${err instanceof Error ? err.name : 'network error'}`)
+  }
+  const data = (await res.json().catch(() => ({}))) as T & { message?: string }
+  if (!res.ok) throw new TwilioError(res.status, data.message ?? `Twilio answered ${res.status}`)
+  return data
+}
+
 /** The URL with the scheme's default port added or removed: Twilio may sign either form (Hermes). */
 function portVariant(url: string): string | undefined {
   const u = new URL(url)
-  const port = u.protocol === 'https:' ? '443' : u.protocol === 'http:' ? '80' : undefined
+  // A Media Stream's wss address has https's default port.
+  const port =
+    u.protocol === 'https:' || u.protocol === 'wss:'
+      ? '443'
+      : u.protocol === 'http:' || u.protocol === 'ws:'
+        ? '80'
+        : undefined
   if (!port) return undefined
   // URL drops a default port on parse, so add it by hand.
   const at = url.indexOf(u.host) + u.host.length
@@ -95,7 +134,13 @@ function portVariant(url: string): string | undefined {
     : `${url.slice(0, at)}:${port}${url.slice(at)}`
 }
 
-function signed(authToken: string, url: string, params: URLSearchParams, given: string): boolean {
+/** Whether `given` is Twilio's signature of this request, for the URL in either port form. */
+export function twilioSigned(
+  authToken: string,
+  url: string,
+  params: URLSearchParams,
+  given: string,
+): boolean {
   if (!authToken || !given) return false
   const g = Buffer.from(given)
   for (const candidate of [url, portVariant(url)]) {
@@ -144,25 +189,8 @@ export class SmsAdapter implements ChannelAdapter {
     return `Basic ${Buffer.from(`${this.accountSid}:${this.authToken}`).toString('base64')}`
   }
 
-  /** Never logs or throws the credentials. */
-  private async _call<T>(method: string, path: string, form?: Record<string, string>): Promise<T> {
-    let res: Response
-    try {
-      res = await fetch(`${this.api}/2010-04-01/Accounts/${encodeURIComponent(this.accountSid)}${path}`, {
-        method,
-        headers: {
-          authorization: this._auth,
-          ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
-        },
-        ...(form ? { body: new URLSearchParams(form).toString() } : {}),
-        signal: AbortSignal.timeout(REQUEST_MS),
-      })
-    } catch (err) {
-      throw new TwilioError(0, `cannot reach Twilio: ${err instanceof Error ? err.name : 'network error'}`)
-    }
-    const data = (await res.json().catch(() => ({}))) as T & { message?: string }
-    if (!res.ok) throw new TwilioError(res.status, data.message ?? `Twilio answered ${res.status}`)
-    return data
+  private _call<T>(method: string, path: string, form?: Record<string, string>): Promise<T> {
+    return twilioRequest({ sid: this.accountSid, token: this.authToken, api: this.api }, method, path, form)
   }
 
   async check(): Promise<string> {
@@ -235,7 +263,7 @@ export class SmsAdapter implements ChannelAdapter {
     const url = this._io?.webhookUrl
     const params = new URLSearchParams(await req.text().catch(() => ''))
     // Twilio signs the address it was given, which is the public one (the request may arrive through a proxy).
-    if (!url || !signed(this.authToken, url, params, req.headers.get('x-twilio-signature') ?? ''))
+    if (!url || !twilioSigned(this.authToken, url, params, req.headers.get('x-twilio-signature') ?? ''))
       return twiml(403)
     if (params.get('AccountSid') !== this.accountSid) return twiml(403)
     const message = this._inbound(params)
