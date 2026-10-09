@@ -58,7 +58,7 @@ test('agents in a project chat get the instructions and a shell that starts in t
     browser: false,
     project: readProjectContext(root),
   }).join('\n')
-  expect(prompt).toContain('Project instructions (AGENTS.md)')
+  expect(prompt).toContain('<project_instructions source="AGENTS.md">')
   expect(prompt).toContain('Run bun test before you finish.')
   expect(prompt).toContain('commands start in the project folder')
   expect(prompt).not.toContain('commands start in your scratch directory')

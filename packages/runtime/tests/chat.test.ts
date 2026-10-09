@@ -493,11 +493,11 @@ test('saved specialists: kept by name, joined from the team picker or by the lea
 
 test('crewmates on call: a lead working alone asks them for work and gets their answers back as results', async () => {
   const resolver = new ModelResolver()
-  const seen: { system?: string; tools?: string[]; results?: string } = {}
+  const seen: { system?: string; tools?: string[]; results?: string; job?: unknown } = {}
   const names = (system: string) =>
     [
       // Only the roster lines, up to the instructions after them.
-      ...((system.split('Your crewmates, on call')[1] ?? '').split('\n- When')[0] ?? '').matchAll(
+      ...((system.split('Your crewmates on call')[1] ?? '').split('\n- Ask')[0] ?? '').matchAll(
         /^- (\w+): (\w+) \(/gm,
       ),
     ].map((m) => [m[2], m[1]])
@@ -519,7 +519,10 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   ])
   // The researcher answers the lead by message; the writer stops without answering.
   scripted(resolver, 'mock/researcher', [
-    [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })],
+    (ctx) => {
+      seen.job = ctx.messages[0]?.content
+      return [tool('message', { to: 'lead', text: 'Typically 300,000 ants.' })]
+    },
     ['Answered the lead.'],
   ])
   scripted(resolver, 'mock/writer', [['Thinking about titles.']])
@@ -538,6 +541,10 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   expect(s.status).toBe('completed')
   expect(seen.tools).toContain('ask_crewmate')
   expect(names(seen.system ?? '').map(([role]) => role)).toEqual(['researcher', 'writer'])
+  // A crewmate opens with its job alone: not the person's request, not a mail to answer.
+  expect(JSON.stringify(seen.job)).toBe(
+    JSON.stringify([{ type: 'text', text: 'Find how many ants live in a typical colony.' }]),
+  )
   // The answer came back as the tool's result, and a crewmate that went quiet is reported, not waited on.
   expect(seen.results).toContain('answered:\\nTypically 300,000 ants.')
   expect(seen.results).toContain('stopped without answering')
@@ -731,7 +738,7 @@ test('swarm: peers huddle before working, the first proposer plans, and a speake
   // Who proposes first is a race, so each mock peer acts on what it is told rather than on a fixed script.
   const brain = (ctx: LlmContext): MockContent[] => {
     const system = ctx.systemPrompt?.join('\n') ?? ''
-    const me = /You are ([a-z]+), one of/.exec(system)?.[1] ?? '?'
+    const me = /You are "([a-z]+)", an agent/.exec(system)?.[1] ?? '?'
     const others = [...system.matchAll(/^- ([a-z]+): peer \(/gm)].map((m) => m[1] as string)
     const last = JSON.stringify(ctx.messages.at(-1) ?? '')
     const st = progress.get(me) ?? { phase: 'idle' }
@@ -3609,7 +3616,7 @@ test("an older chat the person named in an earlier round's colony keeps their na
   const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
   const payload = structuredClone(created?.payload) as EventPayloads['colony/created']
   if (payload.chat) payload.chat = { ...payload.chat, round: 2, request: 'now as a PDF' }
-  await runtime.ctx.log.appendOne(newColonyId('round-two'), {
+  await runtime.ctx.log.appendOne(newColonyId(), {
     type: 'colony/created',
     actor: { kind: 'user', id: 'user' },
     payload,
