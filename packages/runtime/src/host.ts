@@ -81,8 +81,11 @@ export interface ColonyHost {
   streamed(agent: string, text: string, done: boolean, plain: boolean): void
   /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
   readonly plugins?: PluginHost
-  /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
-  toolsChanged(): void
+  /**
+   * Tools changed (a tool was made, rules changed): rebuild every agent's tool list for its next step. `made` is a tool
+   * an agent just made, loaded for that agent at once so it can call it; the rest load it with find_tools.
+   */
+  toolsChanged(made?: { readonly by: string; readonly tool: string }): void
   /** A real browser for agents; absent when no Chrome is installed. */
   readonly browser?: BrowserHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */

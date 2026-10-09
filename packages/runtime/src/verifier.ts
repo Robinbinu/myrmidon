@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { ActorRef, ColonyState, EventId, EventPayloads, MyrEvent } from '@myrmidon/protocol'
 import { completeSimple, type Context as LlmContext } from '@oh-my-pi/pi-ai'
+import { localDate } from './clock.ts'
 import {
   MAX_DIFF_CHARS,
   MAX_JUDGE_CHARS,
@@ -307,7 +308,7 @@ export class Verifier {
     const context: LlmContext = {
       systemPrompt: [
         prompts.judge.role,
-        prompts.judge.today(new Date().toISOString().slice(0, 10)),
+        prompts.judge.today(localDate()),
         prompts.judge.kinds(kinds.join(' + '), kinds.map((k) => `- ${prompts.judge.judging[k]}`).join('\n')),
         ...(sources ? [prompts.judge.sources(this.host.boundary)] : []),
         ...(checks ? [prompts.judge.checks] : []),

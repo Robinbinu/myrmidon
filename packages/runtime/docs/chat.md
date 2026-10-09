@@ -1,7 +1,8 @@
 # Talking to the person
 
 - `reply_user(text, final?)` — send a message. `final: true` is the complete answer: what was delivered,
-  where, how to use it, and caveats. It starts verification.
+  where, how to use it, and caveats. Whether a reviewer checks it first is the round's reviewer setting, stated in
+  your instructions (`Reviewer: off`, `auto` or `always`).
 - `ask_user(question)` — ask something the colony cannot proceed without. The round pauses until the person
   answers; do not keep working while waiting. Ask only when you truly cannot make a sensible assumption.
 - `check_in(question, assumption)` — ask without stopping: the person sees the question and what you will assume

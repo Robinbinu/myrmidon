@@ -352,7 +352,11 @@ export class ColonyRun implements ColonyHost {
   }
 
   pluginTools(agent: string) {
-    return this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
+    const tools = this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
+    // Messaging the person on a channel is speaking to them: only for agents that do (reply_user).
+    const spec = this.spec.agents.find((a) => a.name === agent)
+    const speaks = spec !== undefined && toolsFor(this.spec, spec).includes('reply_user')
+    return speaks ? tools : tools.filter((t) => t.name !== 'channels_send')
   }
 
   pluginPrompts(role: 'lead' | 'worker') {
@@ -700,8 +704,9 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
-  toolsChanged() {
+  toolsChanged(made?: { readonly by: string; readonly tool: string }) {
     for (const a of this._agents.values()) a.refreshTools()
+    if (made) this._agents.get(made.by)?.load([made.tool])
   }
 
   /**
@@ -1320,11 +1325,7 @@ export class ColonyRun implements ColonyHost {
     try {
       if (!here) {
         // On call until now: it joins the round, its job in its instructions, and is woken by the job's mail below.
-        const spec: AgentSpec = {
-          ...called,
-          role: 'worker',
-          instructions: [called.instructions, prompts.colony.crewmateJob(by)].filter(Boolean).join('\n\n'),
-        }
+        const spec: AgentSpec = { ...called, role: 'worker' }
         this.spec.agents.push(spec)
         await this.append({
           type: 'agent/joined',

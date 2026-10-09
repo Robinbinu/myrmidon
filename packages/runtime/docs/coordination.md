@@ -20,7 +20,7 @@ files (`outputs`) it will produce.
 
 ## Checking what happened
 
-- `read_log(agent?, tool?, last?)` — what agents actually did: each tool call with its arguments and outcome,
+- `read_log(agent?, tool?, last?, entry?)` — what agents actually did: each tool call with its arguments and the start of its output (`entry` shows one in full),
   task changes, merges, and replies. Check a claim ("tests pass") against it before trusting it.
 - `observe` — time and budget left, idle agents, unclaimed or blocked tasks.
 

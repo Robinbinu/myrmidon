@@ -492,10 +492,12 @@ test('crewmates on call: a lead working alone asks them for work and gets their 
   const resolver = new ModelResolver()
   const seen: { system?: string; tools?: string[]; results?: string } = {}
   const names = (system: string) =>
-    [...(system.split('Your crewmates, on call')[1] ?? '').matchAll(/^- (\w+): (\w+) \(/gm)].map((m) => [
-      m[2],
-      m[1],
-    ])
+    [
+      // Only the roster lines, up to the instructions after them.
+      ...((system.split('Your crewmates, on call')[1] ?? '').split('\n- When')[0] ?? '').matchAll(
+        /^- (\w+): (\w+) \(/gm,
+      ),
+    ].map((m) => [m[2], m[1]])
   scripted(resolver, 'mock/lead', [
     (ctx) => {
       seen.system = ctx.systemPrompt?.join('\n') ?? ''
@@ -1745,6 +1747,50 @@ test.skipIf(!findChrome())(
     // Each action left a keyframe to replay.
     const frames = (await events(colonyId)).filter((e) => e.type === 'browser/keyframe')
     expect(frames.map((e) => (e.payload as { action: string }).action)).toEqual(['open', 'click'])
+    await browser.close()
+  },
+  60_000,
+)
+
+test.skipIf(!findChrome())(
+  'a published page loads its sibling files (fetch, ES modules) in the agent browser',
+  async () => {
+    const browser = new BrowserHub(join(home, 'browser'))
+    opened.push(browser)
+    const resolver = new ModelResolver()
+    const page =
+      '<!doctype html><title>Ants</title><p id="out">loading</p><script type="module">' +
+      "import { label } from './lib/label.js'; const r = await fetch('data.json'); " +
+      "document.getElementById('out').textContent = label((await r.json()).count)</script>"
+    scripted(resolver, 'mock/solo', [
+      [
+        tool('publish_artifact', { name: 'data.json', content: '{"count": 300000}' }),
+        tool('publish_artifact', {
+          name: 'lib/label.js',
+          content: "export const label = (n) => n + ' ants'",
+        }),
+        tool('publish_artifact', { name: 'index.html', content: page }),
+      ],
+      [tool('browser_open', { url: 'artifact:index.html' })],
+      [tool('browser_console', {})],
+      [tool('reply_user', { text: 'Tested.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), browser })
+    const { colonyId } = await chats.send('Build an ant counter page', {
+      ...solo('mock/solo'),
+      judgeModel: 'mock/judge',
+    })
+    await waitFor(colonyId)
+    const results = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])
+    const page_ = results.find((r) => r.tool === 'browser_open')
+    expect(page_?.output).toContain('300000 ants')
+    // Served from the colony's own origin, not from the person's disk.
+    expect(page_?.output).toContain('.artifacts.localhost/index.html')
+    expect(page_?.output).not.toContain('file://')
+    expect(results.find((r) => r.tool === 'browser_console')?.output).not.toContain('CORS')
     await browser.close()
   },
   60_000,

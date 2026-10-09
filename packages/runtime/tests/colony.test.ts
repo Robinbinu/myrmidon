@@ -294,9 +294,10 @@ test('a reply priced on the model it ran on still counts toward the spend limit 
 })
 
 test.skipIf(detectSandbox().kind === 'none')(
-  'an agent makes a tool, it must pass its test run, and the team can call it; kept tools load into new colonies',
+  'an agent makes a tool, it must pass its test run, and can call it at once; kept tools load into new colonies',
   async () => {
     const resolver = new ModelResolver()
+    const offered: string[][] = []
     const shout = {
       name: 'shout',
       description: 'Upper-cases a phrase and adds an exclamation mark.',
@@ -305,11 +306,18 @@ test.skipIf(detectSandbox().kind === 'none')(
       source:
         'echo "$MYR_INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)[\'text\'].upper() + \'!\')"\n',
     }
-    scripted(resolver, 'mock/maker', [
+    const steps = [
       [tool('create_tool', { ...shout, name: 'broken', source: 'exit 3\n', test: '{"text": "x"}' })],
       [tool('create_tool', { ...shout, test: '{"text": "test"}' })],
       [tool('tool_shout', { text: 'made by an agent' })],
-    ])
+    ]
+    const maker = createMockModel({
+      handler: (ctx: LlmContext) => {
+        offered.push((ctx.tools ?? []).map((t) => t.name))
+        return { content: steps[offered.length - 1] ?? ['nothing more to do'] }
+      },
+    })
+    resolver.register('mock/maker', { model: maker.model, streamFn: maker.stream })
     const spec = parseColonySpec({
       name: 'Maker',
       mission: 'Make a tool.',
@@ -326,6 +334,10 @@ test.skipIf(detectSandbox().kind === 'none')(
     expect(results[0]?.output).toContain('failed its test run')
     expect(results[1]).toMatchObject({ tool: 'create_tool', ok: true })
     expect(results[1]?.output).toContain('TEST!')
+    expect(results[1]?.output).not.toContain('the team can call it now')
+    // The maker's next model call offers the tool it made: no find_tools first.
+    expect(offered[1]).not.toContain('tool_shout')
+    expect(offered[2]).toContain('tool_shout')
     expect(results[2]).toMatchObject({ tool: 'tool_shout', ok: true, output: 'MADE BY AN AGENT!' })
     expect(Object.keys(final.madeTools)).toEqual(['shout'])
 
