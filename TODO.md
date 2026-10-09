@@ -268,7 +268,7 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [ ] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip).
 - [ ] Teams file consent card (native OneDrive upload in personal chats); Matrix end-to-end encryption needs
       `@matrix-org/matrix-sdk-crypto-nodejs` (native) — a new dependency, ask first.
-- [ ] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
+- [x] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
       can't match queries under 3 characters).
 
 ### [decide] Product calls
@@ -424,10 +424,13 @@ Open work, in the order it will be done:
       only picks models it can call. A photo without a caption failed with "message is empty": files alone are now a
       message. Stickers: a still one comes as its WebP image with its emoji, an animated one as its emoji.
       Not yet checked against the real Telegram (needs a message sent to the bot).
-12e. - [ ] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
+12e. - [x] **Flaky under load: LINE sender name, Feishu credentials check** — channels-line "events become messages…" saw "Someone" for
       "Alice" once in a full run while other sessions ran their suites (the profile lookup is not awaited in time);
       passes alone.
       Also channels-feishu "check() names the bot…" once (Feishu refused this App ID…) in a full run; passes alone.
+      Fixed 2026-10-09: fakes listened on both IPv4 and IPv6 while adapters dialled 127.0.0.1, so a port Chrome held
+      on 127.0.0.1 could answer instead; fakes now bind 127.0.0.1, and tests wait for what they check. 7,680 loaded
+      runs clean. Left: voice-call "approvals one at a time" hung once under heavy load (passes 78/78 alone).
 12f. - [x] **Mail tab counts unread only** (asked 2026-10-08): a mailbox's count is what the person has not read; it
       drops as they read a conversation and rises when new messages arrive. Done: last seq seen per conversation, kept
       in the browser; checked live (99+ → 21 after opening two conversations).
