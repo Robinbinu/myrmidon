@@ -399,10 +399,15 @@ Open work, in the order it will be done:
         once; Silero VAD (16 kHz, 1.3 MB) finds turns instead of loudness alone (asked 2026-10-08).
       - [x] Call the lead or a crew member directly, or the call assistant (which can now ask them); the next message
         after a call carries its transcript to the crew; call cards placed among rounds by time (asked 2026-10-08).
-      - [ ] Mark spoken messages in the chat (they carry `voice: true`).
-      - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
-      - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
-      - [ ] Phonon `--hotwords` from agent and project names.
+      - [x] Mark spoken messages in the chat (they carry `voice: true`). Already shown ("Said on a call"); tests added.
+      - [x] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does. Done 2026-10-09 with fakes
+        (docs/voice.md "Phone calls"). Left: try a real call (needs the SMS number, a public https URL); the stream
+        handshake signature URL is unverified; switching off does not restore the number's old webhook; no lead/crew
+        choice by phone.
+      - [x] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner. Live words
+        in the call bar; final 25–180 ms sooner. Replying from a partial was not done (partials miss hotwords).
+      - [x] Phonon `--hotwords` from agent and project names (per request; `--hotwords` is not a server flag).
+      - [x] Phonon servers left running by earlier runs (8 found) are stopped before a new one starts.
       - [x] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode. **Not now
         (decided 2026-10-09).**
 12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
@@ -433,8 +438,11 @@ Open work, in the order it will be done:
       2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
       calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
       Reveal in Finder (needs the desktop shell).
-14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
+14. - [x] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
       fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
+      Done 2026-10-09 (web_fetch and the browser). Left: the shell can still reach private addresses (sandbox limits
+      writes only); the shared Chrome lets every open run's own ports through for WebSockets and service workers;
+      web_fetch lost omp's lynx/trafilatura/yt-dlp readers (YouTube transcripts through it no longer work).
 15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
       through their endpoints (the browser pane was hidden).
 16. - [ ] **M4.7 benchmarks** (deferred).
