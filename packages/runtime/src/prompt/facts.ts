@@ -1,4 +1,4 @@
-import { effectivePreset, type PermissionPreset, rulesIn } from '@myrmidon/protocol'
+import { ACCESS_GROUPS, effectivePreset, type PermissionPreset, rulesIn } from '@myrmidon/protocol'
 import { canonicalZone, zoneOffset } from '../clock.ts'
 import {
   type Environment,
@@ -293,7 +293,10 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       names,
       // Computer use is loadable only where the round may use the person's Mac.
       deferred: names.includes('find_tools')
-        ? names.filter((t) => onDemand(t) && !ready.has(t) && (t !== 'computer' || env.computer === true))
+        ? names.filter(
+            (t) =>
+              onDemand(t) && !ready.has(t) && (!ACCESS_GROUPS.computer.includes(t) || env.computer === true),
+          )
         : [],
     },
     model: { ref: agent.model, family: modelFamily(agent.model) },

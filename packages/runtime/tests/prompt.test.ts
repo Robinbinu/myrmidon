@@ -7,7 +7,7 @@ import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protoc
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { canonicalZone } from '../src/clock.ts'
-import { COMPUTER_TOOL } from '../src/computer/tool.ts'
+import { COMPUTER_TOOLS } from '../src/computer/tool.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 import { inputSchema } from '../src/made-tools.ts'
 import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
@@ -477,7 +477,7 @@ test('every tool parameter says what it is, in every prompt and for every tool t
   )
   expect(found).toEqual([])
   // Beyond the matrix: every harness tool, the computer, the call assistant's tools, and a made tool's wrapper.
-  const harness = [...TOOL_DEFS.map((d) => d.name), COMPUTER_TOOL].flatMap((name) =>
+  const harness = [...TOOL_DEFS.map((d) => d.name), ...Object.keys(COMPUTER_TOOLS)].flatMap((name) =>
     undescribed(toolParameters(name)).map((p) => `${name}.${p}`),
   )
   expect(harness).toEqual([])

@@ -1,9 +1,11 @@
 /**
  * The `computer` tool: an agent sees and controls the person's Mac through Cua Driver, one approved app at a time.
  * One tool serves every model: OpenAI's native computer tool (pi-ai sends it as one when the model supports it), the
- * same tool rewritten into Anthropic's computer toolset (see agent.ts), and a plain function tool for the rest. Each
- * call is gated here: computer use on in Settings, never for a channel member's round, macOS grants present, the app
- * approved for the chat at a tier that allows the action, and consequential steps approved by the person.
+ * same tool rewritten into Anthropic's computer toolset (see agent.ts), and a plain function tool for the rest. Apps
+ * are opened and listed with `open_app` and `list_apps`, function tools beside it for every model, since neither
+ * provider's native tool has such actions. Each call is gated here: computer use on in Settings, never for a channel
+ * member's round, macOS grants present, the app approved for the chat at a tier that allows the action, and
+ * consequential steps approved by the person.
  */
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import { type ComputerToolCallMetadata, type Model, type } from '@oh-my-pi/pi-ai'
@@ -33,6 +35,8 @@ import { type AppTier, allows, appTier, appWarning, canRaise, isOwnApp, sendsOnR
 import type { DriverResult } from './driver.ts'
 
 export const COMPUTER_TOOL = 'computer'
+export const OPEN_APP_TOOL = 'open_app'
+export const LIST_APPS_TOOL = 'list_apps'
 
 const t = prompts.computer
 
@@ -88,10 +92,10 @@ function deskOf(host: ColonyHost, agent: string): Desk {
   return desk
 }
 
-/** The computer tool's parameters, one schema for every action (exported for the prompt lint). */
-export const computerParameters = type({
+/** The computer tool's parameters, one schema for every action. */
+const computerParameters = type({
   action: type(
-    "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position' | 'open_app' | 'list_apps'",
+    "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position'",
   ).describe(prompts.tools.computer.params.action),
   'coordinate?': type('number').array().describe(prompts.tools.computer.params.coordinate),
   'start_coordinate?': type('number').array().describe(prompts.tools.computer.params.start_coordinate),
@@ -104,12 +108,22 @@ export const computerParameters = type({
   'repeat?': type('number').describe(prompts.tools.computer.params.repeat),
   'duration?': type('number').describe(prompts.tools.computer.params.duration),
   'region?': type('number').array().describe(prompts.tools.computer.params.region),
-  'app?': type('string').describe(prompts.tools.computer.params.app),
-  'full_control?': type('boolean').describe(prompts.tools.computer.params.full_control),
   'query?': type('string').describe(prompts.tools.computer.params.query),
   'button?': type("'left' | 'right'").describe(prompts.tools.computer.params.button),
   'count?': type('number').describe(prompts.tools.computer.params.count),
 })
+
+const openAppParameters = type({
+  app: type('string').describe(prompts.tools.open_app.params.app),
+  'full_control?': type('boolean').describe(prompts.tools.open_app.params.full_control),
+})
+
+/** Computer use's tools by name, with what the model reads about them (exported for the prompt lint). */
+export const COMPUTER_TOOLS = {
+  [COMPUTER_TOOL]: { description: prompts.tools.computer.description, parameters: computerParameters },
+  [OPEN_APP_TOOL]: { description: prompts.tools.open_app.description, parameters: openAppParameters },
+  [LIST_APPS_TOOL]: { description: prompts.tools.list_apps.description, parameters: type({}) },
+} as const
 
 /** The context pi-agent-core hands a tool (agent.ts sets it): the call's provider metadata and its batch. */
 interface CallContext {
@@ -121,7 +135,7 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
   return {
     name: COMPUTER_TOOL,
     label: COMPUTER_TOOL,
-    description: prompts.tools.computer.description,
+    description: COMPUTER_TOOLS[COMPUTER_TOOL].description,
     parameters: computerParameters,
     // OpenAI's computer-use models get the native tool; every other model this definition as a function tool.
     native: { type: 'computer' },
@@ -151,6 +165,41 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
         () => [fromGeneric(String(input.action), input)],
         undefined,
         signal,
+      )
+    },
+  } as AgentTool
+}
+
+/**
+ * `open_app` or `list_apps`: function tools for every model, beside its computer tool, run like a computer action
+ * (the same checks, and the person's approval of each app).
+ */
+export function appTool(
+  name: typeof OPEN_APP_TOOL | typeof LIST_APPS_TOOL,
+  agent: string,
+  host: ColonyHost,
+  model: () => Model,
+): AgentTool {
+  return {
+    name,
+    label: name,
+    description: COMPUTER_TOOLS[name].description,
+    parameters: COMPUTER_TOOLS[name].parameters,
+    intent: 'omit',
+    approval: 'write',
+    concurrency: 'exclusive',
+    async execute(callId: string, params: unknown, signal?: AbortSignal) {
+      const input = (params ?? {}) as Record<string, unknown>
+      return run(
+        host,
+        agent,
+        model,
+        callId,
+        'generic',
+        () => [fromGeneric(name, input)],
+        undefined,
+        signal,
+        name,
       )
     },
   } as AgentTool

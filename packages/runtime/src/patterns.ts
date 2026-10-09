@@ -51,7 +51,7 @@ const BUILD = [
   'create_tool',
   ...BROWSER,
   'mcp',
-  'computer',
+  ...ACCESS_GROUPS.computer,
 ]
 const USER = ['reply_user', 'check_in', 'ask_user', 'remember']
 /** For the agent that speaks: features of Myrmidon itself are built as plugins the person switches on. */
@@ -88,7 +88,7 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         // A quick lookup on a site still needs searching and clicking; these act only in the agent's own browser.
         ...BROWSER,
         // "What's on my screen", "check this in Notes": only when the person switched computer use on.
-        'computer',
+        ...ACCESS_GROUPS.computer,
         // In a project, quick questions are often about its code: reading it needs no team.
         ...(spec.chat.project ? ['fs_read', 'fs_list', 'grep', 'glob', 'request_read'] : []),
         'list_artifacts',
@@ -179,9 +179,17 @@ const ON_DEMAND = new Set([
   'create_tool',
   'read_log',
   'read_docs',
-  'computer',
+  ...ACCESS_GROUPS.computer,
   ...PLUGIN,
 ])
+
+/** On-demand tools that only work together, so loading one loads the rest: the computer works in apps open_app opens. */
+const LOADED_TOGETHER: readonly (readonly string[])[] = [ACCESS_GROUPS.computer]
+
+/** These tool names with the tools that load together with them. */
+export function withCompanions(names: readonly string[]): string[] {
+  return [...new Set(names.flatMap((n) => LOADED_TOGETHER.find((g) => g.includes(n)) ?? [n]))]
+}
 
 /**
  * On-demand tools a request plainly calls for, loaded from the start so the agent does not spend a step asking:
@@ -203,7 +211,7 @@ export function preloaded(request: string, names: readonly string[]): string[] {
       (browser && (n.startsWith('browser_') || n === 'request_login')) ||
       (server && ['start_server', 'server_logs', 'stop_server'].includes(n)) ||
       (plugin && (PLUGIN.includes(n) || n === 'read_docs')) ||
-      (computer && n === 'computer'),
+      (computer && ACCESS_GROUPS.computer.includes(n)),
   )
 }
 

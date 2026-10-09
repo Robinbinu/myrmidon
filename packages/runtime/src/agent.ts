@@ -25,6 +25,7 @@ import {
   startsAwake,
   thinkingFor,
   toolsFor,
+  withCompanions,
 } from './patterns.ts'
 import { type AssembledPrompt, assemble } from './prompt/assemble.ts'
 import { factsFor, type PromptFacts } from './prompt/facts.ts'
@@ -204,15 +205,21 @@ export class ColonyAgent {
     )
   }
 
-  /** Shows these on-demand tools in this agent's next model calls. */
+  /** Shows these on-demand tools, and those that work with them, in this agent's next model calls. */
   load(names: readonly string[]) {
-    for (const name of names) this._loaded.add(name)
+    for (const name of withCompanions(names)) this._loaded.add(name)
   }
 
   /** Loads the on-demand tools matching `query` for this agent's next steps (find_tools). */
   loadTools(query: string): string {
     const waiting = this._agent.state.tools.filter((t) => !this._shown(t.name))
-    const { found, more } = matchTools(waiting, query)
+    const matched = matchTools(waiting, query)
+    const companions = withCompanions(matched.found.map((t) => t.name))
+    const found = [
+      ...matched.found,
+      ...waiting.filter((t) => companions.includes(t.name) && !matched.found.includes(t)),
+    ]
+    const more = matched.more.filter((t) => !found.includes(t))
     if (found.length === 0) {
       const names = waiting.map((t) => t.name)
       return names.length ? prompts.agent.noMatch(query, names) : prompts.agent.allLoaded
