@@ -1,13 +1,16 @@
-import type { ChatGrant, ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, ChevronDown, PencilLine, X } from 'lucide-react'
+import type { ColonyState, PermissionRule, PermissionScope, Review, ReviewField } from '@myrmidon/protocol'
+import { BookmarkPlus, Check, ChevronDown, Info, PencilLine, TriangleAlert, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useRef, useState } from 'react'
 import { send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { useScope } from '../DeviceGate.tsx'
 import { type DiffLine, diffLines } from '../diff.ts'
+import { sourceText, targetText } from '../permissions/describe.ts'
+import { MenuItem, MenuList, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
-import { spring } from '../ui-config.ts'
+import { APPROVAL_MENU_PX, APPROVAL_MENU_ROOM_PX, spring } from '../ui-config.ts'
 import { Markdown } from './Markdown.tsx'
 import { useOpenProjectFile } from './ProjectFiles.tsx'
 
@@ -25,25 +28,29 @@ import { FEATURE_ICONS } from '../ui/icons.ts'
 import type { Pending } from './approvals.ts'
 
 /**
- * A call that waited for the person (an "Ask first" project, tools set to Ask, MCP tools that change things, and
- * changes an agent proposes), where it came up in the chat. While it waits it shows what it would do in full, where
- * there is a change to show, with Approve or Deny; text fields can be rewritten first and what runs is the person's
- * version. Once decided it stays as one line saying what was decided.
+ * A call that waited for the person (the preset or a rule asked, an MCP tool that changes things, a change an agent
+ * proposes), where it came up in the chat. While it waits it shows what it would do in full, where there is a change
+ * to show, why it asked, and Allow once or Deny, each with a menu to remember the answer for this chat, this project
+ * or everywhere; text fields can be rewritten first and what runs is the person's version. Once decided it stays as
+ * one line saying what was decided.
  */
 export function Approval({
   colonyId,
   chatId,
+  project,
   request,
 }: {
   colonyId: string
-  /** The chat the round belongs to: where "Allow all … in this chat" applies. */
+  /** The chat the round belongs to: where "for this chat" applies. */
   chatId?: string | undefined
+  /** The round's project, when it has one: where "for this project" applies. */
+  project?: string | undefined
   request: Pending
 }) {
   return request.decided ? (
     <ApprovalRecord request={request} decided={request.decided} />
   ) : (
-    <ApprovalCard colonyId={colonyId} chatId={chatId} request={request} />
+    <ApprovalCard colonyId={colonyId} chatId={chatId} project={project} request={request} />
   )
 }
 
@@ -133,36 +140,70 @@ function ApprovalRecord({
 function ApprovalCard({
   colonyId,
   chatId,
+  project,
   request: a,
 }: {
   colonyId: string
   chatId?: string | undefined
+  project?: string | undefined
   request: Pending
 }) {
   const toast = useToast()
-  const grants = copy.approvals.grants
+  const full = useScope() === 'full'
   const [busy, setBusy] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [note, setNote] = useState('')
   const changed = Object.entries(edits).filter(
     ([key, value]) => a.review?.fields.find((f) => f.key === key)?.value !== value,
   )
-  // `all`: this step as the person left it (their edits and note), then every later one of its kind in the chat.
-  const decide = async (approved: boolean, all = false) => {
+  // Where an answer may be remembered: this chat, its project, everywhere. A chats-only device keeps to the chat. A
+  // folder of keys or sign-ins is allowed once or for this chat (its own button), never remembered wider.
+  const scopes: PermissionScope[] = a.sensitive
+    ? []
+    : [
+        ...(chatId ? (['chat'] as const) : []),
+        ...(project && full ? (['project'] as const) : []),
+        ...(full ? (['global'] as const) : []),
+      ]
+  const choices = scopes.length ? choicesOf(a.offer ?? []) : []
+  /** `remember`: the rules saved with the answer, and where. */
+  const decide = async (
+    approved: boolean,
+    remember?: { scope: PermissionScope; rules: PermissionRule[] },
+  ) => {
     setBusy(true)
     try {
       await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
         approved,
         ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
+        ...(remember ? { remember } : {}),
       })
-      if (all && a.read && chatId) {
-        await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
-        toast(copy.approvals.reads.allowed(a.read), 'success')
-      } else if (all && a.grant && chatId) {
-        await send('PUT', `/api/chats/${chatId}/allowed`, { grant: a.grant, allowed: true })
-        toast(grants.allowed(grants.kinds[a.grant]), 'success')
-      }
+      if (remember)
+        toast(
+          copy.permissions.card.remembered(
+            remember.rules.map(targetText).join(copy.permissions.card.and),
+            copy.permissions.card.scopes[remember.scope],
+          ),
+          'success',
+        )
+    } catch (err) {
+      toast(String((err as Error).message), 'error')
+      setBusy(false)
+    }
+  }
+  // This request is answered first, so the note typed on it goes with it; allowing the folder for the chat then
+  // answers the other requests to read it already waiting.
+  const readForChat = async () => {
+    if (!a.read || !chatId) return
+    setBusy(true)
+    try {
+      await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
+        approved: true,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      })
+      await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
+      toast(copy.approvals.reads.allowed(a.read), 'success')
     } catch (err) {
       toast(String((err as Error).message), 'error')
       setBusy(false)
@@ -201,6 +242,18 @@ function ApprovalCard({
           {a.summary}
         </pre>
       )}
+      {a.sensitive && (
+        <p role="note" className="flex items-start gap-1.5 text-callout text-warn-ink">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          {copy.approvals.reads.sensitive}
+        </p>
+      )}
+      {a.why && (
+        <p className="flex items-center gap-1.5 text-small text-muted">
+          <Info className="size-3.5 shrink-0" aria-hidden />
+          {sourceText(a.why, 'ask')}
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {a.review && (
           <TextInput
@@ -213,48 +266,175 @@ function ApprovalCard({
           />
         )}
         {/* The card's decision is the point of it, so its buttons get a full-size target, not the compact one. */}
-        <Button
+        <SplitButton
           variant="borderless"
-          disabled={busy}
-          onClick={() => void decide(false)}
           icon={<X className="size-3.5" />}
-        >
-          {copy.approvals.approval.deny}
-        </Button>
+          label={copy.permissions.card.denyOnce}
+          menuLabel={copy.permissions.card.moreDeny}
+          busy={busy}
+          onClick={() => void decide(false)}
+          choices={choices}
+          scopes={scopes}
+          heading={copy.permissions.card.denyAlways}
+          onRemember={(scope, rules) =>
+            void decide(false, { scope, rules: rules.map((r) => ({ ...r, decision: 'deny' as const })) })
+          }
+        />
         {a.read && chatId && (
           <Button
             variant="push"
             disabled={busy}
-            onClick={() => void decide(true, true)}
+            onClick={() => void readForChat()}
             icon={<FEATURE_ICONS.readAccess className="size-3.5" />}
           >
             {copy.approvals.reads.approveAll}
           </Button>
         )}
-        {a.grant && chatId && (
-          <Button
-            variant="push"
-            disabled={busy}
-            onClick={() => void decide(true, true)}
-            icon={<FEATURE_ICONS.chatGrants className="size-3.5" />}
-          >
-            {grants.approveAll[a.grant]}
-          </Button>
-        )}
-        <Button
+        <SplitButton
           variant="primary"
-          disabled={busy}
-          onClick={() => void decide(true)}
           icon={<Check className="size-3.5" />}
-        >
-          {changed.length
-            ? copy.approvals.review.approveEdited
-            : a.read
-              ? copy.approvals.approval.approveOnce
-              : copy.approvals.approval.approve}
-        </Button>
+          label={changed.length ? copy.approvals.review.approveEdited : copy.permissions.card.allowOnce}
+          menuLabel={copy.permissions.card.moreAllow}
+          busy={busy}
+          onClick={() => void decide(true)}
+          choices={choices}
+          scopes={scopes}
+          heading={copy.permissions.card.allowAlways}
+          onRemember={(scope, rules) =>
+            void decide(true, { scope, rules: rules.map((r) => ({ ...r, decision: 'allow' as const })) })
+          }
+        />
       </div>
     </motion.div>
+  )
+}
+
+type Offer = Omit<PermissionRule, 'decision'>
+
+/**
+ * What a card offers to remember, most specific first. A compound command's parts are one choice, remembered together
+ * (as Claude Code saves a rule per part), so the same command runs next time; then every command.
+ */
+function choicesOf(offers: readonly Offer[]): { label: string; rules: Offer[] }[] {
+  const parts = offers.filter((o) => o.kind === 'command' && o.target !== '*')
+  if (parts.length < 2) return offers.map((o) => ({ label: targetText(o), rules: [o] }))
+  return [
+    { label: parts.map(targetText).join(copy.permissions.card.and), rules: parts },
+    ...offers.filter((o) => !parts.includes(o)).map((o) => ({ label: targetText(o), rules: [o] })),
+  ]
+}
+
+/**
+ * A card's button with its menu beside it, as Claude Code's "Yes, and don't ask again for …": the button answers this
+ * once; the chevron opens what to remember (the offers, most specific first) and where (this chat, this project,
+ * everywhere), and choosing where answers and remembers in one go. Without offers it is a plain button.
+ */
+function SplitButton(props: {
+  variant: 'primary' | 'borderless'
+  icon: ReactNode
+  label: string
+  menuLabel: string
+  heading: string
+  busy: boolean
+  onClick(): void
+  choices: readonly { label: string; rules: Offer[] }[]
+  scopes: readonly PermissionScope[]
+  onRemember(scope: PermissionScope, rules: Offer[]): void
+}) {
+  const [open, setOpen] = useState(false)
+  // A card near the top of the chat opens its menu downward, so the menu is never cut off under the title bar.
+  const [up, setUp] = useState(true)
+  const [pick, setPick] = useState(0)
+  const box = useRef<HTMLDivElement>(null)
+  const choice = props.choices[pick] ?? props.choices[0]
+  const primary = props.variant === 'primary'
+  if (!choice)
+    return (
+      <Button variant={props.variant} disabled={props.busy} onClick={props.onClick} icon={props.icon}>
+        {props.label}
+      </Button>
+    )
+  const t = copy.permissions.card
+  return (
+    <div ref={box} className="relative inline-flex">
+      <Button
+        variant={props.variant}
+        disabled={props.busy}
+        onClick={props.onClick}
+        icon={props.icon}
+        className="rounded-r-none"
+      >
+        {props.label}
+      </Button>
+      <Button
+        variant={props.variant}
+        disabled={props.busy}
+        aria-label={props.menuLabel}
+        title={props.menuLabel}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => {
+          setUp(
+            (box.current?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY) > APPROVAL_MENU_ROOM_PX,
+          )
+          setOpen(!open)
+        }}
+        className={cn(
+          'rounded-l-none px-1.5',
+          primary ? 'border-l border-on-accent/25' : 'border-l border-line',
+        )}
+      >
+        <ChevronDown className="size-3.5" />
+      </Button>
+      <AnimatePresence>
+        {open && (
+          <Popover
+            role="dialog"
+            label={props.menuLabel}
+            onClose={() => setOpen(false)}
+            within={box}
+            up={up}
+            style={{ width: APPROVAL_MENU_PX }}
+            className={cn(
+              'material-menu absolute right-0 z-40 rounded-lg border border-line p-1.5',
+              up ? 'bottom-[calc(100%+6px)] origin-bottom-right' : 'top-[calc(100%+6px)] origin-top-right',
+            )}
+          >
+            <div className="px-2 pb-1 pt-1 section-label text-muted">{props.heading}</div>
+            {props.choices.length > 1 ? (
+              <MenuList label={props.heading}>
+                {props.choices.map((c, i) => (
+                  <MenuItem
+                    key={c.label}
+                    checked={i === pick}
+                    title={<span className={c.rules[0]?.target === '*' ? '' : 'font-mono'}>{c.label}</span>}
+                    onSelect={() => setPick(i)}
+                  />
+                ))}
+              </MenuList>
+            ) : (
+              <p className="truncate px-2 pb-1.5 font-mono text-body text-fg">{choice.label}</p>
+            )}
+            <MenuSeparator />
+            <div className="px-2 pb-1 pt-1 section-label text-muted">{t.rememberIn}</div>
+            <MenuList label={t.rememberIn}>
+              {props.scopes.map((scope, i) => (
+                <MenuItem
+                  key={scope}
+                  tabStop={i === 0 && props.choices.length === 1}
+                  title={t.scopes[scope]}
+                  detail={t.scopeHint[scope]}
+                  onSelect={() => {
+                    setOpen(false)
+                    props.onRemember(scope, choice.rules)
+                  }}
+                />
+              ))}
+            </MenuList>
+          </Popover>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 
@@ -399,49 +579,28 @@ const CHIP_CLOSE =
   'inline-flex size-5 items-center justify-center rounded-md transition-colors hover:bg-fill hover:text-fg'
 
 /**
- * What the person allowed for the rest of a chat from its approval cards, as chips beside the message box: kinds of
- * step, and folders agents may read. Removing one makes that kind of step ask again, or hides that folder again,
- * from the next one.
+ * Folders the person let agents read for the rest of a chat (from a read request's card), as chips beside the message
+ * box. Removing one hides that folder again from the next read. Remembered rules are in the chat's permission control.
  */
-export function ChatGrantChips(props: {
-  chatId: string
-  grants: readonly ChatGrant[]
-  reads?: readonly string[]
-  onChanged(): void
-}) {
+export function ChatReadChips(props: { chatId: string; reads: readonly string[]; onChanged(): void }) {
   const toast = useToast()
-  const t = copy.approvals.grants
   const r = copy.approvals.reads
-  const take = async (body: Record<string, unknown>, path: string, done: string) => {
+  const take = async (folder: string) => {
     try {
-      await send('PUT', `/api/chats/${props.chatId}/${path}`, { ...body, allowed: false })
-      toast(done, 'info')
+      await send('PUT', `/api/chats/${props.chatId}/readable`, { folder, allowed: false })
+      toast(r.revoked(folder), 'info')
       props.onChanged()
     } catch (err) {
       toast(String((err as Error).message), 'error')
     }
   }
-  const kinds = props.grants.map((grant) => (
-    <span key={grant} title={t.chipTitle(t.kinds[grant])} className={CHIP}>
-      <FEATURE_ICONS.chatGrants className="size-3.5 shrink-0 text-ok-ink" />
-      <span className="truncate">{t.chip(t.kinds[grant])}</span>
-      <button
-        type="button"
-        onClick={() => void take({ grant }, 'allowed', t.revoked(t.kinds[grant]))}
-        aria-label={t.revoke(t.kinds[grant])}
-        className={CHIP_CLOSE}
-      >
-        <X className="size-3" />
-      </button>
-    </span>
-  ))
-  const folders = (props.reads ?? []).map((folder) => (
+  return props.reads.map((folder) => (
     <span key={`read:${folder}`} title={r.chipTitle(folder)} className={CHIP}>
       <FEATURE_ICONS.readAccess className="size-3.5 shrink-0 text-ok-ink" />
       <span className="max-w-48 truncate">{r.chip(folder.split('/').filter(Boolean).at(-1) ?? folder)}</span>
       <button
         type="button"
-        onClick={() => void take({ folder }, 'readable', r.revoked(folder))}
+        onClick={() => void take(folder)}
         aria-label={r.revoke(folder)}
         className={CHIP_CLOSE}
       >
@@ -449,7 +608,6 @@ export function ChatGrantChips(props: {
       </button>
     </span>
   ))
-  return [...kinds, ...folders]
 }
 
 /**

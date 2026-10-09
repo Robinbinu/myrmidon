@@ -10,11 +10,14 @@ import {
   ChatService,
   ColonyWorkspace,
   detectSandbox,
+  grantCovers,
+  keysAt,
   ModelResolver,
   macProfile,
   ProjectStore,
   type Runtime,
   reachable,
+  realPath,
   SettingsStore,
   type TeamConfig,
 } from '../src/index.ts'
@@ -198,6 +201,8 @@ test('file tools refuse what the sandbox hides, open what the person allowed, an
 
 let myr: string
 let outside: string
+/** A file no one has in their keys folder. */
+const absent = 'myr-test-absent-file'
 let runtime: Runtime
 
 const setUpChats = async () => {
@@ -368,8 +373,10 @@ test('an agent asks to read a folder; allowed for the chat it stays open across 
     expect((await chats.list()).find((c) => c.chatId === chatId)?.reads).toEqual([outside])
 
     expect(await chats.allowReadInChat(chatId, outside, false)).toEqual([])
-    // Keys and other chats cannot be allowed from a chat.
-    await expect(chats.allowReadInChat(chatId, '~/.ssh', true)).rejects.toThrow('Settings')
+    // A key folder may be allowed for the chat (the card asking for it warns); other chats' data never.
+    const keys = realPath(join(homedir(), '.ssh'))
+    expect(await chats.allowReadInChat(chatId, '~/.ssh', true)).toEqual([keys])
+    expect(await chats.allowReadInChat(chatId, '~/.ssh', false)).toEqual([])
     await expect(chats.allowReadInChat(chatId, join(myr, 'colonies'), true)).rejects.toThrow('Settings')
     await chats.stopAll()
 
@@ -387,31 +394,119 @@ test('an agent asks to read a folder; allowed for the chat it stays open across 
   }
 })
 
-test('allowed once, a folder stays open for that run only; keys are refused before anyone is asked', async () => {
+test('allowed once, a folder stays open for that run only; a key folder asks with a warning', async () => {
   await setUpChats()
   try {
     const settings = new SettingsStore(myr)
+    // Never reads a real key: only a file that does not exist, to tell "out of reach" from "not there".
     const resolver = models([
-      [tool('request_read', { path: '~/.ssh' })],
+      [tool('request_read', { path: '~/.ssh', reason: 'to list the keys' })],
+      [tool('fs_read', { path: `~/.ssh/${absent}` })],
       [tool('request_read', { path: outside })],
       [tool('fs_read', { path: join(outside, 'spec.md') })],
       [tool('reply_user', { text: 'Read it.', final: true })],
     ])
     const chats = new ChatService(runtime, { resolver, settings })
     const { colonyId } = await chats.send('Read the spec', config)
-    const waiting = await waitFor(colonyId, (s) => Object.values(s.approvals).some((a) => !a.decided))
-    const asks = Object.values(waiting.approvals)
-    expect(asks.map((a) => a.read)).toEqual([outside])
-    await chats.decideApproval(colonyId, asks[0]?.id ?? '', true)
+    const keys = await waitFor(colonyId, (s) => Object.values(s.approvals).some((a) => !a.decided))
+    const ask = Object.values(keys.approvals).find((a) => !a.decided)
+    expect(ask).toMatchObject({
+      tool: 'request_read',
+      read: realPath(join(homedir(), '.ssh')),
+      sensitive: true,
+    })
+    await chats.decideApproval(colonyId, ask?.id ?? '', true)
+    const plain = await waitFor(
+      colonyId,
+      (s) =>
+        Object.values(s.approvals).filter((a) => !a.decided).length > 0 &&
+        Object.keys(s.approvals).length === 2,
+    )
+    const second = Object.values(plain.approvals).find((a) => !a.decided)
+    expect(second?.read).toBe(outside)
+    expect(second?.sensitive).toBeUndefined()
+    await chats.decideApproval(colonyId, second?.id ?? '', true)
     const done = await waitFor(colonyId)
     expect(done.chatReads).toBeUndefined()
-    const [keys, asked, read] = await results(colonyId)
-    expect(keys?.ok).toBe(false)
-    expect(keys?.output).toContain('keys')
+    const [allowedKeys, inKeys, asked, read] = await results(colonyId)
+    expect(allowedKeys?.ok).toBe(true)
+    expect(allowedKeys?.output).toContain('Never print private key contents')
+    // Opened: the file is simply not there, rather than out of reach.
+    expect(inKeys?.ok).toBe(false)
+    expect(inKeys?.output).toContain('ENOENT')
     expect(asked?.ok).toBe(true)
     expect(read?.output).toContain('the spec')
     await chats.stopAll()
   } finally {
     await tearDownChats()
   }
+})
+
+test('a grant of the whole home keeps keys hidden, and asking for them still asks', async () => {
+  await setUpChats()
+  try {
+    const settings = new SettingsStore(myr)
+    const resolver = models([
+      [tool('request_read', { path: '~', reason: 'to look around' })],
+      [tool('fs_read', { path: `~/.ssh/${absent}` })],
+      [tool('request_read', { path: '~/.ssh' })],
+      [tool('reply_user', { text: 'Could not.', final: true })],
+    ])
+    const chats = new ChatService(runtime, { resolver, settings })
+    const { chatId, colonyId } = await chats.send('Look around', config)
+    await waitFor(colonyId, (s) => Object.values(s.approvals).some((a) => !a.decided))
+    expect(await chats.allowReadInChat(chatId, '~', true)).toEqual([realPath(homedir())])
+    const waiting = await waitFor(
+      colonyId,
+      (s) =>
+        Object.values(s.approvals).filter((a) => !a.decided).length > 0 &&
+        Object.keys(s.approvals).length === 2,
+    )
+    // The home allowed for the chat does not answer a request for the keys inside it.
+    const keys = Object.values(waiting.approvals).find((a) => !a.decided)
+    expect(keys).toMatchObject({ read: realPath(join(homedir(), '.ssh')), sensitive: true })
+    await chats.decideApproval(colonyId, keys?.id ?? '', false)
+    await waitFor(colonyId)
+    const [, hidden, denied] = await results(colonyId)
+    expect(hidden?.ok).toBe(false)
+    expect(hidden?.output).toContain('outside your')
+    expect(denied?.ok).toBe(false)
+    await chats.stopAll()
+  } finally {
+    await tearDownChats()
+  }
+})
+
+test("a channel member's round refuses key folders outright, without asking", async () => {
+  await setUpChats()
+  try {
+    const settings = new SettingsStore(myr)
+    const resolver = models([
+      [tool('request_read', { path: '~/.ssh' })],
+      [tool('reply_user', { text: 'Could not.', final: true })],
+    ])
+    const chats = new ChatService(runtime, { resolver, settings })
+    const { colonyId } = await chats.send('List the keys', config, undefined, { askAll: true })
+    const done = await waitFor(colonyId)
+    expect(Object.keys(done.approvals)).toEqual([])
+    const [refused] = await results(colonyId)
+    expect(refused?.ok).toBe(false)
+    expect(refused?.output).toContain('someone other than the person')
+    await chats.stopAll()
+  } finally {
+    await tearDownChats()
+  }
+})
+
+test('a grant opens exactly the key folder it names; a broader one never opens keys inside it', () => {
+  const ssh = join(home, '.ssh')
+  expect(grantCovers(ssh, join(ssh, 'id_ed25519.pub'), home)).toBe(true)
+  expect(grantCovers(home, join(ssh, 'id_ed25519'), home)).toBe(false)
+  expect(grantCovers(home, join(home, 'notes', 'todo.md'), home)).toBe(true)
+  expect(grantCovers(join(home, '.aws'), join(ssh, 'id_ed25519'), home)).toBe(false)
+  expect(keysAt(join(ssh, 'config'), home)).toBe(ssh)
+  expect(keysAt(join(home, 'notes'), home)).toBeUndefined()
+  const ws = new ColonyWorkspace(colony, project, () => false, { dataDir: data, home, reads: () => [ssh] })
+  expect(ws.mayRead('lead', join(ssh, 'id_ed25519'))).toBe(true)
+  expect(ws.mayRead('lead', join(home, '.zshrc'))).toBe(false)
 })
