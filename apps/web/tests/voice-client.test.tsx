@@ -62,6 +62,7 @@ const handlers = (ended: string[] = []) => ({
   state() {},
   hello() {},
   line() {},
+  partial() {},
   level() {},
   chat() {},
   task() {},
@@ -192,4 +193,18 @@ test('an engine’s raw error becomes a plain cause and fix', () => {
   ).toBe(t.noUv)
   expect(engineTrouble('phonon', 'error: Failed to download mlx==0.29')).toBe(t.phonon)
   expect(engineTrouble('kitten', 'downloading voices.npz failed (502)')).toBe(t.kitten)
+})
+
+test('the call bar shows what is being heard in place of the oldest line, outside what is announced', () => {
+  const lines = [
+    { who: 'voice' as const, text: 'What next?' },
+    { who: 'person' as const, text: 'the tests' },
+  ]
+  const html = bar({ state: 'hearing', lines, partial: 'ask Quillon how' })
+  expect(html).toContain('ask Quillon how')
+  expect(html).toContain('the tests')
+  expect(html).not.toContain('What next?')
+  const log = html.slice(html.indexOf('role="log"'))
+  expect(log.slice(0, log.indexOf('</div></div>'))).not.toContain('ask Quillon how')
+  expect(bar({ lines })).toContain('What next?')
 })

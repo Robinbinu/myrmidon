@@ -11,6 +11,7 @@ import {
 import {
   VOICE_ANSWER_CHARS,
   VOICE_END_MS,
+  VOICE_HOTWORDS,
   VOICE_PAUSE_MS,
   VOICE_SMART_END_MS,
   VOICE_SMART_START_MS,
@@ -22,6 +23,7 @@ import {
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
 import { trimSilence } from './audio.ts'
+import type { LiveTranscription } from './phonon-stream.ts'
 import type { TurnJudge } from './smart-turn.ts'
 import { SpeechSplitter, speakable } from './speech.ts'
 import type { SpeechToText } from './stt.ts'
@@ -54,6 +56,8 @@ export interface CallOptions {
   readonly chatId?: string
   readonly chatTitle?: string
   readonly project?: string
+  /** The project's name, for the speech to text to favour (with the crew's names). */
+  readonly projectName?: string
   /** What to call the person. */
   readonly name: string
   /** How sure the speech detector must be to start a turn (see VOICE_VAD_START), and how much less to hold one. */
@@ -86,6 +90,8 @@ export type CallOutput =
   | { type: 'hello'; talk: string; chatId?: string; chatTitle?: string }
   /** `muted` while the person's microphone is off; unmuting shows the state the call is in. */
   | { type: 'state'; state: 'preparing' | CallState | 'muted' }
+  /** The person's turn so far, as it is heard while they speak (with an engine that streams); `heard` once it ends. */
+  | { type: 'partial'; text: string }
   | { type: 'heard'; text: string }
   /** A line spoken, and whose it is: `assistant`, `lead` or a crew member's name. */
   | { type: 'said'; text: string; from: string }
@@ -287,6 +293,13 @@ export class CallSession {
   private readonly _streamed = new Set<string>()
   /** The current turn's timings (ms since epoch): when the person stopped, was heard, first words, first sound. */
   private _clock?: { stopped: number; heard: number; thought?: number }
+  /**
+   * Names the speech to text favours: the project's and the crew's, which it would otherwise spell as it hears them
+   * (and an @name has to match). Not the lead's: it is "lead", a word the engine already knows.
+   */
+  private readonly _hotwords: readonly string[]
+  /** The turn in progress as it is heard, while the engine streams one. */
+  private _live?: LiveTranscription
 
   constructor(
     private readonly ports: {
@@ -305,6 +318,11 @@ export class CallSession {
   ) {
     this._chatId = options.chatId
     this._voice = options.talkTo ?? 'assistant'
+    this._hotwords = [
+      ...new Set(
+        [options.projectName, ...(options.crew ?? []).map((c) => c.name)].flatMap((n) => n?.trim() || []),
+      ),
+    ].slice(0, VOICE_HOTWORDS)
     this._judge = ports.judge
     this._detector = new TurnDetector({
       sampleRate: options.sampleRate,
@@ -349,6 +367,10 @@ export class CallSession {
 
   /** Says who answered, greets the person; the call is then listening. */
   async start() {
+    // While the greeting plays, so the person's first turn is not the one to pay for them.
+    this.ports.stt
+      .prepare?.(this._hotwords)
+      .catch((err) => this.ports.log?.(`speech to text: ${err instanceof Error ? err.message : String(err)}`))
     this.emit({
       type: 'hello',
       talk: this._voice,
@@ -393,20 +415,38 @@ export class CallSession {
       }
     }
     if (this._ended || this._muted) return
+    if (this._detector.speaking) this._live?.push(chunk)
     for (const event of this._detector.push(chunk, chance)) {
       if (event.type === 'start') {
         if (this._reply || this._playingUntil > Date.now()) this.interrupt()
         this._begun += 1
         this._turn = this._begun
         this._state('hearing')
+        this._listen()
       } else if (event.type === 'pause') void this._pause(event.id, event.quietMs, event.audio, this._turn)
       else
         void this._heard(
-          this.ports.stt.transcribe(event.audio, this.options.sampleRate),
+          this._transcribe(event.audio),
           this.ports.judge ? VOICE_SMART_END_MS : VOICE_END_MS,
           this._turn,
         )
     }
+  }
+
+  /** Follows the turn just begun as it is heard, from what came just before it, when the engine streams. */
+  private _listen() {
+    this._live?.close()
+    this._live = this.ports.stt.listen?.(this.options.sampleRate, (text) => {
+      if (!this._ended) this.emit({ type: 'partial', text })
+    })
+    this._live?.push(this._detector.soFar())
+  }
+
+  /** A turn that has ended: its live stream stops, and its whole audio is transcribed. */
+  private _transcribe(audio: Int16Array): Promise<string> {
+    this._live?.close()
+    this._live = undefined
+    return this.ports.stt.transcribe(audio, this.options.sampleRate, { hotwords: this._hotwords })
   }
 
   /**
@@ -434,7 +474,7 @@ export class CallSession {
     } else if (quietMs < VOICE_END_MS) return
     if (this._ended) return
     const ended = this._detector.end(id)
-    if (ended) void this._heard(this.ports.stt.transcribe(ended, this.options.sampleRate), quietMs, turn)
+    if (ended) void this._heard(this._transcribe(ended), quietMs, turn)
   }
 
   /** The person talked over the call agent (found here or by their side): stop speaking and listen. */
@@ -455,6 +495,8 @@ export class CallSession {
     this._muted = muted
     if (muted) {
       this._detector.reset()
+      this._live?.close()
+      this._live = undefined
       this._unscored = new Int16Array(0)
       if (this._current === 'hearing') this._current = 'listening'
     }
@@ -465,6 +507,7 @@ export class CallSession {
     if (this._ended) return
     this._ended = true
     this._reply?.abort()
+    this._live?.close()
     this._off()
     this._offStream?.()
     this.emit({ type: 'ended', reason })

@@ -328,6 +328,7 @@ export class VoiceHub {
       chatId?: string
       chatTitle?: string
       project?: string
+      projectName?: string
       name: string
       sampleRate: number
       talkTo?: string

@@ -39,6 +39,11 @@ By default speech stays on your Mac:
   `uv tool install fermion-research==0.2.11` (a pinned release, with the Apple-silicon runtime), then downloads the
   model into `<home>/voice/fermion` and warms it at once (about a minute the first time). It needs
   [uv](https://docs.astral.sh/uv/).
+  On a call it is told the chat's project and crew names (its `hotwords`, up to 25) so it spells them right
+  ("Quillon", not "Quillan"), and the call readies them while it greets you. While you speak, the call bar shows your
+  words as Phonon hears them (its live stream, `/v1/audio/stream`); the line kept is the transcript of your whole turn,
+  with the names. The live words come one call at a time (Phonon streams one at a time): a second call meanwhile shows
+  only the finished lines.
 - **Text to speech: Kitten TTS** (KittenML; nano 60 MB, micro 45 MB, mini 82 MB). The model size you chose downloads
   when you turn voice calls on (or press **Download**), with its progress shown, from a pinned revision of its Hugging
   Face repo, each file checked against its pinned hash; it is saved in `<home>/voice/kitten`. A model already there

@@ -210,6 +210,8 @@ export const VOICE_PHONON_START_MS = 10 * 60_000
 /** The fermion-research release Phonon-2 is installed from, and the size of the model its first start downloads. */
 export const VOICE_PHONON_VERSION = '0.2.11'
 export const VOICE_PHONON_MODEL_BYTES = 163_515_201
+/** The most hotwords Phonon-2 takes in a request (its own limit); a call sends its project's and crew's names. */
+export const VOICE_HOTWORDS = 25
 /**
  * Kitten TTS 0.8 (KittenML, Apache-2.0): each model pinned to a revision of its Hugging Face repo, and each file to
  * its sha256 (Hugging Face's own LFS ids for the large ones) and size.

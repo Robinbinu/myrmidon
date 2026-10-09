@@ -25,6 +25,8 @@ export interface CallHandlers {
   hello(hello: CallHello): void
   /** A line of the transcript: what the person said, or what the call said (`from` says who spoke). */
   line(who: 'person' | 'voice', text: string, from?: string): void
+  /** What the person is saying, as it is heard, until their line comes. */
+  partial(text: string): void
   /** The mic's level, 0–1, for the meter. */
   level(level: number): void
   /** The call started its first task in a new chat. */
@@ -176,6 +178,7 @@ export class CallClient {
           ...(msg.chatId ? { chatId: msg.chatId } : {}),
           ...(msg.chatTitle ? { chatTitle: msg.chatTitle } : {}),
         })
+      else if (msg.type === 'partial' && msg.text) this.on.partial(msg.text)
       else if (msg.type === 'heard' && msg.text) this.on.line('person', msg.text)
       else if (msg.type === 'said' && msg.text) this.on.line('voice', msg.text, msg.from)
       else if (msg.type === 'stop-audio') this._stopPlayback()
