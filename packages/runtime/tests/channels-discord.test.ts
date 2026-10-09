@@ -30,6 +30,7 @@ function fakeDiscord(
   const counts = new Map<string, number>()
   const state = { ack: true, seq: 0 }
   const server = Bun.serve<{ path: string }>({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req, srv): Promise<Response | undefined> {
       const url = new URL(req.url)

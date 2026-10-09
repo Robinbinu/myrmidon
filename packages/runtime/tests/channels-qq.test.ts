@@ -18,6 +18,7 @@ function qqApi(
   const counts = new Map<string, number>()
   const sent: Payload[] = []
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req, srv) {
       const url = new URL(req.url)
