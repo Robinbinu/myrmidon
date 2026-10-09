@@ -60,6 +60,17 @@ export const GREETING_MS = 15_000
 export const GREETING_AWAY_MS = 30 * 60_000
 /** Team-chat messages an agent keeps for its next turn when nobody wakes it; older ones drop off. */
 export const QUIET_KEPT = 30
+/**
+ * After the final answer in a round with a crew, the round stays open until everyone has been quiet this long, so
+ * nobody is cut off mid-reply and what was said gets read, as a group chat winds down.
+ */
+export const SETTLE_QUIET_MS = 3_000
+/** ...and closes after this long even if the crew keeps talking; whatever is still unread waits for the next round. */
+export const CHAT_SETTLE_MS = 120_000
+/** Unread messages an agent is shown when it next wakes (from before this round); older ones stay in read_messages. */
+export const MISSED_SHOWN = 20
+/** Each such message is shown up to this many characters. */
+export const MISSED_CHARS = 800
 /** The most text one review field carries; longer content is shown cut and cannot be rewritten in the card. */
 export const REVIEW_MAX_CHARS = 200_000
 /** How many specialists the person can keep. */
@@ -93,6 +104,8 @@ export const GLOB_LIMIT = 200
 export const PAGE_EXCERPT = 8_000
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
+/** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */
+export const READ_LOG_RESULT_CHARS = 400
 /** Consecutive failures after which an MCP server's tools are refused for the rest of the round. */
 export const MCP_FAILURE_LIMIT = 3
 
@@ -133,6 +146,72 @@ export const OBSERVED_CHARS = 1_500
 
 /** The most output a sandboxed command returns, so a noisy build cannot flood the agent. */
 export const SANDBOX_MAX_OUTPUT = 64 * 1024
+/**
+ * Toolchain folders in the person's home (relative to it) that sandboxed commands may read, never write: where
+ * bun, node version managers, rustup, uv, pyenv and the like install the programs on PATH. Commands get a private
+ * HOME, so caches and configs (~/.npm, ~/.cache, ~/Library/Caches, ~/.gitconfig) are their own and not listed;
+ * ~/.cargo is listed by its bin folder alone because it also holds the crates.io token.
+ */
+export const SANDBOX_TOOLCHAINS = [
+  '.bun',
+  '.cargo/bin',
+  '.rustup',
+  '.deno',
+  '.volta',
+  '.nvm',
+  '.fnm',
+  '.local/share/fnm',
+  'Library/Application Support/fnm',
+  '.pyenv',
+  '.rbenv',
+  '.asdf',
+  '.local/share/mise',
+  '.local/bin',
+  '.local/share/uv',
+  '.local/share/pnpm',
+  'Library/pnpm',
+  'go/bin',
+  '.sdkman',
+  '.dotnet',
+  '.ghcup',
+  'miniconda3',
+  'miniforge3',
+  'anaconda3',
+] as const
+/**
+ * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
+ * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project or a chat can
+ * never grant them; only naming one exactly in Settings → Tools opens it. Myrmidon's own data folder, which holds
+ * every chat, is treated the same way except for the chat's own folder.
+ */
+export const SANDBOX_SECRETS = [
+  '.ssh',
+  '.aws',
+  '.azure',
+  '.gnupg',
+  '.kube',
+  '.docker',
+  '.config',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  '.git-credentials',
+  '.cargo/credentials',
+  '.cargo/credentials.toml',
+  '.password-store',
+  '.zsh_history',
+  '.bash_history',
+  'Library/Keychains',
+  'Library/Cookies',
+  'Library/Application Support',
+  'Library/Mail',
+  'Library/Messages',
+  'Library/Safari',
+  '.local/share/keyrings',
+  '.mozilla',
+] as const
+/** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
+export const MAX_READ_FOLDERS = 50
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
@@ -213,6 +292,127 @@ export const SKILL_ARCHIVE_DAYS = 90
 export const SKILL_CURATE_EVERY_MS = 6 * 60 * 60_000
 /** The largest script a made tool may have, to keep tools small. */
 export const MADE_TOOL_MAX_SOURCE = 64 * 1024
+
+// Computer use (computer/)
+
+/**
+ * The Cua Driver release Settings → Computer use installs (trycua/cua, MIT): its macOS universal binary tarball, pinned
+ * by sha256 and size so an install is the version Myrmidon was tried with.
+ */
+export const CUA_DRIVER_VERSION = '0.34.0'
+export const CUA_DRIVER_URL = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/cua-driver-rs-${CUA_DRIVER_VERSION}-darwin-universal-binary.tar.gz`
+export const CUA_DRIVER_SHA256 = '940dc008e0f7c5d217d14c0f247d1ebab91b1bac965f4a649d19e8c789bdfd81'
+export const CUA_DRIVER_BYTES = 47_108_179
+/** A Cua Driver the person installed themselves (its own installer), used when Myrmidon has not installed one. */
+export const CUA_DRIVER_PATHS = [
+  '~/.local/bin/cua-driver',
+  '/Applications/CuaDriver.app/Contents/MacOS/cua-driver',
+  '/usr/local/bin/cua-driver',
+  '/opt/homebrew/bin/cua-driver',
+]
+/** How long the driver's daemon may take to open its socket, and one desktop action (an accessibility walk) to answer. */
+export const COMPUTER_START_MS = 15_000
+export const COMPUTER_CALL_MS = 60_000
+/** How long a computer action waits for another agent to let go of the app (or the foreground) before it gives up. */
+export const COMPUTER_LOCK_WAIT_MS = 30_000
+/** Accessibility elements listed with a screenshot, and walked per window (Electron apps have tens of thousands). */
+export const COMPUTER_ELEMENTS_SHOWN = 120
+export const COMPUTER_ELEMENTS_WALKED = 800
+/** The longest `wait` action, in seconds. */
+export const COMPUTER_MAX_WAIT_S = 30
+/**
+ * The largest screenshot each model family takes, as its long edge in pixels and its area in megapixels. Claude
+ * (current toolset models and Opus 4.7+): 2576 px / about 3.75 MP; earlier Claude: 1568 px / 1.15 MP; OpenAI's
+ * computer tool and other models get the earlier Claude size, which keeps text legible at modest cost.
+ */
+export const COMPUTER_IMAGE_LIMITS = {
+  claudeLarge: { longEdge: 2576, megapixels: 3.75 },
+  claude: { longEdge: 1568, megapixels: 1.15 },
+  default: { longEdge: 1568, megapixels: 1.15 },
+} as const
+/**
+ * Claude models that take Anthropic's computer toolset (`computer_toolset_20260801`, no beta header) on the Claude
+ * API and Google Cloud, matched against the model id. Others get the generic `computer` function tool.
+ */
+export const ANTHROPIC_COMPUTER_TOOLSET = 'computer_toolset_20260801'
+export const ANTHROPIC_TOOLSET_MODELS = /claude-(?:(?:fable|mythos|opus|sonnet)-5|opus-4-8|haiku-5-5)/
+/** Claude models with the larger screenshot limit (the toolset ones, and Opus 4.7). */
+export const ANTHROPIC_LARGE_IMAGE_MODELS = /claude-(?:(?:fable|mythos|opus|sonnet)-5|opus-4-[789]|haiku-5-5)/
+/**
+ * Apps by how much an agent may do in them (as Claude Code's computer use): browsers and trading apps are view-only
+ * (the browser_* tools drive the web), terminals and IDEs click-only unless the person allows full control, the rest
+ * full. Matched against the bundle id.
+ */
+export const COMPUTER_VIEW_ONLY_APPS = [
+  /^com\.apple\.Safari/,
+  /^com\.google\.Chrome/,
+  /^org\.mozilla\.(firefox|nightly)/,
+  /^com\.microsoft\.edgemac/,
+  /^com\.brave\.Browser/,
+  /^company\.thebrowser\./,
+  /^com\.operasoftware\./,
+  /^com\.vivaldi\./,
+  /^org\.chromium\./,
+  /^com\.kagi\.kagimacOS/,
+  /^com\.tradingview\./,
+  /^com\.robinhood\./,
+  /^com\.webull\./,
+  /^com\.interactivebrokers\./,
+  /^com\.etrade\./,
+  /^com\.fidelity\./,
+  /^com\.schwab\./,
+]
+export const COMPUTER_SHELL_APPS = [
+  /^com\.apple\.Terminal$/,
+  /^com\.googlecode\.iterm2$/,
+  /^dev\.warp\./,
+  /^com\.mitchellh\.ghostty$/,
+  /^net\.kovidgoyal\.kitty$/,
+  /^org\.alacritty$/,
+  /^io\.alacritty$/,
+  /^com\.github\.wez\.wezterm$/,
+  /^co\.zeit\.hyper$/,
+  /^com\.microsoft\.VSCode/,
+  /^com\.visualstudio\.code\./,
+  /^com\.todesktop\.230313mzl4w4u92$/,
+  /^dev\.zed\.Zed/,
+  /^com\.jetbrains\./,
+  /^com\.apple\.dt\.Xcode$/,
+  /^com\.sublimetext\./,
+  /^com\.panic\.Nova$/,
+  /^com\.exafunction\.windsurf$/,
+  /^com\.anthropic\.claudefordesktop$/,
+]
+/** Apps whose control amounts to reading and writing any file, or changing system settings: allowed, with a warning. */
+export const COMPUTER_FILE_APPS = [/^com\.apple\.finder$/]
+export const COMPUTER_SETTINGS_APPS = [/^com\.apple\.systempreferences$/, /^com\.apple\.Settings$/]
+/** Myrmidon itself, which agents never see or drive: its desktop app, and browser windows showing its dashboard. */
+export const COMPUTER_OWN_APPS = [/^dev\.myrmidon\.app$/]
+export const COMPUTER_OWN_WINDOW_TITLE = /\bMyrmidon\b/
+/**
+ * What makes a desktop action consequential enough to ask the person first: the label of what it clicks (buy, send,
+ * delete…), and keys that send or delete. Agents are told to ask before such steps too; this catches the ones they
+ * do not.
+ */
+export const COMPUTER_SENSITIVE_LABEL =
+  /\b(buy|purchase|pay|checkout|check out|place order|order now|subscribe|donate|transfer|send|post|publish|tweet|reply all|submit|delete|remove|erase|trash|empty trash|uninstall|format|wipe|sign out|log out|confirm|approve|accept)\b/i
+export const COMPUTER_SENSITIVE_KEYS = [
+  /^(cmd|ctrl)\+(return|enter)$/i,
+  /^cmd\+(delete|backspace)$/i,
+  /^shift\+cmd\+delete$/i,
+]
+/** Apps where Return sends what was typed (a message, a mail): pressing it there asks first. */
+export const COMPUTER_SEND_APPS = [
+  /^com\.apple\.MobileSMS$/,
+  /^com\.apple\.mail$/,
+  /^com\.tinyspeck\.slackmacgap$/,
+  /^com\.hnc\.Discord$/,
+  /^net\.whatsapp\.WhatsApp$/,
+  /^ru\.keepcoder\.Telegram$/,
+  /^org\.whispersystems\.signal-desktop$/,
+  /^com\.microsoft\.teams/,
+  /^com\.microsoft\.Outlook$/,
+]
 
 // Services (mcp.ts, recovery.ts)
 

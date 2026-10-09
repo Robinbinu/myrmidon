@@ -122,6 +122,12 @@ export const setupCopy = {
       fails: (ref: string, why: string) => `${ref} does not answer: ${why}`,
       fix: '`myrmidon model`',
     },
+    access: {
+      on: 'agents run sandboxed (Settings → Tools)',
+      projects: (names: readonly string[]) =>
+        `agents run sandboxed, except with full access in ${names.join(', ')}`,
+      off: "the sandbox is off: your chats have full access (channel members' and read-only projects' stay sandboxed)",
+    },
     sandbox: {
       ok: (kind: string) => `shell commands are confined (${kind})`,
       none: 'shell commands run unconfined',

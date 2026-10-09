@@ -9,6 +9,8 @@ import {
   isPublicAddress,
   ompWebTools,
   pinnedFetch,
+  quickRefusal,
+  reachableAddresses,
   UnreachableError,
   withPinnedNetwork,
 } from '../src/web.ts'
@@ -393,6 +395,69 @@ test.skipIf(!findChrome())(
     }
     expect(hits).toContain('/away')
     expect(reachedOther).toEqual([])
+  },
+  60_000,
+)
+
+test('full access reaches local and private addresses; without it they stay refused', async () => {
+  const lookup = resolver({ 'sneaky.example': ['127.0.0.1'], 'nas.local': ['192.168.1.20'] })
+  const all = () => 'all' as const
+  const none = () => new Set<number>()
+  expect(await reachableAddresses('127.0.0.1', 4318, all, lookup)).toEqual(['127.0.0.1'])
+  expect(await reachableAddresses('sneaky.example', 80, all, lookup)).toEqual(['127.0.0.1'])
+  expect(await reachableAddresses('nas.local', 80, all, lookup)).toEqual(['192.168.1.20'])
+  await expect(reachableAddresses('127.0.0.1', 4318, none, lookup)).rejects.toBeInstanceOf(UnreachableError)
+  await expect(reachableAddresses('sneaky.example', 80, none, lookup)).rejects.toBeInstanceOf(
+    UnreachableError,
+  )
+  await expect(reachableAddresses('nas.local', 80, none, lookup)).rejects.toBeInstanceOf(UnreachableError)
+  expect(quickRefusal(new URL('http://169.254.169.254/'), all)).toBeUndefined()
+  expect(quickRefusal(new URL('http://localhost:4318/'), all)).toBeUndefined()
+  expect(quickRefusal(new URL('http://169.254.169.254/'), none)).toBeInstanceOf(UnreachableError)
+  expect(quickRefusal(new URL('http://localhost:4318/'), none)).toBeInstanceOf(UnreachableError)
+
+  const dashboard = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('dashboard') })
+  try {
+    const url = `http://127.0.0.1:${dashboard.port}/`
+    expect(await (await pinnedFetch(url, {}, { localPorts: all })).text()).toBe('dashboard')
+    await expect(pinnedFetch(url, {}, { localPorts: none })).rejects.toBeInstanceOf(UnreachableError)
+    const proxy = await startBrowserProxy({ localPorts: all })
+    try {
+      expect(
+        await viaProxy(proxy.port, `GET ${url} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`),
+      ).toContain('dashboard')
+    } finally {
+      proxy.close()
+    }
+  } finally {
+    dashboard.stop(true)
+  }
+})
+
+test.skipIf(!findChrome())(
+  'a full-access tab reaches any local server, while a confined tab beside it still cannot',
+  async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'myr-reach-full-'))
+    const other = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('<title>Local</title>', { headers: { 'content-type': 'text/html' } }),
+    })
+    const otherUrl = `http://127.0.0.1:${other.port}/`
+    const hub = new BrowserHub(join(dir, 'profile'))
+    try {
+      const free = await hub.tab('c1', 'wren', { localPorts: () => 'all' })
+      await navigate(free, free.page, otherUrl)
+      expect(await free.page.title()).toBe('Local')
+      const confined = await hub.tab('c2', 'kai', { localPorts: () => new Set<number>() })
+      await expect(navigate(confined, confined.page, otherUrl)).rejects.toThrow(
+        `localhost:${other.port} is not a server`,
+      )
+    } finally {
+      await hub.close()
+      other.stop(true)
+      rmSync(dir, { recursive: true, force: true })
+    }
   },
   60_000,
 )

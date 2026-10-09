@@ -15,6 +15,7 @@ import {
   FileCode,
   FileSearch,
   FishingHook,
+  FolderKey,
   FolderTree,
   Gavel,
   GitBranch,
@@ -29,6 +30,7 @@ import {
   MessageSquareText,
   MessagesSquare,
   MonitorSmartphone,
+  MousePointerClick,
   Palette,
   PhoneIncoming,
   Plug,
@@ -39,6 +41,7 @@ import {
   Server,
   ServerCog,
   ShieldCheck,
+  ShieldOff,
   ShieldPlus,
   ShieldQuestion,
   SlidersHorizontal,
@@ -74,8 +77,12 @@ export const FEATURE_ICONS = {
   autonomous: Zap,
   /** Per-tool allow, ask and off rules in Settings → Tools. */
   toolRules: ListFilter,
+  /** Folders sandboxed agents may read beyond the defaults: in Settings, a project's permissions, a chat's grants. */
+  readAccess: FolderKey,
   /** The sandbox shell commands run in. */
   sandbox: Container,
+  /** Full access: agents run without the sandbox (Settings → Tools, a project's permission, the badge on its chats). */
+  fullAccess: ShieldOff,
   /** The independent reviewer, in Settings and the crew's events. */
   reviewer: Gavel,
   /** A review's verdict, and the reviewer checking every answer. */
@@ -102,6 +109,8 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
+  /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
+  computerUse: MousePointerClick,
   /** Messaging channels (Telegram and the rest). */
   channels: MessagesSquare,
   /** An agent asking the person to sign in to a website for it. */

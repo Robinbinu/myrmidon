@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { hostname } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -31,20 +31,26 @@ import {
   type Review,
   SYSTEM,
   type TaskSnapshot,
+  unreadMailFor,
 } from '@myrmidon/protocol'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { ComputerHub } from './computer/driver.ts'
 import {
   APPROVAL_MS,
   BOOTSTRAP_MS,
+  CHAT_SETTLE_MS,
   HUDDLE_MS,
   LEASE_MS,
   LOGIN_MS,
   MAX_SERVERS,
   MAX_VERIFY_ROUNDS,
   MAX_WORKERS,
+  MISSED_CHARS,
+  MISSED_SHOWN,
   QUIET_NUDGES,
   SERVER_START_MS,
+  SETTLE_QUIET_MS,
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
@@ -60,7 +66,14 @@ import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
 import { prompts } from './prompts.ts'
-import { detectSandbox, type Sandbox, type SandboxProcess } from './sandbox.ts'
+import { readFolder, realPath, secretAt, within } from './read-access.ts'
+import {
+  detectSandbox,
+  fullAccessIn,
+  type Sandbox,
+  type SandboxProcess,
+  unconfinedSandbox,
+} from './sandbox.ts'
 import { redactDeep } from './secrets.ts'
 import type { SkillLibrary } from './skills.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -146,6 +159,8 @@ export interface RunOptions {
   readonly projectDiff?: () => Promise<string | undefined>
   /** Shared headless Chrome for the browser_* tools. */
   readonly browser?: BrowserHub
+  /** Computer use (the person's Mac through Cua Driver), for rounds whose spec allows it. */
+  readonly computer?: ComputerHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
   /** Skills agents can load by name (use_skill). */
@@ -222,6 +237,7 @@ function totals(state: ColonyState): { cost: number; tokens: number } {
 /** How a wake is delivered: `mail` is recorded as read when the agent sees it; `queue` waits for the agent's current work. */
 interface Delivery {
   readonly mail?: MyrEvent['id']
+  readonly mails?: readonly MyrEvent['id'][]
   readonly queue?: boolean
   readonly quiet?: boolean
 }
@@ -231,7 +247,8 @@ export class ColonyRun implements ColonyHost {
   readonly blobs: BlobStore
   readonly workspace: ColonyWorkspace
   readonly project?: ProjectContext
-  readonly sandbox: Sandbox
+  private readonly _confined: Sandbox
+  private readonly _unconfined = unconfinedSandbox()
   readonly unsafeNoSandbox: boolean
   readonly resolver: ModelResolver
   readonly web: WebTools
@@ -249,6 +266,11 @@ export class ColonyRun implements ColonyHost {
   private _finalRunning = false
   private _verifying = 0
   private _quietSince?: number
+  /**
+   * A chat round whose final answer is in, still open while the crew finishes talking: it completes with these verdicts
+   * once everyone has been quiet a moment, or at `until` whatever is still going on.
+   */
+  private _settling?: { verdicts: MyrEvent['id'][]; until: number; quietSince?: number }
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -279,6 +301,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
   private readonly _todos = new Map<string, readonly TodoItem[]>()
+  /** Folders the person allowed reading once (request_read): for this round only, never kept with the chat. */
+  private readonly _readOnce = new Set<string>()
   /** Opened on the first worker that needs a worktree; null once known not to be a git project. */
   private _worktrees?: ProjectWorktrees | null
 
@@ -290,11 +314,19 @@ export class ColonyRun implements ColonyHost {
     this.id = options.resumeId ?? newColonyId(spec.name)
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
-    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path)
+    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
+      dataDir: realPath(runtime.home),
+      reads: () => this.extraReads(),
+      // Skills say their scripts run from their own folder, so the shell may read the enabled ones.
+      commandReads: () =>
+        (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
+          .filter((s) => s.enabled)
+          .map((s) => s.dir),
+    })
     const folder = spec.chat?.project?.path
     // Read once per round, so every agent works from the same rules even if a file changes mid-round.
     if (folder) this.project = readProjectContext(folder)
-    this.sandbox = options.sandbox ?? detectSandbox()
+    this._confined = options.sandbox ?? detectSandbox()
     this.unsafeNoSandbox = options.unsafeNoSandbox ?? false
     this.resolver = options.resolver ?? new ModelResolver()
     this.web = options.web ?? noWebTools
@@ -304,10 +336,20 @@ export class ColonyRun implements ColonyHost {
     this.done = new Promise((resolve) => {
       this._finish = resolve
     })
+    this.options.computer?.newRound(this.id, () => this._computerStopped())
   }
 
   get log() {
     return this.runtime.ctx.log
+  }
+
+  /** Read at each use, so a round a channel member writes into is confined from their message on. */
+  get fullAccess(): boolean {
+    return fullAccessIn(this.spec)
+  }
+
+  get sandbox(): Sandbox {
+    return this.fullAccess ? this._unconfined : this._confined
   }
 
   state() {
@@ -327,6 +369,30 @@ export class ColonyRun implements ColonyHost {
     return this.options.browser?.available ? this.options.browser : undefined
   }
 
+  /**
+   * The person's Mac, while this round may use it: the chat allowed it when the round started, and only the person
+   * wrote into it (a channel member's message takes it away at once, like full access).
+   */
+  get computer() {
+    return this.spec.computerUse && !this.spec.askAll ? this.options.computer : undefined
+  }
+
+  /** The person pressed Stop on computer use: agents driving their Mac stop at once, and are told why. */
+  private _computerStopped() {
+    const holding = new Set(
+      (this.options.computer?.controls() ?? []).filter((c) => c.colonyId === this.id).map((c) => c.agent),
+    )
+    for (const agent of holding)
+      void this.append({
+        type: 'computer/control',
+        actor: { kind: 'user', id: 'user' },
+        payload: { agent, active: false },
+      }).catch(() => {})
+    for (const a of this._agents.values())
+      if (holding.has(a.name) && a.working)
+        a.interrupt('the person stopped computer use', prompts.computer.stoppedNote)
+  }
+
   mcpTools() {
     return this.options.mcp?.tools() ?? []
   }
@@ -336,7 +402,11 @@ export class ColonyRun implements ColonyHost {
   }
 
   pluginTools(agent: string) {
-    return this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
+    const tools = this.options.plugins?.tools({ colonyId: this.id, agent }) ?? []
+    // Messaging the person on a channel is speaking to them: only for agents that do (reply_user).
+    const spec = this.spec.agents.find((a) => a.name === agent)
+    const speaks = spec !== undefined && toolsFor(this.spec, spec).includes('reply_user')
+    return speaks ? tools : tools.filter((t) => t.name !== 'channels_send')
   }
 
   pluginPrompts(role: 'lead' | 'worker') {
@@ -413,6 +483,37 @@ export class ColonyRun implements ColonyHost {
     return this._untrusted.get(agent) ?? []
   }
 
+  /**
+   * Folders this round's agents may read beyond the defaults: the person's (Settings, the project), this chat's
+   * grants and this round's one-off ones. None from the moment a channel member writes into the round.
+   */
+  extraReads(): string[] {
+    if (this.spec.askAll) return []
+    const granted = [...(this._state.chatReads ?? []), ...this._readOnce].filter((f) => !this._secret(f))
+    return [...new Set([...(this.spec.reads ?? []), ...granted])]
+  }
+
+  /** The secret (or other chats' data) a folder is or lies in: only the person can open those, in Settings. */
+  private _secret(folder: string) {
+    return secretAt(folder, { dataDir: this.runtime.home, colonyDir: this.workspace.colonyDir })
+  }
+
+  async requestRead(agent: string, path: string, reason?: string): Promise<string> {
+    if (this.fullAccess) return prompts.toolResults.readFull
+    if (this.spec.askAll) throw new Error(prompts.toolResults.readNotHere)
+    const folder = realPath(readFolder(path))
+    if (this._secret(folder)) throw new Error(prompts.toolResults.readSecret(path))
+    if (this.workspace.mayRead(agent, folder)) return prompts.toolResults.readAlready(path)
+    const home = homedir()
+    const shown = within(folder, home) ? `~${folder.slice(home.length)}` : folder
+    const decision = await this.reviewChange(agent, 'request_read', prompts.reviewCard.read(shown, reason), {
+      read: folder,
+    })
+    if (!decision.approved) throw new Error(prompts.toolResults.declined(`reading ${path}`, decision.note))
+    if (!(this._state.chatReads ?? []).some((f) => within(folder, f))) this._readOnce.add(folder)
+    return prompts.toolResults.readAllowed(path)
+  }
+
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
     return (await this.reviewChange(agent, tool, summary, {})).approved
   }
@@ -421,10 +522,12 @@ export class ColonyRun implements ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant },
+    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
     if (options.grant && this._state.chatGrants?.includes(options.grant)) return { approved: true }
+    const read = options.read
+    if (read && this._state.chatReads?.some((f) => within(read, f))) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const decided = new Promise<ReviewDecision>((resolve) => {
       const timer = setTimeout(
@@ -447,6 +550,7 @@ export class ColonyRun implements ColonyHost {
         ...(options.review ? { review: options.review } : {}),
         ...(options.key ? { key: options.key } : {}),
         ...(options.grant ? { grant: options.grant } : {}),
+        ...(options.read ? { read: options.read } : {}),
       },
     })
     return decided
@@ -495,6 +599,7 @@ export class ColonyRun implements ColonyHost {
       command,
       cwd,
       writable: readOnly ? [scratch] : [...new Set([cwd, scratch])],
+      ...this.workspace.confinement(),
       ...(port ? { env: { PORT: String(port) } } : {}),
     })
     this._servers.set(name, proc)
@@ -548,7 +653,8 @@ export class ColonyRun implements ColonyHost {
     return url
   }
 
-  localPorts(): ReadonlySet<number> {
+  localPorts(): ReadonlySet<number> | 'all' {
+    if (this.fullAccess) return 'all'
     const ports = new Set<number>()
     for (const proc of this._servers.values()) {
       const port = this._serverPorts.get(proc)
@@ -683,8 +789,9 @@ export class ColonyRun implements ColonyHost {
     return a.loadTools(query)
   }
 
-  toolsChanged() {
+  toolsChanged(made?: { readonly by: string; readonly tool: string }) {
     for (const a of this._agents.values()) a.refreshTools()
+    if (made) this._agents.get(made.by)?.load([made.tool])
   }
 
   /**
@@ -703,39 +810,50 @@ export class ColonyRun implements ColonyHost {
 
   /**
    * New tool rules from the person, applied to this round at once. If they got stricter (a tool switched off or
-   * made to ask first, a project made read-only or ask-first), an agent mid-turn is stopped, so a call the person
-   * just took back cannot go ahead, and told what changed.
+   * made to ask first, a project made read-only or ask-first, full access taken back), an agent mid-turn is stopped,
+   * so a call the person just took back cannot go ahead, and told what changed. Looser rules wait for the next round.
    */
   async applyRules(next: {
     disabledTools: string[]
     askTools: string[]
     allowTools: string[]
     project?: ProjectPermissions
+    /** Whether the round would get full access now (`false` takes it back). */
+    fullAccess?: boolean
+    /** The folders the person now lets agents read (Settings and the project); they apply from the next read. */
+    reads?: string[]
   }) {
     const spec = this.spec as ColonySpec & {
       disabledTools?: string[]
       askTools?: string[]
       allowTools?: string[]
     }
+    if (next.reads) spec.reads = next.reads
     const added = (now: readonly string[], before: readonly string[] | undefined) =>
       now.filter((t) => !(before ?? []).includes(t))
     const off = added(next.disabledTools, spec.disabledTools)
     const ask = added(next.askTools, spec.askTools)
     const project = spec.chat?.project
-    const strictness = { auto: 0, ask: 1, 'read-only': 2 } as const
+    // Full access is the absence of the sandbox, not a looser mode: losing it is told apart below.
+    const strictness = { full: 0, auto: 0, ask: 1, 'read-only': 2 } as const
     const stricter =
       project && next.project
         ? strictness[next.project.mode] > strictness[project.permissions?.mode ?? 'auto']
         : false
+    const confined = next.fullAccess === false && this.fullAccess
     const allowedNow = added(next.allowTools, spec.allowTools)
-    if (!off.length && !ask.length && !allowedNow.length && !stricter && sameRules(spec, next)) return
+    if (!off.length && !ask.length && !allowedNow.length && !stricter && !confined && sameRules(spec, next))
+      return
     spec.disabledTools = next.disabledTools
     spec.askTools = next.askTools
     spec.allowTools = next.allowTools
     if (project && next.project) project.permissions = next.project
+    if (confined) spec.fullAccess = false
     this.toolsChanged()
     const interrupted =
-      off.length || ask.length || stricter ? [...this._agents.values()].filter((a) => a.working) : []
+      off.length || ask.length || stricter || confined
+        ? [...this._agents.values()].filter((a) => a.working)
+        : []
     await this.append({
       type: 'permissions/changed',
       actor: { kind: 'user', id: 'user' },
@@ -744,6 +862,7 @@ export class ColonyRun implements ColonyHost {
         ask,
         allow: allowedNow,
         ...(stricter && next.project ? { project: next.project.mode } : {}),
+        ...(confined ? { fullAccess: false } : {}),
         interrupted: interrupted.map((a) => a.name),
       },
     })
@@ -751,6 +870,7 @@ export class ColonyRun implements ColonyHost {
       off,
       ask,
       ...(stricter && next.project ? { project: next.project.mode } : {}),
+      confined,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
   }
@@ -898,6 +1018,8 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.allowTools?.length ? { allowTools: this.spec.allowTools } : {}),
       ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
+      ...(this.fullAccess ? { fullAccess: true } : {}),
+      ...(this.computer ? { computerUse: true } : {}),
     }
   }
 
@@ -972,6 +1094,13 @@ export class ColonyRun implements ColonyHost {
         this._route(e)
       }
     })
+    // Full access is decided afresh on resume (the person may have turned the sandbox back on); the log says so.
+    if (!!this._state.fullAccess !== this.fullAccess)
+      await this.append({
+        type: 'permissions/changed',
+        actor: { kind: 'user', id: 'user' },
+        payload: { off: [], ask: [], allow: [], fullAccess: this.fullAccess, interrupted: [] },
+      })
     await this._launch(left, reason, models)
   }
 
@@ -1018,12 +1147,35 @@ export class ColonyRun implements ColonyHost {
       },
     })
     if (resumedBecause) await this._wakeAfterResume(resumedBecause)
+    for (const a of this._agents.values()) this._catchUp(a.name)
     this.runtime.track?.(this.done)
     for (const a of this._agents.values()) this._runAgent(a, !resumedBecause)
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
     // A short quiet window (tests) needs a matching tick, or each stall nudge waits a full second.
     const tick = Math.min(1000, this.options.quietMs ?? 1000)
     this._timers.push(setInterval(() => void this._watch(), tick))
+  }
+
+  /**
+   * Messages an agent never got to read (its last round ended first) wait for it like unread texts: it sees them when
+   * something next wakes it, before anything newer, so it catches up instead of answering old news as if it were new.
+   */
+  private _catchUp(name: string) {
+    const unread = unreadMailFor(this._state, name)
+    if (unread.length === 0) return
+    const shown = unread.slice(-MISSED_SHOWN)
+    const cut = (text: string) => (text.length > MISSED_CHARS ? `${text.slice(0, MISSED_CHARS)}…` : text)
+    const lines = shown.map((m) =>
+      m.members
+        ? `[group:${m.to}] #${m.seq} ${m.from}: ${cut(m.body)}`
+        : `#${m.seq} from ${m.from}${m.subject && !m.subject.startsWith('Re: ') ? ` [${m.subject}]` : ''}: ${cut(m.body)}`,
+    )
+    this._agents.get(name)?.notify({
+      text: prompts.colony.missed(lines, unread.length - shown.length),
+      trigger: 'unread',
+      quiet: true,
+      mails: shown.map((m) => m.id),
+    })
   }
 
   private async _wakeAfterResume(reason: string) {
@@ -1285,11 +1437,7 @@ export class ColonyRun implements ColonyHost {
     try {
       if (!here) {
         // On call until now: it joins the round, its job in its instructions, and is woken by the job's mail below.
-        const spec: AgentSpec = {
-          ...called,
-          role: 'worker',
-          instructions: [called.instructions, prompts.colony.crewmateJob(by)].filter(Boolean).join('\n\n'),
-        }
+        const spec: AgentSpec = { ...called, role: 'worker' }
         this.spec.agents.push(spec)
         await this.append({
           type: 'agent/joined',
@@ -1464,8 +1612,7 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
-        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: result.verdicts } })
-        void this._end()
+        await this._complete(result.verdicts)
         return prompts.colony.verified(result.report)
       }
       // Outside chat, everyone hears about a failed check; in chat the speaker owns the fix.
@@ -1485,6 +1632,19 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
+  /**
+   * Completes the round. In a chat with a crew it winds down like a group chat first: the answer is with the person,
+   * but anyone mid-reply finishes and what was said gets read (see `_watch`), so nobody is cut off.
+   */
+  private async _complete(verdicts: MyrEvent['id'][]) {
+    if (this.spec.chat && this._agents.size > 1) {
+      this._settling ??= { verdicts, until: Date.now() + CHAT_SETTLE_MS }
+      return
+    }
+    await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts } })
+    void this._end()
+  }
+
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
   private async _verifyFinalAnswer(by: string) {
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
@@ -1502,8 +1662,7 @@ export class ColonyRun implements ColonyHost {
               : 'Final answer delivered; this round is not reviewed.',
         },
       })
-      await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: [verdict.id] } })
-      return void this._end()
+      return void (await this._complete([verdict.id]))
     }
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return
@@ -1590,7 +1749,11 @@ export class ColonyRun implements ColonyHost {
       case 'chat/reply': {
         const p = e.payload as EventPayloads['chat/reply']
         if (p.question) this._awaiting = true
-        else if (p.final && this.spec.chat) void this._verifyFinalAnswer(p.agent)
+        else if (p.final && this.spec.chat) {
+          // Whoever gave the final answer has signed off; it still hears anything written to it afterwards.
+          this._agents.get(p.agent)?.endTurnAfterStep()
+          if (!this._settling) void this._verifyFinalAnswer(p.agent)
+        }
         break
       }
       case 'mail/sent': {
@@ -1773,7 +1936,8 @@ export class ColonyRun implements ColonyHost {
   private _remindMail(agent: string): boolean {
     const all = this._state.mail
     const open = all.filter((m) => {
-      if (!m.delivered || !this._agents.has(m.from) || this._state.agents[m.from]?.dismissed) return false
+      if (!m.readBy.includes(agent) || !this._agents.has(m.from) || this._state.agents[m.from]?.dismissed)
+        return false
       const forMe = m.members ? mentionsIn(m.body, m.members).includes(agent) : m.to === agent
       if (!forMe || !asksSomething(m.body) || this._reminded.has(`${agent}:mail:${m.seq}`)) return false
       return !all.some(
@@ -1904,6 +2068,19 @@ export class ColonyRun implements ColonyHost {
     for (const a of agents) {
       if (a.idle) this._idleSince.set(a.name, this._idleSince.get(a.name) ?? now)
       else this._idleSince.delete(a.name)
+    }
+    if (this._settling) {
+      const settle = this._settling
+      const still = this._verifying === 0 && live.every((a) => a.idle)
+      if (still) settle.quietSince ??= now
+      else settle.quietSince = undefined
+      const quietFor = Math.min(this.options.quietMs ?? SETTLE_QUIET_MS, SETTLE_QUIET_MS)
+      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until) {
+        this._settling = undefined
+        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
+        return void this._end()
+      }
+      return
     }
     if (!this._awaiting) {
       await this._releaseStaleClaims(now)
@@ -2101,6 +2278,7 @@ export class ColonyRun implements ColonyHost {
     this._mirrorTimer = undefined
     for (const a of this._agents.values()) a.stop()
     await this.options.browser?.closeColony(this.id).catch(() => {})
+    this.options.computer?.release(this.id)
     await Bun.sleep(50)
     await this.workspace.writeMirror(this._state, this.blobs).catch(() => {})
     this._offLog?.()

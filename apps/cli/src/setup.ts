@@ -338,6 +338,7 @@ export async function doctor(
         })
       else checks.push({ ok: true, text: t.doctor.channel.ok(c.label, c.status.account, c.people.length) })
     }
+    checks.push(await accessCheck(call))
   } else checks.push({ ok: false, text: t.doctor.server.none, fix: t.doctor.server.fix })
 
   checks.push(await sandboxCheck(local.sandbox, local.scratch))
@@ -356,6 +357,17 @@ export async function doctor(
   const problems = checks.filter((c) => !c.ok).length
   term.print(problems ? term.style.yellow(t.doctor.summary(problems)) : term.style.green(t.doctor.summary(0)))
   return problems
+}
+
+/** Whether agents run sandboxed or with full access: a choice the person made in Settings, said as it is. */
+async function accessCheck(call: Call): Promise<Check> {
+  const { projects, fullAccess } = await call<{
+    projects: { name: string; permissions?: { mode: string } }[]
+    fullAccess?: boolean
+  }>('GET', '/api/projects')
+  if (fullAccess) return { ok: true, text: t.doctor.access.off }
+  const full = projects.filter((p) => p.permissions?.mode === 'full').map((p) => p.name)
+  return { ok: true, text: full.length ? t.doctor.access.projects(full) : t.doctor.access.on }
 }
 
 /**

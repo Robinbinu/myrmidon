@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { MyrEvent } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
 import type { ChannelKind } from './channels/hub.ts'
+import { clockTime } from './clock.ts'
 import type { PluginInfo, PluginStore } from './plugins.ts'
 
 /**
@@ -408,7 +409,7 @@ export class PluginHost {
 
   private _log(name: string, message: string) {
     const lines = this._logs.get(name) ?? []
-    lines.push(`${new Date().toISOString().slice(11, 19)} ${message}`)
+    lines.push(`${clockTime(new Date())} ${message}`)
     this._logs.set(name, lines.slice(-LOG_LINES))
   }
 }

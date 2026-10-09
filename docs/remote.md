@@ -90,7 +90,8 @@ Every request then needs a paired device. Previews open at `http://100.101.102.1
 ## Setting up a Linux server
 
 - **Bun**: `curl -fsSL https://bun.sh/install | bash`.
-- **Sandbox**: agents' shell commands run in bubblewrap: `sudo apt install bubblewrap`. On Ubuntu 24.04 and later,
+- **Sandbox**: agents' shell commands run in bubblewrap, which mounts an empty folder over your home and binds back
+  only the project, the chat's own folder, toolchains and folders you opened: `sudo apt install bubblewrap`. On Ubuntu 24.04 and later,
   AppArmor blocks the unprivileged user namespaces bubblewrap needs; if Settings shows the sandbox as `none`, see
   Ubuntu's notes on `kernel.apparmor_restrict_unprivileged_userns` or add an AppArmor profile for `bwrap`.
 - **Browser tools**: `sudo apt install chromium` (or set `MYR_CHROME` to a Chrome binary); it runs headless.
@@ -155,8 +156,9 @@ Each step is also its own command:
 - `myrmidon key [PROVIDER]` stores an API key, typed without showing it. For scripts, pipe it in so it never lands
   in your shell history: `myrmidon key openai < openai.key`. The key is tried with one of that provider's models.
 - `myrmidon model [PROVIDER/MODEL]` shows or sets the default model; it is saved only after it answers.
-- `myrmidon doctor` checks the server, models, the default model, the sandbox (by running something in it), the
-  browser tools, previews and paired devices, with a fix for each problem. It exits 1 when something needs attention.
+- `myrmidon doctor` checks the server, models, the default model, whether agents run sandboxed or with full access,
+  the sandbox (by running something in it), the browser tools, previews and paired devices, with a fix for each
+  problem. It exits 1 when something needs attention.
 
 Run without a terminal (a script, a pipe), `myrmidon setup` prints these commands instead of waiting for answers.
 

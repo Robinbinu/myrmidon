@@ -85,7 +85,14 @@ export interface PluginTest {
  */
 export async function testPlugin(
   plugin: PluginInfo,
-  options: { sandbox: Sandbox; scratch: string; tests: readonly PluginTest[]; allowUnsandboxed: boolean },
+  options: {
+    sandbox: Sandbox
+    scratch: string
+    tests: readonly PluginTest[]
+    allowUnsandboxed: boolean
+    /** What the test may read and must not see beyond its folder (see `ColonyWorkspace.confinement`). */
+    confinement?: { readable: readonly string[]; hidden: readonly string[] }
+  },
 ): Promise<string> {
   const lines: string[] = [
     `${plugin.name}: ${[
@@ -129,6 +136,7 @@ export async function testPlugin(
     command: `"${process.execPath}" harness.js`,
     cwd: dir,
     writable: [dir],
+    ...options.confinement,
     timeoutMs: 60_000,
     // A compiled Myrmidon runs scripts as Bun does with this set.
     env: { BUN_BE_BUN: '1' },

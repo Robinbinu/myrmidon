@@ -12,6 +12,8 @@ import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
+import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
+import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
 import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
@@ -35,6 +37,8 @@ export interface InboxItem {
   readonly text: string
   readonly trigger: string
   readonly mail?: EventId
+  /** Several messages in one item (catching up on what was missed): each is recorded as read when it is seen. */
+  readonly mails?: readonly EventId[]
   /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
   readonly queue?: boolean
   /** Seen, not a reason to wake: it waits for whatever wakes the agent next (team chat it was not @mentioned in). */
@@ -96,7 +100,7 @@ export class ColonyAgent {
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
     this._stream = resolved.streamFn
-    const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
+    const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host, this._model)
     for (const name of preloaded(
       host.spec.chat?.request ?? host.spec.mission,
       tools.map((t) => t.name),
@@ -108,6 +112,7 @@ export class ColonyAgent {
           sandbox: host.sandbox.kind,
           web: host.web !== noWebTools,
           browser: host.browser !== undefined,
+          computer: host.computer !== undefined,
           boundary: host.boundary,
           ...(host.project ? { project: host.project } : {}),
           ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
@@ -122,6 +127,15 @@ export class ColonyAgent {
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
+      // Tools see their call's provider metadata and batch: OpenAI's native computer actions arrive that way.
+      getToolContext: (call) => (call ? ({ toolCall: call } as never) : undefined),
+      // Anthropic's computer toolset calls each action by its own name (left_click, scroll…).
+      resolveFallbackTool: (name, advertised) =>
+        ANTHROPIC_MEMBERS.has(name) &&
+        advertised.some((t) => t.name === COMPUTER_TOOL) &&
+        computerProtocol(this._agent.state.model) === 'anthropic'
+          ? computerMember(name, this.spec.name, this.host, this._model)
+          : undefined,
       transformContext: (messages, signal) => this._compactor.transform(messages, signal),
       // pi reads the model afresh each step but keeps the stream function for a whole loop; dispatching here lets
       // a mid-round model switch reach models that bring their own stream too.
@@ -129,10 +143,11 @@ export class ColonyAgent {
       // definitions do not ride along in every model call.
       streamFn: (model, context, options) => {
         this._streamedWith = model
+        const tools = context.tools?.filter((t) => this._shown(t.name))
         return (this._stream ?? streamSimple)(
           model,
-          context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
-          withOllamaContext(model, options),
+          tools ? { ...context, tools } : context,
+          withComputerToolset(model, tools, withOllamaContext(model, options)),
         )
       },
     })
@@ -163,22 +178,34 @@ export class ColonyAgent {
     return !onDemand(name) || this._loaded.has(name)
   }
 
+  /** The model this agent calls now (it may switch mid-round); sizes computer use's screenshots. */
+  private readonly _model = (): Model => this._agent.state.model
+
   /** Picks up tools made since this agent started; takes effect on its next model call. */
   refreshTools() {
-    this._agent.setTools(buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host))
+    this._agent.setTools(
+      buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host, this._model),
+    )
+  }
+
+  /** Shows these on-demand tools in this agent's next model calls. */
+  load(names: readonly string[]) {
+    for (const name of names) this._loaded.add(name)
   }
 
   /** Loads the on-demand tools matching `query` for this agent's next steps (find_tools). */
   loadTools(query: string): string {
     const waiting = this._agent.state.tools.filter((t) => !this._shown(t.name))
-    const found = matchTools(waiting, query)
+    const { found, more } = matchTools(waiting, query)
     if (found.length === 0) {
       const names = waiting.map((t) => t.name)
       return names.length ? prompts.agent.noMatch(query, names) : prompts.agent.allLoaded
     }
-    for (const t of found) this._loaded.add(t.name)
+    this.load(found.map((t) => t.name))
     const first = (d: string) => d.split(/(?<=\.)\s/)[0] ?? d
-    return prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))
+    return `${prompts.agent.loaded(found.map((t) => `- ${t.name}: ${first(t.description)}`).join('\n'))}${
+      more.length ? prompts.agent.more(more.map((t) => t.name)) : ''
+    }`
   }
 
   get idle() {
@@ -198,7 +225,7 @@ export class ColonyAgent {
     if (this.working) {
       this._stamp = Math.max(Date.now(), this._stamp + 1)
       const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
-      if (item.mail) this._unread.set(message.timestamp, item)
+      if (item.mail || item.mails?.length) this._unread.set(message.timestamp, item)
       if (item.queue) this._agent.followUp(message)
       else this._agent.steer(message)
       return
@@ -211,6 +238,17 @@ export class ColonyAgent {
     this._stopped = true
     this._agent.abort('colony stopped')
     this._wake?.()
+  }
+
+  /** Set once the agent has signed off (its final answer is out): the turn ends when the current step is done. */
+  private _endAfterStep = false
+
+  /**
+   * Ends the turn once the step in progress has its tool results, before the model is asked again, the way someone
+   * stops after saying goodbye. Anything written to the agent afterwards still wakes it.
+   */
+  endTurnAfterStep() {
+    if (this.working && !this._stopped) this._endAfterStep = true
   }
 
   /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
@@ -283,6 +321,7 @@ export class ColonyAgent {
       this._requeueUnread()
       if (this._afterTurn) this.inbox.unshift(this._afterTurn)
       this._afterTurn = undefined
+      this._endAfterStep = false
       this.working = false
     }
     await this.host.append({
@@ -426,11 +465,11 @@ export class ColonyAgent {
 
   private async _markDelivered(items: readonly InboxItem[]) {
     for (const item of items) {
-      if (item.mail)
+      for (const mail of [...(item.mail ? [item.mail] : []), ...(item.mails ?? [])])
         await this.host.append({
           type: 'mail/delivered',
           actor: SYS,
-          payload: { mail: item.mail, to: this.name },
+          payload: { mail, to: this.name },
         })
     }
   }
@@ -488,6 +527,10 @@ export class ColonyAgent {
     }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
+      if (this._endAfterStep) {
+        this._endAfterStep = false
+        this._agent.abort('signed off: final answer sent')
+      }
       return
     }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
@@ -618,4 +661,26 @@ export function classifyModelError(m: AssistantMessage): ModelError {
     (m.errorStatus !== undefined && TRANSIENT_STATUS.has(m.errorStatus)) ||
     /timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|overloaded|rate.?limit|temporar|try again/i.test(message)
   return { kind: 'error', message, transient }
+}
+
+/**
+ * A Claude model that takes Anthropic's computer toolset gets it in place of the generic `computer` function tool:
+ * pi-ai builds the request with plain tools, and its payload hook swaps the definition in (and marks the history's
+ * member calls), after any hook the caller set.
+ */
+function withComputerToolset<O extends { onPayload?: (params: unknown, model: Model) => unknown }>(
+  model: Model,
+  tools: readonly { name: string }[] | undefined,
+  options: O | undefined,
+): O | undefined {
+  if (computerProtocol(model) !== 'anthropic' || !tools?.some((t) => t.name === COMPUTER_TOOL)) return options
+  const before = options?.onPayload
+  return {
+    ...(options ?? ({} as O)),
+    onPayload: async (params: unknown, m: Model) => {
+      const changed = await before?.(params, m)
+      const body = changed === undefined ? params : changed
+      return anthropicToolsetPayload(body) ?? changed
+    },
+  }
 }

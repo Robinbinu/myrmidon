@@ -91,12 +91,14 @@
   --on-bright: #0b0b0d;
   --on-deep: #ffffff;
   /* The Myrmidon mark: amber pixel eyes on a dark glass tile. */
-  --logo-tile-top: #1d1d22;
-  --logo-tile-bottom: #09090b;
+  --logo-tile-top: #121214;
+  --logo-tile-bottom: #000000;
   --logo-rim: #ffffff;
-  --logo-eye-top: #ffc847;
-  --logo-eye-bottom: #ff9d0a;
-  --logo-glow: #ffb31a;
+  --logo-eye-top: #ffcb6b;
+  --logo-eye-bottom: #ff9a12;
+  /* The top-left pixel of each eye, where the light catches it. */
+  --logo-eye-light: #ffe2a3;
+  --logo-glow: #ffa41c;
   /* Terminal panes: an agent's terminal on its computer, and the workspace's shell log. */
   --terminal-bg: #0b0b0d;
   --terminal-text: #d7d7de;

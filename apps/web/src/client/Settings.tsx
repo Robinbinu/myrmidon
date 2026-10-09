@@ -1,3 +1,4 @@
+import { SETUP_STEPS, type SetupStep } from '@myrmidon/protocol'
 import {
   ArchiveRestore,
   ArrowLeft,
@@ -37,6 +38,7 @@ import {
   switchGateway,
   type TeamConfig,
 } from './api.ts'
+import { ComputerSection } from './ComputerUse.tsx'
 import { CHANNEL_GROUPS } from './channel-logos.ts'
 import { type ChannelConnection, channelStatusText } from './channel-status.ts'
 import { SkillProposalCard, type SkillProposalView } from './chat/ApprovalCards.tsx'
@@ -49,6 +51,14 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import {
+  cronToRule,
+  DEFAULT_RULE,
+  describeCron,
+  type Repeat,
+  ruleToCron,
+  type ScheduleRule,
+} from './schedule-rule.ts'
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
@@ -142,6 +152,10 @@ export interface ServerSettings {
     tokens: number
   }
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
+  /** `enabled: false` gives the person's chats full access; absent from older servers. */
+  sandbox?: { enabled: boolean; read?: string[]; readHome?: boolean }
+  /** Computer use (agents on the person's Mac); absent from older servers. */
+  computerUse?: { enabled: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -176,6 +190,8 @@ export interface SettingsResponse {
   searchProviders: { id: string; label: string }[]
   customApis: Api[]
   sandbox: string
+  /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
+  guardedReads?: string[]
   home: string
   /** The computer account's name, used when the person has not set one. */
   account?: string
@@ -192,6 +208,7 @@ export type Section =
   | 'gateways'
   | 'channels'
   | 'voice'
+  | 'computer'
   | 'models'
   | 'team'
   | 'tools'
@@ -329,6 +346,13 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
       hint: copy.settings.sections.voice.hint,
       icon: FEATURE_ICONS.voice,
     },
+    {
+      id: 'computer',
+      group: 'connect',
+      label: copy.settings.sections.computer.label,
+      hint: copy.settings.sections.computer.hint,
+      icon: FEATURE_ICONS.computerUse,
+    },
   ]
 
 const API_LABELS: Record<Api, string> = {
@@ -368,6 +392,8 @@ export function Settings(props: {
   onSection?(section: Section): void
   /** Opens the setup assistant again from its first step (Settings → General). */
   onRunSetup?(): void
+  /** Opens one step of the setup assistant on its own, which comes back here when done. */
+  onOpenSetupStep?(step: SetupStep): void
 }) {
   const [section, setSection] = useState<Section>(props.initialSection ?? 'general')
   const onSection = useRef(props.onSection)
@@ -586,6 +612,7 @@ export function Settings(props: {
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
                     {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
+                    {...(props.onOpenSetupStep ? { onOpenSetupStep: props.onOpenSetupStep } : {})}
                   />
                   <Shortcuts />
                   <About data={data} />
@@ -656,6 +683,12 @@ export function Settings(props: {
               {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
                 <VoiceSection settings={data.settings} update={update} models={props.models} />
+              )}
+              {section === 'computer' && data && (
+                <ComputerSection
+                  enabled={data.settings.computerUse?.enabled === true}
+                  setEnabled={(enabled) => update((s) => ({ ...s, computerUse: { enabled } }), true)}
+                />
               )}
               {section === 'tools' && data && <ToolsSection data={data} update={update} />}
               {section === 'verification' && data && (
@@ -856,6 +889,7 @@ function General(props: {
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
   onRunSetup?(): void
+  onOpenSetupStep?(step: SetupStep): void
 }) {
   return (
     <>
@@ -888,6 +922,19 @@ function General(props: {
               <Button icon={<FEATURE_ICONS.setup className="size-3.5" />} onClick={props.onRunSetup}>
                 {copy.settings.general.runSetup}
               </Button>
+            </Field>
+          </CardRow>
+        )}
+        {props.onOpenSetupStep && (
+          <CardRow>
+            <Field label={copy.settings.general.setupStep} hint={copy.settings.general.setupStepHint}>
+              <div className="flex flex-wrap gap-1.5">
+                {SETUP_STEPS.filter((s) => s !== 'welcome').map((s) => (
+                  <Button key={s} size="sm" onClick={() => props.onOpenSetupStep?.(s)}>
+                    {copy.setup.steps[s]}
+                  </Button>
+                ))}
+              </div>
             </Field>
           </CardRow>
         )}
@@ -2197,11 +2244,83 @@ function ToolRules(props: {
   )
 }
 
+/** Whether a folder the person typed is, or lies inside, one of the guarded paths (their keys, Myrmidon's data). */
+function opensGuarded(folder: string, guarded: readonly string[]): boolean {
+  const f = folder.trim().replace(/\/+$/, '')
+  return guarded.some((g) => f === g || f.startsWith(`${g}/`))
+}
+
+/** The folders sandboxed agents may read in every chat, beyond the project and their own files. */
+function SandboxReads(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools.reads
+  const sandbox = props.data.settings.sandbox ?? { enabled: true }
+  const [text, setText] = useState((sandbox.read ?? []).join('\n'))
+  const folders = text
+    .split('\n')
+    .map((f) => f.trim())
+    .filter(Boolean)
+  const guarded = folders.filter((f) => opensGuarded(f, props.data.guardedReads ?? []))
+  return (
+    <>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.readAccess className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card className="mb-6">
+        <CardRow>
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-reading font-medium">{t.home}</div>
+              <div className="text-callout text-muted">{t.homeHint}</div>
+            </div>
+            <Switch
+              checked={!!sandbox.readHome}
+              label={t.home}
+              onChange={(v) =>
+                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, readHome: v } }), true)
+              }
+            />
+          </div>
+        </CardRow>
+        <CardRow>
+          <Field label={t.folders}>
+            <TextArea
+              value={text}
+              onChange={(e) => {
+                const next = e.target.value
+                setText(next)
+                const read = next
+                  .split('\n')
+                  .map((f) => f.trim())
+                  .filter(Boolean)
+                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, read } }))
+              }}
+              rows={3}
+              placeholder={t.foldersPlaceholder}
+              className="font-mono"
+            />
+          </Field>
+          {guarded.length > 0 && <p className="mt-2 text-callout text-warn-ink">{t.guarded(guarded)}</p>}
+        </CardRow>
+      </Card>
+    </>
+  )
+}
+
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
-  const sandboxed = props.data.sandbox !== 'none'
+  const on = props.data.settings.sandbox?.enabled !== false
+  const sandboxed = on && props.data.sandbox !== 'none'
+  const setSandbox = (enabled: boolean) =>
+    props.update((s) => ({ ...s, sandbox: { ...s.sandbox, enabled } }), true)
+  const Icon = on ? FEATURE_ICONS.sandbox : FEATURE_ICONS.fullAccess
   return (
     <>
       <PageHeader title={copy.settings.tools.title}>{copy.settings.tools.intro}</PageHeader>
@@ -2211,20 +2330,42 @@ function ToolsSection(props: {
           sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
         )}
       >
-        <FEATURE_ICONS.sandbox
-          className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')}
-        />
-        <div>
+        <Icon className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
+        <div className="min-w-0 flex-1">
           <div className="font-semibold">
-            {sandboxed
-              ? copy.settings.tools.sandboxActive(props.data.sandbox)
-              : copy.settings.tools.noSandbox}
+            {!on
+              ? copy.settings.tools.sandboxOffTitle
+              : sandboxed
+                ? copy.settings.tools.sandboxActive(props.data.sandbox)
+                : copy.settings.tools.noSandbox}
           </div>
           <div className="text-fg-2">
-            {sandboxed ? copy.settings.tools.sandboxedHint : copy.settings.tools.unsandboxedHint}
+            {!on
+              ? copy.settings.tools.sandboxOffHint
+              : sandboxed
+                ? copy.settings.tools.sandboxedHint
+                : copy.settings.tools.unsandboxedHint}
           </div>
+          {props.data.settings.sandbox && (
+            <div className="mt-2 flex justify-end">
+              {on ? (
+                <ConfirmButton
+                  label={copy.settings.tools.turnOff}
+                  name={copy.settings.tools.turnOffName}
+                  confirm={copy.settings.tools.confirmOff}
+                  warning={copy.fullAccess.warning}
+                  onConfirm={() => setSandbox(false)}
+                />
+              ) : (
+                <Button size="sm" variant="push" onClick={() => setSandbox(true)}>
+                  {copy.settings.tools.turnOn}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
+      {on && props.data.settings.sandbox && <SandboxReads data={props.data} update={props.update} />}
       <Card>
         {TOOL_INFO.map((t) => (
           <CardRow key={t.key}>
@@ -4436,13 +4577,6 @@ interface ScheduleEntry {
   lastRun?: { at: string; chatId?: string; error?: string }
 }
 
-const CRON_PRESETS: { cron: string; label: string }[] = [
-  { cron: '0 * * * *', label: copy.settings.schedules.presets.hourly },
-  { cron: '0 9 * * *', label: copy.settings.schedules.presets.daily },
-  { cron: '0 9 * * 1-5', label: copy.settings.schedules.presets.weekdays },
-  { cron: '0 9 * * 1', label: copy.settings.schedules.presets.mondays },
-]
-
 const when = (iso?: string) =>
   iso
     ? new Date(iso).toLocaleString(undefined, {
@@ -4454,6 +4588,147 @@ const when = (iso?: string) =>
       })
     : '—'
 
+const REPEATS: Repeat[] = ['hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'custom']
+/** Minutes past the hour an hourly schedule offers; a schedule saved at another minute keeps its own. */
+const HOURLY_MINUTES = Array.from({ length: 12 }, (_, i) => i * 5)
+/** Monday first in the day chips, as most calendars show a week; cron still counts Sunday as 0. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+
+/** Why a picked schedule cannot be saved, in words, or nothing. */
+function ruleError(rule: ScheduleRule): string | undefined {
+  if (rule.repeat === 'weekly' && rule.days.length === 0) return copy.settings.schedules.pickADay
+  if (rule.repeat === 'custom') return cronError(rule.cron)
+  return undefined
+}
+
+/**
+ * When a schedule runs: a repeat, then the time, days or day of the month it needs, with the result in plain words.
+ * Cron stays available as Custom for anything the picker cannot say.
+ */
+function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule): void }) {
+  const t = copy.settings.schedules
+  const { rule, onChange } = props
+  const errorId = useId()
+  const error = ruleError(rule)
+  const timed = rule.repeat !== 'hourly' && rule.repeat !== 'custom'
+  const minutes = HOURLY_MINUTES.includes(rule.minute)
+    ? HOURLY_MINUTES
+    : [...HOURLY_MINUTES, rule.minute].sort((a, b) => a - b)
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          aria-label={t.repeat.label}
+          value={rule.repeat}
+          onChange={(e) => {
+            const repeat = e.target.value as Repeat
+            // Switching to Custom starts from what was picked, so the person edits a working expression.
+            onChange({ ...rule, repeat, ...(repeat === 'custom' ? { cron: ruleToCron(rule) } : {}) })
+          }}
+        >
+          {REPEATS.map((r) => (
+            <option key={r} value={r}>
+              {t.repeat[r]}
+            </option>
+          ))}
+        </Select>
+        {rule.repeat === 'hourly' && (
+          <Select
+            aria-label={t.minutePast}
+            value={rule.minute}
+            onChange={(e) => onChange({ ...rule, minute: Number(e.target.value) })}
+          >
+            {minutes.map((m) => (
+              <option key={m} value={m}>
+                :{String(m).padStart(2, '0')}
+              </option>
+            ))}
+          </Select>
+        )}
+        {rule.repeat === 'monthly' && (
+          <Select
+            aria-label={t.dayOfMonth}
+            value={rule.dayOfMonth}
+            onChange={(e) => onChange({ ...rule, dayOfMonth: Number(e.target.value) })}
+          >
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {t.ordinal(d)}
+              </option>
+            ))}
+          </Select>
+        )}
+        {timed && (
+          <div className="w-28">
+            <TextInput
+              type="time"
+              aria-label={t.time}
+              value={`${String(rule.hour).padStart(2, '0')}:${String(rule.minute).padStart(2, '0')}`}
+              onChange={(e) => {
+                const [h, m] = e.target.value.split(':').map(Number)
+                // A cleared field keeps the last time rather than saving a schedule that has none.
+                if (Number.isInteger(h) && Number.isInteger(m))
+                  onChange({ ...rule, hour: h as number, minute: m as number })
+              }}
+            />
+          </div>
+        )}
+        {rule.repeat === 'custom' && (
+          <div className="w-56">
+            <TextInput
+              aria-label={t.cronExpression}
+              aria-invalid={!!error}
+              aria-describedby={error ? errorId : undefined}
+              value={rule.cron}
+              onChange={(e) => onChange({ ...rule, cron: e.target.value })}
+              placeholder={t.cronPlaceholder}
+              className="font-mono"
+            />
+          </div>
+        )}
+      </div>
+      {rule.repeat === 'weekly' && (
+        <fieldset className="mt-2 flex flex-wrap gap-1" aria-describedby={error ? errorId : undefined}>
+          <legend className="sr-only">{t.days}</legend>
+          {WEEK_ORDER.map((d) => {
+            const on = rule.days.includes(d)
+            return (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={on}
+                aria-label={t.dayName[d]}
+                onClick={() =>
+                  onChange({ ...rule, days: on ? rule.days.filter((x) => x !== d) : [...rule.days, d] })
+                }
+                className={cn(
+                  'h-7 min-w-11 rounded-md px-2 text-small font-medium outline-none transition-colors focus-visible:ring-3 focus-visible:ring-focus/30',
+                  on ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2 hover:text-fg',
+                )}
+              >
+                {t.dayShort[d]}
+              </button>
+            )
+          })}
+        </fieldset>
+      )}
+      {error ? (
+        <p id={errorId} className="mt-1.5 text-small leading-snug text-bad-ink">
+          {error}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-small leading-snug text-muted">
+          {describeCron(ruleToCron(rule))}
+          {rule.repeat !== 'custom' && ` ${t.localTime}`}
+          {rule.repeat === 'monthly' &&
+            rule.dayOfMonth > 28 &&
+            `. ${t.shortMonths(t.ordinal(rule.dayOfMonth))}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Requests that start on their own on a cron schedule, as new chats with the default team. */
 function SchedulesSection() {
   const toast = useToast()
@@ -4461,11 +4736,12 @@ function SchedulesSection() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [draft, setDraft] = useState({
     request: '',
-    cron: '0 9 * * 1-5',
-    custom: false,
+    rule: DEFAULT_RULE,
     project: '',
     deliver: '',
   })
+  // The schedule whose time is being changed in place, with the rule picked so far.
+  const [editing, setEditing] = useState<{ id: string; rule: ScheduleRule }>()
   // Channels with an owner can report each run there.
   const [channels, setChannels] = useState<{ id: string; label: string }[]>([])
   const load = () =>
@@ -4493,9 +4769,6 @@ function SchedulesSection() {
         return load()
       })
       .catch((err: Error) => toast(err.message, 'error'))
-  const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
-  const cronId = useId()
-  const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
       <PageHeader title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</PageHeader>
@@ -4509,38 +4782,10 @@ function SchedulesSection() {
               placeholder={copy.settings.schedules.requestPlaceholder}
             />
           </Field>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Select
-              aria-label={copy.settings.schedules.when}
-              value={draft.custom ? 'custom' : draft.cron}
-              onChange={(e) =>
-                setDraft(
-                  e.target.value === 'custom'
-                    ? { ...draft, custom: true }
-                    : { ...draft, custom: false, cron: e.target.value },
-                )
-              }
-            >
-              {CRON_PRESETS.map((p) => (
-                <option key={p.cron} value={p.cron}>
-                  {p.label}
-                </option>
-              ))}
-              <option value="custom">{copy.settings.schedules.custom}</option>
-            </Select>
-            {draft.custom && (
-              <div className="w-40">
-                <TextInput
-                  aria-label={copy.settings.schedules.cronExpression}
-                  aria-invalid={!!badCron}
-                  aria-describedby={badCron ? cronId : undefined}
-                  value={draft.cron}
-                  onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
-                  placeholder={copy.settings.schedules.cronPlaceholder}
-                  className="font-mono"
-                />
-              </div>
-            )}
+          <div className="mt-3">
+            <SchedulePicker rule={draft.rule} onChange={(rule) => setDraft({ ...draft, rule })} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select
               aria-label={copy.settings.schedules.project}
               value={draft.project}
@@ -4572,12 +4817,12 @@ function SchedulesSection() {
               size="sm"
               variant="primary"
               icon={<Plus className="size-3.5" />}
-              disabled={!draft.request.trim() || !!badCron}
+              disabled={!draft.request.trim() || !!ruleError(draft.rule)}
               onClick={() =>
                 act(async () => {
                   await send('POST', '/api/schedules', {
                     request: draft.request,
-                    cron: draft.cron,
+                    cron: ruleToCron(draft.rule),
                     ...(draft.project ? { project: draft.project } : {}),
                     ...(draft.deliver ? { deliver: draft.deliver } : {}),
                   })
@@ -4588,11 +4833,6 @@ function SchedulesSection() {
               {copy.settings.schedules.schedule}
             </Button>
           </div>
-          {badCron && (
-            <p id={cronId} className="mt-1.5 text-small leading-snug text-bad-ink">
-              {badCron}
-            </p>
-          )}
         </CardRow>
       </Card>
       {!list ? (
@@ -4614,7 +4854,7 @@ function SchedulesSection() {
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
                   <p className="mt-1 flex flex-wrap gap-x-3 text-small text-muted">
-                    <span>{label(s.cron)}</span>
+                    <span>{describeCron(s.cron)}</span>
                     {s.project && (
                       <span>
                         {copy.settings.schedules.inProject(
@@ -4641,7 +4881,44 @@ function SchedulesSection() {
                       </span>
                     )}
                   </p>
+                  {editing?.id === s.id && (
+                    <div className="mt-3">
+                      <SchedulePicker
+                        rule={editing.rule}
+                        onChange={(rule) => setEditing({ id: s.id, rule })}
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={!!ruleError(editing.rule)}
+                          onClick={() =>
+                            act(async () => {
+                              await send('PATCH', `/api/schedules/${s.id}`, {
+                                cron: ruleToCron(editing.rule),
+                              })
+                              setEditing(undefined)
+                            }, copy.settings.schedules.updated)
+                          }
+                        >
+                          {copy.settings.schedules.save}
+                        </Button>
+                        <Button size="sm" variant="borderless" onClick={() => setEditing(undefined)}>
+                          {copy.settings.schedules.cancel}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
+                {editing?.id !== s.id && (
+                  <Button
+                    size="sm"
+                    variant="borderless"
+                    onClick={() => setEditing({ id: s.id, rule: cronToRule(s.cron) })}
+                  >
+                    {copy.settings.schedules.change}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="borderless"

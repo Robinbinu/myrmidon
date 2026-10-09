@@ -1,4 +1,4 @@
-import type { ColonyState } from './colony-state.ts'
+import { type ColonyState, type MailEntry, recipientsOf } from './colony-state.ts'
 
 /**
  * The crew's conversations, as people have them at work: one-to-one chats, group chats, and one team chat everyone is
@@ -123,6 +123,13 @@ export function conversationsOf(state: ColonyState, agent?: string): Conversatio
     { id: TEAM_CHAT, kind: 'team', name: TEAM_CHAT, members: crewOf(state) },
     ...[...groups, ...direct.values()].sort((a, b) => last(b) - last(a)),
   ]
+}
+
+/** Messages for `agent` it has not had in front of it yet, oldest first. */
+export function unreadMailFor(state: ColonyState, agent: string): MailEntry[] {
+  return state.mail.filter(
+    (m) => m.from !== agent && recipientsOf(m).includes(agent) && !m.readBy.includes(agent),
+  )
 }
 
 const ASK =

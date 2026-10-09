@@ -2,7 +2,7 @@ import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { AGENT_DOZE_MS, popSpring } from '../ui-config.ts'
+import { AGENT_DOZE_MS, MASCOT_TYPING, popSpring } from '../ui-config.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
 
@@ -223,6 +223,97 @@ function eyeCells(
   return out
 }
 
+/** Letters five cells tall, for spelling in a face's own screen cells; most are three wide. */
+const SCREEN_GLYPHS: Record<string, readonly string[]> = {
+  A: ['.#.', '#.#', '###', '#.#', '#.#'],
+  B: ['##.', '#.#', '##.', '#.#', '##.'],
+  C: ['.##', '#..', '#..', '#..', '.##'],
+  D: ['##.', '#.#', '#.#', '#.#', '##.'],
+  E: ['###', '#..', '##.', '#..', '###'],
+  F: ['###', '#..', '##.', '#..', '#..'],
+  G: ['.##', '#..', '#.#', '#.#', '.##'],
+  H: ['#.#', '#.#', '###', '#.#', '#.#'],
+  I: ['###', '.#.', '.#.', '.#.', '###'],
+  J: ['..#', '..#', '..#', '#.#', '.#.'],
+  K: ['#.#', '#.#', '##.', '#.#', '#.#'],
+  L: ['#..', '#..', '#..', '#..', '###'],
+  M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
+  N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
+  O: ['.#.', '#.#', '#.#', '#.#', '.#.'],
+  P: ['##.', '#.#', '##.', '#..', '#..'],
+  Q: ['.#.', '#.#', '#.#', '##.', '.##'],
+  R: ['##.', '#.#', '##.', '#.#', '#.#'],
+  S: ['.##', '#..', '.#.', '..#', '##.'],
+  T: ['###', '.#.', '.#.', '.#.', '.#.'],
+  U: ['#.#', '#.#', '#.#', '#.#', '###'],
+  V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
+  W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
+  Z: ['###', '..#', '.#.', '#..', '###'],
+  '0': ['###', '#.#', '#.#', '#.#', '###'],
+  '1': ['.#.', '##.', '.#.', '.#.', '###'],
+  '2': ['##.', '..#', '.#.', '#..', '###'],
+  '3': ['##.', '..#', '.#.', '..#', '##.'],
+  '4': ['#.#', '#.#', '###', '..#', '..#'],
+  '5': ['###', '#..', '##.', '..#', '##.'],
+  '6': ['.##', '#..', '###', '#.#', '###'],
+  '7': ['###', '..#', '.#.', '.#.', '.#.'],
+  '8': ['###', '#.#', '###', '#.#', '###'],
+  '9': ['###', '#.#', '###', '..#', '##.'],
+  ' ': ['..', '..', '..', '..', '..'],
+  '.': ['.', '.', '.', '.', '#'],
+  ',': ['..', '..', '..', '.#', '#.'],
+  ':': ['.', '#', '.', '#', '.'],
+  ';': ['..', '.#', '..', '.#', '#.'],
+  '!': ['#', '#', '#', '.', '#'],
+  '?': ['##.', '..#', '.#.', '...', '.#.'],
+  "'": ['#', '#', '.', '.', '.'],
+  '"': ['#.#', '#.#', '...', '...', '...'],
+  '-': ['...', '...', '###', '...', '...'],
+  _: ['...', '...', '...', '...', '###'],
+  '+': ['...', '.#.', '###', '.#.', '...'],
+  '=': ['...', '###', '...', '###', '...'],
+  '*': ['...', '#.#', '.#.', '#.#', '...'],
+  '/': ['..#', '..#', '.#.', '#..', '#..'],
+  '(': ['.#', '#.', '#.', '#.', '.#'],
+  ')': ['#.', '.#', '.#', '.#', '#.'],
+  '#': ['#.#', '###', '#.#', '###', '#.#'],
+  '%': ['#.#', '..#', '.#.', '#..', '#.#'],
+  '@': ['.#.', '#.#', '#.#', '#..', '.##'],
+}
+const SCREEN_GLYPH_ROWS = 5
+
+/**
+ * The cells that spell `text` on a face's screen, letter by letter in its own cells, then the cursor bar: only the
+ * last letters that fit inside a one-cell margin, never scrolled or shrunk. Accents are dropped; other characters
+ * read as spaces.
+ */
+export function textCells(text: string, cols: number, rows: number, cursor: boolean): Cell[] {
+  const room = cols - 2
+  const shown: (readonly string[])[] = []
+  let used = 1
+  const chars = [...text.toUpperCase()]
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const base = chars[i]?.normalize('NFD')[0] ?? ' '
+    const glyph = SCREEN_GLYPHS[base] ?? (SCREEN_GLYPHS[' '] as readonly string[])
+    const width = (glyph[0]?.length ?? 0) + 1
+    if (used + width > room) break
+    shown.unshift(glyph)
+    used += width
+  }
+  const top = Math.floor((rows - SCREEN_GLYPH_ROWS) / 2)
+  const out: Cell[] = []
+  let x = 1
+  for (const glyph of shown) {
+    for (const [y, row] of glyph.entries())
+      for (const [dx, ch] of [...row].entries()) if (ch === '#') out.push([x + dx, top + y])
+    x += (glyph[0]?.length ?? 0) + 1
+  }
+  if (cursor) for (let y = 0; y < SCREEN_GLYPH_ROWS; y++) out.push([x, top + y])
+  return out
+}
+
 const TICK: Record<Mood, number> = {
   idle: 0,
   wink: 0,
@@ -254,6 +345,8 @@ export function PixelFace(props: {
   /** Where the eyes look, in cells (x, y). Omit to let an idle face glance around on its own. */
   look?: readonly [number, number]
   eyes?: EyeStyle
+  /** Spells this on the screen in place of the eyes (its end, as much as fits), with a blinking cursor bar. */
+  text?: string
 }) {
   const cols = props.cols ?? 9
   const rows = props.rows ?? 7
@@ -320,14 +413,28 @@ export function PixelFace(props: {
     return () => clearTimeout(timer)
   }, [props.mood, reduce])
 
+  // The cursor shows at once on every change, then blinks while the text stays put.
+  const [cursorOn, setCursorOn] = useState(true)
+  const spelling = props.text !== undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new text restarts the blink
+  useEffect(() => {
+    setCursorOn(true)
+    if (!spelling || reduce) return
+    const t = setInterval(() => setCursorOn((on) => !on), MASCOT_TYPING.blinkMs)
+    return () => clearInterval(t)
+  }, [props.text, spelling, reduce])
+
   const lookX = props.look?.[0] ?? glance[0]
   const lookY = props.look?.[1] ?? glance[1]
   const lit = useMemo(() => {
     const set = new Set<string>()
-    for (const [x, y] of eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes))
-      if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
+    const on =
+      props.text !== undefined
+        ? textCells(props.text, cols, rows, cursorOn)
+        : eyeCells(props.mood, cols, rows, frame, blinking, [lookX, lookY], props.eyes)
+    for (const [x, y] of on) if (x >= 0 && y >= 0 && x < cols && y < rows) set.add(`${x},${y}`)
     return set
-  }, [props.mood, cols, rows, frame, blinking, lookX, lookY, props.eyes])
+  }, [props.mood, props.text, cursorOn, cols, rows, frame, blinking, lookX, lookY, props.eyes])
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap
@@ -358,6 +465,7 @@ export function PixelFace(props: {
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       className={props.className}
+      data-typed={spelling || undefined}
       style={
         props.glow
           ? {
@@ -518,6 +626,9 @@ const GLYPHS: Record<string, string[]> = {
   Y: ['#   #', '#   #', ' # # ', '  #  ', '  #  ', '  #  ', '  #  '],
   Z: ['#####', '    #', '   # ', '  #  ', ' #   ', '#    ', '#####'],
   "'": ['#', '#', ' ', ' ', ' ', ' ', ' '],
+  '?': [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '],
+  '!': ['#', '#', '#', '#', '#', ' ', '#'],
+  ',': ['  ', '  ', '  ', '  ', '  ', ' #', '# '],
 }
 
 /** Numbers and short labels set in a 5×7 dot-matrix face, like an LED readout. */

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { DesktopBridge } from '../../web/src/client/ui/desktop.ts'
+import { DESKTOP_COMPUTER_STOP, type DesktopBridge } from '../../web/src/client/ui/desktop.ts'
 import { badgeLabel, parseRequest, preloadScript, replyScript, shortcutScript } from '../src/bridge.ts'
 
 const ORIGIN = 'http://127.0.0.1:4318'
@@ -86,4 +86,19 @@ test('a menu item becomes the shortcut event the page listens for', () => {
 test('the Dock shows the count of chats that need the person, and nothing at zero', () => {
   expect(badgeLabel(0)).toBeUndefined()
   expect(badgeLabel(4)).toBe('4')
+})
+
+test('the page tells the shell when an agent controls the Mac, and the shell answers Esc with the stop event', async () => {
+  const page = load(ORIGIN)
+  const bridge = page.window.myrmidonDesktop as DesktopBridge
+  const told = bridge.computerControl?.(true)
+  expect(parseRequest(page.sent[0], SECRET)).toEqual({ id: 1, method: 'computerControl', active: true })
+  evaluate(page, replyScript(1, { ok: true, value: true }))
+  await told
+  const ok = { channel: 'myrmidon-desktop', secret: SECRET, id: 2 }
+  expect(parseRequest({ ...ok, method: 'computerControl', active: 'yes' }, SECRET)).toBeUndefined()
+  const events: unknown[] = []
+  const window = { dispatchEvent: (e: CustomEvent) => events.push(e.detail) }
+  new Function('window', shortcutScript(DESKTOP_COMPUTER_STOP))(window)
+  expect(events).toEqual(['computer-stop'])
 })

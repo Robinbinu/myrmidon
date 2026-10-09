@@ -14,6 +14,7 @@ import {
   MASCOT_DOZE_MS,
   MASCOT_PAT_MS,
   MASCOT_SCREEN_MS,
+  MASCOT_TYPING,
   MASCOT_USER_FOCUS_MS,
   softSpring,
 } from '../ui-config.ts'
@@ -77,6 +78,73 @@ export const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dx / 110), -2, 2),
   clamp(Math.round(dy / 90), -1, 1),
 ]
+
+/**
+ * What the mascot's screen spells out of the message box: the draft from the moment the person
+ * types, until they stop for `idleMs` or clear the box, when its eyes come back. A draft already there when the
+ * screen opens is not typing, so it does not show. The screen follows the box at most every `throttleMs`.
+ */
+export function useTypedText(
+  draft: string,
+  idleMs: number = MASCOT_TYPING.idleMs,
+  throttleMs: number = MASCOT_TYPING.throttleMs,
+): string | undefined {
+  const [shown, setShown] = useState<string>()
+  const before = useRef(draft)
+  const lastShown = useRef(0)
+  const trailing = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const idle = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => {
+    if (draft === before.current) return
+    before.current = draft
+    clearTimeout(idle.current)
+    clearTimeout(trailing.current)
+    if (!draft.trim()) return setShown(undefined)
+    const show = () => {
+      lastShown.current = Date.now()
+      setShown(draft)
+    }
+    const wait = throttleMs - (Date.now() - lastShown.current)
+    if (wait <= 0) show()
+    else trailing.current = setTimeout(show, wait)
+    idle.current = setTimeout(() => {
+      clearTimeout(trailing.current)
+      setShown(undefined)
+    }, idleMs)
+  }, [draft, idleMs, throttleMs])
+  useEffect(
+    () => () => {
+      clearTimeout(idle.current)
+      clearTimeout(trailing.current)
+    },
+    [],
+  )
+  return shown
+}
+
+/**
+ * The colour the typed letters take: `base` (the eyes' colour) to begin with, then another of the mascot's colours
+ * after every few words, a random count in MASCOT_TYPING.colorEveryWords. Clearing the box starts again from `base`.
+ */
+export function useTypingColor(
+  draft: string,
+  base: string,
+  palette: readonly string[] = Object.values(MASCOT_COLORS),
+  random: () => number = Math.random,
+): string {
+  const words = draft.trim() ? draft.trim().split(/\s+/).length : 0
+  const [min, max] = MASCOT_TYPING.colorEveryWords
+  const gap = () => min + Math.floor(random() * (max - min + 1))
+  const state = useRef<{ color?: string; next: number }>({ next: gap() })
+  if (words === 0) state.current = { next: gap() }
+  else if (words > state.current.next) {
+    const current = state.current.color ?? base
+    const others = palette.filter((c) => c !== current)
+    const color = others[Math.floor(random() * others.length)] ?? current
+    state.current = { color, next: words + gap() - 1 }
+  }
+  return state.current.color ?? base
+}
 
 /**
  * The readout in the screen's corner, as the person chose: the clock, a hello with their name, how many crews are at
@@ -169,6 +237,7 @@ export function Hero(props: {
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typing = props.draft.trim().length > 0
+  const typed = useTypedText(props.draft)
   const typingRef = useRef(typing)
   typingRef.current = typing
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -354,6 +423,7 @@ export function Hero(props: {
     () => (emotion.color === LEAD_COLOR ? MASCOT_COLORS[mascot.color] : resolveColor(emotion.color)),
     [emotion.color, mascot.color],
   )
+  const typedColor = useTypingColor(props.draft, eyes)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
@@ -388,9 +458,10 @@ export function Hero(props: {
                   aria-label={copy.hero.poke}
                   className="block rounded-xl outline-offset-4"
                 >
+                  {/* While the person types, the screen spells out their message in its own cells. */}
                   <PixelFace
                     mood={emotion.mood}
-                    color={eyes}
+                    color={typed !== undefined ? typedColor : eyes}
                     cols={15}
                     rows={8}
                     cell={20}
@@ -398,6 +469,7 @@ export function Hero(props: {
                     glow
                     eyes={mascot.eyes}
                     {...(look ? { look } : {})}
+                    {...(typed !== undefined ? { text: typed } : {})}
                     className="h-auto w-[min(400px,calc(100vw-96px))]"
                   />
                 </button>

@@ -6,11 +6,14 @@ export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 
 /**
  * How freely agents may change a project folder. `auto`: anything the sandbox allows (checkpoints can rewind it);
  * `ask`: edits to project files and shell commands wait for the person, except commands starting with an `allow`
- * prefix; `read-only`: agents read the project but cannot change it.
+ * prefix; `read-only`: agents read the project but cannot change it; `full`: as `auto`, with no sandbox at all (full
+ * access: commands, file tools and the web reach whatever the person can).
  */
 export interface ProjectPermissions {
-  mode: 'auto' | 'ask' | 'read-only'
+  mode: 'auto' | 'ask' | 'read-only' | 'full'
   allow: string[]
+  /** Folders beyond the project that sandboxed agents may read (never write) in this project's chats (`~` or absolute). */
+  read?: string[]
 }
 
 /**
@@ -18,6 +21,16 @@ export interface ProjectPermissions {
  * to project files, and shell commands.
  */
 export type ChatGrant = 'file' | 'command'
+
+/**
+ * An app on the person's Mac they let agents use in a chat (computer use), and how much: `view` screenshots only,
+ * `click` also clicking and scrolling, `full` also typing and keys.
+ */
+export interface ComputerApp {
+  bundleId: string
+  name: string
+  tier: 'view' | 'click' | 'full'
+}
 
 /** A tool call waiting for the person to approve or deny it. */
 export interface ApprovalRequest {
@@ -32,6 +45,8 @@ export interface ApprovalRequest {
   key?: string
   /** Set when the person may approve every step of this kind for the rest of the chat. */
   grant?: ChatGrant
+  /** Set when an agent asks to read this folder outside what it may read: the person allows it once or for the chat. */
+  read?: string
 }
 
 /**
@@ -147,6 +162,13 @@ export interface EventPayloads {
     askAll?: boolean
     /** When the reviewer runs: off, auto (the speaking agent asks), or always. */
     review?: 'off' | 'auto' | 'always'
+    /**
+     * The round runs with full access: no sandbox, file tools reach any path, the web any address. Approvals still
+     * apply. Never set on a round someone other than the person started (`askAll`).
+     */
+    fullAccess?: boolean
+    /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
+    computerUse?: boolean
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -221,6 +243,30 @@ export interface EventPayloads {
     width: number
     height: number
   }
+  /** What an app on the person's Mac showed after an agent's desktop action (computer use), for the chat's steps. */
+  'computer/keyframe': {
+    agent: string
+    blob: string
+    app: string
+    title: string
+    /** The desktop action, as the computer tool names it (left_click, type, open_app…). */
+    action: string
+    label?: string
+    /** Where it acted, in the screenshot's pixels. */
+    point?: { x: number; y: number }
+    width: number
+    height: number
+  }
+  /** The apps the person let agents use in this chat, the whole set after a change. */
+  'computer/apps': { apps: ComputerApp[] }
+  /** An agent took (or let go of) an app on the person's Mac: the "controlling your Mac" indicator follows it. */
+  'computer/control': { agent: string; app?: string; active: boolean }
+  /** An agent needed computer use and could not have it yet: the driver is missing, or macOS grants are. */
+  'computer/blocked': {
+    agent: string
+    reason: 'install' | 'grants'
+    missing?: ('accessibility' | 'screen-recording')[]
+  }
   /** An agent's model refused or failed; the round pauses so the person can continue with another model. */
   'agent/error': {
     agent: string
@@ -279,6 +325,8 @@ export interface EventPayloads {
     project?: string
     /** From here on the round asks before every outside step: someone other than the person wrote into it. */
     askAll?: boolean
+    /** Whether the round has full access from here on, when that changed. */
+    fullAccess?: boolean
     interrupted: string[]
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
@@ -336,7 +384,8 @@ export interface EventPayloads {
   /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
   'chat/renamed': { title: string; by?: 'auto' }
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
-  'chat/allowed': { grants: ChatGrant[] }
+  /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
+  'chat/allowed': { grants: ChatGrant[]; reads?: string[] }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

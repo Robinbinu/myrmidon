@@ -8,6 +8,7 @@ import {
   colonyMetrics,
   foldColony,
   isSetupStep,
+  type ProjectPermissions,
   runDiff,
   type SetupState,
   stopCause,
@@ -22,12 +23,14 @@ import {
   type ChannelChats,
   ChannelHub,
   type ChatService,
+  type ComputerHub,
   CUSTOM_APIS,
   type CustomApi,
   canLeadACrew,
   channelSendTool,
   defaultModelRef,
   detectSetup,
+  dismissSetup,
   findProjectFiles,
   finishSetup,
   firstSetup,
@@ -40,6 +43,7 @@ import {
   gitStatus,
   gitUnstage,
   gitWorkingChanges,
+  guardedPaths,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -60,8 +64,11 @@ import {
   type PhoneStream,
   type PluginHost,
   type PluginStore,
+  PRIVACY_PANES,
   type ProjectStore,
   readProjectFile,
+  requestScreenRecording,
+  restartSetup,
   ruleGreeting,
   type Schedule,
   type ScheduleStore,
@@ -145,6 +152,8 @@ export interface ServeOptions {
   readonly mcp?: McpHub
   /** The agents' shared headless Chrome, for the live browser view. */
   readonly browser?: BrowserHub
+  /** Computer use: the driver agents control the person's Mac through, its install, grants and Stop. */
+  readonly computer?: ComputerHub
   /** Project folders chats can work in. */
   readonly projects?: ProjectStore
   readonly specialists?: SpecialistStore
@@ -355,6 +364,21 @@ function specialistInput(body: unknown): SpecialistInput {
 }
 
 export function startServer(options: ServeOptions): WebServer {
+  /** Settings → Computer use and the "controlling your Mac" indicator read this. */
+  const computerStatus = () => {
+    const computer = options.computer
+    const driver = computer?.driver()
+    return {
+      supported: computer?.supported ?? false,
+      enabled: computer?.enabled ?? false,
+      state: computer?.status() ?? { state: 'unsupported' },
+      ...(driver ? { driver } : {}),
+      version: computer?.installVersion ?? '',
+      downloadBytes: computer?.downloadBytes ?? 0,
+      grants: (computer?.supported ? computer.grants() : undefined) ?? null,
+      controls: computer?.controls() ?? [],
+    }
+  }
   const bindHost = options.host ?? '127.0.0.1'
   // Reachable beyond this machine: devices pair, and nothing runs without auth (as Hermes and OpenClaw do).
   const remote = !isLoopbackName(bindHost) || Boolean(options.publicUrl)
@@ -983,6 +1007,7 @@ export function startServer(options: ServeOptions): WebServer {
           home: options.home,
           models,
           sandbox: options.sandboxKind ?? 'unknown',
+          ...(options.settings?.get().sandbox.enabled === false ? { fullAccess: true } : {}),
           running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
           ...(skillsArchived ? { skillsArchived } : {}),
           channels: inUse.map((c) => ({
@@ -1328,6 +1353,8 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
+            // Readable folders that open these get a warning: keys, sign-ins and every chat's data.
+            guardedReads: guardedPaths(options.home),
             account,
             agentDir: options.omp?.agentDir,
             ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
@@ -1353,7 +1380,13 @@ export function startServer(options: ServeOptions): WebServer {
             // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
             const { setup } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup }
+            const wasOn = options.settings.get().computerUse.enabled
             const settings = options.settings.set(body)
+            // Switched off: agents on the person's Mac stop at once, and the driver with them.
+            if (wasOn && !settings.computerUse.enabled && options.computer) {
+              options.computer.stopAll()
+              await options.computer.stop()
+            }
             await options.chats?.permissionsChanged()
             return json({ settings })
           } catch (err) {
@@ -1374,15 +1407,19 @@ export function startServer(options: ServeOptions): WebServer {
           if (!settings || !setup) return json({ error: 'setup needs the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           let next: SetupState
-          if (body.restart === true) next = { steps: {} }
+          if (body.restart === true) next = restartSetup(setup)
           else if (body.finish === true) next = finishSetup(setup, setupNow())
+          else if (body.dismiss === true) next = dismissSetup(setup)
           else if (
             isSetupStep(body.step) &&
             (body.mark === 'done' || body.mark === 'later' || body.mark === null)
           )
             next = markSetup(setup, body.step, body.mark)
           else
-            return json({ error: 'send a step and its mark (done, later or null), finish, or restart' }, 400)
+            return json(
+              { error: 'send a step and its mark (done, later or null), finish, dismiss, or restart' },
+              400,
+            )
           settings.set({ ...settings.get(), setup: next })
           return json({ setup: next, have: setupNow() })
         }),
@@ -1510,7 +1547,13 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/projects': {
-        GET: guard(() => json({ projects: options.projects?.list() ?? [] })),
+        // `fullAccess`: the sandbox is off in Settings, so the person's chats outside read-only projects run unconfined.
+        GET: guard(() =>
+          json({
+            projects: options.projects?.list() ?? [],
+            fullAccess: options.settings?.get().sandbox.enabled === false,
+          }),
+        ),
         POST: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
           const { path, name } = (await req.json()) as { path?: unknown; name?: unknown }
@@ -1561,14 +1604,22 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/permissions': {
         PUT: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
-          const body = (await req.json().catch(() => ({}))) as { mode?: unknown; allow?: unknown }
-          const allow = Array.isArray(body.allow)
-            ? body.allow.filter((a): a is string => typeof a === 'string')
-            : []
+          const body = (await req.json().catch(() => ({}))) as {
+            mode?: unknown
+            allow?: unknown
+            read?: unknown
+          }
+          const strings = (list: unknown) =>
+            Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
             const project = options.projects.setPermissions(req.params.id ?? '', {
-              mode: body.mode as 'auto' | 'ask' | 'read-only',
-              allow,
+              mode: body.mode as ProjectPermissions['mode'],
+              allow: strings(body.allow),
+              // A client that does not send the readable folders keeps them.
+              read:
+                body.read === undefined
+                  ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
+                  : strings(body.read),
             })
             await options.chats?.permissionsChanged()
             return json({ project, projects: options.projects.list() })
@@ -2191,6 +2242,77 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: err instanceof Error ? err.message : String(err) }, 404)
           }
         }),
+      },
+      '/api/chats/:chatId/readable': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { folder, allowed } = (await req.json().catch(() => ({}))) as {
+            folder?: unknown
+            allowed?: unknown
+          }
+          if (typeof folder !== 'string' || !folder.trim()) return json({ error: 'folder is a path' }, 400)
+          if (typeof allowed !== 'boolean') return json({ error: 'allowed must be true or false' }, 400)
+          try {
+            return json({
+              reads: await options.chats.allowReadInChat(req.params.chatId ?? '', folder, allowed),
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
+          }
+        }),
+      },
+      '/api/chats/:chatId/computer-apps': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { keep } = (await req.json().catch(() => ({}))) as { keep?: unknown }
+          if (!Array.isArray(keep) || !keep.every((k) => typeof k === 'string'))
+            return json({ error: 'keep must be a list of bundle ids' }, 400)
+          try {
+            return json({ apps: await options.chats.setComputerApps(req.params.chatId ?? '', keep) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
+      '/api/computer': {
+        GET: guard(() => json(computerStatus())),
+      },
+      '/api/computer/install': {
+        POST: guard(() => {
+          const computer = options.computer
+          if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
+          if (!computer.supported) return json({ error: 'computer use runs on macOS only' }, 409)
+          void computer
+            .install()
+            .catch((err) => console.error(`computer use: ${err instanceof Error ? err.message : err}`))
+          return json(computerStatus())
+        }),
+      },
+      '/api/computer/grants': {
+        // Asks macOS for Screen Recording (its own dialog) and opens the privacy pane the person grants it in.
+        POST: guard(async (req) => {
+          const computer = options.computer
+          if (!computer?.supported) return json({ error: 'computer use runs on macOS only' }, 409)
+          const { grant } = (await req.json().catch(() => ({}))) as { grant?: unknown }
+          if (grant !== 'accessibility' && grant !== 'screenRecording')
+            return json({ error: 'grant is accessibility or screenRecording' }, 400)
+          if (grant === 'screenRecording') requestScreenRecording()
+          Bun.spawn(['open', PRIVACY_PANES[grant]], { stdout: 'ignore', stderr: 'ignore' })
+          return json(computerStatus())
+        }),
+      },
+      '/api/computer/restart': {
+        // macOS answers a process's grants from a cache: the driver starts afresh to see new ones.
+        POST: guard(async () => {
+          const computer = options.computer
+          if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
+          await computer.stop()
+          return json(computerStatus())
+        }),
+      },
+      '/api/computer/stop': {
+        // The person's Stop (the chat's button, or Esc in the desktop app): open to every device, as a safety stop.
+        POST: guard(() => json({ stopped: options.computer?.stopAll() ?? 0, ...computerStatus() })),
       },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {

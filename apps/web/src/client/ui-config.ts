@@ -122,6 +122,17 @@ export const MASCOT_PAT_MS = 700
 export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
+/** The new-chat mascot spelling out what the person types in its own screen cells, with a blinking cursor bar. */
+export const MASCOT_TYPING = {
+  /** This long without typing, its eyes come back (at once when the box is cleared). */
+  idleMs: 5_000,
+  /** Its screen follows the message box at most this often, so fast typing does not redraw it on every key. */
+  throttleMs: 80,
+  /** The cursor bar after the letters turns on and off this often (it stays lit with less motion). */
+  blinkMs: 530,
+  /** The letters take another of the mascot's colours after a random number of words in this range. */
+  colorEveryWords: [2, 4],
+} as const
 /**
  * Windows shorter than this leave the mascot off the new-chat view: its screen (about 300px) would push the message
  * box and the starters below the fold, and they matter more.
@@ -261,3 +272,10 @@ export const MIC_TEST = { fftSize: 512, gain: 5 } as const
  * models it does report, voice on this computer comes to about 1.3 GB. Shown before the person chooses it.
  */
 export const VOICE_RUNTIME_BYTES = 1_100_000_000
+/**
+ * Computer use: how often the page asks whether an agent controls the Mac (for the banner and the desktop app's Esc;
+ * less often while computer use is off), and how often Settings refreshes the driver's install progress and macOS's grants while it is open.
+ */
+export const COMPUTER_POLL_MS = 2_000
+export const COMPUTER_IDLE_POLL_MS = 15_000
+export const COMPUTER_SETTINGS_POLL_MS = 1_500

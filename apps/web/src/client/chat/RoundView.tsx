@@ -56,6 +56,7 @@ import { awaitingApproval, type Pending, roundApprovals } from './approvals.ts'
 import { Markdown, plainText } from './Markdown.tsx'
 import { ModelPicker, windowLabel } from './ModelPicker.tsx'
 import { fallbackModel } from './model-list.ts'
+import { FullAccessBadge } from './ProjectPermissions.tsx'
 import { QuestionCard } from './QuestionCard.tsx'
 import { RoundChanges } from './RoundChanges.tsx'
 import { StepRow } from './StepRow.tsx'
@@ -1051,7 +1052,10 @@ function RunCard(props: {
             <PixelFace mood={head.mood} color={head.color} cols={7} rows={7} cell={3} gap={1} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-reading font-semibold">{head.title}</span>
+            <span className="flex items-center gap-2 text-reading font-semibold">
+              {head.title}
+              {state.fullAccess && <FullAccessBadge />}
+            </span>
             <span className="block truncate text-small tabular-nums text-muted">
               {modeLabel(state)} · {copy.round.run.agents(agents.length)} ·{' '}
               {copy.round.run.steps(steps.length)}

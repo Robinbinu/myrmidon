@@ -54,3 +54,6 @@ artifacts/
 
 # Brainstorming companion mockups (superpowers)
 .superpowers/
+
+# Local reading copies of other harnesses' prompts (their licences; never published from here)
+prompt-library/

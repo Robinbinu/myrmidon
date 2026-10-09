@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import {
   type ColonyState,
   type ConversationLine,
@@ -23,7 +22,7 @@ import {
   TEAM_CHAT,
 } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type } from '@oh-my-pi/pi-ai'
+import { type Model, type } from '@oh-my-pi/pi-ai'
 import * as natives from '@oh-my-pi/pi-natives'
 import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
@@ -35,6 +34,7 @@ import pluginsDoc from '../docs/plugins.md' with { type: 'text' }
 import verificationDoc from '../docs/verification.md' with { type: 'text' }
 import workingDoc from '../docs/working.md' with { type: 'text' }
 import {
+  artifactOrigin,
   assertAgentControl,
   type BrowserTab,
   doneWith,
@@ -47,6 +47,8 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
+import { clockTime, localDate } from './clock.ts'
+import { COMPUTER_TOOL, computerTool } from './computer/tool.ts'
 import {
   GLOB_LIMIT,
   GREP_LIMIT,
@@ -54,6 +56,7 @@ import {
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
+  READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
 } from './config.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
@@ -187,6 +190,13 @@ async function browserTab(host: ColonyHost, agent: string): Promise<BrowserTab> 
   const tab = await host.browser.tab(host.id, agent, {
     downloads: join(host.workspace.scratch(agent), 'downloads'),
     localPorts: () => host.localPorts(),
+    artifacts: {
+      origin: artifactOrigin(host.id),
+      file: async (name) => {
+        const latest = host.state().artifacts[name]?.at(-1)
+        return latest && { body: await host.blobs.get(latest.blob), mediaType: latest.mediaType }
+      },
+    },
   })
   assertAgentControl(tab)
   return tab
@@ -227,20 +237,10 @@ async function keyframe(
   }
 }
 
-/** A file URL for a published artifact, after writing the latest files so relative links resolve. */
-async function artifactUrl(host: ColonyHost, name: string): Promise<string> {
-  const artifacts = host.state().artifacts
-  if (!artifacts[name]) throw new Error(`no such artifact: ${name}`)
-  // Its own copy: the mirror is read-only for the agents' shells.
-  const root = join(host.workspace.colonyDir, 'browse')
-  for (const [file, versions] of Object.entries(artifacts)) {
-    const latest = versions.at(-1)
-    if (!latest) continue
-    const path = join(root, assertArtifactName(file))
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, await host.blobs.get(latest.blob))
-  }
-  return pathToFileURL(join(root, name)).href
+/** Where a published artifact opens in the agents' browsers: the colony's own origin, so relative links resolve. */
+function artifactUrl(host: ColonyHost, name: string): string {
+  if (!host.state().artifacts[name]) throw new Error(`no such artifact: ${name}`)
+  return `${artifactOrigin(host.id)}/${name.split('/').map(encodeURIComponent).join('/')}`
 }
 
 /** All a swarm peer may do during the opening huddle: look around and talk. */
@@ -307,6 +307,24 @@ function writableFor(host: ColonyHost, agent: string): string[] {
   const scratch = host.workspace.scratch(agent)
   if (host.spec.chat?.project?.permissions?.mode === 'read-only') return [scratch]
   return [...new Set([host.workspace.workdir(agent), scratch])]
+}
+
+/** Search results without what stays hidden inside the searched folder (the person's keys, other chats' data). */
+function readableMatches<T extends { path: string }>(
+  host: ColonyHost,
+  agent: string,
+  target: string,
+  matches: readonly T[],
+): T[] {
+  const seen = new Map<string, boolean>()
+  return matches.filter((m) => {
+    let ok = seen.get(m.path)
+    if (ok === undefined) {
+      ok = host.workspace.mayRead(agent, resolve(target, m.path))
+      seen.set(m.path, ok)
+    }
+    return ok
+  })
 }
 
 /**
@@ -476,7 +494,8 @@ async function askFirst(
 
 /**
  * A write to a file in the project folder (not scratch) follows the project's permissions. In an "ask" project the
- * person sees the new content against the file as it is, and may rewrite it; returns the content to write.
+ * person sees the new content against the file as it is, and may rewrite it; returns the content to write. With full
+ * access an "ask" project asks before writes anywhere else on the computer too.
  */
 async function guardProjectEdit(
   host: ColonyHost,
@@ -488,12 +507,14 @@ async function guardProjectEdit(
   const unchanged = { content: change.after, edited: false }
   const project = host.spec.chat?.project
   const mode = project?.permissions?.mode ?? 'auto'
-  if (!project || mode === 'auto') return unchanged
+  if (!project || mode === 'auto' || mode === 'full') return unchanged
+  const within = (root: string) => path === root || path.startsWith(`${root}/`)
   const scratch = host.workspace.scratch(agent)
-  const inProject =
-    (path === project.path || path.startsWith(`${project.path}/`)) && !path.startsWith(`${scratch}/`)
-  if (!inProject) return unchanged
-  const where = relative(project.path, path)
+  const inProject = within(project.path) && !within(scratch)
+  // Only full access reaches past the project, scratch and the agent's own worktree.
+  const elsewhere = !within(project.path) && !within(scratch) && !within(host.workspace.workdir(agent))
+  if (!inProject && !elsewhere) return unchanged
+  const where = inProject ? relative(project.path, path) : path
   if (mode === 'read-only')
     throw new Error(
       `${project.name} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
@@ -711,6 +732,7 @@ export async function runProjectChecks(
       command: check.command,
       cwd,
       writable: [...new Set(writable)],
+      ...host.workspace.confinement(),
       timeoutMs: 300_000,
     })
     const ok = !r.timedOut && r.code === 0
@@ -1298,9 +1320,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'agent?': type('string').describe(prompts.tools.read_log.params.agent),
       'tool?': type('string').describe(prompts.tools.read_log.params.tool),
       'last?': type('number').describe(prompts.tools.read_log.params.last),
+      'entry?': type('number').describe(prompts.tools.read_log.params.entry),
     }),
     async run(args, _agent, host) {
       const events = await host.log.read(host.id)
+      if (args.entry !== undefined) return clip(logEntry(events, Math.round(args.entry)))
       const lines = logLines(events, args)
       const last = Math.min(100, Math.max(1, Math.round(args.last ?? 30)))
       if (lines.length === 0) return 'nothing in the log matches'
@@ -1379,7 +1403,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.fs_read.description,
     parameters: type({ path: type('string') }),
     async run(args, agent, host) {
-      return clip(readFileSync(host.workspace.resolveInWorkdir(agent, args.path), 'utf8'))
+      return clip(readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'))
     },
   },
   {
@@ -1389,12 +1413,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ 'path?': type('string') }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const dir = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const dir = host.workspace.resolveForRead(agent, args.path ?? '.')
       const out: string[] = []
       const walk = (d: string) => {
         for (const entry of readdirSync(d, { withFileTypes: true })) {
           if (SANDBOX_DIRS.has(entry.name) || SKIP_DIRS.has(entry.name) || out.length > 500) continue
           const full = `${d}/${entry.name}`
+          // A readable folder can hold what stays hidden (the person's keys in a home they opened).
+          if (!host.workspace.mayRead(agent, full)) continue
           if (entry.isDirectory()) walk(full)
           else out.push(`${relative(root, full)} (${statSync(full).size} bytes)`)
         }
@@ -1417,7 +1443,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
       const context = Math.min(Math.max(0, args.context ?? 0), 5)
       const result = await natives.grep({
         pattern: args.pattern,
@@ -1434,13 +1460,16 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         mode: args.filesOnly ? natives.GrepOutputMode.FilesWithMatches : natives.GrepOutputMode.Content,
       })
       const where = (p: string) => relative(root, resolve(target, p)) || p
-      if (result.matches.length === 0)
-        return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
-      const head = `${result.totalMatches} match${result.totalMatches === 1 ? '' : 'es'} in ${result.filesWithMatches} file${result.filesWithMatches === 1 ? '' : 's'}${result.totalMatches > result.matches.length ? ` (showing ${result.matches.length})` : ''}`
-      if (args.filesOnly) return `${head}\n${result.matches.map((m) => where(m.path)).join('\n')}`
+      const matches = readableMatches(host, agent, target, result.matches)
+      if (matches.length === 0) return `No matches for /${args.pattern}/ in ${relative(root, target) || '.'}.`
+      const dropped = matches.length < result.matches.length
+      const total = dropped ? matches.length : result.totalMatches
+      const files = dropped ? new Set(matches.map((m) => m.path)).size : result.filesWithMatches
+      const head = `${total} match${total === 1 ? '' : 'es'} in ${files} file${files === 1 ? '' : 's'}${total > matches.length ? ` (showing ${matches.length})` : ''}`
+      if (args.filesOnly) return `${head}\n${matches.map((m) => where(m.path)).join('\n')}`
       const lines: string[] = [head]
       let file = ''
-      for (const m of result.matches) {
+      for (const m of matches) {
         const p = where(m.path)
         if (p !== file) {
           lines.push(`\n${p}`)
@@ -1463,7 +1492,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
-      const target = host.workspace.resolveInWorkdir(agent, args.path ?? '.')
+      const target = host.workspace.resolveForRead(agent, args.path ?? '.')
       const result = await natives.glob({
         pattern: args.pattern,
         path: target,
@@ -1474,8 +1503,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         maxResults: GLOB_LIMIT,
         timeoutMs: 20_000,
       })
-      if (result.matches.length === 0) return `No files match ${args.pattern}.`
-      return result.matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+      const matches = readableMatches(host, agent, target, result.matches)
+      if (matches.length === 0) return `No files match ${args.pattern}.`
+      return matches.map((m) => relative(root, resolve(target, m.path)) || m.path).join('\n')
+    },
+  },
+  {
+    name: 'request_read',
+    tier: 'read',
+    description: prompts.tools.request_read.description,
+    parameters: type({
+      path: type('string').atLeastLength(1).describe(prompts.tools.request_read.params.path),
+      'reason?': type('string').describe(prompts.tools.request_read.params.reason),
+    }),
+    async run(args, agent, host) {
+      return host.requestRead(agent, args.path, args.reason)
     },
   },
   {
@@ -1496,9 +1538,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const year = new Date().getFullYear()
       const stale = (args.query.match(/\b20\d\d\b/g) ?? []).map(Number).filter((y: number) => y < year)
       // Models search for the year their training ended; say so, once per such query.
-      const note = stale.length
-        ? prompts.toolResults.staleYear(stale, new Date().toISOString().slice(0, 10))
-        : ''
+      const note = stale.length ? prompts.toolResults.staleYear(stale, localDate()) : ''
       return { text: clip(text.trim() || `No results for "${args.query}".`), images: [], preface: note }
     },
   },
@@ -1698,6 +1738,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
           args: t.args ?? {},
         })),
         allowUnsandboxed: host.unsafeNoSandbox,
+        confinement: host.workspace.confinement(),
       })
     },
   },
@@ -1883,8 +1924,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({ url: type('string').describe(prompts.tools.browser_open.params.url) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
-      const target = args.url.startsWith('artifact:') ? await artifactUrl(host, args.url.slice(9)) : args.url
-      if (!/^(https?|file):/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
+      const target = args.url.startsWith('artifact:') ? artifactUrl(host, args.url.slice(9)) : args.url
+      if (!/^https?:/.test(target)) throw new Error('url must be http(s) or artifact:<name>')
       await navigate(tab, tab.page, target)
       await tab.page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
       await keyframe(host, agent, tab, 'open')
@@ -1936,9 +1977,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         changed = true
       }
       if (args.open !== undefined) {
-        if (!/^https?:/.test(args.open)) throw new Error('open must be an http(s) URL')
+        const target = args.open.startsWith('artifact:') ? artifactUrl(host, args.open.slice(9)) : args.open
+        if (!/^https?:/.test(target)) throw new Error('open must be an http(s) URL or artifact:<name>')
         const page = await openPage(tab)
-        await navigate(tab, page, args.open)
+        await navigate(tab, page, target)
         await page.waitForNetworkIdle({ idleTime: 500, timeout: 5_000 }).catch(() => {})
         changed = true
       }
@@ -2274,7 +2316,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         actor: agentActor(agent),
         payload: { agent, ...tool },
       })
-      host.toolsChanged()
+      host.toolsChanged({ by: agent, tool: `${MADE_PREFIX}${tool.name}` })
       return prompts.toolResults.toolCreated(`${MADE_PREFIX}${tool.name}`, r.output)
     },
   },
@@ -2292,6 +2334,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         command,
         cwd,
         writable: writableFor(host, agent),
+        ...host.workspace.confinement(),
         timeoutMs: Math.min(Math.max(1, args.timeoutSeconds ?? 60), 300) * 1000,
         env: { MYR_MIRROR: host.workspace.mirrorRoot },
       })
@@ -2317,44 +2360,88 @@ const firstLine = (text: string, max: number) => {
   return line.length > max ? `${line.slice(0, max)}…` : line
 }
 
-/** The colony log as one line per thing an agent did, oldest first, for read_log. */
+/**
+ * The colony log as one entry per thing an agent did, oldest first, for read_log. A tool call shows what it returned,
+ * up to READ_LOG_RESULT_CHARS, so a claim ("tests pass") can be checked against the output; entries are numbered by
+ * their place in the log, and logEntry shows one in full.
+ */
 export function logLines(events: readonly MyrEvent[], filter: { agent?: string; tool?: string }): string[] {
-  const calls = new Map<string, number>()
+  const calls = new Map<string, { line: number; seq: number }>()
   const out: string[] = []
   const keep = (agent: string, tool?: string) =>
     (!filter.agent || agent === filter.agent) && (!filter.tool || (tool ?? '').includes(filter.tool))
   for (const e of events) {
-    const at = e.time.slice(11, 19)
+    const head = `#${e.seq} ${clockTime(e.time)}`
     if (e.type === 'tool/call') {
       const p = e.payload as EventPayloads['tool/call']
       if (!keep(p.agent, p.tool)) continue
-      calls.set(`${p.agent}/${p.callId}`, out.length)
-      out.push(`${at} ${p.agent} ${p.tool}(${firstLine(JSON.stringify(p.args ?? {}), 160)}) → …`)
+      calls.set(`${p.agent}/${p.callId}`, { line: out.length, seq: e.seq })
+      out.push(`${head} ${p.agent} ${p.tool}(${firstLine(JSON.stringify(p.args ?? {}), 160)}) → …`)
     } else if (e.type === 'tool/result') {
       const p = e.payload as EventPayloads['tool/result']
-      const line = calls.get(`${p.agent}/${p.callId}`)
-      if (line === undefined) continue
-      const outcome = p.ok ? `ok: ${firstLine(p.output, 160)}` : `FAILED: ${firstLine(p.output, 160)}`
-      out[line] = `${out[line]?.slice(0, -1)}${outcome}`
+      const call = calls.get(`${p.agent}/${p.callId}`)
+      if (call === undefined) continue
+      out[call.line] =
+        `${out[call.line]?.slice(0, -1)}${p.ok ? 'ok' : 'FAILED'}${resultExcerpt(p.output, call.seq)}`
     } else if (filter.tool) {
     } else if (e.type === 'task/changed') {
       const p = e.payload as EventPayloads['task/changed']
       if (keep(p.by))
         out.push(
-          `${at} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? ` (${firstLine(p.reason, 120)})` : ''}`,
+          `${head} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? ` (${firstLine(p.reason, 120)})` : ''}`,
         )
     } else if (e.type === 'chat/reply') {
       const p = e.payload as EventPayloads['chat/reply']
-      if (keep(p.agent)) out.push(`${at} ${p.agent} told the person: ${firstLine(p.text, 160)}`)
+      if (keep(p.agent)) out.push(`${head} ${p.agent} told the person: ${firstLine(p.text, 160)}`)
     } else if (e.type === 'worktree/merged' || e.type === 'worktree/conflict') {
       const p = e.payload as EventPayloads['worktree/merged']
       if (keep(p.agent))
         out.push(
-          `${at} ${p.agent} ${e.type === 'worktree/merged' ? 'merged' : 'conflicted on'} ${p.files.join(', ')}`,
+          `${head} ${p.agent} ${e.type === 'worktree/merged' ? 'merged' : 'conflicted on'} ${p.files.join(', ')}`,
         )
     }
   }
   return out
+}
+
+/** A tool result under its call in read_log: indented, cut at READ_LOG_RESULT_CHARS with a pointer to the rest. */
+function resultExcerpt(output: string, seq: number): string {
+  const text = output.trim()
+  if (!text) return ' (no output)'
+  const shown = text.slice(0, READ_LOG_RESULT_CHARS)
+  const rest = text.length - shown.length
+  return `\n${shown
+    .split('\n')
+    .map((l) => `  ${l}`)
+    .join('\n')}${rest > 0 ? `\n  ${prompts.toolResults.logMore(rest, seq)}` : ''}`
+}
+
+/** One read_log entry in full: a tool call with all its arguments and its whole result (as logged), or a reply. */
+export function logEntry(events: readonly MyrEvent[], seq: number): string {
+  const e = events.find((x) => x.seq === seq)
+  if (!e) throw new Error(`the log has no entry #${seq}`)
+  const head = `#${e.seq} ${clockTime(e.time)}`
+  if (e.type === 'tool/call') {
+    const p = e.payload as EventPayloads['tool/call']
+    const result = events.find(
+      (x) =>
+        x.type === 'tool/result' &&
+        (x.payload as EventPayloads['tool/result']).agent === p.agent &&
+        (x.payload as EventPayloads['tool/result']).callId === p.callId,
+    )?.payload as EventPayloads['tool/result'] | undefined
+    return `${head} ${p.agent} ${p.tool}\nargs: ${JSON.stringify(p.args ?? {}, null, 2)}\n${
+      result ? `${result.ok ? 'ok' : 'FAILED'}:\n${result.output}` : prompts.toolResults.logPending
+    }`
+  }
+  if (e.type === 'chat/reply') {
+    const p = e.payload as EventPayloads['chat/reply']
+    return `${head} ${p.agent} told the person:\n${p.text}`
+  }
+  if (e.type === 'task/changed') {
+    const p = e.payload as EventPayloads['task/changed']
+    return `${head} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? `\n${p.reason}` : ''}`
+  }
+  throw new Error(`#${seq} is not a tool call, task change or reply`)
 }
 
 export function observeFacts(host: ColonyHost): string {
@@ -2389,6 +2476,7 @@ export function guessMediaType(name: string): string {
       html: 'text/html',
       css: 'text/css',
       js: 'text/javascript',
+      mjs: 'text/javascript',
       ts: 'text/typescript',
       json: 'application/json',
       md: 'text/markdown',
@@ -2401,34 +2489,53 @@ export function guessMediaType(name: string): string {
       gif: 'image/gif',
       webp: 'image/webp',
       pdf: 'application/pdf',
+      wasm: 'application/wasm',
     }[ext ?? ''] ?? 'text/plain'
   )
+}
+
+/**
+ * Tools matching a find_tools query. Every tool a query word names is found, however many: exact names, and names
+ * with a part that is the word or starts with it ("browser" is every browser_* tool, "server" start_server and the
+ * rest). Descriptions are only a fallback when no name matches, best first and at most `limit`; whatever else
+ * matches comes back as `more`, so nothing that matched is left out without the agent being told.
+ */
+export function matchTools(
+  tools: readonly AgentTool[],
+  query: string,
+  limit = 12,
+): { found: AgentTool[]; more: AgentTool[] } {
+  const q = query.toLowerCase()
+  const asked = q.split(/[\s,]+/).filter(Boolean)
+  const words = q.split(/[^a-z0-9_-]+/).filter((w) => w.length > 2)
+  const names = (w: string, part: string) =>
+    part === w || part === `${w}s` || `${part}s` === w || (w.length > 3 && part.startsWith(w))
+  const byName = tools.filter((t) => {
+    const name = t.name.toLowerCase()
+    const parts = name.split(/[_-]+/)
+    return asked.includes(name) || words.some((w) => w === name || parts.some((p) => names(w, p)))
+  })
+  const described = tools
+    .filter((t) => !byName.includes(t))
+    .map((t) => ({ t, score: words.filter((w) => t.description.toLowerCase().includes(w)).length }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
+    .map((x) => x.t)
+  if (byName.length > 0) return { found: byName, more: described }
+  return { found: described.slice(0, limit), more: described.slice(limit) }
 }
 
 /**
  * Wraps tool definitions as pi-agent-core tools for one agent. The allowlist and tier rules are
  * enforced here, inside execution, so hiding a tool from the model is never the only defence.
  */
-/** Tools matching a find_tools query: exact names first, then by how many query words a name or description holds. */
-export function matchTools(tools: readonly AgentTool[], query: string, limit = 12): AgentTool[] {
-  const q = query.toLowerCase()
-  const exact = tools.filter((t) => q.split(/[\s,]+/).includes(t.name.toLowerCase()))
-  const words = q.split(/[^a-z0-9_]+/).filter((w) => w.length > 1)
-  const scored = tools
-    .map((t) => {
-      const text = `${t.name} ${t.description}`.toLowerCase()
-      return {
-        t,
-        score: words.filter((w) => text.includes(w)).length + (t.name.toLowerCase().includes(q) ? 3 : 0),
-      }
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || a.t.name.localeCompare(b.t.name))
-    .map((x) => x.t)
-  return [...new Set([...exact, ...scored])].slice(0, limit)
-}
-
-export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
+export function buildAgentTools(
+  agent: string,
+  allowed: readonly string[],
+  host: ColonyHost,
+  /** The agent's current model, which sizes computer use's screenshots. */
+  model?: () => Model,
+): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp')
     ? [...host.mcpTools(), ...host.pluginTools(agent)]
@@ -2442,7 +2549,10 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
   const made = Object.values(host.state().madeTools)
     .filter((t) => (t.language === 'browser' ? browsing : scripts))
     .map((t) => logged(agent, madeTool(agent, t, host), host))
-  return [...harnessTools(agent, allow, host), ...mcp, ...made]
+  // The person's Mac, only for rounds that may use it (never one a channel member started or wrote into).
+  const computer =
+    allow.has(COMPUTER_TOOL) && host.computer && model ? [computerTool(agent, host, model)] : []
+  return [...harnessTools(agent, allow, host), ...mcp, ...made, ...computer]
 }
 
 /** Runs a made tool's script in the caller's sandbox, with its inputs as JSON in MYR_INPUT. */
@@ -2459,6 +2569,7 @@ async function runMadeTool(
     command: scriptCommand(join(host.workspace.colonyDir, 'tools', tool.name), tool),
     cwd,
     writable: writableFor(host, agent),
+    ...host.workspace.confinement(),
     timeoutMs: 120_000,
     env: { MYR_INPUT: JSON.stringify(input), MYR_MIRROR: host.workspace.mirrorRoot },
   })

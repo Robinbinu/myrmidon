@@ -160,6 +160,7 @@ export const copy = {
         : kind === 'bubblewrap'
           ? 'Shell commands are confined by bubblewrap'
           : "Shell commands aren't confined",
+    fullAccess: 'Sandbox off: your chats have full access',
     copyPath: 'Copy',
     copied: 'Copied',
     /** The desktop app only: shows the data folder in Finder. */
@@ -422,6 +423,8 @@ export const copy = {
     proposedMemory: 'Proposed to remember:',
     ownBranch: 'Works on its own branch',
     merged: (n: number) => `Merged ${n} file${n === 1 ? '' : 's'} into the project`,
+    onMac: (app: string) => `On your Mac, in ${app}:`,
+    computerSetup: 'Computer use needs setting up:',
     broughtChanges: (n: number) =>
       `Brought ${n} changed file${n === 1 ? '' : 's'} from the project into its branch`,
     mergeConflict: 'Merge conflict, sent back to resolve:',
@@ -456,6 +459,7 @@ export const copy = {
       askingCrewmate: (name: unknown) => `asking ${String(name ?? 'a crewmate')}`,
       planningTasks: 'planning tasks',
       writingReply: 'writing a reply',
+      usingMac: 'using your Mac',
       using: (tool: string) => `using ${tool}`,
     },
   },
@@ -494,6 +498,10 @@ export const copy = {
       'colony/escalated': 'run handed to a bigger crew',
       'agent/joined': 'crewmate joined',
       'browser/keyframe': 'browser step',
+      'computer/keyframe': 'step on your Mac',
+      'computer/apps': 'apps allowed on your Mac',
+      'computer/control': 'controlling your Mac',
+      'computer/blocked': 'computer use needs setting up',
       'agent/error': 'model error',
       'agent/dismissed': 'crewmate let go',
       'approval/requested': 'approval asked',
@@ -598,6 +606,8 @@ export const copy = {
     navLabel: 'Setup steps',
     finishLater: 'Finish later',
     finishLaterTitle: 'Close the assistant. What is left waits on the home screen.',
+    /** One step opened on its own, from the home screen or Settings: it goes back there when done. */
+    single: { close: 'Close', done: 'Done' },
     back: 'Back',
     continue: 'Continue',
     later: 'Set up later',
@@ -756,7 +766,17 @@ export const copy = {
       notifyHint: 'A notification on this device, only while Myrmidon is not in front.',
       test: 'Send a test notification',
       testBody: 'This is how Myrmidon tells you a chat is done.',
-      sent: 'Sent. Look for it in the corner of your screen.',
+      /** How the test went, under its button. */
+      result: {
+        sent: 'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus or Do Not Disturb is off and that your system lets this browser notify.',
+        sentDesktop:
+          'Sent. Look for it in the corner of your screen. Nothing there? Check that Focus is off and that System Settings → Notifications → Myrmidon allows them.',
+        waiting:
+          'Switch to another app to see it: macOS shows Myrmidon’s notifications while it is in the background, so the test arrives as you leave.',
+        blocked:
+          'Blocked: this browser does not let Myrmidon notify. Allow notifications in the site settings from the address bar, then try again.',
+        failed: (error: string) => `The notification could not be sent: ${error}`,
+      },
       badge: 'Count on the Dock icon',
       badgeHint: 'The number of chats waiting for you.',
       unsupported: 'This browser cannot show notifications.',
@@ -806,6 +826,9 @@ export const copy = {
       title: (n: number) => `Finish setting up · ${n} left`,
       body: (steps: string) => `Still to do: ${steps}.`,
       action: 'Continue',
+      dismiss: 'Not now',
+      dismissTitle: 'Hide this for good. Every step stays in Settings → General.',
+      dismissed: 'Hidden for good. You can run any step from Settings → General.',
     },
   },
 
@@ -1196,12 +1219,24 @@ export const copy = {
     actions: {
       shell: 'run a command',
       file: 'change a file',
+      read: 'read a folder outside the sandbox',
       use: (tool: string) => `use ${tool}`,
     },
     approval: {
       wantsTo: (action: string) => `wants to ${action}`,
       deny: 'Deny',
       approve: 'Allow',
+      /** A request to read a folder: allowed for this run only, or for the rest of the chat. */
+      approveOnce: 'Allow once',
+    },
+    /** Folders sandboxed agents may read for the rest of a chat, from a read request's card, and their chips. */
+    reads: {
+      approveAll: 'Allow reading it in this chat',
+      allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
+      chip: (name: string) => `Reads ${name}`,
+      chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
+      revoke: (folder: string) => `Stop agents reading ${folder}`,
+      revoked: (folder: string) => `${folder} is hidden from agents again`,
     },
     /** One kind of step allowed for the rest of a chat from its card, and the chips that take it back. */
     grants: {
@@ -1377,24 +1412,125 @@ export const copy = {
     modes: {
       auto: {
         label: 'Autonomous',
-        hint: 'Agents edit files and run commands in the sandbox without asking. Every run is checkpointed, so you can rewind it.',
+        hint: 'Agents edit the project and run commands without asking, in the sandbox unless you turned it off: they read and write the project and their own work files, and read toolchains and the folders you list below. The rest of your home, other chats and your keys stay out of reach. Every run is checkpointed, so you can rewind it.',
       },
       ask: {
         label: 'Ask first',
-        hint: 'Each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
+        hint: 'As Autonomous, but each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
       },
       readOnly: {
         label: 'Read-only',
-        hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched. They propose changes instead.',
+        hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched, and the rest of your home stays out of reach. They propose changes instead.',
+      },
+      full: {
+        label: 'Full access',
+        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, reading and changing any file you can (your home and keys included), with your network and accounts. Rules set to ask still ask.',
       },
     },
     /** The small mark beside a project's name. */
-    mark: { readOnly: 'Read-only for agents', ask: 'Agents ask before changes' },
+    mark: {
+      readOnly: 'Read-only for agents',
+      ask: 'Agents ask before changes',
+      full: 'Full access for agents',
+    },
+    /** Saving a project as Full access takes a second click. */
+    confirmFull: 'Yes, give full access',
     allow: {
       label: 'Commands that run without asking, one prefix per line (chained or piped commands always ask)',
     },
+    /** Folders beyond the project that this project's sandboxed agents may read. */
+    read: {
+      label: 'Other folders agents may read here (read-only), one per line, starting with ~ or /',
+      hint: 'Also open in every chat: what Settings → Tools lists. Folders with keys or other chats cannot be opened here.',
+      placeholder: '~/Documents/specs',
+    },
     save: 'Save',
     appliesFrom: 'Applies from each chat’s next message in this project.',
+  },
+
+  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
+  /** Computer use: agents seeing and controlling the person's Mac through Cua Driver. */
+  computerUse: {
+    title: 'Computer use',
+    intro:
+      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you approve each app in the chat, and you can stop them at any time.',
+    unsupported: 'Computer use runs on macOS only.',
+    switchLabel: 'Let agents use my Mac',
+    switchHint: 'Off by default. Chats from channels never get it.',
+    turnOn: 'Turn on',
+    turnOnName: 'Turn on computer use',
+    confirmOn: 'Yes, let agents use my Mac',
+    warning:
+      'Agents will see the windows of apps you approve and can click and type in them as you. What they see on screen can try to trick them; approve only apps the task needs, and watch while they work.',
+    turnOff: 'Turn off',
+    driverTitle: 'Cua Driver',
+    driverNote: 'The open-source driver agents use your Mac through (trycua, MIT).',
+    driverStates: {
+      unsupported: 'Not available on this computer',
+      missing: 'Not installed',
+      installing: 'Downloading…',
+      ready: 'Installed',
+      starting: 'Starting…',
+      running: 'Running',
+      error: 'Could not install or start',
+    } as Record<string, string>,
+    installedAt: (version: string | undefined, own: boolean) =>
+      `${version ? `Version ${version}` : 'Installed'}${own ? ', installed by Myrmidon' : ', your own install'}`,
+    install: (size: string) => `Install (${size})`,
+    reinstall: 'Reinstall',
+    installHint: (version: string, size: string) =>
+      `Downloads Cua Driver ${version} from GitHub (${size}), checks it, and keeps it in Myrmidon's folder. Nothing runs until an agent first needs your Mac.`,
+    progress: (done: string, total: string) => `${done} of ${total}`,
+    grantsTitle: 'macOS permissions',
+    grantsNote: 'macOS asks you for these, for Myrmidon itself (no second app).',
+    grants: {
+      screenRecording: {
+        label: 'Screen Recording',
+        hint: 'Lets agents see the windows of apps you approve.',
+      },
+      accessibility: { label: 'Accessibility', hint: 'Lets agents click, type and scroll in them.' },
+    },
+    granted: 'Granted',
+    notGranted: 'Not granted',
+    grant: 'Open System Settings',
+    restartNote:
+      'After you grant one, macOS may need Myrmidon to restart before it sees it: restart the driver here, or quit and reopen Myrmidon (or the terminal running it).',
+    restart: 'Restart driver',
+    restarted: 'Driver restarted',
+    unknownGrants: 'Myrmidon could not read these from macOS.',
+    tiersTitle: 'How much agents may do',
+    tiers: [
+      'Browsers and trading apps: view only (agents use their own browser for websites).',
+      'Terminals and code editors: click only, unless you give full control in the chat.',
+      'Everything else: see, click and type.',
+      'Finder, terminals and System Settings show a warning before you approve them. Myrmidon itself is never shown to agents.',
+    ],
+    appsTitle: 'Apps you allowed in chats',
+    appsNote: 'Each chat asks once per app; take one back here.',
+    noApps: 'No chat has been allowed an app yet.',
+    tier: { view: 'View only', click: 'Click only', full: 'Full control' } as Record<string, string>,
+    revoke: 'Take back',
+    revoked: (app: string) => `${app} taken back`,
+    banner: (agent: string, app: string) => `${agent} is controlling your Mac in ${app}`,
+    bannerMany: (n: number) => `${n} agents are controlling your Mac`,
+    escHint: 'Press Esc to stop',
+    stop: 'Stop',
+    stopped: 'Computer use stopped',
+    notifyTitle: 'Myrmidon is using your Mac',
+    notifyBody: 'Press Esc to stop.',
+    blocked: {
+      install: 'An agent wants to use your Mac, but Cua Driver is not installed yet.',
+      grants: (missing: string) =>
+        `An agent wants to use your Mac, but macOS has not given Myrmidon ${missing} yet.`,
+      open: 'Set up computer use',
+    },
+  },
+
+  fullAccess: {
+    badge: 'Full access',
+    title: 'This chat runs without the sandbox: its agents can read and change anything you can',
+    warning:
+      "Agents can then read your files, change anything you can, and use your network and accounts. Myrmidon's undo and rewind only cover project folders.",
   },
 
   taskBoard: {
@@ -1631,7 +1767,7 @@ export const copy = {
     shell: {
       emptyTitle: 'No shell commands yet',
       emptyBody:
-        'Agents run commands in a sandbox that can write only to their working folder and, unless the project is Read-only, the project.',
+        'Agents run commands in a sandbox that writes only to their working folder and, unless the project is Read-only, the project, and cannot see the rest of your home.',
       running: 'running…',
       noOutput: '(no output)',
     },
@@ -2087,6 +2223,7 @@ export const copy = {
       gateways: { label: 'Gateways', hint: 'Other Myrmidons, one window' },
       channels: { label: 'Channels', hint: 'Telegram, Slack, email and more' },
       voice: { label: 'Voice', hint: 'Calls with your crew' },
+      computer: { label: 'Computer use', hint: 'Agents on your Mac' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Crew & budget', hint: 'Defaults and limits' },
       tools: { label: 'Tools', hint: 'Shell, web, files' },
@@ -2138,6 +2275,8 @@ export const copy = {
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',
+      setupStep: 'One step',
+      setupStepHint: 'Open a single step on its own; when it is done you come back here.',
     },
     models: {
       title: 'Models',
@@ -2291,7 +2430,7 @@ export const copy = {
       groups: {
         shell: {
           label: 'Shell',
-          hint: 'Run commands in a sandbox that can write only to the agent’s working folder and, unless the project is Read-only, the project.',
+          hint: 'Run commands in a sandbox that writes only to the agent’s working folder and, unless the project is Read-only, the project, and reads only those, toolchains and the folders you open below.',
         },
         web: {
           label: 'Web search & fetch',
@@ -2316,9 +2455,30 @@ export const copy = {
             : `Sandbox on: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
       sandboxedHint:
-        'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
+        'Agents read the project, their own work files, this chat’s shared files and toolchains (bun, node, Python, Rust and the like), plus the folders you open below. They write only to their work files and, unless it is Read-only, the project. The rest of your home, other chats and your keys (~/.ssh, ~/.aws, ~/.config, keychains) stay out of reach. The network stays open, for package installs and the web.',
       unsandboxedHint:
-        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless Myrmidon was started with --unsafe-no-sandbox, which runs commands unconfined. On Linux, install bubblewrap and restart Myrmidon.',
+        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless you turn the sandbox off (full access) or Myrmidon was started with --unsafe-no-sandbox. On Linux, install bubblewrap and restart Myrmidon.',
+      /** The sandbox switch: On, or Off for full access. */
+      sandboxOffTitle: 'Sandbox off (full access)',
+      sandboxOffHint:
+        "Your chats run without the sandbox: commands run as you, reading and changing anything you can (your whole home, other chats and your keys included), file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+      /** Folders sandboxed agents may read beyond the defaults, in every chat. */
+      reads: {
+        title: 'What sandboxed agents may also read',
+        subtitle:
+          'read-only, in every chat; a project can add its own, and a chat can allow one when an agent asks',
+        home: 'Everything in my home (read-only)',
+        homeHint:
+          'Agents may read any file in your home. Your keys, sign-ins and other chats stay hidden unless you name them below.',
+        folders: 'Folders agents may read, one per line, starting with ~ or /',
+        foldersPlaceholder: '~/Documents/notes\n~/code/shared-libs',
+        guarded: (paths: readonly string[]) =>
+          `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
+      },
+      turnOff: 'Turn off',
+      turnOffName: 'Turn the sandbox off (full access)',
+      confirmOff: 'Yes, turn it off',
+      turnOn: 'Turn sandbox on',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',
@@ -2754,19 +2914,60 @@ export const copy = {
       workersPlaceholder: 'e.g. Write tests first. Report blockers immediately.',
     },
     schedules: {
-      presets: {
+      repeat: {
+        label: 'Repeat',
         hourly: 'Every hour',
-        daily: 'Every day at 9:00',
-        weekdays: 'Weekdays at 9:00',
-        mondays: 'Mondays at 9:00',
+        daily: 'Every day',
+        weekdays: 'Weekdays',
+        weekly: 'On chosen days',
+        monthly: 'Monthly',
+        custom: 'Custom (cron)',
       },
+      time: 'Time',
+      minutePast: 'Minutes past the hour',
+      dayOfMonth: 'Day of the month',
+      days: 'Days',
+      /** Sunday first, as cron counts them (0 = Sunday). */
+      dayShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      dayName: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      dayPlural: ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'],
+      /** "A, B and C". */
+      list: (items: readonly string[]) =>
+        items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`,
+      ordinal: (n: number) => {
+        const tens = n % 100
+        const suffix =
+          tens >= 11 && tens <= 13
+            ? 'th'
+            : n % 10 === 1
+              ? 'st'
+              : n % 10 === 2
+                ? 'nd'
+                : n % 10 === 3
+                  ? 'rd'
+                  : 'th'
+        return `${n}${suffix}`
+      },
+      describe: {
+        hourly: (minute: string) => `Every hour at :${minute}`,
+        daily: (time: string) => `Every day at ${time}`,
+        weekdays: (time: string) => `Weekdays at ${time}`,
+        days: (days: string, time: string) => `${days} at ${time}`,
+        monthly: (day: string, time: string) => `Monthly on the ${day} at ${time}`,
+        custom: (cron: string) => `Custom: ${cron}`,
+      },
+      localTime: 'in this computer’s time zone',
+      pickADay: 'Pick at least one day',
+      shortMonths: (day: string) => `Months without a ${day} are skipped`,
+      change: 'Change',
+      save: 'Save',
+      cancel: 'Cancel',
+      updated: 'Schedule updated',
       title: 'Schedules',
       intro:
         'Requests that run by themselves, each in a new chat with your default crew and reviewer. Myrmidon must be running. Turn on notifications in General to hear when one ends.',
       request: 'Request',
       requestPlaceholder: 'e.g. Summarize what changed in this repo since yesterday and flag anything risky.',
-      when: 'When',
-      custom: 'Custom (cron)',
       cronExpression: 'Cron expression',
       cronPlaceholder: 'e.g. 0 9 * * 1-5 (minute hour day month weekday)',
       project: 'Project',

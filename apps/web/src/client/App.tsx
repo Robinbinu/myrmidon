@@ -5,6 +5,7 @@ import {
   type MyrEvent,
   type PluginCommand,
   roundSlice,
+  type SetupStep,
 } from '@myrmidon/protocol'
 import {
   BarChart3,
@@ -41,6 +42,7 @@ import {
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
+import { ComputerBanner, OPEN_SETTINGS_EVENT } from './ComputerUse.tsx'
 import { ChatGrantChips } from './chat/ApprovalCards.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { sidebarOrder, stepChat } from './chat/chat-order.ts'
@@ -51,7 +53,7 @@ import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
 import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
-import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
+import { FullAccessBadge, fullAccessFor, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
@@ -66,7 +68,10 @@ import { Setup } from './setup/Setup.tsx'
 import {
   leftToSetUp,
   opensOnLoad,
+  returnFromAddress,
   SETUP_PARAM,
+  SETUP_RETURN_PARAM,
+  type SetupReturn,
   type SetupScreen,
   type SetupView,
   type Starter,
@@ -365,6 +370,8 @@ export function App() {
   }>()
   const [draft, setDraft] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
+  /** The sandbox is off in Settings: new chats outside read-only projects get full access. */
+  const [sandboxOff, setSandboxOff] = useState(false)
   /** The project a new chat will work in. */
   const [newProject, setNewProject] = useState<string>()
   const [picking, setPicking] = useState(false)
@@ -373,6 +380,8 @@ export function App() {
   const [setup, setSetup] = useState<SetupView | 'failed'>()
   /** The setup assistant's screen while it is open in place of the app. */
   const [setupScreen, setSetupScreen] = useState<SetupScreen>()
+  /** Set while one step is open on its own: where the window goes back to once it is done. */
+  const [setupReturn, setSetupReturn] = useState<SetupReturn>()
   /** Whether setup has been decided on for this page: it opens by itself only on the first answer. */
   const setupDecided = useRef(false)
   /** A starter prompt picked as setup finished, sent once the home screen is back. */
@@ -431,13 +440,21 @@ export function App() {
   useEffect(loadModels, [loadModels])
 
   const loadProjects = useCallback(() => {
-    api<{ projects: Project[] }>('/api/projects')
-      .then((r) => setProjects(r.projects))
+    api<{ projects: Project[]; fullAccess?: boolean }>('/api/projects')
+      .then((r) => {
+        setProjects(r.projects)
+        setSandboxOff(r.fullAccess === true)
+      })
       // With the server away the banner says so, and the list loads again once it is back.
       .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
   }, [toast])
 
   useEffect(loadProjects, [loadProjects])
+  // Turning the sandbox off or on in Settings changes what the next chat gets.
+  useEffect(() => {
+    window.addEventListener(SETTINGS_SAVED, loadProjects)
+    return () => window.removeEventListener(SETTINGS_SAVED, loadProjects)
+  }, [loadProjects])
 
   // The owner meets the setup assistant until it is finished; a chats-only device never does.
   const loadSetup = useCallback(() => {
@@ -448,7 +465,9 @@ export function App() {
         if (setupDecided.current) return
         setupDecided.current = true
         const open = opensOnLoad(r)
-        if (open) setSetupScreen(open)
+        if (!open) return
+        setSetupScreen(open)
+        setSetupReturn(returnFromAddress())
       })
       .catch(() => {
         if (!setupDecided.current) setSetup('failed')
@@ -679,6 +698,17 @@ export function App() {
     setSettingsSection(section)
     setSettingsOpen(true)
   }
+  // A step in a chat (computer use waiting to be set up) opens Settings at its section.
+  const openSettingsRef = useRef(openSettings)
+  openSettingsRef.current = openSettings
+  useEffect(() => {
+    const open = (e: Event) => {
+      const section = (e as CustomEvent<unknown>).detail
+      if (SECTIONS.some((s) => s.id === section)) openSettingsRef.current(section as Section)
+    }
+    window.addEventListener(OPEN_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open)
+  }, [])
 
   // The pending card gives way once the chat list shows the round it started.
   useEffect(() => {
@@ -1146,10 +1176,14 @@ export function App() {
   /** Setup handing the window back: to the home screen, where a starter prompt picked on its last screen is sent. */
   const closeSetup = (result: { starter?: Starter; project?: string }) => {
     setSetupScreen(undefined)
+    setSetupReturn(undefined)
     const url = new URL(location.href)
     url.searchParams.delete(SETUP_PARAM)
+    url.searchParams.delete(SETUP_RETURN_PARAM)
     history.replaceState(null, '', url)
     loadSetup()
+    // One step opened on its own goes back where it was opened from: Settings is still open behind it, or home.
+    if (setupReturn) return
     setSettingsOpen(false)
     setView('chat')
     setActiveChat(undefined)
@@ -1161,11 +1195,32 @@ export function App() {
       if (text) setStarter(text)
     }, SETUP_HANDOFF_MS)
   }
+  /** One step on its own, from the home screen's card or Settings → General; it comes back there when done. */
+  const openSetupStep = (step: SetupStep, from: SetupReturn) => {
+    if (from === 'settings') setSettingsSection('general')
+    setSetupReturn(from)
+    setSetupScreen(step)
+  }
+  const dismissSetupNudge = () => {
+    if (!setup || setup === 'failed') return
+    const before = setup
+    setSetup({ ...setup, setup: { ...setup.setup, dismissedAt: new Date().toISOString() } })
+    request<SetupView>('PUT', '/api/setup', { dismiss: true })
+      .then((r) => {
+        setSetup(r)
+        toast(copy.setup.nudge.dismissed, 'info')
+      })
+      .catch((err) => {
+        setSetup(before)
+        toast(String((err as Error).message ?? err), 'error')
+      })
+  }
   const runSetupAgain = () =>
     request<SetupView>('PUT', '/api/setup', { restart: true })
       .then((r) => {
         setSetup(r)
         setSettingsOpen(false)
+        setSetupReturn(undefined)
         setSetupScreen('welcome')
       })
       .catch((err) => toast(String((err as Error).message ?? err), 'error'))
@@ -1183,6 +1238,7 @@ export function App() {
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
+      <ComputerBanner />
       {/* Setup covers the window while it is open. It fades out over the app rather than vanish, so its mascot can
           settle into the home screen's (they share a layout id, and the hand-over needs the old one to exit). */}
       <AnimatePresence>
@@ -1204,6 +1260,7 @@ export function App() {
               onConfig={updateConfig}
               online={online}
               onProjects={setProjects}
+              {...(setupReturn ? { returnTo: setupReturn } : {})}
               onClose={closeSetup}
             />
           </motion.div>
@@ -1257,6 +1314,7 @@ export function App() {
                   config={config}
                   onConfig={updateConfig}
                   onRunSetup={() => void runSetupAgain()}
+                  onOpenSetupStep={(step) => openSetupStep(step, 'settings')}
                 />
               ) : (
                 <>
@@ -1291,6 +1349,7 @@ export function App() {
                       {view === 'chat' && chat && (
                         <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                       )}
+                      {view === 'chat' && chat?.fullAccess && <FullAccessBadge />}
                     </ToolbarTitle>
                     {view === 'chat' && voiceOn && !call && (
                       <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
@@ -1429,10 +1488,17 @@ export function App() {
                                   {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
                                 />
                               )}
-                              {chat?.grants?.length ? (
+                              {(chat
+                                ? chat.fullAccess
+                                : fullAccessFor(
+                                    projects.find((p) => p.id === newProject)?.permissions?.mode,
+                                    sandboxOff,
+                                  )) && <FullAccessBadge />}
+                              {chat?.grants?.length || chat?.reads?.length ? (
                                 <ChatGrantChips
                                   chatId={chat.chatId}
-                                  grants={chat.grants}
+                                  grants={chat.grants ?? []}
+                                  reads={chat.reads ?? []}
                                   onChanged={refreshChats}
                                 />
                               ) : null}
@@ -1484,7 +1550,11 @@ export function App() {
                             <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
                           )}
                           {fullAccess && models.some(canLead) && setupLeft.length > 0 && (
-                            <SetupNudge left={setupLeft} onOpen={setSetupScreen} />
+                            <SetupNudge
+                              left={setupLeft}
+                              onOpen={(step) => openSetupStep(step, 'home')}
+                              onDismiss={dismissSetupNudge}
+                            />
                           )}
                           {box}
                         </Hero>

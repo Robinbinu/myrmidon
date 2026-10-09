@@ -196,6 +196,29 @@ test('a new install starts setup at the beginning; marks, finishing and starting
   expect(again.body.setup).toEqual({ steps: {} })
 })
 
+test('dismissing the Finish setting up card is kept for good, through finishing and starting again', async () => {
+  const dir = home()
+  const settings = new SettingsStore(dir)
+  const server = startServer({ home: dir, port: 0, settings })
+  servers.push(server)
+  const call = client(server)
+  type Answer = { setup: { finishedAt?: string; dismissedAt?: string; steps: Record<string, string> } }
+  await call('PUT', '/api/setup', { finish: true })
+  const dismissed = await call<Answer>('PUT', '/api/setup', { dismiss: true })
+  const at = dismissed.body.setup.dismissedAt
+  expect(at).toBeString()
+  expect(new SettingsStore(dir).get().setup?.dismissedAt).toBe(at)
+  // Dismissing again does not move it, and redoing a step, finishing or starting over keeps it.
+  expect((await call<Answer>('PUT', '/api/setup', { dismiss: true })).body.setup.dismissedAt).toBe(at)
+  await call('PUT', '/api/setup', { step: 'voice', mark: 'later' })
+  expect((await call<Answer>('PUT', '/api/setup', { restart: true })).body.setup).toEqual({
+    steps: {},
+    dismissedAt: at,
+  })
+  expect((await call<Answer>('PUT', '/api/setup', { finish: true })).body.setup.dismissedAt).toBe(at)
+  expect((await call<Answer>('GET', '/api/setup')).body.setup.dismissedAt).toBe(at)
+})
+
 test('an install from before setup existed counts as set up when it already has a chat', async () => {
   const dir = home()
   // Settings saved by an older Myrmidon: no setup in them at all.

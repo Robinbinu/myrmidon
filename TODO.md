@@ -299,6 +299,17 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 Open work, in the order it will be done:
 
+0. - [x] **Schedules at any time** (done, merged to develop) — presets were fixed at 9:00; now a
+      repeat (hour, day, weekdays, chosen days, monthly, custom cron), a time and days, said in plain words, and
+      Change edits a saved schedule.
+0. - [x] **Crewmates out of sync across rounds** (done: reads per person, missed mail waits for the next wake) (2026-10-09, "play a game" chat) — when a round completes, `_end()`
+      stops every agent and drops mail still in its inbox or steered queue; the next round wakes them with only the
+      new message, so a crewmate's memory is stale and it answers an old message (zephyr replied to "It's a BOOK!"
+      #1125 after the new topic #1164). Also `mail.delivered` is one flag per message, so a group message read by one
+      member shows as read by all. Fix: per-recipient delivery, and carry undelivered mail into the next round.
+0. - [x] **A chat round ends mid-conversation** (done: the speaker signs off after its final answer; the round closes once the crew is quiet, capped at 2 min) — the lead's final answer completes the round at once (review off),
+      aborting crewmates mid-turn; bix's last message was never delivered (one tick). It should behave like a human
+      chat: let the conversation settle before the round ends.
 1. - [x] **Crew mail like a conversation** (done: messaging norms, threads, reply reminder, chat-style Mail tab) — agents see mail and ignore it; they should read and reply, coordinate
       like people in a chat (the person's words: "make it more human").
 2. - [x] **Plugins phase 4: agents build plugins** (done) — create_plugin / test_plugin / propose_plugin and the speaker
@@ -450,6 +461,42 @@ Open work, in the order it will be done:
       sending a starter prompt, notification bodies, the hand-off animation in a normal window.
 12j. - [x] **Remove a single model from a provider** (asked 2026-10-09). Done.
 12k. - [x] **Select several chats and delete them at once** (asked 2026-10-09). Done.
+12m. - [x] **The sandbox lets agents read your files** (done: home reads blocked with an allow-list; extra reads per Settings, project and chat via request_read) (asked 2026-10-09) — today it only blocks writes: home, ~/.zshrc and
+      other chats are readable and the network is open, so "sandboxed" vs "full access" barely differ. Block reads of the
+      home folder except scratch, shared files, toolchains, the current chat; make the difference plain in Settings.
+12n. - [x] **Setup: "Finish setting up" can't be dismissed** (done) — must dismiss for good; redoing one step (e.g. voice) must not
+      walk through the next steps again; the test notification does nothing.
+12o. - [x] **Mascot shows what you type** — on the new-chat screen the matrix shows the typed text with a blinking bar; after
+      5 s without typing the eyes come back. Done: letters drawn in the eye grid's own cells (5 tall), only the last ones
+      that fit, no scrolling, a blinking cursor bar; their colour follows the draft's mood like the eyes.
+12p. - [x] **Agent feedback report** (done; its test plugin removed, its files and tools left in the probe chat by the person's choice) (docs/research/2026-10-09-agent-feedback.md): multi-file artifact pages fail from file://
+      (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
+      find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
+      skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
+12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
+      then rewrite Myrmidon's prompts to that standard.
+      The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
+      tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
+      versions logged per run, A/B checked with apps/eval before shipping.
+      Research done (docs/research/2026-10-09-harness-prompts.md, Part 4 is the plan; assembled prompts in
+      docs/research/2026-10-09-myrmidon-prompts-assembled.md). Also found: the chat title still reaches agents through
+      the colony id (a slug of the title) in scratch paths, $MYR_MIRROR and artifact: URLs; 65 of 139 tool parameters
+      undocumented; the judge never told its threshold.
+12r. - [x] **Computer use** (asked 2026-10-09) — done: Cua Driver embedded as an MCP server; one app at a time once
+      approved, like Claude Code; Settings → Computer use (off by default). Untested live: Esc to stop; Gemini uses the
+      generic tool.
+12s. - [ ] **The mascot comes alive** (asked 2026-10-09) — on the same 15x8 dot screen: idle animations (eye roll, squint,
+      sweep, yawn, sneeze, side-eye, peek, bored, cross-eyed); reactions drawn in dots (stars, spirals, ! ?, tears, sweat,
+      fire, ZZZ); screen shows (boot scanline, confetti on a finished run, Pac-Man, Game of Life asleep, voice equaliser);
+      interactive (click to look with a ripple, drag with squash-stretch, double-click sneeze, hold to charge and pop).
+      Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
+      Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
+      react to the eyes, and are named after random Minions.
+12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
+      and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
+      still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
+      /bin/sh and the leash uses ps); a small DNS-rebinding window for other chats' tabs while a full-access chat shares
+      the browser.
 12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were

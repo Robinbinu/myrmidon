@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
 import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
@@ -299,12 +299,12 @@ export class PhononStt implements SpeechToText {
  * A Unix socket path that fits: macOS allows 104 bytes, so a long home gets a private folder under /tmp instead
  * (owner-only, named for the home so two Myrmidons do not share it).
  */
-function socketPath(wanted: string): string {
+export function socketPath(wanted: string): string {
   if (Buffer.byteLength(wanted) <= 100) return wanted
   const dir = join('/tmp', `myr-${process.getuid?.() ?? 0}-${Bun.hash(wanted).toString(36)}`)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   chmodSync(dir, 0o700)
-  return join(dir, 'phonon.sock')
+  return join(dir, basename(wanted))
 }
 
 /**

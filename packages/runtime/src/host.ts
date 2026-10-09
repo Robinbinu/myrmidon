@@ -11,6 +11,7 @@ import type {
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { ComputerHub } from './computer/driver.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
@@ -25,8 +26,11 @@ export interface ColonyHost {
   readonly log: EventLog
   readonly blobs: BlobStore
   readonly workspace: ColonyWorkspace
+  /** Where commands run: the OS sandbox, or with full access none (`unconfined`). */
   readonly sandbox: Sandbox
   readonly unsafeNoSandbox: boolean
+  /** The round has full access right now (see `fullAccessIn`): no sandbox, any path, any address. */
+  readonly fullAccess: boolean
   /** Live projection; current as of the last committed event. */
   state(): ColonyState
   append(draft: EventDraft): Promise<MyrEvent>
@@ -78,10 +82,18 @@ export interface ColonyHost {
   streamed(agent: string, text: string, done: boolean, plain: boolean): void
   /** The person's plugins, for agents that build one (create_plugin); absent where plugins are not set up. */
   readonly plugins?: PluginHost
-  /** A tool was made (create_tool): rebuild every agent's tool list so it appears on their next step. */
-  toolsChanged(): void
+  /**
+   * Tools changed (a tool was made, rules changed): rebuild every agent's tool list for its next step. `made` is a tool
+   * an agent just made, loaded for that agent at once so it can call it; the rest load it with find_tools.
+   */
+  toolsChanged(made?: { readonly by: string; readonly tool: string }): void
   /** A real browser for agents; absent when no Chrome is installed. */
   readonly browser?: BrowserHub
+  /**
+   * The person's Mac (computer use), while this round may use it: switched on in Settings when it started, and only
+   * the person wrote into it. Absent otherwise, so the computer tool is left out or refuses.
+   */
+  readonly computer?: ComputerHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
   /**
@@ -113,8 +125,13 @@ export interface ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant },
+    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
   ): Promise<ReviewDecision>
+  /**
+   * A sandboxed agent asks to read a folder outside what it may read: the person allows it once (this round) or for
+   * the chat. Refused for the person's keys and other chats' data, and in a round a channel member writes into.
+   */
+  requestRead(agent: string, path: string, reason?: string): Promise<string>
   /**
    * Starts a long-running command (a dev server) in the agent's sandbox and waits until it serves: on `port` if
    * given, else at the first local URL it prints. Returns that URL.
@@ -122,9 +139,9 @@ export interface ColonyHost {
   startServer(agent: string, name: string, command: string, port?: number): Promise<string>
   /**
    * The localhost ports this colony's running servers opened: the only private addresses its agents' web reads and
-   * browser may reach.
+   * browser may reach. With full access, `all`: every address.
    */
-  localPorts(): ReadonlySet<number>
+  localPorts(): ReadonlySet<number> | 'all'
   /** The latest output of a server this colony started. */
   serverLogs(name: string): string
   stopServer(name: string, reason: string): Promise<void>

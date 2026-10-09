@@ -66,8 +66,9 @@ const colonySpec = Schema.object({
           path: str(),
           permissions: optional(
             Schema.object({
-              mode: oneOf('auto', 'ask', 'read-only'),
+              mode: oneOf('auto', 'ask', 'read-only', 'full'),
               allow: Schema.array(Schema.string()).default([]),
+              read: optional(Schema.array(Schema.string())),
             }),
           ),
         }),
@@ -90,6 +91,8 @@ const colonySpec = Schema.object({
   allowTools: Schema.array(str()),
   askAll: Schema.boolean(),
   review: Schema.union(['off', 'auto', 'always']),
+  fullAccess: Schema.boolean(),
+  computerUse: Schema.boolean(),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -269,6 +272,7 @@ const defs: EventTypeDefinition[] = [
       ),
       key: Schema.string(),
       grant: optional(Schema.union(['file', 'command'])),
+      read: Schema.string(),
     }),
   },
   {
@@ -335,6 +339,7 @@ const defs: EventTypeDefinition[] = [
       allow: strs(),
       project: Schema.string(),
       askAll: Schema.boolean(),
+      fullAccess: Schema.boolean(),
       interrupted: strs(),
     }),
   },
@@ -429,7 +434,10 @@ const defs: EventTypeDefinition[] = [
     type: 'chat/allowed',
     version: 1,
     actors: ['user'],
-    schema: Schema.object({ grants: Schema.array(oneOf('file', 'command')).default([]) }),
+    schema: Schema.object({
+      grants: Schema.array(oneOf('file', 'command')).default([]),
+      reads: optional(Schema.array(Schema.string())),
+    }),
   },
   {
     type: 'colony/escalated',
@@ -490,6 +498,48 @@ const defs: EventTypeDefinition[] = [
       tool: str(),
       args: Schema.any(),
       readOnly: Schema.boolean(),
+    }),
+  },
+  {
+    type: 'computer/keyframe',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      blob: str(),
+      app: str(),
+      title: Schema.string().default(''),
+      action: str(),
+      label: Schema.string(),
+      point: optional(Schema.object({ x: Schema.number().required(), y: Schema.number().required() })),
+      width: Schema.number().required(),
+      height: Schema.number().required(),
+    }),
+  },
+  {
+    type: 'computer/apps',
+    version: 1,
+    actors: ['user'],
+    schema: Schema.object({
+      apps: Schema.array(
+        Schema.object({ bundleId: str(), name: str(), tier: oneOf('view', 'click', 'full') }),
+      ).default([]),
+    }),
+  },
+  {
+    type: 'computer/control',
+    version: 1,
+    actors: ['agent', 'user', 'system'],
+    schema: Schema.object({ agent: str(), app: Schema.string(), active: Schema.boolean().required() }),
+  },
+  {
+    type: 'computer/blocked',
+    version: 1,
+    actors: ['agent'],
+    schema: Schema.object({
+      agent: str(),
+      reason: oneOf('install', 'grants'),
+      missing: Schema.array(oneOf('accessibility', 'screen-recording')),
     }),
   },
   {

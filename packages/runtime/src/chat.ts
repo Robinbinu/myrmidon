@@ -7,6 +7,7 @@ import {
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
+  type ComputerApp,
   type EventPayloads,
   foldColony,
   type MyrEvent,
@@ -21,7 +22,8 @@ import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from '
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
-import { CHAT_TITLE_ROUNDS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
+import type { ComputerHub } from './computer/driver.ts'
+import { CHAT_TITLE_ROUNDS, MAX_READ_FOLDERS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
 import type { ToolLibrary } from './made-tools.ts'
 import type { McpHub } from './mcp.ts'
@@ -32,6 +34,7 @@ import { speaksForColony } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
+import { readFolder, realPath, secretAt, within } from './read-access.ts'
 import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
 import {
   reviewRound,
@@ -228,6 +231,12 @@ export interface ChatSummary {
   readonly crew?: readonly CrewMember[]
   /** Kinds of step the person allowed for the rest of the chat ("Approve all for this chat"). */
   readonly grants?: readonly ChatGrant[]
+  /** Folders the person let sandboxed agents read for the rest of the chat ("Allow reading … in this chat"). */
+  readonly reads?: readonly string[]
+  /** The latest round runs (or ran) with full access: no sandbox. */
+  readonly fullAccess?: boolean
+  /** Apps on the person's Mac they let agents use in this chat (computer use). */
+  readonly computerApps?: readonly ComputerApp[]
 }
 
 /** The earlier rounds of a chat as `User:` / `Colony:` pairs, for agents that were not in them. */
@@ -286,6 +295,8 @@ export class ChatService {
       library?: ToolLibrary
       /** Shared headless Chrome for the browser_* tools. */
       browser?: BrowserHub
+      /** Computer use: agents drive the person's Mac through Cua Driver when Settings → Computer use is on. */
+      computer?: ComputerHub
       /** What the person keeps across chats: recalled into every round, added to by agents' proposals. */
       memory?: MemoryStore
       /** Skills agents load by name when a task matches. */
@@ -527,6 +538,9 @@ export class ChatService {
         ...(last.awaiting ? { awaiting: true } : {}),
         ...(last.failed ? { failed: true } : {}),
         ...(last.grants?.length ? { grants: last.grants } : {}),
+        ...(last.reads?.length ? { reads: last.reads } : {}),
+        ...(last.fullAccess ? { fullAccess: true } : {}),
+        ...(last.computerApps?.length ? { computerApps: last.computerApps } : {}),
         rounds: list.map((r) => ({
           colonyId: r.colonyId,
           round: r.round,
@@ -611,6 +625,10 @@ export class ChatService {
     const earlier = latest?.state.chat?.project
     const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
+    if (this._fullAccess(project, spec.askAll)) spec.fullAccess = true
+    const reads = this._reads(project, spec.askAll)
+    if (reads.length) spec.reads = reads
+    if (this._computerUse(spec.askAll)) spec.computerUse = true
     const memory = this.options.memory?.recall(project?.id) ?? []
     if (memory.length && spec.chat) spec.chat.memory = memoryLines(memory)
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
@@ -624,6 +642,7 @@ export class ChatService {
         this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       ...(this.options.memory ? { memory: this.options.memory } : {}),
@@ -840,6 +859,110 @@ export class ChatService {
     return grants
   }
 
+  /**
+   * Lets sandboxed agents read a folder for the rest of a chat, across its runs, or takes that back; allowing also
+   * approves the requests to read it already waiting. Kept like `allowInChat`. The person's keys and other chats'
+   * data cannot be allowed here (only by naming them in Settings → Tools). Returns the folders allowed now.
+   */
+  async allowReadInChat(chatId: string, folder: string, allowed: boolean): Promise<string[]> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const path = realPath(readFolder(folder))
+    const colonyDir = (this.runtime.ctx.logStore as SqliteLogStore).colonyDir(latest.id as never)
+    if (allowed && secretAt(path, { dataDir: this.runtime.home, colonyDir }))
+      throw new Error(
+        `${folder} holds keys, sign-ins or other chats: only naming it in Settings → Tools opens it`,
+      )
+    const live = this._live.get(chatId)
+    const here = live?.id === latest.id ? live : undefined
+    const state = here?.state() ?? latest.state
+    const now = state.chatReads ?? []
+    const reads = allowed ? [...new Set([...now, path])] : now.filter((f) => f !== path)
+    if (reads.length > MAX_READ_FOLDERS) throw new Error(`at most ${MAX_READ_FOLDERS} folders in one chat`)
+    if (reads.length !== now.length) {
+      const draft = {
+        type: 'chat/allowed',
+        actor: { kind: 'user', id: 'user' },
+        payload: { grants: state.chatGrants ?? [], reads },
+      } as const
+      if (here) await here.append(draft)
+      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    }
+    if (allowed && here)
+      for (const a of Object.values(here.state().approvals))
+        if (!a.decided && a.read && within(a.read, path))
+          await here.decideApproval(a.id, true).catch(() => {})
+    return reads
+  }
+
+  /**
+   * The folders a round's sandboxed agents may read beyond the defaults: from Settings (everything in the home, and
+   * the folders listed there, keys included when named exactly) and the project's own, which can never name keys or
+   * other chats. None for a round someone else started (`askAll`).
+   */
+  private _reads(
+    project: { permissions?: ProjectPermissions } | undefined,
+    askAll: boolean | undefined,
+  ): string[] {
+    if (askAll) return []
+    const sandbox = this.options.settings?.get().sandbox
+    const folders = (list: readonly string[]) =>
+      list.flatMap((f) => {
+        try {
+          return [readFolder(f)]
+        } catch {
+          // Saved before it was checked, or hand-edited: a folder that is not a full path opens nothing.
+          return []
+        }
+      })
+    const global = folders([...(sandbox?.readHome ? ['~'] : []), ...(sandbox?.read ?? [])])
+    const own = folders(project?.permissions?.read ?? []).filter(
+      (f) => !secretAt(f, { dataDir: this.runtime.home }),
+    )
+    return [...new Set([...global, ...own])]
+  }
+
+  /**
+   * Takes back apps the person let agents use on their Mac in a chat (Settings → Computer use): the chat keeps only
+   * `keep`. Recorded in the chat's latest round, so the next round asks again for the rest.
+   */
+  async setComputerApps(chatId: string, keep: readonly string[]): Promise<ComputerApp[]> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const live = this._live.get(chatId)
+    const here = live?.id === latest.id ? live : undefined
+    const now = (here?.state() ?? latest.state).computerApps ?? []
+    const apps = now.filter((a) => keep.includes(a.bundleId))
+    if (apps.length !== now.length) {
+      const draft = { type: 'computer/apps', actor: { kind: 'user', id: 'user' }, payload: { apps } } as const
+      if (here) await here.append(draft)
+      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    }
+    return apps
+  }
+
+  /**
+   * Whether a round of the person's runs with full access: its project is set to it, or the sandbox is off in Settings
+   * and the project is not read-only. A round someone else started (`askAll`) never does.
+   */
+  private _fullAccess(
+    project: { permissions?: ProjectPermissions } | undefined,
+    askAll: boolean | undefined,
+  ) {
+    if (askAll) return false
+    const mode = project?.permissions?.mode
+    return mode === 'full' || (this.options.settings?.get().sandbox.enabled === false && mode !== 'read-only')
+  }
+
+  /**
+   * Whether a round of the person's may use their Mac: computer use is switched on and can run here. A round someone
+   * else started (`askAll`) never may; one they write into loses it from then on (ColonyRun.computer).
+   */
+  private _computerUse(askAll: boolean | undefined): boolean {
+    const hub = this.options.computer
+    return !askAll && !!hub?.enabled && hub.supported
+  }
+
   private _project(
     id: string | undefined,
     required = true,
@@ -1021,6 +1144,13 @@ export class ChatService {
     if (last.round.escalated)
       throw new Error('this round handed its request to a bigger one; wait for it or send a follow-up')
     const spec = this.specFromLog(await this.store.read(last.id as never))
+    // Taken from the settings now, not as the round started: the person may have turned the sandbox back on.
+    const project = spec.chat?.project
+    const permissions = project ? this.options.projects?.get(project.id)?.permissions : undefined
+    if (this._fullAccess(permissions ? { permissions } : project, spec.askAll)) spec.fullAccess = true
+    const reads = this._reads(permissions ? { permissions } : project, spec.askAll)
+    if (reads.length) spec.reads = reads
+    if (this._computerUse(spec.askAll)) spec.computerUse = true
     const models: Record<string, string> = {}
     if (model) {
       this.options.resolver.resolve(model)
@@ -1046,6 +1176,7 @@ export class ChatService {
         this._streamed(run.id, agent, text, done, plain),
       ...(this.options.library ? { library: this.options.library } : {}),
       ...(this.options.browser ? { browser: this.options.browser } : {}),
+      ...(this.options.computer ? { computer: this.options.computer } : {}),
       ...(this.options.skills ? { skills: this.options.skills } : {}),
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
     })
@@ -1174,7 +1305,9 @@ export class ChatService {
       if (run.state().status !== 'running') continue
       const project = run.spec.chat?.project
       const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
-      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}) })
+      const fullAccess = this._fullAccess(fresh ? { permissions: fresh } : project, run.spec.askAll)
+      const reads = this._reads(fresh ? { permissions: fresh } : project, run.spec.askAll)
+      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}), fullAccess, reads })
     }
   }
 

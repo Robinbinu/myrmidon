@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   ChatGrant,
   ColonyStatus,
+  ComputerApp,
   EventPayloads,
   NoteSection,
   QuestionChoice,
@@ -74,8 +75,15 @@ export interface MailEntry extends Entry {
   readonly replyTo?: number
   /** Set on a group message: who it reached (`to` is the group's name). */
   readonly members?: readonly string[]
+  /** Recipients who have had it in front of them, each on their own (a group's members read at different times). */
+  readBy: string[]
+  /** Every recipient has read it: the two ticks. */
   delivered: boolean
 }
+
+/** Who a message is for: a group's members other than the sender, or the one person it was sent to. */
+export const recipientsOf = (m: Pick<MailEntry, 'from' | 'to' | 'members'>): string[] =>
+  m.members?.length ? m.members.filter((n) => n !== m.from) : [m.to]
 
 export interface GroupView {
   readonly name: string
@@ -206,6 +214,12 @@ export interface ColonyState {
   chatTitle?: { title: string; at: string; by?: 'auto' }
   /** Kinds of step the person allowed for the rest of the chat; absent until they allow one. */
   chatGrants?: ChatGrant[]
+  /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
+  chatReads?: string[]
+  /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
+  computerApps?: ComputerApp[]
+  /** The current round runs with full access (no sandbox); absent when it is confined. */
+  fullAccess?: boolean
   /** The model failure that paused the round, until it resumes. */
   modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
@@ -299,6 +313,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chat = p.chat
       state.team = p.team
       state.tier = p.tier
+      if (p.fullAccess) state.fullAccess = true
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
@@ -485,7 +500,20 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       break
     }
     case 'chat/allowed': {
-      state.chatGrants = [...(event.payload as EventPayloads['chat/allowed']).grants]
+      const p = event.payload as EventPayloads['chat/allowed']
+      state.chatGrants = [...p.grants]
+      if (p.reads) state.chatReads = [...p.reads]
+      break
+    }
+    case 'computer/apps': {
+      state.computerApps = (event.payload as EventPayloads['computer/apps']).apps.map((a) => ({ ...a }))
+      break
+    }
+    case 'permissions/changed': {
+      const p = event.payload as EventPayloads['permissions/changed']
+      // A round someone else wrote into is confined from then on, whatever it started with.
+      if (p.fullAccess === false || p.askAll) delete state.fullAccess
+      else if (p.fullAccess) state.fullAccess = true
       break
     }
     case 'colony/started': {
@@ -520,6 +548,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.chat = p.chat
       state.team = p.team
       state.tier = p.tier
+      if (p.fullAccess) state.fullAccess = true
+      else delete state.fullAccess
       state.status = 'created'
       delete state.statusReason
       delete state.endedAt
@@ -636,6 +666,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
         ...(p.replyTo !== undefined ? { replyTo: p.replyTo } : {}),
         // The log's schema fills a missing list with [], so a group message is one that names its members.
         ...(p.members?.length ? { members: p.members } : {}),
+        readBy: [],
         delivered: false,
       })
       for (const to of p.members?.length ? p.members : [p.to]) if (to !== p.from) link(state, p.from, to)
@@ -657,7 +688,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     case 'mail/delivered': {
       const p = event.payload as EventPayloads['mail/delivered']
       const mail = state.mail.find((m) => m.id === p.mail)
-      if (mail) mail.delivered = true
+      if (mail) {
+        if (!mail.readBy.includes(p.to)) mail.readBy.push(p.to)
+        mail.delivered = recipientsOf(mail).every((r) => mail.readBy.includes(r))
+      }
       const message = mail ? undefined : state.chatMessages.find((m) => m.id === p.mail)
       if (message && !message.readBy?.includes(p.to)) message.readBy = [...(message.readBy ?? []), p.to]
       break

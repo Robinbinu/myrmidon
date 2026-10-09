@@ -2,12 +2,13 @@ import { Lock } from 'lucide-react'
 import { useState } from 'react'
 import { type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
+import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Button, cn, TextArea } from '../ui/primitives.tsx'
+import { Badge, Button, cn, TextArea } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
-export type PermissionMode = 'auto' | 'ask' | 'read-only'
+export type PermissionMode = 'auto' | 'ask' | 'read-only' | 'full'
 
 const MODES: { value: PermissionMode; label: string; icon: typeof FEATURE_ICONS.autonomous; hint: string }[] =
   [
@@ -29,7 +30,33 @@ const MODES: { value: PermissionMode; label: string; icon: typeof FEATURE_ICONS.
       icon: Lock,
       hint: copy.permissions.modes.readOnly.hint,
     },
+    {
+      value: 'full',
+      label: copy.permissions.modes.full.label,
+      icon: FEATURE_ICONS.fullAccess,
+      hint: copy.permissions.modes.full.hint,
+    },
   ]
+
+/**
+ * Whether a new chat in a project with this mode gets full access, as the server decides it: the project is set to it,
+ * or the sandbox is off in Settings and the project is not read-only.
+ */
+export function fullAccessFor(mode: PermissionMode | undefined, sandboxOff: boolean): boolean {
+  return mode === 'full' || (sandboxOff && mode !== 'read-only')
+}
+
+/** Shown where a chat runs without the sandbox: beside the composer's project and in the run's header. */
+export function FullAccessBadge() {
+  return (
+    <span title={copy.fullAccess.title} className="inline-flex shrink-0">
+      <Badge tone="warn">
+        <FEATURE_ICONS.fullAccess className="size-3" aria-hidden />
+        {copy.fullAccess.badge}
+      </Badge>
+    </span>
+  )
+}
 
 /** The small mark shown beside a project's name for its mode; nothing for autonomous. */
 export function PermissionMark({ mode }: { mode?: PermissionMode }) {
@@ -42,17 +69,31 @@ export function PermissionMark({ mode }: { mode?: PermissionMode }) {
         aria-label={copy.permissions.mark.ask}
       />
     )
+  if (mode === 'full')
+    return (
+      <FEATURE_ICONS.fullAccess
+        className="size-3 shrink-0 text-warn-ink"
+        aria-label={copy.permissions.mark.full}
+      />
+    )
   return null
 }
 
-/** The three ways agents may treat a folder, one to choose; also in the setup assistant's project step. */
-export function PermissionChoices(props: { mode: PermissionMode; onChange(mode: PermissionMode): void }) {
+/**
+ * The ways agents may treat a folder, one to choose; also in the setup assistant's project step, which leaves out
+ * Full access (`full`): that is given from the folder's own permissions, with a warning to confirm.
+ */
+export function PermissionChoices(props: {
+  mode: PermissionMode
+  onChange(mode: PermissionMode): void
+  full?: boolean
+}) {
   return (
     <fieldset
       aria-label={copy.permissions.modesLabel}
       className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
     >
-      {MODES.map((m) => (
+      {MODES.filter((m) => props.full || m.value !== 'full').map((m) => (
         <label
           key={m.value}
           className={cn(
@@ -90,6 +131,7 @@ export function ProjectPermissions(props: {
   const toast = useToast()
   const [mode, setMode] = useState<PermissionMode>(props.project.permissions?.mode ?? 'auto')
   const [allow, setAllow] = useState((props.project.permissions?.allow ?? []).join('\n'))
+  const [read, setRead] = useState((props.project.permissions?.read ?? []).join('\n'))
   const [busy, setBusy] = useState(false)
   const save = async () => {
     setBusy(true)
@@ -97,6 +139,7 @@ export function ProjectPermissions(props: {
       const r = await send<{ projects: Project[] }>('PUT', `/api/projects/${props.project.id}/permissions`, {
         mode,
         allow: allow.split('\n'),
+        read: read.split('\n'),
       })
       props.onSaved(r.projects)
       toast(`${props.project.name}: ${MODES.find((m) => m.value === mode)?.label}`, 'success')
@@ -113,19 +156,30 @@ export function ProjectPermissions(props: {
       onClose={props.onClose}
       size="sm"
       actions={
-        <Button
-          size="sm"
-          variant="primary"
-          disabled={busy}
-          onClick={() => void save()}
-          icon={<FEATURE_ICONS.permissions className="size-3.5" />}
-        >
-          {copy.permissions.save}
-        </Button>
+        // Giving full access takes a second click, with what it means beside it.
+        mode === 'full' && props.project.permissions?.mode !== 'full' ? (
+          <ConfirmButton
+            label={copy.permissions.save}
+            confirm={copy.permissions.confirmFull}
+            warning={copy.fullAccess.warning}
+            disabled={busy}
+            onConfirm={() => void save()}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy}
+            onClick={() => void save()}
+            icon={<FEATURE_ICONS.permissions className="size-3.5" />}
+          >
+            {copy.permissions.save}
+          </Button>
+        )
       }
     >
       <div className="flex flex-col gap-3">
-        <PermissionChoices mode={mode} onChange={setMode} />
+        <PermissionChoices mode={mode} onChange={setMode} full />
         {mode === 'ask' && (
           <div className="flex flex-col gap-1.5">
             <label htmlFor="allow-commands" className="text-callout text-muted">
@@ -139,6 +193,23 @@ export function ProjectPermissions(props: {
               placeholder={'bun test\nbun run typecheck\ngit status'}
               className="font-mono"
             />
+          </div>
+        )}
+        {/* Full access reads everything already. */}
+        {mode !== 'full' && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="read-folders" className="text-callout text-muted">
+              {copy.permissions.read.label}
+            </label>
+            <TextArea
+              id="read-folders"
+              value={read}
+              onChange={(e) => setRead(e.target.value)}
+              rows={2}
+              placeholder={copy.permissions.read.placeholder}
+              className="font-mono"
+            />
+            <p className="text-small text-muted">{copy.permissions.read.hint}</p>
           </div>
         )}
         <p className="text-small text-muted">{copy.permissions.appliesFrom}</p>

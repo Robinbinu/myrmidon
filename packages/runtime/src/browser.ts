@@ -75,11 +75,36 @@ interface Tab {
   cdp?: CDPSession
   cursor: { x: number; y: number }
   controlledBy: 'agent' | 'person'
-  /** The loopback ports this tab may reach: its run's own servers (and any the hub allows every tab). */
+  /** The loopback ports this tab may reach: its run's own servers (and any the hub allows every tab); `all` with full access. */
   readonly localPorts: LocalPorts
+  /** Whether the proxy behind every tab lets anything through, because a full-access tab is open. */
+  readonly proxyOpen: () => boolean
   /** Why the browser last refused a connection, if it did at or after `since`; for saying why a navigation failed. */
   readonly refusal: (since: number) => string | undefined
   readonly onRefused: (reason: string) => void
+  /** The colony's published files, served to this tab at their own origin. */
+  readonly artifacts?: ArtifactSource
+}
+
+/**
+ * A colony's published files as its agents' browsers see them: at an http origin of the colony's own, answered from
+ * the colony's store by request interception, so a page's relative loads (fetch, ES modules) are same-origin, as
+ * they would be on a web server, instead of the cross-origin requests a file:// page makes. Nothing
+ * listens there: a request never reaches the network.
+ */
+export interface ArtifactSource {
+  readonly origin: string
+  file(name: string): Promise<{ readonly body: Uint8Array; readonly mediaType: string } | undefined>
+}
+
+/** The origin a colony's published files are served at; `.localhost` makes it a secure context, like localhost. */
+export function artifactOrigin(colony: string): string {
+  const label =
+    colony
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .slice(0, 63) || 'colony'
+  return `http://${label}.artifacts.localhost`
 }
 
 export interface NetworkEntry {
@@ -158,9 +183,13 @@ export class BrowserHub {
     private readonly options: { localPorts?: LocalPorts } = {},
   ) {}
 
-  private _allPorts(): ReadonlySet<number> {
-    const all = new Set(this.options.localPorts?.() ?? [])
-    for (const ports of this._ports.values()) for (const port of ports()) all.add(port)
+  private _allPorts(): ReadonlySet<number> | 'all' {
+    const all = new Set<number>()
+    for (const ports of [this.options.localPorts, ...this._ports.values()]) {
+      const open = ports?.() ?? []
+      if (open === 'all') return 'all'
+      for (const port of open) all.add(port)
+    }
     return all
   }
 
@@ -226,19 +255,23 @@ export class BrowserHub {
   tab(
     colony: string,
     agent: string,
-    options: { downloads?: string; localPorts?: LocalPorts } = {},
+    options: { downloads?: string; localPorts?: LocalPorts; artifacts?: ArtifactSource } = {},
   ): Promise<Tab> {
     const key = `${colony}/${agent}`
     let tab = this._tabs.get(key)
     if (!tab) {
       const own = options.localPorts
-      const localPorts: LocalPorts = () =>
-        new Set([...(this.options.localPorts?.() ?? []), ...(own?.() ?? [])])
+      const localPorts: LocalPorts = () => {
+        const hub = this.options.localPorts?.() ?? []
+        const mine = own?.() ?? []
+        return hub === 'all' || mine === 'all' ? 'all' : new Set([...hub, ...mine])
+      }
       this._ports.set(key, localPorts)
       tab = (async () => {
         const page = await (await this._launch()).newPage()
         const tab: Tab = {
           localPorts,
+          proxyOpen: () => this._allPorts() === 'all',
           onRefused: (reason) => this._refuse(reason),
           refusal: (since) => {
             const refused = this._refused
@@ -247,6 +280,7 @@ export class BrowserHub {
           page,
           pages: [],
           ...(options.downloads ? { downloads: options.downloads } : {}),
+          ...(options.artifacts ? { artifacts: options.artifacts } : {}),
           refs: new Map(),
           logs: [],
           network: [],
@@ -442,11 +476,20 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
     if (tab.logs.length > BROWSER_LOG_LIMIT) tab.logs.shift()
   }
   await page.setRequestInterception(true)
-  page.on('request', (r) => {
+  page.on('request', async (r) => {
     if (r.isInterceptResolutionHandled()) return
     let refused: UnreachableError | undefined
     try {
-      refused = quickRefusal(new URL(r.url()), tab.localPorts)
+      const url = new URL(r.url())
+      if (tab.artifacts && url.origin === tab.artifacts.origin)
+        return void serveArtifact(tab.artifacts, url, r)
+      refused = quickRefusal(url, tab.localPorts)
+      // While a full-access tab is open the shared proxy lets anything through, so a confined tab looks names up
+      // itself: a public name that resolves to a private address is still refused here.
+      if (!refused && tab.localPorts() !== 'all' && tab.proxyOpen() && /^(https?|wss?):$/.test(url.protocol))
+        await reachableAddresses(url.hostname, urlPort(url), tab.localPorts).catch((err: unknown) => {
+          if (err instanceof UnreachableError) refused = err
+        })
     } catch {
       refused = undefined
     }
@@ -517,6 +560,31 @@ async function adopt(tab: Tab, page: Page): Promise<void> {
       .catch(() => {})
   }
   tab.pages.push(page)
+}
+
+/** Answers a request for one of the colony's published files; `/` is index.html, as a web server would. */
+async function serveArtifact(source: ArtifactSource, url: URL, r: HTTPRequest): Promise<void> {
+  try {
+    const name = decodeURIComponent(url.pathname.slice(1)) || 'index.html'
+    const file = await source.file(name.endsWith('/') ? `${name}index.html` : name)
+    if (!file) {
+      await r.respond({
+        status: 404,
+        contentType: 'text/plain; charset=utf-8',
+        body: `no published file ${name}`,
+      })
+      return
+    }
+    const text = file.mediaType.startsWith('text/') || /json|xml|javascript/.test(file.mediaType)
+    await r.respond({
+      status: 200,
+      contentType: text ? `${file.mediaType}; charset=utf-8` : file.mediaType,
+      headers: { 'cache-control': 'no-store' },
+      body: Buffer.from(file.body),
+    })
+  } catch {
+    await r.abort('failed').catch(() => {})
+  }
 }
 
 /** Makes another of the agent's pages the active one; the live view follows. */
@@ -640,7 +708,8 @@ const REFUSED_HEADER = 'x-myrmidon-refused'
  * refused it or a redirect from it (the proxy and the tab's own check refuse quietly, as a network error).
  */
 export async function navigate(tab: Tab, page: Page, url: string): Promise<void> {
-  if (/^https?:/i.test(url)) await assertReachableUrl(url, tab.localPorts)
+  const own = tab.artifacts && url.startsWith(`${tab.artifacts.origin}/`)
+  if (/^https?:/i.test(url) && !own) await assertReachableUrl(url, tab.localPorts)
   const since = Date.now()
   let response: HTTPResponse | null
   try {

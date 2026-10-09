@@ -163,3 +163,32 @@ test('the files a round changed are the ones whose edit went through, newest fir
     ]),
   ).toEqual(['calc.py', 'README.md'])
 })
+
+test("a step on the person's Mac shows in the chat with its screenshot, and a blocked one says what to set up", () => {
+  const frame = {
+    ...ev('computer/keyframe', {
+      agent: 'nova',
+      blob: 'abc123',
+      app: 'Notes',
+      title: 'Groceries',
+      action: 'left_click',
+      point: { x: 10, y: 20 },
+      width: 1356,
+      height: 848,
+    }),
+    colonyId: 'colony-1',
+  } as MyrEvent
+  const blocked = ev('computer/blocked', { agent: 'nova', reason: 'grants', missing: ['accessibility'] })
+  const [step, setup] = deriveSteps([frame, blocked])
+  expect(step).toMatchObject({
+    kind: 'computer',
+    agent: 'nova',
+    lead: copy.steps.onMac('Notes'),
+    strong: 'left click',
+    shot: { colony: 'colony-1', blob: 'abc123' },
+  })
+  expect(setup).toMatchObject({
+    kind: 'computerSetup',
+    tail: copy.computerUse.blocked.grants('Accessibility'),
+  })
+})

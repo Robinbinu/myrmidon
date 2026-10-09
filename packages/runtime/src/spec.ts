@@ -78,6 +78,21 @@ export interface ColonySpec {
    * was started by someone other than the person (a channel member), who must not borrow the person's permissions.
    */
   askAll?: boolean
+  /**
+   * Full access: commands run without the OS sandbox, file tools reach any path, and the web and browser any address.
+   * Approvals still apply. It never holds while `askAll` does, nor in a read-only project (see `fullAccessIn`).
+   */
+  fullAccess?: boolean
+  /**
+   * Folders the person lets sandboxed agents read beyond the defaults, from Settings and the project (absolute; the
+   * chat's own grants are in its state). Never set while `askAll` holds, and ignored from the moment it does.
+   */
+  reads?: string[]
+  /**
+   * Computer use: agents may see and control the person's Mac, one app at a time once the person approves it. Set by
+   * the chat when Settings → Computer use is on; never while `askAll` holds (see ColonyRun.computer).
+   */
+  computerUse?: boolean
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */
