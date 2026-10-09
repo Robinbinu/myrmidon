@@ -50,6 +50,8 @@ import { usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
+import type { CatalogTool } from './permissions/describe.ts'
+import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
 import {
   cronToRule,
@@ -153,9 +155,8 @@ export interface ServerSettings {
     costUsd: number
     tokens: number
   }
-  tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
-  /** `enabled: false` gives the person's chats full access; absent from older servers. */
-  sandbox?: { enabled: boolean; read?: string[]; readHome?: boolean }
+  /** Folders sandboxed agents may also read, in every chat. Full access is the global preset. */
+  sandbox?: { read?: string[]; readHome?: boolean }
   /** Computer use (agents on the person's Mac); absent from older servers. */
   computerUse?: { enabled: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
@@ -163,8 +164,8 @@ export interface ServerSettings {
   observer: { intervalSeconds: number }
   search: { provider: string }
   models: { hidden: string[]; hiddenProviders: string[]; windows?: Record<string, number> }
-  /** Per-tool rules: `allow`, `ask` before every call, or `off`; unlisted tools keep their default. */
-  permissions: Record<string, 'allow' | 'ask' | 'off'>
+  /** The global level of the permission model: the default preset, rules, who can use what. */
+  permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
   mascot?: MascotLook
   voice: {
@@ -199,7 +200,9 @@ export interface SettingsResponse {
   account?: string
   agentDir?: string
   ompSetup: boolean
-  toolCatalog: { name: string; description: string; mcp?: boolean; readOnly?: boolean }[]
+  toolCatalog: CatalogTool[]
+  /** MCP servers rules can name; absent from older servers. */
+  mcpServers?: string[]
 }
 
 export type Section =
@@ -214,6 +217,7 @@ export type Section =
   | 'models'
   | 'team'
   | 'tools'
+  | 'permissions'
   | 'skills'
   | 'plugins'
   | 'hooks'
@@ -242,6 +246,13 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
       label: copy.settings.sections.team.label,
       hint: copy.settings.sections.team.hint,
       icon: FEATURE_ICONS.crew,
+    },
+    {
+      id: 'permissions',
+      group: 'setup',
+      label: copy.settings.sections.permissions.label,
+      hint: copy.settings.sections.permissions.hint,
+      icon: FEATURE_ICONS.permissions,
     },
     {
       id: 'verification',
@@ -692,7 +703,19 @@ export function Settings(props: {
                   setEnabled={(enabled) => update((s) => ({ ...s, computerUse: { enabled } }), true)}
                 />
               )}
-              {section === 'tools' && data && <ToolsSection data={data} update={update} />}
+              {section === 'tools' && data && (
+                <ToolsSection data={data} update={update} onPermissions={() => setSection('permissions')} />
+              )}
+              {section === 'permissions' && data && (
+                <PermissionsPage
+                  permissions={data.settings.permissions}
+                  onChange={(permissions, immediate) => update((s) => ({ ...s, permissions }), immediate)}
+                  tools={data.toolCatalog}
+                  servers={data.mcpServers ?? []}
+                  sandbox={data.sandbox}
+                  reads={<SandboxReads data={data} update={update} />}
+                />
+              )}
               {section === 'verification' && data && (
                 <VerificationSection settings={data.settings} update={update} />
               )}
@@ -2133,119 +2156,6 @@ export function NumberField(props: {
   )
 }
 
-export const TOOL_INFO: {
-  key: keyof ServerSettings['tools']
-  label: string
-  hint: string
-  icon: LucideIcon
-}[] = [
-  {
-    key: 'shell',
-    label: copy.settings.tools.groups.shell.label,
-    hint: copy.settings.tools.groups.shell.hint,
-    icon: FEATURE_ICONS.agentShell,
-  },
-  {
-    key: 'web',
-    label: copy.settings.tools.groups.web.label,
-    hint: copy.settings.tools.groups.web.hint,
-    icon: FEATURE_ICONS.web,
-  },
-  {
-    key: 'files',
-    label: copy.settings.tools.groups.files.label,
-    hint: copy.settings.tools.groups.files.hint,
-    icon: FEATURE_ICONS.scratchFiles,
-  },
-  {
-    key: 'messaging',
-    label: copy.settings.tools.groups.messaging.label,
-    hint: copy.settings.tools.groups.messaging.hint,
-    icon: FEATURE_ICONS.mail,
-  },
-  {
-    key: 'mcp',
-    label: copy.settings.tools.groups.mcp.label,
-    hint: copy.settings.tools.groups.mcp.hint,
-    icon: FEATURE_ICONS.mcp,
-  },
-]
-
-/** Per-tool rules on top of the groups: ask before each call, or turn a single tool off. */
-function ToolRules(props: {
-  data: SettingsResponse
-  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
-}) {
-  const [query, setQuery] = useState('')
-  const rules = props.data.settings.permissions ?? {}
-  const q = query.trim().toLowerCase()
-  const tools = props.data.toolCatalog
-    .filter((t) => !q || t.name.includes(q) || t.description.toLowerCase().includes(q))
-    // Tools with a rule first, so what you set is easy to find again.
-    .sort((a, b) => Number(!!rules[b.name]) - Number(!!rules[a.name]) || a.name.localeCompare(b.name))
-  // Built-in tools are allowed unless a rule says otherwise; MCP tools have a default of their own (read-only ones
-  // run, others ask), so allowing one is a rule worth keeping.
-  const set = (name: string, rule: string, mcp: boolean) =>
-    props.update((s) => {
-      const next = { ...(s.permissions ?? {}) }
-      if (rule === 'ask' || rule === 'off' || (rule === 'allow' && mcp)) next[name] = rule
-      else delete next[name]
-      return { ...s, permissions: next }
-    }, true)
-  return (
-    <>
-      <SectionHeader
-        className="mb-2 mt-8"
-        icon={<FEATURE_ICONS.toolRules className="size-4 text-muted" />}
-        title={copy.settings.tools.rulesTitle}
-        note={copy.settings.tools.rulesSubtitle}
-      />
-      <Card>
-        <CardRow>
-          <TextInput
-            aria-label={copy.settings.tools.findTool}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={copy.settings.tools.findToolPlaceholder}
-          />
-        </CardRow>
-        <div className="max-h-80 overflow-y-auto">
-          {tools.map((t) => (
-            <CardRow key={t.name}>
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="font-mono text-callout font-medium">{t.name}</div>
-                  <div className="truncate text-small text-muted" title={t.description}>
-                    {t.description}
-                  </div>
-                </div>
-                <Select
-                  aria-label={copy.settings.tools.ruleFor(t.name)}
-                  value={rules[t.name] ?? (t.mcp ? 'default' : 'allow')}
-                  onChange={(e) => set(t.name, e.target.value, !!t.mcp)}
-                >
-                  {t.mcp && (
-                    <option value="default">
-                      {t.name === 'mcp'
-                        ? copy.settings.tools.mcpDefault
-                        : t.readOnly
-                          ? copy.settings.tools.readOnlyDefault
-                          : copy.settings.tools.changesDefault}
-                    </option>
-                  )}
-                  <option value="allow">{copy.settings.tools.allow}</option>
-                  <option value="ask">{copy.settings.tools.askFirst}</option>
-                  <option value="off">{copy.settings.shared.off}</option>
-                </Select>
-              </div>
-            </CardRow>
-          ))}
-        </div>
-      </Card>
-    </>
-  )
-}
-
 /** Whether a folder the person typed is, or lies inside, one of the guarded paths (their keys, Myrmidon's data). */
 function opensGuarded(folder: string, guarded: readonly string[]): boolean {
   const f = folder.trim().replace(/\/+$/, '')
@@ -2258,7 +2168,7 @@ function SandboxReads(props: {
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
   const t = copy.settings.tools.reads
-  const sandbox = props.data.settings.sandbox ?? { enabled: true }
+  const sandbox = props.data.settings.sandbox ?? {}
   const [text, setText] = useState((sandbox.read ?? []).join('\n'))
   const folders = text
     .split('\n')
@@ -2283,9 +2193,7 @@ function SandboxReads(props: {
             <Switch
               checked={!!sandbox.readHome}
               label={t.home}
-              onChange={(v) =>
-                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, readHome: v } }), true)
-              }
+              onChange={(v) => props.update((s) => ({ ...s, sandbox: { ...s.sandbox, readHome: v } }), true)}
             />
           </div>
         </CardRow>
@@ -2300,7 +2208,7 @@ function SandboxReads(props: {
                   .split('\n')
                   .map((f) => f.trim())
                   .filter(Boolean)
-                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, read } }))
+                props.update((s) => ({ ...s, sandbox: { ...s.sandbox, read } }))
               }}
               rows={3}
               placeholder={t.foldersPlaceholder}
@@ -2317,78 +2225,18 @@ function SandboxReads(props: {
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+  onPermissions(): void
 }) {
-  const on = props.data.settings.sandbox?.enabled !== false
-  const sandboxed = on && props.data.sandbox !== 'none'
-  const setSandbox = (enabled: boolean) =>
-    props.update((s) => ({ ...s, sandbox: { ...s.sandbox, enabled } }), true)
-  const Icon = on ? FEATURE_ICONS.sandbox : FEATURE_ICONS.fullAccess
   return (
     <>
       <PageHeader title={copy.settings.tools.title}>{copy.settings.tools.intro}</PageHeader>
-      <div
-        className={cn(
-          'mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-body',
-          sandboxed ? 'border-ok/25 bg-ok-soft' : 'border-warn/25 bg-warn-soft',
-        )}
-      >
-        <Icon className={cn('mt-0.5 size-4 shrink-0', sandboxed ? 'text-ok-ink' : 'text-warn-ink')} />
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold">
-            {!on
-              ? copy.settings.tools.sandboxOffTitle
-              : sandboxed
-                ? copy.settings.tools.sandboxActive(props.data.sandbox)
-                : copy.settings.tools.noSandbox}
-          </div>
-          <div className="text-fg-2">
-            {!on
-              ? copy.settings.tools.sandboxOffHint
-              : sandboxed
-                ? copy.settings.tools.sandboxedHint
-                : copy.settings.tools.unsandboxedHint}
-          </div>
-          {props.data.settings.sandbox && (
-            <div className="mt-2 flex justify-end">
-              {on ? (
-                <ConfirmButton
-                  label={copy.settings.tools.turnOff}
-                  name={copy.settings.tools.turnOffName}
-                  confirm={copy.settings.tools.confirmOff}
-                  warning={copy.fullAccess.warning}
-                  onConfirm={() => setSandbox(false)}
-                />
-              ) : (
-                <Button size="sm" variant="push" onClick={() => setSandbox(true)}>
-                  {copy.settings.tools.turnOn}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      {on && props.data.settings.sandbox && <SandboxReads data={props.data} update={props.update} />}
-      <Card>
-        {TOOL_INFO.map((t) => (
-          <CardRow key={t.key}>
-            <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-fill text-fg-2">
-                <t.icon className="size-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-reading font-medium">{t.label}</div>
-                <div className="text-callout text-muted">{t.hint}</div>
-              </div>
-              <Switch
-                checked={props.data.settings.tools[t.key]}
-                label={t.label}
-                onChange={(v) => props.update((s) => ({ ...s, tools: { ...s.tools, [t.key]: v } }), true)}
-              />
-            </div>
-          </CardRow>
-        ))}
-      </Card>
-      <ToolRules data={props.data} update={props.update} />
+      <Banner tone="info" className="mb-6 flex items-center gap-3">
+        <FEATURE_ICONS.permissions className="size-4 shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0 flex-1">{copy.permissions.page.movedFromTools}</span>
+        <Button size="sm" onClick={props.onPermissions}>
+          {copy.permissions.page.openPermissions}
+        </Button>
+      </Banner>
       <McpServers />
       <SectionHeader
         className="mb-2 mt-8"

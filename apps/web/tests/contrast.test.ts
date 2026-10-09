@@ -75,3 +75,19 @@ test('text on an agent colour takes whichever ink has more contrast', async () =
   expect(inkOn('#1d4ed8')).toBe('var(--on-deep)')
   expect(inkOn('#ffb31a')).toBe('var(--on-bright)')
 })
+
+describe('the selected segment stands out from its track, and its label reads on it', async () => {
+  const all = await themes()
+  for (const [theme, tokens] of Object.entries(all)) {
+    // Light mode also has the thumb's shadow; dark has only the colour difference, so it must carry it.
+    test(`${theme}: thumb on fill-strong`, () => {
+      expect(tokens.thumb && tokens['fill-strong']).toBeTruthy()
+      expect(contrast(tokens.thumb as string, tokens['fill-strong'] as string)).toBeGreaterThanOrEqual(
+        theme === 'dark' ? 1.8 : 1.2,
+      )
+    })
+    test(`${theme}: label on thumb`, () => {
+      expect(contrast(tokens.label as string, tokens.thumb as string)).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+})

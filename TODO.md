@@ -784,6 +784,22 @@ stay small so they merge cleanly into either.
       say what is true (and see [decide]).
 - [ ] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
 
+### H — Segmented controls (the person's screenshot)
+- [x] Dark mode: the selected segment was invisible (thumb #232328 on track #222228); labels wrapped and overlapped
+      beside a long hint (Settings → You & mascot). A `--thumb` token (dark #4a4a52) and no-shrink, no-wrap segments;
+      a contrast test keeps the thumb apart from its track.
+
+### I — Permission model (merge 98cfc6a), from hands-on testing; the code review adds to this
+- [ ] An approval card's "More ways to allow → Everywhere" turns one approval into a rule for every chat in one click,
+      with no confirmation (Full access as the default does confirm).
+- [ ] Card copy: "Ask for this project asks before this." reads badly; the chat scope says "This chat — Until you
+      remove it" (a chat-scoped choice reads as forever).
+- [ ] Permissions → Who can use what: Computer use switches show on while computer use itself is off in Settings.
+- [ ] Permissions → Check a tool lists raw tool ids (request_final_verification, mcp__stagehand_…): show names people
+      know, grouped.
+- [ ] Label-in-name (WCAG 2.5.3): a button on the approval card, and the composer's "Send now" whose name is
+      "Delivery: steer. Switch to queue".
+
 ### [decide]
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
