@@ -2135,6 +2135,45 @@ test.skipIf(detectSandbox().kind === 'none')(
 )
 
 test.skipIf(detectSandbox().kind === 'none')(
+  'run_checks runs commands, so it asks under Ask like shell, and runs nothing the person declines',
+  async () => {
+    const { ProjectStore } = await import('../src/projects.ts')
+    const folder = mkdtempSync(join(tmpdir(), 'myr-checks-ask-'))
+    await Bun.write(
+      join(folder, 'package.json'),
+      JSON.stringify({ scripts: { test: 'touch ran.txt', lint: 'echo lint ok' } }),
+    )
+    await Bun.write(join(folder, 'bun.lock'), '')
+    const projects = new ProjectStore(home)
+    const project = projects.setPermissions(projects.add(folder).id, { preset: 'ask', rules: [] })
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/checker', [
+      [tool('run_checks', {})],
+      [tool('reply_user', { text: 'Not run.', final: true })],
+    ])
+    judge(resolver)
+    const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+    const { colonyId } = await chats.send(
+      'Check the project',
+      { ...solo('mock/checker'), judgeModel: 'mock/judge' },
+      undefined,
+      { project: project.id },
+    )
+    const waiting = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+    const card = Object.values(waiting.approvals).find((a) => !a.decided)
+    expect(card).toMatchObject({ tool: 'run_checks', summary: 'bun run lint && bun run test' })
+    await chats.decideApproval(colonyId, card?.id ?? '', false)
+    await waitFor(colonyId)
+    const result = (await events(colonyId))
+      .filter((e) => e.type === 'tool/result')
+      .map((e) => e.payload as EventPayloads['tool/result'])[0]
+    expect(result?.ok).toBe(false)
+    expect(existsSync(join(folder, 'ran.txt'))).toBe(false)
+    rmSync(folder, { recursive: true, force: true })
+  },
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
   'in a project the judge reads the diff, runs the checks, and returns graded findings',
   async () => {
     const { ProjectStore } = await import('../src/projects.ts')
