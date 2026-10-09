@@ -55,6 +55,11 @@ export const TOOLBAR_FOLD_SLACK_PX = 24
  * it opens only when asked for, never by itself because a chat has files.
  */
 export const WORKSPACE_DOCK_PX = 1280
+/**
+ * How long the Browser view waits after the panel stops changing size before the page is laid out again at the new
+ * size: each relayout restarts the page's stream, so dragging the divider should not cause dozens.
+ */
+export const BROWSER_RESIZE_MS = 150
 
 /* ------------------------------------------------------------------ command menu */
 

@@ -169,6 +169,11 @@ export class PersonBrowser {
     return this.options.maxTabs ?? PERSON_BROWSER_MAX_TABS
   }
 
+  /** The largest HTML file `open` takes, so the page can say so before sending a larger one. */
+  get maxHtmlBytes(): number {
+    return PERSON_BROWSER_HTML_MAX_BYTES
+  }
+
   updateSettings(patch: Partial<PersonBrowserSettings>): PersonBrowserSettings {
     const allowedSites = patch.allowedSites
       ? [...new Set(patch.allowedSites.flatMap((s) => allowedSite(s) ?? []))]

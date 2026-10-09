@@ -24,7 +24,15 @@ window.addEventListener('hashchange', () => {
   if (location.hash.includes('token=')) location.reload()
 })
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    /** The server's whole answer, for callers that act on more than its words (a refusal's code, say). */
+    readonly body?: Readonly<Record<string, unknown>>,
+  ) {
+    super(message)
+  }
+}
 
 /** Sent when the server stops or starts answering; `reachable()` says which. */
 export const CONNECTION_CHANGED = 'myr-connection-changed'
@@ -83,11 +91,11 @@ async function call(path: string, init?: RequestInit): Promise<Response> {
  * server's technical answers (a crash, a malformed body, a runtime it was started without) get plain words; the
  * original goes to the console.
  */
-function failure(status: number, error?: string): ApiError {
+function failure(status: number, error?: string, body?: Record<string, unknown>): ApiError {
   if (status === 401) return new ApiError(remoteGateway ? copy.auth.pairAgain : copy.auth.notAuthorized)
   const plain = plainError(status, error)
   if (error && plain !== error) console.warn(`request failed (${status}): ${error}`)
-  return new ApiError(plain)
+  return new ApiError(plain, body)
 }
 
 function plainError(status: number, error?: string): string {
@@ -233,6 +241,14 @@ export function browserSocket(colony: string, agent: string): WebSocket {
   )
 }
 
+/** One of the person's own tabs (the Browser view): its frames and the tab list down, input up. */
+export function personBrowserSocket(tab: string): WebSocket {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  return new WebSocket(
+    `${proto}://${location.host}${base}/api/browser/tabs/${encodeURIComponent(tab)}/live${token ? `?token=${encodeURIComponent(token)}` : ''}`,
+  )
+}
+
 /** The person's own login shell, in a project folder (or home); output arrives as binary frames. */
 export function terminalSocket(project: string | undefined, cols: number, rows: number): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -338,7 +354,7 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw failure(res.status, data.error)
+  if (!res.ok) throw failure(res.status, data.error, data)
   return data as T
 }
 
@@ -375,7 +391,7 @@ export async function hubSend<T>(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const data = (await res.json().catch(() => ({}))) as { error?: string }
-  if (!res.ok) throw failure(res.status, data.error)
+  if (!res.ok) throw failure(res.status, data.error, data)
   return data as T
 }
 
