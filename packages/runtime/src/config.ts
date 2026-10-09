@@ -181,7 +181,7 @@ export const SANDBOX_TOOLCHAINS = [
 /**
  * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
  * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project or a chat can
- * never grant them; only naming one exactly in Settings → Tools opens it. Myrmidon's own data folder, which holds
+ * never grant them; only naming one exactly in Settings → Permissions opens it. Myrmidon's own data folder, which holds
  * every chat, is treated the same way except for the chat's own folder.
  */
 export const SANDBOX_SECRETS = [

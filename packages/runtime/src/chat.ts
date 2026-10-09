@@ -143,6 +143,8 @@ export interface SendOptions {
    * something outside it, whatever the person allowed (`ColonySpec.askAll`).
    */
   readonly askAll?: boolean
+  /** A new chat's own permission level (its preset, rules), chosen before its first message. */
+  readonly permissions?: unknown
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -618,7 +620,10 @@ export class ChatService {
         })
       : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
-    spec.permissions = this._levels(project, latest?.state)
+    const own = !latest && options.permissions !== undefined ? normalizeLevel(options.permissions) : undefined
+    spec.permissions = own
+      ? { ...this._levels(project, undefined), chat: own }
+      : this._levels(project, latest?.state)
     if (this._fullAccess(spec.permissions, spec.askAll)) spec.fullAccess = true
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
@@ -646,6 +651,8 @@ export class ChatService {
     })
     // The opening message is logged before any agent works, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
+      if (own)
+        await run.append({ type: 'chat/permissions', actor: { kind: 'user', id: 'user' }, payload: own })
       await this._checkpoint(run.id, project, 'start', `before: ${message}`, spec.chat?.round)
       const escalated = latest?.round.escalated
       if (escalated)
@@ -869,32 +876,34 @@ export class ChatService {
   }
 
   /**
-   * Remembers a rule at one level, as an approval card's "for this chat / project / everywhere" does: the chat's
-   * level, the chat's project's, or the global one. Saving it applies it to running rounds, where calls still waiting
-   * that it covers are decided at once.
+   * Remembers rules at one level, as an approval card's "for this chat / project / everywhere" does (a compound
+   * command remembers each of its parts' prefixes, as Claude Code does): the chat's level, the chat's project's, or
+   * the global one. Saving them applies them to running rounds, where calls still waiting that they cover are decided
+   * at once.
    */
-  async remember(colonyId: string, scope: PermissionScope, rule: PermissionRule): Promise<void> {
-    const saved = normalizeLevel({ rules: [rule] }).rules[0]
-    if (!saved) throw new Error('that rule is not valid')
+  async remember(colonyId: string, scope: PermissionScope, rules: readonly PermissionRule[]): Promise<void> {
+    const saved = normalizeLevel({ rules }).rules
+    if (!saved.length || saved.length !== rules.length) throw new Error('those rules are not valid')
+    const add = (level: PermissionLevel) => saved.reduce(withRule, level)
     const run = [...this._live.values()].find((r) => r.id === colonyId)
     const state = run?.state() ?? foldColony(colonyId as ColonyId, await this.store.read(colonyId as never))
     const chatId = state.chat?.chatId
     if (scope === 'chat') {
       if (!chatId) throw new Error('that round is not in a chat')
-      const now = (await this.chatPermissions(chatId)) ?? { rules: [] }
-      await this.setChatPermissions(chatId, withRule(now, saved))
+      await this.setChatPermissions(chatId, add((await this.chatPermissions(chatId)) ?? { rules: [] }))
       return
     }
     if (scope === 'project') {
       const id = state.chat?.project?.id
       const project = id ? this.options.projects?.get(id) : undefined
       if (!project || !this.options.projects) throw new Error('this chat has no project')
-      this.options.projects.setPermissions(project.id, withRule(project.permissions, saved))
+      // The project's readable folders ride along in its permissions, untouched.
+      this.options.projects.setPermissions(project.id, add(project.permissions))
     } else {
       const settings = this.options.settings
       if (!settings) throw new Error('settings need the chat runtime')
       const now = settings.get()
-      settings.set({ ...now, permissions: withRule(now.permissions, saved) })
+      settings.set({ ...now, permissions: add(now.permissions) })
     }
     await this.permissionsChanged()
   }
@@ -911,7 +920,7 @@ export class ChatService {
     const colonyDir = (this.runtime.ctx.logStore as SqliteLogStore).colonyDir(latest.id as never)
     if (allowed && secretAt(path, { dataDir: this.runtime.home, colonyDir }))
       throw new Error(
-        `${folder} holds keys, sign-ins or other chats: only naming it in Settings → Tools opens it`,
+        `${folder} holds keys, sign-ins or other chats: only naming it in Settings → Permissions opens it`,
       )
     const live = this._live.get(chatId)
     const here = live?.id === latest.id ? live : undefined

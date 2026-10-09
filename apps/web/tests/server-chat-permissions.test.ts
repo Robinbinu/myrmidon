@@ -72,9 +72,14 @@ test('an approval can be remembered: the call is decided, then the rule saved at
   expect((await post({ approved: true, remember: { scope: 'project', rule } })).status).toBe(200)
   expect((await post({ approved: true, remember: { scope: 'galaxy', rule } })).status).toBe(400)
   expect((await post({ approved: true, remember: { scope: 'chat', rule: { kind: 'x' } } })).status).toBe(400)
+  // A compound command's parts are remembered together.
+  const parts = [rule, { kind: 'command', target: 'git status', decision: 'allow' }]
+  expect((await post({ approved: true, remember: { scope: 'chat', rules: parts } })).status).toBe(200)
   expect(calls).toEqual([
     ['decide', 'col-1', 'ap-1', true, {}],
-    ['remember', 'col-1', 'project', rule],
+    ['remember', 'col-1', 'project', [rule]],
+    ['decide', 'col-1', 'ap-1', true, {}],
+    ['remember', 'col-1', 'chat', parts],
   ])
 })
 

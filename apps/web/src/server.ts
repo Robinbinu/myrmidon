@@ -304,6 +304,8 @@ const sendSchema = Schema.object({
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
+  // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
+  permissions: Schema.any(),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -491,7 +493,7 @@ export function startServer(options: ServeOptions): WebServer {
           const request = state.approvals[approvalId]
           const offer =
             request?.offer?.[0] ?? (request ? { kind: 'tool' as const, target: request.tool } : undefined)
-          if (offer) await chats.remember(colonyId, 'global', { ...offer, decision: 'allow' })
+          if (offer) await chats.remember(colonyId, 'global', [{ ...offer, decision: 'allow' }])
         },
         artifact: async (colonyId, name) => {
           const found = await latestArtifact(colonyId, name)
@@ -1369,6 +1371,7 @@ export function startServer(options: ServeOptions): WebServer {
               ...TOOL_DEFS.map((d) => ({
                 name: d.name,
                 description: d.description.split(/(?<=\.)\s/)[0] ?? '',
+                tier: d.tier,
               })),
               { name: 'mcp', description: 'Every tool of the connected MCP servers.', mcp: true },
               ...(options.mcp?.toolList() ?? []).map((t) => ({
@@ -1903,7 +1906,7 @@ export function startServer(options: ServeOptions): WebServer {
             approved?: unknown
             edits?: unknown
             note?: unknown
-            remember?: { scope?: unknown; rule?: unknown }
+            remember?: { scope?: unknown; rule?: unknown; rules?: unknown }
           }
           const { approved, edits, note, remember } = body
           // "For this chat / project / everywhere": this call is decided, then the rule saved, which decides every
@@ -1911,11 +1914,18 @@ export function startServer(options: ServeOptions): WebServer {
           const scope = remember?.scope
           if (remember !== undefined && scope !== 'chat' && scope !== 'project' && scope !== 'global')
             return json({ error: 'remember.scope is chat, project or global' }, 400)
-          const rule = remember ? normalizeLevel({ rules: [remember.rule] }).rules[0] : undefined
-          if (remember && !rule) return json({ error: 'remember.rule is not a valid rule' }, 400)
+          // One rule, or a compound command's parts (at most a handful, as Claude Code saves).
+          const given = remember
+            ? Array.isArray(remember.rules)
+              ? (remember.rules as unknown[]).slice(0, 5)
+              : [remember.rule]
+            : []
+          const rules = normalizeLevel({ rules: given }).rules
+          if (remember && (!rules.length || rules.length !== given.length))
+            return json({ error: 'remember.rule is not a valid rule' }, 400)
           // A chats-only device may remember an answer for the chat, as it may approve the step; wider levels are
           // Settings and a project's permissions, which need full access.
-          if (rule && scope !== 'chat' && access.scope !== 'full') return forbidden()
+          if (rules.length && scope !== 'chat' && access.scope !== 'full') return forbidden()
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
           // The person may rewrite a review's text fields before approving; only strings, by field key.
           const fields =
@@ -1930,7 +1940,8 @@ export function startServer(options: ServeOptions): WebServer {
               ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
               ...(typeof note === 'string' && note.trim() ? { note } : {}),
             })
-            if (rule) await options.chats.remember(req.params.id ?? '', scope as PermissionScope, rule)
+            if (rules.length)
+              await options.chats.remember(req.params.id ?? '', scope as PermissionScope, rules)
             return json({ ok: true })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)
@@ -2143,7 +2154,7 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           let body: ReturnType<typeof sendSchema>
           try {
@@ -2174,6 +2185,12 @@ export function startServer(options: ServeOptions): WebServer {
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
               ...(calls ? { context: calls.context } : {}),
+              // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
+              ...(body.permissions !== undefined && !body.chatId
+                ? access.scope === 'full'
+                  ? { permissions: body.permissions }
+                  : {}
+                : {}),
             })
             calls?.tell()
             return json(sent)

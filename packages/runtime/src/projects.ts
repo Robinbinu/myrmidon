@@ -100,7 +100,7 @@ export class ProjectStore {
     for (const folder of read)
       if (secretAt(readFolder(folder), { dataDir: this._home }))
         throw new Error(
-          `${folder} holds keys, sign-ins or other chats: a project cannot open it, only naming it in Settings → Tools can`,
+          `${folder} holds keys, sign-ins or other chats: a project cannot open it, only naming it in Settings → Permissions can`,
         )
     const list = this.list()
     const project = list.find((p) => p.id === id)

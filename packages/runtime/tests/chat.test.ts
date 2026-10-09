@@ -2297,7 +2297,7 @@ test('allowing all file changes for a chat approves the waiting one and later on
   expect(waiting[0]?.why).toEqual({ by: 'preset', scope: 'project', preset: 'ask' })
   // One click: the waiting write goes ahead, and so does the next without a card.
   const allowEdits = { kind: 'edit', target: '*', decision: 'allow' } as const
-  await chats.remember(a.colonyId, 'chat', allowEdits)
+  await chats.remember(a.colonyId, 'chat', [allowEdits])
   expect(await chats.chatPermissions(a.chatId)).toEqual({ rules: [allowEdits] })
   const done = await waitFor(a.colonyId)
   expect(done.status).toBe('completed')
@@ -2351,6 +2351,30 @@ test('allowing all file changes for a chat approves the waiting one and later on
   expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
   await again.stopAll()
   rmSync(folder, { recursive: true, force: true })
+})
+
+test('a new chat can start on its own preset, chosen before its first message', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/own', [
+    [tool('shell', { command: 'bun test' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send(
+    'Run the tests',
+    { ...solo('mock/own'), judgeModel: 'mock/judge' },
+    undefined,
+    { permissions: { preset: 'ask', rules: [] } },
+  )
+  // Ask: a command that does more than look waits, where Auto (the default) would have run it.
+  const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const waiting = Object.values(s.approvals).find((a) => !a.decided)
+  expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
+  expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
+  await chats.decideApproval(colonyId, waiting?.id ?? '', false)
+  await waitFor(colonyId)
+  await chats.stopAll()
 })
 
 test.skipIf(detectSandbox().kind === 'none')(
