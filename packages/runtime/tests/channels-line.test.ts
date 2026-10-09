@@ -191,8 +191,10 @@ test('events become messages: a direct chat, a group mention, a quote of the bot
 test('replies by the fresh reply token, then by push; quick replies for buttons within LINE limits', async () => {
   const fake = line()
   const adapter = make(fake.base)
-  const { handle } = testIO(HOOK)
+  const { handle, statuses } = testIO(HOOK)
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   await post(adapter, [text('M1', dm, 'hello')])
 
   const buttons = Array.from({ length: 15 }, (_, i) => [
@@ -242,8 +244,10 @@ test('replies by the fresh reply token, then by push; quick replies for buttons 
 test("a press's note is the reply to that press", async () => {
   const fake = line()
   const adapter = make(fake.base)
-  const { handle, received } = testIO(HOOK)
+  const { handle, received, statuses } = testIO(HOOK)
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   await post(adapter, [
     {
       type: 'postback',

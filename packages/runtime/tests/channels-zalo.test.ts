@@ -9,6 +9,7 @@ function zaloApi(handlers: Record<string, (body: Record<string, unknown>, n: num
   const calls: Call[] = []
   const counts = new Map<string, number>()
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
@@ -177,7 +178,7 @@ test('a token refused while polling stops it with the reason; network errors are
   await until(() => statuses.some((s) => s.state === 'error'))
   expect(statuses.at(-1)).toMatchObject({ error: expect.stringContaining('refused this bot token') })
 
-  const down = Bun.serve({ port: 0, fetch: () => new Response('') })
+  const down = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Response('') })
   const url = `http://127.0.0.1:${down.port}`
   down.stop(true)
   const b = new ZaloAdapter(TOKEN, url)

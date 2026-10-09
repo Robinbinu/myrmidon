@@ -733,14 +733,17 @@ test('answers that fail to send are kept and resent when the channel comes back,
   first.chats.emit('col-chat-1', 'chat/reply', { agent: 'lead', text: 'The answer is 42.', final: true })
   first.chats.emit('col-chat-1', 'colony/completed', {})
   await Bun.sleep(80)
-  expect(first.adapter.to('100').some((t) => t.includes('42'))).toBe(false)
+  // The answer's own words: the pairing message's random code may contain "42" too.
+  expect(first.adapter.to('100').some((t) => t.includes('The answer is 42.'))).toBe(false)
   await first.hub.stop()
   hubs.splice(hubs.indexOf(first.hub), 1)
 
   // A restart: the owed answer goes out once the channel is on again.
   const second = await setup({}, first.dir)
   await until(() => second.adapter.to('100').some((t) => t.includes('The answer is 42.')))
-  expect(second.adapter.to('100').find((t) => t.includes('42'))).toStartWith('♻️ Recovered reply')
+  expect(second.adapter.to('100').find((t) => t.includes('The answer is 42.'))).toStartWith(
+    '♻️ Recovered reply',
+  )
 })
 
 test('commands: /new starts a fresh chat, /stop stops the running round, and redeliveries are dropped', async () => {

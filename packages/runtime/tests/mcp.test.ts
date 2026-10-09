@@ -9,6 +9,8 @@ const hubs: McpHub[] = []
 afterEach(async () => {
   for (const h of hubs.splice(0)) await h.close()
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  // Bun runs every test file in one process, so a key set here would reach every later file.
+  delete process.env.FAKE_PROVIDER_API_KEY
 })
 
 const textOf = (r: { content: { type: string; text?: string }[] }) =>

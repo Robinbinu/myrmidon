@@ -18,6 +18,9 @@ type Handler = (call: Call) => Response | unknown | Promise<Response | unknown>
 export function fakeServer(routes: Record<string, Handler>) {
   const calls: Call[] = []
   const server = Bun.serve({
+    // The address the adapters dial. Bound to the default dual-stack wildcard, a fake can be handed a port another
+    // process (a browser, say) holds on 127.0.0.1 alone, and that process answers instead of the fake.
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(req) {
       const url = new URL(req.url)
