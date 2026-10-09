@@ -51,8 +51,12 @@ test("names in Myrmidon's own namespace are refused, so no server hides or stand
   dirs.push(dir)
   const echo = { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] }
   // One written into mcp.json by hand (or imported), and one a plugin adds.
-  writeFileSync(join(dir, 'mcp.json'), JSON.stringify({ mcpServers: { myrmidon_computer: echo } }))
-  const hub = new McpHub(dir, () => ({ 'myrmidon-computer-extra': echo }))
+  // omp folds runs of `_` and trims them at the ends, so these name tools `mcp__myrmidon_…` too.
+  writeFileSync(
+    join(dir, 'mcp.json'),
+    JSON.stringify({ mcpServers: { myrmidon_computer: echo, _myrmidon_computer: echo } }),
+  )
+  const hub = new McpHub(dir, () => ({ 'myrmidon-computer-extra': echo, '-myrmidon-x': echo }))
   hubs.push(hub)
   for (const name of ['myrmidon-computer', 'myrmidon_computer', 'Myrmidon.Computer-2', 'myrmidon'])
     await expect(hub.add(name, echo)).rejects.toThrow(/reserved for Myrmidon/)
@@ -60,7 +64,9 @@ test("names in Myrmidon's own namespace are refused, so no server hides or stand
 
   expect(hub.servers().map((s) => [s.name, s.status, s.error?.includes('reserved for Myrmidon')])).toEqual([
     ['myrmidon_computer', 'error', true],
+    ['_myrmidon_computer', 'error', true],
     ['myrmidon-computer-extra', 'error', true],
+    ['-myrmidon-x', 'error', true],
   ])
   expect(hub.tools()).toHaveLength(0)
   expect(hub.internalTool('myrmidon-computer', 'echo')).toBeDefined()
