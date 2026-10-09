@@ -37,18 +37,20 @@ test('a disabled icon button does not answer the pointer', () => {
   expect(renderToStaticMarkup(<IconButton label="Go" disabled />)).toContain('disabled:pointer-events-none')
 })
 
-test('a dot follows the Codex and Claude Code standard: only work spins, and each state has its own shape', () => {
+test('a dot follows Claude Code: only work spins, yellow fill needs you, green fill is new, grey ring is seen', () => {
   const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el)
   expect(html(<Dot status="running" />)).toContain('animate-spin')
   // With less motion, or where it would never stop, work holds still.
   expect(html(<Dot status="running" />)).toContain('less-motion:hidden')
   expect(html(<Dot status="running" pulse={false} />)).not.toContain('animate-spin')
   expect(html(<Dot status="awaiting" />)).toContain('bg-accent')
-  expect(html(<Dot status="unread" />)).toContain('bg-unread')
+  expect(html(<Dot status="unread" />)).toContain('bg-ok')
   expect(html(<Dot status="failed" />)).toContain('<svg')
   expect(html(<Dot tone="bad" />)).toContain('<svg')
   expect(html(<Dot tone="ok" />)).toContain('bg-ok')
-  expect(html(<Dot status="completed" />)).toContain('border-ok')
+  // Seen, a finished chat is a grey ring like a resting one; yellow and green fills ask for a look.
+  expect(html(<Dot status="completed" />)).toContain('border-muted')
+  expect(html(<Dot status="completed" />)).not.toContain('bg-')
   for (const status of ['awaiting', 'unread', 'completed', 'stopped', 'failed', 'idle', 'pending', 'on'])
     expect(html(<Dot status={status} />)).not.toContain('animate-')
   expect(

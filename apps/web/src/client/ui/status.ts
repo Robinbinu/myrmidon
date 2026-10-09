@@ -19,14 +19,14 @@ export function toneFor(status: string): Tone {
 }
 
 /**
- * How a status dot is drawn, after Codex and Claude Code: only work in progress moves (a spinner); a filled dot is
- * live or asks for something, a hollow ring is finished or resting. Each state differs in shape as well as colour,
- * and its words always sit beside it.
+ * How a status dot is drawn, as Claude Code's sidebar draws them: only work in progress moves (a spinner); a filled
+ * dot wants a look (yellow: the person must act; green: finished and not seen yet), a grey hollow ring has been seen
+ * or is resting. Its words always sit beside it.
  *   spinner  working: running, connecting
- *   alert    needs the person: an answer, an approval (amber, the one colour that asks)
- *   unread   finished while the person was elsewhere, not opened yet (blue)
+ *   alert    needs the person: an answer, an approval (yellow fill)
+ *   unread   finished while the person was elsewhere, not opened yet (green fill)
  *   live     on and healthy: a connection, a ready provider (filled, its tone's colour)
- *   done     finished: completed, verified (hollow ring)
+ *   done     finished and seen: completed, verified (grey hollow ring)
  *   idle     resting, nothing to do (hollow muted ring)
  *   queued   waiting its turn: pending, provisioning (dashed ring)
  *   stopped  stopped by someone (small square)

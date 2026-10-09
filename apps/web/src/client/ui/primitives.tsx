@@ -156,10 +156,10 @@ export function Dot(props: ({ status: string } | { tone: Tone }) & { pulse?: boo
             <span className="hidden size-2 rounded-full bg-fg-2/70 less-motion:inline-flex" />
           </>
         ))}
-      {shape === 'alert' && <span className="size-2 rounded-full bg-accent ring-[3px] ring-accent/30" />}
-      {shape === 'unread' && <span className="size-2 rounded-full bg-unread" />}
+      {shape === 'alert' && <span className="size-2 rounded-full bg-accent" />}
+      {shape === 'unread' && <span className="size-2 rounded-full bg-ok" />}
       {shape === 'live' && <span className={cn('size-2 rounded-full', DOT[tone])} />}
-      {shape === 'done' && <span className="size-2 rounded-full border-[1.5px] border-ok" />}
+      {shape === 'done' && <span className="size-2 rounded-full border-[1.5px] border-muted/60" />}
       {shape === 'idle' && <span className="size-2 rounded-full border-[1.5px] border-muted/60" />}
       {shape === 'queued' && (
         <span className="size-2.5 rounded-full border-[1.5px] border-dashed border-muted/70" />
