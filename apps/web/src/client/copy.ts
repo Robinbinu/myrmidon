@@ -1578,7 +1578,7 @@ export const copy = {
         tool: 'A tool by name.',
         edit: 'Every file change (writes, edits, proposed files).',
         command:
-          'Commands starting with these words; * is every command. Chained commands must match in every part.',
+          'Commands starting with these words; * is every command. Chained commands must match in every part. A deny is best effort: a script or a program that runs commands of its own can still run what it names, so Myrmidon asks when it cannot tell what a command runs.',
         'mcp-server': 'Every tool of one server; * is every MCP tool.',
         'mcp-tool': 'One MCP tool by its full name.',
       },

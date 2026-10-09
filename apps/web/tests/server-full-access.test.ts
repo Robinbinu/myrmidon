@@ -42,6 +42,14 @@ test('a project can be given full access, and the project list says when the san
   }
   expect((await call('PUT', `/api/projects/${project.id}/permissions`, level)).status).toBe(200)
   expect(projects.get(project.id)?.permissions).toEqual(level)
+  // Only a preset: the project's rules and who-can-use-what stay (it is not the old shape, which had a mode).
+  const access = { crew: { web: false } }
+  await call('PUT', `/api/projects/${project.id}/permissions`, { ...level, access })
+  expect((await call('PUT', `/api/projects/${project.id}/permissions`, { preset: 'read-only' })).status).toBe(
+    200,
+  )
+  expect(projects.get(project.id)?.permissions).toEqual({ ...level, preset: 'read-only', access })
+  await call('PUT', `/api/projects/${project.id}/permissions`, level)
   // "Use global": no preset of its own.
   await call('PUT', `/api/projects/${project.id}/permissions`, { preset: null, rules: [] })
   expect(projects.get(project.id)?.permissions).toEqual({ rules: [] })
