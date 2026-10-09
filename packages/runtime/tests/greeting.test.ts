@@ -84,3 +84,28 @@ test("the model's line is checked, written once per change in the facts, and the
   expect(writer.written({ ...base, now: at('2026-10-07T19:31:00') }, 'mock/lead')).toBeDefined()
   expect(calls).toBe(1)
 })
+
+test('a model cut off by the time limit says so, and the rules line stands', async () => {
+  const resolver = new ModelResolver()
+  const mock = createMockModel({ handler: () => ({ content: [] }) })
+  // A reasoning model still thinking when the time limit fires comes back aborted with no text.
+  const aborted = (async () => ({
+    result: async () => ({ stopReason: 'aborted', errorMessage: 'Request was aborted', content: [] }),
+  })) as unknown as typeof mock.stream
+  resolver.register('mock/slow', { model: mock.model, streamFn: aborted })
+  const errors: string[] = []
+  const original = console.error
+  console.error = (...args: unknown[]) => {
+    errors.push(args.join(' '))
+  }
+  try {
+    const writer = new GreetingWriter(resolver)
+    expect(writer.written(base, 'mock/slow')).toBeUndefined()
+    for (let i = 0; i < 50 && !writer.written(base, 'mock/slow'); i++) await Bun.sleep(10)
+    expect(writer.written(base, 'mock/slow')).toEqual(ruleGreeting(base))
+    expect(errors.join('\n')).toContain('did not answer within')
+    expect(errors.join('\n')).not.toContain('no JSON')
+  } finally {
+    console.error = original
+  }
+})

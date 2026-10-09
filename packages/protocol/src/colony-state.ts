@@ -11,7 +11,7 @@ import type {
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
-import { type PermissionLevel, rulesFromGrants } from './permissions.ts'
+import { type PermissionLevel, type RoundAccess, rulesFromGrants } from './permissions.ts'
 
 export interface AgentView {
   info: AgentInfo
@@ -223,6 +223,8 @@ export interface ColonyState {
   computerApps?: ComputerApp[]
   /** The current round runs with full access (no sandbox); absent when it is confined. */
   fullAccess?: boolean
+  /** What the current round's agents were last told they may do; absent in logs from before it was kept. */
+  access?: RoundAccess
   /** The model failure that paused the round, until it resumes. */
   modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
@@ -328,6 +330,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.team = p.team
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
+      if (p.access) state.access = p.access
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
@@ -517,6 +520,12 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['chat/allowed']
       state.chatGrants = [...p.grants]
       if (p.reads) state.chatReads = [...p.reads]
+      // A folder allowed for the chat answers an agent's own request, so it knows; one taken back it is told of later.
+      if (p.reads && state.access)
+        state.access = {
+          ...state.access,
+          reads: [...new Set([...(state.access.reads ?? []), ...p.reads])].sort(),
+        }
       break
     }
     case 'chat/permissions': {
@@ -532,6 +541,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       // A round someone else wrote into is confined from then on, whatever it started with.
       if (p.fullAccess === false || p.askAll) delete state.fullAccess
       else if (p.fullAccess) state.fullAccess = true
+      if (p.access) state.access = p.access
       break
     }
     case 'colony/started': {
@@ -568,6 +578,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
       else delete state.fullAccess
+      if (p.access) state.access = p.access
+      else delete state.access
       state.status = 'created'
       delete state.statusReason
       delete state.endedAt
