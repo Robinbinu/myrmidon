@@ -8,7 +8,7 @@ import {
   SANDBOX_TEMP_READABLE,
 } from './config.ts'
 import { spawnLeashed } from './leashed.ts'
-import { realOrNone, realPath, toolchainPaths } from './read-access.ts'
+import { realOrNone, realPath, toolchainPaths, within } from './read-access.ts'
 import type { ColonySpec } from './spec.ts'
 
 export interface SandboxRun {
@@ -142,10 +142,14 @@ export function macProfile(spec: PathSpec, home: string): string {
   const subpath = (r: PathRule) => `(subpath ${sbplPath(r.path)})`
   const reads = rules.map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-read* ${subpath(r)})`)
   // Connecting to a unix socket is not a file read: a socket in a hidden folder (the Cua Driver's, in the data
-  // folder) would stay reachable without its own rules.
-  const sockets = rules.map(
-    (r) => `(${r.access === 'hide' ? 'deny' : 'allow'} network-outbound (remote unix-socket ${subpath(r)}))`,
-  )
+  // folder) would stay reachable without its own rules. It acts on a service, so like writing it needs a folder the
+  // command may write: a folder it may only read (a key folder the person opened) gives no docker.sock.
+  const sockets = rules
+    .filter((r) => r.access !== 'read')
+    .map(
+      (r) =>
+        `(${r.access === 'hide' ? 'deny' : 'allow'} network-outbound (remote unix-socket ${subpath(r)}))`,
+    )
   // Socket folders made in /tmp after this profile was written (a dev server keeps its profile for hours).
   const tmp = `(regex #"^/private/tmp/${SANDBOX_HIDDEN_TMP}")`
   const temp = SANDBOX_TEMP_READABLE.map((name) => `(regex #"^/private/var/folders/[^/]+/[^/]+/T/${name}")`)
@@ -153,7 +157,16 @@ export function macProfile(spec: PathSpec, home: string): string {
     .filter((r) => r.access !== 'read')
     .map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-write* ${subpath(r)})`)
   const opened = rules.filter((r) => r.access !== 'hide').map((r) => r.path)
-  const above = [...new Set(opened.flatMap(ancestors))].map((d) => `(literal ${sbplPath(d)})`)
+  const parents = [...new Set(opened.flatMap(ancestors))]
+  const above = parents.map((d) => `(literal ${sbplPath(d)})`)
+  // bun opens the folders above a project to find its root, and fails when it cannot: inside the folders hidden
+  // outside the home (a project in the temp folder), those on the way down may be listed, never their files, unless
+  // something hidden for its own sake (a home, the data folder) holds them.
+  const roots = SANDBOX_HIDDEN_ROOTS.map(realPath)
+  const guarded = rules.filter((r) => r.access === 'hide' && !roots.includes(r.path)).map((r) => r.path)
+  const listed = parents
+    .filter((d) => roots.some((r) => within(d, r)) && !guarded.some((g) => within(d, g)))
+    .map((d) => `(literal ${sbplPath(d)})`)
   return [
     '(version 1)',
     '(allow default)',
@@ -171,6 +184,7 @@ export function macProfile(spec: PathSpec, home: string): string {
     ...writes,
     '(allow file-write* (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/"))',
     ...(above.length ? [`(allow file-read-metadata ${above.join(' ')})`] : []),
+    ...(listed.length ? [`(allow file-read* ${listed.join(' ')})`] : []),
   ].join('\n')
 }
 

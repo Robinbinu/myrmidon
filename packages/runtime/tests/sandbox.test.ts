@@ -155,6 +155,7 @@ test.skipIf(detectSandbox().kind === 'none')(
     // The test's own folder is in the temp folder (macOS) or is a /tmp/myr-* folder (Linux): outside its project.
     writeFileSync(join(root, 'left.txt'), 'left behind')
     writeFileSync(join(other, 'run.txt'), 'another run')
+    writeFileSync(join(project, 'package.json'), JSON.stringify({ scripts: { hi: 'echo hi' } }))
     const run = (command: string) =>
       detectSandbox().run({ command, cwd: project, writable: [project, scratch], timeoutMs: 20_000 })
     try {
@@ -165,6 +166,8 @@ test.skipIf(detectSandbox().kind === 'none')(
       // What toolchains and the command's own temp need still works.
       const commands = [
         `"${process.execPath}" --version`,
+        // bun looks for the project's root in the folders above it.
+        `"${process.execPath}" run --silent hi`,
         'echo x > "$TMPDIR/t" && cat "$TMPDIR/t"',
         ...(Bun.which('bun') ? ['bun --version'] : []),
         ...(Bun.which('python3') ? ['python3 -c 1'] : []),

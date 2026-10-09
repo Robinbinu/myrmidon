@@ -130,11 +130,12 @@ test('the macOS profile hides the home, then opens what may be read, parents fir
   expect(at(`(allow file-write* (subpath "${scratch}"))`)).toBeGreaterThan(at('(deny file-write*)'))
   // Folders above an open one can be looked up, not listed.
   expect(profile).toContain(`(literal "${home}")`)
-  // Sockets follow the same rules as reads: none in the data folder, this chat's own are fine.
+  // Sockets follow the write rules: none in the data folder or a folder only read, the agent's scratch is fine.
   expect(at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`)).toBeGreaterThan(0)
-  expect(at(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)).toBeGreaterThan(
+  expect(at(`(allow network-outbound (remote unix-socket (subpath "${scratch}")))`)).toBeGreaterThan(
     at(`(deny network-outbound (remote unix-socket (subpath "${data}")))`),
   )
+  expect(profile).not.toContain(`(allow network-outbound (remote unix-socket (subpath "${colony}")))`)
   for (const dir of ['/Volumes', '/Users/Shared', '/private/var/folders'])
     expect(profile).toContain(`(deny file-read* (subpath "${dir}"))`)
   expect(profile).toContain('(deny network-outbound (remote unix-socket (regex #"^/private/tmp/myr-")))')
