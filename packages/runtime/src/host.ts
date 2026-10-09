@@ -1,11 +1,12 @@
 import type { BlobStore, EventLog } from '@myrmidon/core'
 import type {
   ActorRef,
-  ChatGrant,
   ColonyId,
   ColonyState,
   EventDraft,
   MyrEvent,
+  PermissionCall,
+  PermissionVerdict,
   Review,
 } from '@myrmidon/protocol'
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
@@ -57,6 +58,11 @@ export interface ColonyHost {
   /** What this round has used so far, against its limits; a chat's colony keeps running totals across rounds. */
   spent(): { cost: number; tokens: number }
   /** An agent's tool batch has finished (all calls in one model response have results). */
+  /**
+   * While a chat winds down after its final answer, each agent has one last word: past that, the reason it may not
+   * message (and its turn ends). Outside wind-down, nothing.
+   */
+  closing?(agent: string): string | undefined
   batchEnded(agent: string): void
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */
   modelFailed(agent: string, model: string, error: ModelError): Promise<void>
@@ -70,6 +76,15 @@ export interface ColonyHost {
   mcpTools(): AgentTool[]
   /** The MCP server marks this tool read-only (it changes nothing), so by default it runs without asking. */
   mcpReadOnly(tool: string): boolean
+  /** The configured MCP server an MCP tool comes from, for rules that name a server. */
+  mcpServer(tool: string): string | undefined
+  /**
+   * What the permission model says about one of this agent's calls (allow, ask, deny, and why), under the round's
+   * levels as they are now.
+   */
+  permit(agent: string, call: PermissionCall): PermissionVerdict
+  /** A tool denied outright to this agent (by name, by its MCP server, or every MCP tool): left out of its tools. */
+  hidden(agent: string, tool: string, server?: string): boolean
   /** Tools of the person's plugins, for one agent; offered, like MCP tools, to agents allowed `mcp`. */
   pluginTools(agent: string): AgentTool[]
   /** Sections the person's plugins add to the system prompt of an agent that leads or one that works. */
@@ -118,14 +133,20 @@ export interface ColonyHost {
   requestApproval(agent: string, tool: string, summary: string): Promise<boolean>
   /**
    * Like requestApproval, with the full change shown for the person to look over and, where a field is editable,
-   * rewrite. `key` is the call's receipt key, so its result is kept once it has run. With `grant`, the step is of a
-   * kind the person may allow for the rest of the chat; once they have, it goes ahead without asking.
+   * rewrite. `key` is the call's receipt key, so its result is kept once it has run. `permission`: the call and the
+   * verdict that asked, so the card can say why and offer to remember the answer, and the request is decided again
+   * when the rules change while it waits.
    */
   reviewChange(
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
+    options: {
+      review?: Review
+      key?: string
+      read?: string
+      permission?: { call: PermissionCall; verdict: PermissionVerdict }
+    },
   ): Promise<ReviewDecision>
   /**
    * A sandboxed agent asks to read a folder outside what it may read: the person allows it once (this round) or for

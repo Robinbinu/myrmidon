@@ -17,7 +17,7 @@ import {
 import { agentActor, type ColonyHost } from '../host.ts'
 import { prompts } from '../prompts.ts'
 import { redactSecrets } from '../secrets.ts'
-import { needsApproval, spotlight } from '../tools.ts'
+import { spotlight } from '../tools.ts'
 import {
   type ComputerProtocol,
   type DesktopAction,
@@ -331,8 +331,11 @@ async function perform(
       t.grants(missing.map((m) => (m === 'screen-recording' ? 'Screen Recording' : 'Accessibility'))),
     )
   }
-  if (needsApproval(host.spec, COMPUTER_TOOL, false))
-    await approveStep(host, agent, actions, t.review.ruleAsk)
+  // Apps are approved one at a time below; the permission model can also ask before every step, or refuse them all.
+  const verdict = host.permit(agent, { tool: COMPUTER_TOOL, kind: 'other', readOnly: false })
+  if (verdict.decision === 'deny')
+    throw new Error(prompts.toolResults.denied('computer use', prompts.permissionSource(verdict.source)))
+  if (verdict.decision === 'ask') await approveStep(host, agent, actions, t.review.ruleAsk)
   if (meta?.pendingSafetyChecks.length) await approveSafety(host, agent, meta)
   await hub.ensure()
   const desk = deskOf(host, agent)

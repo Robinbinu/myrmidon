@@ -1,4 +1,5 @@
-import type { ColonyState } from '@myrmidon/protocol'
+import { ACCESS_GROUPS, type ColonyState, groupsOff, LEAD_WORK_GROUPS, toolHidden } from '@myrmidon/protocol'
+import { levelsOf } from './permissions.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -135,8 +136,8 @@ function baseRoleTools(spec: ColonySpec, agent: AgentSpec): string[] {
         (spec.team?.maxWorkers ?? 0) > spec.agents.length - 1 || spec.team?.specialists?.length
           ? ['add_crewmate']
           : []
-      // A lead that can do the work itself never delegates: in a team it has no web, shell, or file tools.
-      // It plans, assigns, reviews, integrates, and speaks; specialists research and build.
+      // It plans, assigns, reviews, integrates, and speaks. Its own hands (files, shell, web…) are the groups the
+      // person lets a lead use (see withRoleAccess); with them all off it only delegates.
       return [
         'read_task',
         ...LOOK,
@@ -210,8 +211,37 @@ export function onDemand(name: string): boolean {
   return ON_DEMAND.has(name) || /^(browser_|mcp__|tool_)/.test(name)
 }
 
+/** Whether the agent speaking for the chat has someone to hand work to: a team, or crewmates on call. */
+function leadsCrew(spec: ColonySpec): boolean {
+  return spec.tier === 'team'
+    ? spec.agents.length > 1
+    : spec.tier === 'solo' && !!spec.team?.crewmates?.length
+}
+
+/**
+ * Who may use what (the permission model's access and whole-tool denies). The lead, while it leads a crew, follows
+ * the lead column and gets the build tools of every group it is allowed (a hands-on lead); everyone who does the
+ * work, an agent working alone included, follows the crew column. A tool denied outright is left out.
+ */
+function withRoleAccess(
+  spec: ColonySpec,
+  agent: AgentSpec,
+  tools: readonly string[],
+  own: boolean,
+): string[] {
+  const levels = levelsOf(spec)
+  const role = speaksForColony(spec, agent) ? 'lead' : 'crew'
+  const leading = role === 'lead' && leadsCrew(spec)
+  const off = new Set(groupsOff(levels, leading ? 'lead' : 'crew').flatMap((g) => ACCESS_GROUPS[g]))
+  const hands =
+    leading && !own && isLead(spec, agent) && spec.tier === 'team' && spec.team?.mode !== 'swarm'
+      ? LEAD_WORK_GROUPS.flatMap((g) => ACCESS_GROUPS[g])
+      : []
+  return [...new Set([...tools, ...hands])].filter((t) => !off.has(t) && !toolHidden(levels, t, role))
+}
+
 export function toolsFor(spec: ColonySpec, agent: AgentSpec): string[] {
-  const tools = agent.tools ?? roleTools(spec, agent)
+  const tools = withRoleAccess(spec, agent, agent.tools ?? roleTools(spec, agent), agent.tools !== undefined)
   const disabled = new Set([...(spec.disabledTools ?? []), ...(agent.withoutTools ?? [])])
   const allowed = disabled.size ? tools.filter((t) => !disabled.has(t)) : tools
   // Whoever has tools that load on demand gets the tool that loads them; MCP and made tools are among them.
@@ -352,7 +382,8 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   const plan = spec.planFirst ? prompts.kickoff.planFirst : ''
   const context = spec.chat.context ? prompts.chat.context(spec.chat.context) : ''
   const spoken = spec.chat.voice ? prompts.chat.spoken : ''
-  const request = `${history}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}`
+  const changed = agent && spec.chat.accessNotices?.[agent] ? `${spec.chat.accessNotices[agent]}\n\n` : ''
+  const request = `${history}${changed}${context}[user] ${spec.chat.request}${attachedNote(attached)}${spoken}${plan}`
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''

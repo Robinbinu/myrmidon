@@ -1,52 +1,33 @@
-import { Lock } from 'lucide-react'
-import { useState } from 'react'
-import { type Project, send } from '../api.ts'
+import {
+  DEFAULT_PRESET,
+  effectivePreset,
+  type PermissionLevel,
+  type PermissionPreset,
+  type ProjectPermissions as ProjectLevel,
+} from '@myrmidon/protocol'
+import { useEffect, useState } from 'react'
+import { api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
-import { ConfirmButton } from '../ui/ConfirmButton.tsx'
+import { AccessMatrix } from '../permissions/AccessMatrix.tsx'
+import { type CatalogTool, PRESET_ICONS, presetLabel } from '../permissions/describe.ts'
+import { PresetChoice } from '../permissions/PresetChoice.tsx'
+import { RulesEditor } from '../permissions/RulesEditor.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Badge, Button, cn, TextArea } from '../ui/primitives.tsx'
+import { Badge, Button, SectionHeader, TextArea } from '../ui/primitives.tsx'
 import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
-export type PermissionMode = 'auto' | 'ask' | 'read-only' | 'full'
+const t = copy.permissions
 
-const MODES: { value: PermissionMode; label: string; icon: typeof FEATURE_ICONS.autonomous; hint: string }[] =
-  [
-    {
-      value: 'auto',
-      label: copy.permissions.modes.auto.label,
-      icon: FEATURE_ICONS.autonomous,
-      hint: copy.permissions.modes.auto.hint,
-    },
-    {
-      value: 'ask',
-      label: copy.permissions.modes.ask.label,
-      icon: FEATURE_ICONS.approvalAsk,
-      hint: copy.permissions.modes.ask.hint,
-    },
-    {
-      value: 'read-only',
-      label: copy.permissions.modes.readOnly.label,
-      icon: Lock,
-      hint: copy.permissions.modes.readOnly.hint,
-    },
-    {
-      value: 'full',
-      label: copy.permissions.modes.full.label,
-      icon: FEATURE_ICONS.fullAccess,
-      hint: copy.permissions.modes.full.hint,
-    },
-  ]
-
-/**
- * Whether a new chat in a project with this mode gets full access, as the server decides it: the project is set to it,
- * or the sandbox is off in Settings and the project is not read-only.
- */
-export function fullAccessFor(mode: PermissionMode | undefined, sandboxOff: boolean): boolean {
-  return mode === 'full' || (sandboxOff && mode !== 'read-only')
+/** The preset a project's chats start on: its own, or the global one. */
+export function presetFor(project: Pick<Project, 'permissions'> | undefined, global: PermissionPreset) {
+  return effectivePreset({
+    global: { preset: global, rules: [] },
+    ...(project?.permissions ? { project: project.permissions } : {}),
+  }).preset
 }
 
-/** Shown where a chat runs without the sandbox: beside the composer's project and in the run's header. */
+/** Shown where a chat runs without the sandbox: in the run's header. */
 export function FullAccessBadge() {
   return (
     <span title={copy.fullAccess.title} className="inline-flex shrink-0">
@@ -58,91 +39,86 @@ export function FullAccessBadge() {
   )
 }
 
-/** The small mark shown beside a project's name for its mode; nothing for autonomous. */
-export function PermissionMark({ mode }: { mode?: PermissionMode }) {
-  if (mode === 'read-only')
-    return <Lock className="size-3 shrink-0 text-muted" aria-label={copy.permissions.mark.readOnly} />
-  if (mode === 'ask')
-    return (
-      <FEATURE_ICONS.approvalAsk
-        className="size-3 shrink-0 text-warn-ink"
-        aria-label={copy.permissions.mark.ask}
-      />
-    )
-  if (mode === 'full')
-    return (
-      <FEATURE_ICONS.fullAccess
-        className="size-3 shrink-0 text-warn-ink"
-        aria-label={copy.permissions.mark.full}
-      />
-    )
-  return null
-}
-
-/**
- * The ways agents may treat a folder, one to choose; also in the setup assistant's project step, which leaves out
- * Full access (`full`): that is given from the folder's own permissions, with a warning to confirm.
- */
-export function PermissionChoices(props: {
-  mode: PermissionMode
-  onChange(mode: PermissionMode): void
-  full?: boolean
-}) {
+/** The small mark beside a project's name for its own preset; nothing when it uses the global one or is Auto. */
+export function PermissionMark({ preset }: { preset?: PermissionPreset | undefined }) {
+  if (!preset || preset === 'auto') return null
+  const Icon = PRESET_ICONS[preset]
+  const label = preset === 'read-only' ? t.mark.readOnly : preset === 'ask' ? t.mark.ask : t.mark.full
   return (
-    <fieldset
-      aria-label={copy.permissions.modesLabel}
-      className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0"
-    >
-      {MODES.filter((m) => props.full || m.value !== 'full').map((m) => (
-        <label
-          key={m.value}
-          className={cn(
-            'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-soft',
-            props.mode === m.value ? 'border-accent/50 bg-accent-soft/50' : 'border-line hover:bg-fill',
-          )}
-        >
-          <input
-            type="radio"
-            name="permission-mode"
-            value={m.value}
-            checked={props.mode === m.value}
-            onChange={() => props.onChange(m.value)}
-            className="sr-only"
-          />
-          <m.icon
-            className={cn('mt-0.5 size-4 shrink-0', props.mode === m.value ? 'text-accent-fg' : 'text-muted')}
-          />
-          <span>
-            <span className="block text-reading font-medium">{m.label}</span>
-            <span className="block text-callout leading-snug text-muted">{m.hint}</span>
-          </span>
-        </label>
-      ))}
-    </fieldset>
+    <Icon
+      className={preset === 'read-only' ? 'size-3 shrink-0 text-muted' : 'size-3 shrink-0 text-warn-ink'}
+      aria-label={label}
+    />
   )
 }
 
-/** How freely agents may change one project folder; applies from each chat's next message. */
+/**
+ * The choices for a project folder in the setup assistant: "use global" or a preset of its own, without Full access
+ * (that is given from the folder's own permissions, with a warning to confirm).
+ */
+export function PermissionChoices(props: {
+  value: PermissionPreset | undefined
+  global: PermissionPreset
+  onChange(preset: PermissionPreset | undefined): void
+}) {
+  return (
+    <PresetChoice
+      value={props.value}
+      onChange={props.onChange}
+      inherit={{ label: t.inherit.global(presetLabel(props.global)), preset: props.global }}
+      presets={['read-only', 'ask', 'auto']}
+    />
+  )
+}
+
+/**
+ * A project's level of the permission model: its preset ("Use global" first), who can use what, its rules, and the
+ * folders its chats' agents may also read. Applies at once to its running chats, and to every later one.
+ */
 export function ProjectPermissions(props: {
   project: Project
   onClose(): void
   onSaved(projects: Project[]): void
 }) {
   const toast = useToast()
-  const [mode, setMode] = useState<PermissionMode>(props.project.permissions?.mode ?? 'auto')
-  const [allow, setAllow] = useState((props.project.permissions?.allow ?? []).join('\n'))
-  const [read, setRead] = useState((props.project.permissions?.read ?? []).join('\n'))
+  const saved = props.project.permissions ?? { rules: [] }
+  const [level, setLevel] = useState<PermissionLevel>(() => {
+    const { read: _, ...own } = saved
+    return own
+  })
+  const [read, setRead] = useState((saved.read ?? []).join('\n'))
   const [busy, setBusy] = useState(false)
+  const [global, setGlobal] = useState<PermissionLevel & { preset: PermissionPreset }>()
+  const [catalog, setCatalog] = useState<{ tools: CatalogTool[]; servers: string[] }>()
+  useEffect(() => {
+    api<{
+      settings: { permissions: PermissionLevel & { preset: PermissionPreset } }
+      toolCatalog: CatalogTool[]
+      mcpServers?: string[]
+    }>('/api/settings')
+      .then((r) => {
+        setGlobal(r.settings.permissions)
+        setCatalog({ tools: r.toolCatalog, servers: r.mcpServers ?? [] })
+      })
+      .catch(() => {})
+  }, [])
+  const globalPreset = global?.preset ?? DEFAULT_PRESET
   const save = async () => {
     setBusy(true)
     try {
+      const body: ProjectLevel = {
+        ...level,
+        read: read
+          .split('\n')
+          .map((f) => f.trim())
+          .filter(Boolean),
+      }
       const r = await send<{ projects: Project[] }>('PUT', `/api/projects/${props.project.id}/permissions`, {
-        mode,
-        allow: allow.split('\n'),
-        read: read.split('\n'),
+        ...body,
+        preset: level.preset ?? null,
       })
       props.onSaved(r.projects)
-      toast(`${props.project.name}: ${MODES.find((m) => m.value === mode)?.label}`, 'success')
+      toast(`${props.project.name}: ${presetLabel(level.preset ?? globalPreset)}`, 'success')
       props.onClose()
     } catch (err) {
       toast(String((err as Error).message), 'error')
@@ -150,69 +126,78 @@ export function ProjectPermissions(props: {
       setBusy(false)
     }
   }
+  const levels = { global: global ?? { preset: globalPreset, rules: [] }, project: level }
   return (
     <Sheet
-      title={copy.permissions.title(props.project.name)}
+      title={t.title(props.project.name)}
       onClose={props.onClose}
-      size="sm"
+      size="md"
       actions={
-        // Giving full access takes a second click, with what it means beside it.
-        mode === 'full' && props.project.permissions?.mode !== 'full' ? (
-          <ConfirmButton
-            label={copy.permissions.save}
-            confirm={copy.permissions.confirmFull}
-            warning={copy.fullAccess.warning}
-            disabled={busy}
-            onConfirm={() => void save()}
-          />
-        ) : (
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={busy}
-            onClick={() => void save()}
-            icon={<FEATURE_ICONS.permissions className="size-3.5" />}
-          >
-            {copy.permissions.save}
-          </Button>
-        )
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={busy}
+          onClick={() => void save()}
+          icon={<FEATURE_ICONS.permissions className="size-3.5" />}
+        >
+          {t.save}
+        </Button>
       }
     >
       <div className="flex flex-col gap-3">
-        <PermissionChoices mode={mode} onChange={setMode} full />
-        {mode === 'ask' && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="allow-commands" className="text-callout text-muted">
-              {copy.permissions.allow.label}
-            </label>
-            <TextArea
-              id="allow-commands"
-              value={allow}
-              onChange={(e) => setAllow(e.target.value)}
-              rows={4}
-              placeholder={'bun test\nbun run typecheck\ngit status'}
-              className="font-mono"
-            />
-          </div>
-        )}
+        <PresetChoice
+          value={level.preset}
+          fullConfirmed={saved.preset === 'full'}
+          inherit={{ label: t.inherit.global(presetLabel(globalPreset)), preset: globalPreset }}
+          onChange={(preset) => {
+            const { preset: _, ...rest } = level
+            setLevel(preset ? { ...rest, preset } : rest)
+          }}
+        />
+        <SectionHeader
+          className="mt-4"
+          icon={<FEATURE_ICONS.roleAccess className="size-4 text-muted" />}
+          title={t.access.title}
+          note={t.access.note}
+        />
+        <AccessMatrix
+          compact
+          levels={levels}
+          scope="project"
+          onChange={(access) => {
+            const { access: _, ...rest } = level
+            setLevel(access ? { ...rest, access } : rest)
+          }}
+        />
+        <SectionHeader
+          className="mt-4"
+          icon={<FEATURE_ICONS.toolRules className="size-4 text-muted" />}
+          title={t.rules.title}
+          note={t.rules.note}
+        />
+        <RulesEditor
+          rules={level.rules}
+          {...(catalog ? { catalog } : {})}
+          onChange={(rules) => setLevel({ ...level, rules })}
+        />
         {/* Full access reads everything already. */}
-        {mode !== 'full' && (
-          <div className="flex flex-col gap-1.5">
+        {effectivePreset(levels).preset !== 'full' && (
+          <div className="mt-4 flex flex-col gap-1.5">
             <label htmlFor="read-folders" className="text-callout text-muted">
-              {copy.permissions.read.label}
+              {t.read.label}
             </label>
             <TextArea
               id="read-folders"
               value={read}
               onChange={(e) => setRead(e.target.value)}
               rows={2}
-              placeholder={copy.permissions.read.placeholder}
+              placeholder={t.read.placeholder}
               className="font-mono"
             />
-            <p className="text-small text-muted">{copy.permissions.read.hint}</p>
+            <p className="text-small text-muted">{t.read.hint}</p>
           </div>
         )}
-        <p className="text-small text-muted">{copy.permissions.appliesFrom}</p>
+        <p className="text-small text-muted">{t.appliesFrom}</p>
       </div>
     </Sheet>
   )

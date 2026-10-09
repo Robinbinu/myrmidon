@@ -51,10 +51,10 @@ export const MAX_VERIFY_ROUNDS = 3
  * hands-on tools, the lead's method too) under "How to work".
  */
 export const PROMPT_HEADING_WORDS = {
-  you: 190,
+  you: 210,
   finish: 150,
-  safety: 340,
-  method: 680,
+  safety: 350,
+  method: 710,
   others: 230,
   person: 210,
   instructions: 90,
@@ -66,11 +66,11 @@ export const PROMPT_HEADING_WORDS = {
  * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
  */
 export const PROMPT_ROLE_WORDS = {
-  answer: 620,
+  answer: 650,
   solo: 1340,
   crewmate: 1040,
   'team-lead': 940,
-  'team-lead-hands-on': 1560,
+  'team-lead-hands-on': 1620,
   'team-worker': 1180,
   'swarm-peer': 1070,
   'colony-lead': 1000,
@@ -111,6 +111,8 @@ export const QUIET_KEPT = 30
 export const SETTLE_QUIET_MS = 3_000
 /** ...and closes after this long even if the crew keeps talking; whatever is still unread waits for the next round. */
 export const CHAT_SETTLE_MS = 120_000
+/** Messages each agent may still send once a chat winds down: one last word, then the chat is closed to it. */
+export const WIND_DOWN_MESSAGES = 1
 /** Unread messages an agent is shown when it next wakes (from before this round); older ones stay in read_messages. */
 export const MISSED_SHOWN = 20
 /** Each such message is shown up to this many characters. */
@@ -228,9 +230,10 @@ export const SANDBOX_TOOLCHAINS = [
 ] as const
 /**
  * Paths in the person's home (relative to it) that hold keys, tokens and sign-ins. They stay hidden from sandboxed
- * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project or a chat can
- * never grant them; only naming one exactly in Settings → Tools opens it. Myrmidon's own data folder, which holds
- * every chat, is treated the same way except for the chat's own folder.
+ * agents even inside a folder they may read (a project at ~, or "everything in my home"), and a project can never
+ * grant them. Naming one exactly in Settings → Permissions opens it everywhere; in one chat, the person may allow an
+ * agent's request_read of one (once or for that chat, with a warning on the card). Myrmidon's own data folder, which
+ * holds every chat, stays hidden except for the chat's own folder: no request can open it.
  */
 export const SANDBOX_SECRETS = [
   '.ssh',
@@ -269,14 +272,6 @@ export const HOOK_MAX_OUTPUT = 20_000
 
 /** How long a leashed command's processes get to exit on SIGTERM, once Myrmidon has gone, before they are killed. */
 export const LEASH_GRACE_MS = 2_000
-
-// Projects (projects.ts)
-
-/**
- * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
- * mode and stays autonomous, so nothing changes under the person's feet.
- */
-export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
 
 // Setup assistant (setup.ts)
 

@@ -1,3 +1,4 @@
+import { effectivePreset, type PermissionPreset, rulesIn } from '@myrmidon/protocol'
 import { canonicalZone, zoneOffset } from '../clock.ts'
 import {
   type Environment,
@@ -9,6 +10,7 @@ import {
   speaksForColony,
   toolsFor,
 } from '../patterns.ts'
+import { levelsOf } from '../permissions.ts'
 import type { ProjectGit } from '../project-context.ts'
 import type { AgentSpec, ColonySpec, Tier } from '../spec.ts'
 
@@ -132,12 +134,11 @@ export interface PromptFacts {
     readonly web: boolean
     readonly browser: boolean
     readonly computer: boolean
-    readonly project?: {
-      readonly name: string
-      readonly path: string
-      readonly mode: 'auto' | 'ask' | 'read-only' | 'full'
-      readonly allow: readonly string[]
-    }
+    /** The preset the round runs under, from the chat, project and global levels (nearest wins). */
+    readonly preset: PermissionPreset
+    /** Command prefixes a rule lets run without asking, for the Ask preset's line. */
+    readonly allow: readonly string[]
+    readonly project?: { readonly name: string; readonly path: string }
     readonly worktree?: { readonly path: string; readonly branch: string }
     /** Folders the person opened for reading beyond the defaults. */
     readonly reads: readonly string[]
@@ -254,6 +255,12 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
   const team = spec.team
   const groups = toolGroups(names, env)
   const lead = isLead(spec, agent) && !!spec.chat && spec.agents.length > 1
+  const levels = levelsOf(spec)
+  const { preset } = effectivePreset(levels)
+  const allowed = rulesIn(levels).flatMap((r) =>
+    r.kind === 'command' && r.decision === 'allow' ? [r.target] : [],
+  )
+  const allow = allowed.includes('*') ? [] : [...new Set(allowed)]
   // A crewmate on call joins as a worker of a solo round, so its tools are those of that role.
   const onCall = (a: AgentSpec) => info({ ...spec, tier: 'solo' }, env, { ...a, role: 'worker' })
   return {
@@ -296,13 +303,13 @@ export function factsFor(spec: ColonySpec, agent: AgentSpec, env: Environment): 
       web: env.web,
       browser: env.browser,
       computer: env.computer ?? false,
+      preset,
+      allow,
       ...(project
         ? {
             project: {
               name: project.name,
               path: project.path,
-              mode: project.permissions?.mode ?? 'auto',
-              allow: project.permissions?.allow ?? [],
             },
           }
         : {}),

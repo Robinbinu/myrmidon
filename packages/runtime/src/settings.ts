@@ -1,9 +1,19 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import { isSetupStep, type SetupState } from '@myrmidon/protocol'
+import {
+  type AccessGroup,
+  DEFAULT_PRESET,
+  isSetupStep,
+  normalizeLevel,
+  type PermissionLevel,
+  type PermissionPreset,
+  rulesFromToolDict,
+  type SetupState,
+} from '@myrmidon/protocol'
 import { DEFAULT_COST_USD, MAX_READ_FOLDERS } from './config.ts'
 
+/** Tool groups a saved specialist can be kept out of (Settings → Specialists). */
 export const TOOL_GROUPS = {
   shell: ['shell'],
   web: ['web_search', 'web_fetch'],
@@ -42,14 +52,8 @@ export interface MyrSettings {
     costUsd: number
     tokens: number
   }
-  tools: Record<ToolGroup, boolean>
-  /**
-   * `enabled: false` is full access for every chat of the person's: commands run without the OS sandbox, file tools
-   * reach any path and the web any address (approvals still apply). Read-only projects and rounds a channel member
-   * started stay sandboxed whatever this says; a project set to full access has it with the sandbox on.
-   */
+  /** What sandboxed agents may read beyond their workspace, in every chat. Full access is a preset (`permissions`). */
   sandbox: {
-    enabled: boolean
     /**
      * Folders sandboxed agents may also read (never write) in every chat of the person's, `~` or absolute. Naming one of
      * their keys' folders (SANDBOX_SECRETS) or Myrmidon's data folder exactly is the only way to open it.
@@ -76,10 +80,10 @@ export interface MyrSettings {
    */
   models: { hidden: string[]; hiddenProviders: string[]; windows: Record<string, number> }
   /**
-   * Per-tool rules on top of the groups above, by tool name (`mcp` for every MCP tool): `ask` needs the person's
-   * approval for each call, `off` removes the tool. Tools not listed are allowed.
+   * The global level of the permission model (see protocol's permissions.ts): the preset every chat starts from
+   * (Full access runs without the OS sandbox), allow / ask / deny rules, and which tool groups the lead and crew get.
    */
-  permissions: Record<string, 'allow' | 'ask' | 'off'>
+  permissions: GlobalPermissions
   /** `name`: what the mascot calls the person (their computer account's name when unset); `greeting`: who writes the entry page's line. */
   /** `titles`: name chats from what they are about (`model`), or keep their first message as the name. */
   profile: { name?: string; greeting: 'model' | 'rules'; titles: 'model' | 'first-message' }
@@ -136,16 +140,7 @@ export const settingsSchema = Schema.object({
     costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
-  tools: Schema.object({
-    shell: Schema.boolean().default(true),
-    web: Schema.boolean().default(true),
-    files: Schema.boolean().default(true),
-    messaging: Schema.boolean().default(true),
-    mcp: Schema.boolean().default(true),
-    browser: Schema.boolean().default(true),
-  }).default({}),
   sandbox: Schema.object({
-    enabled: Schema.boolean().default(true),
     read: Schema.array(
       Schema.string()
         .pattern(/^(~$|~\/|\/)/)
@@ -174,7 +169,8 @@ export const settingsSchema = Schema.object({
     hiddenProviders: Schema.array(Schema.string()).default([]),
     windows: Schema.dict(Schema.natural().min(1024).max(100_000_000)).default({}),
   }).default({}),
-  permissions: Schema.dict(Schema.union(['allow', 'ask', 'off'])).default({}),
+  // Checked by `globalPermissions`, which also reads the shape from before the permission model.
+  permissions: Schema.any(),
   profile: Schema.object({
     name: Schema.string().max(40),
     greeting: Schema.union(['model', 'rules']).default('model'),
@@ -213,6 +209,43 @@ export const settingsSchema = Schema.object({
   }),
 })
 
+export type GlobalPermissions = PermissionLevel & { preset: PermissionPreset }
+
+/**
+ * The global level from saved or sent settings. The shape from before the permission model is read too, and its old
+ * switches are still understood when sent: per-tool rules (`{ shell: 'ask', mcp: 'allow', web_fetch: 'off' }`) become
+ * rules (`off` a deny); `sandbox.enabled: false` (turning the sandbox off, which took a confirmation) is Full access
+ * and `true` takes Full access back; a group switched off in `tools` is off for the lead and crew alike.
+ */
+function globalPermissions(input: unknown): GlobalPermissions {
+  const raw = (input ?? {}) as {
+    permissions?: unknown
+    sandbox?: { enabled?: unknown }
+    tools?: Record<string, unknown>
+  }
+  const given = raw.permissions as { rules?: unknown } | undefined
+  const legacy = !given || typeof given !== 'object' || !Array.isArray(given.rules)
+  const level = legacy
+    ? normalizeLevel({ rules: rulesFromToolDict((given ?? {}) as Record<string, unknown>) })
+    : normalizeLevel(given)
+  let preset = level.preset ?? DEFAULT_PRESET
+  if (raw.sandbox?.enabled === false) preset = 'full'
+  else if (raw.sandbox?.enabled === true && preset === 'full') preset = DEFAULT_PRESET
+  const access = { lead: { ...level.access?.lead }, crew: { ...level.access?.crew } }
+  for (const group of Object.keys(TOOL_GROUPS) as AccessGroup[]) {
+    const on = raw.tools?.[group]
+    if (typeof on !== 'boolean') continue
+    for (const role of [access.lead, access.crew])
+      if (on) delete role[group]
+      else role[group] = false
+  }
+  const kept = {
+    ...(Object.keys(access.lead).length ? { lead: access.lead } : {}),
+    ...(Object.keys(access.crew).length ? { crew: access.crew } : {}),
+  }
+  return { preset, rules: level.rules, ...(kept.lead || kept.crew ? { access: kept } : {}) }
+}
+
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
 function parse(input: unknown): MyrSettings {
   // Older files say `auto`/`manual`; both were lead-run teams.
@@ -225,9 +258,7 @@ function parse(input: unknown): MyrSettings {
   return {
     version: 1,
     team: s.team,
-    tools: s.tools,
     sandbox: {
-      enabled: s.sandbox.enabled,
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
     },
@@ -237,7 +268,7 @@ function parse(input: unknown): MyrSettings {
     instructions: s.instructions,
     observer: s.observer,
     models: { hidden: s.models.hidden, hiddenProviders: s.models.hiddenProviders, windows: s.models.windows },
-    permissions: s.permissions,
+    permissions: globalPermissions(input),
     profile: {
       ...(s.profile.name?.trim() ? { name: s.profile.name.trim() } : {}),
       greeting: s.profile.greeting,

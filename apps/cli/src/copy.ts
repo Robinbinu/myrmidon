@@ -123,7 +123,7 @@ export const setupCopy = {
       fix: '`myrmidon model`',
     },
     access: {
-      on: 'agents run sandboxed (Settings → Tools)',
+      on: 'agents run sandboxed (Settings → Permissions)',
       projects: (names: readonly string[]) =>
         `agents run sandboxed, except with full access in ${names.join(', ')}`,
       off: "the sandbox is off: your chats have full access (channel members' and read-only projects' stay sandboxed)",

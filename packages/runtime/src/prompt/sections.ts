@@ -275,7 +275,7 @@ function leadMethod(f: PromptFacts): string {
 function writes(f: PromptFacts): string {
   const s = say.safety
   if (f.access.worktree) return s.writesWorktree
-  return project(f) && project(f)?.mode !== 'read-only' ? s.writesProject : s.writesScratch
+  return project(f) && f.access.preset !== 'read-only' ? s.writesProject : s.writesScratch
 }
 
 const env = prompts.environment
@@ -285,7 +285,7 @@ const OS: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Wi
 /** Where commands and file tools may write, as the environment block lists it. */
 function writeRoots(f: PromptFacts): string {
   if (f.access.worktree) return 'worktree, scratch'
-  return project(f) && project(f)?.mode !== 'read-only' ? 'project, scratch' : 'scratch'
+  return project(f) && f.access.preset !== 'read-only' ? 'project, scratch' : 'scratch'
 }
 
 /** Where this agent's shell starts, in words. */
@@ -437,13 +437,13 @@ export const SECTIONS: readonly Section[] = [
     },
     {
       key: 'read-only',
-      guard: (f) => project(f)?.mode === 'read-only',
+      guard: (f) => project(f) !== undefined && f.access.preset === 'read-only',
       render: (f) => say.safety.readOnly(project(f)?.name, has(f, 'propose')),
     },
     {
       key: 'ask',
-      guard: (f) => project(f)?.mode === 'ask',
-      render: (f) => say.safety.ask(project(f)?.name, project(f)?.allow ?? [], has(f, 'ask_user')),
+      guard: (f) => f.access.preset === 'ask',
+      render: (f) => say.safety.ask(project(f)?.name, f.access.allow, has(f, 'ask_user')),
     },
     {
       key: 'computer-safety',
@@ -468,9 +468,7 @@ export const SECTIONS: readonly Section[] = [
     {
       key: 'project-rules',
       guard: (f) =>
-        project(f) !== undefined &&
-        project(f)?.mode !== 'read-only' &&
-        any(f, 'fs_write', 'fs_edit', 'shell'),
+        project(f) !== undefined && f.access.preset !== 'read-only' && any(f, 'fs_write', 'fs_edit', 'shell'),
       render: () => say.projectRules,
     },
     {

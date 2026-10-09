@@ -1,8 +1,11 @@
 import {
   type ColonyState,
+  DEFAULT_PRESET,
   expandCommand,
   foldColony,
   type MyrEvent,
+  type PermissionLevel,
+  type PermissionPreset,
   type PluginCommand,
   roundSlice,
   type SetupStep,
@@ -43,7 +46,7 @@ import { ColonyScreen } from './ColonyScreen.tsx'
 import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
 import { ComputerBanner, OPEN_SETTINGS_EVENT } from './ComputerUse.tsx'
-import { ChatGrantChips } from './chat/ApprovalCards.tsx'
+import { ChatReadChips } from './chat/ApprovalCards.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { sidebarOrder, stepChat } from './chat/chat-order.ts'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
@@ -53,13 +56,14 @@ import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
 import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
-import { FullAccessBadge, fullAccessFor, ProjectPermissions } from './chat/ProjectPermissions.tsx'
+import { FullAccessBadge, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
 import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { SETTINGS_SAVED } from './mascot.ts'
+import { ChatPermissions } from './permissions/ChatPermissions.tsx'
 import { syncPluginUI } from './plugins.tsx'
 import { SECTIONS, type Section, Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
@@ -370,10 +374,12 @@ export function App() {
   }>()
   const [draft, setDraft] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
-  /** The sandbox is off in Settings: new chats outside read-only projects get full access. */
-  const [sandboxOff, setSandboxOff] = useState(false)
+  /** The global preset, which new chats in projects without their own start on. */
+  const [globalPreset, setGlobalPreset] = useState<PermissionPreset>(DEFAULT_PRESET)
   /** The project a new chat will work in. */
   const [newProject, setNewProject] = useState<string>()
+  /** A new chat's own permission level, chosen in the composer before its first message. */
+  const [newPermissions, setNewPermissions] = useState<PermissionLevel>()
   const [picking, setPicking] = useState(false)
   const [permissionsFor, setPermissionsFor] = useState<Project>()
   /** Where the person is with setup; `failed` while Myrmidon could not say. */
@@ -440,10 +446,10 @@ export function App() {
   useEffect(loadModels, [loadModels])
 
   const loadProjects = useCallback(() => {
-    api<{ projects: Project[]; fullAccess?: boolean }>('/api/projects')
+    api<{ projects: Project[]; preset?: PermissionPreset; fullAccess?: boolean }>('/api/projects')
       .then((r) => {
         setProjects(r.projects)
-        setSandboxOff(r.fullAccess === true)
+        setGlobalPreset(r.preset ?? (r.fullAccess ? 'full' : DEFAULT_PRESET))
       })
       // With the server away the banner says so, and the list loads again once it is back.
       .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
@@ -817,10 +823,12 @@ export function App() {
           delivery,
           ...(plan ? { plan: true } : {}),
           ...(!chatId && newProject ? { project: newProject } : {}),
+          ...(!chatId && newPermissions ? { permissions: newPermissions } : {}),
           ...(files.length ? { attachments: await Promise.all(files.map(encodeFile)) } : {}),
         },
       )
       setActiveChat(r.chatId)
+      if (!chatId) setNewPermissions(undefined)
       setView('chat')
       if (r.started)
         setPending({ text, chatId: r.chatId, colonyId: r.colonyId, ...(r.round ? { round: r.round } : {}) })
@@ -1488,17 +1496,33 @@ export function App() {
                                   {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
                                 />
                               )}
-                              {(chat
-                                ? chat.fullAccess
-                                : fullAccessFor(
-                                    projects.find((p) => p.id === newProject)?.permissions?.mode,
-                                    sandboxOff,
-                                  )) && <FullAccessBadge />}
-                              {chat?.grants?.length || chat?.reads?.length ? (
-                                <ChatGrantChips
+                              {(() => {
+                                const project = projects.find(
+                                  (p) => p.id === (chat?.project?.id ?? newProject),
+                                )
+                                return (
+                                  <ChatPermissions
+                                    chatId={chat?.chatId}
+                                    level={chat ? chat.permissions : newPermissions}
+                                    project={
+                                      project?.permissions
+                                        ? { name: project.name, level: project.permissions }
+                                        : undefined
+                                    }
+                                    globalPreset={globalPreset}
+                                    canEdit={fullAccess}
+                                    onPending={setNewPermissions}
+                                    onSaved={refreshChats}
+                                    {...(fullAccess
+                                      ? { onOpenSettings: () => openSettings('permissions') }
+                                      : {})}
+                                  />
+                                )
+                              })()}
+                              {chat?.reads?.length ? (
+                                <ChatReadChips
                                   chatId={chat.chatId}
-                                  grants={chat.grants ?? []}
-                                  reads={chat.reads ?? []}
+                                  reads={chat.reads}
                                   onChanged={refreshChats}
                                 />
                               ) : null}
@@ -1545,6 +1569,7 @@ export function App() {
                           onOpenChat={openChat}
                           onPick={(t) => composer.current?.fill(t)}
                           fromSetup={fromSetup}
+                          {...(call ? { call: call.state } : {})}
                         >
                           {config && !models.some(canLead) && (
                             <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
