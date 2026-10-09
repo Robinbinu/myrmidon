@@ -61,7 +61,9 @@ export function ProjectExplorer(props: {
   }, [load])
   const editedKey = props.edited.join('\n')
   // biome-ignore lint/correctness/useExhaustiveDependencies: `editedKey` is the trigger, not an input
-  useEffect(() => refresh(), [refresh, editedKey])
+  useEffect(() => {
+    refresh()
+  }, [refresh, editedKey])
   useEffect(() => {
     const changed = (e: Event) => {
       if ((e as CustomEvent<{ project?: string }>).detail?.project === props.project.id) refresh()
