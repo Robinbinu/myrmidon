@@ -29,6 +29,13 @@
         "@types/qrcode": "1.5.6",
       },
     },
+    "apps/desktop": {
+      "name": "@myrmidon/desktop",
+      "version": "0.0.0",
+      "devDependencies": {
+        "electrobun": "2.0.2",
+      },
+    },
     "apps/eval": {
       "name": "@myrmidon/eval",
       "version": "0.0.0",
@@ -233,6 +240,8 @@
     "@myrmidon/cli": ["@myrmidon/cli@workspace:apps/cli"],
 
     "@myrmidon/core": ["@myrmidon/core@workspace:packages/core"],
+
+    "@myrmidon/desktop": ["@myrmidon/desktop@workspace:apps/desktop"],
 
     "@myrmidon/eval": ["@myrmidon/eval@workspace:apps/eval"],
 
@@ -543,6 +552,8 @@
     "domhandler": ["domhandler@5.0.3", "", { "dependencies": { "domelementtype": "^2.3.0" } }, "sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w=="],
 
     "domutils": ["domutils@3.2.2", "", { "dependencies": { "dom-serializer": "^2.0.0", "domelementtype": "^2.3.0", "domhandler": "^5.0.3" } }, "sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw=="],
+
+    "electrobun": ["electrobun@2.0.2", "", { "bin": { "electrobun": "bin/electrobun.cjs" } }, "sha512-UDs2iTNs6qYCzdWiFch/0DtxrsijNDr1WFDQfRmSA3Iouv0iEzyCF5mh4uDxkwNnAbuwFyow36EiVTYP4DRzig=="],
 
     "emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 

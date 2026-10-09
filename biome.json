@@ -1,7 +1,17 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/.myrmidon", "!**/*.sqlite", "!**/vendor"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.myrmidon",
+      "!**/*.sqlite",
+      "!**/vendor",
+      "!**/.hutch",
+      "!apps/desktop/build",
+      "!apps/desktop/dist",
+      "!apps/desktop/artifacts"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

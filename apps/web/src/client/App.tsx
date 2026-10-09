@@ -59,6 +59,7 @@ import { syncPluginUI } from './plugins.tsx'
 import { SECTIONS, type Section, Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
 import { useStatus } from './status.tsx'
+import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
   day,
@@ -201,7 +202,14 @@ async function exportChat(chat: ChatSummary) {
 /** A desktop notification while Myrmidon is in the background, if the person turned them on in Settings. */
 function notify(text: string, chatId?: string, tag = chatId) {
   try {
-    if (localStorage.getItem(NOTIFY_KEY) !== '1' || typeof Notification === 'undefined') return
+    if (localStorage.getItem(NOTIFY_KEY) !== '1') return
+    // The desktop app posts a native notification; its window is in the background when it lacks focus.
+    const shell = desktop()
+    if (shell) {
+      if (!document.hasFocus()) void shell.notify(copy.brand.name, text).catch(() => {})
+      return
+    }
+    if (typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted' || !document.hidden) return
     const n = new Notification(copy.brand.name, { body: text, tag })
     n.onclick = () => {
@@ -284,6 +292,10 @@ export function App() {
   const needYou = chats.filter(needsYou).length
   useEffect(() => {
     document.title = copy.app.documentTitle(needYou)
+    // In the desktop app the Dock icon carries the same count.
+    void desktop()
+      ?.setBadge(needYou)
+      .catch(() => {})
   }, [needYou])
   const [busy, setBusy] = useState(false)
   /** A request on its way: shown at once, until its round appears in the chat list. */

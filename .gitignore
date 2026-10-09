@@ -47,3 +47,7 @@ Thumbs.db
 
 # Local Claude Code / editor launch configs
 .claude/
+
+# Electrobun (apps/desktop): Hutch's generated devkit and release artifacts
+.hutch/
+artifacts/

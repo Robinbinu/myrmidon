@@ -162,6 +162,8 @@ export const copy = {
           : "Shell commands aren't confined",
     copyPath: 'Copy',
     copied: 'Copied',
+    /** The desktop app only: shows the data folder in Finder. */
+    reveal: 'Show in Finder',
     running: 'Running now',
     nothingRunning: 'Nothing is running.',
     channels: 'Channels',

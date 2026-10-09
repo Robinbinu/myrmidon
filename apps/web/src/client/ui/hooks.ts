@@ -1,6 +1,7 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { STICK_SLACK_PX, USER_SCROLL_MS } from '../ui-config.ts'
+import { DESKTOP_SHORTCUT_EVENT } from './desktop.ts'
 import { matchCombo } from './shortcuts.ts'
 
 export type ThemeChoice = 'system' | 'light' | 'dark'
@@ -207,8 +208,17 @@ export function useHotkeys(keys: readonly Hotkey[]) {
         return
       }
     }
+    // An app-menu item in the desktop shell names its shortcut; it runs whatever has focus, as the menu would.
+    const onMenu = (e: Event) => {
+      const combo = (e as CustomEvent<unknown>).detail
+      ref.current.find((k) => k.combo === combo)?.run(new KeyboardEvent('keydown'))
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(DESKTOP_SHORTCUT_EVENT, onMenu)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(DESKTOP_SHORTCUT_EVENT, onMenu)
+    }
   }, [])
 }
 
