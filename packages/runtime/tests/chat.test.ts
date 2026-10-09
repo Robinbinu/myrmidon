@@ -1363,7 +1363,10 @@ test.skipIf(!findChrome())('browser_extract reads tables, links and repeating it
     fetch: () => new Response(html, { headers: { 'content-type': 'text/html' } }),
   })
   const base = `http://localhost:${site.port}`
-  const browser = new BrowserHub(join(home, 'browser'))
+  // The test site stands in for a server the run started: agents reach no other localhost port.
+  const browser = new BrowserHub(join(home, 'browser'), undefined, {
+    localPorts: () => new Set([site.port as number]),
+  })
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/extractor', [
     [tool('browser_open', { url: `${base}/` })],
@@ -1438,7 +1441,10 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
     },
   })
   const base = `http://localhost:${site.port}`
-  const browser = new BrowserHub(join(home, 'browser'))
+  // The test site stands in for a server the run started: agents reach no other localhost port.
+  const browser = new BrowserHub(join(home, 'browser'), undefined, {
+    localPorts: () => new Set([site.port as number]),
+  })
   const resolver = new ModelResolver()
   let apiId = '0'
   const model = createMockModel({
@@ -1510,7 +1516,10 @@ test.skipIf(!findChrome())(
       { wait: '.result' },
       { extract: { what: 'items', selector: '.result', fields: { name: 'h3' } } },
     ]
-    const browser = new BrowserHub(join(home, 'browser'))
+    // The test site stands in for a server the run started: agents reach no other localhost port.
+    const browser = new BrowserHub(join(home, 'browser'), undefined, {
+      localPorts: () => new Set([site.port as number]),
+    })
     const resolver = new ModelResolver()
     const flow = (name: string, source: unknown[]) => ({
       name,
@@ -1571,7 +1580,10 @@ test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
     },
   })
   const base = `http://localhost:${site.port}`
-  const browser = new BrowserHub(join(home, 'browser'))
+  // The test site stands in for a server the run started: agents reach no other localhost port.
+  const browser = new BrowserHub(join(home, 'browser'), undefined, {
+    localPorts: () => new Set([site.port as number]),
+  })
   const resolver = new ModelResolver()
   let snapshot = ''
   const refFor = (name: string) =>
@@ -1631,7 +1643,10 @@ test.skipIf(!findChrome())(
           headers: { 'content-type': 'text/html' },
         }),
     })
-    const browser = new BrowserHub(join(home, 'browser'))
+    // The test site stands in for a server the run started: agents reach no other localhost port.
+    const browser = new BrowserHub(join(home, 'browser'), undefined, {
+      localPorts: () => new Set([site.port as number]),
+    })
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/needs-login', [
       [

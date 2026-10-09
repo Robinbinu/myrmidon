@@ -861,6 +861,18 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
     noDownloads: 'No downloads yet. A download starts when you click its link or button.',
     serving: (name: string, url: string) =>
       `${name} is serving at ${url}. Open it with browser_open; read its output with server_logs.`,
+    privateAddress: (host: string, address?: string) =>
+      `${host}${address && address !== host ? ` resolves to ${address}, which is` : ' is'} a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round`,
+    notYourServer: (port: number) =>
+      `localhost:${port} is not a server you started in this round. Agents can reach only the localhost ports of their own servers (start one with start_server and open the URL it returns), plus the public internet`,
+    portInUse: (port: number) =>
+      `port ${port} is already in use by something other than this server; start it on a free port`,
+    portWasInUse: (port: number) =>
+      `the server printed a URL on port ${port}, but that port was already in use before it started; start it on a free port and pass port`,
+    readerProgram:
+      'web_fetch does not run other programs: they would reach the network without its address checks',
+    browserBlocked: (url: string, reason?: string) =>
+      `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
     toolCreated: (name: string, output: string) =>
       `Created ${name}; the team can call it now. Test run:\n${output}`,
     worktreeUpdated: (files: readonly string[]) =>

@@ -486,6 +486,65 @@ test.skipIf(detectSandbox().kind === 'none')(
 )
 
 test.skipIf(detectSandbox().kind === 'none')(
+  "only ports a run's own servers opened become reachable to its agents; ports already in use cannot be claimed",
+  async () => {
+    // Someone else's service, like the dashboard: listening before any server starts.
+    const taken = Bun.serve({ port: 0, fetch: () => new Response('not yours') })
+    const port = 43000 + Math.floor(Math.random() * 2000)
+    const reachable: number[][] = []
+    const web = {
+      search: async () => '',
+      read: async (url: string, localPorts?: () => ReadonlySet<number>) => {
+        reachable.push([...(localPorts?.() ?? [])])
+        return { url, method: 'native', contentType: 'text/plain', output: 'page' }
+      },
+    }
+    const resolver = new ModelResolver()
+    scripted(resolver, 'mock/dev', [
+      [tool('start_server', { command: 'sleep 30', port: taken.port, name: 'claim' })],
+      [
+        tool('start_server', {
+          command: `echo "Local: http://localhost:${taken.port}/"; sleep 30`,
+          name: 'printed',
+        }),
+      ],
+      [
+        tool('start_server', {
+          command: `bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('mine') })"`,
+          port,
+        }),
+      ],
+      [tool('web_fetch', { url: `http://localhost:${port}/` })],
+      [tool('stop_server', {})],
+      [tool('web_fetch', { url: `http://localhost:${port}/` })],
+    ])
+    const spec = parseColonySpec({
+      name: 'Ports',
+      mission: 'Serve.',
+      agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server', 'stop_server', 'web_fetch'] }],
+      budget: { wall: '30s' },
+    })
+    try {
+      const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200, web })
+      await run.start()
+      await run.done
+      const results = (await runtime.ctx.log.read(run.id))
+        .filter((e) => e.type === 'tool/result')
+        .map((e) => e.payload as { tool: string; ok: boolean; output: string })
+      expect(results[0]).toMatchObject({ ok: false })
+      expect(results[0]?.output).toContain(`port ${taken.port} is already in use`)
+      expect(results[1]).toMatchObject({ ok: false })
+      expect(results[1]?.output).toContain(`port ${taken.port}, but that port was already in use`)
+      expect(results[2]?.output).toContain(`dev is serving at http://localhost:${port}`)
+      // While the server runs its port is reachable, and only it; once stopped, nothing local is.
+      expect(reachable).toEqual([[port], []])
+    } finally {
+      taken.stop(true)
+    }
+  },
+)
+
+test.skipIf(detectSandbox().kind === 'none')(
   'web content is marked untrusted, cannot forge its end marker, and commands copied from it are flagged',
   async () => {
     const page =

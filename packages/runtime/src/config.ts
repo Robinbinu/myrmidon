@@ -102,6 +102,13 @@ export const BROWSER_NETWORK_LIMIT = 300
 export const BROWSER_VIEWPORT = { width: 1280, height: 800 }
 /** The longest text a person controlling an agent's tab can paste into it at once. */
 export const BROWSER_PASTE_MAX_CHARS = 100_000
+/** How long the browser's proxy waits on one address of a host before trying its next one. */
+export const BROWSER_CONNECT_MS = 5_000
+
+// Web access (web.ts)
+
+/** Redirect hops one agent fetch follows, each one checked before anything is sent to it. */
+export const FETCH_MAX_REDIRECTS = 10
 
 // Reviewer (verifier.ts)
 

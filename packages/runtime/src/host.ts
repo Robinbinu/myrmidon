@@ -109,6 +109,11 @@ export interface ColonyHost {
    * given, else at the first local URL it prints. Returns that URL.
    */
   startServer(agent: string, name: string, command: string, port?: number): Promise<string>
+  /**
+   * The localhost ports this colony's running servers opened: the only private addresses its agents' web reads and
+   * browser may reach.
+   */
+  localPorts(): ReadonlySet<number>
   /** The latest output of a server this colony started. */
   serverLogs(name: string): string
   stopServer(name: string, reason: string): Promise<void>
