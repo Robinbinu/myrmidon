@@ -594,6 +594,29 @@ export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
 /**
+ * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
+ * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams
+ * in is passed on in pieces of at least VOICE_TTS_CHUNK_MS (a provider's body arrives in small parts). A request to a
+ * provider fails after VOICE_CLOUD_TIMEOUT_MS; its voice list is asked again after VOICE_VOICES_CACHE_MS.
+ */
+export const VOICE_STT_FINISH_MS = 3_000
+export const VOICE_TTS_CHUNK_MS = 80
+export const VOICE_CLOUD_TIMEOUT_MS = 20_000
+export const VOICE_VOICES_CACHE_MS = 10 * 60_000
+/** Streaming speech to text sends audio in pieces of at least this (AssemblyAI takes 50 ms to 1 s per message). */
+export const VOICE_STT_CHUNK_MS = 50
+/** How often an open speech-to-text stream is kept alive while the turn is quiet (Deepgram closes after 10 s). */
+export const VOICE_STT_KEEPALIVE_MS = 5_000
+/**
+ * Realtime calls: how long a realtime model has to set its session up, and how long a tool call that must check the
+ * person's last words (answer_approval) waits for their transcript, which a realtime model writes beside its answer.
+ */
+export const VOICE_REALTIME_CONNECT_MS = 15_000
+export const VOICE_REALTIME_TRANSCRIPT_MS = 3_000
+/** The language cloud speech to text is told to expect, as a BCP-47 tag (each provider takes its own form of it). */
+export const VOICE_LANGUAGE = 'en-US'
+
+/**
  * Phone calls (Twilio Media Streams): how long a call's one-time ticket (in its TwiML) stands, long enough for a call
  * Myrmidon makes to ring out (Twilio's default ring timeout is 60 s); how long a stream may stay open before its
  * `start` (OpenClaw's 5 s); the largest message a stream may send (OpenClaw's 64 KB; Twilio's are ~20 ms of audio).

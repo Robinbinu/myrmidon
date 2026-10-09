@@ -14,6 +14,11 @@ export interface Speech {
 /** Text to speech for a call, a sentence at a time so the first one plays while the rest are written. */
 export interface TextToSpeech {
   speak(text: string, signal?: AbortSignal): Promise<Speech>
+  /**
+   * The sentence's speech in pieces as it is made, for an engine that streams (a cloud provider's), so its first words
+   * play before the rest of it is made.
+   */
+  stream?(text: string, signal?: AbortSignal): AsyncIterable<Speech>
 }
 
 /** An OpenAI-compatible `/audio/speech` endpoint (OpenAI, a local Kokoro or Piper server…), asked for WAV. */
