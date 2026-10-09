@@ -127,6 +127,9 @@ export class ColonyAgent {
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
+      // Everything that came in while a step ran is read at the next one, as when someone looks at a busy chat; one
+      // message per step (pi's default) leaves a busy agent further behind with every burst.
+      steeringMode: 'all',
       // Tools see their call's provider metadata and batch: OpenAI's native computer actions arrive that way.
       getToolContext: (call) => (call ? ({ toolCall: call } as never) : undefined),
       // Anthropic's computer toolset calls each action by its own name (left_click, scroll…).
@@ -449,10 +452,18 @@ export class ColonyAgent {
     }
   }
 
-  /** Deliveries that arrived as the turn was ending were never injected; they start the next turn instead. */
+  /**
+   * Deliveries the turn never injected (taken but not yet shown, or still queued when it ended or was cut short) start
+   * the next turn instead, in the order they came; clearing the queues without them would lose them unread.
+   */
   private _requeueUnread() {
-    if (!this._agent.hasQueuedMessages()) return
-    const left = this._agent.peekUndeliveredQueuedMessages()
+    const seen = new Set<number>()
+    const left = [
+      ...this._agent.peekUndeliveredQueuedMessages(),
+      ...this._agent.peekSteeringQueue(),
+      ...this._agent.peekFollowUpQueue(),
+    ].filter((m) => !seen.has(m.timestamp) && seen.add(m.timestamp))
+    if (left.length === 0 && !this._agent.hasQueuedMessages()) return
     this._agent.clearAllQueues()
     for (const m of left) {
       const item = this._unread.get(m.timestamp)
