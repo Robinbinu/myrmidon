@@ -17,6 +17,7 @@ import {
   CUSTOM_APIS,
   type CustomApi,
   channelSendTool,
+  defaultModelRef,
   GreetingWriter,
   gitCommit,
   gitCommitChanges,
@@ -34,6 +35,7 @@ import {
   type McpServerConfig,
   type MemoryStore,
   type ModelResolver,
+  namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
   PHONE_HOOK,
@@ -60,6 +62,7 @@ import {
   TWILIO_API,
   VoiceHub,
   wav,
+  withoutModel,
 } from '@myrmidon/runtime'
 import type { ServerWebSocket } from 'bun'
 import index from './client/index.html'
@@ -367,10 +370,13 @@ export function startServer(options: ServeOptions): WebServer {
     health.set(g.id, next)
     return next
   }
+  /** The lead when Settings names none: omp's default unless the person hid it (`defaultModelRef`). */
+  const automaticLead = (provider?: string) =>
+    options.omp ? defaultModelRef(options.omp, options.settings, provider) : undefined
   /** The team a request gets when it brings none: the person's defaults from Settings. */
   const defaultTeam = () => {
     const team = options.settings?.get().team
-    const leadModel = team?.leadModel ?? options.omp?.defaultModel()
+    const leadModel = team?.leadModel ?? automaticLead()
     if (!leadModel) throw new Error('no default model: pick one in Settings → Team & budget')
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
@@ -438,7 +444,7 @@ export function startServer(options: ServeOptions): WebServer {
           resolver: options.resolver,
           settings: () => {
             const s = settingsStore.get()
-            const fallbackModel = s.team.leadModel ?? options.omp?.defaultModel()
+            const fallbackModel = s.team.leadModel ?? automaticLead()
             return { voice: s.voice, ...(fallbackModel ? { fallbackModel } : {}) }
           },
           ...(options.omp ? { omp: options.omp } : {}),
@@ -1199,7 +1205,7 @@ export function startServer(options: ServeOptions): WebServer {
         const saved = options.settings?.get().team
         return json({
           models,
-          default: saved?.leadModel ?? omp.defaultModel() ?? models[0]?.ref,
+          default: saved?.leadModel ?? automaticLead() ?? models[0]?.ref,
           defaults: saved,
         })
       }),
@@ -1214,6 +1220,45 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ ok: true, ms: Date.now() - started })
           } catch (err) {
             return json({ ok: false, error: err instanceof Error ? err.message : String(err) })
+          }
+        }),
+      },
+      // A custom endpoint's model leaves its list; any other is hidden. Defaults that named it fall back, and the
+      // answer says which, with the lead and chat namer new chats get now.
+      '/api/models/remove': {
+        POST: guard(async (req) => {
+          const { omp, settings } = options
+          if (!omp || !settings) return json({ error: 'models need the chat runtime' }, 503)
+          const { ref } = (await req.json()) as { ref?: unknown }
+          const at = typeof ref === 'string' ? ref.indexOf('/') : -1
+          if (typeof ref !== 'string' || at < 1) return json({ error: 'ref must be provider/model' }, 400)
+          const provider = ref.slice(0, at)
+          const id = ref.slice(at + 1)
+          if (!omp.find(provider, id)) return json({ error: `unknown model ${ref}` }, 404)
+          const before = settings.get()
+          const lead = before.team.leadModel ?? automaticLead()
+          const named = !!lead && namingModel(omp, settings, lead) === ref
+          try {
+            const deleted = await omp.removeModel(provider, id)
+            const { settings: next, cleared } = withoutModel(before, ref, !deleted)
+            let saved = settings.set(next)
+            // An automatic lead or namer that was this model moves on too, which the person should hear about.
+            if (lead === ref && !cleared.includes('lead')) cleared.unshift('lead')
+            if (named) cleared.push('titles')
+            // The lead's replacement is saved, so every way into a chat (this window, channels, calls) gets the same.
+            const replacement = lead === ref ? automaticLead(provider) : undefined
+            if (replacement)
+              saved = settings.set({ ...saved, team: { ...saved.team, leadModel: replacement } })
+            const newLead = saved.team.leadModel ?? automaticLead()
+            return json({
+              removed: deleted ? 'deleted' : 'hidden',
+              cleared,
+              ...(newLead ? { lead: newLead, titles: namingModel(omp, settings, newLead) } : {}),
+              settings: saved,
+              providers: omp.providers(),
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 400)
           }
         }),
       },

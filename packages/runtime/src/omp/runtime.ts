@@ -128,6 +128,11 @@ export interface OmpRuntime {
   addProvider(input: CustomProviderInput): Promise<ProviderInfo>
   updateProvider(name: string, update: ProviderUpdate): Promise<ProviderInfo>
   removeProvider(name: string): Promise<void>
+  /**
+   * Deletes a model from the list a custom provider declares in `models.yml`. False, with nothing changed, when the
+   * provider is built in, discovers its models, or this is its only model: those can only be hidden.
+   */
+  removeModel(provider: string, id: string): Promise<boolean>
   /** Re-reads `models.yml` and asks providers for their current model lists. */
   refreshModels(): Promise<void>
   /**
@@ -385,6 +390,17 @@ async function start(home: string): Promise<OmpRuntime> {
       writeModelsYml(doc)
       await core.credentials.remove(name).catch(() => {})
       await core.registry.refresh('offline').catch(() => {})
+    },
+    async removeModel(provider, id) {
+      const doc = readModelsYml()
+      const entry = doc.providers[provider]
+      const declared = Array.isArray(entry?.models) ? (entry.models as { id?: unknown }[]) : []
+      // An empty list would switch the endpoint to discovering its models, bringing every one back.
+      if (!entry || declared.length < 2 || !declared.some((m) => m.id === id)) return false
+      entry.models = declared.filter((m) => m.id !== id)
+      writeModelsYml(doc)
+      await core.registry.refresh('offline').catch(() => {})
+      return true
     },
     async refreshModels() {
       await core.registry.refresh('online')

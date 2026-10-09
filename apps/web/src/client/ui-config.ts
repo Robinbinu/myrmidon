@@ -22,6 +22,8 @@ export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
 export const UNDO_DELETE_MS = 8000
 /** Takes back the latest delete while it can still be undone; not while typing, where it undoes the typing. */
 export const UNDO_DELETE_COMBO = 'mod+z'
+/** How many titles the sheet deleting several chats names before it says how many more. */
+export const DELETE_TITLES_SHOWN = 5
 
 /* ------------------------------------------------------------------ models */
 

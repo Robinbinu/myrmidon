@@ -34,8 +34,8 @@ import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { isMac } from '../ui/platform.ts'
-import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
-import { comboLabel } from '../ui/shortcuts.ts'
+import { Button, CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
+import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
 import { needsYou, runPhase } from '../ui/status.ts'
 import { useToast } from '../ui/Toast.tsx'
 import { Toolbar } from '../ui/Toolbar.tsx'
@@ -99,7 +99,8 @@ export function Sidebar(props: {
   theme: ThemeChoice
   onTheme(t: ThemeChoice): void
   onSelect(chatId: string): void
-  onDelete(chat: ChatSummary): void
+  /** One chat, or the chats selected together, in list order. */
+  onDelete(chats: ChatSummary[]): void
   onRename(chat: ChatSummary, title: string): Promise<void>
   onExport?(chat: ChatSummary): void
   onNew(): void
@@ -219,18 +220,60 @@ export function Sidebar(props: {
     ...grouped.flatMap((g) => g.chats),
   ].map((c) => c.chatId)
   const tabRow = tabStopRow(shownRows, [lastRow, props.activeChat])
+  // Chats picked together, as in a Mac list: ⌘-click toggles one, ⇧-click takes a range, ⌘A takes all shown, Esc or a
+  // plain click lets go. Only rows on screen count, so a search or a folded project leaves out what it hides.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const anchor = useRef<string>(undefined)
+  const picked = shownRows.filter((id) => selected.has(id))
+  const pickedChats = () => picked.flatMap((id) => props.chats.find((c) => c.chatId === id) ?? [])
+  const shownActive = props.view === 'chat' && props.activeChat && shownRows.includes(props.activeChat)
+  const clearSelection = () => setSelected(new Set())
+  const selectRange = (to: string) => {
+    const from = [anchor.current, shownActive ? props.activeChat : undefined].find(
+      (id) => id !== undefined && shownRows.includes(id),
+    )
+    const a = shownRows.indexOf(from ?? to)
+    const b = shownRows.indexOf(to)
+    setSelected(new Set(shownRows.slice(Math.min(a, b), Math.max(a, b) + 1)))
+    anchor.current = from ?? to
+  }
+  const exportAll = (chats: readonly ChatSummary[]) => {
+    for (const c of chats) props.onExport?.(c)
+  }
+  /** Rows of one heading's chats: a list the person can pick several from. */
+  const rowList = (label: string, chats: readonly ChatSummary[]) =>
+    chats.length > 0 && (
+      <div role="listbox" aria-multiselectable="true" aria-label={label}>
+        {chats.map(row)}
+      </div>
+    )
+  const toggleSelected = (id: string) => {
+    // The open chat counts as selected, as the highlighted row of a Mac list does, so ⌘-click adds to it.
+    const base = picked.length || !shownActive ? picked : [props.activeChat as string]
+    const next = new Set(base)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
+    anchor.current = id
+  }
   // A deleted chat takes its row, and the focus on it, away; the row after it (or before, at the end) takes focus.
-  const afterDelete = useRef<{ chatId: string; next?: string }>(undefined)
+  const afterDelete = useRef<{ chatIds: string[]; next?: string }>(undefined)
+  /** Deletes the row's chat, or the whole selection when the row is part of it. */
   const requestDelete = (c: ChatSummary) => {
-    const at = shownRows.indexOf(c.chatId)
-    afterDelete.current = { chatId: c.chatId, next: shownRows[at + 1] ?? shownRows[at - 1] }
-    props.onDelete(c)
+    const chats = picked.includes(c.chatId) ? pickedChats() : [c]
+    const ids = chats.map((x) => x.chatId)
+    const last = Math.max(...ids.map((id) => shownRows.indexOf(id)))
+    const first = Math.min(...ids.map((id) => shownRows.indexOf(id)))
+    const next = shownRows.slice(last + 1).find((id) => !ids.includes(id)) ?? shownRows[first - 1]
+    afterDelete.current = { chatIds: ids, ...(next ? { next } : {}) }
+    props.onDelete(chats)
   }
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the list of chats changes
   useEffect(() => {
     const pending = afterDelete.current
-    if (!pending || props.chats.some((c) => c.chatId === pending.chatId)) return
+    if (!pending || props.chats.some((c) => pending.chatIds.includes(c.chatId))) return
     afterDelete.current = undefined
+    setSelected(new Set())
     const lost = !document.activeElement || document.activeElement === document.body
     if (lost && pending.next) focusRow(pending.next)
   }, [props.chats])
@@ -238,6 +281,18 @@ export function Sidebar(props: {
     const rows = [...(nav.current?.querySelectorAll<HTMLElement>('[data-chat]') ?? [])]
     const at = rows.indexOf(e.target as HTMLElement)
     if (at === -1) return
+    if (matchCombo('mod+a', e)) {
+      e.preventDefault()
+      setSelected(new Set(shownRows))
+      return
+    }
+    if (e.key === 'Escape' && picked.length) {
+      // Only lets go of the selection; the page around keeps its own Escape for another press.
+      e.preventDefault()
+      e.stopPropagation()
+      clearSelection()
+      return
+    }
     const next =
       e.key === 'ArrowDown'
         ? Math.min(rows.length - 1, at + 1)
@@ -250,7 +305,14 @@ export function Sidebar(props: {
               : undefined
     if (next === undefined) return
     e.preventDefault()
-    rows[next]?.focus()
+    const target = rows[next]
+    target?.focus()
+    // With ⇧ the selection grows from the row it started on, as in a Mac list.
+    const id = target?.dataset.chat
+    if (e.shiftKey && id) {
+      if (!picked.length) anchor.current = rows[at]?.dataset.chat
+      selectRange(id)
+    }
   }
   const toggle = (id: string) =>
     setClosed((s) => {
@@ -269,8 +331,9 @@ export function Sidebar(props: {
     // A chat found only by its messages shows the line that matched.
     const q = query.trim()
     const line = q && !titled(c, q.toLowerCase()) ? said?.get(c.chatId) : undefined
+    const isSelected = selected.has(c.chatId)
     return (
-      <div key={c.chatId} className="group relative">
+      <div key={c.chatId} role="presentation" className="group relative">
         {editing === c.chatId ? (
           <input
             // biome-ignore lint/a11y/noAutofocus: focus moves into the field the user just asked to edit
@@ -297,10 +360,35 @@ export function Sidebar(props: {
             data-chat={c.chatId}
             tabIndex={c.chatId === tabRow ? 0 : -1}
             onFocus={() => setLastRow(c.chatId)}
-            onClick={() => props.onSelect(c.chatId)}
+            // ⇧-click would otherwise select the text of every row it spans.
+            onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+            onClick={(e) => {
+              if (e.shiftKey) return selectRange(c.chatId)
+              if (isMac ? e.metaKey : e.ctrlKey) return toggleSelected(c.chatId)
+              clearSelection()
+              anchor.current = c.chatId
+              props.onSelect(c.chatId)
+            }}
             onDoubleClick={() => startRename(c)}
             onContextMenu={(e) => {
               const m = copy.contextMenu.chat
+              if (picked.length > 1 && isSelected) {
+                const s = copy.sidebar.selection
+                const chats = pickedChats()
+                return openContextMenu(e, s.count(chats.length), [
+                  props.onExport && {
+                    label: s.export(chats.length),
+                    icon: Download,
+                    run: () => exportAll(chats),
+                  },
+                  {
+                    label: s.delete(chats.length),
+                    icon: Trash2,
+                    destructive: true,
+                    run: () => requestDelete(c),
+                  },
+                ])
+              }
               const link = new URL(location.pathname, location.origin)
               link.searchParams.set('chat', c.chatId)
               openContextMenu(e, m.label(c.title), [
@@ -317,18 +405,25 @@ export function Sidebar(props: {
               } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
                 e.preventDefault()
                 requestDelete(c)
+              } else if (e.key === ' ' && (isMac ? e.metaKey : e.ctrlKey)) {
+                // ⌘Space picks the focused row from the keyboard; Space alone opens it, as Enter does.
+                e.preventDefault()
+                toggleSelected(c.chatId)
               }
             }}
             aria-keyshortcuts="F2 Delete Meta+Backspace"
             title={c.title}
             aria-current={on ? 'page' : undefined}
+            role="option"
+            aria-selected={isSelected}
             className={cn(
               'relative flex w-full items-center gap-2 rounded-md pl-2 pr-14 text-left text-body transition-colors',
               line ? 'flex-wrap gap-y-0 py-1' : 'h-7',
-              on ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
+              isSelected && 'bg-row-selected',
+              on || isSelected ? 'text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
             )}
           >
-            {on && (
+            {on && !picked.length && (
               <motion.span
                 layoutId="chat-active"
                 transition={spring}
@@ -442,7 +537,7 @@ export function Sidebar(props: {
             <div className="px-2 pb-1 pt-3 text-caption font-semibold text-muted">
               {copy.sidebar.groups.needsYou}
             </div>
-            {waitingOnYou.map(row)}
+            {rowList(copy.sidebar.groups.needsYou, waitingOnYou)}
           </div>
         )}
         {(props.projects.length > 0 || props.onAddProject) && (
@@ -539,7 +634,7 @@ export function Sidebar(props: {
               </div>
               {open && (
                 <div className="pl-5">
-                  {chats.map(row)}
+                  {rowList(p.name, chats)}
                   {chats.length === 0 && (
                     <p className="px-2 py-1 text-small text-muted">{copy.sidebar.projects.noChats}</p>
                   )}
@@ -561,10 +656,49 @@ export function Sidebar(props: {
         {grouped.map((g) => (
           <div key={g.label}>
             <div className="px-2 pb-1 pt-4 text-caption font-semibold text-muted">{g.label}</div>
-            {g.chats.map(row)}
+            {rowList(g.label, g.chats)}
           </div>
         ))}
       </nav>
+      {picked.length > 0 && (
+        <div
+          role="toolbar"
+          aria-label={copy.sidebar.selection.label}
+          className="mx-2.5 mb-1.5 flex items-center gap-1 rounded-base border border-line bg-fill/60 py-1 pl-2.5 pr-1"
+        >
+          <span className="flex-1 whitespace-nowrap text-callout font-medium text-fg-2" aria-live="polite">
+            {copy.sidebar.selection.count(picked.length)}
+          </span>
+          {props.onExport && (
+            <IconButton
+              size="sm"
+              label={copy.sidebar.selection.export(picked.length)}
+              title={copy.sidebar.selection.export(picked.length)}
+              onClick={() => exportAll(pickedChats())}
+            >
+              <Download className="size-3.5" />
+            </IconButton>
+          )}
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              const first = pickedChats()[0]
+              if (first) requestDelete(first)
+            }}
+          >
+            {copy.sidebar.selection.delete(picked.length)}
+          </Button>
+          <IconButton
+            size="sm"
+            label={copy.sidebar.selection.clear}
+            title={copy.sidebar.selection.clearTitle(comboLabel('escape', isMac))}
+            onClick={clearSelection}
+          >
+            <X className="size-3.5" />
+          </IconButton>
+        </div>
+      )}
       <GatewayChip {...(fullAccess ? { onOpen: () => props.onView('system') } : {})} />
       <div className="grid gap-px border-t border-line p-2.5">
         <button

@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test'
-import type { ModelOption } from '../src/client/api.ts'
-import { fallbackModel, modelName, withoutDatedAliases } from '../src/client/chat/model-list.ts'
+import type { ModelOption, TeamConfig } from '../src/client/api.ts'
+import {
+  fallbackModel,
+  modelName,
+  usersOf,
+  withoutDatedAliases,
+  withoutModel,
+} from '../src/client/chat/model-list.ts'
 
 const model = (provider: string, id: string, name: string): ModelOption => ({
   ref: `${provider}/${id}`,
@@ -81,4 +87,34 @@ test('the picker names each model family in one pattern, whichever registry spel
     'Grok 4.6',
   ])
     expect(modelName(name)).toBe(name)
+})
+
+test("a removed model's users are named, and this window's crew moves to the new lead", () => {
+  const config: TeamConfig = {
+    mode: 'orchestrated',
+    leadModel: 'a/gone',
+    roster: [
+      { role: 'researcher', model: 'a/gone' },
+      { role: 'coder', model: 'b/kept' },
+    ],
+    extraWorkers: 2,
+    judgeModel: 'a/gone',
+  }
+  const saved = { team: { leadModel: 'b/kept' }, voice: { callModel: 'a/gone' } }
+  expect(usersOf('a/gone', config, saved)).toEqual(['lead', 'crewmates', 'reviewer', 'call'])
+  expect(usersOf('b/kept', config, saved)).toEqual(['lead', 'crewmates'])
+  expect(usersOf('c/none', config, saved)).toEqual([])
+
+  expect(withoutModel(config, 'a/gone', 'b/kept')).toEqual({
+    ...config,
+    leadModel: 'b/kept',
+    roster: [
+      { role: 'researcher', model: 'b/kept' },
+      { role: 'coder', model: 'b/kept' },
+    ],
+    judgeModel: 'b/kept',
+  })
+  // A crewmate on the removed model follows the lead the person kept.
+  const kept = { ...config, leadModel: 'b/kept', judgeModel: 'b/kept' }
+  expect(withoutModel(kept, 'a/gone', 'c/new').roster[0]?.model).toBe('b/kept')
 })
