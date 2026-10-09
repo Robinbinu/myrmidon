@@ -107,7 +107,8 @@ in parallel; phase 2 (design system, copy) touches every screen and runs after p
 
 ### [decide] New
 
-- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead?
+- [ ] Chat naming uses the lead model (up to 3 calls per chat) — a cheap model instead? **Decided 2026-10-09: yes,
+      the cheapest fast model available, falling back to the lead's.**
 
 ## UX audit (2026-10-08)
 
@@ -201,13 +202,14 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Settings navigation** — 14 flat sections in an odd order; group into Setup (Models, Team & budget,
       Reviewer), Agents (Specialists, Instructions, Memory, Skills), Extend (Tools, Plugins, Hooks, Schedules),
       You (General, You & mascot, Devices); at 960 wide the nav and app sidebar leave ~400px.
-- [ ] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
-      select for hundreds of models → ModelPicker.
+- [x] **New specialists get every tool** (Web, Shell, Files, Browser, MCP) — start from the least access; native
+      select for hundreds of models → ModelPicker. (Default tools kept on, decided 2026-10-09.)
       **Left:** validation and ModelPicker done; the default tool set is unchanged, see [decide].
 - [x] **Providers page** — jargon ("omp's provider stack in-process", models.dev), a raw folder path, 80 sign-ins,
       "Sign in again" but no Sign out; Devices offers "Pair a device" on a local-only install; the Hooks "run as
       you, outside the sandbox" warning is plain small text.
-- [ ] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
+- [x] **Skills page** — every `~/.claude/skills` skill is on by default, shown as walls of text with raw paths.
+      (Kept on, decided 2026-10-09.)
       **Left:** descriptions clamped and paths moved to tooltips; which skills are on by default is a [decide] item below.
 
 ### F — First run, loading & errors (`App.tsx`, `chat/Hero.tsx`, `api.ts`, `DeviceGate.tsx`, `chat/FolderPicker.tsx`)
@@ -235,7 +237,7 @@ server down). Letters are fix groups; each group owns its files so they can be w
       why; the rail doesn't scroll at 600px tall; Team tab has no empty state.
 - [ ] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
       **Left:** message search done; undo after deleting a chat skipped (delete removes the folder at once; undo needs a pending-delete state).
-- [ ] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles.
+- [x] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles. (Done as 12b.)
       **Left:** not done: short titles need a model call (cost), see [decide].
 - [x] **Unexplained sidebar numbers** (5, 2, 3).
 - [x] **Dead mobile code** contradicts the 960px minimum (`App.tsx:559-583`, Sidebar `md:` variants).
@@ -266,17 +268,22 @@ server down). Letters are fix groups; each group owns its files so they can be w
 ### [decide] Product calls
 
 - [ ] Default project permission is **Autonomous** (edits and commands without asking) — make "Ask first" the
-      default?
-- [ ] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap?
-- [ ] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok?
-- [ ] **"Approve all for this chat"** on approval cards (7 approvals for one small fix).
+      default? **Decided 2026-10-09: Ask first.**
+- [ ] Spend limit per round defaults to **0 = no limit** (one stored run cost $6.90) — default cap? **Decided
+      2026-10-09: $5 per run.**
+- [x] Helpers default to **Claude Opus 5.5**; pickers show no prices — cheaper default, show $/Mtok? **Decided
+      2026-10-09: keep as is.**
+- [ ] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
+      per chat, per kind of step, shown as a chip that can be revoked.**
 - [ ] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
       files.
-- [ ] Merge Crews (ColonyScreen) into the chat Workspace so there is one console.
-- [ ] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
-- [ ] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on?
-- [ ] Short generated chat titles (one cheap model call per new chat)?
+- [x] Merge Crews (ColonyScreen) into the chat Workspace so there is one console. **Decided 2026-10-09: keep both.**
+- [x] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
+      **Decided 2026-10-09: keep everything on.**
+- [x] Every `~/.claude/skills` skill is on by default for Myrmidon agents — off until switched on? **Decided
+      2026-10-09: keep on.**
+- [x] Short generated chat titles (one cheap model call per new chat)? Done as 12b; cheap model decided above.
 
 ## Next
 
@@ -390,7 +397,8 @@ Open work, in the order it will be done:
       - [ ] Phone calls (Twilio Media Streams into the same pipeline), as OpenClaw does.
       - [ ] Phonon's streaming endpoint (`/v1/audio/stream`) for partial transcripts, to answer sooner.
       - [ ] Phonon `--hotwords` from agent and project names.
-      - [ ] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode.
+      - [x] Realtime speech-to-speech models (OpenAI Realtime, Gemini Live) as another call mode. **Not now
+        (decided 2026-10-09).**
 12b. - [x] **Smart chat names** (asked 2026-10-08) — done: after a round the lead's model names the chat from what it
       is about (Open WebUI's task-model pattern); "hi" has nothing to name, so it tries again after rounds 2 and 3.
       Names given by the person, a channel or a schedule are kept (`chat/renamed` now says `by: 'auto'` for ours).
@@ -418,7 +426,7 @@ Open work, in the order it will be done:
 13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
       2026-10-07-native-ui).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
-      fetching in omp to close rebinding (69456b5 notes).
+      fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
 15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
       through their endpoints (the browser pane was hidden).
 16. - [ ] **M4.7 benchmarks** (deferred).
