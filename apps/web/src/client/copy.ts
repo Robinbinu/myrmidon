@@ -528,6 +528,7 @@ export const copy = {
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
       'chat/allowed': 'allowed for this chat',
+      'chat/permissions': 'chat permissions set',
       'colony/failed': 'crew failed',
       'colony/completed': 'crew completed',
       'agent/status': 'status changed',
