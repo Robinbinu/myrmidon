@@ -63,24 +63,7 @@ export function PermissionsPage(props: {
       <AccessMatrix
         levels={{ global: level }}
         scope="global"
-        {...(props.computerUse
-          ? {}
-          : {
-              off: {
-                computer: (
-                  <>
-                    {t.access.computerOff}{' '}
-                    <button
-                      type="button"
-                      onClick={props.onSetUpComputer}
-                      className="text-accent-fg underline-offset-2 hover:underline"
-                    >
-                      {t.access.computerOn}
-                    </button>
-                  </>
-                ),
-              },
-            })}
+        {...(props.computerUse ? {} : { computerOff: { onSetUp: props.onSetUpComputer } })}
         onChange={(access) => {
           const { access: _, ...rest } = level
           props.onChange(access ? { ...rest, access } : rest, true)

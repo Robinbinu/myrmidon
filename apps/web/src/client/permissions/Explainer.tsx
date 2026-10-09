@@ -11,7 +11,7 @@ import type { Project } from '../api.ts'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { cn, Select, TextInput } from '../ui/primitives.tsx'
-import { ACCESS_INFO, type CatalogTool, callFor, sourceText } from './describe.ts'
+import { ACCESS_INFO, type CatalogTool, callFor, mcpToolPrefix, sourceText } from './describe.ts'
 
 const t = copy.permissions.explain
 const OUTCOME: Record<RuleDecision, { tone: string; icon: typeof Check }> = {
@@ -22,7 +22,7 @@ const OUTCOME: Record<RuleDecision, { tone: string; icon: typeof Check }> = {
 
 /** A tool's name for people, from the list of names or, for an MCP tool, its own name after the server's. */
 function toolName(tool: CatalogTool) {
-  if (tool.server) return tool.name.replace(`mcp__${tool.server}_`, '').replace(/_/g, ' ')
+  if (tool.server) return tool.name.replace(mcpToolPrefix(tool.server), '').replace(/_/g, ' ')
   return t.names[tool.name] ?? tool.name
 }
 

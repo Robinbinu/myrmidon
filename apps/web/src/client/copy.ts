@@ -1264,6 +1264,9 @@ export const copy = {
       sensitive:
         'This folder holds keys or sign-ins. Agents can read anything in it, and what they read can end up in a reply or leave over the network. Allow it only if the task needs it.',
       allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
+      /** The request was allowed, but opening the folder for the whole chat then failed. */
+      onceOnly: (folder: string, why: string) =>
+        `Allowed reading ${folder} this once, but it could not be opened for the rest of the chat: ${why}`,
       chip: (name: string) => `Reads ${name}`,
       chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
       revoke: (folder: string) => `Stop agents reading ${folder}`,
@@ -3199,7 +3202,8 @@ export const copy = {
         return `${n}${suffix}`
       },
       describe: {
-        hourly: (minute: string) => `Every hour at :${minute}`,
+        /** `minute` as the locale writes it, separator included (":15"). */
+        hourly: (minute: string) => `Every hour at ${minute}`,
         daily: (time: string) => `Every day at ${time}`,
         weekdays: (time: string) => `Weekdays at ${time}`,
         days: (days: string, time: string) => `${days} at ${time}`,

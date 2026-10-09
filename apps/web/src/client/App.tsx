@@ -91,7 +91,6 @@ import {
   readStored,
   useFollowLatest,
   useHotkeys,
-  useMinWidth,
   usePersistentFlag,
   useReduceMotion,
   useTheme,
@@ -104,6 +103,7 @@ import { Sheet } from './ui/Sheet.tsx'
 import { ShortcutList } from './ui/ShortcutList.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel, pressShortcut } from './ui/shortcuts.ts'
+import { useSidebarPlacement } from './ui/sidebar-placement.ts'
 import { needsYou, runPhase } from './ui/status.ts'
 import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
@@ -114,7 +114,6 @@ import {
   DELETE_TITLES_SHOWN,
   MAX_FILE_BYTES,
   SETUP_HANDOFF_MS,
-  SIDEBAR_DOCK_PX,
   softSpring,
   UNDO_DELETE_COMBO,
 } from './ui-config.ts'
@@ -327,17 +326,18 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
-  // A narrow window keeps the sidebar off the page and slides it over the page when asked for; whether the docked
-  // sidebar is hidden stays the person's choice for wide windows.
-  const docked = useMinWidth(SIDEBAR_DOCK_PX)
-  const [drawer, setDrawer] = useState(false)
-  const sidebarBeside = docked && !collapsed
-  const toggleSidebar = () => (docked ? setCollapsed(!collapsed) : setDrawer(!drawer))
-  // Going somewhere from the drawer puts it away, as picking a page from a phone's menu does.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each change of place
-  useEffect(() => {
-    setDrawer(false)
-  }, [activeChat, view, settingsOpen, docked])
+  const placement = useSidebarPlacement({
+    collapsed,
+    setCollapsed,
+    place: `${view} ${activeChat ?? ''} ${settingsOpen}`,
+    // Leaving the drawer for a chat or a page: the message box if there is one, else the page's first control.
+    onAway: () =>
+      composer.current
+        ? composer.current.focus()
+        : document.querySelector<HTMLElement>('main button, main a[href], main input')?.focus(),
+  })
+  const sidebarBeside = placement.beside
+  const toggleSidebar = placement.toggle
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
@@ -748,17 +748,19 @@ export function App() {
   const newTask = useCallback(
     (project?: string) =>
       leaveSettings(() => {
+        placement.away()
         setNewProject(project)
         setActiveChat(undefined)
         setView('chat')
         setSettingsOpen(false)
         requestAnimationFrame(() => composer.current?.focus())
       }),
-    [setActiveChat, leaveSettings],
+    [setActiveChat, leaveSettings, placement.away],
   )
 
   const openChat = (id: string) =>
     leaveSettings(() => {
+      placement.away()
       setActiveChat(id)
       setView('chat')
       setSettingsOpen(false)
@@ -1054,7 +1056,7 @@ export function App() {
       }
       onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
       onGateways={() => leaveSettings(() => openSettings('gateways'))}
-      onCollapse={() => (docked ? setCollapsed(true) : setDrawer(false))}
+      onCollapse={() => (placement.docked ? setCollapsed(true) : placement.close())}
     />
   )
 
@@ -1320,12 +1322,8 @@ export function App() {
               <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />
             )}
             <AnimatePresence>
-              {!docked && drawer && (
-                <Drawer
-                  label={copy.sidebar.label}
-                  width={sidebarSplit.width}
-                  onClose={() => setDrawer(false)}
-                >
+              {placement.drawer && (
+                <Drawer label={copy.sidebar.label} width={sidebarSplit.width} onClose={placement.close}>
                   {sidebar}
                 </Drawer>
               )}

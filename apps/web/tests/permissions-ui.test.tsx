@@ -113,7 +113,23 @@ test('an approval card answers once by default, and its menu remembers the answe
         m.textContent?.startsWith(t.scopes.global),
       ) as HTMLElement,
     )
-    await click(byText(doc, t.confirm.allow(t.target.everyCommand, t.confirm.where.global)))
+    const confirm = byText(doc, t.confirm.allow(t.target.everyCommand, t.confirm.where.global))
+    // A held Enter's repeats, and the second click of a double-click, land on it at once: neither says yes.
+    const repeat = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      repeat: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => {
+      confirm.dispatchEvent(repeat)
+    })
+    expect(repeat.defaultPrevented).toBe(true)
+    await click(confirm)
+    expect(sent).toEqual([])
+    const { CONFIRM_ARM_DELAY_MS } = await import('../src/client/ui-config.ts')
+    await act(async () => Bun.sleep(CONFIRM_ARM_DELAY_MS))
+    await click(confirm)
     expect(sent).toEqual([
       {
         url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-1'),
@@ -506,12 +522,13 @@ test('while computer use is off, its switches are off and say where to turn it o
   const { AccessMatrix } = await import('../src/client/permissions/AccessMatrix.tsx')
   const { copy } = await import('../src/client/copy.ts')
   const t = copy.permissions.access
+  let setUp = 0
   const { host, unmount } = await (
     await page(
       <AccessMatrix
         levels={{ global: { preset: 'auto', rules: [] } }}
         scope="global"
-        off={{ computer: t.computerOff }}
+        computerOff={{ onSetUp: () => setUp++ }}
         onChange={() => {}}
       />,
     )
@@ -523,6 +540,8 @@ test('while computer use is off, its switches are off and say where to turn it o
     expect(computer.disabled).toBe(true)
     expect(computer.closest('tr')?.textContent).toContain(t.computerOff)
     expect(byLabel(doc, t.toggle(t.groups.web.label, t.lead)).getAttribute('aria-checked')).toBe('true')
+    await click(byText(doc, t.computerOn))
+    expect(setUp).toBe(1)
   } finally {
     await unmount()
   }
@@ -542,6 +561,9 @@ test('the tools to check are listed by names people know, grouped, with the id a
           { name: 'request_final_verification', description: '' },
           { name: 'mcp', description: '', mcp: true },
           { name: 'mcp__stagehand_browserbase_screenshot', description: '', mcp: true, server: 'stagehand' },
+          // Tool names carry the server's name folded as omp folds it: lower case, other characters as one _.
+          { name: 'mcp__chrome_devtools_click', description: '', mcp: true, server: 'chrome-devtools' },
+          { name: 'mcp__my_server_list_files', description: '', mcp: true, server: 'My Server' },
         ]}
       />,
     )
@@ -560,6 +582,8 @@ test('the tools to check are listed by names people know, grouped, with the id a
         t.mcpGroup('stagehand'),
         [t.option('browserbase screenshot', 'mcp__stagehand_browserbase_screenshot')],
       ],
+      [t.mcpGroup('chrome-devtools'), [t.option('click', 'mcp__chrome_devtools_click')]],
+      [t.mcpGroup('My Server'), [t.option('list files', 'mcp__my_server_list_files')]],
     ])
   } finally {
     await unmount()

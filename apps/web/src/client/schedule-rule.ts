@@ -97,6 +97,19 @@ const pad = (n: number) => String(n).padStart(2, '0')
 export const timeText = (hour: number, minute: number, locale?: string) =>
   new Date(2000, 0, 1, hour, minute).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })
 
+/**
+ * Minutes past the hour in the same locale, with the separator it writes before them (":05", or ".05"), for the
+ * picker's minute list and "every hour at".
+ */
+export function minuteText(minute: number, locale?: string) {
+  const parts = new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).formatToParts(
+    new Date(2000, 0, 1, 9, minute),
+  )
+  const at = parts.findIndex((p) => p.type === 'minute')
+  const before = parts[at - 1]
+  return `${before?.type === 'literal' ? before.value.trim() : ':'}${parts[at]?.value ?? pad(minute)}`
+}
+
 /** An hour alone in the same locale (9 AM, or 09), for the picker's hour list. */
 export const hourText = (hour: number, locale?: string) =>
   new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: 'numeric' })
@@ -115,7 +128,7 @@ export function describeCron(cron: string, locale?: string): string {
   const time = timeText(rule.hour, rule.minute, locale)
   switch (rule.repeat) {
     case 'hourly':
-      return t.describe.hourly(pad(rule.minute))
+      return t.describe.hourly(minuteText(rule.minute, locale))
     case 'daily':
       return t.describe.daily(time)
     case 'weekdays':

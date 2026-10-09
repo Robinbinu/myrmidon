@@ -7,7 +7,6 @@ import {
   roleAccess,
 } from '@myrmidon/protocol'
 import { RotateCcw } from 'lucide-react'
-import type { ReactNode } from 'react'
 import { copy } from '../copy.ts'
 import { cn, IconButton, Switch } from '../ui/primitives.tsx'
 import { ACCESS_INFO, scopeLabel } from './describe.ts'
@@ -31,8 +30,11 @@ export function AccessMatrix(props: {
   disabled?: boolean
   /** Tighter rows without each group's line, for a sheet with more below it. */
   compact?: boolean
-  /** Groups switched off elsewhere (computer use, in its own Settings page), with what to say in their row instead. */
-  off?: Partial<Record<AccessGroup, ReactNode>>
+  /**
+   * Computer use is off in its own Settings page, so no switch here can give it: its row shows off, says so, and
+   * offers to set it up there.
+   */
+  computerOff?: { onSetUp(): void }
 }) {
   const own = props.levels[props.scope]?.access
   const set = (role: AgentRole, group: AccessGroup, on: boolean | undefined) => {
@@ -69,8 +71,17 @@ export function AccessMatrix(props: {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-body font-medium text-fg">{g.label}</span>
-                    {props.off?.[g.group] ? (
-                      <span className="block text-small text-muted">{props.off[g.group]}</span>
+                    {g.group === 'computer' && props.computerOff ? (
+                      <span className="block text-small text-muted">
+                        {t.computerOff}{' '}
+                        <button
+                          type="button"
+                          onClick={props.computerOff.onSetUp}
+                          className="text-accent-fg underline-offset-2 hover:underline"
+                        >
+                          {t.computerOn}
+                        </button>
+                      </span>
                     ) : (
                       !props.compact && <span className="block truncate text-small text-muted">{g.hint}</span>
                     )}
@@ -80,7 +91,7 @@ export function AccessMatrix(props: {
               {ROLES.map((r) => {
                 const now = roleAccess(props.levels, r.role, g.group)
                 const here = own?.[r.role]?.[g.group] !== undefined
-                const off = !!props.off?.[g.group]
+                const off = g.group === 'computer' && !!props.computerOff
                 return (
                   <td
                     key={r.role}

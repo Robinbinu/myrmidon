@@ -163,3 +163,40 @@ test('a request to read a folder of keys warns, and offers it once or for this c
     await unmount()
   }
 })
+
+test('when the read is allowed but the folder cannot be opened for the chat, the person is told just that', async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL) =>
+    String(input).includes('/readable')
+      ? Response.json({ error: 'at most 20 folders in one chat' }, { status: 422 })
+      : Response.json({})) as unknown as typeof fetch
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const request = {
+    id: 'approval-2',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/Documents/specs',
+    read: '/Users/me/Documents/specs',
+    time: '',
+  }
+  const { host, unmount } = await mount(
+    <MotionConfig reducedMotion="always">
+      <ToastProvider>
+        <Approval colonyId="colony-1" chatId="chat-1" request={request} />
+      </ToastProvider>
+    </MotionConfig>,
+  )
+  const doc = host.ownerDocument
+  try {
+    await act(async () => {
+      buttonIn(doc, copy.approvals.reads.approveAll).click()
+      await Bun.sleep(10)
+    })
+    expect(doc.body.textContent).toContain(
+      copy.approvals.reads.onceOnly('/Users/me/Documents/specs', 'at most 20 folders in one chat'),
+    )
+  } finally {
+    await unmount()
+  }
+})
