@@ -496,6 +496,7 @@ export const copy = {
   hero: {
     headline: 'What should the crew build?',
     poke: 'Make the mascot react',
+    recent: 'Recent chats',
     /** What the mascot's screen spells out in dots (letters, digits and a few signs only). */
     screen: {
       hello: (name: string) => `HI ${name.toUpperCase()}`,
@@ -673,6 +674,62 @@ export const copy = {
       typeFirst: 'Type first',
     },
     footer: { move: 'move', choose: 'choose', run: 'run', complete: 'complete', close: 'close' },
+  },
+
+  /** The ⌘K menu: one field to reach any chat, project, Settings page or app action. */
+  palette: {
+    label: 'Command menu',
+    placeholder: 'Search chats, projects, settings and actions',
+    results: 'Results',
+    groups: { actions: 'Actions', chats: 'Chats', projects: 'Projects', settings: 'Settings' },
+    actions: {
+      newChat: 'New chat',
+      toggleSidebar: 'Show or hide the sidebar',
+      toggleWorkspace: 'Show or hide the workspace',
+      settings: 'Open Settings',
+      shortcuts: 'Keyboard shortcuts',
+      export: 'Export this chat as Markdown',
+      crewConsole: 'Open the crew console',
+    },
+    newChatIn: (name: string) => `New chat in ${name}`,
+    noMatches: (query: string) => `Nothing matches “${query}”.`,
+    footer: { move: 'move', open: 'open', close: 'close' },
+  },
+
+  /** Right-click menus: on a chat, a project, a message, a file, a command or an address. */
+  contextMenu: {
+    chat: {
+      label: (title: string) => `Chat “${title}”`,
+      rename: 'Rename',
+      export: 'Export as Markdown',
+      copyLink: 'Copy link',
+      linkCopied: 'Link copied',
+      delete: 'Delete chat',
+    },
+    project: {
+      label: (name: string) => `Project ${name}`,
+      newChat: 'New chat here',
+      permissions: 'Permissions',
+      copyPath: 'Copy folder path',
+      pathCopied: 'Folder path copied',
+    },
+    message: {
+      label: 'Message',
+      copy: 'Copy',
+      copyMarkdown: 'Copy as Markdown',
+    },
+    link: {
+      label: (url: string) => `Link ${url}`,
+      open: 'Open link',
+      copy: 'Copy link',
+    },
+    file: {
+      label: (name: string) => `File ${name}`,
+      open: 'Open',
+      copyName: 'Copy name',
+    },
+    copy: 'Copy',
+    copied: 'Copied',
   },
 
   sidebar: {
@@ -2487,11 +2544,19 @@ export const copy = {
       openSettings: 'Open settings',
       send: 'Send message',
       newLine: 'New line',
-      close: 'Close dialogs and panels',
+      close: 'Close sheets, menus and panels',
       muteCall: 'Mute or unmute a call',
       hangUp: 'Hang up a call',
       /** ⌥⌘1 to ⌥⌘0 open the workspace panel's views in the order they sit down its rail. */
       workspaceView: 'Show a workspace view, in rail order',
+      commandMenu: 'Command menu: chats, projects, settings and actions',
+      showShortcuts: 'Show keyboard shortcuts',
+      /** ⌘1 to ⌘9 open the chats in the order the sidebar lists them. */
+      jumpToChat: 'Open a chat, in sidebar order',
+      previousChat: 'Previous chat',
+      nextChat: 'Next chat',
+      stopRun: 'Stop the run',
+      groups: { app: 'App', window: 'Window', chat: 'Chat', calls: 'Calls' },
     },
     about: {
       title: 'About Myrmidon',

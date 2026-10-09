@@ -12,6 +12,10 @@ export const popSpring = { type: 'spring', stiffness: 520, damping: 17 } as cons
 export const lookSpring = { type: 'spring', stiffness: 420, damping: 30 } as const
 /** A plain fade: a dialog's backdrop, a toast leaving. */
 export const fade = { duration: 0.15 } as const
+/** A context menu appearing and leaving: quick, as a Mac's do, with no travel. */
+export const menuFade = { duration: 0.1 } as const
+/** The least room a context menu keeps between itself and the window's edges. */
+export const MENU_EDGE_PX = 8
 /** How long a toast stays: one with a button long enough to reach for it, an error long enough to read. */
 export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
 /** How long a deleted chat can be taken back: it is only hidden until then, and deleted for good after. */
@@ -49,6 +53,14 @@ export const TOOLBAR_FOLD_SLACK_PX = 24
  * it opens only when asked for, never by itself because a chat has files.
  */
 export const WORKSPACE_DOCK_PX = 1280
+
+/* ------------------------------------------------------------------ command menu */
+
+/** How many of each group the command menu (⌘K) lists: with nothing typed, and while typing. */
+export const PALETTE_LIMITS = {
+  idle: { actions: 8, chats: 5, projects: 3, settings: 0 },
+  searching: { actions: 6, chats: 8, projects: 5, settings: 6 },
+} as const
 
 /* ------------------------------------------------------------------ sidebar */
 
@@ -103,10 +115,12 @@ export const MASCOT_DOZE_MS = 45_000
 /** The user's own pointer outranks the crew's for this long after it moves. */
 export const MASCOT_USER_FOCUS_MS = 2500
 /**
- * Windows shorter than this leave the mascot off the entry page: its screen (about 300px) would push the message box
- * and the starters below the fold, and they matter more.
+ * Windows shorter than this leave the mascot off the new-chat view: its screen (about 180px) would push the message
+ * box and the starters below the fold, and they matter more.
  */
-export const HERO_MASCOT_MIN_HEIGHT = 760
+export const HERO_MASCOT_MIN_HEIGHT = 640
+/** How many of the latest chats the new-chat view lists under its starters. */
+export const HERO_RECENT_CHATS = 5
 
 /* ------------------------------------------------------------------ crew cursors */
 

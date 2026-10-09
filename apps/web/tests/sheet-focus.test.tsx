@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { emptyColonyState } from '@myrmidon/protocol'
 import { AnimatePresence } from 'motion/react'
 import { act, type ReactNode, useState } from 'react'
-import { Modal } from '../src/client/ui/Modal.tsx'
+import { Sheet } from '../src/client/ui/Sheet.tsx'
 import { mount, press, withDom } from './dom.ts'
 
 withDom()
@@ -68,7 +68,7 @@ function Stacked(props: { nested: boolean; closed: string[] }) {
   const confirmation = (
     <AnimatePresence>
       {confirm && (
-        <Modal
+        <Sheet
           title="Confirm"
           onClose={() => {
             props.closed.push('Confirm')
@@ -76,7 +76,7 @@ function Stacked(props: { nested: boolean; closed: string[] }) {
           }}
         >
           <button type="button">Yes</button>
-        </Modal>
+        </Sheet>
       )}
     </AnimatePresence>
   )
@@ -87,7 +87,7 @@ function Stacked(props: { nested: boolean; closed: string[] }) {
       </button>
       <AnimatePresence>
         {settings && (
-          <Modal
+          <Sheet
             title="Settings"
             onClose={() => {
               props.closed.push('Settings')
@@ -98,7 +98,7 @@ function Stacked(props: { nested: boolean; closed: string[] }) {
               Delete
             </button>
             {props.nested && confirmation}
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
       {!props.nested && confirmation}
@@ -133,7 +133,7 @@ test('a dialog that opens already holding another sits below it, so Escape close
     return (
       <AnimatePresence>
         {outer && (
-          <Modal
+          <Sheet
             title="Outer"
             onClose={() => {
               closed.push('Outer')
@@ -142,7 +142,7 @@ test('a dialog that opens already holding another sits below it, so Escape close
           >
             <AnimatePresence>
               {inner && (
-                <Modal
+                <Sheet
                   title="Inner"
                   onClose={() => {
                     closed.push('Inner')
@@ -150,10 +150,10 @@ test('a dialog that opens already holding another sits below it, so Escape close
                   }}
                 >
                   <button type="button">Inner action</button>
-                </Modal>
+                </Sheet>
               )}
             </AnimatePresence>
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     )
@@ -172,7 +172,7 @@ test('focus moves into a dialog as it opens, Tab and Shift+Tab stay inside it, a
       <button type="button">Behind</button>
       <Opener label="Open">
         {(close) => (
-          <Modal
+          <Sheet
             title="Dialog"
             onClose={() => {
               closes++
@@ -181,7 +181,7 @@ test('focus moves into a dialog as it opens, Tab and Shift+Tab stay inside it, a
           >
             <button type="button">One</button>
             <button type="button">Two</button>
-          </Modal>
+          </Sheet>
         )}
       </Opener>
     </>,
@@ -228,9 +228,9 @@ test('the Close button and a press on the backdrop close a dialog and give focus
   await show(
     <Opener label="Open">
       {(close) => (
-        <Modal title="Dialog" onClose={close}>
+        <Sheet title="Dialog" onClose={close}>
           Body
-        </Modal>
+        </Sheet>
       )}
     </Opener>,
   )

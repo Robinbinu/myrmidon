@@ -26,6 +26,7 @@ import {
   useStickToBottom,
 } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { AgentAvatar, agentColor, DotMatrix } from '../ui/pixel.tsx'
 import { isMac } from '../ui/platform.ts'
 import {
@@ -464,6 +465,12 @@ function WorkspaceBody({
                                 key={name}
                                 type="button"
                                 onClick={() => setFile(name)}
+                                onContextMenu={(e) =>
+                                  openContextMenu(e, copy.contextMenu.file.label(name), [
+                                    { label: copy.contextMenu.file.open, run: () => setFile(name) },
+                                    copyAction(copy.contextMenu.file.copyName, name),
+                                  ])
+                                }
                                 className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-fill"
                               >
                                 <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent-fg">
@@ -600,9 +607,9 @@ function WorkspaceBody({
                                         label={<span className="block truncate">{t.subject}</span>}
                                         className="check-line"
                                         checked={t.status === 'verified'}
-                                        color="var(--text)"
+                                        color="var(--label)"
                                         fillColor="var(--ok)"
-                                        checkColor="var(--bg)"
+                                        checkColor="var(--window)"
                                         boxSize={18}
                                         boxRadius={6}
                                         fontSize={13.5}
@@ -716,6 +723,11 @@ function WorkspaceBody({
                                   <button
                                     type="button"
                                     onClick={() => shellFolds.toggle(s.id)}
+                                    onContextMenu={(e) =>
+                                      openContextMenu(e, s.command, [
+                                        copyAction(copy.contextMenu.copy, s.command),
+                                      ])
+                                    }
                                     aria-expanded={open}
                                     className="block w-full px-3.5 py-3 text-left hover:bg-white/[0.03]"
                                   >

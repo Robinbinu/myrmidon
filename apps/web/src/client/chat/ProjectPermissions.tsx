@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, TextArea } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 
 export type PermissionMode = 'auto' | 'ask' | 'read-only'
@@ -72,7 +72,7 @@ export function ProjectPermissions(props: {
     }
   }
   return (
-    <Modal
+    <Sheet
       title={copy.permissions.title(props.project.name)}
       onClose={props.onClose}
       size="sm"
@@ -136,6 +136,6 @@ export function ProjectPermissions(props: {
         )}
         <p className="text-small text-muted">{copy.permissions.appliesFrom}</p>
       </div>
-    </Modal>
+    </Sheet>
   )
 }

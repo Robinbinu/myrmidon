@@ -119,14 +119,6 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 120ms;
   --med: 200ms;
-  /* Older names, kept until every screen uses the ones above. */
-  --bg: var(--window);
-  --surface: var(--content);
-  --border: var(--separator);
-  --border-strong: var(--separator-strong);
-  --text: var(--label);
-  --text-2: var(--label-2);
-  --muted: var(--label-3);
   color-scheme: light;
 }
 

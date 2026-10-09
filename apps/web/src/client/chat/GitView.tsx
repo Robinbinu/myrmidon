@@ -17,9 +17,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { agentColor, inkOn } from '../ui/pixel.tsx'
 import { Button, CountBadge, cn, Empty, IconButton } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import {
   type DiffFile,
@@ -538,7 +538,7 @@ export function GitView({ project }: { project: string }) {
 
       <AnimatePresence>
         {discard && (
-          <Modal
+          <Sheet
             title={copy.git.discardDialog.title}
             onClose={() => !busy && setDiscard(undefined)}
             size="sm"
@@ -571,7 +571,7 @@ export function GitView({ project }: { project: string }) {
                 </Button>
               </div>
             </div>
-          </Modal>
+          </Sheet>
         )}
         {full && <FullView key="full" project={project} target={full} onClose={() => setFull(undefined)} />}
       </AnimatePresence>
@@ -675,7 +675,7 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
   const anchor = (path: string) => `diff-${path.replace(/[^a-zA-Z0-9]/g, '-')}`
 
   return (
-    <Modal
+    <Sheet
       title={target.kind === 'working' ? copy.git.full.uncommitted : target.commit.subject}
       onClose={props.onClose}
       size="full"
@@ -782,6 +782,6 @@ function FullView(props: { project: string; target: Target; onClose(): void }) {
           </div>
         )}
       </div>
-    </Modal>
+    </Sheet>
   )
 }

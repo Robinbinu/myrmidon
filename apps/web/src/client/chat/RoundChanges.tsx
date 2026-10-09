@@ -4,8 +4,8 @@ import { AnimatePresence } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { api, send } from '../api.ts'
 import { copy } from '../copy.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { Button } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { type DiffFile, DiffView } from './DiffView.tsx'
 
@@ -155,7 +155,7 @@ export function RoundChanges(props: {
       )}
       <AnimatePresence>
         {confirm && changes && (
-          <Modal title={copy.roundChanges.confirm.title} onClose={() => !busy && setConfirm(false)} size="sm">
+          <Sheet title={copy.roundChanges.confirm.title} onClose={() => !busy && setConfirm(false)} size="sm">
             <div className="flex flex-col gap-4">
               {skipped.length === 0 ? (
                 <p className="text-reading leading-relaxed text-fg-2">
@@ -210,7 +210,7 @@ export function RoundChanges(props: {
                 </div>
               )}
             </div>
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     </div>

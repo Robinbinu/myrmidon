@@ -16,6 +16,7 @@ import {
   GitBranch,
   Globe,
   GraduationCap,
+  Keyboard,
   KeyRound,
   ListChecks,
   ListFilter,
@@ -148,4 +149,6 @@ export const FEATURE_ICONS = {
   agentShell: SquareTerminal,
   /** The live record of what the crew did. */
   activity: Activity,
+  /** Keyboard shortcuts: the shortcuts sheet (⌘/) and its list in Settings. */
+  shortcuts: Keyboard,
 } as const

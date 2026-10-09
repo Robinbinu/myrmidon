@@ -534,7 +534,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             addFiles(e.dataTransfer.files)
           }}
           className={cn(
-            'rounded-4xl border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
+            'rounded-xl border border-line-strong bg-surface shadow-pop transition-[box-shadow,border-color] duration-200 focus-within:border-accent/50 focus-within:shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
             dragging && 'border-accent/60 shadow-[var(--shadow-lg),0_0_0_4px_var(--accent-soft)]',
           )}
         >
@@ -702,9 +702,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     aria-label={copy.composer.send}
                     title={copy.composer.sendTitle}
                     className={cn(
-                      'grid size-9 place-items-center rounded-full transition-all duration-150 active:scale-90',
+                      'grid size-8 place-items-center rounded-lg transition-colors duration-100',
                       canSend
-                        ? 'bg-ink text-on-ink shadow-card hover:opacity-90'
+                        ? 'bg-accent text-on-accent shadow-[inset_0_0.5px_0_rgb(255_255_255/0.4),0_0.5px_1px_rgb(0_0_0/0.2)] hover:bg-accent-hover'
                         : 'bg-fill-strong text-muted',
                     )}
                   >
@@ -722,7 +722,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                     onClick={props.onStop}
                     aria-label={copy.composer.stopLabel}
                     title={props.status ? copy.composer.stopTitle(props.status) : copy.composer.stop}
-                    className="grid size-9 place-items-center rounded-full bg-fg text-bg transition-transform active:scale-90"
+                    className="grid size-8 place-items-center rounded-lg bg-fg text-bg transition-opacity hover:opacity-90"
                   >
                     <Square className="size-3.5" fill="currentColor" />
                   </motion.button>

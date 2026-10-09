@@ -7,12 +7,18 @@ import {
   roundSlice,
 } from '@myrmidon/protocol'
 import {
+  BarChart3,
   CircleAlert,
+  Download,
+  Folder,
+  HeartPulse,
   LoaderCircle,
   MessageCircleQuestion,
   Network,
   PanelLeft,
+  PanelRight,
   RefreshCw,
+  Settings as SettingsIcon,
   SquarePen,
   Trash2,
 } from 'lucide-react'
@@ -33,8 +39,10 @@ import {
   type TeamConfig,
 } from './api.ts'
 import { ColonyScreen } from './ColonyScreen.tsx'
+import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
+import { sidebarOrder, stepChat } from './chat/chat-order.ts'
 import { allCommands, setPluginCommands } from './chat/commands.ts'
 import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
@@ -47,9 +55,10 @@ import { copy } from './copy.ts'
 import { useScope } from './DeviceGate.tsx'
 import { SETTINGS_SAVED } from './mascot.ts'
 import { syncPluginUI } from './plugins.tsx'
-import { type Section, Settings } from './Settings.tsx'
+import { SECTIONS, type Section, Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
 import { useStatus } from './status.tsx'
+import { anyDialogOpen } from './ui/dialog.ts'
 import {
   day,
   NOTIFY_KEY,
@@ -60,11 +69,13 @@ import {
   useTheme,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { Modal } from './ui/Modal.tsx'
+import { ContextMenuHost } from './ui/Menu.tsx'
 import { isMac } from './ui/platform.ts'
-import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
+import { Badge, Banner, Button, cn, Dot, IconButton, Select, toneFor } from './ui/primitives.tsx'
+import { Sheet } from './ui/Sheet.tsx'
+import { ShortcutList } from './ui/ShortcutList.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
-import { comboLabel } from './ui/shortcuts.ts'
+import { comboLabel, pressShortcut } from './ui/shortcuts.ts'
 import { needsYou, runPhase } from './ui/status.ts'
 import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
@@ -239,6 +250,8 @@ export function App() {
   const [workspaceOpen, setWorkspaceOpen] = usePersistentFlag('myr-workspace-open', true)
   const sidebarSplit = useSplitWidth('myr-sidebar-width', { min: 220, max: 360, initial: 260 })
   const [colonyModal, setColonyModal] = useState<string>()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
@@ -586,9 +599,39 @@ export function App() {
     [setActiveChat, leaveSettings],
   )
 
+  const openChat = (id: string) =>
+    leaveSettings(() => {
+      setActiveChat(id)
+      setView('chat')
+      setSettingsOpen(false)
+    })
+  /** The chat `step` away from the open one, in the order the sidebar lists them. */
+  const stepTo = (step: 1 | -1) => {
+    const next = stepChat(
+      sidebarOrder(chats.map((c) => c.chatId)),
+      view === 'chat' ? activeChat : undefined,
+      step,
+    )
+    if (next) openChat(next)
+  }
+
   useHotkeys([
-    { combo: 'mod+k', run: () => newTask(), inInputs: true },
+    { combo: 'mod+k', run: () => setPaletteOpen((o) => !o), inInputs: true },
     { combo: 'mod+n', run: () => newTask(), inInputs: true },
+    { combo: 'mod+/', run: () => setShortcutsOpen((o) => !o), inInputs: true },
+    // ⌘1 to ⌘9 open the chats in sidebar order; a browser keeps them for its tabs, the desktop app does not.
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
+      combo: `mod+${n}`,
+      run: () => {
+        const id = sidebarOrder(chats.map((c) => c.chatId))[n - 1]
+        if (id) openChat(id)
+      },
+      inInputs: true,
+    })),
+    { combo: 'mod+shift+[', run: () => stepTo(-1), inInputs: true },
+    { combo: 'mod+shift+]', run: () => stepTo(1), inInputs: true },
+    // With a sheet or menu open, ⌘. closes it instead (ui/dialog.ts).
+    { combo: 'mod+.', run: () => !anyDialogOpen() && running && stop(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
     { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
     // Only while a delete can be taken back, so ⌘Z is otherwise left alone.
@@ -844,6 +887,7 @@ export function App() {
   const sidebar = (
     <Sidebar
       onDelete={setDeleting}
+      onExport={(c) => void exportChat(c).catch((err) => toast(String(err.message ?? err), 'error'))}
       onRename={async (c, title) => {
         try {
           await request('PATCH', `/api/chats/${c.chatId}`, { title })
@@ -858,13 +902,7 @@ export function App() {
       view={view}
       theme={theme}
       onTheme={setTheme}
-      onSelect={(id) =>
-        leaveSettings(() => {
-          setActiveChat(id)
-          setView('chat')
-          setSettingsOpen(false)
-        })
-      }
+      onSelect={openChat}
       onNew={() => newTask()}
       projects={projects}
       onNewInProject={(p) => newTask(p.id)}
@@ -905,6 +943,134 @@ export function App() {
         : view === 'system'
           ? copy.system.title
           : copy.app.titles.compare
+
+  /** Everything the command menu reaches: app actions, chats, a new chat in each project, Settings pages. */
+  const paletteItems = (): PaletteItem[] => {
+    const a = copy.palette.actions
+    const icon = 'size-4'
+    const goTo = (v: View) => () =>
+      leaveSettings(() => {
+        setView(v)
+        setSettingsOpen(false)
+      })
+    const latest = chat?.rounds.at(-1)
+    const actions: (PaletteItem | false | undefined)[] = [
+      {
+        id: 'new',
+        group: 'actions',
+        label: a.newChat,
+        icon: <SquarePen className={icon} />,
+        combo: 'mod+n',
+        run: () => newTask(),
+      },
+      view === 'chat' &&
+        !!chat && {
+          id: 'export',
+          group: 'actions',
+          label: a.export,
+          icon: <Download className={icon} />,
+          run: () => void exportChat(chat).catch((err) => toast(String(err.message ?? err), 'error')),
+        },
+      view === 'chat' &&
+        !!latest && {
+          id: 'console',
+          group: 'actions',
+          label: a.crewConsole,
+          icon: <Network className={icon} />,
+          run: () => setColonyModal(latest.colonyId),
+        },
+      {
+        id: 'sidebar',
+        group: 'actions',
+        label: a.toggleSidebar,
+        icon: <PanelLeft className={icon} />,
+        combo: 'mod+b',
+        run: () => setCollapsed(!collapsed),
+      },
+      {
+        id: 'workspace',
+        group: 'actions',
+        label: a.toggleWorkspace,
+        icon: <PanelRight className={icon} />,
+        combo: 'mod+j',
+        run: () => pressShortcut('mod+j', isMac),
+      },
+      fullAccess && {
+        id: 'settings',
+        group: 'actions',
+        label: a.settings,
+        icon: <SettingsIcon className={icon} />,
+        combo: 'mod+,',
+        run: () => setSettingsOpen(true),
+      },
+      {
+        id: 'shortcuts',
+        group: 'actions',
+        label: a.shortcuts,
+        icon: <FEATURE_ICONS.shortcuts className={icon} />,
+        combo: 'mod+/',
+        run: () => setShortcutsOpen(true),
+      },
+      {
+        id: 'crews',
+        group: 'actions',
+        label: copy.sidebar.nav.crews,
+        icon: <Network className={icon} />,
+        run: goTo('colonies'),
+      },
+      {
+        id: 'compare',
+        group: 'actions',
+        label: copy.sidebar.nav.compare,
+        icon: <BarChart3 className={icon} />,
+        run: goTo('compare'),
+      },
+      fullAccess && {
+        id: 'system',
+        group: 'actions',
+        label: copy.system.nav,
+        icon: <HeartPulse className={icon} />,
+        run: goTo('system'),
+      },
+    ]
+    return [
+      ...actions.filter((x): x is PaletteItem => !!x),
+      ...chats.map(
+        (c): PaletteItem => ({
+          id: `chat:${c.chatId}`,
+          group: 'chats',
+          label: c.title,
+          ...(c.project ? { detail: c.project.name } : {}),
+          icon: <Dot status={runPhase(c)} />,
+          keywords: c.rounds.map((r) => r.request).join(' '),
+          run: () => openChat(c.chatId),
+        }),
+      ),
+      ...projects.map(
+        (p): PaletteItem => ({
+          id: `project:${p.id}`,
+          group: 'projects',
+          label: copy.palette.newChatIn(p.name),
+          detail: p.path,
+          icon: <Folder className={icon} />,
+          keywords: p.name,
+          run: () => newTask(p.id),
+        }),
+      ),
+      ...(fullAccess
+        ? SECTIONS.map(
+            (sec): PaletteItem => ({
+              id: `settings:${sec.id}`,
+              group: 'settings',
+              label: sec.label,
+              detail: sec.hint,
+              icon: <sec.icon className={icon} />,
+              run: () => leaveSettings(() => openSettings(sec.id)),
+            }),
+          )
+        : []),
+    ]
+  }
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
@@ -1154,6 +1320,13 @@ export function App() {
                         ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
                         : {})}
                       news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
+                      recent={chats.map((c) => ({
+                        chatId: c.chatId,
+                        title: c.title,
+                        status: runPhase(c),
+                        updatedAt: c.updatedAt,
+                      }))}
+                      onOpenChat={openChat}
                       onPick={(t) => composer.current?.fill(t)}
                     >
                       {config && !models.some(canLead) && (
@@ -1187,7 +1360,7 @@ export function App() {
 
       <AnimatePresence>
         {deleting && (
-          <Modal
+          <Sheet
             key="delete"
             title={copy.app.deleteChat.title}
             onClose={() => setDeleting(undefined)}
@@ -1210,7 +1383,7 @@ export function App() {
                 </Button>
               </div>
             </div>
-          </Modal>
+          </Sheet>
         )}
         {permissionsFor && (
           <ProjectPermissions
@@ -1241,7 +1414,7 @@ export function App() {
           />
         )}
         {colonyModal && (
-          <Modal
+          <Sheet
             key="colony"
             title={copy.app.crewConsole}
             onClose={() => setColonyModal(undefined)}
@@ -1249,9 +1422,23 @@ export function App() {
             flush
           >
             <ColonyScreen key={colonyModal} id={colonyModal} />
-          </Modal>
+          </Sheet>
+        )}
+        {shortcutsOpen && (
+          <Sheet
+            key="shortcuts"
+            title={copy.settings.shortcuts.title}
+            onClose={() => setShortcutsOpen(false)}
+            size="sm"
+          >
+            <ShortcutList />
+          </Sheet>
+        )}
+        {paletteOpen && (
+          <CommandPalette key="palette" items={paletteItems()} onClose={() => setPaletteOpen(false)} />
         )}
       </AnimatePresence>
+      <ContextMenuHost />
     </MotionConfig>
   )
 }
@@ -1287,7 +1474,7 @@ function ComposerPending(props: { centered: boolean; error?: string; onRetry(): 
     <div className={cn('shrink-0', props.centered ? 'w-full' : 'px-6 pb-4 pt-2')}>
       <div
         aria-busy={!props.error}
-        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-4xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
+        className="mx-auto flex max-w-[820px] items-center gap-2.5 rounded-xl border border-line-strong bg-surface px-5 py-4 text-title text-muted shadow-pop"
       >
         {props.error ? (
           <CircleAlert className="size-4 shrink-0 text-bad-ink" />

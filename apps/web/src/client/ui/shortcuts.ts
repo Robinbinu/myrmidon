@@ -52,12 +52,31 @@ export function matchCombo(combo: string, e: KeyInput): boolean {
   return key === c.key
 }
 
-const NAMES: Record<string, string> = { escape: 'Esc' }
+const NAMES: Record<string, string> = { escape: 'Esc', enter: 'Enter' }
+/** Keys a Mac writes as a symbol, as its menus do. */
+const MAC_NAMES: Record<string, string> = { enter: '↩' }
 
 /** How a shortcut is written on this platform: ⇧⌘[ on a Mac (Apple's modifier order), Ctrl+Shift+[ elsewhere. */
 export function comboLabel(combo: string, mac: boolean): string {
   const c = parseCombo(combo)
-  const key = NAMES[c.key] ?? c.key.toUpperCase()
+  const key = (mac ? MAC_NAMES[c.key] : undefined) ?? NAMES[c.key] ?? c.key.toUpperCase()
   if (mac) return `${c.alt ? '⌥' : ''}${c.shift ? '⇧' : ''}${c.mod ? '⌘' : ''}${key}`
   return [c.mod && 'Ctrl', c.alt && 'Alt', c.shift && 'Shift', key].filter(Boolean).join('+')
+}
+
+/**
+ * Does what a shortcut does, for a menu that offers the same command: whichever handler owns the combo right now
+ * (the workspace panel's ⌘J while a chat is open, the app's otherwise) answers it.
+ */
+export function pressShortcut(combo: string, mac: boolean) {
+  const c = parseCombo(combo)
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: c.key,
+      metaKey: mac && c.mod,
+      ctrlKey: !mac && c.mod,
+      shiftKey: c.shift,
+      altKey: c.alt,
+    }),
+  )
 }

@@ -3,10 +3,12 @@ import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'mot
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
-import { CrewCursor, tripMs } from '../ui/cursor.tsx'
-import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import { ago } from '../ui/hooks.ts'
+import { BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import { cn, Dot } from '../ui/primitives.tsx'
 import {
   HERO_MASCOT_MIN_HEIGHT,
+  HERO_RECENT_CHATS,
   MASCOT_COLORS,
   MASCOT_DOZE_MS,
   MASCOT_PAT_MS,
@@ -14,7 +16,6 @@ import {
   MASCOT_USER_FOCUS_MS,
   softSpring,
 } from '../ui-config.ts'
-import TechText from '../vendor/react-bits/TechText'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
 
 const SUGGESTIONS = [
@@ -27,36 +28,8 @@ const SUGGESTIONS = [
 const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
 const IDLE_TRICKS: Emotion[] = [EMOTIONS.wink, EMOTIONS.happy]
 
-/** The crew that hangs around the mascot. Positions are relative to the face's center. */
-const CREW = [
-  { name: 'nova', color: agentColor('nova'), x: -340, y: -70 },
-  { name: 'kai', color: agentColor('kai'), x: 320, y: 30 },
-  { name: 'judge', color: agentColor('judge'), x: -290, y: 130 },
-]
-
-/** Where each cursor last was, so coming back to this screen finds them where they left off, not at their start. */
-let lastPositions: { x: number; y: number }[] | undefined
-
 const readToken = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#ffffff'
-
-/** The current value of a CSS color token, kept in sync with the theme (canvas text can't use var()). */
-function useToken(name: string): string {
-  const [value, setValue] = useState(() => readToken(name))
-  useEffect(() => {
-    const update = () => setValue(readToken(name))
-    update()
-    const observer = new MutationObserver(update)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    media.addEventListener('change', update)
-    return () => {
-      observer.disconnect()
-      media.removeEventListener('change', update)
-    }
-  }, [name])
-  return value
-}
 
 /** Whether the window is at least `px` tall, kept current as it is resized. */
 function useTallerThan(px: number): boolean {
@@ -134,18 +107,10 @@ function Readout(props: { mode: MascotLook['screen']; name?: string; working: nu
   )
 }
 
-interface CrewState {
-  name: string
-  color: string
-  x: number
-  y: number
-  clicking: boolean
-}
-
 /**
- * The empty state: the colony's mascot on its screen, one line, the message box, and a few starters.
- * The mascot follows the pointer with its eyes, reacts when clicked or poked by its crew, plays small
- * tricks when left alone, and dozes off after a while.
+ * The new-chat view, calm rather than a landing page: the mascot on its screen at a modest size, a one-line greeting,
+ * the message box, a few starters and the latest chats. The mascot follows the pointer with its eyes, reacts when
+ * clicked, plays small tricks when left alone, and dozes off after a while.
  */
 export function Hero(props: {
   /** What the user is typing; the mascot reads its mood. */
@@ -156,6 +121,9 @@ export function Hero(props: {
   latest?: { status: string; updatedAt: string }
   /** What the chats are doing, as a key: when it changes, the greeting is written again. */
   news: string
+  /** The latest chats, newest first, to pick one up again. */
+  recent: readonly { chatId: string; title: string; status: string; updatedAt: string }[]
+  onOpenChat(chatId: string): void
   onPick(text: string): void
   children: ReactNode
 }) {
@@ -174,10 +142,6 @@ export function Hero(props: {
   const [asleep, setAsleep] = useState(false)
   const [hover, setHover] = useState(false)
   const [look, setLook] = useState<[number, number]>()
-  const [crew, setCrew] = useState<CrewState[]>(() =>
-    CREW.map((c, i) => ({ ...c, ...lastPositions?.[i], clicking: false })),
-  )
-  const ink = useToken('--text')
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typing = props.draft.trim().length > 0
@@ -185,8 +149,6 @@ export function Hero(props: {
   typingRef.current = typing
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const busy = useRef(false)
-  /** Where each crew cursor is heading, so new targets can keep their distance. */
-  const positions = useRef(lastPositions ?? CREW.map((c) => ({ x: c.x, y: c.y })))
 
   const react = useCallback(
     (r: Emotion) => {
@@ -262,82 +224,6 @@ export function Hero(props: {
     return () => clearInterval(t)
   }, [react, reduce])
 
-  // The crew wanders the canvas and now and then flies over to poke the mascot.
-  useEffect(() => {
-    if (reduce) return
-    let alive = true
-    let poking = false
-    const timers: ReturnType<typeof setTimeout>[] = []
-    const wait = (ms: number) =>
-      new Promise<void>((done) => {
-        timers.push(setTimeout(done, ms))
-      })
-    const update = (i: number, patch: Partial<CrewState>) => {
-      if (patch.x !== undefined && patch.y !== undefined) {
-        positions.current[i] = { x: patch.x, y: patch.y }
-        lastPositions = [...positions.current]
-      }
-      setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
-    }
-    const follow = (x: number, y: number) => {
-      if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
-    }
-    const size = () => {
-      const r = scope.current?.getBoundingClientRect()
-      return { hw: (r?.width ?? 450) / 2, hh: (r?.height ?? 320) / 2 }
-    }
-    // Somewhere around the screen, away from the headline below it and from the other cursors.
-    const roam = (i: number) => {
-      const { hw, hh } = size()
-      const others = positions.current.filter((_, j) => j !== i)
-      let best = { x: 0, y: 0 }
-      let bestGap = -1
-      for (let k = 0; k < 6; k++) {
-        const side = Math.random() < 0.5 ? -1 : 1
-        const c = { x: side * (hw + 50 + Math.random() * 170), y: -hh * 0.9 + Math.random() * hh * 1.6 }
-        const gap = Math.min(...others.map((o) => Math.hypot(o.x - c.x, o.y - c.y)), Number.POSITIVE_INFINITY)
-        if (gap > bestGap) {
-          best = c
-          bestGap = gap
-        }
-      }
-      return best
-    }
-    const run = async (i: number) => {
-      await wait(1200 + i * 1100)
-      while (alive) {
-        if (!poking && !typingRef.current && Math.random() < 0.4) {
-          poking = true
-          const { hw, hh } = size()
-          const x = (Math.random() * 2 - 1) * hw * 0.55
-          const y = (Math.random() * 2 - 1) * hh * 0.45
-          const from = positions.current[i] ?? { x, y }
-          update(i, { x, y })
-          follow(x, y)
-          await wait(tripMs(Math.hypot(x - from.x, y - from.y)) + 260)
-          if (!alive) return
-          update(i, { clicking: true })
-          react(pick(POKED))
-          await wait(240)
-          update(i, { clicking: false })
-          await wait(650)
-          poking = false
-          update(i, roam(i))
-        } else {
-          const to = roam(i)
-          update(i, to)
-          if (Math.random() < 0.5) follow(to.x, to.y)
-        }
-        await wait(2800 + Math.random() * 4200)
-      }
-    }
-    for (const i of CREW.keys()) void run(i)
-    return () => {
-      alive = false
-      for (const t of timers) clearTimeout(t)
-    }
-  }, [react, reduce, scope])
-
   const emotion: Emotion =
     reaction ??
     (typing
@@ -368,8 +254,8 @@ export function Hero(props: {
   )
 
   return (
-    <div className="dot-field flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="m-auto flex w-full max-w-[760px] flex-col items-center px-6 py-8">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
+      <div className="m-auto flex w-full max-w-[720px] flex-col items-center px-6 py-8">
         {roomy && (
           <div className="relative">
             <motion.div
@@ -390,7 +276,7 @@ export function Hero(props: {
                   clearTimeout(patTimer.current)
                   setPetted(false)
                 }}
-                className="block rounded-5xl bg-screen p-6 pb-4 shadow-[var(--screen-frame)]"
+                className="block rounded-4xl bg-screen p-4 pb-3 shadow-[var(--screen-frame)]"
               >
                 <button
                   type="button"
@@ -408,10 +294,10 @@ export function Hero(props: {
                     glow
                     eyes={mascot.eyes}
                     {...(look ? { look } : {})}
-                    className="h-auto w-[min(400px,calc(100vw-96px))]"
+                    className="h-auto w-[220px]"
                   />
                 </button>
-                <div className="mt-5 flex items-center justify-between px-1">
+                <div className="mt-3 flex items-center justify-between px-0.5">
                   <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
                     <span
                       className={`size-1 rounded-full ${asleep ? 'bg-[color:var(--screen-ink)]' : 'bg-[color:var(--screen-live)]'}`}
@@ -446,53 +332,21 @@ export function Hero(props: {
                 />
               )}
             </motion.div>
-
-            <motion.div
-              className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden lg:block"
-              aria-hidden
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4, duration: 0.3 }}
-            >
-              {crew.map((c) => (
-                <CrewCursor
-                  key={c.name}
-                  name={c.name}
-                  color={c.color}
-                  x={c.x}
-                  y={c.y}
-                  clicking={c.clicking}
-                />
-              ))}
-            </motion.div>
           </div>
         )}
 
-        <h1 className="sr-only">{headline}</h1>
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
+        <motion.h1
+          key={headline}
+          initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...softSpring, delay: 0.06 }}
-          className="mb-0 mt-3 h-[124px] w-full"
-          aria-hidden
+          className={cn(
+            'mb-5 text-center text-page-title font-semibold tracking-tight text-fg',
+            roomy ? 'mt-7' : 'mt-0',
+          )}
         >
-          <TechText
-            key={headline}
-            text={headline}
-            fontSize={40}
-            fontWeight={600}
-            letterSpacing={-0.03}
-            color={ink}
-            accentColor={eyes}
-            reveal="letter"
-            dashLength={4}
-            dashGap={2}
-            specks={0}
-            // Its measuring box follows the pointer only; sweeping by itself it looked like a stray selection.
-            sweep={false}
-            speed={0.6}
-          />
-        </motion.div>
+          {headline}
+        </motion.h1>
 
         <div className="w-full">{props.children}</div>
 
@@ -510,13 +364,42 @@ export function Hero(props: {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...softSpring, delay: 0.15 + i * 0.04 }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface/70 px-3 text-callout font-medium text-fg-2 backdrop-blur transition-all duration-150 hover:border-line-strong hover:bg-surface hover:text-fg"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong/70 bg-control px-2.5 text-body text-fg-2 shadow-control transition-colors duration-100 hover:bg-control-hover hover:text-fg"
             >
               <s.icon className="size-3.5" />
               {s.label}
             </motion.button>
           ))}
         </div>
+
+        {props.recent.length > 0 && (
+          <motion.section
+            aria-labelledby="hero-recent"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.25, duration: 0.2 }}
+            className="mt-8 w-full max-w-[520px]"
+          >
+            <h2 id="hero-recent" className="mb-1 px-2 text-caption font-semibold text-muted">
+              {copy.hero.recent}
+            </h2>
+            <ul>
+              {props.recent.slice(0, HERO_RECENT_CHATS).map((c) => (
+                <li key={c.chatId}>
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenChat(c.chatId)}
+                    className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-body text-fg-2 transition-colors hover:bg-fill hover:text-fg"
+                  >
+                    <Dot status={c.status} pulse={false} />
+                    <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    <span className="shrink-0 text-small tabular-nums text-muted">{ago(c.updatedAt)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </motion.section>
+        )}
       </div>
     </div>
   )
