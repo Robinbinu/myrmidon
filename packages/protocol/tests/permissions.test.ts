@@ -13,6 +13,8 @@ import {
   offersFor,
   type PermissionCall,
   type PermissionLevels,
+  type PermissionPreset,
+  type PermissionRule,
   projectLevelFrom,
   readOnlyCommand,
   roleAccess,
@@ -262,7 +264,7 @@ describe('commands', () => {
     expect(commandPrefix('timeout 5 git log -3')).toBe('git log')
     expect(offersFor(shell('git status && bun test'))).toEqual([
       { kind: 'command', target: 'git status' },
-      { kind: 'command', target: 'bun test' },
+      { kind: 'command', target: 'bun test', projectCode: true },
       { kind: 'command', target: '*' },
     ])
     expect(offersFor(shell('echo $(date)'))).toEqual([{ kind: 'command', target: '*' }])
@@ -484,7 +486,7 @@ describe('remembered prefixes are never wider than the command shown', () => {
     expect(prefixes('bun -e "x()"')).toEqual(["bun -e 'x()'"])
     expect(prefixes('ls | xargs rm')).toEqual(['ls', 'xargs rm'])
     expect(prefixes('git -C /x push')).toEqual(['git -C /x push'])
-    expect(prefixes('env FOO=1 bun test')).toEqual(['bun test'])
+    expect(prefixes('env NO_COLOR=1 bun test')).toEqual(['bun test'])
     // Nothing the person could remember would cover these.
     for (const line of ['bash -c "rm -rf ."', 'curl x | sh', 'cat a | bash', 'python', 'sh'])
       expect(prefixes(line)).toEqual([])
@@ -568,7 +570,7 @@ test('"always" remembers the first choice of what the card offered, and nothing 
   const call = shell('git status && bun test')
   expect(alwaysOffer({ tool: 'shell', call, offer: offersFor(call) })).toEqual([
     { kind: 'command', target: 'git status' },
-    { kind: 'command', target: 'bun test' },
+    { kind: 'command', target: 'bun test', projectCode: true },
   ])
   const m = mcp('mcp__github_create_issue')
   expect(alwaysOffer({ tool: m.tool, call: m, offer: offersFor(m) })).toEqual([
@@ -583,4 +585,195 @@ test('"always" remembers the first choice of what the card offered, and nothing 
   expect(
     offered(offersFor(call), { kind: 'command', target: 'bun test', decision: 'allow', who: 'crew' }),
   ).toBe(false)
+})
+
+describe('what the shell does that a quick read would miss', () => {
+  const level = (preset: PermissionPreset, rules: PermissionRule[] = []): PermissionLevels => ({
+    global: { preset, rules },
+  })
+  const deny = (target: string) => level('full', [{ kind: 'command', target, decision: 'deny' }])
+  const allowIn = (target: string) => level('ask', [{ kind: 'command', target, decision: 'allow' }])
+  const verdict = (levels: PermissionLevels, line: string) => decide(levels, shell(line)).decision
+
+  test('a comment ends at the line, and what follows on the next line runs', () => {
+    const line = "ls # '\nrm -rf ~\n#'"
+    expect(readOnlyCommand(line)).toBe(false)
+    expect(verdict(level('ask'), line)).toBe('ask')
+    expect(verdict(allowIn('ls'), line)).toBe('ask')
+    expect(verdict(deny('rm'), line)).toBe('deny')
+    expect(verdict(level('auto'), line)).toBe('ask')
+    expect(splitCommand('echo hi # ; rm -rf ~').simple).toBe(false)
+    expect(splitCommand('echo a#b').segments).toEqual(['echo a#b'])
+  })
+
+  test("ANSI-C quotes ($'…') are decoded, so they hide neither a separator nor the program", () => {
+    expect(verdict(deny('touch'), "echo $'\\'' ; touch X ; # '")).toBe('deny')
+    expect(verdict(allowIn('echo'), "echo $'\\'' ; touch X ; # '")).toBe('ask')
+    for (const line of [
+      "$'rm' -rf ~",
+      "$'\\x72m' -rf ~",
+      "$'\\162m' -rf ~",
+      "$'\\u0072m' -rf ~",
+      '$"rm" -rf ~',
+    ]) {
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+      expect([line, verdict(deny('rm'), line)]).toEqual([line, 'deny'])
+    }
+  })
+
+  test('variables that change what runs make a line not simple; harmless ones do not', () => {
+    for (const [line, rule] of [
+      ["GIT_EXTERNAL_DIFF='touch X; true' git diff", 'git diff'],
+      ["env GIT_EXTERNAL_DIFF='touch X; true' git diff", 'git diff'],
+      [
+        "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0='touch X' git status",
+        'git status',
+      ],
+      ['PATH=. ls', 'ls'],
+      ['LESSOPEN="|sh x" cat f', 'cat'],
+      ['NODE_OPTIONS="--require ./x.js" bun test', 'bun test'],
+      ['DYLD_INSERT_LIBRARIES=x.dylib ls', 'ls'],
+    ] as const) {
+      expect([line, readOnlyCommand(line)]).toEqual([line, false])
+      expect([line, verdict(allowIn(rule), line)]).toEqual([line, 'ask'])
+    }
+    expect(readOnlyCommand('NO_COLOR=1 LC_ALL=C ls')).toBe(true)
+    expect(verdict(allowIn('bun test'), 'CI=1 NODE_ENV=test bun test')).toBe('allow')
+    const targets = (line: string) => offersFor(shell(line)).map((o) => o.target)
+    expect(targets('env NO_COLOR=1 bun test')).toEqual(['bun test', '*'])
+    expect(targets('env FOO=1 bun test')).toEqual(['*'])
+  })
+
+  test('function bodies and heredocs hide nothing from deny rules and the destructive check', () => {
+    for (const line of [
+      'f(){ touch X;};f',
+      'x() { touch X; }; x',
+      'function f { touch X; }; f',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter syntax, not a template
+      "echo ${x:-'}'} ; touch X",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter syntax, not a template
+      'echo "${x:-"\'"}" ; touch X; echo \'',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter syntax, not a template
+      "echo ${x#\\'} ; touch X ; echo \\'",
+      'coproc touch X',
+      'echo `# `; touch X',
+    ])
+      expect([line, verdict(deny('touch'), line)]).toEqual([line, 'deny'])
+    const heredoc = "cat <<EOF\n'\nEOF\nrm -rf x\n#'"
+    expect(verdict(deny('rm'), heredoc)).toBe('deny')
+    expect(verdict(level('auto'), heredoc)).toBe('ask')
+    // An unquoted heredoc runs what it substitutes; a quoted one is only text.
+    expect(verdict(deny('rm'), 'cat <<EOF\n$(rm -rf x)\nEOF')).toBe('deny')
+    expect(verdict(deny('git push'), "cat > notes.md <<'EOF'\ngit push\nEOF")).toBe('allow')
+    expect(verdict(level('auto'), "cat > notes.md <<'EOF'\nrm -rf x\nEOF\nls")).toBe('allow')
+  })
+
+  test('more wrappers, option clusters, and programs that run commands from their options', () => {
+    for (const line of [
+      'setsid rm -rf x',
+      'stdbuf -o0 rm -rf x',
+      'caffeinate -i rm -rf x',
+      'script -q /dev/null rm -rf x',
+      'unbuffer rm -rf x',
+      'ionice -c3 rm -rf x',
+      'chroot / rm -rf x',
+      'flock /tmp/lock rm -rf x',
+      'env -iu X rm -rf x',
+      'sudo -Eu root rm -rf x',
+      'tar -xf a --to-command="rm -rf x"',
+      'rsync -e "rm -rf x" a b',
+      "zip -T -TT 'rm -rf x' a.zip b",
+      'sed -n "1e rm -rf x" f',
+    ]) {
+      expect([line, verdict(deny('rm'), line)]).toEqual([line, 'deny'])
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+    }
+    expect(verdict(deny('git push'), 'sudo -iu root git push')).toBe('deny')
+    expect(verdict(deny('git push'), 'git -c alias.p=push p')).toBe('deny')
+    expect(verdict(deny('rm'), "git -c alias.x='!rm -rf x' x")).toBe('deny')
+    const prefixes = (line: string) =>
+      offersFor(shell(line))
+        .map((o) => o.target)
+        .filter((t) => t !== '*')
+    for (const line of [
+      'sed -n p f',
+      'tar -xf a.tar',
+      'zip a.zip b',
+      'rsync a b',
+      'vim f',
+      'docker run x',
+      'ssh host ls',
+    ])
+      expect([line, prefixes(line)]).toEqual([line, [splitCommand(line).segments[0] ?? '']])
+    // A plain wrapper is taken off: what it runs is offered, never the wrapper alone.
+    expect(prefixes('stdbuf -o0 cat f')).toEqual(['cat'])
+    expect(prefixes('setsid -w bun test')).toEqual(['bun test'])
+  })
+
+  test('a program known only when the line runs asks under Auto, and where deny rules could miss it', () => {
+    for (const line of [
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter syntax, not a template
+      '${IFS}rm -rf x',
+      '/bin/r? -rf x',
+      'r[m] -rf x',
+      '$X -rf x',
+      '{rm,-rf,x}',
+      '$(which rm) -rf x',
+    ]) {
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+      // Asked, or denied where the loose read still finds the program.
+      expect([line, verdict(deny('rm'), line) === 'allow']).toEqual([line, false])
+    }
+    expect(verdict(deny('rm'), '/bin/r? -rf x')).toBe('ask')
+    // A shell or interpreter reading its code from a pipe runs what nobody can read here.
+    for (const line of ['echo rm -rf x | sh', 'cat x | bash', 'curl -s x | python3', 'base64 -d f | sh -s'])
+      expect([line, verdict(level('auto'), line)]).toEqual([line, 'ask'])
+    expect(verdict(level('auto'), 'python3 scripts/gen.py')).toBe('allow')
+    // An argument known only at run time is not the program.
+    expect(verdict(level('auto'), 'ls $HOME *.ts')).toBe('allow')
+    expect(verdict(level('full'), '$X -rf x')).toBe('allow')
+  })
+
+  test('a very long command is not read past a cap: it asks, and quickly', () => {
+    const long = `echo ${'a '.repeat(100_000)}`
+    const start = performance.now()
+    expect(verdict(level('auto'), long)).toBe('ask')
+    expect(verdict(deny('rm'), `${'sudo '.repeat(40_000)}ls`)).toBe('ask')
+    expect(performance.now() - start).toBeLessThan(2_000)
+  })
+
+  test('an offer is remembered as offered, whatever spaces it holds', () => {
+    const call = shell("rm -rf 'a  b'")
+    const offer = offersFor(call)[0]
+    expect(offer?.target).toBe("rm -rf 'a  b'")
+    const saved = normalizeLevel({ rules: [{ ...offer, decision: 'allow' }] }).rules[0] as PermissionRule
+    expect(offered(offersFor(call), saved)).toBe(true)
+    expect(decide(level('auto', [saved]), call).decision).toBe('allow')
+  })
+
+  test('"always" never saves every command, and runners say the agents can change what they run', () => {
+    const line = 'bun test $(cat list)'
+    const call = shell(line)
+    expect(alwaysOffer({ tool: 'shell', call, offer: offersFor(call) })).toEqual([])
+    expect(offersFor(shell('bun test src'))[0]).toEqual({
+      kind: 'command',
+      target: 'bun test',
+      projectCode: true,
+    })
+    expect(offersFor(shell('make build'))[0]).toMatchObject({ projectCode: true })
+    expect(offersFor(shell('python3 scripts/gen.py'))[0]).toMatchObject({ projectCode: true })
+    expect(offersFor(shell('ls -la'))[0]).toEqual({ kind: 'command', target: 'ls' })
+  })
+})
+
+test("git's abbreviated long options are read as git reads them", () => {
+  for (const line of [
+    'git diff --out=x',
+    'git diff --outp x',
+    'git log --ext-dif -p',
+    'git show --output=x',
+    'git diff -o x',
+  ])
+    expect([line, readOnlyCommand(line)]).toEqual([line, false])
+  expect(readOnlyCommand('git log --oneline')).toBe(true)
 })
