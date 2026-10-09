@@ -556,6 +556,212 @@ test.skipIf(detectSandbox().kind === 'none')(
   },
 )
 
+const tightenings: {
+  how: string
+  loose: (dir: string) => object
+  tighten: (run: ColonyRun) => Promise<void>
+  sandboxed?: boolean
+}[] = [
+  {
+    how: 'the person takes full access back',
+    loose: () => ({ fullAccess: true }),
+    tighten: (run) =>
+      run.applyRules({ permissions: { global: { preset: 'auto', rules: [] } }, fullAccess: false }),
+  },
+  {
+    how: 'a channel member writes into the round',
+    loose: () => ({ fullAccess: true }),
+    tighten: (run) => run.askForAll(),
+  },
+  {
+    how: 'the project is made read-only',
+    loose: (dir) => ({
+      chat: {
+        chatId: 'c',
+        round: 1,
+        request: 'Serve.',
+        history: '',
+        project: { id: 'p', name: 'p', path: dir, permissions: { preset: 'auto', rules: [] } },
+      },
+    }),
+    tighten: (run) =>
+      run.applyRules({
+        permissions: { global: { preset: 'auto', rules: [] }, project: { preset: 'read-only', rules: [] } },
+      }),
+    sandboxed: true,
+  },
+]
+for (const { how, loose, tighten, sandboxed } of tightenings)
+  test.skipIf(!!sandboxed && detectSandbox().kind === 'none')(
+    `a server started under looser rules stops when ${how}, and its agent is told to start it again`,
+    async () => {
+      const port = 45000 + Math.floor(Math.random() * 2000)
+      let release!: () => void
+      const held = new Promise<void>((r) => {
+        release = r
+      })
+      let serving!: () => void
+      const started = new Promise<void>((r) => {
+        serving = r
+      })
+      let calls = 0
+      const later: string[] = []
+      const mock = createMockModel({
+        handler: async (ctx: LlmContext) => {
+          calls++
+          if (calls === 1)
+            return {
+              content: [
+                tool('start_server', {
+                  command: `bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('free') })"`,
+                  port,
+                }),
+              ],
+            }
+          if (calls === 2) {
+            serving()
+            await held
+            return { content: ['waiting'] }
+          }
+          later.push(JSON.stringify(ctx.messages))
+          return { content: ['ok'] }
+        },
+      })
+      const resolver = new ModelResolver()
+      resolver.register('mock/dev', { model: mock.model, streamFn: mock.stream })
+      const spec = {
+        ...parseColonySpec({
+          name: 'Loose',
+          mission: 'Serve.',
+          agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server', 'server_logs'] }],
+          budget: { wall: '30s' },
+        }),
+        ...loose(mkdtempSync(join(home, 'project-'))),
+      }
+      const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+      await run.start()
+      await started
+      expect(run.state().servers.dev).toMatchObject({ url: `http://localhost:${port}` })
+      expect(run.state().servers.dev?.stopped).toBeUndefined()
+      await tighten(run)
+      expect(run.state().servers.dev?.stopped).toContain('access this round no longer has')
+      await Bun.sleep(300)
+      await expect(
+        fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) }),
+      ).rejects.toThrow()
+      release()
+      run.nudge('dev', 'carry on')
+      await run.done
+      expect(later.some((c) => c.includes('Your server dev was stopped') && c.includes('start_server'))).toBe(
+        true,
+      )
+    },
+  )
+
+/** One agent, dev, that runs `first` and then answers each later call with `next`, recording what it was given. */
+function serverAgent(first: MockContent[], next: (ctx: LlmContext, call: number) => Promise<MockContent[]>) {
+  let calls = 0
+  const resolver = new ModelResolver()
+  const mock = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      calls++
+      return { content: calls === 1 ? first : await next(ctx, calls) }
+    },
+  })
+  resolver.register('mock/dev', { model: mock.model, streamFn: mock.stream })
+  return resolver
+}
+
+test('a server still starting when full access is taken back fails to start, and is never reported as running', async () => {
+  const port = 47000 + Math.floor(Math.random() * 1000)
+  const later: string[] = []
+  const resolver = serverAgent(
+    [
+      tool('start_server', {
+        command: `sleep 2; bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('late') })"`,
+        port,
+      }),
+    ],
+    async (ctx) => {
+      later.push(JSON.stringify(ctx.messages))
+      return ['ok']
+    },
+  )
+  const spec = {
+    ...parseColonySpec({
+      name: 'Starting',
+      mission: 'Serve.',
+      agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server'] }],
+      budget: { wall: '30s' },
+    }),
+    fullAccess: true,
+  }
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  const events = () => runtime.ctx.log.read(run.id)
+  while (!(await events()).some((e) => e.type === 'tool/call')) await Bun.sleep(50)
+  await Bun.sleep(300)
+  await run.askForAll()
+  await run.done
+  const log = await events()
+  const result = log.find((e) => e.type === 'tool/result')?.payload as { ok: boolean; output: string }
+  expect(result.ok).toBe(false)
+  expect(result.output).toContain('dev was stopped while it was starting')
+  expect(log.some((e) => e.type === 'server/started' || e.type === 'server/stopped')).toBe(false)
+  expect(later.some((c) => c.includes('Your server'))).toBe(false)
+  await Bun.sleep(2500)
+  await expect(fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) })).rejects.toThrow()
+})
+
+test.skipIf(detectSandbox().kind === 'none')(
+  'a server started under the rules in force keeps running when they tighten',
+  async () => {
+    const port = 48000 + Math.floor(Math.random() * 1000)
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    let serving!: () => void
+    const started = new Promise<void>((r) => {
+      serving = r
+    })
+    const later: string[] = []
+    const resolver = serverAgent(
+      [
+        tool('start_server', {
+          command: `bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('confined') })"`,
+          port,
+        }),
+      ],
+      async (ctx, call) => {
+        if (call === 2) {
+          serving()
+          await held
+        } else later.push(JSON.stringify(ctx.messages))
+        return ['ok']
+      },
+    )
+    const spec = parseColonySpec({
+      name: 'Confined',
+      mission: 'Serve.',
+      agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server'] }],
+      budget: { wall: '30s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+    await run.start()
+    await started
+    await run.askForAll()
+    expect(run.state().servers.dev).toMatchObject({ url: `http://localhost:${port}` })
+    expect(run.state().servers.dev?.stopped).toBeUndefined()
+    expect(await (await fetch(`http://localhost:${port}/`)).text()).toBe('confined')
+    release()
+    run.nudge('dev', 'carry on')
+    const final = await run.done
+    expect(final.servers.dev?.stopped).toBe('the round ended')
+    expect(later.some((c) => c.includes('Your server'))).toBe(false)
+  },
+)
+
 test.skipIf(detectSandbox().kind === 'none')(
   'web content is marked untrusted, cannot forge its end marker, and commands copied from it are flagged',
   async () => {

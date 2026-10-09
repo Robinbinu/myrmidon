@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -58,6 +58,7 @@ import {
   MAX_WORKERS,
   MISSED_CHARS,
   MISSED_SHOWN,
+  PORT_LISTING_MS,
   QUIET_NUDGES,
   SERVER_START_MS,
   SETTLE_QUIET_MS,
@@ -205,14 +206,24 @@ function listeningPorts(): Set<number> | undefined {
       return ports
     }
     if (process.platform === 'darwin') {
-      const out = Bun.spawnSync(['netstat', '-an', '-p', 'tcp'])
-      if (out.exitCode !== 0) return undefined
+      // netstat sees every user's listeners, but the kernel can hand a process an empty socket table (seen under
+      // `bun test` on macOS 27), and netstat then exits 0 listing none. lsof reads this user's processes directly, so
+      // the dashboard and the person's own apps are seen either way.
+      const netstat = portListing('netstat', ['-an', '-p', 'tcp'])
+      // lsof exits 1, silently, when nothing listens.
+      const lsof = portListing('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fn'], true)
+      if (netstat === undefined && lsof === undefined) return undefined
       const ports = new Set<number>()
-      for (const line of new TextDecoder().decode(out.stdout).split('\n')) {
+      for (const line of netstat?.split('\n') ?? []) {
         // "tcp4  0  0  127.0.0.1.4318  *.*  LISTEN": the port is the last dotted part of the local address.
         const columns = line.trim().split(/\s+/)
         const port = /\.(\d+)$/.exec(columns[3] ?? '')?.[1]
         if (columns.at(-1) === 'LISTEN' && port) ports.add(Number(port))
+      }
+      for (const line of lsof?.split('\n') ?? []) {
+        // "n*:5173", "n127.0.0.1:4318", "n[::1]:3000": a name field, the port after its last colon.
+        const port = /^n.*:(\d+)$/.exec(line)?.[1]
+        if (port) ports.add(Number(port))
       }
       return ports
     }
@@ -220,6 +231,21 @@ function listeningPorts(): Set<number> | undefined {
     return undefined
   }
   return undefined
+}
+
+/**
+ * A macOS system tool's output for `listeningPorts`, or undefined when it is missing, fails, or overruns its time (it
+ * runs synchronously, and lsof can hang on a network mount). `quietOne`: exit 1 with nothing on stderr is a result.
+ */
+function portListing(tool: string, args: string[], quietOne = false): string | undefined {
+  try {
+    const system = `/usr/sbin/${tool}`
+    const out = Bun.spawnSync([existsSync(system) ? system : tool, ...args], { timeout: PORT_LISTING_MS })
+    const ok = out.exitCode === 0 || (quietOne && out.exitCode === 1 && out.stderr.length === 0)
+    return ok ? new TextDecoder().decode(out.stdout) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** A file the person attached to a chat message. */
@@ -303,6 +329,11 @@ export class ColonyRun implements ColonyHost {
   private readonly _servers = new Map<string, SandboxProcess>()
   /** The localhost port each running server opened (see `localPorts`). */
   private readonly _serverPorts = new WeakMap<SandboxProcess, number>()
+  /** Who started each running server, under which rules, and whether it is up yet (see `_stopLooserServers`). */
+  private readonly _serverRules = new WeakMap<
+    SandboxProcess,
+    { agent: string; fullAccess: boolean; readOnly: boolean; up: boolean }
+  >()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
@@ -680,11 +711,12 @@ export class ColonyRun implements ColonyHost {
     if (this._servers.size >= MAX_SERVERS) throw new Error(`at most ${MAX_SERVERS} servers may run at once`)
     const cwd = this.workspace.workdir(agent)
     const scratch = this.workspace.scratch(agent)
-    const readOnly = presetOf(this.spec) === 'read-only'
     // A port already in use is someone else's (the dashboard's, another app's): claiming it would open it to agents.
     const before = listeningPorts()
     if (port && (before?.has(port) || (await listening(port))))
       throw new Error(prompts.toolResults.portInUse(port))
+    // Read with the sandbox below, after the await, so the rules it starts under are the ones in force then.
+    const readOnly = presetOf(this.spec) === 'read-only'
     const proc = this.sandbox.start({
       command,
       cwd,
@@ -693,6 +725,8 @@ export class ColonyRun implements ColonyHost {
       ...(port ? { env: { PORT: String(port) } } : {}),
     })
     this._servers.set(name, proc)
+    const rules = { agent, fullAccess: this.fullAccess, readOnly, up: false }
+    this._serverRules.set(proc, rules)
     let ended = false
     void proc.exited.then(() => {
       ended = true
@@ -709,7 +743,7 @@ export class ColonyRun implements ColonyHost {
     const deadline = Date.now() + SERVER_START_MS
     let url: string | undefined
     let opened = port
-    while (!url && !ended && Date.now() < deadline) {
+    while (!url && !ended && this._servers.get(name) === proc && Date.now() < deadline) {
       await Bun.sleep(300)
       if (port) url = (await listening(port)) ? `http://localhost:${port}` : undefined
       else {
@@ -720,6 +754,8 @@ export class ColonyRun implements ColonyHost {
         }
       }
     }
+    // Stopped by `_stopLooserServers` while it was starting.
+    if (this._servers.get(name) !== proc) throw new Error(prompts.toolResults.serverRulesChanged(name))
     if (url && opened && !port && before?.has(opened)) {
       proc.stop()
       this._servers.delete(name)
@@ -735,6 +771,7 @@ export class ColonyRun implements ColonyHost {
     }
     // Without a record of the ports in use before, a printed port cannot be told from someone else's.
     if (opened && (port || before)) this._serverPorts.set(proc, opened)
+    rules.up = true
     await this.append({
       type: 'server/started',
       actor: agentActor(agent),
@@ -765,6 +802,35 @@ export class ColonyRun implements ColonyHost {
     this._servers.delete(name)
     proc.stop()
     await this.append({ type: 'server/stopped', actor: SYSTEM, payload: { name, reason } })
+  }
+
+  /**
+   * Stops the servers started under looser rules than the round has now (full access since taken back, a project
+   * since made read-only): a running process keeps the sandbox it started in. All are stopped and their agents told
+   * before anything is awaited, so a second tightening finds nothing left to stop and an agent just interrupted hears
+   * of it in the turn that follows. A server still starting fails its start_server call instead.
+   */
+  private async _stopLooserServers() {
+    const readOnly = presetOf(this.spec) === 'read-only'
+    const stopped: string[] = []
+    const byAgent = new Map<string, string[]>()
+    for (const [name, proc] of [...this._servers]) {
+      const rules = this._serverRules.get(proc)
+      if (!rules || !((rules.fullAccess && !this.fullAccess) || (!rules.readOnly && readOnly))) continue
+      this._servers.delete(name)
+      proc.stop()
+      if (!rules.up) continue
+      stopped.push(name)
+      byAgent.set(rules.agent, [...(byAgent.get(rules.agent) ?? []), name])
+    }
+    for (const [agent, names] of byAgent)
+      this._wake(agent, prompts.colony.serversStopped(names), 'permissions', { quiet: true })
+    for (const name of stopped)
+      await this.append({
+        type: 'server/stopped',
+        actor: SYSTEM,
+        payload: { name, reason: 'it ran with access this round no longer has' },
+      })
   }
 
   projectDiff(): Promise<string | undefined> {
@@ -896,6 +962,7 @@ export class ColonyRun implements ColonyHost {
       actor: { kind: 'user', id: 'user' },
       payload: { off: [], ask: [], allow: [], askAll: true, interrupted: [] },
     })
+    await this._stopLooserServers()
   }
 
   /**
@@ -966,6 +1033,8 @@ export class ColonyRun implements ColonyHost {
     for (const [name, text] of Object.entries(notices))
       this._wake(name, text, 'permissions', this._agents.get(name)?.working ? {} : { quiet: true })
     await this.redecideApprovals()
+    // Servers started under looser rules than these stop; the rest keep running.
+    await this._stopLooserServers()
   }
 
   /** Wakes one agent with a note from outside the colony (e.g. the person handing back its browser). */
