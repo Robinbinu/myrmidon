@@ -130,24 +130,37 @@ export interface MyrSettings {
    */
   appearance: { imported: ImportedTheme[] }
   /**
-   * Voice calls: the call model (the lead's when unset), speech to text and text to speech (on this machine by
-   * default, omp's cloud models, or any OpenAI-compatible endpoint, whose keys live in `voice/secrets.json`), and how
-   * loud speech must be to count.
+   * Voice calls: the call model (the lead's when unset), and how a call hears and speaks. `pipeline` (the default):
+   * speech to text, the call model, text to speech, each on this machine (Phonon-2, Kitten TTS), omp's cloud models,
+   * a voice provider set up in Settings → Models & providers, or the person's own OpenAI-compatible service;
+   * `realtime`: one speech-to-speech model does all three. Keys live in the credential vault with the model providers'
+   * (see voice/providers.ts), never here: this file is readable by others.
    */
   voice: {
     /** Voice calls are off until the person turns them on: nothing is downloaded or started before. */
     enabled: boolean
     callModel?: string
-    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    mode: 'pipeline' | 'realtime'
+    /**
+     * `provider`: `phonon`, `omp`, a voice provider's id (`deepgram`…), or `endpoint:<id>` for one of `endpoints`;
+     * `model`: the provider's model, its default when unset.
+     */
+    stt: { provider: string; model?: string }
     tts: {
-      provider: 'kitten' | 'omp' | 'endpoint'
+      provider: string
+      model?: string
+      /** A cloud provider's voice id (Kitten's is `voice`); the provider's default when unset. */
+      voiceId?: string
       kittenModel: 'nano' | 'micro' | 'mini'
       voice: string
       speed: number
-      baseUrl?: string
-      model?: string
-      endpointVoice?: string
     }
+    /** The realtime model a `realtime` call uses: its provider (`openai`, `gemini`…), model and voice. */
+    realtime?: { provider?: string; model?: string; voice?: string }
+    /** Regions for the providers that need one (Azure, AWS, Speechmatics), by provider id. Not secret. */
+    regions?: Record<string, string>
+    /** The person's own speech services with the OpenAI audio API; each one's key is in the vault. */
+    endpoints?: VoiceEndpoint[]
     sensitivity: 'low' | 'normal' | 'high'
     /**
      * Phone calls on the SMS channel's Twilio number: answered (its voice webhook is pointed at this gateway) and
@@ -174,6 +187,20 @@ export interface ImportedTheme {
 const HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const THEME_KEY = /^[A-Za-z][A-Za-z.]{0,59}$/
 const SYNTAX_ROLES = new Set(['comment', 'string', 'keyword', 'function', 'number'])
+
+/** An OpenAI-compatible speech service the person added (a local whisper, Kokoro or Piper server, Groq…). */
+export interface VoiceEndpoint {
+  /** How it is named in pickers (`endpoint:<id>`); lowercase letters, digits and dashes. */
+  id: string
+  /** Up to the API version, e.g. `http://localhost:8880/v1`. */
+  baseUrl: string
+  /** It takes no key. */
+  keyless?: boolean
+}
+
+export const VOICE_ENDPOINT_ID = /^[a-z][a-z0-9-]{0,30}$/
+/** What a voice provider choice may be: a fixed engine, a registry id, or one of the person's endpoints. */
+const VOICE_PROVIDER = /^([a-z][a-z0-9-]{1,30}|endpoint:[a-z][a-z0-9-]{0,30})$/
 
 export const settingsSchema = Schema.object({
   version: Schema.const(1).default(1),
@@ -279,20 +306,37 @@ export const settingsSchema = Schema.object({
   voice: Schema.object({
     enabled: Schema.boolean().default(false),
     callModel: Schema.string(),
+    mode: Schema.union(['pipeline', 'realtime']).default('pipeline'),
     stt: Schema.object({
-      provider: Schema.union(['phonon', 'omp', 'endpoint']).default('phonon'),
-      baseUrl: Schema.string().max(500),
+      provider: Schema.string().pattern(VOICE_PROVIDER).default('phonon'),
       model: Schema.string().max(200),
     }).default({}),
     tts: Schema.object({
-      provider: Schema.union(['kitten', 'omp', 'endpoint']).default('kitten'),
+      provider: Schema.string().pattern(VOICE_PROVIDER).default('kitten'),
+      model: Schema.string().max(200),
+      voiceId: Schema.string().max(200),
       kittenModel: Schema.union(['nano', 'micro', 'mini']).default('nano'),
       voice: Schema.string().max(60).default('Leo'),
       speed: Schema.number().min(0.5).max(2).default(1),
-      baseUrl: Schema.string().max(500),
-      model: Schema.string().max(200),
-      endpointVoice: Schema.string().max(60),
     }).default({}),
+    realtime: Schema.object({
+      provider: Schema.string().pattern(VOICE_PROVIDER),
+      model: Schema.string().max(200),
+      voice: Schema.string().max(200),
+    }).default({}),
+    regions: Schema.dict(Schema.string().pattern(/^[a-z0-9-]{2,40}$/)).default({}),
+    endpoints: Schema.array(
+      Schema.object({
+        id: Schema.string().pattern(VOICE_ENDPOINT_ID).required(),
+        baseUrl: Schema.string()
+          .pattern(/^https?:\/\//)
+          .max(500)
+          .required(),
+        keyless: Schema.boolean(),
+      }),
+    )
+      .max(20)
+      .default([]),
     sensitivity: Schema.union(['low', 'normal', 'high']).default('normal'),
     phone: Schema.boolean().default(false),
   }).default({}),
@@ -340,12 +384,69 @@ function globalPermissions(input: unknown): GlobalPermissions {
   return { preset, rules: level.rules, ...(kept.lead || kept.crew ? { access: kept } : {}) }
 }
 
+/**
+ * Voice settings from before voice providers: one OpenAI-compatible address per direction (`provider: 'endpoint'`,
+ * `baseUrl`, `model`, `endpointVoice`) becomes one of the person's endpoints, named for what it was for
+ * (`endpoint` when both used the same address, else `endpoint-stt` / `endpoint-tts`; their keys move to the vault
+ * under those names, see VOICE_LEGACY_KEYS), and the choice names it. Other choices (Phonon-2, Kitten, omp) are kept.
+ */
+function legacyVoice(voice: unknown): unknown {
+  if (!voice || typeof voice !== 'object') return voice
+  const v = voice as Record<string, unknown> & { endpoints?: unknown }
+  const stt = (v.stt ?? {}) as Record<string, unknown>
+  const tts = (v.tts ?? {}) as Record<string, unknown>
+  const url = (x: unknown) =>
+    typeof x === 'string' && /^https?:\/\//.test(x) ? x.trim().replace(/\/+$/, '') : ''
+  const sttUrl = url(stt.baseUrl)
+  const ttsUrl = url(tts.baseUrl)
+  const legacy =
+    stt.provider === 'endpoint' || tts.provider === 'endpoint' || 'baseUrl' in stt || 'baseUrl' in tts
+  if (!legacy) return voice
+  const shared = sttUrl && sttUrl === ttsUrl
+  const sttId = shared ? 'endpoint' : 'endpoint-stt'
+  const ttsId = shared ? 'endpoint' : 'endpoint-tts'
+  const endpoints = Array.isArray(v.endpoints) ? [...v.endpoints] : []
+  const add = (id: string, baseUrl: string) => {
+    if (baseUrl && !endpoints.some((e) => (e as { id?: unknown }).id === id)) endpoints.push({ id, baseUrl })
+  }
+  add(sttId, sttUrl)
+  add(ttsId, ttsUrl)
+  const { baseUrl: _sb, model: sttModel, ...sttRest } = stt
+  const { baseUrl: _tb, model: ttsModel, endpointVoice, ...ttsRest } = tts
+  return {
+    ...v,
+    endpoints,
+    stt:
+      stt.provider === 'endpoint'
+        ? { ...sttRest, provider: `endpoint:${sttId}`, ...(sttModel ? { model: sttModel } : {}) }
+        : sttRest,
+    tts:
+      tts.provider === 'endpoint'
+        ? {
+            ...ttsRest,
+            provider: `endpoint:${ttsId}`,
+            ...(ttsModel ? { model: ttsModel } : {}),
+            ...(endpointVoice ? { voiceId: endpointVoice } : {}),
+          }
+        : ttsRest,
+  }
+}
+
+/** Where each key of the old `voice/secrets.json` goes in the vault: the endpoint legacyVoice made for it. */
+export const VOICE_LEGACY_KEYS = {
+  shared: 'endpoint',
+  stt: 'endpoint-stt',
+  tts: 'endpoint-tts',
+} as const
+
 /** Validates, then keeps only known fields: the schema passes unknown keys (e.g. from older versions) through. */
 function parse(input: unknown): MyrSettings {
   // Older files say `auto`/`manual`; both were lead-run teams.
   const raw = (input ?? {}) as { team?: { mode?: unknown } }
   if (raw.team && (raw.team.mode === 'auto' || raw.team.mode === 'manual'))
     input = { ...raw, team: { ...raw.team, mode: 'orchestrated' } }
+  const voice = (input as { voice?: unknown } | undefined)?.voice
+  if (voice !== undefined) input = { ...(input as object), voice: legacyVoice(voice) }
   const s = settingsSchema((input ?? {}) as never) as MyrSettings
   // The schema fills in an absent setup; absent must stay absent, so the first read can still decide it.
   const setup = (input as { setup?: unknown } | undefined)?.setup !== undefined ? s.setup : undefined
@@ -391,14 +492,7 @@ function parse(input: unknown): MyrSettings {
         syntax: Object.fromEntries(Object.entries(t.syntax).filter(([k]) => SYNTAX_ROLES.has(k))),
       })),
     },
-    voice: {
-      enabled: s.voice.enabled,
-      ...(s.voice.callModel ? { callModel: s.voice.callModel } : {}),
-      stt: s.voice.stt,
-      tts: s.voice.tts,
-      sensitivity: s.voice.sensitivity,
-      phone: s.voice.phone,
-    },
+    voice: voiceSettings(s.voice),
     ...(setup
       ? {
           setup: {
@@ -408,6 +502,43 @@ function parse(input: unknown): MyrSettings {
           },
         }
       : {}),
+  }
+}
+
+/** The voice settings with only what is set: no empty realtime choice, regions or endpoints. */
+function voiceSettings(v: MyrSettings['voice']): MyrSettings['voice'] {
+  const realtime = Object.fromEntries(
+    Object.entries(v.realtime ?? {}).filter(([, x]) => typeof x === 'string' && x.trim()),
+  )
+  const endpoints = [
+    ...new Map(
+      (v.endpoints ?? []).map((e) => [
+        e.id,
+        { id: e.id, baseUrl: e.baseUrl.trim().replace(/\/+$/, ''), ...(e.keyless ? { keyless: true } : {}) },
+      ]),
+    ).values(),
+  ]
+  const regions = Object.fromEntries(Object.entries(v.regions ?? {}).filter(([, r]) => r))
+  const set = <T extends object>(o: T) =>
+    Object.fromEntries(Object.entries(o).filter(([, x]) => x !== undefined && x !== '')) as T
+  return {
+    enabled: v.enabled,
+    ...(v.callModel ? { callModel: v.callModel } : {}),
+    mode: v.mode,
+    stt: set({ provider: v.stt.provider, model: v.stt.model }),
+    tts: set({
+      provider: v.tts.provider,
+      model: v.tts.model,
+      voiceId: v.tts.voiceId,
+      kittenModel: v.tts.kittenModel,
+      voice: v.tts.voice,
+      speed: v.tts.speed,
+    }),
+    ...(Object.keys(realtime).length ? { realtime } : {}),
+    ...(Object.keys(regions).length ? { regions } : {}),
+    ...(endpoints.length ? { endpoints } : {}),
+    sensitivity: v.sensitivity,
+    phone: v.phone,
   }
 }
 

@@ -488,6 +488,41 @@ export const RECOVERY_GRACE_MS = 60_000
 export const CHAT_SEARCH_LIMIT = 50
 /** The person's past messages the composer learns its suggestions from, most recent first. */
 export const SUGGEST_CORPUS = 2_000
+/**
+ * The composer's optional next-word model: Pythia-14M (EleutherAI, Apache-2.0; ONNX by Xenova), 8-bit, pinned by
+ * revision and hash, downloaded once into `<home>/models/pythia-14m` when the person turns it on. Measured on their own
+ * typing it was the smallest that helped, at about 2 ms a call.
+ */
+export const SUGGEST_MODEL = {
+  name: 'pythia-14m',
+  base: 'https://huggingface.co/Xenova/pythia-14m/resolve/29ac7d207305198580e1af9f73a141a08a47e871/',
+  files: [
+    {
+      path: 'onnx/model_quantized.onnx',
+      sha256: '89b2ab5f634da8e5de810652f443d19e276ba4df918da85a93771f8383f51d29',
+      bytes: 14_756_094,
+    },
+    {
+      path: 'tokenizer.json',
+      sha256: '3cf430678137c8491ca82fb7092ee49e44ad38857fffe1e4a4a5ed860139a5b8',
+      bytes: 2_113_738,
+    },
+    {
+      path: 'tokenizer_config.json',
+      sha256: '4d1c4fdcf128d28ffcc56e21a36f7002b5e754624c9c8cbd025df7fa58af8428',
+      bytes: 264,
+    },
+  ],
+  /** The model's shape, for its empty key/value cache on a first call. */
+  layers: 6,
+  heads: 4,
+  headSize: 32,
+} as const
+/** A predicted word is offered only when the model gives its first token at least this probability. */
+export const SUGGEST_MODEL_MIN_P = 0.3
+/** The end of the draft the model reads, and the most tokens one word may take. */
+export const SUGGEST_MODEL_CONTEXT_CHARS = 300
+export const SUGGEST_MODEL_MAX_TOKENS = 4
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
 
@@ -613,6 +648,29 @@ export const VOICE_MAX_CALLS = 4
 export const VOICE_TRANSCRIPT_DAYS = 30
 /** How often a running gateway drops transcripts older than that. */
 export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
+/**
+ * Cloud voice providers (voice/providers.ts). A streaming speech to text is asked for the words of a turn once it ends,
+ * and given VOICE_STT_FINISH_MS to send them before the turn falls back to a batch transcription. Speech that streams
+ * in is passed on in pieces of at least VOICE_TTS_CHUNK_MS (a provider's body arrives in small parts). A request to a
+ * provider fails after VOICE_CLOUD_TIMEOUT_MS; its voice list is asked again after VOICE_VOICES_CACHE_MS.
+ */
+export const VOICE_STT_FINISH_MS = 3_000
+export const VOICE_TTS_CHUNK_MS = 80
+export const VOICE_CLOUD_TIMEOUT_MS = 20_000
+export const VOICE_VOICES_CACHE_MS = 10 * 60_000
+/** Streaming speech to text sends audio in pieces of at least this (AssemblyAI takes 50 ms to 1 s per message). */
+export const VOICE_STT_CHUNK_MS = 50
+/** How often an open speech-to-text stream is kept alive while the turn is quiet (Deepgram closes after 10 s). */
+export const VOICE_STT_KEEPALIVE_MS = 5_000
+/**
+ * Realtime calls: how long a realtime model has to set its session up, and how long a tool call that must check the
+ * person's last words (answer_approval) waits for their transcript, which a realtime model writes beside its answer.
+ */
+export const VOICE_REALTIME_CONNECT_MS = 15_000
+export const VOICE_REALTIME_TRANSCRIPT_MS = 3_000
+/** The language cloud speech to text is told to expect, as a BCP-47 tag (each provider takes its own form of it). */
+export const VOICE_LANGUAGE = 'en-US'
+
 /**
  * Phone calls (Twilio Media Streams): how long a call's one-time ticket (in its TwiML) stands, long enough for a call
  * Myrmidon makes to ring out (Twilio's default ring timeout is 60 s); how long a stream may stay open before its

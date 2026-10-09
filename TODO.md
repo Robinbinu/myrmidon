@@ -299,6 +299,30 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 Open work, in the order it will be done:
 
+0. - [x] **Answers stay in the question card** (done, merged to develop) — answering a question card
+      sent a separate "question → answer" bubble and started the next round under a divider; the card should show the
+      picks itself (kept across reloads, with the read receipt) and the round continue seamlessly.
+0. - [x] **Next-word suggestions in the composer, Tab to accept** (done, merged to develop) — history → next
+      word → finish word; saved 43.6% of keystrokes on 3,530 real prompts vs 34.6% Warp-style, 24.7% zsh.
+0. - [x] **Neural next-word fallback** (done, merged to develop; Pythia-14M, off by default) — Settings → General
+      "Smarter next words" downloads the pinned 17 MB model; the composer asks it after a space when history has
+      nothing, shown at ≥ 0.3 confidence, a few ms a word.
+0. - [ ] **Agent feedback, round 2** (2026-10-09; report: probe chat `i-built-this-harness…`, artifact
+      `myrmidon-feedback.md` §0). In order:
+      1. A task with no required files can never pass: `Verifier.verifyTask` (verifier.ts:51) fails any task with
+         `artifacts: []` ("no artifacts were submitted"), even when its brief says "a note + a message, no files". Let
+         a task whose `outputs` are empty pass on its note/message, or make `create_task` require outputs; and have
+         `submit_task` warn at once instead of an async rejection.
+      2. `ask_crewmate(to: <unknown name>)` silently creates a new crewmate (colony.ts `askCrewmate`): validate
+         against the crew, or say "not on the crew, bringing in <name> as …" in the result and the tool description.
+      3. Sandboxed shell `env` exposes the host `$PATH` (app names, ~/Desktop/Myrmidon): give sandboxed commands a
+         minimal PATH of toolchains only (check against the sandbox-reads work).
+      4. `run_checks` outside a project has no typecheck path: let it run in the agent's scratch folder when there is
+         a package.json/tsconfig there.
+      5. A non-member can read a group but not reply; `read_messages` right after `update_group(remove)` showed the
+         old members once (read-after-write race): check `host.state()` freshness after append.
+      6. Leftovers from the probe (task1-findings.md, task2-findings.md, earlier probe files and tools) — the person
+         chose to keep round-1 leftovers; ask before removing.
 0. - [x] **Schedules at any time** (done, merged to develop) — presets were fixed at 9:00; now a
       repeat (hour, day, weekdays, chosen days, monthly, custom cron), a time and days, said in plain words, and
       Change edits a saved schedule.
@@ -499,11 +523,11 @@ Open work, in the order it will be done:
       file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
       team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
       by default with a role x tool-group control. Building on branch `permissions`.
-12u. - [ ] **Voice providers from Models & providers** (asked 2026-10-09) — any cloud STT/TTS and realtime
+12u. - [x] **Voice providers from Models & providers** (done, merged f3188ec; untested with real keys) (asked 2026-10-09) — any cloud STT/TTS and realtime
       (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
       similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
       Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
-12v. - [ ] **Themes like VS Code, and more mascot settings** (asked 2026-10-09) — the themes developers love
+12v. - [x] **Themes like VS Code, and more mascot settings** (done, merged) (asked 2026-10-09) — the themes developers love
       (research which), applied to the whole UI; more ways to tune the mascot.
 12w. - [ ] **Search in Settings, like iPhone Settings** (asked 2026-10-09: "settings is not searchable and very
       confusing to find an option") — a search field at the top of Settings; every setting indexed with its page,

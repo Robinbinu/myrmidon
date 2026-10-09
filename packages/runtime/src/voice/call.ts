@@ -23,7 +23,7 @@ import {
 } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
-import { trimSilence } from './audio.ts'
+import { trimSilence, trimStart } from './audio.ts'
 import type { LiveTranscription } from './phonon-stream.ts'
 import type { TurnJudge } from './smart-turn.ts'
 import { SpeechSplitter, speakable } from './speech.ts'
@@ -192,7 +192,7 @@ export function spokenAnswer(text: string): boolean | undefined {
 }
 
 /** The date and time as the call assistant is told them, in the person's zone. */
-function callTime() {
+export function callTime() {
   const now = new Date()
   return {
     date: localDate(now),
@@ -269,7 +269,7 @@ export class CallSession {
   private readonly _messages: Message[] = []
   private readonly _turns: CallTurn[] = []
   private readonly _detector: TurnDetector
-  private readonly _sent: Sent[] = []
+  protected readonly _sent: Sent[] = []
   /** Approvals the crew is waiting on in this call's runs, in the order they were asked for. */
   private readonly _approvals = new Map<string, { colonyId: string; tool: string; summary: string }>()
   /**
@@ -279,33 +279,33 @@ export class CallSession {
    */
   private _asking?: { id: string; heard?: number; until?: number }
   /** The person's latest turn as a plain yes or no, and which turn it was. */
-  private _answer?: { approved: boolean; turn: number }
+  protected _answer?: { approved: boolean; turn: number }
   /** Turns the person has begun, so a yes can be placed before or after an approval was heard. */
-  private _begun = 0
+  protected _begun = 0
   /** The turn in progress (its number), carried to where it ends. */
   private _turn = 0
   /** Crew updates for the call assistant, how the transcript shows each to the person, and the approval it puts. */
-  private readonly _updates: { text: string; note: string; approval?: string }[] = []
-  private _reply?: AbortController
+  protected readonly _updates: { text: string; note: string; approval?: string }[] = []
+  protected _reply?: AbortController
   private _replying?: Promise<void>
   private _speech: Promise<void> = Promise.resolve()
   /** When the audio sent so far finishes playing on the person's side. */
-  private _playingUntil = 0
-  private _muted = false
-  private _ended = false
+  protected _playingUntil = 0
+  protected _muted = false
+  protected _ended = false
   /** The state the call is in, shown again when the person unmutes. */
-  private _current: CallState = 'listening'
+  protected _current: CallState = 'listening'
   private _vad?: { chance(chunk: Float32Array): Promise<number> }
   /** The end-of-turn model, until it fails; then turns end on quiet alone. */
   private _judge?: TurnJudge
   /** Audio not yet scored, and the scoring in progress (chunks are scored in order). */
   private _unscored = new Int16Array(0)
   private _scoring: Promise<void> = Promise.resolve()
-  private _hangUpAfterSpeech = false
+  protected _hangUpAfterSpeech = false
   private readonly _off: () => void
   private _offStream?: () => void
   /** Who says the call's own lines: the call assistant, or whoever a direct call reached. */
-  private readonly _voice: string
+  protected readonly _voice: string
   /** On a direct call, what is to be read aloud, in order: a reply still being written holds the rest back. */
   private readonly _queue: Utterance[] = []
   /** Replies being written, by colony and agent. */
@@ -313,17 +313,20 @@ export class CallSession {
   /** Agents whose last reply was spoken from its stream, so its finished copy is not spoken again. */
   private readonly _streamed = new Set<string>()
   /** The current turn's timings (ms since epoch): when the person stopped, was heard, first words, first sound. */
-  private _clock?: { stopped: number; heard: number; thought?: number }
+  protected _clock?: { stopped: number; heard: number; thought?: number }
   /**
    * Names the speech to text favours: the project's and the crew's, which it would otherwise spell as it hears them
    * (and an @name has to match). Not the lead's: it is "lead", a word the engine already knows.
    */
-  private readonly _hotwords: readonly string[]
+  protected readonly _hotwords: readonly string[]
   /** The turn in progress as it is heard, while the engine streams one. */
   private _live?: LiveTranscription
+  /** The speech engines in use: the chosen ones, until one fails and the call goes on with the fallback. */
+  private _stt: SpeechToText
+  private _tts: TextToSpeech
 
   constructor(
-    private readonly ports: {
+    protected readonly ports: {
       readonly chats: CallChats
       readonly resolver: ModelResolver
       readonly stt: SpeechToText
@@ -333,10 +336,17 @@ export class CallSession {
       /** Smart Turn: with it a short pause can end a finished turn; without it, a turn ends after a longer quiet. */
       readonly judge?: TurnJudge
       readonly log?: (line: string) => void
+      /**
+       * The engines on this machine to go on with when a cloud one fails mid-call (when they are here): the call says
+       * so, shows the error, and carries on with them.
+       */
+      readonly fallback?: { readonly stt?: SpeechToText; readonly tts?: TextToSpeech }
     },
-    private readonly options: CallOptions,
-    private readonly emit: (out: CallOutput) => void,
+    protected readonly options: CallOptions,
+    protected readonly emit: (out: CallOutput) => void,
   ) {
+    this._stt = ports.stt
+    this._tts = ports.tts
     this._chatId = options.chatId
     this._voice = options.talkTo ?? 'assistant'
     this._hotwords = [
@@ -408,7 +418,7 @@ export class CallSession {
   /** Says who answered, greets the person; the call is then listening. */
   async start() {
     // While the greeting plays, so the person's first turn is not the one to pay for them.
-    this.ports.stt
+    this._stt
       .prepare?.(this._hotwords)
       .catch((err) => this.ports.log?.(`speech to text: ${err instanceof Error ? err.message : String(err)}`))
     this.emit({
@@ -476,17 +486,54 @@ export class CallSession {
   /** Follows the turn just begun as it is heard, from what came just before it, when the engine streams. */
   private _listen() {
     this._live?.close()
-    this._live = this.ports.stt.listen?.(this.options.sampleRate, (text) => {
-      if (!this._ended) this.emit({ type: 'partial', text })
-    })
+    this._live = this._stt.listen?.(
+      this.options.sampleRate,
+      (text) => {
+        if (!this._ended) this.emit({ type: 'partial', text })
+      },
+      { hotwords: this._hotwords, ...(this.ports.log ? { log: this.ports.log } : {}) },
+    )
     this._live?.push(this._detector.soFar())
   }
 
-  /** A turn that has ended: its live stream stops, and its whole audio is transcribed. */
-  private _transcribe(audio: Int16Array): Promise<string> {
-    this._live?.close()
+  /**
+   * A turn that has ended: an engine whose stream gives the transcript is asked for the rest of it; otherwise (or if
+   * that fails) the turn's whole audio is transcribed. A cloud engine that fails hands the call to the one on this
+   * machine, when it is here.
+   */
+  private async _transcribe(audio: Int16Array): Promise<string> {
+    const live = this._live
     this._live = undefined
-    return this.ports.stt.transcribe(audio, this.options.sampleRate, { hotwords: this._hotwords })
+    if (live?.finish) {
+      try {
+        return await live.finish()
+      } catch (err) {
+        this.ports.log?.(`speech to text stream: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    } else live?.close()
+    const stt = this._stt
+    try {
+      return await stt.transcribe(audio, this.options.sampleRate, { hotwords: this._hotwords })
+    } catch (err) {
+      const backup = this.ports.fallback?.stt
+      if (!backup || stt === backup || this._ended) throw err
+      if (this._stt === stt) {
+        this._stt = backup
+        this._fellBack('stt', err)
+      }
+      return backup.transcribe(audio, this.options.sampleRate, { hotwords: this._hotwords })
+    }
+  }
+
+  /** A cloud engine failed and the call goes on with the one on this machine: the person sees why and hears so. */
+  private _fellBack(which: 'stt' | 'tts', err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    this.emit({ type: 'error', message: prompts.voice.fallback.error(which, message) })
+    this.ports.log?.(
+      `${which === 'stt' ? 'speech to text' : 'text to speech'} failed, using this machine's: ${message}`,
+    )
+    if (which === 'stt')
+      void this._say(prompts.voice.fallback.said(which), new AbortController().signal, this._voice)
   }
 
   /**
@@ -553,12 +600,12 @@ export class CallSession {
     this.emit({ type: 'ended', reason })
   }
 
-  private _state(state: CallState) {
+  protected _state(state: CallState) {
     this._current = state
     if (!this._ended && !this._muted) this.emit({ type: 'state', state })
   }
 
-  private _note(who: CallTurn['who'], text: string) {
+  protected _note(who: CallTurn['who'], text: string) {
     this._turns.push({ at: new Date().toISOString(), who, text })
   }
 
@@ -579,14 +626,25 @@ export class CallSession {
       return this._askNext()
     }
     this._clock = { stopped, heard: Date.now() }
-    this._note('person', text)
-    this.emit({ type: 'heard', text })
-    const answer = spokenAnswer(text)
-    this._answer = answer === undefined ? undefined : { approved: answer, turn }
+    this._personSaid(text, turn)
     if (this.direct) return this._toCrew(text)
     this._messages.push({ role: 'user', content: text, timestamp: Date.now() })
     void this._respond()
   }
+
+  /** The person's `turn`th turn, heard: kept in the transcript, shown, and noted when it is a plain yes or no. */
+  protected _personSaid(text: string, turn: number) {
+    this._note('person', text)
+    this.emit({ type: 'heard', text })
+    const answer = spokenAnswer(text)
+    this._answer = answer === undefined ? undefined : { approved: answer, turn }
+  }
+
+  /**
+   * Waits until the person's latest turn has been heard, before an answer is checked against it: a pipeline call's
+   * turns are heard before the call assistant runs, a realtime model's transcript may come after its tool call.
+   */
+  protected async _turnHeard(): Promise<void> {}
 
   /**
    * The person's latest turn, if it was a plain yes or no to the approval put to them: begun after they had heard it
@@ -653,7 +711,7 @@ export class CallSession {
   }
 
   /** Puts the next waiting approval to the person, one at a time, so their yes or no decides the one they heard. */
-  private _askNext() {
+  protected _askNext() {
     if (this._asking || this._ended) return
     const next = this._approvals.entries().next()
     if (next.done) return
@@ -822,7 +880,7 @@ export class CallSession {
     }
   }
 
-  private async _tool(call: ToolCall): Promise<string> {
+  protected async _tool(call: ToolCall): Promise<string> {
     const r = prompts.voice.results
     const args = call.arguments as Record<string, unknown>
     if (call.name === 'start_task') {
@@ -853,6 +911,7 @@ export class CallSession {
       const id = String(args.id ?? '')
       if (id !== this._asking?.id) return r.noApproval(id)
       const approved = args.approve === true
+      await this._turnHeard()
       // Only the person decides: their latest turn, begun after the assistant was told of it, must have been that
       // plain yes or no, whatever else was said.
       if (this._answers(id) !== approved) return r.notAnswered
@@ -868,7 +927,11 @@ export class CallSession {
     return `no tool called ${call.name}`
   }
 
-  /** Queues a sentence to be spoken after the ones before it; `said` hears when it will have finished playing. */
+  /**
+   * Queues a sentence to be spoken after the ones before it; `said` hears when it will have finished playing. An engine
+   * that streams plays each piece as it comes. When a cloud engine fails before any of the sentence was heard, the
+   * call says so and goes on with the one on this machine (when it is here), this sentence included.
+   */
   private _say(
     text: string,
     signal: AbortSignal,
@@ -877,28 +940,78 @@ export class CallSession {
   ): Promise<void> {
     this._speech = this._speech.then(async () => {
       if (signal.aborted || this._ended) return
+      const tts = this._tts
+      let played = false
       try {
-        const speech = await this.ports.tts.speak(text, signal)
-        if (signal.aborted || this._ended) return
-        const pcm = trimSilence(speech.pcm, speech.sampleRate)
-        this._state('speaking')
-        this.emit({ type: 'audio', pcm, sampleRate: speech.sampleRate })
-        this._voiced()
-        this.emit({ type: 'said', text, from })
-        this._note('voice', text)
-        const ms = (pcm.length / speech.sampleRate) * 1000
-        this._playingUntil = Math.max(Date.now(), this._playingUntil) + ms
-        said?.(this._playingUntil)
+        played = await this._voiceWith(tts, text, signal, from)
       } catch (err) {
-        if (!signal.aborted)
+        if (signal.aborted) return
+        const backup = this.ports.fallback?.tts
+        if (!backup || backup === tts || played || this._ended) {
           this.emit({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+          return
+        }
+        if (this._tts === tts) {
+          this._tts = backup
+          this._fellBack('tts', err)
+          await this._voiceWith(backup, prompts.voice.fallback.said('tts'), signal, this._voice).catch(
+            () => false,
+          )
+        }
+        try {
+          await this._voiceWith(backup, text, signal, from)
+        } catch (again) {
+          if (!signal.aborted)
+            this.emit({ type: 'error', message: again instanceof Error ? again.message : String(again) })
+          return
+        }
       }
+      said?.(this._playingUntil)
     })
     return this._speech
   }
 
+  /** Speaks one sentence with `tts`, a piece at a time when it streams; whether any of it went out. */
+  private async _voiceWith(
+    tts: TextToSpeech,
+    text: string,
+    signal: AbortSignal,
+    from: string,
+  ): Promise<boolean> {
+    if (!tts.stream) {
+      const speech = await tts.speak(text, signal)
+      if (signal.aborted || this._ended) return false
+      this._play(trimSilence(speech.pcm, speech.sampleRate), speech.sampleRate, text, from)
+      return true
+    }
+    let first = true
+    for await (const piece of tts.stream(text, signal)) {
+      if (signal.aborted || this._ended) return !first
+      // The quiet a voice starts with is cut; the rest of the sentence is played as it comes.
+      const pcm = first ? trimStart(piece.pcm, piece.sampleRate) : piece.pcm
+      if (!pcm.length) continue
+      this._play(pcm, piece.sampleRate, first ? text : undefined, from)
+      first = false
+    }
+    return !first
+  }
+
+  /** Sends audio to the person's side; `text` once per sentence, with its first piece, for the transcript. */
+  protected _play(pcm: Int16Array, sampleRate: number, text: string | undefined, from: string) {
+    // Said once, not for every piece of a sentence that streams in.
+    if (this._current !== 'speaking') this._state('speaking')
+    this.emit({ type: 'audio', pcm, sampleRate })
+    this._voiced()
+    if (text !== undefined) {
+      this.emit({ type: 'said', text, from })
+      this._note('voice', text)
+    }
+    const ms = (pcm.length / sampleRate) * 1000
+    this._playingUntil = Math.max(Date.now(), this._playingUntil) + ms
+  }
+
   /** The crew updates waiting, as the call assistant reads them; the transcript notes each for the person. */
-  private _takeUpdates(): string {
+  protected _takeUpdates(): string {
     const updates = this._updates.splice(0)
     for (const u of updates) this._note('crew', u.note)
     // The assistant now knows of the approval: a turn begun before this cannot answer it.
@@ -911,7 +1024,7 @@ export class CallSession {
    * the person's: the crew's text (an approval's summary, an agent's answer) may carry instructions, and the person's
    * turns are what the assistant acts on. Spoken at the next pause.
    */
-  private _tellUpdates() {
+  protected _tellUpdates() {
     const call: ToolCall = {
       type: 'toolCall',
       id: `crew_${randomBytes(6).toString('hex')}`,
@@ -1048,12 +1161,12 @@ export class CallSession {
   }
 
   /** The first words of the answer are written. */
-  private _thought() {
+  protected _thought() {
     if (this._clock && !this._clock.thought) this._clock.thought = Date.now()
   }
 
   /** The answer's first sound went out: how long the person waited, and where it went. */
-  private _voiced() {
+  protected _voiced() {
     const c = this._clock
     if (!c) return
     this._clock = undefined

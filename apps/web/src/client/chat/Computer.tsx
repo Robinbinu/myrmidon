@@ -201,7 +201,9 @@ function AgentScreen(props: {
               onClick={() => setMode(m)}
               className={cn(
                 'flex-1 rounded-md px-2 py-1 font-medium transition-colors',
-                mode === m ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
+                mode === m
+                  ? 'bg-segment-on text-fg shadow-[0_0.5px_2px_rgb(0_0_0/0.25)]'
+                  : 'text-muted hover:text-fg',
               )}
             >
               {m === 'follow'

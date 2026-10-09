@@ -162,7 +162,11 @@ export function needsFull(method: string, path: string): boolean {
   // Installing the computer-use driver and asking for its grants; Stop stays open to every device, as a safety stop.
   if (write && /^\/api\/computer\/(install|grants|restart)(\/|$)/.test(path)) return true
   // Installing speech engines, keys and samples, and phoning someone; calling (a GET that upgrades) stays open.
-  if (write && /^\/api\/voice\/(phonon|kitten|keys|sample|phone)(\/|$)/.test(path)) return true
+  if (write && /^\/api\/voice\/(phonon|kitten|sample|phone)(\/|$)/.test(path)) return true
+  // Voice providers' keys, regions, voice lists (fetched with the key) and the person's speech services.
+  if (/^\/api\/voice\/(providers|endpoints)(\/|$)/.test(path)) return true
+  // Downloading the composer's next-word model, like a speech engine; asking it for a word stays open.
+  if (write && path === '/api/suggestions/model') return true
   // Adding or removing a project; reading the list stays open so chats show their folder.
   if (write && /^\/api\/projects(\/[^/]+)?$/.test(path)) return true
   return false

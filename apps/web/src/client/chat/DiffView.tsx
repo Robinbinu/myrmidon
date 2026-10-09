@@ -109,7 +109,9 @@ export function DiffModeToggle({ mode, onMode }: { mode: DiffMode; onMode(m: Dif
           onClick={() => onMode(value)}
           className={cn(
             'grid size-6 place-items-center rounded-md transition-colors',
-            mode === value ? 'bg-fill-strong text-fg' : 'text-muted hover:text-fg',
+            mode === value
+              ? 'bg-segment-on text-fg shadow-[0_0.5px_2px_rgb(0_0_0/0.25)]'
+              : 'text-muted hover:text-fg',
           )}
         >
           <Icon className="size-3.5" />
