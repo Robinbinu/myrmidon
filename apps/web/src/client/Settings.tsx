@@ -51,6 +51,14 @@ import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
+import {
+  cronToRule,
+  DEFAULT_RULE,
+  describeCron,
+  type Repeat,
+  ruleToCron,
+  type ScheduleRule,
+} from './schedule-rule.ts'
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
@@ -4569,13 +4577,6 @@ interface ScheduleEntry {
   lastRun?: { at: string; chatId?: string; error?: string }
 }
 
-const CRON_PRESETS: { cron: string; label: string }[] = [
-  { cron: '0 * * * *', label: copy.settings.schedules.presets.hourly },
-  { cron: '0 9 * * *', label: copy.settings.schedules.presets.daily },
-  { cron: '0 9 * * 1-5', label: copy.settings.schedules.presets.weekdays },
-  { cron: '0 9 * * 1', label: copy.settings.schedules.presets.mondays },
-]
-
 const when = (iso?: string) =>
   iso
     ? new Date(iso).toLocaleString(undefined, {
@@ -4587,6 +4588,147 @@ const when = (iso?: string) =>
       })
     : '—'
 
+const REPEATS: Repeat[] = ['hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'custom']
+/** Minutes past the hour an hourly schedule offers; a schedule saved at another minute keeps its own. */
+const HOURLY_MINUTES = Array.from({ length: 12 }, (_, i) => i * 5)
+/** Monday first in the day chips, as most calendars show a week; cron still counts Sunday as 0. */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+
+/** Why a picked schedule cannot be saved, in words, or nothing. */
+function ruleError(rule: ScheduleRule): string | undefined {
+  if (rule.repeat === 'weekly' && rule.days.length === 0) return copy.settings.schedules.pickADay
+  if (rule.repeat === 'custom') return cronError(rule.cron)
+  return undefined
+}
+
+/**
+ * When a schedule runs: a repeat, then the time, days or day of the month it needs, with the result in plain words.
+ * Cron stays available as Custom for anything the picker cannot say.
+ */
+function SchedulePicker(props: { rule: ScheduleRule; onChange(rule: ScheduleRule): void }) {
+  const t = copy.settings.schedules
+  const { rule, onChange } = props
+  const errorId = useId()
+  const error = ruleError(rule)
+  const timed = rule.repeat !== 'hourly' && rule.repeat !== 'custom'
+  const minutes = HOURLY_MINUTES.includes(rule.minute)
+    ? HOURLY_MINUTES
+    : [...HOURLY_MINUTES, rule.minute].sort((a, b) => a - b)
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          aria-label={t.repeat.label}
+          value={rule.repeat}
+          onChange={(e) => {
+            const repeat = e.target.value as Repeat
+            // Switching to Custom starts from what was picked, so the person edits a working expression.
+            onChange({ ...rule, repeat, ...(repeat === 'custom' ? { cron: ruleToCron(rule) } : {}) })
+          }}
+        >
+          {REPEATS.map((r) => (
+            <option key={r} value={r}>
+              {t.repeat[r]}
+            </option>
+          ))}
+        </Select>
+        {rule.repeat === 'hourly' && (
+          <Select
+            aria-label={t.minutePast}
+            value={rule.minute}
+            onChange={(e) => onChange({ ...rule, minute: Number(e.target.value) })}
+          >
+            {minutes.map((m) => (
+              <option key={m} value={m}>
+                :{String(m).padStart(2, '0')}
+              </option>
+            ))}
+          </Select>
+        )}
+        {rule.repeat === 'monthly' && (
+          <Select
+            aria-label={t.dayOfMonth}
+            value={rule.dayOfMonth}
+            onChange={(e) => onChange({ ...rule, dayOfMonth: Number(e.target.value) })}
+          >
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>
+                {t.ordinal(d)}
+              </option>
+            ))}
+          </Select>
+        )}
+        {timed && (
+          <div className="w-28">
+            <TextInput
+              type="time"
+              aria-label={t.time}
+              value={`${String(rule.hour).padStart(2, '0')}:${String(rule.minute).padStart(2, '0')}`}
+              onChange={(e) => {
+                const [h, m] = e.target.value.split(':').map(Number)
+                // A cleared field keeps the last time rather than saving a schedule that has none.
+                if (Number.isInteger(h) && Number.isInteger(m))
+                  onChange({ ...rule, hour: h as number, minute: m as number })
+              }}
+            />
+          </div>
+        )}
+        {rule.repeat === 'custom' && (
+          <div className="w-56">
+            <TextInput
+              aria-label={t.cronExpression}
+              aria-invalid={!!error}
+              aria-describedby={error ? errorId : undefined}
+              value={rule.cron}
+              onChange={(e) => onChange({ ...rule, cron: e.target.value })}
+              placeholder={t.cronPlaceholder}
+              className="font-mono"
+            />
+          </div>
+        )}
+      </div>
+      {rule.repeat === 'weekly' && (
+        <fieldset className="mt-2 flex flex-wrap gap-1" aria-describedby={error ? errorId : undefined}>
+          <legend className="sr-only">{t.days}</legend>
+          {WEEK_ORDER.map((d) => {
+            const on = rule.days.includes(d)
+            return (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={on}
+                aria-label={t.dayName[d]}
+                onClick={() =>
+                  onChange({ ...rule, days: on ? rule.days.filter((x) => x !== d) : [...rule.days, d] })
+                }
+                className={cn(
+                  'h-7 min-w-11 rounded-md px-2 text-small font-medium outline-none transition-colors focus-visible:ring-3 focus-visible:ring-focus/30',
+                  on ? 'bg-accent text-on-accent' : 'bg-fill-strong text-fg-2 hover:text-fg',
+                )}
+              >
+                {t.dayShort[d]}
+              </button>
+            )
+          })}
+        </fieldset>
+      )}
+      {error ? (
+        <p id={errorId} className="mt-1.5 text-small leading-snug text-bad-ink">
+          {error}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-small leading-snug text-muted">
+          {describeCron(ruleToCron(rule))}
+          {rule.repeat !== 'custom' && ` ${t.localTime}`}
+          {rule.repeat === 'monthly' &&
+            rule.dayOfMonth > 28 &&
+            `. ${t.shortMonths(t.ordinal(rule.dayOfMonth))}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Requests that start on their own on a cron schedule, as new chats with the default team. */
 function SchedulesSection() {
   const toast = useToast()
@@ -4594,11 +4736,12 @@ function SchedulesSection() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [draft, setDraft] = useState({
     request: '',
-    cron: '0 9 * * 1-5',
-    custom: false,
+    rule: DEFAULT_RULE,
     project: '',
     deliver: '',
   })
+  // The schedule whose time is being changed in place, with the rule picked so far.
+  const [editing, setEditing] = useState<{ id: string; rule: ScheduleRule }>()
   // Channels with an owner can report each run there.
   const [channels, setChannels] = useState<{ id: string; label: string }[]>([])
   const load = () =>
@@ -4626,9 +4769,6 @@ function SchedulesSection() {
         return load()
       })
       .catch((err: Error) => toast(err.message, 'error'))
-  const label = (cron: string) => CRON_PRESETS.find((p) => p.cron === cron)?.label ?? cron
-  const cronId = useId()
-  const badCron = draft.custom ? cronError(draft.cron) : undefined
   return (
     <>
       <PageHeader title={copy.settings.schedules.title}>{copy.settings.schedules.intro}</PageHeader>
@@ -4642,38 +4782,10 @@ function SchedulesSection() {
               placeholder={copy.settings.schedules.requestPlaceholder}
             />
           </Field>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Select
-              aria-label={copy.settings.schedules.when}
-              value={draft.custom ? 'custom' : draft.cron}
-              onChange={(e) =>
-                setDraft(
-                  e.target.value === 'custom'
-                    ? { ...draft, custom: true }
-                    : { ...draft, custom: false, cron: e.target.value },
-                )
-              }
-            >
-              {CRON_PRESETS.map((p) => (
-                <option key={p.cron} value={p.cron}>
-                  {p.label}
-                </option>
-              ))}
-              <option value="custom">{copy.settings.schedules.custom}</option>
-            </Select>
-            {draft.custom && (
-              <div className="w-40">
-                <TextInput
-                  aria-label={copy.settings.schedules.cronExpression}
-                  aria-invalid={!!badCron}
-                  aria-describedby={badCron ? cronId : undefined}
-                  value={draft.cron}
-                  onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
-                  placeholder={copy.settings.schedules.cronPlaceholder}
-                  className="font-mono"
-                />
-              </div>
-            )}
+          <div className="mt-3">
+            <SchedulePicker rule={draft.rule} onChange={(rule) => setDraft({ ...draft, rule })} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select
               aria-label={copy.settings.schedules.project}
               value={draft.project}
@@ -4705,12 +4817,12 @@ function SchedulesSection() {
               size="sm"
               variant="primary"
               icon={<Plus className="size-3.5" />}
-              disabled={!draft.request.trim() || !!badCron}
+              disabled={!draft.request.trim() || !!ruleError(draft.rule)}
               onClick={() =>
                 act(async () => {
                   await send('POST', '/api/schedules', {
                     request: draft.request,
-                    cron: draft.cron,
+                    cron: ruleToCron(draft.rule),
                     ...(draft.project ? { project: draft.project } : {}),
                     ...(draft.deliver ? { deliver: draft.deliver } : {}),
                   })
@@ -4721,11 +4833,6 @@ function SchedulesSection() {
               {copy.settings.schedules.schedule}
             </Button>
           </div>
-          {badCron && (
-            <p id={cronId} className="mt-1.5 text-small leading-snug text-bad-ink">
-              {badCron}
-            </p>
-          )}
         </CardRow>
       </Card>
       {!list ? (
@@ -4747,7 +4854,7 @@ function SchedulesSection() {
                 <div className="min-w-0 flex-1">
                   <p className="text-reading leading-relaxed">{s.request}</p>
                   <p className="mt-1 flex flex-wrap gap-x-3 text-small text-muted">
-                    <span>{label(s.cron)}</span>
+                    <span>{describeCron(s.cron)}</span>
                     {s.project && (
                       <span>
                         {copy.settings.schedules.inProject(
@@ -4774,7 +4881,44 @@ function SchedulesSection() {
                       </span>
                     )}
                   </p>
+                  {editing?.id === s.id && (
+                    <div className="mt-3">
+                      <SchedulePicker
+                        rule={editing.rule}
+                        onChange={(rule) => setEditing({ id: s.id, rule })}
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={!!ruleError(editing.rule)}
+                          onClick={() =>
+                            act(async () => {
+                              await send('PATCH', `/api/schedules/${s.id}`, {
+                                cron: ruleToCron(editing.rule),
+                              })
+                              setEditing(undefined)
+                            }, copy.settings.schedules.updated)
+                          }
+                        >
+                          {copy.settings.schedules.save}
+                        </Button>
+                        <Button size="sm" variant="borderless" onClick={() => setEditing(undefined)}>
+                          {copy.settings.schedules.cancel}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
+                {editing?.id !== s.id && (
+                  <Button
+                    size="sm"
+                    variant="borderless"
+                    onClick={() => setEditing({ id: s.id, rule: cronToRule(s.cron) })}
+                  >
+                    {copy.settings.schedules.change}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="borderless"

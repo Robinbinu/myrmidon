@@ -31,6 +31,7 @@ import {
   type Review,
   SYSTEM,
   type TaskSnapshot,
+  unreadMailFor,
 } from '@myrmidon/protocol'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
@@ -38,14 +39,18 @@ import type { ComputerHub } from './computer/driver.ts'
 import {
   APPROVAL_MS,
   BOOTSTRAP_MS,
+  CHAT_SETTLE_MS,
   HUDDLE_MS,
   LEASE_MS,
   LOGIN_MS,
   MAX_SERVERS,
   MAX_VERIFY_ROUNDS,
   MAX_WORKERS,
+  MISSED_CHARS,
+  MISSED_SHOWN,
   QUIET_NUDGES,
   SERVER_START_MS,
+  SETTLE_QUIET_MS,
 } from './config.ts'
 import { registerColonyEvents } from './events.ts'
 import { type HookEvent, type HookOutcome, type HookStore, hookToolInput, runHooks } from './hooks.ts'
@@ -232,6 +237,7 @@ function totals(state: ColonyState): { cost: number; tokens: number } {
 /** How a wake is delivered: `mail` is recorded as read when the agent sees it; `queue` waits for the agent's current work. */
 interface Delivery {
   readonly mail?: MyrEvent['id']
+  readonly mails?: readonly MyrEvent['id'][]
   readonly queue?: boolean
   readonly quiet?: boolean
 }
@@ -260,6 +266,11 @@ export class ColonyRun implements ColonyHost {
   private _finalRunning = false
   private _verifying = 0
   private _quietSince?: number
+  /**
+   * A chat round whose final answer is in, still open while the crew finishes talking: it completes with these verdicts
+   * once everyone has been quiet a moment, or at `until` whatever is still going on.
+   */
+  private _settling?: { verdicts: MyrEvent['id'][]; until: number; quietSince?: number }
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -1136,12 +1147,35 @@ export class ColonyRun implements ColonyHost {
       },
     })
     if (resumedBecause) await this._wakeAfterResume(resumedBecause)
+    for (const a of this._agents.values()) this._catchUp(a.name)
     this.runtime.track?.(this.done)
     for (const a of this._agents.values()) this._runAgent(a, !resumedBecause)
     this._timers.push(setInterval(() => void this._observe(), this.spec.observer.intervalMs))
     // A short quiet window (tests) needs a matching tick, or each stall nudge waits a full second.
     const tick = Math.min(1000, this.options.quietMs ?? 1000)
     this._timers.push(setInterval(() => void this._watch(), tick))
+  }
+
+  /**
+   * Messages an agent never got to read (its last round ended first) wait for it like unread texts: it sees them when
+   * something next wakes it, before anything newer, so it catches up instead of answering old news as if it were new.
+   */
+  private _catchUp(name: string) {
+    const unread = unreadMailFor(this._state, name)
+    if (unread.length === 0) return
+    const shown = unread.slice(-MISSED_SHOWN)
+    const cut = (text: string) => (text.length > MISSED_CHARS ? `${text.slice(0, MISSED_CHARS)}…` : text)
+    const lines = shown.map((m) =>
+      m.members
+        ? `[group:${m.to}] #${m.seq} ${m.from}: ${cut(m.body)}`
+        : `#${m.seq} from ${m.from}${m.subject && !m.subject.startsWith('Re: ') ? ` [${m.subject}]` : ''}: ${cut(m.body)}`,
+    )
+    this._agents.get(name)?.notify({
+      text: prompts.colony.missed(lines, unread.length - shown.length),
+      trigger: 'unread',
+      quiet: true,
+      mails: shown.map((m) => m.id),
+    })
   }
 
   private async _wakeAfterResume(reason: string) {
@@ -1581,8 +1615,7 @@ export class ColonyRun implements ColonyHost {
       })
       const result = await this._verifier.verifyColony()
       if (result.pass) {
-        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: result.verdicts } })
-        void this._end()
+        await this._complete(result.verdicts)
         return prompts.colony.verified(result.report)
       }
       // Outside chat, everyone hears about a failed check; in chat the speaker owns the fix.
@@ -1602,6 +1635,19 @@ export class ColonyRun implements ColonyHost {
     }
   }
 
+  /**
+   * Completes the round. In a chat with a crew it winds down like a group chat first: the answer is with the person,
+   * but anyone mid-reply finishes and what was said gets read (see `_watch`), so nobody is cut off.
+   */
+  private async _complete(verdicts: MyrEvent['id'][]) {
+    if (this.spec.chat && this._agents.size > 1) {
+      this._settling ??= { verdicts, until: Date.now() + CHAT_SETTLE_MS }
+      return
+    }
+    await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts } })
+    void this._end()
+  }
+
   /** A chat round's final answer verifies itself: no judge completes it outright, otherwise the judge runs. */
   private async _verifyFinalAnswer(by: string) {
     if (this.spec.acceptance.length === 0 || this.spec.review === 'off' || this.spec.review === 'auto') {
@@ -1619,8 +1665,7 @@ export class ColonyRun implements ColonyHost {
               : 'Final answer delivered; this round is not reviewed.',
         },
       })
-      await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: [verdict.id] } })
-      return void this._end()
+      return void (await this._complete([verdict.id]))
     }
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return
@@ -1707,7 +1752,11 @@ export class ColonyRun implements ColonyHost {
       case 'chat/reply': {
         const p = e.payload as EventPayloads['chat/reply']
         if (p.question) this._awaiting = true
-        else if (p.final && this.spec.chat) void this._verifyFinalAnswer(p.agent)
+        else if (p.final && this.spec.chat) {
+          // Whoever gave the final answer has signed off; it still hears anything written to it afterwards.
+          this._agents.get(p.agent)?.endTurnAfterStep()
+          if (!this._settling) void this._verifyFinalAnswer(p.agent)
+        }
         break
       }
       case 'mail/sent': {
@@ -1895,7 +1944,8 @@ export class ColonyRun implements ColonyHost {
   private _remindMail(agent: string): boolean {
     const all = this._state.mail
     const open = all.filter((m) => {
-      if (!m.delivered || !this._agents.has(m.from) || this._state.agents[m.from]?.dismissed) return false
+      if (!m.readBy.includes(agent) || !this._agents.has(m.from) || this._state.agents[m.from]?.dismissed)
+        return false
       const forMe = m.members ? mentionsIn(m.body, m.members).includes(agent) : m.to === agent
       if (!forMe || !asksSomething(m.body) || this._reminded.has(`${agent}:mail:${m.seq}`)) return false
       return !all.some(
@@ -2026,6 +2076,19 @@ export class ColonyRun implements ColonyHost {
     for (const a of agents) {
       if (a.idle) this._idleSince.set(a.name, this._idleSince.get(a.name) ?? now)
       else this._idleSince.delete(a.name)
+    }
+    if (this._settling) {
+      const settle = this._settling
+      const still = this._verifying === 0 && live.every((a) => a.idle)
+      if (still) settle.quietSince ??= now
+      else settle.quietSince = undefined
+      const quietFor = Math.min(this.options.quietMs ?? SETTLE_QUIET_MS, SETTLE_QUIET_MS)
+      if ((settle.quietSince !== undefined && now - settle.quietSince >= quietFor) || now >= settle.until) {
+        this._settling = undefined
+        await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
+        return void this._end()
+      }
+      return
     }
     if (!this._awaiting) {
       await this._releaseStaleClaims(now)
