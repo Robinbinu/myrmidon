@@ -459,6 +459,7 @@ ${roster}`,
     /** After `mcp`, for an agent with its own browser. */
     mcpBrowser: ', though your own browser_* tools come first for browsing',
     computer: "see and control the apps on the person's Mac (computer), each app once they approve it",
+    desktop: "see and control the person's Mac by script (desktop), once they approve it",
     makeTools: 'make reusable tools for repeated work (create_tool, then tool_<name>)',
     createTasks: 'create tasks',
     addWorkers: 'add crewmates',
@@ -1328,6 +1329,47 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
       ruleAsk: 'You set computer to ask before every step.',
       safety: 'Warning from the model provider',
     },
+    ompEngine:
+      'computer use runs on the omp desktop engine now (Settings → Computer use → Engine): use the desktop tool instead',
+  },
+
+  /** omp's desktop engine: what agents read in the desktop tool's results, and what the person reads on its cards. */
+  desktop: {
+    cuaEngine:
+      'computer use runs on Cua Driver now (Settings → Computer use → Engine): use the computer and open_app tools instead',
+    unsupported: 'the omp desktop engine runs on macOS only here',
+    noCode: 'desktop needs code: JavaScript to run against the desktop object',
+    secret:
+      'that script holds what looks like a secret (a key, token or password): computer use never types secrets. Ask the person to type it themselves',
+    bridgeOnly: (name: string) =>
+      `tool.${name} is not available in a desktop script; only tool.open_app({ app }) is`,
+    readOnlyOpen:
+      'tool.open_app launches an app, which a read_only script cannot: run it with read_only: false',
+    badApp: 'tool.open_app needs app: an app name ("Notes") or bundle id ("com.apple.Notes")',
+    openFailed: (app: string, why: string) => `could not open ${app}: ${why}`,
+    opened: (app: string) => `${app} is open; find its window with desktop.window({ app })`,
+    returned: (json: string) => `Returned:\n${json}`,
+    noOutput: 'The script ran and printed or returned nothing.',
+    denied: (note?: string) =>
+      `the person did not let you see their screen${note ? `. They said: ${note}` : ''}. Do it another way or ask them`,
+    declined: (note?: string) =>
+      `the person did not approve that script${note ? `. They said: ${note}` : ''}. Ask them (ask_user) or take another approach`,
+    /** Where the agent works, for the "controlling your Mac" bar and the chat's steps. */
+    place: 'the desktop',
+    /** The chat's record that agents may look at the screen, listed with the apps a chat allowed. */
+    grant: 'Your screen (omp desktop engine)',
+    review: {
+      lookTitle: 'Let the agent see your screen',
+      runTitle: 'Let the agent run this script on your Mac',
+      access: 'What it may do',
+      look: 'See every window on your screen (Myrmidon’s too), read their text and the clipboard, for the rest of this chat. Clicking, typing or opening apps asks again.',
+      run: 'Click, type, open apps and read any window, as you. The script runs in Myrmidon itself with its macOS permissions, outside the sandbox.',
+      lookOnly: 'Look only: windows, screenshots and their text.',
+      script: 'Script',
+      why: 'Why it asks',
+      ruleAsk: 'You set desktop to ask before every script.',
+      acts: 'It acts on your Mac, and omp’s scripts are not sandboxed.',
+    },
   },
 
   /**
@@ -1384,6 +1426,34 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     list_apps: {
       description:
         "List the apps on the person's Mac, running ones first, with their bundle ids, to open one with open_app.",
+    },
+    // After omp's computer tool (prompts/tools/computer.md: AX first, refs, background input before takeover) and its
+    // computer-use system prompt (screen content is untrusted), for its facade as Myrmidon's desktop tool runs it.
+    desktop: {
+      description:
+        "See and control the person's Mac by running JavaScript against `desktop` (omp's desktop engine): windows, " +
+        'screenshots, native input and accessibility (AX) trees. It is the slowest way to do anything: use your other ' +
+        'tools first (browser_* for websites), and this for native apps, simulators and apps with no API. `code` runs ' +
+        'as an async function body (await; `return` what you need) with `desktop`, `wait(ms)` and `assert` in scope; ' +
+        'window handles and AX refs persist across calls. `await desktop.windows({app?, title?})` lists windows; ' +
+        '`const win = await desktop.window({ app: "Notes" })` resolves exactly one. `await win.screenshot()` shows it ' +
+        'to you; `await win.ax({ maxDepth? })` returns ONE text tree with [ref=eN] tags (a string: never iterate it); ' +
+        '`win.find({ role?, title?, value? })` and `win.ref("e5")` return elements with press(), click(), ' +
+        'setValue(text), focus() and value(). Window input: win.click(x, y), win.type(text), win.press("cmd+f"), ' +
+        'win.scroll(x, y, { dy }). An app that is not running: `await tool.open_app({ app: "Notes" })` first. Set ' +
+        'read_only: true for a script that only looks (windows, screenshots, ax, find, values): the person allows ' +
+        'looking once per chat. Any other script waits for them each time, unless they allowed it for the chat. ' +
+        'Prefer AX to pixels: ax(), then el.press() or el.setValue(). Pointer x, y are pixels of the latest screenshot ' +
+        'of the same window and AX bounds are screen coordinates: never mix them. A stale ref throws: take ax() again, ' +
+        'never guess. Input reaches windows in the background; pass { takeover: true } only after that call threw ' +
+        'BackgroundUnavailable and AX cannot do it. Act through window handles: desktop.click and its like move the ' +
+        "person's own pointer. Never act in Myrmidon's own windows. Shortcuts use cmd.",
+      params: {
+        code: 'JavaScript run as an async function body with desktop, wait and assert in scope; return what you need back',
+        read_only:
+          'true when the script only looks (windows, screenshots, ax, find, values); clicking, typing or opening an app fails in it (default false)',
+        timeout: 'Seconds the script may run, 1-120 (default 30)',
+      },
     },
     // After Claude Code's TaskGet ("when you need the full description and context before starting work").
     read_task: {

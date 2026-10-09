@@ -63,11 +63,11 @@ export interface MyrSettings {
     readHome?: boolean
   }
   /**
-   * Computer use: agents may see and control the person's Mac (through Cua Driver), one app at a time once the person
-   * approves it in the chat. Off until the person turns it on; separate from the sandbox, and never given to rounds a
-   * channel member started.
+   * Computer use: agents may see and control the person's Mac, once the person approves it in the chat. Off until the
+   * person turns it on; separate from the sandbox, and never given to rounds a channel member started. `engine`: Cua
+   * Driver (one approved app at a time; the default when absent) or omp's desktop engine (scripts, approved each time).
    */
-  computerUse: { enabled: boolean }
+  computerUse: { enabled: boolean; engine?: 'cua' | 'omp' }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -148,7 +148,10 @@ export const settingsSchema = Schema.object({
     ).max(MAX_READ_FOLDERS),
     readHome: Schema.boolean(),
   }).default({}),
-  computerUse: Schema.object({ enabled: Schema.boolean().default(false) }).default({}),
+  computerUse: Schema.object({
+    enabled: Schema.boolean().default(false),
+    engine: Schema.union(['cua', 'omp']).default('cua'),
+  }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -262,7 +265,10 @@ function parse(input: unknown): MyrSettings {
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
     },
-    computerUse: { enabled: s.computerUse.enabled },
+    computerUse: {
+      enabled: s.computerUse.enabled,
+      ...(s.computerUse.engine === 'omp' ? { engine: 'omp' as const } : {}),
+    },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,
