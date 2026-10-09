@@ -499,6 +499,12 @@ Open work, in the order it will be done:
       file tools (hard-coded in patterns.ts) and nothing lets the person change it; the lead then told the person the
       team had no browser. Decided: presets + rules, cards once/chat/project/everywhere, Auto default, hands-on lead
       by default with a role x tool-group control. Building on branch `permissions`.
+12u. - [ ] **Voice providers from Models & providers** (asked 2026-10-09) — any cloud STT/TTS and realtime
+      (speech-to-speech) provider, configured in Settings → Models & providers like LLM providers, after Pipecat and
+      similar repos; Settings → Voice picks among the configured ones and links to Models & providers to add more.
+      Today: Phonon/Kitten locally, omp, or one OpenAI-compatible endpoint with keys in voice/secrets.json.
+12v. - [ ] **Themes like VS Code, and more mascot settings** (asked 2026-10-09) — the themes developers love
+      (research which), applied to the whole UI; more ways to tune the mascot.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
