@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon/core'
 import {
+  alwaysOffer,
   type ColonyId,
   colonyMetrics,
   DEFAULT_PRESET,
@@ -488,13 +489,12 @@ export function startServer(options: ServeOptions): WebServer {
         onStream: (listener) => chats.onStream(listener),
         read: (colonyId) => chats.events(colonyId),
         decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
-        // "Always" on a channel remembers the card's first offer everywhere (a command's prefix, an MCP tool).
+        // "Always" on a channel remembers everywhere what its button names (see alwaysOffer).
         allowAlways: async (colonyId, approvalId) => {
           const state = foldColony(colonyId as ColonyId, await chats.events(colonyId))
           const request = state.approvals[approvalId]
-          const offer =
-            request?.offer?.[0] ?? (request ? { kind: 'tool' as const, target: request.tool } : undefined)
-          if (offer) await chats.remember(colonyId, 'global', [{ ...offer, decision: 'allow' }])
+          const rules = request ? alwaysOffer(request).map((o) => ({ ...o, decision: 'allow' as const })) : []
+          if (rules.length) await chats.remember(colonyId, 'global', rules)
         },
         artifact: async (colonyId, name) => {
           const found = await latestArtifact(colonyId, name)
