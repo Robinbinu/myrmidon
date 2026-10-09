@@ -342,8 +342,9 @@ Built on [oh-my-pi](https://github.com/can1357/oh-my-pi) for models and the agen
 [Cordis](https://www.npmjs.com/package/@deepseek-ai/cordis) for the plugin and service system. Channels are ported
 from [Hermes Agent](https://github.com/NousResearch/hermes-agent) and [OpenClaw](https://github.com/openclaw/openclaw)
 (both MIT); voice turn-taking uses [Silero VAD](https://github.com/snakers4/silero-vad) and Pipecat's
-[Smart Turn](https://github.com/pipecat-ai/smart-turn). Inspired by Claude
-Code, Codex, Cursor, and Manus.
+[Smart Turn](https://github.com/pipecat-ai/smart-turn); the composer's optional next-word model is EleutherAI's
+[Pythia-14M](https://huggingface.co/EleutherAI/pythia-14m) (Apache-2.0). Inspired by Claude Code, Codex, Cursor, and
+Manus.
 
 ## License
 
