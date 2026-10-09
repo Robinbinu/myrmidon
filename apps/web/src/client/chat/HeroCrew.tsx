@@ -1,23 +1,32 @@
 import { motionValue, useReducedMotionConfig } from 'motion/react'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { CursorBody } from '../ui/cursor.tsx'
-import type { Bounds } from '../ui/steering.ts'
-import { MASCOT_CREW } from '../ui-config.ts'
+import { MASCOT_CREW as K } from '../ui-config.ts'
 import {
   type CrewSignal,
+  keptCrew,
   knockDown,
   type Member,
   makeMember,
-  pickCrew,
+  settled,
   startSpot,
   stepCrew,
   type World,
 } from './hero-crew.ts'
 
-/** Sizes to steer by before the page has been measured (and in a page with no layout). */
-const FALLBACK = { face: { hw: 225, hh: 160 }, bounds: { left: -640, right: 640, top: -320, bottom: 420 } }
-/** The longest step the physics takes, so a frame after the tab was hidden does not fling anyone off. */
-const MAX_STEP_S = 0.05
+/**
+ * Where `el`'s box sits on the page as laid out, ignoring transforms: the screen may still be scaling or sliding into
+ * place (its entry, or the setup mascot settling into it), and a transform moves nothing that a resize would report.
+ */
+function laidOut(el: HTMLElement): { x: number; y: number } {
+  let x = 0
+  let y = 0
+  for (let n: Element | null = el; n instanceof HTMLElement; n = n.offsetParent) {
+    x += n.offsetLeft
+    y += n.offsetTop
+  }
+  return { x, y }
+}
 
 /** The crew of this visit: who they are and where, kept while the person goes to a chat and back. */
 let visit: Member[] | undefined
@@ -25,7 +34,8 @@ let visit: Member[] | undefined
 /**
  * The crew cursors around the new-chat mascot, steering themselves (hero-crew.ts). Their physics runs every frame on
  * requestAnimationFrame and writes straight to motion values, so the page around them never re-renders for it; React
- * hears only of a cursor starting or ending a click. With reduced motion they stand still.
+ * hears only of a cursor starting or ending a click. The physics stops while the mascot is not `active` (out of sight,
+ * the window in the background) and once the crew has settled with nobody about; with reduced motion they stand still.
  */
 export function HeroCrew(props: {
   signal: CrewSignal
@@ -33,6 +43,8 @@ export function HeroCrew(props: {
   typing: boolean
   /** How many times the crew has been knocked down: each new count knocks everyone over. */
   knocked: number
+  /** Whether the mascot can be seen in the window in use; while it cannot, nobody moves. */
+  active: boolean
   face: RefObject<HTMLElement | null>
   canvas: RefObject<HTMLElement | null>
   onPoke(): void
@@ -42,8 +54,8 @@ export function HeroCrew(props: {
   const reduce = useReducedMotionConfig()
   const [crew] = useState(() => {
     if (!visit) {
-      const picked = pickCrew(MASCOT_CREW.count)
-      visit = picked.map((p, i) => makeMember(p, startSpot(i, picked.length, FALLBACK.face)))
+      const picked = keptCrew(K.count)
+      visit = picked.map((p, i) => makeMember(p, startSpot(i, picked.length, K.fallback.face)))
     }
     for (const m of visit) {
       // Back on this screen, nobody is mid-click; anyone who was down is up again.
@@ -64,29 +76,45 @@ export function HeroCrew(props: {
   const live = useRef(props)
   live.current = props
 
-  // Where the screen and the canvas are, relative to the screen's centre: measured on resize, not every frame.
-  const space = useRef<Pick<World, 'face' | 'bounds'>>(FALLBACK)
+  // The world the physics steps through, changed in place each frame. Where the screen and the canvas are, relative
+  // to the screen's centre, is measured when either changes size or the canvas scrolls, not every frame.
+  const world = useRef<World>({
+    now: 0,
+    face: { ...K.fallback.face },
+    bounds: { ...K.fallback.bounds },
+    signal: 'roam',
+    typing: false,
+  })
   useEffect(() => {
     const measure = () => {
-      const face = props.face.current?.getBoundingClientRect()
-      const canvas = props.canvas.current?.getBoundingClientRect()
-      if (!face || !canvas || face.width === 0 || canvas.width === 0) return
-      const cx = face.left + face.width / 2
-      const cy = face.top + face.height / 2
-      const bounds: Bounds = {
-        left: canvas.left - cx + MASCOT_CREW.edge,
-        right: canvas.right - cx - MASCOT_CREW.edge - MASCOT_CREW.tagRoom,
-        top: canvas.top - cy,
-        bottom: canvas.bottom - cy - MASCOT_CREW.floorPad,
+      const face = props.face.current
+      const canvas = props.canvas.current
+      if (!face || !canvas || face.offsetWidth === 0 || canvas.clientWidth === 0) return
+      // The screen's centre within the canvas's visible area, where the crew may go.
+      const at = laidOut(face)
+      const box = laidOut(canvas)
+      const cx = at.x - box.x - canvas.scrollLeft + face.offsetWidth / 2
+      const cy = at.y - box.y - canvas.scrollTop + face.offsetHeight / 2
+      const w = world.current
+      w.face = { hw: face.offsetWidth / 2, hh: face.offsetHeight / 2 }
+      w.bounds = {
+        left: -cx + K.edge,
+        right: canvas.clientWidth - cx - K.edge - K.tagRoom,
+        top: -cy,
+        bottom: canvas.clientHeight - cy - K.floorPad,
       }
-      space.current = { face: { hw: face.width / 2, hh: face.height / 2 }, bounds }
     }
     measure()
+    const canvas = props.canvas.current
     window.addEventListener('resize', measure)
-    const t = setInterval(measure, 2000)
+    canvas?.addEventListener('scroll', measure, { passive: true })
+    // The screen moves within the canvas as what is under it grows or shrinks (the latest chats arriving).
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    for (const el of [props.face.current, canvas, canvas?.firstElementChild]) if (el) observer?.observe(el)
     return () => {
       window.removeEventListener('resize', measure)
-      clearInterval(t)
+      canvas?.removeEventListener('scroll', measure)
+      observer?.disconnect()
     }
   }, [props.face, props.canvas])
 
@@ -99,41 +127,82 @@ export function HeroCrew(props: {
     for (const m of crew) knockDown(m, now)
   }, [props.knocked, reduce, crew])
 
+  // Starts the physics again after it stopped; `stir` also counts as someone being about, so it does not settle.
+  const wake = useRef(() => {})
+  const stir = useRef(() => {})
   useEffect(() => {
-    if (reduce) return
+    if (reduce || !props.active) return
     let frame = 0
-    let last = performance.now()
+    let last = 0
+    let stirred = performance.now()
+    let clickingNow = crew.map((m) => m.clicking)
     const tick = () => {
       const now = performance.now()
-      const dt = Math.min(MAX_STEP_S, (now - last) / 1000)
+      const dt = Math.min(K.maxStepS, (now - last) / 1000)
       last = now
       const p = live.current
-      const world: World = {
-        now,
-        ...space.current,
-        signal: p.signal,
-        ...(p.look ? { look: p.look } : {}),
-        typing: p.typing,
-      }
-      const events = stepCrew(crew, world, dt)
-      for (const [i, m] of crew.entries()) {
+      const w = world.current
+      w.now = now
+      w.signal = p.signal
+      w.look = p.look
+      w.typing = p.typing
+      w.quiet = now - stirred > K.settleMs
+      const events = stepCrew(crew, w, dt)
+      let changed = false
+      for (let i = 0; i < crew.length; i++) {
+        const m = crew[i] as Member
         const v = values[i]
         v?.x.set(m.body.x)
         v?.y.set(m.body.y)
         v?.rotate.set(m.angle)
         const node = nodes.current[i]
         if (node && node.dataset.crewState !== m.state) node.dataset.crewState = m.state
+        if (m.clicking !== clickingNow[i]) changed = true
       }
-      setClicking((cs) => (cs.every((c, i) => c === crew[i]?.clicking) ? cs : crew.map((m) => m.clicking)))
+      if (changed) {
+        clickingNow = crew.map((m) => m.clicking)
+        setClicking(clickingNow)
+      }
       for (const e of events) {
         if (e.type === 'poke') p.onPoke()
         else p.onWatch(e.x, e.y)
       }
+      // Nothing left to do and nobody about: stop until someone is.
+      frame = w.quiet && settled(crew) ? 0 : requestAnimationFrame(tick)
+    }
+    const start = () => {
+      if (frame) return
+      last = performance.now()
       frame = requestAnimationFrame(tick)
     }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [reduce, crew, values])
+    const someone = () => {
+      stirred = performance.now()
+      start()
+    }
+    wake.current = start
+    stir.current = someone
+    window.addEventListener('pointermove', someone, { passive: true })
+    window.addEventListener('keydown', someone)
+    start()
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('pointermove', someone)
+      window.removeEventListener('keydown', someone)
+      wake.current = () => {}
+      stir.current = () => {}
+    }
+  }, [reduce, props.active, crew, values])
+
+  // What the mascot is up to changed, so the crew has something to do (a knock is the person clicking, so it stirs).
+  const [lookX, lookY] = props.look ?? []
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each of these is a reason to move again
+  useEffect(() => {
+    wake.current()
+  }, [props.signal, lookX, lookY, props.typing])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a knock is the person clicking
+  useEffect(() => {
+    stir.current()
+  }, [props.knocked])
 
   return (
     <>

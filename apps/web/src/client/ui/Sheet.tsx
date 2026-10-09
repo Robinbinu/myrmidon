@@ -29,7 +29,7 @@ export function Sheet(props: {
 }) {
   const box = useRef<HTMLDivElement>(null)
   const titleId = useId()
-  useDialog(box, props.onClose)
+  useDialog(box, props.onClose, { covers: true })
   return (
     <motion.div
       // The top padding is the title bar's height (Toolbar), so the sheet comes out from under it.

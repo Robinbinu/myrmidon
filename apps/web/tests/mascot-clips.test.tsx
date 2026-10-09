@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { MotionConfig } from 'motion/react'
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
+import { createRoot } from 'react-dom/client'
 import { type Clip, chain, IDLE_CLIPS, spiralEyes } from '../src/client/ui/clips.ts'
 import { type Cell, eyeCells, PixelFace } from '../src/client/ui/pixel.tsx'
 import { boot, confetti, equaliser, life, lifeStep, pacman } from '../src/client/ui/shows.ts'
@@ -173,5 +174,73 @@ test('with reduced motion a face plays no clip and keeps its eyes', async () => 
     expect(fills(view.host).filter((f) => f === '#ffffff').length).toBe(eyes().length)
   } finally {
     await view.unmount()
+  }
+})
+
+test('a held face waits on its frame, then plays on from there', async () => {
+  let ended = 0
+  const face = (paused: boolean) => (
+    <MotionConfig reducedMotion="never">
+      <PixelFace
+        mood="idle"
+        color="#ffffff"
+        cols={cols}
+        rows={rows}
+        clip={clip}
+        paused={paused}
+        onClipEnd={() => ended++}
+      />
+    </MotionConfig>
+  )
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  const view = { host, rerender: (ui: ReactNode) => root.render(ui) }
+  await act(async () => root.render(face(true)))
+  try {
+    // Held from the start: its first frame shows and stays, well past that frame's time.
+    expect(fills(view.host)[0]).toBe('#ffffff')
+    await act(async () => Bun.sleep(120))
+    expect(fills(view.host)[0]).toBe('#ffffff')
+    expect(fills(view.host)[1]).not.toBe('#123456')
+    expect(ended).toBe(0)
+    // Let go, it carries on to the next frame and the end.
+    await act(async () => view.rerender(face(false)))
+    await until(() => fills(view.host)[1] === '#123456')
+    await until(() => ended > 0)
+    expect(ended).toBe(1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+test('a clip that has ended stays ended when the face is held and let go again', async () => {
+  let ended = 0
+  const face = (paused: boolean) => (
+    <MotionConfig reducedMotion="never">
+      <PixelFace
+        mood="idle"
+        color="#ffffff"
+        cols={cols}
+        rows={rows}
+        clip={clip}
+        playId="once"
+        paused={paused}
+        onClipEnd={() => ended++}
+      />
+    </MotionConfig>
+  )
+  const host = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(face(false)))
+    await until(() => ended > 0)
+    await act(async () => root.render(face(true)))
+    await act(async () => root.render(face(false)))
+    await act(async () => Bun.sleep(120))
+    expect(ended).toBe(1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
   }
 })

@@ -67,7 +67,9 @@
      white bezel, like Apple hardware on a light page, instead of a bare black slab. */
   --screen: #0b0b0d;
   --screen-cell: rgb(255 255 255 / 0.055);
-  --screen-ink: rgb(255 255 255 / 0.5);
+  /* The screen's caption and readout: a dim LED grey, opaque so its contrast on the screen (over 4.5:1) is what every
+     checker measures, not a guess at what a translucent white blends to. */
+  --screen-ink: #88888b;
   --screen-edge: rgb(255 255 255 / 0.06);
   --screen-frame:
     0 0 0 9px #fbfbfd, 0 0 0 10px rgb(0 0 0 / 0.09), 0 1px 0 10px rgb(255 255 255 / 0.9),
@@ -175,7 +177,6 @@
     --del: #351719;
     --screen: #050506;
     --screen-cell: rgb(255 255 255 / 0.05);
-    --screen-ink: rgb(255 255 255 / 0.5);
     --screen-edge: rgb(255 255 255 / 0.06);
     --screen-frame: 0 0 0 1px rgb(255 255 255 / 0.06), 0 30px 70px -10px rgb(0 0 0 / 0.75);
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);

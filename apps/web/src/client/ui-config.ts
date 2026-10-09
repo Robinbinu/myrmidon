@@ -120,8 +120,10 @@ export const AGENT_DOZE_MS = 15_000
 export const MASCOT_PAT_MS = 700
 /** The mascot sleeps after this long without the pointer moving. */
 export const MASCOT_DOZE_MS = 45_000
-/** The user's own pointer outranks the crew's for this long after it moves. */
+/** The user's own pointer outranks the crew's for this long after it moves (or they type). */
 export const MASCOT_USER_FOCUS_MS = 2500
+/** How far the pointer is from the mascot's centre, in px, for its eyes to look one cell that way. */
+export const MASCOT_GAZE_PX = { x: 110, y: 90 } as const
 /** The new-chat mascot spelling out what the person types in its own screen cells, with a blinking cursor bar. */
 export const MASCOT_TYPING = {
   /** This long without typing, its eyes come back (at once when the box is cleared). */
@@ -138,6 +140,8 @@ export const MASCOT_TYPING = {
  * box and the starters below the fold, and they matter more.
  */
 export const HERO_MASCOT_MIN_HEIGHT = 760
+/** The new-chat mascot's crew cursors show beside windows at least this wide (Tailwind's `lg`), and are not there in narrower ones. */
+export const HERO_CREW_MIN_WIDTH = 1024
 /** How many of the latest chats the new-chat view lists under its starters. */
 export const HERO_RECENT_CHATS = 5
 
@@ -272,8 +276,11 @@ export const MASCOT_CREW = {
   gain: 6,
   /** Arrival slows down within this distance of where it is going. */
   slowRadius: 140,
-  /** The wander circle: how far ahead, how big, and how fast its point drifts (radians/s at a jitter of 1). */
-  wander: { distance: 60, radius: 34, jitter: 5 },
+  /**
+   * The wander circle: how far ahead, how big, and how fast its point drifts (radians per √s at a jitter of 1: a
+   * random walk, so the same at any frame rate).
+   */
+  wander: { distance: 60, radius: 34, jitter: 0.65 },
   /** Cursors closer than this push each other away. */
   separationRadius: 110,
   /** How strongly each behaviour counts when they are added up. */
@@ -288,6 +295,30 @@ export const MASCOT_CREW = {
   edge: 24,
   tagRoom: 90,
   floorPad: 56,
+  /** Where each starts, px out from the screen's side; the crew stands in rows down this share of the screen's height. */
+  startOut: [90, 190],
+  rowSpread: 1.2,
+  /**
+   * Roaming spots: px out from the screen's side, and how high, as a share of the screen's half height (negative is
+   * up); of a few spots tried, the one furthest from where the others are headed.
+   */
+  roamOut: [50, 220],
+  roamRise: [-0.9, 0.7],
+  roamTries: 6,
+  /** How far from the screen's edge it waits while the mascot is happy, and creeps up to while it sleeps. */
+  gatherGap: 44,
+  sneakGap: 8,
+  /** Close enough, in px: to a roaming spot, to where a poke lands (moving slower than `pokeLandSpeed`), back on its feet. */
+  arrivedPx: 24,
+  pokeArrivedPx: 4,
+  pokeLandSpeed: 40,
+  risenPx: 20,
+  /** The chance a new roaming spot catches the mascot's eye. */
+  watchChance: 0.5,
+  /** Where on the screen a poke lands, at most this share of its half width and half height from the centre. */
+  pokeReach: [0.55, 0.45],
+  /** Scattering and lying dazed last this many times as long with no nerve, less the second number with full nerve. */
+  timid: [1.4, 0.8],
   /** How long it stays around one spot while roaming. */
   roamMs: [2800, 7000],
   /** Chance per second it flies over to poke the mascot, at full curiosity; the click and the pause after it. */
@@ -317,6 +348,20 @@ export const MASCOT_CREW = {
   /** How quickly the arrow turns to point where it goes (per second), and the speed at which it points fully along it. */
   turnRate: 9,
   fullTurnSpeed: 900,
+  /**
+   * With nobody about for `settleMs` (no pointer moving, no typing), the crew stops looking for things to do: each
+   * finishes what it is at and stands still, and once all are slower than `settledSpeed` (px/s) their physics stops
+   * until someone is back, so an untouched screen costs nothing.
+   */
+  settleMs: 15_000,
+  settledSpeed: 3,
+  /** The longest step the physics takes, so the first frame after a pause does not fling anyone off. */
+  maxStepS: 0.05,
+  /** Sizes to steer by before the page has been measured (and in a page with no layout). */
+  fallback: {
+    face: { hw: 225, hh: 160 },
+    bounds: { left: -640, right: 640, top: -320, bottom: 420 },
+  },
 } as const
 
 /* ------------------------------------------------------------------ connection */
@@ -369,9 +414,15 @@ export const ATTACH_THUMB_PX = 64
  * the content on the rest, travelling between the two on `travel`.
  */
 export const SETUP_MASCOT = {
-  /** Its screen's width, in px, in each place; beside the content in a window narrower than `narrowBelow`, smaller. */
-  width: { center: 340, side: 220, narrowSide: 150 },
+  /**
+   * Its screen's width, in px, in each place; beside the content on a stage narrower than `narrowBelow`, smaller. On a
+   * stage narrower than `stackBelow` there is no room beside the content: it sits above it instead (`stacked`), the
+   * content takes the stage's whole width, and both keep `stackEdge` from the sides.
+   */
+  width: { center: 340, side: 220, narrowSide: 150, stacked: 120 },
   narrowBelow: 860,
+  stackBelow: 768,
+  stackEdge: 16,
   /** On a stage shorter than this, it sits smaller in the centre place too. */
   shortBelow: 700,
   shortScale: 0.66,
@@ -382,6 +433,11 @@ export const SETUP_MASCOT = {
   contentMax: 640,
   gap: 48,
   edge: 32,
+  /**
+   * Beside the content, the content (and the mascot level with it) starts this far down the stage on every screen, so
+   * moving from one step to the next does not move the heading, or Back and Continue, up or down with its length.
+   */
+  sideTop: 64,
   /** Its dot screen's lettering, in px per dot, and the most letters it shows. */
   dot: 2.4,
   screenChars: 12,

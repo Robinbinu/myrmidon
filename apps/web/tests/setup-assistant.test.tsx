@@ -23,6 +23,7 @@ import {
   starters,
   stepStatus,
 } from '../src/client/setup/state.ts'
+import { SETUP_MASCOT } from '../src/client/ui-config.ts'
 import { mount, withDom } from './dom.ts'
 
 withDom()
@@ -67,21 +68,22 @@ test('with less motion the mascot does not travel or bounce: its face changes in
   expect(placement(target, false)).toMatchObject({ animate: target })
 })
 
-test('the content and the mascot are centred together, across and down, right of the step list', () => {
-  // Beside the content: the pair is centred across, the content centred down with the mascot level with its top.
+test('the content and the mascot are centred together across, right of the step list, at one height on every step', () => {
+  // Beside the content: the pair is centred across; the content starts at a fixed height with the mascot level with
+  // its top, however long the step, so its heading and buttons stay put from one step to the next.
   const side = stageLayout({ place: 'side', width: 1200, height: 848, frameHeight: 230, contentHeight: 300 })
   const pair = side.content.width
   expect(side.content.left).toBe((1200 - pair) / 2)
-  expect(side.top).toBe((848 - 300) / 2)
+  expect(side.top).toBe(SETUP_MASCOT.sideTop)
   expect(side.content.paddingTop).toBe(side.top)
+  for (const contentHeight of [120, 600, 900])
+    expect(
+      stageLayout({ place: 'side', width: 1200, height: 848, frameHeight: 230, contentHeight }).top,
+    ).toBe(side.top)
   // The mascot's centre is right of the content column, inside the pair.
   const mascotCentre = 1200 / 2 + side.x
   expect(mascotCentre).toBeGreaterThan(side.content.left + pair - side.content.paddingRight)
   expect(mascotCentre).toBeLessThan(side.content.left + pair)
-  // Content taller than the stage starts at the top and scrolls.
-  expect(
-    stageLayout({ place: 'side', width: 1200, height: 500, frameHeight: 230, contentHeight: 900 }).top,
-  ).toBe(32)
   // Above the content: one stack, centred down, untransformed so the home screen's mascot takes over from it.
   const centre = stageLayout({
     place: 'center',
@@ -105,6 +107,34 @@ test('the content and the mascot are centred together, across and down, right of
   expect(short.scale).toBeLessThan(1)
   const narrow = stageLayout({ place: 'side', width: 768, height: 548, frameHeight: 230, contentHeight: 300 })
   expect(narrow.scale).toBeLessThan(side.scale)
+})
+
+test('on a stage too narrow to share, the mascot sits small above the content, which takes the whole width', () => {
+  const { stackEdge, stackBelow } = SETUP_MASCOT
+  const stacked = stageLayout({
+    place: 'side',
+    width: 420,
+    height: 860,
+    frameHeight: 230,
+    contentHeight: 600,
+  })
+  // The content is the stage less its padding, with nothing kept on its right for the mascot.
+  expect(stacked.content.width).toBe(420 - stackEdge * 2)
+  expect(stacked.content.left).toBe(stackEdge)
+  expect(stacked.content.paddingRight).toBe(0)
+  // The mascot is centred above it, smaller than beside, and the content starts below it.
+  expect(stacked.x).toBe(0)
+  const beside = stageLayout({
+    place: 'side',
+    width: stackBelow,
+    height: 860,
+    frameHeight: 230,
+    contentHeight: 600,
+  })
+  expect(stacked.scale).toBeLessThan(beside.scale)
+  expect(stacked.content.paddingTop).toBeGreaterThanOrEqual(stacked.top + 230 * stacked.scale)
+  // From the stack's width up, it is beside the content again.
+  expect(beside.content.paddingRight).toBeGreaterThan(0)
 })
 
 /* ------------------------------------------------------------------ where it opens and what it shows */
