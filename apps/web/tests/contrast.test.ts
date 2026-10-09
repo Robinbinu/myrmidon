@@ -46,6 +46,15 @@ describe('text tokens keep WCAG AA contrast', async () => {
         })
 })
 
+describe('crew map links stand out from the window at 3:1, as lines that carry meaning must', async () => {
+  const all = await themes()
+  for (const [theme, tokens] of Object.entries(all))
+    for (const line of ['edge', 'accent-text'])
+      test(`${theme}: ${line} on window`, () => {
+        expect(contrast(tokens[line] as string, tokens.window as string)).toBeGreaterThanOrEqual(3)
+      })
+})
+
 test('text on an agent colour takes whichever ink has more contrast', async () => {
   const { inkOn } = await import('../src/client/ui/pixel.tsx')
   // A mid blue: white reads at only 3.7:1 on it, near-black at 5.3:1.

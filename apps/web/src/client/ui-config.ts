@@ -64,6 +64,12 @@ export const USER_SCROLL_MS = 600
 export const MAX_ACTIVITY_ITEMS = 500
 /** Replay speeds offered for scrubbing through a round. */
 export const REPLAY_SPEEDS = [1, 4, 16, 64]
+/** Stroke widths of the crew map's links, in px: a pair that traded one message, and the busiest pair. */
+export const MAP_LINK_WIDTH = { min: 1.25, max: 6 } as const
+/** The crew map's arrowheads, in px at a 1px line; they grow by this much per px of line. */
+export const MAP_ARROW_PX = { base: 14, perWidth: 3 } as const
+/** The latest events whose messages count as live, drawn as moving links on the crew map. */
+export const MAP_RECENT_EVENTS = 25
 
 /* ------------------------------------------------------------------ diffs */
 

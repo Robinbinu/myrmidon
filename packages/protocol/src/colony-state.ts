@@ -657,6 +657,9 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
     }
     case 'task/changed': {
       const p = event.payload as EventPayloads['task/changed']
+      // Handing a task to someone is one message to them; later revisions of the same task are not.
+      const to = p.task.assignee
+      if (to && to !== p.by && state.tasks[p.task.id]?.assignee !== to) link(state, p.by, to)
       state.tasks[p.task.id] = p.task
       touch(state, p.by, event.seq)
       break

@@ -1606,6 +1606,8 @@ export const copy = {
     turn: (n: number) => `turn ${n}`,
     tokens: (n: string) => `${n} tok`,
     noAgents: 'No agents yet. The lead and its crewmates show here once the run starts.',
+    /** A link between two agents on the crew map, for screen readers. */
+    link: (a: string, b: string, n: number) => `${a} and ${b}: ${n} message${n === 1 ? '' : 's'}`,
   },
 
   git: {

@@ -14,20 +14,17 @@
   text-align: center;
 }
 
+/* React Flow's own stylesheet is unlayered, so it beats any rule in this layer. These set the variables it reads
+   first and leaves unset, so the map follows the theme. */
 .react-flow {
-  --xy-background-pattern-dots-color-default: var(--border-strong);
-  --xy-edge-stroke-default: var(--edge);
+  --xy-background-pattern-color: var(--border-strong);
+  --xy-edge-stroke: var(--edge);
+  --xy-edge-label-color: var(--muted);
+  --xy-edge-label-background-color: var(--bg);
 }
-.react-flow__edge-text {
-  fill: var(--muted);
-  font-size: var(--text-caption);
-}
-.react-flow__edge-textbg {
-  fill: var(--bg);
-}
-.edge-active .react-flow__edge-path {
-  stroke: var(--accent);
-  stroke-width: 2;
+/* The live link in --accent-text, not --accent: amber on the light window is under 3:1. */
+.react-flow .edge-active {
+  --xy-edge-stroke: var(--accent-text);
 }
 .agent-node {
   width: 220px;
