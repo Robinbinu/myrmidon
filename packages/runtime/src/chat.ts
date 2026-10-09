@@ -21,7 +21,7 @@ import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
-import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import { type Attachment, ColonyRun, RoundClosingError, type Runtime } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { CHAT_TITLE_ROUNDS, MAX_READ_FOLDERS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
@@ -605,10 +605,16 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      // Their message steers a round someone else started: from now on it asks too, as if they had started it.
-      if (options.askAll) await live.askForAll()
-      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
-      return { chatId: id, colonyId: live.id, started: false }
+      try {
+        // Their message steers a round someone else started: from now on it asks too, as if they had started it.
+        if (options.askAll) await live.askForAll()
+        await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
+        return { chatId: id, colonyId: live.id, started: false }
+      } catch (err) {
+        // The round closed as the message came in: it opens the next round once that one has ended.
+        if (!(err instanceof RoundClosingError)) throw err
+        await live.done
+      }
     }
     const previous = await this.rounds(id)
     const history = conversation(previous)
@@ -1005,7 +1011,7 @@ export class ChatService {
   }
 
   async stop(chatId: string): Promise<void> {
-    await this._live.get(chatId)?.stop(STOPPED_BY_USER)
+    await this._live.get(chatId)?.stop(STOPPED_BY_USER, true)
   }
 
   /** Snapshots a project round's folder; a failure is reported but never stops the round. */
@@ -1354,7 +1360,7 @@ export class ChatService {
 
   /** Stops every round, a crew still winding down included, and waits until nothing of theirs runs any more. */
   async stopAll(): Promise<void> {
-    await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
+    await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down', true)))
     await Promise.allSettled([...this._wrapUps])
   }
 

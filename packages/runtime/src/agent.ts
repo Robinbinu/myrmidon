@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentStatus, EventId } from '@myrmidon/protocol'
+import { type AgentStatus, type EventId, recipientsOf } from '@myrmidon/protocol'
 import {
   Agent,
   type AgentEvent,
@@ -268,12 +268,17 @@ export class ColonyAgent {
 
   /**
    * The conversation is open again (the person wrote while it wound down): the sign-off no longer holds, and notes
-   * with this trigger it has not seen yet are stale.
+   * with this trigger it has not seen yet are stale. Returns whether one was dropped before it was seen.
    */
-  reopen(stale: string) {
+  reopen(stale: string): boolean {
     this._endAfterStep = false
-    for (const waiting of [this._quiet, this.inbox])
-      waiting.splice(0, waiting.length, ...waiting.filter((i) => i.trigger !== stale))
+    let dropped = false
+    for (const waiting of [this._quiet, this.inbox]) {
+      const kept = waiting.filter((i) => i.trigger !== stale)
+      dropped ||= kept.length < waiting.length
+      waiting.splice(0, waiting.length, ...kept)
+    }
+    return dropped
   }
 
   /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
@@ -434,18 +439,39 @@ export class ColonyAgent {
     // that answers.
     const heard = all.findLastIndex((m) => m.role === 'user')
     const state = this.host.state()
-    // A lead is also waiting while its crew still has tasks open.
-    const tasksOpen =
-      leadsCrew && Object.values(state.tasks).some((t) => t.status !== 'verified' && t.status !== 'deleted')
+    const since = state.rounds.at(-1)?.startSeq ?? 0
+    // A lead is also waiting while its crew still has tasks open, or a crewmate it asked this round has not answered
+    // yet (to it, or in the group it asked in).
+    const crewOwes =
+      leadsCrew &&
+      (Object.values(state.tasks).some((t) => t.status !== 'verified' && t.status !== 'deleted') ||
+        state.mail.some(
+          (asked) =>
+            asked.from === this.name &&
+            asked.seq >= since &&
+            recipientsOf(asked).some(
+              (r) =>
+                !state.mail.some(
+                  (m) => m.from === r && m.seq > asked.seq && (m.to === this.name || m.to === asked.to),
+                ),
+            ),
+        ))
     const waiting =
       callsIn(all.slice(heard + 1)).some((name) => HANDOFF_TOOLS.has(name)) ||
       this.inbox.length > 0 ||
       this._agent.hasQueuedMessages() ||
-      tasksOpen
+      crewOwes
     // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
     // answer (a review sent it back, say), a short remark is filler, not another answer.
-    const since = state.rounds.at(-1)?.startSeq ?? 0
     const answered = state.chatMessages.some((m) => m.from === this.name && m.final && m.seq >= since)
+    // Once a lead has answered, its plain text is talk with the crew (thanks, a goodbye), not another answer, unless
+    // the person has written since or a review sent the answer back.
+    const answer = state.chatMessages.findLast((m) => m.from === this.name && m.final && m.seq >= since)
+    const chatting =
+      leadsCrew &&
+      answer !== undefined &&
+      !state.chatMessages.some((m) => m.from === 'user' && m.seq > answer.seq) &&
+      !state.verdicts.some((v) => v.target === 'colony' && !v.pass && v.seq > answer.seq)
     const worked = answered || calls.length > 0
     const last = turn.at(-1)
     const text =
@@ -453,7 +479,15 @@ export class ColonyAgent {
         .flatMap((c) => (c.type === 'text' ? [c.text] : []))
         .join('\n')
         .trim() ?? ''
-    if (spoke || waiting || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20))
+    if (
+      spoke ||
+      waiting ||
+      chatting ||
+      !last ||
+      last.stopReason !== 'stop' ||
+      !text ||
+      (worked && text.length < 20)
+    )
       return
     await this.host.append({
       type: 'chat/reply',

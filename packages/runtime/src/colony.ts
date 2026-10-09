@@ -104,6 +104,14 @@ function sameRules(
   )
 }
 
+/** Raised for a message that reaches a round as its completion is being logged: it belongs to the next round. */
+export class RoundClosingError extends Error {
+  constructor() {
+    super('this round is closing')
+    this.name = 'RoundClosingError'
+  }
+}
+
 /** How long shutting down waits for rounds and agents still winding down before closing the log under them. */
 const SETTLE_MS = 3_000
 
@@ -277,7 +285,11 @@ export class ColonyRun implements ColonyHost {
     quietSince?: number
     /** Messages each agent has sent since the wind-down began. */
     said: Map<string, number>
+    /** Agents told the conversation is winding down. */
+    told: string[]
   }
+  /** Its completion is being logged: a message from the person now belongs to the next round. */
+  private _closing = false
   private _nudges = 0
   private _mirrorTimer?: ReturnType<typeof setTimeout>
   private _offLog?: () => void
@@ -1292,10 +1304,13 @@ export class ColonyRun implements ColonyHost {
     return prompts.colony.escalated(to)
   }
 
-  async stop(reason: string): Promise<void> {
-    if (this._state.status !== 'running') return
-    // Winding down, the round already has its answer: stopping only closes it now.
-    if (this._settling) return this._closeSettled()
+  /**
+   * `finish`: the person's Stop or shutting down. A round winding down already has its answer, so that completes it;
+   * anything else (a limit, a failure) stops it with its reason.
+   */
+  async stop(reason: string, finish = false): Promise<void> {
+    if (this._state.status !== 'running' || this._closing) return
+    if (finish && this._settling) return this._closeSettled()
     await this.append({ type: 'colony/stopped', actor: SYSTEM, payload: { reason } })
     await this._end()
   }
@@ -1313,6 +1328,7 @@ export class ColonyRun implements ColonyHost {
     extra: { voice?: boolean; context?: string } = {},
   ): Promise<void> {
     if (this._state.status !== 'running') throw new Error('this colony is not running')
+    if (this._closing) throw new RoundClosingError()
     const names = await this.attach(attachments)
     await this.append({
       type: 'chat/user',
@@ -1648,13 +1664,19 @@ export class ColonyRun implements ColonyHost {
   private async _complete(verdicts: MyrEvent['id'][], by: string) {
     if (this.spec.chat && this._agents.size > 1) {
       if (this._settling) return
-      this._settling = { verdicts, until: Date.now() + CHAT_SETTLE_MS, said: new Map() }
+      const told = [...this._agents.keys()].filter((name) => name !== by)
+      this._settling = { verdicts, until: Date.now() + CHAT_SETTLE_MS, said: new Map(), told }
       // The rest hear the conversation is ending: mid-reply, at once; otherwise with whatever wakes them next.
-      for (const a of this._agents.values())
-        if (a.name !== by)
-          this._wake(a.name, prompts.colony.windDown(by), 'wind-down', a.idle ? { quiet: true } : {})
+      for (const name of told)
+        this._wake(
+          name,
+          prompts.colony.windDown(by),
+          'wind-down',
+          this._agents.get(name)?.idle ? { quiet: true } : {},
+        )
       return
     }
+    this._closing = true
     await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts } })
     void this._end()
   }
@@ -1663,6 +1685,7 @@ export class ColonyRun implements ColonyHost {
   private async _closeSettled() {
     const settle = this._settling
     if (!settle) return
+    this._closing = true
     this._settling = undefined
     await this.append({ type: 'colony/completed', actor: SYSTEM, payload: { verdicts: settle.verdicts } })
     await this._end()
@@ -1673,9 +1696,14 @@ export class ColonyRun implements ColonyHost {
    * it runs as before the answer, and winds down again after the next one.
    */
   private _reopen() {
-    if (!this._settling) return
+    const settle = this._settling
+    if (!settle) return
     this._settling = undefined
-    for (const a of this._agents.values()) a.reopen('wind-down')
+    // A wind-down note an agent has seen, or that is already on its way into its current step, is answered with one
+    // saying the conversation goes on; an unseen one is simply dropped.
+    for (const a of this._agents.values())
+      if (!a.reopen('wind-down') && settle.told.includes(a.name))
+        this._wake(a.name, prompts.colony.reopened, 'reopened', a.idle ? { quiet: true } : {})
   }
 
   closing(agent: string): string | undefined {
@@ -1712,6 +1740,8 @@ export class ColonyRun implements ColonyHost {
       })
       return void (await this._complete([verdict.id], by))
     }
+    // A review already reading the work gives the verdict for this answer too; asking again would count as a failure.
+    if (this._finalRunning) return
     const before = this._state.verdicts.length
     const report = await this.requestFinalVerification(by, 'final answer sent to the person')
     if (this._state.status !== 'running') return

@@ -316,9 +316,9 @@ nobody owns, publish artifacts, and request final verification once the output m
     modes: {
       answer: 'answer (one agent, direct reply)',
       /** Agents echo this line to the person, so it says what they can use, never internal words like "solo". */
-      solo: 'you, alone, with every tool. This chat has no crewmates: if the person wants one, say so plainly and that they can add crewmates with the Crew picker in the message box',
+      solo: 'you, alone, with every tool. This chat has no crewmates: if the person wants one, say so plainly and that they can add crewmates with the Crewmates control in the message box',
       soloCrew: (n: number) =>
-        `solo (you work alone with every tool; ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate)`,
+        `you, with every tool, and ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate`,
       crewmate: (lead: string) => `one job for ${lead}, who works on the request alone and asked you for it`,
       swarm: (peers: number) => `swarm of ${peers} crewmates`,
       orchestrated: (specialists: number) => `orchestrated team (lead + ${specialists} crewmates)`,
@@ -489,6 +489,9 @@ nobody owns, publish artifacts, and request final verification once the output m
     /** To the rest of the crew once the speaker has given the person the final answer. */
     windDown: (speaker: string) =>
       `${speaker} has given the person the final answer, so this conversation is winding down. Finish a thought you are in the middle of, but do not reply to wrap-ups, thanks or goodbyes and do not start anything new: it can wait for the next round.`,
+    /** To those told the conversation was winding down, once the person writes again before it closes. */
+    reopened:
+      'The person wrote again, so the conversation is open again: carry on as before it was winding down.',
     /** The message tool's answer once an agent has had its last word in a chat that is winding down. */
     chatClosing:
       'Not sent: this conversation is closing and you have had your last word. Keep it for the next round.',

@@ -111,7 +111,7 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
     ['done'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const config: TeamConfig = {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -184,7 +184,7 @@ test('crew messages are a conversation: a question left unanswered gets a remind
     ['done'],
   ])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a short poem about ants', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -253,7 +253,7 @@ test('group chats wake their members, the team chat wakes only @mentions, and on
   ])
   scripted(resolver, 'mock/researcher', [['should not run']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a short poem about ants', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -629,7 +629,7 @@ test('orchestrated: an assigned task wakes only its assignee', async () => {
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   scripted(resolver, 'mock/coder', [['should not run']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research and build', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -668,7 +668,7 @@ test('orchestrated: a worker assigned a blocked task sleeps until its blockers a
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   scripted(resolver, 'mock/coder', [['should not run yet']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research and build', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -710,7 +710,7 @@ test('tasks created together in one message can depend on each other', async () 
   ])
   scripted(resolver, 'mock/researcher', [['on it'], ['ok']])
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Research it', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
@@ -2453,7 +2453,7 @@ test('team workers in a git project each get a worktree, and their changes merge
   scripted(resolver, 'mock/backend', coder('api.ts'))
   scripted(resolver, 'mock/frontend', coder('page.ts'))
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), projects, quietMs: QUIET_MS })
   const { colonyId } = await chats.send(
     'Build the API and the page',
     {
@@ -2649,7 +2649,7 @@ test('the lead sends verified work back with a reason, and its owner redoes it',
   })
   resolver.register('mock/writer', { model: writer.model, streamFn: writer.stream })
   judge(resolver)
-  const chats = new ChatService(runtime, { resolver, classify: fixed('team') })
+  const chats = new ChatService(runtime, { resolver, classify: fixed('team'), quietMs: QUIET_MS })
   const { colonyId } = await chats.send('Write a haiku', {
     mode: 'orchestrated',
     leadModel: 'mock/lead',
