@@ -373,10 +373,8 @@ test('an agent asks to read a folder; allowed for the chat it stays open across 
     expect((await chats.list()).find((c) => c.chatId === chatId)?.reads).toEqual([outside])
 
     expect(await chats.allowReadInChat(chatId, outside, false)).toEqual([])
-    // A key folder may be allowed for the chat (the card asking for it warns); other chats' data never.
-    const keys = realPath(join(homedir(), '.ssh'))
-    expect(await chats.allowReadInChat(chatId, '~/.ssh', true)).toEqual([keys])
-    expect(await chats.allowReadInChat(chatId, '~/.ssh', false)).toEqual([])
+    // A key folder no agent asked for is never opened for a chat; other chats' data never.
+    await expect(chats.allowReadInChat(chatId, '~/.ssh', true)).rejects.toThrow('keys or sign-ins')
     await expect(chats.allowReadInChat(chatId, join(myr, 'colonies'), true)).rejects.toThrow('Settings')
     await chats.stopAll()
 
@@ -389,6 +387,32 @@ test('an agent asks to read a folder; allowed for the chat it stays open across 
     expect(again?.ok).toBe(false)
     expect(again?.output).toContain('request_read')
     await later.stopAll()
+  } finally {
+    await tearDownChats()
+  }
+})
+
+test('a key folder opens for a chat only on the card of the request asking for exactly it', async () => {
+  await setUpChats()
+  try {
+    const settings = new SettingsStore(myr)
+    const resolver = models([
+      [tool('request_read', { path: '~/.ssh', reason: 'to list the keys' })],
+      [tool('reply_user', { text: 'Listed.', final: true })],
+    ])
+    const chats = new ChatService(runtime, { resolver, settings })
+    const { chatId, colonyId } = await chats.send('List my keys', config)
+    await waitFor(colonyId, (s) => Object.values(s.approvals).some((a) => !a.decided))
+    const keys = realPath(join(homedir(), '.ssh'))
+    // Not the folder asked for: refused, and the request keeps waiting.
+    await expect(chats.allowReadInChat(chatId, '~/.aws', true)).rejects.toThrow('keys or sign-ins')
+    expect(await chats.allowReadInChat(chatId, '~/.ssh', true)).toEqual([keys])
+    const done = await waitFor(colonyId)
+    expect(Object.values(done.approvals).map((a) => a.decided?.approved)).toEqual([true])
+    // Answered, the request no longer opens it: taken back, it stays shut until an agent asks again.
+    expect(await chats.allowReadInChat(chatId, '~/.ssh', false)).toEqual([])
+    await expect(chats.allowReadInChat(chatId, '~/.ssh', true)).rejects.toThrow('keys or sign-ins')
+    await chats.stopAll()
   } finally {
     await tearDownChats()
   }

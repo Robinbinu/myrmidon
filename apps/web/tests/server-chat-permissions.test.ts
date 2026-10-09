@@ -207,6 +207,6 @@ test('PUT /api/chats/:id/readable opens or hides a folder for a chat, and checks
     ['chat-a', '/notes', false],
     ['chat-a', '~/.ssh', true],
   ])
-  // Like approving the request it answers, open to any device that can chat.
-  expect(needsFull('PUT', '/api/chats/chat-a/readable')).toBe(false)
+  // Opening a folder of the computer to a chat is a permission change: a chats-only device cannot make it.
+  expect(needsFull('PUT', '/api/chats/chat-a/readable')).toBe(true)
 })
