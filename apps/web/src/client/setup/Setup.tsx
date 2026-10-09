@@ -214,13 +214,15 @@ export function Setup(props: {
     s === 'ready' ? (s === screen ? 'current' : 'todo') : stepStatus(s, view, screen)
   const at = SETUP_SCREENS.indexOf(screen)
 
-  // Up and Down move between the steps in the list, as in any list of choices.
+  // The arrows move between the steps in the list, as in any list of choices: Up and Down down the side, and Left
+  // and Right too, for the strip a narrow window shows instead.
   const list = useRef<HTMLOListElement>(null)
   const onListKey = (e: KeyboardEvent) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key]
+    if (!step) return
     const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
     const from = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    const to = buttons[Math.max(0, Math.min(buttons.length - 1, from + (e.key === 'ArrowDown' ? 1 : -1)))]
+    const to = buttons[Math.max(0, Math.min(buttons.length - 1, from + step))]
     if (to) {
       e.preventDefault()
       to.focus()
@@ -261,12 +263,13 @@ export function Setup(props: {
           {copy.app.reconnecting}
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
+      {/* In a narrow window the step list becomes a strip across the top, naming only the step you are on. */}
+      <div className="flex min-h-0 flex-1 max-md:flex-col">
         <nav
           aria-label={t.navLabel}
-          className="material-sidebar w-48 shrink-0 overflow-y-auto border-r border-line px-2.5 py-4 lg:w-60"
+          className="material-sidebar w-48 shrink-0 overflow-y-auto border-r border-line px-2.5 py-4 max-md:w-full max-md:overflow-x-auto max-md:border-r-0 max-md:border-b max-md:py-2 lg:w-60"
         >
-          <ol ref={list} className="flex flex-col gap-px" onKeyDown={onListKey}>
+          <ol ref={list} className="flex flex-col gap-px max-md:flex-row max-md:gap-1" onKeyDown={onListKey}>
             {SETUP_SCREENS.map((s) => {
               const st = status(s)
               return (
@@ -280,14 +283,16 @@ export function Setup(props: {
                     aria-label={`${t.steps[s]}, ${t.status[st]}`}
                     data-status={st}
                     className={cn(
-                      'flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-body transition-colors',
+                      'flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-body transition-colors max-md:w-auto max-md:shrink-0',
                       s === screen
                         ? 'bg-row-selected text-fg'
                         : 'text-fg-2 enabled:hover:bg-fill/70 enabled:hover:text-fg disabled:opacity-50',
                     )}
                   >
                     <Dot status={STATUS_DOT[st]} />
-                    <span className="min-w-0 truncate">{t.steps[s]}</span>
+                    <span className={cn('min-w-0 truncate', s !== screen && 'max-md:sr-only')}>
+                      {t.steps[s]}
+                    </span>
                   </button>
                 </li>
               )
