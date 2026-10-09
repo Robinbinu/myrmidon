@@ -5,7 +5,7 @@
 Myrmidon is a local-first, open-source agent harness. You talk to one lead; it answers, codes, browses, or brings
 in a crew of specialists when the job is big. Use it in the browser or the macOS app, from 30 messaging channels,
 or by voice and phone call.
-Every step is logged, sandboxed, and reviewable.
+Every step is logged, sandboxed by default, and reviewable.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 [![Runtime: Bun](https://img.shields.io/badge/runtime-Bun_%E2%89%A51.3.14-f9f1e1?logo=bun&logoColor=black)](https://bun.sh)
@@ -45,7 +45,9 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
   plus Myrmidon code and UI. Ask the lead for a Myrmidon feature and it builds one as a plugin.
 - **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux). Secrets are redacted
   from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can be set to Allow, Ask
-  first, or Off.
+  first, or Off. When you want agents to use the computer unrestricted, like Hermes Agent, turn on **full access**
+  for one project or for all your chats; approvals you set still apply, and people other than you who talk to it
+  through a channel always stay sandboxed.
 - **Done means checked.** An independent reviewer (off, auto, or always) can run real tests, rules, and an LLM
   rubric against the output. Agents cannot mark their own work verified.
 - **Yours.** Runs on your machine, stores data in `~/.myrmidon`, Apache-2.0.
