@@ -329,3 +329,27 @@ test('tabs keep what runs in view when narrow, and a hidden × takes no clicks',
     await ui.unmount()
   }
 })
+
+test("the terminals take their ANSI colours from the theme's tokens, again when the theme changes", async () => {
+  const ui = await render('palette')
+  const styles = () => [...ui.doc.querySelectorAll('style')].map((s) => s.textContent).join('\n')
+  // happy-dom does not pass custom properties down from the root, so the tokens go on the screen itself here.
+  const screen = ui.doc.querySelector<HTMLElement>('[role=tabpanel] [data-terminal-screen]')
+  const retheme = (theme: string, cyan: string) =>
+    act(async () => {
+      screen?.style.setProperty('--term-bright-cyan', cyan)
+      ui.doc.documentElement.setAttribute('data-theme', theme)
+      await Bun.sleep(30)
+    })
+  try {
+    await FakeSocket.all[0]?.output('\x1b[96mcyan\x1b[0m\r\n')
+    await retheme('light', '#0a7a8f')
+    expect(styles()).toContain('#0a7a8f')
+    await retheme('dark', '#86d7e0')
+    expect(styles()).toContain('#86d7e0')
+    expect(styles()).not.toContain('#0a7a8f')
+  } finally {
+    ui.doc.documentElement.removeAttribute('data-theme')
+    await ui.unmount()
+  }
+})
