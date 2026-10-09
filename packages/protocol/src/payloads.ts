@@ -408,6 +408,8 @@ export interface EventPayloads {
     voice?: boolean
     /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
     context?: string
+    /** An answer given on a question card: the question's message and what was picked, shown in the card itself. */
+    answers?: QuestionAnswers
   }
   /** `question` marks a reply that waits on the user before the colony can continue. */
   /**
@@ -499,6 +501,19 @@ export interface EventPayloads {
 }
 
 export type EventType = keyof EventPayloads
+
+/** What the person chose for one question: options picked, their own words, or skipped. */
+export interface QuestionPick {
+  readonly picked: readonly string[]
+  readonly other?: string
+  readonly skipped?: boolean
+}
+
+/** An answer to a question card: the message that asked (its seq) and one pick per question, in order. */
+export interface QuestionAnswers {
+  readonly seq: number
+  readonly picks: readonly QuestionPick[]
+}
 
 /** One option of a question an agent asks. */
 export interface QuestionOption {

@@ -1350,6 +1350,9 @@ export const copy = {
     skipAll: (n: number) => (n === 1 ? 'Skip, you decide' : 'Skip all, you decide'),
     send: (n: number) => (n === 1 ? 'Send answer' : 'Send answers'),
     sending: 'Sending…',
+    /** The card's footer once answered: the answer lives in the card, not in a message of its own. */
+    answered: 'Answered',
+    readBy: (names: readonly string[]) => `Read by ${names.join(', ')}`,
     pickAny: 'Pick any that apply',
     other: 'Other: type your own answer',
     /** Placeholder once the person picked an option that means they will type the rest. */
@@ -1810,6 +1813,8 @@ export const copy = {
     lead: {
       thinking: 'Thinking',
       waiting: 'Waiting for your reply',
+      /** A round that ended on a question the person has since answered. */
+      asked: 'Asked you',
       /** The run is paused on a call the person has to approve. */
       approval: 'Waiting for you to allow a step',
       toTeam: 'Bringing in crewmates',

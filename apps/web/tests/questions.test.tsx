@@ -51,3 +51,37 @@ test('a plan with no questions can still be approved from its card', () => {
     copy.questions.approvePlan.button,
   )
 })
+
+test('an answered card shows what was picked itself, so the answer needs no message of its own', () => {
+  const choices = [
+    {
+      question: 'What SSH key info should I look at?',
+      header: 'What to share',
+      options: [{ label: 'Full listing' }, { label: 'Public keys only' }],
+    },
+  ]
+  const html = renderToStaticMarkup(
+    <QuestionCard
+      choices={choices}
+      open={false}
+      answered={[{ picked: ['Full listing'], other: '', skipped: false }]}
+      readBy={['lead']}
+      onAnswer={async () => {}}
+    />,
+  )
+  // The picked option is marked, the other is not, and the card says it was answered and read.
+  expect(html).toMatch(/aria-pressed="true"[^>]*>(?:(?!aria-pressed).)*Full listing/)
+  expect(html).toMatch(/aria-pressed="false"[^>]*>(?:(?!aria-pressed).)*Public keys only/)
+  expect(html).toContain(copy.questions.answered)
+  expect(html).toContain(copy.questions.readBy(['lead']))
+  // A typed answer shows in place of the text box.
+  const typed = renderToStaticMarkup(
+    <QuestionCard
+      choices={[{ question: 'Which?', options: [{ label: 'A' }] }]}
+      open={false}
+      answered={[{ picked: [], other: 'something of my own', skipped: false }]}
+      onAnswer={async () => {}}
+    />,
+  )
+  expect(typed).toContain('something of my own')
+})
