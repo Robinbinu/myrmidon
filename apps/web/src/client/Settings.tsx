@@ -76,6 +76,7 @@ import {
   day,
   NOTIFY_KEY,
   SUGGEST_KEY,
+  SUGGEST_MODEL_KEY,
   type ThemeChoice,
   useCopy,
   useMinWidth,
@@ -113,6 +114,7 @@ import {
   AGENT_MIN_WINDOW,
   MASCOT_COLORS,
   SETTINGS_NAV_COLLAPSE_PX,
+  SUGGEST_MODEL_POLL_MS,
   softSpring,
   spring,
   VOICE_POLL_MS,
@@ -901,12 +903,65 @@ export function useSettingsData(onModelsChanged: () => void) {
 }
 
 /** Ghost-text suggestions in the composer (this browser only). */
-function SuggestToggle() {
+interface SuggestModelStatus {
+  state: 'missing' | 'downloading' | 'ready' | 'failed'
+  bytes: number
+  error?: string
+}
+
+/** Suggestions as the person types, and the small model that adds next words when their history has none. */
+function SuggestToggles() {
+  const toast = useToast()
   const [on, setOn] = usePersistentFlag(SUGGEST_KEY, true)
+  const [modelOn, setModelOn] = usePersistentFlag(SUGGEST_MODEL_KEY, false)
+  const [status, setStatus] = useState<SuggestModelStatus>()
+  const check = () =>
+    api<SuggestModelStatus>('/api/suggestions/model').then(setStatus, (err: Error) =>
+      toast(err.message, 'error'),
+    )
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once on mount
+  useEffect(() => {
+    void check()
+  }, [])
+  const downloading = status?.state === 'downloading'
+  // biome-ignore lint/correctness/useExhaustiveDependencies: polls while the download runs
+  useEffect(() => {
+    if (!downloading) return
+    const t = setInterval(() => void check(), SUGGEST_MODEL_POLL_MS)
+    return () => clearInterval(t)
+  }, [downloading])
+  const g = copy.settings.general
+  const mb = Math.round((status?.bytes ?? 0) / 1_000_000)
+  const hint =
+    modelOn && status?.state === 'downloading'
+      ? g.suggestModelDownloading(mb)
+      : modelOn && status?.state === 'failed'
+        ? g.suggestModelFailed(status.error ?? '')
+        : g.suggestModelHint(mb)
   return (
-    <Field label={copy.settings.general.suggest} hint={copy.settings.general.suggestHint} inline>
-      <Switch checked={on} label={copy.settings.general.suggest} onChange={setOn} />
-    </Field>
+    <>
+      <CardRow>
+        <Field label={g.suggest} hint={g.suggestHint} inline>
+          <Switch checked={on} label={g.suggest} onChange={setOn} />
+        </Field>
+      </CardRow>
+      <CardRow>
+        <Field label={g.suggestModel} hint={hint} inline>
+          <Switch
+            checked={on && modelOn}
+            disabled={!on || !status}
+            label={g.suggestModel}
+            onChange={(v) => {
+              setModelOn(v)
+              if (v && status?.state !== 'ready')
+                post<SuggestModelStatus>('/api/suggestions/model', {}).then(setStatus, (err: Error) =>
+                  toast(err.message, 'error'),
+                )
+            }}
+          />
+        </Field>
+      </CardRow>
+    </>
   )
 }
 
@@ -1004,9 +1059,7 @@ function General(props: {
         <CardRow>
           <NotifyToggle />
         </CardRow>
-        <CardRow>
-          <SuggestToggle />
-        </CardRow>
+        <SuggestToggles />
         {props.onRunSetup && (
           <CardRow>
             <Field label={copy.settings.general.setup} hint={copy.settings.general.setupHint} inline>

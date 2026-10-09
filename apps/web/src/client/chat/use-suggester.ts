@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api.ts'
+import { api, post } from '../api.ts'
+import { SUGGEST_MODEL_DEBOUNCE_MS } from '../ui-config.ts'
 import { buildSuggester, type Said, type Suggester } from './suggest.ts'
 
 let loading: Promise<Suggester> | undefined
@@ -24,4 +25,28 @@ export function useSuggester(on: boolean): Suggester | undefined {
     }
   }, [on])
   return on ? suggester : undefined
+}
+
+/**
+ * The word the next-word model expects after `text` (`/api/suggestions/next`), once typing pauses; only ever for the
+ * text it was asked about, so a late answer never lands on newer text.
+ */
+export function useModelWord(text: string, on: boolean): string | undefined {
+  const [got, setGot] = useState<{ text: string; word: string }>()
+  useEffect(() => {
+    if (!on) return
+    let live = true
+    const timer = setTimeout(() => {
+      post<{ word?: string }>('/api/suggestions/next', { text }).then(
+        (r) => live && r.word && setGot({ text, word: r.word }),
+        // A guess that fails is a guess not shown; the draft is unaffected.
+        () => {},
+      )
+    }, SUGGEST_MODEL_DEBOUNCE_MS)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [text, on])
+  return on && got?.text === text ? got.word : undefined
 }
