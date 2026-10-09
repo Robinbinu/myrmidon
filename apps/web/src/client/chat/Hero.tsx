@@ -233,7 +233,9 @@ export function useTypingColor(
   if ((words === 0) !== run.empty) setRun({ n: run.n + (words === 0 ? 1 : 0), empty: words === 0 })
   // The seed is drawn after the first render, which keeps rendering pure; until then no letters are on show.
   const [seed, setSeed] = useState(0)
-  useEffect(() => setSeed((Math.random() * 2 ** 32) >>> 0), [])
+  useEffect(() => {
+    setSeed((Math.random() * 2 ** 32) >>> 0)
+  }, [])
   return useMemo(
     () => typingColor(words, base, palette, draw ?? ((k) => roll(seed, run.n, k))),
     [words, base, palette, draw, seed, run.n],

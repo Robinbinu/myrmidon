@@ -179,9 +179,13 @@ export function HeroCrew(props: {
   // What the mascot is up to changed, so the crew has something to do (a knock is the person clicking, so it stirs).
   const [lookX, lookY] = props.look ?? []
   // biome-ignore lint/correctness/useExhaustiveDependencies: each of these is a reason to move again
-  useEffect(() => wake.current(), [props.signal, lookX, lookY, props.typing])
+  useEffect(() => {
+    wake.current()
+  }, [props.signal, lookX, lookY, props.typing])
   // biome-ignore lint/correctness/useExhaustiveDependencies: a knock is the person clicking
-  useEffect(() => stir.current(), [props.knocked])
+  useEffect(() => {
+    stir.current()
+  }, [props.knocked])
 
   return (
     <>

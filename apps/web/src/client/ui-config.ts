@@ -427,6 +427,11 @@ export const SETUP_MASCOT = {
   contentMax: 640,
   gap: 48,
   edge: 32,
+  /**
+   * Beside the content, the content (and the mascot level with it) starts this far down the stage on every screen, so
+   * moving from one step to the next does not move the heading, or Back and Continue, up or down with its length.
+   */
+  sideTop: 64,
   /** Its dot screen's lettering, in px per dot, and the most letters it shows. */
   dot: 2.4,
   screenChars: 12,
