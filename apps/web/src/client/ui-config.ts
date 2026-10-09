@@ -279,3 +279,13 @@ export const VOICE_RUNTIME_BYTES = 1_100_000_000
 export const COMPUTER_POLL_MS = 2_000
 export const COMPUTER_IDLE_POLL_MS = 15_000
 export const COMPUTER_SETTINGS_POLL_MS = 1_500
+
+// Permissions (permissions/)
+
+/** Width of the chat's permission popover in the composer, and of an approval card's remember menu. */
+export const PERMISSIONS_POPOVER_PX = 320
+export const APPROVAL_MENU_PX = 260
+/** Room an approval card's menu needs above its button to open upward; with less it opens downward. */
+export const APPROVAL_MENU_ROOM_PX = 340
+/** How tall the rules table grows before it scrolls. */
+export const RULES_LIST_MAX_PX = 420
