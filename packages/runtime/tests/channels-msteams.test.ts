@@ -189,8 +189,10 @@ test('activities become messages: a direct chat, a channel thread with a mention
 test('files: an uploaded file and an inline image are read on demand, with the token only for Teams hosts', async () => {
   const fake = teams()
   const adapter = make(fake.base)
-  const { handle, received } = testIO('https://box.example/hooks/channels/msteams')
+  const { handle, received, statuses } = testIO('https://box.example/hooks/channels/msteams')
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   await post(
     adapter,
     activity(fake.base, {
@@ -220,8 +222,10 @@ test('files: an uploaded file and an inline image are read on demand, with the t
 test('sends, edits, buttons as an Adaptive Card, typing and images, to the right conversation', async () => {
   const fake = teams()
   const adapter = make(fake.base)
-  const { handle, received } = testIO('https://box.example/hooks/channels/msteams')
+  const { handle, received, statuses } = testIO('https://box.example/hooks/channels/msteams')
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   await post(
     adapter,
     activity(fake.base, {

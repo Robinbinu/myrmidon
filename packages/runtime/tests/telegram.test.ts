@@ -191,6 +191,8 @@ test('updates become messages: mentions in groups, commands, bots ignored, the o
   // The bot's own kind is never delivered, and the offset moves past everything handled.
   expect(received.some((m) => m.text === 'bot talk')).toBe(false)
   await until(() => kv.get('offset') === '18')
+  // The offset is saved before the next poll goes out, so that poll is waited for on its own.
+  await until(() => calls.filter((c) => c.method === 'getUpdates').length >= 2)
   expect(calls.filter((c) => c.method === 'getUpdates').at(1)?.body.offset).toBe(18)
 })
 
@@ -290,12 +292,18 @@ test('button presses, files in and out, and forum topics', async () => {
   })
   servers.push(server)
   // The file download is a plain GET on /file/bot<token>/<path>.
-  const files = Bun.serve({ port: 0, fetch: () => new Response(new Uint8Array([7, 7, 7])) })
+  const files = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: () => new Response(new Uint8Array([7, 7, 7])),
+  })
   servers.push(files)
   const adapter = new TelegramAdapter('TOKEN', api)
   adapters.push(adapter)
   const { handle, received } = io()
   await adapter.start(handle)
+  // The long poll keeps calling getUpdates in the background; the test's own calls are the others.
+  const last = () => calls.filter((c) => c.method !== 'getUpdates').at(-1)
   await until(() => received.length === 2)
   expect(received[0]).toMatchObject({
     press: { id: 'cbq-1', data: 'a:o:abc123', message: { chat: '1', id: '50' } },
@@ -312,14 +320,14 @@ test('button presses, files in and out, and forum topics', async () => {
   expect(calls.some((c) => c.method === 'getFile' && c.body.file_id === 'v1')).toBe(true)
 
   await adapter.answerPress({ id: 'cbq-1', data: '' }, 'Allowed')
-  expect(calls.at(-1)).toMatchObject({
+  expect(last()).toMatchObject({
     method: 'answerCallbackQuery',
     body: { callback_query_id: 'cbq-1', text: 'Allowed' },
   })
 
   // Replies in a topic stay in it, and buttons become an inline keyboard.
   await adapter.send(received[1]?.chat ?? '', { text: 'ok', buttons: [[{ label: 'Yes', data: 'q:k:0:0' }]] })
-  expect(calls.at(-1)?.body).toMatchObject({
+  expect(last()?.body).toMatchObject({
     chat_id: '-9',
     message_thread_id: 77,
     reply_markup: { inline_keyboard: [[{ text: 'Yes', callback_data: 'q:k:0:0' }]] },
@@ -330,7 +338,7 @@ test('button presses, files in and out, and forum topics', async () => {
     data: new Uint8Array([1, 2]),
   })
   expect(ref).toEqual({ chat: '1', id: '90' })
-  expect(calls.at(-1)?.method).toBe('sendDocument')
+  expect(last()?.method).toBe('sendDocument')
 })
 
 test('webhook mode: Telegram is told where to post, and only posts carrying the secret are taken', async () => {

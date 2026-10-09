@@ -235,8 +235,10 @@ test('events become messages: a direct chat, a space thread with a mention, a ca
 test("sends in Chat's formatting, into the thread, with card buttons; edits replace text and buttons", async () => {
   const fake = google()
   const adapter = make(fake.base)
-  const { handle } = testIO(HOOK)
+  const { handle, statuses } = testIO(HOOK)
   await adapter.start(handle)
+  // Its start-up check calls the platform in the background; once on, every call is the test's own.
+  await until(() => statuses.some((s) => s.state === 'on'))
   const ref = await adapter.send(
     { id: 'spaces/S1', kind: 'group', thread: 'spaces/S1/threads/T1' },
     {
