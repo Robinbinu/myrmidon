@@ -60,6 +60,17 @@ export const GREETING_MS = 15_000
 export const GREETING_AWAY_MS = 30 * 60_000
 /** Team-chat messages an agent keeps for its next turn when nobody wakes it; older ones drop off. */
 export const QUIET_KEPT = 30
+/**
+ * After the final answer in a round with a crew, the round stays open until everyone has been quiet this long, so
+ * nobody is cut off mid-reply and what was said gets read, as a group chat winds down.
+ */
+export const SETTLE_QUIET_MS = 3_000
+/** ...and closes after this long even if the crew keeps talking; whatever is still unread waits for the next round. */
+export const CHAT_SETTLE_MS = 120_000
+/** Unread messages an agent is shown when it next wakes (from before this round); older ones stay in read_messages. */
+export const MISSED_SHOWN = 20
+/** Each such message is shown up to this many characters. */
+export const MISSED_CHARS = 800
 /** The most text one review field carries; longer content is shown cut and cannot be rewritten in the card. */
 export const REVIEW_MAX_CHARS = 200_000
 /** How many specialists the person can keep. */

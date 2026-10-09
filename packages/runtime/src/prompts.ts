@@ -485,6 +485,12 @@ nobody owns, publish artifacts, and request final verification once the output m
       `If it is for you, answer in the group with message(to: "${p.group}", reply_to: ${p.seq}).`,
     /** Delivered tagged [team]. */
     teamMessage: (seq: number, from: string, text: string) => `#${seq} ${from}: ${text}`,
+    /**
+     * Messages an agent never got to read before its last round ended, shown when it next wakes and before anything
+     * newer, so it catches up instead of answering stale news.
+     */
+    missed: (lines: readonly string[], older: number) =>
+      `Messages you had not read yet, from before now (older than anything below; reply only where one still needs it):\n${lines.join('\n')}${older ? `\n(${older} older unread; read_messages shows them.)` : ''}`,
     /** The person wrote to this agent directly (@name) while the round runs. */
     direct: (text: string) =>
       `${text}\n(The person wrote this to you directly. Answer them yourself with reply_person; tell the lead only if it changes the plan.)`,

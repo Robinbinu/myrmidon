@@ -37,6 +37,8 @@ export interface InboxItem {
   readonly text: string
   readonly trigger: string
   readonly mail?: EventId
+  /** Several messages in one item (catching up on what was missed): each is recorded as read when it is seen. */
+  readonly mails?: readonly EventId[]
   /** Arriving mid-turn, wait until the agent finishes its current work instead of joining its next step. */
   readonly queue?: boolean
   /** Seen, not a reason to wake: it waits for whatever wakes the agent next (team chat it was not @mentioned in). */
@@ -223,7 +225,7 @@ export class ColonyAgent {
     if (this.working) {
       this._stamp = Math.max(Date.now(), this._stamp + 1)
       const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
-      if (item.mail) this._unread.set(message.timestamp, item)
+      if (item.mail || item.mails?.length) this._unread.set(message.timestamp, item)
       if (item.queue) this._agent.followUp(message)
       else this._agent.steer(message)
       return
@@ -236,6 +238,17 @@ export class ColonyAgent {
     this._stopped = true
     this._agent.abort('colony stopped')
     this._wake?.()
+  }
+
+  /** Set once the agent has signed off (its final answer is out): the turn ends when the current step is done. */
+  private _endAfterStep = false
+
+  /**
+   * Ends the turn once the step in progress has its tool results, before the model is asked again, the way someone
+   * stops after saying goodbye. Anything written to the agent afterwards still wakes it.
+   */
+  endTurnAfterStep() {
+    if (this.working && !this._stopped) this._endAfterStep = true
   }
 
   /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
@@ -308,6 +321,7 @@ export class ColonyAgent {
       this._requeueUnread()
       if (this._afterTurn) this.inbox.unshift(this._afterTurn)
       this._afterTurn = undefined
+      this._endAfterStep = false
       this.working = false
     }
     await this.host.append({
@@ -451,11 +465,11 @@ export class ColonyAgent {
 
   private async _markDelivered(items: readonly InboxItem[]) {
     for (const item of items) {
-      if (item.mail)
+      for (const mail of [...(item.mail ? [item.mail] : []), ...(item.mails ?? [])])
         await this.host.append({
           type: 'mail/delivered',
           actor: SYS,
-          payload: { mail: item.mail, to: this.name },
+          payload: { mail, to: this.name },
         })
     }
   }
@@ -513,6 +527,10 @@ export class ColonyAgent {
     }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
+      if (this._endAfterStep) {
+        this._endAfterStep = false
+        this._agent.abort('signed off: final answer sent')
+      }
       return
     }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
