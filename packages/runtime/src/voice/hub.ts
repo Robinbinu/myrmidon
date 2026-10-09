@@ -1,13 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   VOICE_MAX_CALLS,
@@ -19,12 +10,24 @@ import {
   VOICE_VAD_BYTES,
   VOICE_VAD_HYSTERESIS,
   VOICE_VAD_START,
+  VOICE_VOICES_CACHE_MS,
 } from '../config.ts'
 import type { ModelResolver } from '../models.ts'
 import { prompts } from '../prompts.ts'
-import type { MyrSettings } from '../settings.ts'
+import { type MyrSettings, VOICE_LEGACY_KEYS, type VoiceEndpoint } from '../settings.ts'
 import { trimSilence } from './audio.ts'
 import { type CallChats, type CallOptions, type CallOutput, CallSession, type CallTurn } from './call.ts'
+import {
+  ENDPOINT_DEFAULTS,
+  endpointVault,
+  envKey,
+  VOICE_PROVIDERS,
+  type VoiceKeys,
+  type VoiceOption,
+  type VoiceProvider,
+  voiceProvider,
+} from './providers.ts'
+import { RealtimeCallSession } from './realtime/session.ts'
 import { SmartTurn } from './smart-turn.ts'
 import { FunctionStt, OpenAiCompatibleStt, type PhononState, PhononStt, type SpeechToText } from './stt.ts'
 import {
@@ -65,8 +68,8 @@ export interface OmpSpeech {
   speechModels(): { stt: string[]; tts: string[] }
 }
 
-/** Keys for OpenAI-compatible speech endpoints, kept apart from settings.json (which others may read). */
-interface VoiceSecrets {
+/** The keys an older Myrmidon kept in `<home>/voice/secrets.json`, moved into the vault (see migrateSecrets). */
+interface LegacySecrets {
   sttKey?: string
   ttsKey?: string
 }
@@ -90,15 +93,18 @@ export interface SavedCall {
 export interface VoiceStatus {
   readonly enabled: boolean
   readonly callModel?: string
+  readonly mode: VoiceSettings['mode']
   readonly stt: {
-    provider: VoiceSettings['stt']['provider']
+    provider: string
     phonon: PhononState
     omp: string[]
+    /** The chosen cloud provider has its key (always true for the engines on this machine and omp's). */
     keySet: boolean
   }
   readonly tts: {
-    provider: VoiceSettings['tts']['provider']
+    provider: string
     kitten: KittenState
+    /** Kitten's voices. */
     voices: readonly string[]
     omp: string[]
     keySet: boolean
@@ -115,6 +121,43 @@ export interface VoiceStatus {
   readonly transcriptDays: number
 }
 
+/** A cloud voice provider as Settings shows it: what it does, and whether it can be used now. */
+export interface VoiceProviderStatus {
+  readonly id: string
+  readonly label: string
+  readonly keysUrl: string
+  /**
+   * Where its key comes from: Myrmidon's vault (`stored`), a model provider's key its API shares (`shared`, from
+   * `sharedWith`), the environment (`env`), or nowhere yet (`missing`).
+   */
+  readonly key: 'stored' | 'shared' | 'env' | 'missing'
+  readonly sharedWith?: string
+  /** Its key is an AWS access key id and secret. */
+  readonly aws?: true
+  readonly region?: {
+    readonly required: boolean
+    readonly default?: string
+    readonly options?: readonly string[]
+    readonly value?: string
+  }
+  /** It has its key (and region, where it needs one): it can be chosen. */
+  readonly configured: boolean
+  readonly stt?: { readonly models: readonly VoiceOption[]; readonly streaming: boolean }
+  readonly tts?: {
+    readonly models: readonly VoiceOption[]
+    readonly voices: readonly VoiceOption[]
+    readonly streaming: boolean
+    /** Its voices can be fetched from its API (GET /api/voice/providers/:id/voices). */
+    readonly voiceList: boolean
+  }
+  readonly realtime?: { readonly models: readonly VoiceOption[]; readonly voices: readonly VoiceOption[] }
+}
+
+/** One of the person's OpenAI-compatible speech services. */
+export interface VoiceEndpointStatus extends VoiceEndpoint {
+  readonly hasKey: boolean
+}
+
 /**
  * Voice calls for this gateway: the engines on this machine (Phonon-2, Kitten TTS) and the providers chosen in
  * Settings → Voice, the calls in progress, and their transcripts (`<home>/calls/<id>.json`, kept with their chat for
@@ -129,6 +172,11 @@ export class VoiceHub {
   private readonly _secretsFile: string
   private readonly _callsDir: string
   private _warm?: { key: string; done: Promise<void> }
+  /** Keys of the providers chosen, as last read from the vault (a call is made without waiting on it). */
+  private readonly _keys = new Map<string, string | undefined>()
+  /** Voice lists fetched from providers, by provider and model, with when. */
+  private readonly _voiceLists = new Map<string, { at: number; voices: VoiceOption[] }>()
+  private readonly _migrated: Promise<void>
 
   constructor(
     private readonly options: {
@@ -146,6 +194,8 @@ export class VoiceHub {
       readonly kitten?: KittenTts
       /** How often old transcripts are dropped while the gateway runs (VOICE_TRANSCRIPT_PRUNE_MS unless given). */
       readonly pruneMs?: number
+      /** Voice providers' keys, in the vault the model providers' are in. */
+      readonly keys?: VoiceKeys
     },
   ) {
     const log = options.log ?? (() => {})
@@ -164,6 +214,11 @@ export class VoiceHub {
     this.turn = options.turn ?? new SmartTurn(options.home)
     this._secretsFile = join(options.home, 'voice', 'secrets.json')
     this._callsDir = join(options.home, 'calls')
+    this._migrated = this._migrateSecrets().catch((err) =>
+      log(
+        `could not move the voice keys into the vault: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    )
     this._prune()
     // A gateway left running for weeks drops old transcripts too, not only when it starts or a call ends.
     setInterval(() => this._prune(), options.pruneMs ?? VOICE_TRANSCRIPT_PRUNE_MS).unref()
@@ -171,24 +226,24 @@ export class VoiceHub {
 
   status(): VoiceStatus {
     const { voice, fallbackModel } = this.options.settings()
-    const secrets = this._secrets()
     const omp = this._ompModels()
     const callModel = voice.callModel ?? fallbackModel
     return {
       enabled: voice.enabled,
       ...(callModel ? { callModel } : {}),
+      mode: voice.mode,
       stt: {
         provider: voice.stt.provider,
         phonon: this.phonon.status(),
         omp: omp.stt,
-        keySet: !!secrets.sttKey,
+        keySet: this._hasKey(voice.stt.provider),
       },
       tts: {
         provider: voice.tts.provider,
         kitten: this.kitten.status(),
         voices: KITTEN_VOICES,
         omp: omp.tts,
-        keySet: !!secrets.ttsKey,
+        keySet: this._hasKey(voice.tts.provider),
       },
       vad: { ready: this.vad.ready },
       turn: { ready: this.turn.ready },
@@ -206,67 +261,274 @@ export class VoiceHub {
     }
   }
 
-  /** Saves or clears an endpoint's key (an empty string clears it). */
-  setKey(which: 'stt' | 'tts', key: string) {
-    const secrets = this._secrets()
-    if (key.trim()) secrets[which === 'stt' ? 'sttKey' : 'ttsKey'] = key.trim()
-    else delete secrets[which === 'stt' ? 'sttKey' : 'ttsKey']
-    mkdirSync(join(this.options.home, 'voice'), { recursive: true, mode: 0o700 })
-    const tmp = `${this._secretsFile}.tmp`
-    writeFileSync(tmp, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 })
-    chmodSync(tmp, 0o600)
-    renameSync(tmp, this._secretsFile)
+  /** The cloud voice providers and the person's endpoints, with where each one's key comes from. */
+  async providers(): Promise<{ providers: VoiceProviderStatus[]; endpoints: VoiceEndpointStatus[] }> {
+    await this._migrated
+    const { voice } = this.options.settings()
+    const keys = this.options.keys
+    const providers = await Promise.all(
+      VOICE_PROVIDERS.map(async (p): Promise<VoiceProviderStatus> => {
+        const found = await this._lookup(p)
+        // A shared key is the model provider's, wherever that one's comes from.
+        const key = !found
+          ? 'missing'
+          : p.key.sharedWith
+            ? 'shared'
+            : keys?.stored(p.key.vault)
+              ? 'stored'
+              : 'env'
+        const region = voice.regions?.[p.id]
+        return {
+          id: p.id,
+          label: p.label,
+          keysUrl: p.keysUrl,
+          key,
+          ...(p.key.sharedWith ? { sharedWith: p.key.sharedWith } : {}),
+          ...(p.key.aws ? { aws: true as const } : {}),
+          ...(p.region ? { region: { ...p.region, ...(region ? { value: region } : {}) } } : {}),
+          configured: key !== 'missing' && (!p.region?.required || !!(region ?? p.region.default)),
+          ...(p.stt ? { stt: { models: p.stt.models, streaming: p.stt.streaming } } : {}),
+          ...(p.tts
+            ? {
+                tts: {
+                  models: p.tts.models,
+                  voices: p.tts.voices,
+                  streaming: p.tts.streaming,
+                  voiceList: !!p.tts.listVoices,
+                },
+              }
+            : {}),
+          ...(p.realtime ? { realtime: { models: p.realtime.models, voices: p.realtime.voices } } : {}),
+        }
+      }),
+    )
+    const endpoints = (voice.endpoints ?? []).map((e) => ({
+      ...e,
+      hasKey: !!keys?.stored(endpointVault(e.id)),
+    }))
+    return { providers, endpoints }
   }
 
-  /** Speech to text as chosen in Settings → Voice. */
+  /**
+   * Saves a key for a provider (its id) or one of the person's endpoints (`endpoint:<id>`), in the vault. A provider
+   * whose API takes a model provider's key saves it as that one's: it is the same key.
+   */
+  async setKey(id: string, key: string): Promise<void> {
+    const keys = this.options.keys
+    if (!keys) throw new Error('voice provider keys need the model runtime')
+    await keys.set(this._vaultOf(id), key)
+    this._keys.clear()
+    this._voiceLists.clear()
+  }
+
+  /** Removes a provider's or an endpoint's key from the vault; a shared key is the model provider's to remove. */
+  async removeKey(id: string): Promise<void> {
+    const keys = this.options.keys
+    if (!keys) throw new Error('voice provider keys need the model runtime')
+    const shared = voiceProvider(id)?.key.sharedWith
+    if (shared) throw new Error(prompts.voice.keys.shared(shared))
+    await keys.remove(this._vaultOf(id))
+    this._keys.clear()
+    this._voiceLists.clear()
+  }
+
+  /**
+   * A provider's voices: from its API when it has one and its key is here (kept for VOICE_VOICES_CACHE_MS), else the
+   * ones it ships with. `model`: the voices of that model (Polly's engines, Rime's models differ).
+   */
+  async voices(id: string, model?: string): Promise<VoiceOption[]> {
+    const p = voiceProvider(id)
+    if (!p?.tts) throw new Error(prompts.voice.refused.unknownProvider(id))
+    const m = model ?? p.tts.models[0]?.id ?? ''
+    const cacheKey = `${id}/${m}`
+    const cached = this._voiceLists.get(cacheKey)
+    if (cached && Date.now() - cached.at < VOICE_VOICES_CACHE_MS) return cached.voices
+    const key = await this._lookup(p)
+    if (!p.tts.listVoices || !key) return [...p.tts.voices]
+    const region = this._region(p)
+    const voices = await p.tts.listVoices({ key, model: m, ...(region ? { region } : {}) })
+    const list = voices.length ? voices : [...p.tts.voices]
+    this._voiceLists.set(cacheKey, { at: Date.now(), voices: list })
+    return list
+  }
+
+  private _vaultOf(id: string): string {
+    if (id.startsWith('endpoint:')) {
+      const name = id.slice('endpoint:'.length)
+      if (!(this.options.settings().voice.endpoints ?? []).some((e) => e.id === name))
+        throw new Error(prompts.voice.refused.noEndpoint(name))
+      return endpointVault(name)
+    }
+    const p = voiceProvider(id)
+    if (!p) throw new Error(prompts.voice.refused.unknownProvider(id))
+    return p.key.vault
+  }
+
+  /** A provider's key, from the vault, else the environment. */
+  private async _lookup(p: VoiceProvider): Promise<string | undefined> {
+    await this._migrated
+    const fromVault = await this.options.keys?.get(p.key.vault).catch(() => undefined)
+    return fromVault || envKey(p)
+  }
+
+  private _region(p: VoiceProvider): string | undefined {
+    return this.options.settings().voice.regions?.[p.id] ?? p.region?.default
+  }
+
+  /** Reads the keys of the providers chosen now (and the realtime model's), for the next call to use. */
+  async loadKeys(): Promise<void> {
+    await this._migrated
+    const { voice } = this.options.settings()
+    const ids = [
+      voice.stt.provider,
+      voice.tts.provider,
+      ...(voice.mode === 'realtime' ? [this._realtimeId()] : []),
+    ]
+    for (const id of new Set(ids)) {
+      if (id.startsWith('endpoint:')) {
+        const name = id.slice('endpoint:'.length)
+        const key = await this.options.keys?.get(endpointVault(name)).catch(() => undefined)
+        this._keys.set(id, key || undefined)
+        continue
+      }
+      const p = voiceProvider(id)
+      if (p) this._keys.set(id, await this._lookup(p))
+    }
+  }
+
+  /** Whether a choice has the key it needs, as far as is known (keys are read when voice warms). */
+  private _hasKey(id: string): boolean {
+    if (!voiceProvider(id)) return true
+    return !!this._keys.get(id)
+  }
+
+  /** The key and region a cloud choice runs with; throws what the person has to set. */
+  private _auth(p: VoiceProvider): { key: string; region?: string } {
+    const key = this._keys.get(p.id)
+    if (!key) throw new Error(prompts.voice.refused.noKey(p.label))
+    const region = this._region(p)
+    if (p.region?.required && !region) throw new Error(prompts.voice.refused.noRegion(p.label))
+    return { key, ...(region ? { region } : {}) }
+  }
+
+  private _endpoint(id: string): VoiceEndpoint {
+    const name = id.slice('endpoint:'.length)
+    const found = (this.options.settings().voice.endpoints ?? []).find((e) => e.id === name)
+    if (!found) throw new Error(prompts.voice.refused.noEndpoint(name))
+    return found
+  }
+
+  private _realtimeId(): string {
+    return this.options.settings().voice.realtime?.provider ?? 'openai'
+  }
+
+  /**
+   * Moves the keys an older Myrmidon kept in `voice/secrets.json` into the vault, under the endpoints the settings
+   * made of its old addresses (settings.ts, legacyVoice), then deletes the file. Without the vault (no model
+   * runtime) the file is left as it is.
+   */
+  private async _migrateSecrets(): Promise<void> {
+    const keys = this.options.keys
+    if (!keys || !existsSync(this._secretsFile)) return
+    let secrets: LegacySecrets
+    try {
+      secrets = JSON.parse(readFileSync(this._secretsFile, 'utf8')) as LegacySecrets
+    } catch {
+      secrets = {}
+    }
+    const endpoints = new Set((this.options.settings().voice.endpoints ?? []).map((e) => e.id))
+    const moves: [string, string | undefined][] = endpoints.has(VOICE_LEGACY_KEYS.shared)
+      ? [[VOICE_LEGACY_KEYS.shared, secrets.sttKey ?? secrets.ttsKey]]
+      : [
+          [VOICE_LEGACY_KEYS.stt, secrets.sttKey],
+          [VOICE_LEGACY_KEYS.tts, secrets.ttsKey],
+        ]
+    for (const [id, key] of moves) if (key?.trim()) await keys.set(endpointVault(id), key.trim())
+    rmSync(this._secretsFile, { force: true })
+    this.options.log?.('moved the voice endpoint keys from voice/secrets.json into the credential vault')
+  }
+
+  /** Speech to text as chosen in Settings → Voice (a cloud choice's key is read by warm()). */
   stt(): SpeechToText {
     const { stt } = this.options.settings().voice
+    const log = this.options.log
+    if (stt.provider === 'phonon') return this.phonon
     if (stt.provider === 'omp') {
       const omp = this.options.omp
       if (!omp) throw new Error('cloud speech needs the model runtime')
       return new FunctionStt((audio, mime, name) => omp.transcribe(audio, mime, name))
     }
-    if (stt.provider === 'endpoint') {
-      if (!stt.baseUrl || !stt.model)
-        throw new Error('set the speech-to-text endpoint and model in Settings → Voice')
-      const apiKey = this._secrets().sttKey
+    if (stt.provider.startsWith('endpoint:')) {
+      const e = this._endpoint(stt.provider)
+      const apiKey = this._keys.get(stt.provider)
       return new OpenAiCompatibleStt({
-        baseUrl: stt.baseUrl,
-        model: stt.model,
+        baseUrl: e.baseUrl,
+        model: stt.model ?? ENDPOINT_DEFAULTS.stt,
         ...(apiKey ? { apiKey } : {}),
       })
     }
-    return this.phonon
+    const p = voiceProvider(stt.provider)
+    if (!p?.stt) throw new Error(prompts.voice.refused.unknownProvider(stt.provider))
+    return p.stt.make({
+      ...this._auth(p),
+      model: stt.model ?? p.stt.models[0]?.id ?? '',
+      ...(log ? { log } : {}),
+    })
   }
 
   /** Text to speech as chosen in Settings → Voice. */
   tts(): TextToSpeech {
     const { tts } = this.options.settings().voice
+    if (tts.provider === 'kitten') return this.kitten
     if (tts.provider === 'omp') {
       const omp = this.options.omp
       if (!omp) throw new Error('cloud speech needs the model runtime')
       return new FunctionTts((text) => omp.speak(text, { speed: tts.speed }))
     }
-    if (tts.provider === 'endpoint') {
-      if (!tts.baseUrl || !tts.model)
-        throw new Error('set the text-to-speech endpoint and model in Settings → Voice')
-      const apiKey = this._secrets().ttsKey
+    if (tts.provider.startsWith('endpoint:')) {
+      const e = this._endpoint(tts.provider)
+      const apiKey = this._keys.get(tts.provider)
       return new OpenAiCompatibleTts({
-        baseUrl: tts.baseUrl,
-        model: tts.model,
-        voice: tts.endpointVoice ?? 'alloy',
+        baseUrl: e.baseUrl,
+        model: tts.model ?? ENDPOINT_DEFAULTS.tts,
+        voice: tts.voiceId ?? ENDPOINT_DEFAULTS.voice,
         speed: tts.speed,
         ...(apiKey ? { apiKey } : {}),
       })
     }
-    return this.kitten
+    const p = voiceProvider(tts.provider)
+    if (!p?.tts) throw new Error(prompts.voice.refused.unknownProvider(tts.provider))
+    const log = this.options.log
+    return p.tts.make({
+      ...this._auth(p),
+      model: tts.model ?? p.tts.models[0]?.id ?? '',
+      voice: tts.voiceId ?? p.tts.voices[0]?.id ?? '',
+      speed: tts.speed,
+      ...(log ? { log } : {}),
+    })
+  }
+
+  /** The engines on this machine a call goes on with if a cloud one fails: those that are here. */
+  private _fallback(): { stt?: SpeechToText; tts?: TextToSpeech } {
+    const { voice } = this.options.settings()
+    const phonon = this.phonon.status().state
+    const kitten = this.kitten.status().state
+    return {
+      ...(voice.stt.provider !== 'phonon' && ['ready', 'running', 'starting'].includes(phonon)
+        ? { stt: this.phonon }
+        : {}),
+      ...(voice.tts.provider !== 'kitten' && (kitten === 'ready' || kitten === 'running')
+        ? { tts: this.kitten }
+        : {}),
+    }
   }
 
   /**
    * Downloads and warms the engines the settings choose (the speech detector, the turn model, Kitten's model, Phonon-2
    * once installed), so turning voice on fetches them then, with progress in `status()`, rather than in the middle of
    * a "Try it" or a call's first sentence. Shared: a call starting meanwhile waits for the same work, and once warm it
-   * returns at once until the choice changes.
+   * returns at once until the choice changes. The chosen cloud providers' keys are read again each time, so a key
+   * added since is the next call's.
    */
   warm(): Promise<void> {
     const { voice } = this.options.settings()
@@ -275,6 +537,13 @@ export class VoiceHub {
       this._warm = undefined
       return Promise.resolve()
     }
+    const keys = this.loadKeys().catch((err) =>
+      this.options.log?.(`voice keys: ${err instanceof Error ? err.message : String(err)}`),
+    )
+    return Promise.all([this._warmEngines(voice), keys]).then(() => {})
+  }
+
+  private _warmEngines(voice: VoiceSettings): Promise<void> {
     const phonon = voice.stt.provider === 'phonon' && this.phonon.status().state !== 'missing'
     const kitten = voice.tts.provider === 'kitten'
     const key = JSON.stringify([phonon, kitten, voice.tts.kittenModel, voice.tts.voice])
@@ -305,12 +574,14 @@ export class VoiceHub {
    */
   async transcribeFile(audio: Uint8Array, mimeType: string, name: string): Promise<string | undefined> {
     if (!this.enabled) return undefined
+    await this.loadKeys()
     const stt = this.stt()
     return stt.transcribeFile ? (await stt.transcribeFile(audio, mimeType, name)).trim() : undefined
   }
 
   /** A sentence in the chosen voice, for "Try it" in Settings. */
   async sample(text: string): Promise<Speech> {
+    await this.loadKeys()
     const speech = await this.tts().speak(text)
     return { pcm: trimSilence(speech.pcm, speech.sampleRate), sampleRate: speech.sampleRate }
   }
@@ -340,9 +611,10 @@ export class VoiceHub {
     },
     emit: (out: CallOutput) => void,
   ): CallSession {
-    const refused = this.refusal(options.chatId)
+    const refused = this.refusal(options.chatId, options.talkTo)
     if (refused) throw refused
     const { voice, fallbackModel } = this.options.settings()
+    if (voice.mode === 'realtime' && !options.talkTo) return this._realtimeCall(chats, options, emit)
     const model = voice.callModel ?? fallbackModel
     if (!model) throw new CallRefused(4503, prompts.voice.refused.noModel)
     let stt: SpeechToText
@@ -363,6 +635,7 @@ export class VoiceHub {
         ...(this.vad.ready ? { detector: this.vad } : {}),
         ...(this.turn.ready ? { judge: this.turn } : {}),
         ...(this.options.log ? { log: this.options.log } : {}),
+        fallback: this._fallback(),
       },
       {
         ...options,
@@ -383,26 +656,82 @@ export class VoiceHub {
     return session
   }
 
+  /** A call with the call assistant on the realtime model chosen in Settings → Voice. */
+  private _realtimeCall(
+    chats: CallChats,
+    options: Parameters<VoiceHub['call']>[1],
+    emit: (out: CallOutput) => void,
+  ): CallSession {
+    const { voice } = this.options.settings()
+    const p = voiceProvider(this._realtimeId())
+    if (!p?.realtime) throw new CallRefused(4503, prompts.voice.refused.noRealtime)
+    let auth: { key: string; region?: string }
+    try {
+      auth = this._auth(p)
+    } catch (err) {
+      throw new CallRefused(4503, err instanceof Error ? err.message : String(err))
+    }
+    const log = this.options.log
+    const model = voice.realtime?.model ?? p.realtime.models[0]?.id ?? ''
+    const session: CallSession = new RealtimeCallSession(
+      {
+        chats,
+        resolver: this.options.resolver,
+        realtime: p.realtime.make({ ...auth, model, ...(log ? { log } : {}) }),
+        voice: voice.realtime?.voice ?? p.realtime.voices[0]?.id ?? '',
+        ...(voice.tts.speed !== 1 ? { speed: voice.tts.speed } : {}),
+        ...(log ? { log } : {}),
+      },
+      {
+        ...options,
+        model: `${p.id}/${model}`,
+        start: VOICE_VAD_START[voice.sensitivity],
+        hold: VOICE_VAD_START[voice.sensitivity] - VOICE_VAD_HYSTERESIS,
+        threshold: VOICE_THRESHOLDS[voice.sensitivity],
+      },
+      (out) => {
+        if (out.type === 'ended') {
+          this._calls.delete(session.id)
+          this._save(session)
+        }
+        emit(out)
+      },
+    )
+    this._calls.set(session.id, session)
+    return session
+  }
+
   /**
    * Why a call cannot start now (in this chat), or undefined when it can: what call() checks, asked first by a phone
    * line so the caller hears it before the call is answered.
    */
-  refusal(chatId?: string): CallRefused | undefined {
+  refusal(chatId?: string, talkTo?: string): CallRefused | undefined {
     const { voice, fallbackModel } = this.options.settings()
     const r = prompts.voice.refused
     if (!voice.enabled) return new CallRefused(4409, r.off)
     const calls = [...this._calls.values()]
     if (chatId && calls.some((c) => c.chatId === chatId)) return new CallRefused(4423, r.busy)
     if (calls.length >= VOICE_MAX_CALLS) return new CallRefused(4429, r.full(VOICE_MAX_CALLS))
-    if (!(voice.callModel ?? fallbackModel)) return new CallRefused(4503, r.noModel)
-    const unready = this._unready()
+    // A realtime call's model is the realtime one; a call straight to the crew has none either way.
+    const realtime = voice.mode === 'realtime' && !talkTo
+    if (!realtime && !(voice.callModel ?? fallbackModel)) return new CallRefused(4503, r.noModel)
+    const unready = realtime ? this._missingKey(this._realtimeId()) : this._unready()
     return unready ? new CallRefused(4503, unready) : undefined
   }
 
-  /** Why the chosen engines on this machine cannot take a call now (after warm(), which fetches what it can). */
+  /** A cloud choice whose key is known (since warm()) to be missing: what to do about it. */
+  private _missingKey(id: string): string | undefined {
+    const p = voiceProvider(id)
+    if (!p || !this._keys.has(id)) return undefined
+    return this._keys.get(id) ? undefined : prompts.voice.refused.noKey(p.label)
+  }
+
+  /** Why the chosen engines cannot take a call now (after warm(), which fetches what it can). */
   private _unready(): string | undefined {
     const { voice } = this.options.settings()
     const r = prompts.voice.refused
+    const missing = this._missingKey(voice.stt.provider) ?? this._missingKey(voice.tts.provider)
+    if (missing) return missing
     if (voice.stt.provider === 'phonon') {
       const phonon = this.phonon.status()
       if (phonon.state === 'missing') return r.phononMissing
@@ -512,14 +841,6 @@ export class VoiceHub {
     writeFileSync(this._file(call.id), `${JSON.stringify(call, null, 2)}\n`, {
       mode: 0o600,
     })
-  }
-
-  private _secrets(): VoiceSecrets {
-    try {
-      return JSON.parse(readFileSync(this._secretsFile, 'utf8')) as VoiceSecrets
-    } catch {
-      return {}
-    }
   }
 
   private _ompModels(): { stt: string[]; tts: string[] } {
