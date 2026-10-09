@@ -81,6 +81,8 @@ test('terminals open as tabs, each its own shell, kept alive and named by what r
     expect(ui.labels()).toEqual(['Terminal 1 · app*'])
     expect(FakeSocket.all).toHaveLength(1)
     expect(FakeSocket.all[0]?.url).toContain('project=tabs')
+    // Opening the view puts the cursor in the shown shell, ready to type.
+    expect(ui.doc.querySelector('[role=tabpanel]')?.contains(ui.doc.activeElement)).toBe(true)
     await ui.click(ui.button('New terminal'))
     await ui.click(ui.button('New terminal'))
     expect(ui.labels()).toEqual(['Terminal 1 · app', 'Terminal 2 · app', 'Terminal 3 · app*'])
@@ -272,6 +274,9 @@ test('names from the shell are plain and short; a refused or ended shell says wh
     // A title can carry invisible and direction-changing characters; they never reach the tab.
     await FakeSocket.all[0]?.output(`\x1b]0;~/code/s\u202eeti\u200b\x07`)
     expect(ui.labels()[0]).toBe('Terminal 1 · seti*')
+    // A long path still gives its last folder.
+    await FakeSocket.all[0]?.output(`\x1b]0;robin@mac:/${'deep/'.repeat(30)}site\x07`)
+    expect(ui.labels()[0]).toBe('Terminal 1 · site*')
     await FakeSocket.all[0]?.output(`\x1b]0;/${'A'.repeat(5000)}\x07`)
     expect(ui.labels()[0]?.length).toBeLessThanOrEqual('Terminal 1 · *'.length + 64)
     await FakeSocket.all[0]?.note({ type: 'process', name: `sleep\u2066 30` })

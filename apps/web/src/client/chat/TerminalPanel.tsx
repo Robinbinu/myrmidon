@@ -37,8 +37,9 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
   const set = terminalSet(project)
   const tabs = set.sessions
   const active = set.active
-  // The terminal to give focus to once it shows (a click or a shortcut, not arrowing along the tabs).
-  const focusNext = useRef<number>(undefined)
+  // The terminal to give focus to once it shows: the shown one as the view opens, then the one a click or a shortcut
+  // picks (not arrowing along the tabs).
+  const focusNext = useRef(active)
   const [closing, setClosing] = useState<number>()
   const [maximized, setMaximized] = useState(false)
   const ids = useId()
