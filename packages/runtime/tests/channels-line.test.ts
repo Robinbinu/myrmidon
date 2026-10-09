@@ -251,7 +251,7 @@ test("a press's note is the reply to that press", async () => {
   ])
   const press = received[0]?.press
   if (!press) throw new Error('no press')
-  await adapter.answerPress(press, 'Allowed')
+  await adapter.answerPress(press, { text: 'Allowed' })
   expect(fake.calls.at(-1)).toMatchObject({
     path: '/v2/bot/message/reply',
     body: { replyToken: 'press-token', messages: [{ type: 'text', text: 'Allowed' }] },

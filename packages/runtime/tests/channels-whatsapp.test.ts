@@ -662,7 +662,7 @@ test('sending: Markdown as WhatsApp text, buttons as reply buttons or a list, lo
   // A press's note comes as a reply to it.
   await adapter.answerPress(
     { id: 'wamid.B1', data: 'a:o:K', message: { chat: '447700900123', id: 'wamid.ASK' } },
-    'Allowed',
+    { text: 'Allowed' },
   )
   expect(calls.at(-1)?.json).toMatchObject({
     type: 'text',

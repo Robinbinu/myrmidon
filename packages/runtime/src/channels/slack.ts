@@ -11,6 +11,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -56,15 +57,6 @@ const REFUSED = new Set([
   'token_revoked',
   'token_expired',
   'not_allowed_token_type',
-])
-/**
- * Notes the hub sends that the edited message already says; shown as a message only the presser sees, they would
- * repeat it.
- */
-const ECHOES = new Set([
-  channelCopy.approval.pressAllowed,
-  channelCopy.approval.pressDenied,
-  channelCopy.question.pressNoted,
 ])
 
 class SlackError extends Error {
@@ -549,17 +541,17 @@ export class SlackAdapter implements ChannelAdapter {
 
   /**
    * Slack has no toast for a button: a note becomes a reply only the presser sees, through the press's
-   * `response_url`.
+   * `response_url`. One the edited message already says is left out, since a reply would repeat it.
    */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const held = this._presses.get(press.id)
     this._presses.delete(press.id)
     if (held) clearTimeout(held.timer)
-    if (!held || !note || ECHOES.has(note)) return
+    if (!held || !note || note.echo) return
     const res = await fetch(held.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text: note }),
+      body: JSON.stringify({ response_type: 'ephemeral', replace_original: false, text: note.text }),
     })
     if (!res.ok) throw new Error(`Slack answered ${res.status} to the press`)
   }

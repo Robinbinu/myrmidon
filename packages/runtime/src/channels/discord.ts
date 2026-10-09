@@ -11,6 +11,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -59,15 +60,6 @@ const THREAD_TYPES = new Set([10, 11, 12])
 const EPHEMERAL = 64
 const SUPPRESS_EMBEDS = 4
 const VOICE_MESSAGE = 8192
-/**
- * Notes the hub sends that the edited message already says; shown as a message only the presser sees, they would
- * repeat it.
- */
-const ECHOES = new Set([
-  channelCopy.approval.pressAllowed,
-  channelCopy.approval.pressDenied,
-  channelCopy.question.pressNoted,
-])
 /** Nothing an agent writes may ping @everyone, a role or a person. */
 const NO_PINGS = { parse: [] }
 
@@ -614,8 +606,9 @@ export class DiscordAdapter implements ChannelAdapter {
     }
   }
 
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
-    await this._ack(press.id, note && !ECHOES.has(note) ? note : undefined, true)
+  /** A note becomes a reply only the presser sees; one the edited message already says would repeat it. */
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
+    await this._ack(press.id, note && !note.echo ? note.text : undefined, true)
   }
 
   /** Rows of buttons as action rows; more than Discord takes are packed five to a row, and the rest left out. */

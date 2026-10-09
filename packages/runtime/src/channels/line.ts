@@ -10,6 +10,7 @@ import {
   type Inbound,
   type InboundFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
 } from './types.ts'
 
@@ -390,11 +391,11 @@ export class LineAdapter implements ChannelAdapter {
   }
 
   /** LINE shows nothing for a press itself, so the note is sent as a reply (by the press's own token if unused). */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const chat = this._pressChats.get(press.id)
     this._pressChats.delete(press.id)
     if (!note || !chat) return
     const unused = this._replies.get(chat)?.token === press.id ? this._token(chat) : undefined
-    await this._deliver(chat, [{ type: 'text', text: note }], unused)
+    await this._deliver(chat, [{ type: 'text', text: note.text }], unused)
   }
 }

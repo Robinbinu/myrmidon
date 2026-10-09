@@ -294,7 +294,10 @@ test("a card button press arrives as an invoke and is answered with the hub's no
   const io = testIO('https://box.example/hooks/channels/msteams')
   io.onReceive((m) => {
     if (m.press)
-      setTimeout(() => void adapter.answerPress(m.press as NonNullable<typeof m.press>, 'Allowed'), 20)
+      setTimeout(
+        () => void adapter.answerPress(m.press as NonNullable<typeof m.press>, { text: 'Allowed' }),
+        20,
+      )
   })
   await adapter.start(io.handle)
   const res = await post(

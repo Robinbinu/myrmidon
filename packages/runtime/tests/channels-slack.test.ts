@@ -258,7 +258,7 @@ test('a button press is acknowledged, becomes a press, and a note reaches only t
   })
   const first = received[0]?.press
   if (!first) throw new Error('no press')
-  await adapter.answerPress(first, 'Only the owner can approve this.')
+  await adapter.answerPress(first, { text: 'Only the owner can approve this.' })
   expect(fake.responses).toEqual([
     { response_type: 'ephemeral', replace_original: false, text: 'Only the owner can approve this.' },
   ])
@@ -268,7 +268,7 @@ test('a button press is acknowledged, becomes a press, and a note reaches only t
   await until(() => received.length === 2)
   const second = received[1]?.press
   if (!second) throw new Error('no press')
-  await adapter.answerPress(second, 'Denied')
+  await adapter.answerPress(second, { text: 'Denied', echo: true })
   expect(fake.responses).toHaveLength(1)
 })
 

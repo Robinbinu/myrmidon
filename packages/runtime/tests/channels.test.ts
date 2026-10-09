@@ -16,6 +16,7 @@ import {
   type Inbound,
   type InboundFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   telegramHtml,
 } from '../src/channels/index.ts'
@@ -46,7 +47,7 @@ class FakeAdapter implements ChannelAdapter {
   sent: { chat: string; text: string; id: string; buttons?: OutMessage['buttons'] }[] = []
   edits: { id: string; text: string }[] = []
   files: { chat: string; name: string; size: number }[] = []
-  presses: { id: string; note?: string }[] = []
+  presses: { id: string; note?: string; echo?: boolean }[] = []
   /** Sends fail while this is above zero (counting down), to exercise the delivery ledger. */
   failing = 0
   private _n = 0
@@ -77,8 +78,11 @@ class FakeAdapter implements ChannelAdapter {
     this.files.push({ chat, name: file.name, size: file.data.byteLength })
     return { chat, id: String(++this._n) }
   }
-  async answerPress(press: ButtonPress, note?: string) {
-    this.presses.push({ id: press.id, ...(note ? { note } : {}) })
+  async answerPress(press: ButtonPress, note?: PressNote) {
+    this.presses.push({
+      id: press.id,
+      ...(note ? { note: note.text, ...(note.echo ? { echo: true } : {}) } : {}),
+    })
   }
   to(chat: string) {
     return this.sent.filter((s) => s.chat === chat).map((s) => s.text)
@@ -546,12 +550,16 @@ test('approvals go to the owner with buttons; only the owner decides, and "alway
   await say(BOB, '', { press: deny ?? '' })
   await until(() => adapter.presses.some((p) => p.note === 'Only the owner can approve this.'))
   expect(chats.decided).toEqual([])
+  // A refusal is news to the presser; the outcome the edited message shows is flagged as only an echo.
+  expect(adapter.presses.find((p) => p.note === 'Only the owner can approve this.')?.echo).toBeUndefined()
 
   // An "always" pressed anyway counts once.
   await say(ALICE, '', { press: (once ?? '').replace('a:o:', 'a:a:') })
   await until(() => chats.decided.length === 1)
   expect(chats.decided[0]).toEqual({ colonyId: 'col-chat-1', id: 'ap-1', approved: true })
   expect(chats.alwaysAllowed).toEqual([])
+  await until(() => adapter.presses.some((p) => p.note === 'Allowed'))
+  expect(adapter.presses.find((p) => p.note === 'Allowed')?.echo).toBe(true)
   // The same button again: the request is closed.
   await say(ALICE, '', { press: once ?? '' })
   await until(() => adapter.presses.some((p) => p.note === 'This request is no longer open.'))

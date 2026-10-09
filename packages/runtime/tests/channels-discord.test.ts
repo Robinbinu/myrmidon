@@ -412,7 +412,7 @@ test('button presses become presses, answered with a note only the presser sees,
   })
   const p = received[0]?.press
   if (!p) throw new Error('no press')
-  await adapter.answerPress(p, 'Only the owner can approve this.')
+  await adapter.answerPress(p, { text: 'Only the owner can approve this.' })
   expect(fake.rest.at(-1)).toMatchObject({
     path: '/interactions/800/tok-800/callback',
     body: { type: 4, data: { content: 'Only the owner can approve this.', flags: 64 } },
@@ -423,7 +423,7 @@ test('button presses become presses, answered with a note only the presser sees,
   await until(() => received.length === 2)
   const second = received[1]?.press
   if (!second) throw new Error('no press')
-  await adapter.answerPress(second, 'Allowed')
+  await adapter.answerPress(second, { text: 'Allowed', echo: true })
   expect(fake.rest.at(-1)).toMatchObject({ path: '/interactions/801/tok-801/callback', body: { type: 6 } })
 
   // Unanswered, it is acknowledged before Discord's 3 s run out; a late note follows up on its token.
@@ -432,7 +432,7 @@ test('button presses become presses, answered with a note only the presser sees,
   expect(fake.rest.find((c) => c.path === '/interactions/802/tok-802/callback')?.body).toEqual({ type: 6 })
   const third = received[2]?.press
   if (!third) throw new Error('no press')
-  await adapter.answerPress(third, 'This request is no longer open.')
+  await adapter.answerPress(third, { text: 'This request is no longer open.' })
   expect(fake.rest.at(-1)).toMatchObject({
     path: '/webhooks/100/tok-802',
     body: { content: 'This request is no longer open.', flags: 64 },

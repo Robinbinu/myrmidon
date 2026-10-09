@@ -11,6 +11,7 @@ import {
   type InboundFile,
   type OutFile,
   type OutMessage,
+  type PressNote,
   type SentRef,
   threadOf,
 } from './types.ts'
@@ -438,8 +439,8 @@ export class TeamsAdapter implements ChannelAdapter {
   }
 
   /** The note becomes the invoke's answer, which Teams shows to whoever pressed. */
-  async answerPress(press: ButtonPress, note?: string): Promise<void> {
-    this._presses.get(press.id)?.(note)
+  async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
+    this._presses.get(press.id)?.(note?.text)
   }
 }
 
