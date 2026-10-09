@@ -197,3 +197,14 @@ test('skills the request needs come with descriptions; the rest by name', () => 
   expect(prompt).not.toContain('Free disk space')
   expect(prompt).toContain('cleanmymac, sentry-cli')
 })
+
+test('a lead with no crewmates says plainly that the chat has none and how to add some, not "solo round"', () => {
+  const prompt = systemPrompt(chat({ agents: [lead] }), lead, env).join('\n')
+  expect(prompt).toContain('This chat has no crewmates')
+  expect(prompt).toContain('Crewmates control in the message box')
+  expect(prompt).not.toMatch(/This round: solo/)
+  const onCall = chat({ agents: [lead], team: { ...orchestrated, crewmates: [kai] } })
+  expect(systemPrompt(onCall, lead, env).join('\n')).toContain(
+    'This round: you, with every tool, and 1 crewmate on call',
+  )
+})

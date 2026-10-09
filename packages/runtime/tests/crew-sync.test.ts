@@ -59,11 +59,19 @@ const config: TeamConfig = {
   judgeModel: 'mock/lead',
 }
 
-/** A chat like the person's: a crew talking, nobody reviewing the answer. */
-function chatService(resolver: ModelResolver) {
+/**
+ * A chat like the person's: a crew talking, nobody reviewing the answer (unless `reviewer` says otherwise). Its
+ * rounds close soon after the crew goes quiet; `quietMs` holds them open longer.
+ */
+function chatService(resolver: ModelResolver, reviewer: 'off' | 'always' = 'off', quietMs = 500) {
   const settings = new SettingsStore(home)
-  settings.set({ ...settings.get(), verification: { ...settings.get().verification, reviewer: 'off' } })
-  return new ChatService(runtime, { resolver, classify: team, settings })
+  settings.set({ ...settings.get(), verification: { ...settings.get().verification, reviewer } })
+  return new ChatService(runtime, { resolver, classify: team, settings, quietMs })
+}
+
+function judge(resolver: ModelResolver) {
+  const m = createMockModel({ handler: () => ({ content: ['{"score": 0.9, "reasons": "complete"}'] }) })
+  resolver.register('mock/judge', { model: m.model, streamFn: m.stream })
 }
 
 async function waitFor(colonyId: string, until: (s: ColonyState) => boolean) {
@@ -144,6 +152,7 @@ test('a message a crewmate never read when the round stopped is the first thing 
   const resolver = new ModelResolver()
   let friend = ''
   let release = () => {}
+  let newTopic = false
   const seen: string[] = []
   scripted(resolver, 'mock/lead', [
     (ctx) => {
@@ -151,10 +160,13 @@ test('a message a crewmate never read when the round stopped is the first thing 
       return [tool('create_group', { name: 'game', members: [friend], text: `@${friend} is it a book?` })]
     },
     [tool('message', { to: 'game', text: "YES! It's a BOOK!" })],
-    ['waiting'],
-    // Round 2: a new topic.
-    [tool('message', { to: 'game', text: 'New topic: brains in computers.' })],
-    ['ok'],
+    // Waiting in round 1 (the stop may cut that step off), and a new topic once round 2 opens.
+    ...Array.from({ length: 5 }, () => (ctx: LlmContext) => {
+      const round2 = JSON.stringify(ctx.messages).includes('Now talk about brains')
+      if (!round2 || newTopic) return ['waiting']
+      newTopic = true
+      return [tool('message', { to: 'game', text: 'New topic: brains in computers.' })]
+    }),
   ])
   scripted(resolver, 'mock/friend', [
     // Round 1: busy with the first message when the answer arrives; the round is stopped before it reads it.
@@ -329,3 +341,378 @@ test('a message still queued when an agent signs off is read at its next turn, n
   expect(state.mail.find((m) => m.body.startsWith('Last thought'))?.readBy).toContain('lead')
   await chats.stopAll()
 })
+
+const mailed = (state: ColonyState, body: string) => state.mail.some((m) => m.body === body)
+
+test("the person's follow-up while the crew winds down is answered, and the round winds down again after", async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [tool('reply_user', { text: 'Brains run on about 20 watts.', final: true })]
+    },
+    // The follow-up: the lead asks its crewmate twice before it answers, as it would mid-round.
+    () => [tool('message', { to: friend, text: 'How much does a GPU draw?' })],
+    () => [tool('message', { to: friend, text: 'And a whole data centre?' })],
+    [tool('reply_user', { text: 'A GPU draws hundreds of watts; a data centre, megawatts.', final: true })],
+  ])
+  scripted(resolver, 'mock/friend', [['noted'], ['noted']])
+  // Long enough to write again while it winds down.
+  const chats = chatService(resolver, 'off', 3_000)
+  const { chatId, colonyId } = await chats.send('How much power does a brain use?', config)
+  await waitFor(colonyId, (s) => s.chatMessages.some((m) => m.final))
+  // Still winding down: the round is open, and the person asks more.
+  const next = await chats.send('And computers?', config, chatId)
+  expect(next.started).toBe(false)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  // The crew answered it as in any round: nothing was refused as "closing", and the answer reached the person.
+  expect(mailed(state, 'How much does a GPU draw?')).toBe(true)
+  expect(mailed(state, 'And a whole data centre?')).toBe(true)
+  const log = await events(colonyId)
+  const asked = seqOf(
+    log,
+    (e) => e.type === 'chat/user' && (e.payload as { text: string }).text === 'And computers?',
+  )
+  const answer = seqOf(
+    log,
+    (e) => e.type === 'chat/reply' && (e.payload as EventPayloads['chat/reply']).text.startsWith('A GPU'),
+  )
+  expect(answer).toBeGreaterThan(asked)
+  expect(seqOf(log, (e) => e.type === 'colony/completed')).toBeGreaterThan(answer)
+  await chats.stopAll()
+}, 20_000)
+
+test('a final answer given while the crew winds down is reviewed like any other', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} anything to add?` }),
+        tool('reply_user', { text: 'Brains run on about 20 watts.', final: true }),
+      ]
+    },
+    // The crewmate's point changes the answer, so the lead sends a better one.
+    [
+      tool('reply_user', {
+        text: 'Brains run on about 20 watts, a fifth of the body’s energy.',
+        final: true,
+      }),
+    ],
+  ])
+  scripted(resolver, 'mock/friend', [
+    async () => {
+      await Bun.sleep(300)
+      return [tool('message', { to: 'pub', text: 'It is a fifth of the body’s energy.' })]
+    },
+    ['done'],
+  ])
+  judge(resolver)
+  const chats = chatService(resolver, 'always')
+  const { colonyId } = await chats.send('How much power does a brain use?', {
+    ...config,
+    judgeModel: 'mock/judge',
+  })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  const log = await events(colonyId)
+  const better = seqOf(
+    log,
+    (e) => e.type === 'chat/reply' && (e.payload as EventPayloads['chat/reply']).text.includes('a fifth'),
+  )
+  expect(better).toBeGreaterThan(0)
+  const reviews = log.filter((e) => e.type === 'verifier/requested')
+  expect(reviews).toHaveLength(2)
+  expect(reviews.at(-1)?.seq ?? 0).toBeGreaterThan(better)
+  await chats.stopAll()
+}, 20_000)
+
+test("a team lead's final answer in plain text reaches the person without a stall nudge", async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [tool('create_group', { name: 'pub', members: [friend], text: `@${friend} brains or chips?` })]
+    },
+    // Holding text while the crewmate thinks: not an answer.
+    ['I asked my friend and am waiting for their thoughts.'],
+    ['Brains win on energy: about 20 watts against hundreds for a chip.'],
+  ])
+  scripted(resolver, 'mock/friend', [
+    async () => {
+      await Bun.sleep(300)
+      return [tool('message', { to: 'pub', text: 'Brains, by a mile on energy.' })]
+    },
+    ['done'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Brains or chips?', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(state.chatMessages.filter((m) => m.from !== 'user')).toEqual([
+    expect.objectContaining({
+      text: 'Brains win on energy: about 20 watts against hundreds for a chip.',
+      final: true,
+    }),
+  ])
+  expect(state.signals.filter((x) => x.kind === 'stall')).toHaveLength(0)
+  await chats.stopAll()
+}, 20_000)
+
+test('signing off asks the model nothing more: no request is sent and then aborted', async () => {
+  const resolver = new ModelResolver()
+  let calls = 0
+  const lead = createMockModel({
+    handler: () => {
+      calls += 1
+      return { content: calls === 1 ? [tool('reply_user', { text: 'Done.', final: true })] : ['more'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/friend', [])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Say done', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(calls).toBe(1)
+  const responses = (await events(colonyId)).filter((e) => e.type === 'llm/response')
+  expect(responses.map((e) => (e.payload as EventPayloads['llm/response']).stopReason)).toEqual(['toolUse'])
+  await chats.stopAll()
+}, 20_000)
+
+test('a crewmate past its last word cannot start a group conversation either', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} anything to add?` }),
+        tool('reply_user', { text: 'All done.', final: true }),
+      ]
+    },
+  ])
+  scripted(resolver, 'mock/friend', [
+    async () => {
+      await Bun.sleep(300)
+      return [tool('message', { to: 'pub', text: 'Bye!' })]
+    },
+    [tool('create_group', { name: 'side', members: ['lead'], text: 'One more thing...' })],
+    ['done'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Wrap up', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(mailed(state, 'Bye!')).toBe(true)
+  expect(mailed(state, 'One more thing...')).toBe(false)
+  expect(state.groups.side).toBeUndefined()
+  await chats.stopAll()
+}, 20_000)
+
+const toPerson = (state: ColonyState) =>
+  state.chatMessages.filter((m) => m.from !== 'user').map((m) => ({ text: m.text, final: m.final }))
+
+test("a lead's chat with its crew after the answer is not sent to the person as another answer", async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [tool('create_group', { name: 'pub', members: [friend], text: `@${friend} thoughts?` })]
+    },
+    [tool('reply_user', { text: 'We had a good chat.', final: true })],
+    // The crewmate's late note wakes it, and it answers the crewmate, not the person.
+    ['Nice point, thanks for adding that!'],
+  ])
+  scripted(resolver, 'mock/friend', [
+    async () => {
+      await Bun.sleep(400)
+      return [tool('message', { to: 'pub', text: 'Understanding is the bottleneck.' })]
+    },
+    ['done'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Chat about brains', config)
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(toPerson(state)).toEqual([{ text: 'We had a good chat.', final: true }])
+  await chats.stopAll()
+}, 20_000)
+
+test('a lead still waiting on one crewmate does not answer the person with its holding line', async () => {
+  const resolver = new ModelResolver()
+  const roleIn = (ctx: LlmContext, role: string) =>
+    new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => [
+      tool('message', { to: roleIn(ctx, 'friend'), text: 'Your view?' }),
+      tool('message', { to: roleIn(ctx, 'skeptic'), text: 'Your view?' }),
+    ],
+    ['Asked both of them.'],
+    ['Got the first view; still waiting on the second one before I answer.'],
+    [tool('reply_user', { text: 'Both views are in: brains win.', final: true })],
+  ])
+  scripted(resolver, 'mock/friend', [[tool('message', { to: 'lead', text: 'Brains.' })], ['ok']])
+  scripted(resolver, 'mock/skeptic', [
+    async () => {
+      await Bun.sleep(1500)
+      return [tool('message', { to: 'lead', text: 'Chips, actually.' })]
+    },
+    ['ok'],
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Brains or chips?', {
+    ...config,
+    roster: [
+      { role: 'friend', model: 'mock/friend' },
+      { role: 'skeptic', model: 'mock/skeptic' },
+    ],
+  })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(toPerson(state)).toEqual([{ text: 'Both views are in: brains win.', final: true }])
+  await chats.stopAll()
+}, 20_000)
+
+test('a message the person sends just as a wound-down round closes starts the next round and is answered', async () => {
+  const resolver = new ModelResolver()
+  // Naming the chat calls this model too (without tools), so each answer goes by what it is asked.
+  const lead = createMockModel({
+    handler: (ctx: LlmContext) => {
+      if (!ctx.tools?.length) return { content: ['Brains'] }
+      const again = JSON.stringify(ctx.messages).includes('Wait, one more thing?')
+      return {
+        content: [tool('reply_user', { text: again ? 'Second answer.' : 'First answer.', final: true })],
+      }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  scripted(resolver, 'mock/friend', [])
+  const chats = chatService(resolver)
+  const log = runtime.ctx.log
+  const append = log.appendOne.bind(log)
+  let chatId = ''
+  let racing: Promise<{ started: boolean; colonyId: string }> | undefined
+  // The person's message lands between the round deciding to close and its completion being logged.
+  log.appendOne = ((colony: never, draft: { type: string }) => {
+    if (draft.type === 'colony/completed' && chatId && !racing)
+      racing = chats.send('Wait, one more thing?', config, chatId)
+    return append(colony, draft as never)
+  }) as typeof log.appendOne
+  const first = await chats.send('Say something', config)
+  chatId = first.chatId
+  await waitFor(first.colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  const next = await racing
+  expect(next?.started).toBe(true)
+  const state = await waitFor(
+    first.colonyId,
+    (s) => s.status === 'completed' && s.chatMessages.some((m) => m.text === 'Second answer.'),
+  )
+  const asked = state.chatMessages.find((m) => m.text === 'Wait, one more thing?')
+  const completions = (await events(first.colonyId)).filter((e) => e.type === 'colony/completed')
+  // It opened the second round, not a closed first one.
+  expect(asked?.seq ?? 0).toBeGreaterThan(completions[0]?.seq ?? Number.POSITIVE_INFINITY)
+  await chats.stopAll()
+}, 20_000)
+
+test('a limit hit while the crew winds down stops the round with its reason', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} anything?` }),
+        tool('reply_user', { text: 'Done.', final: true }),
+      ]
+    },
+  ])
+  // Still talking when the round's time runs out.
+  scripted(resolver, 'mock/friend', [
+    async () => {
+      await Bun.sleep(4000)
+      return ['late']
+    },
+  ])
+  const chats = chatService(resolver)
+  const { colonyId } = await chats.send('Quick one', { ...config, wallMinutes: 0.03 })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.status).toBe('stopped')
+  expect(state.statusReason).toContain('wall time')
+  await chats.stopAll()
+}, 20_000)
+
+test('a crewmate already told the chat is winding down hears it is open again when the person writes', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  let later = ''
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} have a think` }),
+        tool('reply_user', { text: 'First answer.', final: true }),
+      ]
+    },
+    [tool('reply_user', { text: 'Second answer.', final: true })],
+  ])
+  scripted(resolver, 'mock/friend', [
+    // Mid-step when the wind-down note arrives, and still when the person writes again.
+    async () => {
+      await Bun.sleep(800)
+      return ['thinking']
+    },
+    (ctx) => {
+      later = JSON.stringify(ctx.messages)
+      return ['ok']
+    },
+  ])
+  const chats = chatService(resolver, 'off', 3_000)
+  const { chatId, colonyId } = await chats.send('Think about brains', config)
+  await waitFor(colonyId, (s) => s.chatMessages.some((m) => m.final))
+  await chats.send('And chips?', config, chatId)
+  await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  // Told it is winding down, then that it is open again (and, after the next answer, winding down once more).
+  expect(later).toContain('winding down')
+  expect(later.indexOf('open again')).toBeGreaterThan(later.indexOf('winding down'))
+  await chats.stopAll()
+}, 20_000)
+
+test('a second final answer while a review is still running waits for that review instead of failing', async () => {
+  const resolver = new ModelResolver()
+  let friend = ''
+  const lead: string[] = []
+  scripted(resolver, 'mock/lead', [
+    (ctx) => {
+      friend = friendIn(ctx)
+      return [
+        tool('create_group', { name: 'pub', members: [friend], text: `@${friend} anything?` }),
+        tool('reply_user', { text: 'First answer.', final: true }),
+      ]
+    },
+    ...Array.from({ length: 4 }, () => (ctx: LlmContext) => {
+      lead.push(JSON.stringify(ctx.messages.at(-1)))
+      return [tool('reply_user', { text: 'Better answer.', final: true })]
+    }),
+  ])
+  scripted(resolver, 'mock/friend', [[tool('message', { to: 'pub', text: 'One more point.' })], ['done']])
+  // A reviewer slow enough that the second answer comes while it still reads the first.
+  const slow = createMockModel({
+    handler: async () => {
+      await Bun.sleep(600)
+      return { content: ['{"score": 0.9, "reasons": "complete"}'] }
+    },
+  })
+  resolver.register('mock/judge', { model: slow.model, streamFn: slow.stream })
+  const chats = chatService(resolver, 'always')
+  const { colonyId } = await chats.send('Quick one', { ...config, judgeModel: 'mock/judge' })
+  const state = await waitFor(colonyId, (s) => s.status !== 'running' && s.status !== 'created')
+  expect(state.statusReason ?? state.status).toBe('completed')
+  expect(lead.join('\n')).not.toContain('already running')
+  await chats.stopAll()
+}, 20_000)

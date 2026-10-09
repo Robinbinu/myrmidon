@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentStatus, EventId } from '@myrmidon/protocol'
+import { type AgentStatus, type EventId, recipientsOf } from '@myrmidon/protocol'
 import {
   Agent,
   type AgentEvent,
@@ -48,6 +48,8 @@ export interface InboxItem {
 const SYS = { kind: 'system', id: 'scheduler' } as const
 /** Tools that put something in front of the person; a turn that used one has already spoken. */
 const REPLY_TOOLS = new Set(['reply_user', 'reply_person', 'ask_user'])
+/** Tools that hand the conversation to a crewmate: text written after one is a holding line, not an answer. */
+const HANDOFF_TOOLS = new Set(['message', 'create_group'])
 
 /**
  * One colony member: a pi-agent-core Agent plus an inbox. Idle agents sleep until something is
@@ -79,7 +81,10 @@ export class ColonyAgent {
         payload: { agent: this.spec.name, ...info },
       }),
   })
-  /** Mid-turn deliveries not yet read, keyed by the message timestamp pi echoes back when it injects them. */
+  /**
+   * Mid-turn deliveries not yet read, kept whole (trigger and flags) for a requeue, keyed by the message timestamp pi
+   * echoes back when it injects them.
+   */
   private readonly _unread = new Map<number, InboxItem>()
   private _stamp = 0
   /** Every finished message of this agent's conversation, one JSON line each, like an omp session file. */
@@ -155,6 +160,13 @@ export class ColonyAgent {
       },
     })
     this._agent.subscribe((e) => this._onEvent(e))
+    // A signed-off agent stops before its next model call; aborting once pi has sent it would bill a request and
+    // leave an aborted reply in its history. Something written to it meanwhile still gets its answer.
+    this._agent.setBeforeModelCall((context) =>
+      this._endAfterStep && context.messages.at(-1)?.role !== 'user'
+        ? { stop: true, reason: 'signed off: final answer sent' }
+        : undefined,
+    )
   }
 
   get name() {
@@ -228,7 +240,7 @@ export class ColonyAgent {
     if (this.working) {
       this._stamp = Math.max(Date.now(), this._stamp + 1)
       const message = { role: 'user' as const, content: render([item]), timestamp: this._stamp }
-      if (item.mail || item.mails?.length) this._unread.set(message.timestamp, item)
+      this._unread.set(message.timestamp, item)
       if (item.queue) this._agent.followUp(message)
       else this._agent.steer(message)
       return
@@ -252,6 +264,21 @@ export class ColonyAgent {
    */
   endTurnAfterStep() {
     if (this.working && !this._stopped) this._endAfterStep = true
+  }
+
+  /**
+   * The conversation is open again (the person wrote while it wound down): the sign-off no longer holds, and notes
+   * with this trigger it has not seen yet are stale. Returns whether one was dropped before it was seen.
+   */
+  reopen(stale: string): boolean {
+    this._endAfterStep = false
+    let dropped = false
+    for (const waiting of [this._quiet, this.inbox]) {
+      const kept = waiting.filter((i) => i.trigger !== stale)
+      dropped ||= kept.length < waiting.length
+      waiting.splice(0, waiting.length, ...kept)
+    }
+    return dropped
   }
 
   /** Cuts the turn in progress short, then wakes the agent with why (the rules it was working under changed). */
@@ -390,14 +417,15 @@ export class ColonyAgent {
   }
 
   /**
-   * A one-agent chat round, or one the person opened by writing to this agent (@name), whose turn ends in plain
-   * text without a reply tool has written its answer where the person cannot see it, and nothing else would end
-   * the round. Deliver that text as the final answer.
+   * A chat round's speaker (its one agent, a lead with a crew, or the agent the person opened it by writing to)
+   * whose turn ends in plain text without a reply tool has written its answer where the person cannot see it, and
+   * nothing else would end the round. Deliver that text as the final answer.
    */
   private async _deliverUnsentAnswer(from: number) {
     const spec = this.host.spec
     const addressed = spec.chat?.addressed?.includes(this.name) ?? false
-    if (!spec.chat || (spec.agents.length !== 1 && !addressed) || this._stopped) return
+    const leadsCrew = !addressed && spec.agents.length > 1 && speaksForColony(spec, this.spec)
+    if (!spec.chat || (spec.agents.length !== 1 && !addressed && !leadsCrew) || this._stopped) return
     const all = this._agent.state.messages.slice(from)
     const turn = all.filter((m) => m.role === 'assistant') as AssistantMessage[]
     const callsIn = (ms: readonly AgentMessage[]) =>
@@ -410,15 +438,40 @@ export class ColonyAgent {
     // messaged someone after the last thing it heard, or mail has come in since, and that reply starts the turn
     // that answers.
     const heard = all.findLastIndex((m) => m.role === 'user')
-    const waiting =
-      callsIn(all.slice(heard + 1)).includes('message') ||
-      this.inbox.length > 0 ||
-      this._agent.hasQueuedMessages()
-    // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
-    // answer (a review sent it back, say), a short remark is filler, not another answer.
     const state = this.host.state()
     const since = state.rounds.at(-1)?.startSeq ?? 0
+    // A lead is also waiting while its crew still has tasks open, or a crewmate it asked this round has not answered
+    // yet (to it, or in the group it asked in).
+    const crewOwes =
+      leadsCrew &&
+      (Object.values(state.tasks).some((t) => t.status !== 'verified' && t.status !== 'deleted') ||
+        state.mail.some(
+          (asked) =>
+            asked.from === this.name &&
+            asked.seq >= since &&
+            recipientsOf(asked).some(
+              (r) =>
+                !state.mail.some(
+                  (m) => m.from === r && m.seq > asked.seq && (m.to === this.name || m.to === asked.to),
+                ),
+            ),
+        ))
+    const waiting =
+      callsIn(all.slice(heard + 1)).some((name) => HANDOFF_TOOLS.has(name)) ||
+      this.inbox.length > 0 ||
+      this._agent.hasQueuedMessages() ||
+      crewOwes
+    // A first answer of nothing but text counts at any length ("4"). After tool work, or once this round has a final
+    // answer (a review sent it back, say), a short remark is filler, not another answer.
     const answered = state.chatMessages.some((m) => m.from === this.name && m.final && m.seq >= since)
+    // Once a lead has answered, its plain text is talk with the crew (thanks, a goodbye), not another answer, unless
+    // the person has written since or a review sent the answer back.
+    const answer = state.chatMessages.findLast((m) => m.from === this.name && m.final && m.seq >= since)
+    const chatting =
+      leadsCrew &&
+      answer !== undefined &&
+      !state.chatMessages.some((m) => m.from === 'user' && m.seq > answer.seq) &&
+      !state.verdicts.some((v) => v.target === 'colony' && !v.pass && v.seq > answer.seq)
     const worked = answered || calls.length > 0
     const last = turn.at(-1)
     const text =
@@ -426,7 +479,15 @@ export class ColonyAgent {
         .flatMap((c) => (c.type === 'text' ? [c.text] : []))
         .join('\n')
         .trim() ?? ''
-    if (spoke || waiting || !last || last.stopReason !== 'stop' || !text || (worked && text.length < 20))
+    if (
+      spoke ||
+      waiting ||
+      chatting ||
+      !last ||
+      last.stopReason !== 'stop' ||
+      !text ||
+      (worked && text.length < 20)
+    )
       return
     await this.host.append({
       type: 'chat/reply',
@@ -468,9 +529,7 @@ export class ColonyAgent {
     for (const m of left) {
       const item = this._unread.get(m.timestamp)
       this._unread.delete(m.timestamp)
-      const content = (m as { content?: unknown }).content
       if (item) this.inbox.push(item)
-      else if (typeof content === 'string' && content) this.inbox.push({ text: content, trigger: 'mail' })
     }
   }
 
@@ -538,10 +597,6 @@ export class ColonyAgent {
     }
     if (e.type === 'turn_end') {
       this.host.batchEnded(this.name)
-      if (this._endAfterStep) {
-        this._endAfterStep = false
-        this._agent.abort('signed off: final answer sent')
-      }
       return
     }
     if (e.type !== 'message_end' || e.message.role !== 'assistant') return
