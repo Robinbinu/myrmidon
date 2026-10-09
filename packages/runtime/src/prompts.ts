@@ -349,6 +349,11 @@ nobody owns, publish artifacts, and request final verification once the output m
     huddleOver: (p: { why: string; proposals: string; snapshot: string }) =>
       `The huddle is over (${p.why}). Proposals:\n${p.proposals}\n\nYou proposed first, so write the plan: one note with section "plan" that merges the proposals, then create the tasks with create_task, each with assignee set to the crewmate who volunteered for it and the outputs it will produce. Then claim your own.\n\n${p.snapshot}`,
     noProposals: '(no proposals were posted)',
+    /** Why a round stopped at one of its limits; the person reads it on the run, and agents when it resumes. */
+    spendLimit: (spent: number, limit: number) =>
+      `spend limit reached: $${spent.toFixed(2)} of $${limit} for this run`,
+    tokenLimit: (used: number, limit: number) =>
+      `token limit reached: ${used.toLocaleString('en-US')} of ${limit.toLocaleString('en-US')} for this run`,
     unread: (lines: string) => `\n\nThe person said, and nobody has read it yet:\n${lines}`,
     resumedRestored: (reason: string) =>
       `This round was interrupted (${reason}) and has resumed. Your conversation so far is restored; here is where things stand now.`,

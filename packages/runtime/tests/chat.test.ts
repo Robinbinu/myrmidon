@@ -19,6 +19,7 @@ import {
   type Runtime,
   type TeamConfig,
 } from '../src/index.ts'
+import type { OmpRuntime } from '../src/omp/runtime.ts'
 
 let home: string
 let runtime: Runtime
@@ -1934,7 +1935,8 @@ test('a chat in a project works in that folder, follow-ups stay in it, and a rou
   const folder = mkdtempSync(join(tmpdir(), 'myr-project-'))
   await Bun.write(join(folder, 'README.md'), '# Demo project')
   const projects = new ProjectStore(home)
-  const project = projects.add(folder)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/solo', [
     [
@@ -2028,7 +2030,8 @@ test.skipIf(detectSandbox().kind === 'none')(
     )
     await Bun.write(join(folder, 'bun.lock'), '')
     const projects = new ProjectStore(home)
-    const project = projects.add(folder)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/checker', [
       [tool('run_checks', {})],
@@ -2075,7 +2078,8 @@ test.skipIf(detectSandbox().kind === 'none')(
     await Bun.write(join(folder, 'bun.lock'), '')
     await Bun.write(join(folder, 'src', 'state.txt'), 'good\n')
     const projects = new ProjectStore(home)
-    const project = projects.add(folder)
+    // Autonomous, as a folder added before new ones started on ask.
+    const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/coder', [
       [tool('fs_write', { path: 'src/state.txt', content: 'broken\n' })],
@@ -2198,6 +2202,67 @@ test('review cards: the person sees a change in full and may rewrite it; an appr
   rmSync(folder, { recursive: true, force: true })
 })
 
+test('allowing all file changes for a chat approves the waiting one and later ones, there only, until taken back', async () => {
+  const { ProjectStore } = await import('../src/projects.ts')
+  const folder = mkdtempSync(join(tmpdir(), 'myr-grant-'))
+  const projects = new ProjectStore(home)
+  const project = projects.add(folder)
+  expect(project.permissions?.mode).toBe('ask')
+  const resolver = new ModelResolver()
+  const writes = (ref: string, ...files: string[]) =>
+    scripted(resolver, ref, [
+      ...files.map((f) => [tool('fs_write', { path: f, content: f })]),
+      [tool('reply_user', { text: 'Done.', final: true })],
+    ])
+  judge(resolver)
+  const config = (model: string) => ({ ...solo(model), judgeModel: 'mock/judge' })
+  const asked = (colonyId: string) =>
+    waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+
+  writes('mock/a1', 'a.txt', 'b.txt')
+  const a = await chats.send('Write two files', config('mock/a1'), undefined, { project: project.id })
+  const waiting = Object.values((await asked(a.colonyId)).approvals)
+  expect(waiting.map((x) => [x.summary, x.grant])).toEqual([['write a.txt', 'file']])
+  // One click: the waiting write goes ahead, and so does the next without a card.
+  expect(await chats.allowInChat(a.chatId, 'file', true)).toEqual(['file'])
+  const done = await waitFor(a.colonyId)
+  expect(done.status).toBe('completed')
+  expect(Object.values(done.approvals).map((x) => x.decided?.approved)).toEqual([true])
+  expect(readFileSync(join(folder, 'b.txt'), 'utf8')).toBe('b.txt')
+
+  // Another chat in the same project still asks.
+  writes('mock/b1', 'c.txt')
+  const b = await chats.send('Write c', config('mock/b1'), undefined, { project: project.id })
+  const other = Object.values((await asked(b.colonyId)).approvals)
+  expect(other.map((x) => x.summary)).toEqual(['write c.txt'])
+  await chats.decideApproval(b.colonyId, other[0]?.id ?? '', false)
+  await waitFor(b.colonyId)
+
+  // After a restart (a new service reading the logs) the chat keeps it, and lists it.
+  const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
+  expect((await again.list()).find((c) => c.chatId === a.chatId)?.grants).toEqual(['file'])
+  expect((await again.list()).find((c) => c.chatId === b.chatId)?.grants).toBeUndefined()
+  writes('mock/a2', 'd.txt')
+  const next = await again.send('One more', config('mock/a2'), a.chatId)
+  const s2 = await waitFor(next.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
+  expect(s2.status).toBe('completed')
+  expect(Object.values(s2.approvals)).toHaveLength(1)
+  expect(existsSync(join(folder, 'd.txt'))).toBe(true)
+
+  // Taken back, the next write asks again.
+  expect(await again.allowInChat(a.chatId, 'file', false)).toEqual([])
+  writes('mock/a3', 'e.txt')
+  const last = await again.send('And another', config('mock/a3'), a.chatId)
+  const s3 = await waitFor(
+    last.colonyId,
+    (x) => x.rounds.length === 3 && Object.values(x.approvals).some((p) => !p.decided),
+  )
+  expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
+  await again.stopAll()
+  rmSync(folder, { recursive: true, force: true })
+})
+
 test.skipIf(detectSandbox().kind === 'none')(
   'project permissions: ask mode waits for the person, read-only keeps the folder untouched',
   async () => {
@@ -2222,7 +2287,11 @@ test.skipIf(detectSandbox().kind === 'none')(
       return Object.values(s.approvals).find((a) => !a.decided)
     }
     const first = await pending()
-    expect(first).toMatchObject({ tool: 'shell', summary: 'echo chained && touch chained.txt' })
+    expect(first).toMatchObject({
+      tool: 'shell',
+      summary: 'echo chained && touch chained.txt',
+      grant: 'command',
+    })
     await chats.decideApproval(colonyId, first?.id ?? '', true)
     const second = await pending()
     expect(second).toMatchObject({ tool: 'fs_write', summary: 'write denied.txt' })
@@ -2269,7 +2338,8 @@ test('team workers in a git project each get a worktree, and their changes merge
   git('add', '-A')
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
   const projects = new ProjectStore(home)
-  const project = projects.add(folder)
+  // Autonomous, as a folder added before new ones started on ask.
+  const project = projects.setPermissions(projects.add(folder).id, { mode: 'auto', allow: [] })
   const resolver = new ModelResolver()
   const specialist = (ctx: LlmContext, role: string) =>
     new RegExp(`- ([a-z]+): ${role} \\(`).exec(ctx.systemPrompt?.join('\n') ?? '')?.[1] ?? ''
@@ -3573,6 +3643,57 @@ test('a chat is named from what it is about once there is something to name, and
   await chats.stopAll()
 })
 
+test('a chat is named on the cheapest model the person can use, and on the lead’s when that one fails', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const available = [
+    { provider: 'mock', id: 'lead', cost: { input: 3 }, contextWindow: 200_000 },
+    { provider: 'cheap', id: 'namer-mini', cost: { input: 0.1 }, contextWindow: 128_000 },
+    // Cheaper still, but the person hid it.
+    { provider: 'cheap', id: 'hidden-nano', cost: { input: 0.01 }, contextWindow: 128_000 },
+  ]
+  settings.set({ ...settings.get(), models: { ...settings.get().models, hidden: ['cheap/hidden-nano'] } })
+  const resolver = new ModelResolver({ available: () => available } as unknown as OmpRuntime)
+  const namedBy: string[] = []
+  let cheapWorks = true
+  const answer = (who: string) => (ctx: LlmContext) => {
+    const sys = ctx.systemPrompt?.join('\n') ?? ''
+    if (sys.includes('You name conversations')) {
+      namedBy.push(who)
+      if (who === 'cheap' && !cheapWorks) throw new Error('key revoked')
+      return { content: [`{"title": "Named by ${who}"}`] }
+    }
+    return { content: [tool('reply_user', { text: 'Hello!', final: true })] }
+  }
+  for (const [ref, who] of [
+    ['mock/lead', 'lead'],
+    ['cheap/namer-mini', 'cheap'],
+    ['cheap/hidden-nano', 'hidden'],
+  ] as const) {
+    const m = createMockModel({ handler: answer(who) })
+    resolver.register(ref, { model: m.model, streamFn: m.stream })
+  }
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const team = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const title = async (chatId: string, want: string) => {
+    const now = async () => (await chats.list()).find((c) => c.chatId === chatId)?.title
+    const end = Date.now() + 3000
+    while ((await now()) !== want && Date.now() < end) await Bun.sleep(20)
+    return now()
+  }
+  const first = await chats.send('plan the offsite', team)
+  await waitFor(first.colonyId)
+  expect(await title(first.chatId, 'Named by cheap')).toBe('Named by cheap')
+  expect(namedBy).toEqual(['cheap'])
+  cheapWorks = false
+  const second = await chats.send('book the venue', team)
+  await waitFor(second.colonyId)
+  expect(await title(second.chatId, 'Named by lead')).toBe('Named by lead')
+  expect(namedBy).toEqual(['cheap', 'cheap', 'lead'])
+  await chats.stopAll()
+})
+
 test('a photo sent without words is still a message: it says what was sent, and the file is there', async () => {
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/lead', [[tool('reply_user', { text: 'Nice photo.', final: true })]])
@@ -3590,5 +3711,47 @@ test('a photo sent without words is still a message: it says what was sent, and 
   await expect(chats.send('  ', { ...solo('mock/lead'), judgeModel: 'mock/judge' })).rejects.toThrow(
     'message is empty',
   )
+  await chats.stopAll()
+})
+
+test('the spend limit is per run: a follow-up gets all of it again, and a run that hits it says so', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  // A home with no settings file starts at the $5 default.
+  expect(settings.get().team.costUsd).toBe(5)
+  settings.set({ ...settings.get(), team: { ...settings.get().team, costUsd: 1 } })
+  const resolver = new ModelResolver()
+  let overspend = false
+  const lead = createMockModel({
+    cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+    handler: () => ({
+      content: overspend
+        ? [tool('message', { to: 'team', text: 'still working' })]
+        : [tool('reply_user', { text: 'Done.', final: true })],
+      usage: { input: 400, output: 100, cost: { total: 0.6 } },
+    }),
+  })
+  resolver.register('mock/priced', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const config = { ...solo('mock/priced'), judgeModel: 'mock/judge' }
+  const first = await chats.send('First question', config)
+  expect((await waitFor(first.colonyId)).status).toBe('completed')
+  // The chat has now spent $0.60 in all; the follow-up's $0.60 is under its own $1, though the total is not.
+  const second = await chats.send('Second question', config, first.chatId)
+  const s2 = await waitFor(second.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
+  expect(s2.status).toBe('completed')
+  overspend = true
+  const third = await chats.send('Keep going', config, first.chatId)
+  const s3 = await waitFor(third.colonyId, (x) => x.rounds.length === 3 && x.status !== 'running')
+  expect(s3.status).toBe('stopped')
+  expect(s3.statusReason).toBe('spend limit reached: $1.20 of $1 for this run')
+  // Resumed, it counts at most half the limit as spent, like the clock, so it can go on for a while.
+  await chats.resume(first.chatId)
+  const resumed = await waitFor(
+    third.colonyId,
+    (x) => x.status === 'stopped' && x.statusReason !== s3.statusReason,
+  )
+  expect(resumed.statusReason).toBe('spend limit reached: $1.10 of $1 for this run')
   await chats.stopAll()
 })

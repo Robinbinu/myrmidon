@@ -215,7 +215,7 @@ test('a token budget stops the colony once the models have used it', async () =>
   await run.start()
   const final = await run.done
   expect(final.status).toBe('stopped')
-  expect(final.statusReason).toContain('tokens reached limit 1,200')
+  expect(final.statusReason).toMatch(/^token limit reached: [\d,]+ of 1,200 for this run$/)
   expect(calls).toBeLessThan(6)
 })
 
@@ -287,7 +287,7 @@ test('a reply priced on the model it ran on still counts toward the spend limit 
   run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
   await run.start()
   const final = await run.done
-  expect(final.statusReason).toContain('reached limit $0.5')
+  expect(final.statusReason).toMatch(/^spend limit reached: \$\d+\.\d\d of \$0\.5 for this run$/)
   const replies = (await runtime.ctx.log.read(run.id)).filter((e) => e.type === 'llm/response')
   const reply = replies[0]?.payload as { usage?: { cost?: number } } | undefined
   expect(reply?.usage?.cost).toBe(0.6)

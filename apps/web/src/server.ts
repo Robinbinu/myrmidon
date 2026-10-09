@@ -2007,6 +2007,22 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      '/api/chats/:chatId/allowed': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { grant, allowed } = (await req.json().catch(() => ({}))) as {
+            grant?: unknown
+            allowed?: unknown
+          }
+          if (grant !== 'file' && grant !== 'command') return json({ error: 'grant is file or command' }, 400)
+          if (typeof allowed !== 'boolean') return json({ error: 'allowed must be true or false' }, 400)
+          try {
+            return json({ grants: await options.chats.allowInChat(req.params.chatId ?? '', grant, allowed) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {
           await options.chats?.stop(req.params.chatId ?? '')

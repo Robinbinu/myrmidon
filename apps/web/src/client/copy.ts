@@ -940,6 +940,16 @@ export const copy = {
       deny: 'Deny',
       approve: 'Allow',
     },
+    /** One kind of step allowed for the rest of a chat from its card, and the chips that take it back. */
+    grants: {
+      kinds: { file: 'File changes', command: 'Commands' },
+      approveAll: { file: 'Allow all file changes in this chat', command: 'Allow all commands in this chat' },
+      allowed: (kind: string) => `${kind} are allowed for the rest of this chat`,
+      chip: (kind: string) => `${kind} allowed`,
+      chipTitle: (kind: string) => `${kind} run without asking in this chat`,
+      revoke: (kind: string) => `Ask again before ${kind.toLowerCase()}`,
+      revoked: (kind: string) => `${kind} ask first again`,
+    },
     /** What became of a call once decided, as the one line it leaves in the chat. */
     decided: {
       approved: (what: string) => `Allowed: ${what}`,
@@ -995,7 +1005,7 @@ export const copy = {
   folderPicker: {
     title: 'Open a project folder',
     intro:
-      "Agents in this project's chats work in the folder: they read and edit its files and run commands there.",
+      "Agents in this project's chats work in the folder: they read and edit its files and run commands there. A new folder starts on Ask first: each change and command waits for you until you change its permissions.",
     useFolder: 'Use this folder',
     path: { placeholder: '~/code/my-app', label: 'Folder path' },
     go: 'Open',
@@ -1970,7 +1980,9 @@ export const copy = {
       timeLimit: 'Time limit per run',
       timeLimitHint: 'The crew stops when this runs out, reviewed or not.',
       spendLimit: 'Spend limit per run',
-      spendLimitHint: 'The run stops at this cost; at 80% agents are told to wrap up. 0 means no limit.',
+      /** The default is the runtime's DEFAULT_COST_USD. */
+      spendLimitHint:
+        'The run stops at this cost; at 80% agents are told to wrap up. Each follow-up gets the full limit again. Starts at $5; 0 means no limit.',
       tokenLimit: 'Token limit per run',
       tokenLimitHint: 'Counts every token the models process, cached input included. 0 means no limit.',
       turns: 'Turns per agent',

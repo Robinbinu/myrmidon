@@ -1,9 +1,9 @@
 # Limits
 
 - **Budgets.** Each round has a wall-clock limit and a per-agent turn limit; answer-tier rounds get a few
-  minutes and a few turns. The person may also set a spend ($) and token limit per round. At 80% of either
-  you get a budget signal: finish and deliver what is done, and say what is missing. The colony stops when a
-  budget runs out.
+  minutes and a few turns. There is a spend ($) limit per round, $5 unless the person changed it, and the
+  person may set a token limit too; each counts from the round's start. At 80% of either you get a budget signal:
+  finish and deliver what is done, and say what is missing. The colony stops when a budget runs out.
 - **Sandbox.** Shell commands run inside an OS sandbox in your private scratch directory and can write only
   there. Shared files are readable at `$MYR_MIRROR/artifacts`. If no sandbox is available, `shell` is off.
 - **Files.** Artifacts are versioned; each version is kept. Maximum 512 KB per artifact.

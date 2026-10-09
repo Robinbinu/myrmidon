@@ -10,6 +10,7 @@ import {
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import type { ProjectPermissions } from '@myrmidon/protocol'
+import { NEW_PROJECT_MODE } from './config.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -23,6 +24,7 @@ export interface Project {
   /** Absolute, symlink-resolved path. */
   readonly path: string
   readonly addedAt: string
+  /** Absent on folders added before new ones started on `NEW_PROJECT_MODE`: those are autonomous. */
   readonly permissions?: ProjectPermissions
 }
 
@@ -63,6 +65,7 @@ export class ProjectStore {
       name: base,
       path: real,
       addedAt: new Date().toISOString(),
+      permissions: { mode: NEW_PROJECT_MODE, allow: [] },
     }
     this._write([...this.list(), project])
     return project

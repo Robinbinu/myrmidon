@@ -2,7 +2,13 @@ import { Database } from 'bun:sqlite'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
-import { type ColonyState, type ColonyStatus, foldColony, stopCause } from '@myrmidon/protocol'
+import {
+  type ChatGrant,
+  type ColonyState,
+  type ColonyStatus,
+  foldColony,
+  stopCause,
+} from '@myrmidon/protocol'
 import { CHAT_SEARCH_LIMIT, SNIPPET_AFTER, SNIPPET_BEFORE } from './config.ts'
 
 /** What the chat list needs from one round, without the round's full log. */
@@ -24,6 +30,8 @@ export interface IndexedRound {
   readonly project?: { readonly id: string; readonly name: string }
   /** On a chat's latest round: who is on its crew now, so the person can write to them (@name). */
   readonly crew?: readonly CrewMember[]
+  /** On a chat's latest round: kinds of step the person allowed for the rest of the chat. */
+  readonly grants?: readonly ChatGrant[]
 }
 
 /** A chat with a message that matches a search, and the words around the match. */
@@ -261,6 +269,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
               role: a.info.role,
               ...(a.info.specialty ? { specialty: a.info.specialty } : {}),
             })),
+          ...(s.chatGrants?.length ? { grants: s.chatGrants } : {}),
         }
       : {}),
     ...(chat.project ? { project: { id: chat.project.id, name: chat.project.name } } : {}),

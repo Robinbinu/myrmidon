@@ -13,6 +13,12 @@ export interface ProjectPermissions {
   allow: string[]
 }
 
+/**
+ * Kinds of step the person may allow for the rest of a chat, from an "Ask first" project's approval cards: changes
+ * to project files, and shell commands.
+ */
+export type ChatGrant = 'file' | 'command'
+
 /** A tool call waiting for the person to approve or deny it. */
 export interface ApprovalRequest {
   id: string
@@ -24,6 +30,8 @@ export interface ApprovalRequest {
   review?: Review
   /** The call's receipt key: once approved and done, the same call returns its result instead of running again. */
   key?: string
+  /** Set when the person may approve every step of this kind for the rest of the chat. */
+  grant?: ChatGrant
 }
 
 /**
@@ -327,6 +335,8 @@ export interface EventPayloads {
   /** The user renamed the conversation; the newest rename across its rounds wins. */
   /** `by: 'auto'` when Myrmidon named the chat from what it is about; a name anyone gave it is never replaced. */
   'chat/renamed': { title: string; by?: 'auto' }
+  /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
+  'chat/allowed': { grants: ChatGrant[] }
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

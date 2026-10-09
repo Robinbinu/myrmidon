@@ -42,6 +42,11 @@ export const MAX_VERIFY_ROUNDS = 3
 
 // Chats (chat.ts)
 
+/**
+ * The spend limit per run, in dollars, where the settings file has none (Settings → Crew & budget; 0 means no limit).
+ * A settings file that already holds a value keeps it. The Settings hint states it too.
+ */
+export const DEFAULT_COST_USD = 5
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
 
@@ -132,6 +137,14 @@ export const SANDBOX_MAX_OUTPUT = 64 * 1024
 export const HOOK_TIMEOUT_S = 60
 export const HOOK_MAX_TIMEOUT_S = 600
 export const HOOK_MAX_OUTPUT = 20_000
+
+// Projects (projects.ts)
+
+/**
+ * How freely agents may change a folder added from now on. A folder added before this setting existed has no stored
+ * mode and stays autonomous, so nothing changes under the person's feet.
+ */
+export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
 
 // Project context (instructions.ts, git.ts)
 
@@ -311,3 +324,10 @@ export const PHONE_MESSAGE_MAX = 64 * 1024
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3
+/** The smallest context window (tokens) a model that names chats needs; a window omp does not know passes. */
+export const CHAT_TITLE_MIN_WINDOW = 16_000
+/**
+ * Small, fast model tiers, best first, matched against the words of a model id ("gpt-4o-mini", "claude-haiku-4-5"):
+ * how chats are named when no available model has a known price.
+ */
+export const CHAT_TITLE_TIERS = ['haiku', 'flash', 'mini', 'nano', 'lite', 'small', 'fast']
