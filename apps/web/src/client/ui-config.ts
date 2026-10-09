@@ -319,6 +319,13 @@ export const MASCOT_CREW = {
   fullTurnSpeed: 900,
 } as const
 
+/* ------------------------------------------------------------------ themes */
+
+/** An imported VS Code theme file: the largest accepted, and the longest name kept. */
+export const THEME_IMPORT = { maxBytes: 512_000, maxName: 60 } as const
+/** Imported themes kept at once; the gateway keeps as many (MAX_IMPORTED_THEMES in packages/runtime). */
+export const MAX_IMPORTED_THEMES = 12
+
 /* ------------------------------------------------------------------ connection */
 
 /** A crew's event stream reconnects after this long, doubling while the server stays down, up to the most. */

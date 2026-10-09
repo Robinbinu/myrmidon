@@ -1,5 +1,6 @@
 import {
   Activity,
+  AppWindow,
   AudioLines,
   BadgeCheck,
   BadgeQuestionMark,
@@ -15,6 +16,7 @@ import {
   FileCode,
   FilePen,
   FileSearch,
+  FileUp,
   FishingHook,
   FolderKey,
   FolderTree,
@@ -156,8 +158,12 @@ export const FEATURE_ICONS = {
   hooks: FishingHook,
   /** Requests that run on a schedule. */
   schedules: CalendarClock,
-  /** How the app looks: Settings → General. */
+  /** How the app feels on this device: Settings → General. */
+  general: AppWindow,
+  /** How the app looks: Settings → Appearance, its themes. */
   appearance: Palette,
+  /** Importing a VS Code theme file. */
+  themeImport: FileUp,
   /** The mascot and the person's name. */
   mascot: Smile,
   /** Voice calls with the crew. */
