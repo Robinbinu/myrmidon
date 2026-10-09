@@ -60,6 +60,7 @@ import {
   type MemoryStore,
   type ModelResolver,
   markSetup,
+  NextWordModel,
   namingModel,
   normalizeTeamConfig,
   type OmpRuntime,
@@ -181,6 +182,8 @@ export interface ServeOptions {
   readonly sandboxKind?: string
   /** The speech detector and end-of-turn model for calls; downloaded into the home unless given (tests stay offline). */
   readonly voiceModels?: { vad: SileroVad; turn: SmartTurn }
+  /** The composer's optional next-word model; downloaded into the home when the person turns it on, unless given. */
+  readonly suggestModel?: NextWordModel
   /** Where the setup assistant looks for model servers on this computer; Ollama's and LM Studio's ports unless given. */
   readonly setupServers?: readonly LocalServer[]
 }
@@ -450,6 +453,7 @@ export function startServer(options: ServeOptions): WebServer {
     return normalizeTeamConfig({ ...team, leadModel, judgeModel: team?.judgeModel ?? leadModel })
   }
   const chats = options.chats
+  const suggestModel = options.suggestModel ?? new NextWordModel(options.home)
   /** A model that can lead a crew can be called now, however it came (a key here, the environment, a cloud profile). */
   const modelReady = () =>
     !!options.omp &&
@@ -2225,6 +2229,27 @@ export function startServer(options: ServeOptions): WebServer {
       // What the person has written before, for the composer's suggestions (learned in the page, never sent on).
       '/api/suggestions': {
         GET: guard(async () => json({ said: options.chats ? await options.chats.said() : [] })),
+      },
+      // The next-word model (Settings → General): whether it is downloaded, and POST to download and load it.
+      '/api/suggestions/model': {
+        GET: guard(async () => json(suggestModel.status())),
+        POST: guard(async () => {
+          // Settings polls the status, which keeps the failure; the log says it once.
+          suggestModel
+            .load()
+            .catch((err) => console.error(`suggestions: ${err instanceof Error ? err.message : err}`))
+          return json(suggestModel.status())
+        }),
+      },
+      // The word the model expects next; nothing until it has been downloaded, so typing never starts a download.
+      '/api/suggestions/next': {
+        POST: guard(async (req) => {
+          const { text } = (await req.json()) as { text?: unknown }
+          if (typeof text !== 'string') return json({ error: 'text is required' }, 400)
+          if (!suggestModel.downloaded) return json({})
+          const word = await suggestModel.next(text)
+          return json(word ? { word } : {})
+        }),
       },
       // Chats by what was said in them; the chat list already matches titles itself.
       '/api/chats/search': {

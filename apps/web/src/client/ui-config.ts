@@ -491,3 +491,7 @@ export const SUGGEST_MIN_WORD_PREFIX = 2
 export const SUGGEST_MIN_COUNT = 2
 /** The longest ghost text shown; a longer past message is cut at a word. */
 export const SUGGEST_MAX_CHARS = 80
+/** A pause in typing before the next-word model is asked, so it runs once a word rather than once a key. */
+export const SUGGEST_MODEL_DEBOUNCE_MS = 120
+/** How often settings checks on the model's download while it runs. */
+export const SUGGEST_MODEL_POLL_MS = 1_000
