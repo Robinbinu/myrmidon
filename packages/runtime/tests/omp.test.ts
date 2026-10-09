@@ -94,3 +94,21 @@ test("a custom endpoint's model can be deleted from its list, but not its only o
     await omp.removeProvider('localai')
   }
 })
+
+test("voice providers' keys live in the same vault as the model providers', and share a model provider's key", async () => {
+  const omp = await bootOmp(home)
+  const keys = omp.voiceKeys
+  await keys.set('deepgram', ' dg-key-123 ')
+  expect(await keys.get('deepgram')).toBe('dg-key-123')
+  expect(keys.stored('deepgram')).toBe(true)
+  // A voice-only key does not make a model provider appear.
+  expect(omp.providers().some((p) => p.id === 'deepgram')).toBe(false)
+  // OpenAI's voice reads the key added for OpenAI's models.
+  await omp.setApiKey('openai', 'sk-openai-voice-test')
+  expect(await keys.get('openai')).toBe('sk-openai-voice-test')
+  await keys.remove('deepgram')
+  expect(keys.stored('deepgram')).toBe(false)
+  expect(await keys.get('deepgram')).toBeUndefined()
+  await omp.removeCredentials('openai')
+  await expect(keys.set('Not An Id', 'k')).rejects.toThrow('invalid provider id')
+})
