@@ -1,6 +1,7 @@
 import { ChevronRight, Columns2, Folder, Rows2 } from 'lucide-react'
 import { type ReactNode, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
+import { FEATURE_ICONS } from '../ui/icons.ts'
 import { CountBadge, cn } from '../ui/primitives.tsx'
 import { FOLDER_FOLD_AT } from '../ui-config.ts'
 import { type DiffLine, parseFilePatch, sideBySide, splitPatch } from './diff.ts'
@@ -328,40 +329,55 @@ export function FileDiff(props: {
   id?: string
   /** The path as shown, when the list groups files under their folder. */
   name?: string
+  /** Opens the file itself, where it can be (not one the change deleted). */
+  onOpen?(): void
 }) {
   const s = STATUS[props.file.status] ?? { label: props.file.status, className: 'text-fg-2', title: '' }
   return (
     <div id={props.id} className="overflow-hidden rounded-lg border border-line bg-surface">
-      <button
-        type="button"
-        onClick={props.onToggle}
-        aria-expanded={props.open}
-        className="flex w-full items-center gap-2 bg-fill/50 px-3 py-2 text-left hover:bg-fill"
-      >
-        <ChevronRight
-          className={cn('size-3.5 shrink-0 text-muted transition-transform', props.open && 'rotate-90')}
-        />
-        <span title={s.title} className={cn('w-3 shrink-0 font-mono text-caption font-bold', s.className)}>
-          {s.label}
-        </span>
-        <FilePath path={props.name ?? props.file.path} full={props.file.path} />
-        <span className="flex-1" />
-        {BINARY.test(props.text) && (
-          <span className="shrink-0 rounded-sm bg-fill-strong px-1.5 font-mono text-caption text-muted">
-            {copy.diffView.binaryTag}
+      <div className="flex items-center bg-fill/50 hover:bg-fill">
+        <button
+          type="button"
+          onClick={props.onToggle}
+          aria-expanded={props.open}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+        >
+          <ChevronRight
+            className={cn('size-3.5 shrink-0 text-muted transition-transform', props.open && 'rotate-90')}
+          />
+          <span title={s.title} className={cn('w-3 shrink-0 font-mono text-caption font-bold', s.className)}>
+            {s.label}
           </span>
+          <FilePath path={props.name ?? props.file.path} full={props.file.path} />
+          <span className="flex-1" />
+          {BINARY.test(props.text) && (
+            <span className="shrink-0 rounded-sm bg-fill-strong px-1.5 font-mono text-caption text-muted">
+              {copy.diffView.binaryTag}
+            </span>
+          )}
+          {props.file.added !== undefined && (
+            <span className="flex shrink-0 items-center gap-2 font-mono text-footnote tabular-nums">
+              <span className="text-ok-ink">+{props.file.added}</span>
+              <span className="text-bad-ink">−{props.file.removed}</span>
+              <StatBar
+                added={props.file.added}
+                {...(props.file.removed !== undefined ? { removed: props.file.removed } : {})}
+              />
+            </span>
+          )}
+        </button>
+        {props.onOpen && props.file.status !== 'D' && (
+          <button
+            type="button"
+            onClick={props.onOpen}
+            title={copy.projectFile.open(props.file.path)}
+            aria-label={copy.projectFile.open(props.file.path)}
+            className="mr-2 grid size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-fill-strong hover:text-fg"
+          >
+            <FEATURE_ICONS.projectFile className="size-3.5" />
+          </button>
         )}
-        {props.file.added !== undefined && (
-          <span className="flex shrink-0 items-center gap-2 font-mono text-footnote tabular-nums">
-            <span className="text-ok-ink">+{props.file.added}</span>
-            <span className="text-bad-ink">−{props.file.removed}</span>
-            <StatBar
-              added={props.file.added}
-              {...(props.file.removed !== undefined ? { removed: props.file.removed } : {})}
-            />
-          </span>
-        )}
-      </button>
+      </div>
       {props.open && (
         <div className="border-t border-line">
           <FilePatch text={props.text} mode={props.mode} />
@@ -372,7 +388,14 @@ export function FileDiff(props: {
 }
 
 /** Changed files with totals, expand/collapse all, and a unified / side-by-side switch. */
-export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: boolean; open?: string }) {
+export function DiffView(props: {
+  files: DiffFile[]
+  patch: string
+  truncated?: boolean
+  open?: string
+  /** Opens a changed file itself (a project chat's change list). */
+  onOpen?(path: string): void
+}) {
   const sections = useMemo(() => splitPatch(props.patch), [props.patch])
   const [mode, setMode] = useDiffMode()
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(props.open ? [props.open] : []))
@@ -415,6 +438,7 @@ export function DiffView(props: { files: DiffFile[]; patch: string; truncated?: 
             text={sections.get(f.path) ?? ''}
             mode={mode}
             open={open.has(f.path)}
+            {...(props.onOpen ? { onOpen: () => props.onOpen?.(f.path) } : {})}
             onToggle={() =>
               setOpen((s) => {
                 const next = new Set(s)

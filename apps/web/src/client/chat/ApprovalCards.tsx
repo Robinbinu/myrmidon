@@ -1,5 +1,5 @@
 import type { ChatGrant, ColonyState, Review, ReviewField } from '@myrmidon/protocol'
-import { BookmarkPlus, Check, PencilLine, X } from 'lucide-react'
+import { BookmarkPlus, Check, ChevronDown, PencilLine, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useMemo, useState } from 'react'
 import { send } from '../api.ts'
@@ -9,6 +9,7 @@ import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { spring } from '../ui-config.ts'
 import { Markdown } from './Markdown.tsx'
+import { useOpenProjectFile } from './ProjectFiles.tsx'
 
 /** What an agent asked to do, as a verb for the card. */
 const action = (tool: string) =>
@@ -52,7 +53,11 @@ function ApprovalRecord({
   decided: NonNullable<Pending['decided']>
 }) {
   const t = copy.approvals.decided
+  const openFile = useOpenProjectFile()
+  const [open, setOpen] = useState(false)
   const what = a.review?.title ?? a.summary
+  // An allowed file change can still be opened: what it changed, and the file itself.
+  const file = decided.approved && a.review?.kind === 'file' ? a.review.fields[0]?.label : undefined
   const line = decided.approved
     ? decided.edits && Object.keys(decided.edits).length
       ? t.approvedEdited(what)
@@ -62,22 +67,63 @@ function ApprovalRecord({
       : decided.by === 'stopped'
         ? t.stopped(what)
         : t.denied(what)
+  const text = (
+    <>
+      {line}
+      {decided.note && <span className="text-fg-2"> · {decided.note}</span>}
+    </>
+  )
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={spring}
-      className="flex min-w-0 items-center gap-1.5 pl-11 text-callout text-muted"
+      className="flex flex-col gap-1.5 pl-11"
     >
-      {decided.approved ? (
-        <Check className="size-3.5 shrink-0 text-ok-ink" />
-      ) : (
-        <X className="size-3.5 shrink-0 text-bad-ink" />
+      <div className="flex min-w-0 items-center gap-1.5 text-callout text-muted">
+        {decided.approved ? (
+          <Check className="size-3.5 shrink-0 text-ok-ink" />
+        ) : (
+          <X className="size-3.5 shrink-0 text-bad-ink" />
+        )}
+        {a.review ? (
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open}
+            title={decided.note ? t.withNote(line, decided.note) : line}
+            className="flex min-w-0 items-center gap-1 rounded-md text-left transition-colors hover:text-fg-2"
+          >
+            <span className="min-w-0 truncate">{text}</span>
+            <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', !open && '-rotate-90')} />
+          </button>
+        ) : (
+          <span className="min-w-0 truncate" title={decided.note ? t.withNote(line, decided.note) : line}>
+            {text}
+          </span>
+        )}
+        {file && openFile && (
+          <button
+            type="button"
+            onClick={() => openFile(file)}
+            title={copy.projectFile.open(file)}
+            aria-label={copy.projectFile.open(file)}
+            className="grid size-5 shrink-0 place-items-center rounded-md transition-colors hover:bg-fill hover:text-fg"
+          >
+            <FEATURE_ICONS.projectFile className="size-3.5" />
+          </button>
+        )}
+      </div>
+      {open && a.review && (
+        <div className="flex flex-col gap-2">
+          {a.review.fields.map((f) => (
+            <div key={f.key} className="overflow-hidden rounded-xl border border-line bg-surface">
+              <div className="border-b border-line px-3 py-1.5 font-mono text-small text-fg-2">{f.label}</div>
+              <FieldView field={f} value={decided.edits?.[f.key] ?? f.value} />
+            </div>
+          ))}
+        </div>
       )}
-      <span className="min-w-0 truncate" title={decided.note ? t.withNote(line, decided.note) : line}>
-        {line}
-        {decided.note && <span className="text-fg-2"> · {decided.note}</span>}
-      </span>
     </motion.div>
   )
 }
@@ -282,7 +328,7 @@ function patchLines(patch: string): DiffLine[] {
 }
 
 /** Changed lines with a little context; long unchanged stretches fold to a count. */
-function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
+export function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
   const near = (i: number) =>
     lines.slice(Math.max(0, i - 3), i + 4).some((l) => l.kind !== 'same') || lines.length <= 12
   if (!lines.some((l) => l.kind !== 'same'))

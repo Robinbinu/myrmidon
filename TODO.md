@@ -624,3 +624,17 @@ Earlier items:
       icon tiles and current values, fuzzy match with highlighted letters, commands that can't run now dimmed with
       the reason, and omp-style argument completion (/model lists models, /mode and /thinking their choices, current
       one checked); ↑↓ ↵ Tab Esc with a hint footer.
+
+## Project files (2026-10-09)
+
+- [x] **See, open and re-read a file an agent edits** — edits never showed: no step for `fs_edit`/`fs_write`, an
+      allowed edit shrank to one line with its diff gone, the Files view listed only published artifacts, nothing
+      could open a project file, and a rewound run hid its diff. Now: an "Edited calc.py" step (after it went
+      through) that expands to the change and opens the file; an allowed edit expands to what was allowed; Files
+      lists "Changed in <project>"; a viewer opens a file as it is now (`GET /api/projects/:id/file`, contained to
+      the folder, text only, 2 MB cap); a rewound run keeps View diff, with Open on each file.
+- [x] **File browser like VS Code's Explorer** (the person's ask) — an Explorer view in project chats: the folder as
+      a tree, one level loaded per folder opened (`GET /api/projects/:id/tree`), git status letters, folders with
+      changes tinted, ignored entries dimmed, files the crew changed in this chat ringed, a name filter across the
+      folder (`/find`, skipping what git ignores), arrow keys as in an editor, files open in the viewer. Refreshes on
+      a rewind or commit and when the crew changes a file.
