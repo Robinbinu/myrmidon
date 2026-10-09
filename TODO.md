@@ -828,7 +828,7 @@ stay small so they merge cleanly into either.
       access-changed notice tells agents to retry things the person declined.
 
 ### K — Several terminals (the person's ask, with a screenshot of Claude Code's terminal panel)
-- [ ] The workspace Terminal (the person's own shell) takes tabs like Claude Code's: "Terminal 1", "Terminal 2", each
+- [x] The workspace Terminal (the person's own shell) takes tabs like Claude Code's: "Terminal 1", "Terminal 2", each
       named by what runs in it (e.g. `bun run dev`), + to add, × to close (asking first if something still runs),
       kept alive while you switch views; a ⋯ menu for cursor style, blink, copy on select and scrollback; maximise
       the panel. Branch fx-k-terminals.

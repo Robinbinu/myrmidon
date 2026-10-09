@@ -25,6 +25,14 @@ class FakeSocket {
     this.closed = true
     this.readyState = 3
   }
+  /** The shell's output, as a binary frame. */
+  async output(text: string) {
+    await act(async () => {
+      this.onmessage?.({ data: new TextEncoder().encode(text).buffer })
+      // xterm parses what it is given on a timer.
+      await Bun.sleep(30)
+    })
+  }
   /** A note from the server, as a JSON text frame. */
   async note(message: object) {
     await act(async () => this.onmessage?.({ data: JSON.stringify(message) }))
@@ -79,6 +87,13 @@ test('terminals open as tabs, each its own shell, kept alive and named by what r
     expect(ui.labels()[1]).toBe('Terminal 2 · sleep 30')
     await FakeSocket.all[0]?.note({ type: 'process', name: 'bun run dev' })
     await FakeSocket.all[0]?.note({ type: 'process', name: null })
+    expect(ui.labels()[0]).toBe('Terminal 1 · app')
+    // A shell that puts its folder in the title (OSC 0 or 2) names the folder it moved to; other titles are ignored.
+    await FakeSocket.all[0]?.output('\x1b]0;robin@mac:~/code/site\x07')
+    expect(ui.labels()[0]).toBe('Terminal 1 · site')
+    await FakeSocket.all[0]?.output('\x1b]2;robin@mac: ~\x07')
+    expect(ui.labels()[0]).toBe('Terminal 1 · ~')
+    await FakeSocket.all[0]?.output('\x1b]2;my session\x07')
     expect(ui.labels()[0]).toBe('Terminal 1 · app')
 
     // Arrow keys move along the tabs; every terminal stays mounted (hidden) with its socket open.
