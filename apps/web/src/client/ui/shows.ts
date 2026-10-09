@@ -25,14 +25,14 @@ export function boot(): Clip {
 
 const CONFETTI = [...Object.values(MASCOT_COLORS), '#ff6a3d', '#c6f432']
 
-/** A burst of confetti from the middle, falling under gravity across the whole screen, over star eyes. */
+/** Confetti bursting up from the bottom like a party popper, then falling under gravity, over star eyes. */
 export function confetti(random: Random = Math.random): Clip {
   return generated('confetti', function* () {
     const bits = Array.from({ length: S.confetti.count }, (_, i) => ({
       x: COLS / 2,
-      y: ROWS / 2 - 1,
-      vx: (random() * 2 - 1) * 9,
-      vy: -4 - random() * 9,
+      y: ROWS - 1,
+      vx: (random() * 2 - 1) * 7,
+      vy: -8 - random() * 10,
       color: CONFETTI[i % CONFETTI.length] as string,
     }))
     const dt = S.confetti.frameMs / 1000

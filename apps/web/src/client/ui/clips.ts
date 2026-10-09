@@ -8,7 +8,10 @@ import type { Mood } from './pixel.tsx'
  * time; a frame either changes how the eyes are drawn or lights cells of its own, or both.
  */
 
-/** A lit cell: where, and its own colour, or how brightly (0–1) it glows in the face's colour. */
+/**
+ * A lit cell: where, and its own colour, or how brightly (0–1) it glows in the face's colour. Glowing dots are drawn
+ * behind the eyes, so a ripple or a charge passes under them; dots in the face's colour or their own go over them.
+ */
 export type Dot = readonly [x: number, y: number, ink?: string | number]
 
 /** A shape an eye can take in place of the one its mood gives it. */
@@ -200,9 +203,9 @@ export const IDLE_CLIPS: readonly Clip[] = [
   ]),
   clip('squint', [
     f(B.step, { lids: 0.25 }),
-    f(B.hold, { lids: 0.5, lower: 0.25 }),
-    f(B.glance, { lids: 0.5, lower: 0.25, look: [1, 0] }),
-    f(B.glance, { lids: 0.5, lower: 0.25, look: [-1, 0] }),
+    f(B.hold, { lids: 0.3, lower: 0.2 }),
+    f(B.glance, { lids: 0.3, lower: 0.2, look: [1, 0] }),
+    f(B.glance, { lids: 0.3, lower: 0.2, look: [-1, 0] }),
     f(B.step, { lids: 0.25 }),
   ]),
   clip('look around', [
@@ -320,13 +323,14 @@ const TEAR = 'var(--mood-curious)'
 
 /** Downcast eyes with tears running from their outer corners, when a run failed. */
 export const tears = (ms: number = R.tearsMs): Clip => {
-  // Each tear falls from beside an eye's lower corner to the bottom row, the second a beat behind the first.
-  const fallRows = [4, 5, 6, 7]
+  // Each tear falls from beside an eye's lower corner to the bottom row, trailing a fainter cell; the right one a
+  // beat behind the left.
+  const fall = [5, 6, 7, 8]
   const at = (i: number): Dot[] => {
     const out: Dot[] = []
     for (const [k, x] of [1, COLS - 2].entries()) {
-      const y = fallRows[(i + k * 2) % (fallRows.length + 2)]
-      if (y !== undefined) out.push([x, y, TEAR])
+      const y = fall[(i + k * 2) % fall.length] ?? 0
+      out.push([x, y, TEAR], [x, y - 1, 0.3])
     }
     return out
   }
@@ -377,26 +381,19 @@ export const fire = (random: () => number = Math.random): Clip =>
 
 const Z = ['####', '..#.', '.#..', '####']
 
-/** Z's floating up from its top-right corner while it sleeps, fading as they rise. */
-export const ZZZ = generated(
+/** A Z floating up from its top-right corner while it sleeps, above its shut eyes, fading as it rises. */
+export const ZZZ = clip(
   'zzz',
-  function* () {
-    const path = [
-      [10, 2],
-      [10, 1],
-      [11, 0],
-      [11, -1],
-      [12, -2],
-      [12, -3],
-    ] as const
-    for (let i = 0; i < path.length; i++) {
-      const dots: Dot[] = []
-      for (const k of [i, i - 3]) {
-        const p = path[(k + path.length) % path.length]
-        if (p) dots.push(...stamp(Z, p[0], p[1], 1 - ((k + path.length) % path.length) / path.length))
-      }
-      yield f(R.zzzStepMs, undefined, dots)
-    }
-  },
+  [
+    ...(
+      [
+        [10, 0, 1],
+        [11, -1, 0.75],
+        [11, -2, 0.5],
+        [12, -3, 0.3],
+      ] as const
+    ).map(([x, y, level]) => f(R.zzzStepMs, undefined, stamp(Z, x, y, level))),
+    f(R.zzzStepMs),
+  ],
   true,
 )

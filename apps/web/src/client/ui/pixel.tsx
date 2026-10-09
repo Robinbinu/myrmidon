@@ -504,13 +504,16 @@ export function PixelFace(props: {
       for (const c of textCells(props.text, cols, rows, cursorOn)) paint(c)
       return fills
     }
+    // Glowing dots (a level of the face's colour) sit behind the eyes; dots of their own colour go over them.
+    const dots = shown?.dots ?? []
+    for (const d of dots) if (typeof d[2] === 'number') paint(d)
     if (shown?.eyes !== null) {
       const tweak = { ...props.tweak, ...shown?.eyes }
       const blink = blinking && forEye(tweak.shape, 0) === undefined
       for (const c of eyeCells(props.mood, cols, rows, frame, blink, [lookX, lookY], props.eyes, tweak))
         paint(c)
     }
-    for (const d of shown?.dots ?? []) paint(d)
+    for (const d of dots) if (typeof d[2] !== 'number') paint(d)
     return fills
   }, [
     props.mood,
