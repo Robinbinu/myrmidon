@@ -9,7 +9,7 @@ import {
   useRef,
 } from 'react'
 import { spring } from '../ui-config.ts'
-import { useDialog } from './Modal.tsx'
+import { useDialog } from './dialog.ts'
 import { cn } from './primitives.tsx'
 
 const ITEMS = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'

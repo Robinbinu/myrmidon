@@ -6,8 +6,8 @@ import { copy } from '../copy.ts'
 import { diffLines } from '../diff.ts'
 import { compact, useCopy } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { Button, cn, Select, Skeleton, Tabs, tabPanel } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { Markdown } from './Markdown.tsx'
 
 type View = 'code' | 'preview' | 'diff'
@@ -119,7 +119,7 @@ export function ArtifactViewer(props: {
   ]
 
   return (
-    <Modal
+    <Sheet
       title={<span className="font-mono text-title">{props.name}</span>}
       onClose={props.onClose}
       size="full"
@@ -229,6 +229,6 @@ export function ArtifactViewer(props: {
           </pre>
         )}
       </div>
-    </Modal>
+    </Sheet>
   )
 }

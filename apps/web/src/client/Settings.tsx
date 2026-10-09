@@ -55,6 +55,7 @@ import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
+import { anyDialogOpen } from './ui/dialog.ts'
 import {
   ago,
   day,
@@ -65,7 +66,6 @@ import {
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { Modal } from './ui/Modal.tsx'
 import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
 import {
   Badge,
@@ -90,6 +90,7 @@ import {
   TextInput,
   tabPanel,
 } from './ui/primitives.tsx'
+import { Sheet } from './ui/Sheet.tsx'
 import { useToast } from './ui/Toast.tsx'
 import {
   AGENT_MIN_WINDOW,
@@ -415,7 +416,7 @@ export function Settings(props: {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement | null)?.closest('input, textarea, select')
-      if (e.key === 'Escape' && !typing && !document.querySelector('[role="dialog"]')) onClose.current()
+      if (e.key === 'Escape' && !typing && !anyDialogOpen()) onClose.current()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -718,7 +719,7 @@ export function Settings(props: {
       </div>
       <AnimatePresence>
         {leaving && (
-          <Modal title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
+          <Sheet title={copy.settings.page.unsaved.title} onClose={() => setLeaving(undefined)} size="sm">
             <p className="text-reading leading-relaxed text-fg-2">{copy.settings.page.unsaved.body}</p>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="borderless" onClick={() => setLeaving(undefined)}>
@@ -735,7 +736,7 @@ export function Settings(props: {
                 {copy.settings.page.unsaved.discard}
               </Button>
             </div>
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     </div>
@@ -2808,7 +2809,7 @@ function ChannelSheet(props: {
   ]
   const h = t.health
   return (
-    <Modal
+    <Sheet
       size="md"
       flush
       onClose={props.onClose}
@@ -3220,7 +3221,7 @@ function ChannelSheet(props: {
           </div>
         )}
       </div>
-    </Modal>
+    </Sheet>
   )
 }
 

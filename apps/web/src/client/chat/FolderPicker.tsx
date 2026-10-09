@@ -2,8 +2,8 @@ import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
-import { Modal } from '../ui/Modal.tsx'
 import { Button, TextInput } from '../ui/primitives.tsx'
+import { Sheet } from '../ui/Sheet.tsx'
 import { useToast } from '../ui/Toast.tsx'
 import { PermissionMark } from './ProjectPermissions.tsx'
 
@@ -49,7 +49,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
   }
 
   return (
-    <Modal
+    <Sheet
       title={copy.folderPicker.title}
       onClose={props.onClose}
       size="md"
@@ -112,7 +112,7 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
           )}
         </div>
       </div>
-    </Modal>
+    </Sheet>
   )
 }
 

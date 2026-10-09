@@ -60,9 +60,9 @@ import {
   useTheme,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { Modal } from './ui/Modal.tsx'
 import { isMac } from './ui/platform.ts'
 import { Badge, Banner, Button, cn, IconButton, Select, toneFor } from './ui/primitives.tsx'
+import { Sheet } from './ui/Sheet.tsx'
 import { SplitDivider, useSplitWidth } from './ui/SplitDivider.tsx'
 import { comboLabel } from './ui/shortcuts.ts'
 import { runPhase } from './ui/status.ts'
@@ -1122,7 +1122,7 @@ export function App() {
 
       <AnimatePresence>
         {deleting && (
-          <Modal
+          <Sheet
             key="delete"
             title={copy.app.deleteChat.title}
             onClose={() => !deleteBusy && setDeleting(undefined)}
@@ -1150,7 +1150,7 @@ export function App() {
                 </Button>
               </div>
             </div>
-          </Modal>
+          </Sheet>
         )}
         {permissionsFor && (
           <ProjectPermissions
@@ -1181,7 +1181,7 @@ export function App() {
           />
         )}
         {colonyModal && (
-          <Modal
+          <Sheet
             key="colony"
             title={copy.app.crewConsole}
             onClose={() => setColonyModal(undefined)}
@@ -1189,7 +1189,7 @@ export function App() {
             flush
           >
             <ColonyScreen key={colonyModal} id={colonyModal} />
-          </Modal>
+          </Sheet>
         )}
       </AnimatePresence>
     </MotionConfig>
