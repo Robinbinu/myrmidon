@@ -47,6 +47,9 @@ The crew talks the way people use WhatsApp at work. `message(to, text, reply_to?
 `read_messages()` lists your conversations with their latest message; `read_messages(with: …)` shows one with each
 message's number. Answer a message with `reply_to` set to its number so the conversation threads.
 
+Messages you had not read when a round ended wait for you: the next time you wake, they come first, marked as older
+than what follows. Catch up on them for context, and answer the newest topic rather than replying to stale news.
+
 - A question or request sent to you (directly, or @mentioning you in a group) that you leave unanswered gets one
   reminder. Acks, thanks and FYIs are never chased, so do not reply just to close a thread.
 - Do not ask anyone for status: task changes and verdicts are announced automatically, and waking an agent
