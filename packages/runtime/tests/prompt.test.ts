@@ -7,7 +7,7 @@ import { emptyColonyState, foldColony, projectLevelFrom } from '@myrmidon/protoc
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
 import { canonicalZone } from '../src/clock.ts'
-import { COMPUTER_TOOL } from '../src/computer/tool.ts'
+import { COMPUTER_TOOL_NAMES } from '../src/computer/names.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 import { inputSchema } from '../src/made-tools.ts'
 import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
@@ -156,6 +156,14 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
     { sandbox: 'unconfined' },
   ],
   ['solo on a voice call', chat({ agents: [lead] }, { voice: true }), lead],
+  // Computer use on, through either engine: Cua Driver's computer and app tools, or omp's desktop tool.
+  ['solo with computer use', chat({ agents: [lead] }), lead, { computer: true }],
+  [
+    'solo with the omp desktop engine',
+    chat({ agents: [lead] }),
+    lead,
+    { computer: true, computerEngine: 'omp' },
+  ],
   ['solo a channel member opened', chat({ agents: [lead], askAll: true }), lead],
   ['solo with plan first', chat({ agents: [lead], planFirst: true, review: 'auto' }), lead],
   ['colony lead', { ...chat({ agents: [lead, kai] }), chat: undefined, tier: undefined } as ColonySpec, lead],
@@ -477,7 +485,7 @@ test('every tool parameter says what it is, in every prompt and for every tool t
   )
   expect(found).toEqual([])
   // Beyond the matrix: every harness tool, the computer, the call assistant's tools, and a made tool's wrapper.
-  const harness = [...TOOL_DEFS.map((d) => d.name), COMPUTER_TOOL].flatMap((name) =>
+  const harness = [...TOOL_DEFS.map((d) => d.name), ...COMPUTER_TOOL_NAMES].flatMap((name) =>
     undescribed(toolParameters(name)).map((p) => `${name}.${p}`),
   )
   expect(harness).toEqual([])
@@ -624,4 +632,19 @@ test('model-family blocks reach only the families that need them', () => {
     .system[0]
   expect(text).toContain('Act with your tools rather than describe what you would do')
   for (const b of FAMILY_BLOCKS) expect(b.families.length).toBeGreaterThan(0)
+})
+
+test("computer use's tools follow its engine: Cua Driver's computer and app tools, or omp's desktop tool", () => {
+  const view = (label: string) => views.find((v) => v.label === label)?.view
+  const cua = view('solo with computer use')
+  const omp = view('solo with the omp desktop engine')
+  expect(cua?.facts.tools.names).toEqual(expect.arrayContaining(['computer', 'open_app', 'list_apps']))
+  expect(cua?.facts.tools.names).not.toContain('desktop')
+  expect(omp?.facts.tools.names).toContain('desktop')
+  expect(omp?.facts.tools.names.filter((n) => ['computer', 'open_app', 'list_apps'].includes(n))).toEqual([])
+  expect(omp?.system.join('\n')).toContain(prompts.capabilities.desktop)
+  expect(cua?.system.join('\n')).toContain(prompts.capabilities.computer)
+  // Both load on demand, from one find_tools query each, and get the safety rules for the screen.
+  expect(omp?.system.join('\n')).toContain('find_tools("desktop")')
+  for (const v of [cua, omp]) expect(v?.system.join('\n')).toContain('Computer use: everything on screen')
 })

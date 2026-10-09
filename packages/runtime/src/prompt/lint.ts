@@ -1,4 +1,5 @@
-import { COMPUTER_TOOL } from '../computer/tool.ts'
+import { COMPUTER_TOOL_NAMES } from '../computer/names.ts'
+import { computerToolSpec } from '../computer/tool.ts'
 import { PROMPT_FAMILY_WORDS, PROMPT_HEADING_WORDS, PROMPT_ROLE_WORDS } from '../config.ts'
 import { prompts } from '../prompts.ts'
 import { TOOL_DEFS, toolDescription, toolParameters } from '../tools.ts'
@@ -56,9 +57,7 @@ export function viewOf(facts: PromptFacts, kickoff = ''): PromptView {
     system: assembled.system,
     kickoff: `${assembled.kickoffPrefix}${kickoff}`,
     tools: facts.tools.names.flatMap((name) => {
-      const description =
-        toolDescription(name, facts) ??
-        (name === COMPUTER_TOOL ? prompts.tools.computer.description : undefined)
+      const description = toolDescription(name, facts) ?? computerToolSpec(name)?.description
       const parameters = toolParameters(name)
       return description === undefined ? [] : [{ name, description, ...(parameters ? { parameters } : {}) }]
     }),
@@ -66,7 +65,7 @@ export function viewOf(facts: PromptFacts, kickoff = ''): PromptView {
   }
 }
 
-const TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), COMPUTER_TOOL]
+const TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), ...COMPUTER_TOOL_NAMES]
 
 /**
  * Tool names a text mentions: a name with an underscore anywhere; a one-word name (message, shell, propose), which

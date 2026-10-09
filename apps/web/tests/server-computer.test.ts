@@ -42,6 +42,7 @@ test('Settings sees the driver and grants, switching computer use off stops agen
   const hub = new ComputerHub(home, {
     mcp,
     enabled: () => settings.get().computerUse.enabled,
+    engine: () => settings.get().computerUse.engine ?? 'cua',
     paths: [driver],
     platform: 'darwin',
     grants: () => ({ accessibility: false, screenRecording: true }),
@@ -84,6 +85,15 @@ test('Settings sees the driver and grants, switching computer use off stops agen
   expect(after.controls).toEqual([])
   expect(after.state.state).toBe('ready')
   expect(hub.stopped('c1')).toBe(true)
+
+  // Switching to omp's desktop engine stops whoever works through Cua Driver, as switching off does.
+  await call('PUT', '/api/settings', { ...current, computerUse: { enabled: true } })
+  await hub.take({ name: 'Notes', bundleId: 'com.apple.Notes' }, { colonyId: 'c2', agent: 'nova' })
+  await call('PUT', '/api/settings', { ...current, computerUse: { enabled: true, engine: 'omp' } })
+  expect(settings.get().computerUse.engine).toBe('omp')
+  const omp = await (await call('GET', '/api/computer')).json()
+  expect(omp).toMatchObject({ engine: 'omp', controls: [] })
+  expect(hub.stopped('c2')).toBe(true)
 
   expect((await (await call('POST', '/api/computer/stop', {})).json()).stopped).toBe(0)
   // Installing and granting are for full-access devices; Stop is a safety stop anyone may press.
