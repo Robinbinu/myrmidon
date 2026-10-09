@@ -49,13 +49,14 @@ afterAll(() => {
   delete page.location
 })
 
-test('the lists that name features (Settings sections, tool groups, workspace views, crew modes) use the registry', async () => {
-  const { SECTIONS, TOOL_INFO } = await import('../src/client/Settings.tsx')
+test('the lists that name features (Settings sections, who-can-use-what groups, workspace views, crew modes) use the registry', async () => {
+  const { SECTIONS } = await import('../src/client/Settings.tsx')
+  const { ACCESS_INFO } = await import('../src/client/permissions/describe.ts')
   const { VIEWS } = await import('../src/client/chat/Workspace.tsx')
   const { MODES } = await import('../src/client/chat/Composer.tsx')
   const entries: [string, unknown][] = [
     ...SECTIONS.map((s): [string, unknown] => [`settings section ${s.id}`, s.icon]),
-    ...TOOL_INFO.map((t): [string, unknown] => [`tool group ${t.key}`, t.icon]),
+    ...ACCESS_INFO.map((g): [string, unknown] => [`tool group ${g.group}`, g.icon]),
     ...VIEWS.map((v): [string, unknown] => [`workspace view ${v.value}`, v.icon]),
     ...MODES.map((m): [string, unknown] => [`crew mode ${m.id}`, m.icon]),
   ]
