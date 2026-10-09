@@ -82,7 +82,7 @@ interface ViewDef {
   /** The digit of its shortcut (see VIEW_COMBO). */
   key?: string
   projectOnly?: boolean
-  /** The person's own login shell: the server opens it only for full-access devices. */
+  /** Only for full-access devices, as the server allows: the person's own login shell, browsing the project. */
   fullOnly?: boolean
 }
 
@@ -98,6 +98,7 @@ export const VIEWS: ViewDef[] = [
     icon: FEATURE_ICONS.explorer,
     group: 0,
     projectOnly: true,
+    fullOnly: true,
   },
   {
     value: 'git',
@@ -279,7 +280,8 @@ function WorkspaceBody({
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)
   const [tab, setTabState] = useState<Tab>(() => {
     const t = savedTab()
-    return ((t === 'git' || t === 'explorer') && !project) || (t === 'shell' && !fullAccess) ? 'files' : t
+    const full = VIEWS.find((v) => v.value === t)?.fullOnly
+    return ((t === 'git' || t === 'explorer') && !project) || (full && !fullAccess) ? 'files' : t
   })
   const setTab = (t: Tab) => {
     setTabState(t)

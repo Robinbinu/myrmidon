@@ -1167,6 +1167,8 @@ export const copy = {
     refresh: 'Refresh',
     collapseAll: 'Collapse folders',
     loading: 'Loading…',
+    /** After a folder that could not be listed, beside the reason. */
+    tryAgain: 'Try again',
     empty: 'This folder is empty',
     noMatches: (q: string) => `No file names contain “${q}”`,
     moreMatches: 'More files match; type more of the name to narrow it down.',
@@ -1716,6 +1718,8 @@ export const copy = {
     stopped: 'Computer use stopped',
     notifyTitle: 'Myrmidon is using your Mac',
     notifyBody: 'Press Esc to stop.',
+    /** In a chat's step, in place of what the agent saw. */
+    shotFailed: 'The screenshot could not be loaded.',
     blocked: {
       install: 'An agent wants to use your Mac, but Cua Driver is not installed yet.',
       grants: (missing: string) =>

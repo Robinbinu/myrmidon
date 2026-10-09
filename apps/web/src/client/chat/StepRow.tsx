@@ -33,6 +33,8 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
 export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }) {
   const style = STEP_STYLE[step.kind]
   const openFile = useOpenProjectFile()
+  // React mounts a closed <details>'s children too: the screenshot waits until the step is first opened.
+  const [shotOpened, setShotOpened] = useState(false)
   const change = step.change
   // A write's whole content is new; an edit shows the text it replaced against its replacement.
   const lines = useMemo(
@@ -61,13 +63,16 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
         <style.icon className="size-3" />
       </span>
       {step.shot ? (
-        <details className="group min-w-0 break-words pt-0.5">
+        <details
+          className="group min-w-0 break-words pt-0.5"
+          onToggle={(e) => e.currentTarget.open && setShotOpened(true)}
+        >
           <summary className="list-none marker:hidden hover:text-fg">
             {!hideAgent && <span className="text-muted">{step.agent} · </span>}
             {step.lead} <span className="font-semibold text-fg">{step.strong}</span>{' '}
             {step.tail && <span className="text-muted">{step.tail}</span>}
           </summary>
-          <StepShot colony={step.shot.colony} blob={step.shot.blob} />
+          {shotOpened && <StepShot colony={step.shot.colony} blob={step.shot.blob} />}
         </details>
       ) : step.kind === 'computerSetup' ? (
         <span className="min-w-0 break-words pt-0.5">
@@ -131,6 +136,7 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
 /** A desktop step's screenshot, loaded when the step is opened (it is fetched with the auth header, not by URL). */
 function StepShot(props: { colony: string; blob: string }) {
   const [url, setUrl] = useState<string>()
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let made: string | undefined
     let stop = false
@@ -142,7 +148,7 @@ function StepShot(props: { colony: string; blob: string }) {
           setUrl(u)
         }
       })
-      .catch(() => {})
+      .catch(() => !stop && setFailed(true))
     return () => {
       stop = true
       if (made) URL.revokeObjectURL(made)
@@ -152,6 +158,8 @@ function StepShot(props: { colony: string; blob: string }) {
     <div className="mt-1.5 overflow-hidden rounded-xl border border-line bg-surface">
       {url ? (
         <img src={url} alt="" className="block w-full" />
+      ) : failed ? (
+        <p className="px-3 py-2 text-callout text-muted">{copy.computerUse.shotFailed}</p>
       ) : (
         <div className="h-24 animate-pulse bg-fill" />
       )}

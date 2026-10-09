@@ -67,6 +67,12 @@ test('stage, unstage, discard and commit act only on the given project paths', a
   const { gitStage, gitUnstage, gitDiscard, gitCommitChanges, gitFileDiff } = await import('../src/git.ts')
   expect(await gitFileDiff(dir, 'a.ts', 'unstaged')).toContain('+two')
   expect(await gitFileDiff(dir, 'new.ts', 'untracked')).toContain('+fresh')
+  // "Untracked" shows only a file git lists as new: never an ignored one (a .env) nor a tracked one in full.
+  writeFileSync(join(dir, '.gitignore'), '.env\n')
+  writeFileSync(join(dir, '.env'), 'API_KEY=sk-1\n')
+  await expect(gitFileDiff(dir, '.env', 'untracked')).rejects.toThrow('not a new file')
+  await expect(gitFileDiff(dir, 'a.ts', 'untracked')).rejects.toThrow('not a new file')
+  await expect(gitFileDiff(dir, '*.ts', 'untracked')).rejects.toThrow('not a new file')
   await expect(gitStage(dir, ['../outside'])).rejects.toThrow('not a project path')
   await expect(gitStage(dir, ['--all'])).rejects.toThrow('not a project path')
 

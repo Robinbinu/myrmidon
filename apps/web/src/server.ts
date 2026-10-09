@@ -71,7 +71,9 @@ import {
   type PluginStore,
   PRIVACY_PANES,
   type ProjectStore,
+  projectSecret,
   readProjectFile,
+  refuseProjectSecret,
   requestScreenRecording,
   restartSetup,
   ruleGreeting,
@@ -371,19 +373,27 @@ function specialistInput(body: unknown): SpecialistInput {
 }
 
 export function startServer(options: ServeOptions): WebServer {
-  /** Settings → Computer use and the "controlling your Mac" indicator read this. */
-  const computerStatus = () => {
+  /**
+   * What every device may know about computer use: whether it is on and who controls the Mac now, for the banner and
+   * its Stop. The driver's path and version, its state and macOS's grants are Settings', for full access only.
+   */
+  const computerControls = () => ({
+    supported: options.computer?.supported ?? false,
+    enabled: options.computer?.enabled ?? false,
+    controls: options.computer?.controls() ?? [],
+  })
+  /** Settings → Computer use and the "controlling your Mac" indicator read this; chats-only devices the part above. */
+  const computerStatus = (access: Access) => {
+    if (access.scope !== 'full') return computerControls()
     const computer = options.computer
     const driver = computer?.driver()
     return {
-      supported: computer?.supported ?? false,
-      enabled: computer?.enabled ?? false,
+      ...computerControls(),
       state: computer?.status() ?? { state: 'unsupported' },
       ...(driver ? { driver } : {}),
       version: computer?.installVersion ?? '',
       downloadBytes: computer?.downloadBytes ?? 0,
       grants: (computer?.supported ? computer.grants() : undefined) ?? null,
-      controls: computer?.controls() ?? [],
     }
   }
   const bindHost = options.host ?? '127.0.0.1'
@@ -1957,12 +1967,15 @@ export function startServer(options: ServeOptions): WebServer {
           return json({ projects: options.projects?.list() ?? [] })
         }),
       },
-      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only, like the diffs.
+      // A file in the folder as it is now, for the chat to open one its crew edited. Read-only; full access only
+      // (devices.ts), and never the person's keys or Myrmidon's data in a folder around them (projects.ts).
       '/api/projects/:id/file': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
         try {
-          return json(readProjectFile(project.path, url.searchParams.get('path') ?? ''))
+          return json(
+            readProjectFile(project.path, url.searchParams.get('path') ?? '', { dataDir: options.home }),
+          )
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
@@ -1973,7 +1986,9 @@ export function startServer(options: ServeOptions): WebServer {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
         try {
-          return json(await listProjectDir(project.path, url.searchParams.get('path') ?? ''))
+          return json(
+            await listProjectDir(project.path, url.searchParams.get('path') ?? '', { dataDir: options.home }),
+          )
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           return json({ error: message }, message.endsWith('no longer in the folder') ? 404 : 400)
@@ -1982,7 +1997,9 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/find': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
-        return json(await findProjectFiles(project.path, url.searchParams.get('q') ?? ''))
+        return json(
+          await findProjectFiles(project.path, url.searchParams.get('q') ?? '', { dataDir: options.home }),
+        )
       }),
       // Read-only views of a project's own git repository for the workspace's Git tab.
       '/api/projects/:id/git': guard(async (req) => {
@@ -1993,7 +2010,11 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/git/changes': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
-        return json(await gitWorkingChanges(project.path))
+        return json(
+          await gitWorkingChanges(project.path, (file) =>
+            projectSecret(project.path, file, { dataDir: options.home }),
+          ),
+        )
       }),
       '/api/projects/:id/git/diff': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
@@ -2001,8 +2022,11 @@ export function startServer(options: ServeOptions): WebServer {
         const kind = url.searchParams.get('kind')
         if (kind !== 'staged' && kind !== 'unstaged' && kind !== 'untracked')
           return json({ error: 'kind is staged, unstaged or untracked' }, 400)
+        const file = url.searchParams.get('path') ?? ''
         try {
-          return json({ patch: await gitFileDiff(project.path, url.searchParams.get('path') ?? '', kind) })
+          // Open to chats-only devices, for the changes a chat made: never the person's keys around the project.
+          refuseProjectSecret(project.path, file, { dataDir: options.home })
+          return json({ patch: await gitFileDiff(project.path, file, kind) })
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
@@ -2342,22 +2366,22 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/computer': {
-        GET: guard(() => json(computerStatus())),
+        GET: guard((_req, _url, access) => json(computerStatus(access))),
       },
       '/api/computer/install': {
-        POST: guard(() => {
+        POST: guard((_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           if (!computer.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           void computer
             .install()
             .catch((err) => console.error(`computer use: ${err instanceof Error ? err.message : err}`))
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/grants': {
         // Asks macOS for Screen Recording (its own dialog) and opens the privacy pane the person grants it in.
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           const computer = options.computer
           if (!computer?.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           const { grant } = (await req.json().catch(() => ({}))) as { grant?: unknown }
@@ -2365,21 +2389,23 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: 'grant is accessibility or screenRecording' }, 400)
           if (grant === 'screenRecording') requestScreenRecording()
           Bun.spawn(['open', PRIVACY_PANES[grant]], { stdout: 'ignore', stderr: 'ignore' })
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/restart': {
         // macOS answers a process's grants from a cache: the driver starts afresh to see new ones.
-        POST: guard(async () => {
+        POST: guard(async (_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           await computer.stop()
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/stop': {
         // The person's Stop (the chat's button, or Esc in the desktop app): open to every device, as a safety stop.
-        POST: guard(() => json({ stopped: options.computer?.stopAll() ?? 0, ...computerStatus() })),
+        POST: guard((_req, _url, access) =>
+          json({ stopped: options.computer?.stopAll() ?? 0, ...computerStatus(access) }),
+        ),
       },
       '/api/chats/:chatId/stop': {
         POST: guard(async (req) => {
