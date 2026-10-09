@@ -137,7 +137,7 @@ export function SystemPage(props: { onManageChannels(): void; onOpenChat(chatId:
               <span className="flex-1">{t.models(status.models ?? 0)}</span>
             </Line>
             <Line>
-              <span className="flex-1">{t.sandbox(status.sandbox)}</span>
+              <span className="flex-1">{status.fullAccess ? t.fullAccess : t.sandbox(status.sandbox)}</span>
             </Line>
           </Card>
         )}

@@ -510,6 +510,8 @@ export interface ChatSummary {
   crew?: CrewMember[]
   /** Kinds of step the person allowed for the rest of the chat from an approval card. */
   grants?: ChatGrant[]
+  /** The latest round runs with full access (no sandbox). */
+  fullAccess?: boolean
 }
 
 export interface CrewMember {
@@ -525,7 +527,7 @@ export interface Project {
   path: string
   addedAt: string
   /** How freely agents may change the folder. New folders start on ask; absent (an older folder) means autonomous. */
-  permissions?: { mode: 'auto' | 'ask' | 'read-only'; allow: string[] }
+  permissions?: { mode: 'auto' | 'ask' | 'read-only' | 'full'; allow: string[] }
 }
 
 /** Who this is to the server: whether it is a remote gateway, and this device's scope. 401 when not signed in. */

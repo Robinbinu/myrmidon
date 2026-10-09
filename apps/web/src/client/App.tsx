@@ -51,7 +51,7 @@ import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
 import { canLead } from './chat/model-list.ts'
 import { ProjectFiles } from './chat/ProjectFiles.tsx'
-import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
+import { FullAccessBadge, fullAccessFor, ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
 import { Workspace } from './chat/Workspace.tsx'
@@ -365,6 +365,8 @@ export function App() {
   }>()
   const [draft, setDraft] = useState('')
   const [projects, setProjects] = useState<Project[]>([])
+  /** The sandbox is off in Settings: new chats outside read-only projects get full access. */
+  const [sandboxOff, setSandboxOff] = useState(false)
   /** The project a new chat will work in. */
   const [newProject, setNewProject] = useState<string>()
   const [picking, setPicking] = useState(false)
@@ -431,13 +433,21 @@ export function App() {
   useEffect(loadModels, [loadModels])
 
   const loadProjects = useCallback(() => {
-    api<{ projects: Project[] }>('/api/projects')
-      .then((r) => setProjects(r.projects))
+    api<{ projects: Project[]; fullAccess?: boolean }>('/api/projects')
+      .then((r) => {
+        setProjects(r.projects)
+        setSandboxOff(r.fullAccess === true)
+      })
       // With the server away the banner says so, and the list loads again once it is back.
       .catch((err) => reachable() && toast(String(err.message ?? err), 'error'))
   }, [toast])
 
   useEffect(loadProjects, [loadProjects])
+  // Turning the sandbox off or on in Settings changes what the next chat gets.
+  useEffect(() => {
+    window.addEventListener(SETTINGS_SAVED, loadProjects)
+    return () => window.removeEventListener(SETTINGS_SAVED, loadProjects)
+  }, [loadProjects])
 
   // The owner meets the setup assistant until it is finished; a chats-only device never does.
   const loadSetup = useCallback(() => {
@@ -1291,6 +1301,7 @@ export function App() {
                       {view === 'chat' && chat && (
                         <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
                       )}
+                      {view === 'chat' && chat?.fullAccess && <FullAccessBadge />}
                     </ToolbarTitle>
                     {view === 'chat' && voiceOn && !call && (
                       <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
@@ -1429,6 +1440,12 @@ export function App() {
                                   {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
                                 />
                               )}
+                              {(chat
+                                ? chat.fullAccess
+                                : fullAccessFor(
+                                    projects.find((p) => p.id === newProject)?.permissions?.mode,
+                                    sandboxOff,
+                                  )) && <FullAccessBadge />}
                               {chat?.grants?.length ? (
                                 <ChatGrantChips
                                   chatId={chat.chatId}

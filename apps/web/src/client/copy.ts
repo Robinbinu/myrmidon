@@ -160,6 +160,7 @@ export const copy = {
         : kind === 'bubblewrap'
           ? 'Shell commands are confined by bubblewrap'
           : "Shell commands aren't confined",
+    fullAccess: 'Sandbox off: your chats have full access',
     copyPath: 'Copy',
     copied: 'Copied',
     /** The desktop app only: shows the data folder in Finder. */
@@ -1377,7 +1378,7 @@ export const copy = {
     modes: {
       auto: {
         label: 'Autonomous',
-        hint: 'Agents edit files and run commands in the sandbox without asking. Every run is checkpointed, so you can rewind it.',
+        hint: 'Agents edit files and run commands without asking, in the sandbox unless you turned it off. Every run is checkpointed, so you can rewind it.',
       },
       ask: {
         label: 'Ask first',
@@ -1387,14 +1388,32 @@ export const copy = {
         label: 'Read-only',
         hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched. They propose changes instead.',
       },
+      full: {
+        label: 'Full access',
+        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, with any file, your network and your accounts. Rules set to ask still ask.',
+      },
     },
     /** The small mark beside a project's name. */
-    mark: { readOnly: 'Read-only for agents', ask: 'Agents ask before changes' },
+    mark: {
+      readOnly: 'Read-only for agents',
+      ask: 'Agents ask before changes',
+      full: 'Full access for agents',
+    },
+    /** Saving a project as Full access takes a second click. */
+    confirmFull: 'Yes, give full access',
     allow: {
       label: 'Commands that run without asking, one prefix per line (chained or piped commands always ask)',
     },
     save: 'Save',
     appliesFrom: 'Applies from each chat’s next message in this project.',
+  },
+
+  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
+  fullAccess: {
+    badge: 'Full access',
+    title: 'This chat runs without the sandbox: its agents can read and change anything you can',
+    warning:
+      "Agents can then read your files, change anything you can, and use your network and accounts. Myrmidon's undo and rewind only cover project folders.",
   },
 
   taskBoard: {
@@ -2318,7 +2337,15 @@ export const copy = {
       sandboxedHint:
         'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
       unsandboxedHint:
-        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless Myrmidon was started with --unsafe-no-sandbox, which runs commands unconfined. On Linux, install bubblewrap and restart Myrmidon.',
+        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless you turn the sandbox off (full access) or Myrmidon was started with --unsafe-no-sandbox. On Linux, install bubblewrap and restart Myrmidon.',
+      /** The sandbox switch: On, or Off for full access. */
+      sandboxOffTitle: 'Sandbox off (full access)',
+      sandboxOffHint:
+        "Your chats run without the sandbox: commands run as you, file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+      turnOff: 'Turn off',
+      turnOffName: 'Turn the sandbox off (full access)',
+      confirmOff: 'Yes, turn it off',
+      turnOn: 'Turn sandbox on',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
       findTool: 'Find a tool',

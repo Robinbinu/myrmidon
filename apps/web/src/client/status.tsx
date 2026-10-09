@@ -12,6 +12,8 @@ export interface GatewayStatus {
   home?: string
   models?: number
   sandbox?: string
+  /** The sandbox is off in Settings: the person's chats run with full access. */
+  fullAccess?: boolean
   running?: { chatId: string; title: string }[]
   /** The skill curator's last archiving. */
   skillsArchived?: { at: string; names: string[] }
