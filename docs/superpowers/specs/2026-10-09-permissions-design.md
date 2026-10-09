@@ -177,7 +177,9 @@ Note on the brief: it says today's default has full access on. In this codebase 
 (`settings.ts`), i.e. full access **off**, and the person's own `settings.json` has it on. So the migration only gives
 Full access to people who confirmed turning the sandbox off.
 
-Behaviour changes, deliberate: Auto now asks before destructive commands (today nothing asked outside "Ask first"
+Behaviour changes, deliberate: workers get their own git worktree only under Auto (as only "Autonomous" projects did);
+the setup assistant no longer pre-selects Ask for git folders, it shows "Use global" first; Auto now asks before
+destructive commands (today nothing asked outside "Ask first"
 projects); Ask runs known read-only commands without asking; an "Ask first" project under a sandbox-off global used to
 run unsandboxed — Ask is sandboxed, so it now runs in the sandbox (the stricter direction); new projects start on "Use
 global" instead of Ask first; a team lead gets build tools by default.
@@ -187,9 +189,14 @@ global" instead of Ask first; a team lead gets build tools by default.
 - `approval/requested` gains `offer` (rule targets the card may remember: the command prefix and `command *`; the MCP
   tool and its server; `edit *`; the tool), `why` (the deciding source, shown on the card) and `call` (to re-decide
   it). `grant` stays readable in old logs.
-- `POST /api/colonies/:id/approvals/:approval` takes `remember: { scope: 'chat'|'project'|'global', rule }`: the rule
-  is saved at that level first, then the call is decided, then every other waiting call of the round is re-decided
-  under the new rules (allowed ones approve, denied ones refuse) — "Allow `bun test` everywhere" clears the queue.
+- `POST /api/colonies/:id/approvals/:approval` takes `remember: { scope: 'chat'|'project'|'global', rule | rules }`:
+  the call is decided, then the rules are saved at that level, which re-decides every other waiting call of the round
+  (allowed ones approve, denied ones refuse) — "Allow `bun test` everywhere" clears the queue. A compound command
+  remembers each part's prefix together (at most five), as Claude Code saves a rule per part.
+- `POST /api/chats` takes `permissions` for a new chat: the level chosen in the composer before the first message,
+  logged as the chat's first `chat/permissions` event.
+- Devices paired for chats only may answer cards and remember an answer for the chat (as they could allow a kind of
+  step for the chat before); a chat's preset and rules, a project's and the global ones need a full-access device.
 - `chat/permissions` (new) and `PUT/GET /api/chats/:chatId/permissions`; `PUT /api/projects/:id/permissions` takes
   the new project level; the global level saves with `PUT /api/settings`. `GET /api/permissions?chat=&project=`
   returns the three levels, the effective preset with its source, and the catalog (tools, MCP servers and their
