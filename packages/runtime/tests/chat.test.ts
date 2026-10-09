@@ -29,7 +29,11 @@ beforeEach(async () => {
   runtime = await bootRuntime(home)
 })
 
+/** Browsers and MCP servers a test opened, closed even when it fails, so no Chrome or server is left running. */
+const opened: { close(): Promise<void> }[] = []
+
 afterEach(async () => {
+  for (const o of opened.splice(0)) await o.close().catch(() => {})
   await runtime.dispose()
   rmSync(home, { recursive: true, force: true })
 })
@@ -1271,6 +1275,7 @@ test('a worker that stops while holding its task is reminded to finish it', asyn
 test('agents call MCP tools: read-only ones run at once, others wait for the person, and calls are logged', async () => {
   const { McpHub } = await import('../src/mcp.ts')
   const hub = new McpHub(join(home, 'agent'))
+  opened.push(hub)
   await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
   const echo = hub.tools().find((t) => t.name.endsWith('_echo'))?.name ?? 'missing'
   const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
@@ -1368,6 +1373,7 @@ test.skipIf(!findChrome())('browser_extract reads tables, links and repeating it
   const browser = new BrowserHub(join(home, 'browser'), undefined, {
     localPorts: () => new Set([site.port as number]),
   })
+  opened.push(browser)
   const resolver = new ModelResolver()
   scripted(resolver, 'mock/extractor', [
     [tool('browser_open', { url: `${base}/` })],
@@ -1446,6 +1452,7 @@ test.skipIf(!findChrome())('browser_network lists requests, failures and API bod
   const browser = new BrowserHub(join(home, 'browser'), undefined, {
     localPorts: () => new Set([site.port as number]),
   })
+  opened.push(browser)
   const resolver = new ModelResolver()
   let apiId = '0'
   const model = createMockModel({
@@ -1521,6 +1528,7 @@ test.skipIf(!findChrome())(
     const browser = new BrowserHub(join(home, 'browser'), undefined, {
       localPorts: () => new Set([site.port as number]),
     })
+    opened.push(browser)
     const resolver = new ModelResolver()
     const flow = (name: string, source: unknown[]) => ({
       name,
@@ -1585,6 +1593,7 @@ test.skipIf(!findChrome())('browser tabs, downloads and uploads', async () => {
   const browser = new BrowserHub(join(home, 'browser'), undefined, {
     localPorts: () => new Set([site.port as number]),
   })
+  opened.push(browser)
   const resolver = new ModelResolver()
   let snapshot = ''
   const refFor = (name: string) =>
@@ -1648,6 +1657,7 @@ test.skipIf(!findChrome())(
     const browser = new BrowserHub(join(home, 'browser'), undefined, {
       localPorts: () => new Set([site.port as number]),
     })
+    opened.push(browser)
     const resolver = new ModelResolver()
     scripted(resolver, 'mock/needs-login', [
       [
@@ -1688,6 +1698,7 @@ test.skipIf(!findChrome())(
   'an agent opens the page it built in a real browser, clicks, and reads the console',
   async () => {
     const browser = new BrowserHub(join(home, 'browser'))
+    opened.push(browser)
     const resolver = new ModelResolver()
     const page =
       "<!doctype html><title>Counter</title><button onclick=\"this.textContent='Clicked';console.log('clicked ok')\">Go</button>"
@@ -3252,6 +3263,7 @@ test('a round stopped after reaching outside Myrmidon tells its agents what was 
   const { McpHub } = await import('../src/mcp.ts')
   const { SettingsStore } = await import('../src/settings.ts')
   const hub = new McpHub(join(home, 'agent'))
+  opened.push(hub)
   await hub.add('echo', { command: 'bun', args: [join(import.meta.dir, 'fixtures', 'echo-mcp.ts')] })
   const shout = hub.tools().find((t) => t.name.endsWith('_shout'))?.name ?? 'missing'
   const settings = new SettingsStore(home)
