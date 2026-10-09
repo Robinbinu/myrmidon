@@ -108,6 +108,31 @@ const matrix: [string, ColonySpec, AgentSpec, Partial<Environment>?][] = [
     chat({ tier: 'team', pattern: 'blackboard', agents: peers, team: swarm }),
     peers[0] as AgentSpec,
   ],
+  // Model-family blocks join the prompt for these models; every check must hold with them too.
+  [
+    'swarm peer on GPT',
+    chat({
+      tier: 'team',
+      pattern: 'blackboard',
+      agents: [{ ...(peers[0] as AgentSpec), model: 'openai/gpt-5' }, peers[1] as AgentSpec],
+      team: swarm,
+    }),
+    { ...(peers[0] as AgentSpec), model: 'openai/gpt-5' },
+  ],
+  [
+    'team worker on Gemini in a worktree',
+    chat(
+      { tier: 'team', agents: [lead, { ...kai, model: 'google/gemini-2.5-pro' }], team: orchestrated },
+      inProject('auto'),
+    ),
+    { ...kai, model: 'google/gemini-2.5-pro' },
+    { worktree },
+  ],
+  [
+    'solo on Gemini in an ask-first project',
+    chat({ agents: [{ ...lead, model: 'google/gemini-2.5-pro' }] }, inProject('ask')),
+    { ...lead, model: 'google/gemini-2.5-pro' },
+  ],
   ['solo in a read-only project', chat({ agents: [lead] }, inProject('read-only')), lead],
   ['solo in an ask-first project', chat({ agents: [lead] }, inProject('ask')), lead],
   ['solo in a project', chat({ agents: [lead] }, { ...inProject('auto'), memory: ['- Likes tea.'] }), lead],

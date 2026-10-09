@@ -1,5 +1,5 @@
 import { COMPUTER_TOOL } from '../computer/tool.ts'
-import { PROMPT_HEADING_WORDS, PROMPT_ROLE_WORDS } from '../config.ts'
+import { PROMPT_FAMILY_WORDS, PROMPT_HEADING_WORDS, PROMPT_ROLE_WORDS } from '../config.ts'
 import { prompts } from '../prompts.ts'
 import { TOOL_DEFS, toolDescription, toolParameters } from '../tools.ts'
 import { assemble, renderSections } from './assemble.ts'
@@ -174,10 +174,19 @@ const wordBudgets: LintCheck = {
   key: 'word-budget',
   run: (view) => {
     const found: LintFinding[] = []
+    // Model-family blocks are budgeted on their own: they come with the model, not the role.
+    const family = view.sections.filter((s) => s.key.startsWith('family:'))
+    const familyWords = family.reduce((n, s) => n + authoredWords(s.text), 0)
+    if (familyWords > PROMPT_FAMILY_WORDS)
+      found.push({
+        check: 'word-budget',
+        where: 'family',
+        text: `${familyWords} > ${PROMPT_FAMILY_WORDS} words`,
+      })
     let stable = 0
     for (const heading of Object.keys(HEADINGS) as HeadingKey[]) {
       const words = view.sections
-        .filter((s) => s.heading === heading)
+        .filter((s) => s.heading === heading && !family.includes(s))
         .reduce((n, s) => n + authoredWords(s.text), 0)
       if (HEADINGS[heading].tier === 'stable') stable += words
       // A plugin's own section is the plugin author's text, like project instructions.

@@ -68,7 +68,7 @@ export const PROMPT_HEADING_WORDS = {
 export const PROMPT_ROLE_WORDS = {
   answer: 620,
   solo: 1340,
-  crewmate: 1100,
+  crewmate: 1040,
   'team-lead': 940,
   'team-lead-hands-on': 1560,
   'team-worker': 1180,
@@ -77,6 +77,12 @@ export const PROMPT_ROLE_WORDS = {
   'colony-worker': 1000,
   'colony-peer': 1000,
 } as const
+
+/**
+ * The most words the model-family blocks (prompt/families.ts) may add for one model, counted apart from the role's
+ * budget since they follow the model the agent runs on; the largest today, Gemini's two, is about 105.
+ */
+export const PROMPT_FAMILY_WORDS = 130
 
 // Chats (chat.ts)
 
