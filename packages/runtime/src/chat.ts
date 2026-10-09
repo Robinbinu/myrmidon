@@ -43,7 +43,7 @@ import { speaksForColony } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
-import { chatsAt, grantCovers, readFolder, realPath, secretAt } from './read-access.ts'
+import { chatsAt, grantCovers, keysAt, readFolder, realPath, secretAt } from './read-access.ts'
 import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
@@ -910,9 +910,9 @@ export class ChatService {
 
   /**
    * Lets sandboxed agents read a folder for the rest of a chat, across its runs, or takes that back; allowing also
-   * approves the requests to read it already waiting. Kept like `setChatPermissions`. A folder of keys or sign-ins may be
-   * allowed (the card that asks for one warns); other chats' data cannot be (only by naming it in Settings). Returns
-   * the folders allowed now.
+   * approves the requests to read it already waiting. Kept like `setChatPermissions`. A folder of keys or sign-ins is
+   * allowed only in answer to an agent's request for exactly it, still waiting (the card that asks warns); other chats'
+   * data never (only by naming it in Settings). Returns the folders allowed now.
    */
   async allowReadInChat(chatId: string, folder: string, allowed: boolean): Promise<string[]> {
     const latest = (await this.rounds(chatId)).at(-1)
@@ -923,6 +923,13 @@ export class ChatService {
       throw new Error(`${folder} holds every chat's data: only naming it in Settings → Permissions opens it`)
     const live = this._live.get(chatId)
     const here = live?.id === latest.id ? live : undefined
+    const asked = Object.values(here?.state().approvals ?? {}).some(
+      (a) => !a.decided && a.sensitive && a.read === path,
+    )
+    if (allowed && keysAt(path) && !asked)
+      throw new Error(
+        `${folder} holds keys or sign-ins: it opens for a chat only when an agent asks for it and you allow that request`,
+      )
     const state = here?.state() ?? latest.state
     const now = state.chatReads ?? []
     const reads = allowed ? [...new Set([...now, path])] : now.filter((f) => f !== path)
