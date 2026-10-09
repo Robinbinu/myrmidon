@@ -228,6 +228,9 @@ export class PhononStt implements SpeechToText {
     const fermion = this._binary()
     if (!fermion) throw new Error('Phonon-2 is not installed: install it in Settings → Voice')
     mkdirSync(join(this._dir, 'fermion'), { recursive: true, mode: 0o700 })
+    // A Myrmidon that was killed or restarted (`bun --watch`) leaves its server running: stop it before taking its
+    // socket, or every restart orphans another server holding the model in memory.
+    await stopLeftovers(this._socket)
     rmSync(this._socket, { force: true })
     this._state = { state: 'starting' }
     const proc = Bun.spawn([fermion, 'serve', 'phonon-2', '--unix-socket', this._socket], {
@@ -299,6 +302,47 @@ function socketPath(wanted: string): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   chmodSync(dir, 0o700)
   return join(dir, 'phonon.sock')
+}
+
+/**
+ * Stops Phonon servers still serving `socket` from an earlier run of Myrmidon. The socket sits in this home's private
+ * voice folder, so any server on it is ours; it is asked to stop, then killed if it has not after a moment.
+ */
+export async function stopLeftovers(socket: string, waitMs = 2000): Promise<number[]> {
+  const ps = Bun.spawnSync(['ps', '-Ao', 'pid=,command='], { stdout: 'pipe', stderr: 'ignore' })
+  const pids = new TextDecoder()
+    .decode(ps.stdout)
+    .split('\n')
+    .flatMap((line) => {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(line)
+      if (!m?.[1] || !m[2]) return []
+      const pid = Number(m[1])
+      const words = m[2].split(/\s+/)
+      const at = words.indexOf('--unix-socket')
+      const serving = words.includes('serve') && words.includes('phonon-2') && words[at + 1] === socket
+      return serving && at >= 0 && pid !== process.pid ? [pid] : []
+    })
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  // It may exit on its own between the listing and the signal; that is the outcome wanted.
+  const signal = (pid: number, sig: NodeJS.Signals) => {
+    try {
+      process.kill(pid, sig)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err
+    }
+  }
+  for (const pid of pids) signal(pid, 'SIGTERM')
+  const deadline = Date.now() + waitMs
+  while (pids.some(alive) && Date.now() < deadline) await Bun.sleep(50)
+  for (const pid of pids.filter(alive)) signal(pid, 'SIGKILL')
+  return pids
 }
 
 /** The lines of a byte stream, as they arrive. */

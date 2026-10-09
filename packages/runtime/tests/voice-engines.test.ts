@@ -9,7 +9,7 @@ import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
 import { PhononStream } from '../src/voice/phonon-stream.ts'
 import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { SpeechSplitter } from '../src/voice/speech.ts'
-import { OpenAiCompatibleStt, PHONON_INSTALL, PhononStt } from '../src/voice/stt.ts'
+import { OpenAiCompatibleStt, PHONON_INSTALL, PhononStt, stopLeftovers } from '../src/voice/stt.ts'
 import { KittenTts, OpenAiCompatibleTts } from '../src/voice/tts.ts'
 import { SileroVad, VAD_CHUNK } from '../src/voice/vad.ts'
 import { whisperFeatures } from '../src/voice/whisper-features.ts'
@@ -514,3 +514,35 @@ test.skipIf(!process.env.MYR_VOICE_E2E)(
   },
   15 * 60_000,
 )
+
+test('a Phonon server left by an earlier run is stopped before a new one takes its socket, and no other', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'myr-phonon-'))
+  const socket = join(dir, 'phonon.sock')
+  // Stand-ins whose command lines read like Phonon's; one ignores the polite stop and has to be killed.
+  const fake = (sock: string, stubborn = false) =>
+    Bun.spawn(
+      [
+        process.execPath,
+        '-e',
+        `${stubborn ? "process.on('SIGTERM', () => {});" : ''} setInterval(() => {}, 1000)`,
+        'serve',
+        'phonon-2',
+        '--unix-socket',
+        sock,
+      ],
+      { stdout: 'ignore', stderr: 'ignore' },
+    )
+  const polite = fake(socket)
+  const stubborn = fake(socket, true)
+  const other = fake(join(dir, 'other.sock'))
+  try {
+    await Bun.sleep(300)
+    const stopped = await stopLeftovers(socket, 500)
+    expect(stopped.sort()).toEqual([polite.pid, stubborn.pid].sort())
+    await Promise.all([polite.exited, stubborn.exited])
+    expect(other.killed || other.exitCode !== null).toBe(false)
+  } finally {
+    for (const p of [polite, stubborn, other]) p.kill('SIGKILL')
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
