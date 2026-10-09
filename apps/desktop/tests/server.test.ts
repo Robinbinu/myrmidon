@@ -56,3 +56,56 @@ test('the home is the CLI’s: MYRMIDON_HOME, else ~/.myrmidon', () => {
   expect(myrmidonHome({ MYRMIDON_HOME: '/data/myr' })).toBe('/data/myr')
   expect(myrmidonHome({}).endsWith('/.myrmidon')).toBe(true)
 })
+
+/** Running processes (not zombies) and their parents. */
+function processes(): Map<number, number> {
+  const out = new Map<number, number>()
+  const ps = new TextDecoder().decode(Bun.spawnSync(['ps', '-Ao', 'pid=,ppid=,stat=']).stdout)
+  for (const line of ps.trim().split('\n')) {
+    const [pid, ppid, stat] = line.trim().split(/\s+/)
+    if (pid && ppid && !stat?.startsWith('Z')) out.set(Number(pid), Number(ppid))
+  }
+  return out
+}
+
+function below(root: number): number[] {
+  const all = processes()
+  const found = new Set([root])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const [pid, ppid] of all)
+      if (found.has(ppid) && !found.has(pid)) {
+        found.add(pid)
+        grew = true
+      }
+  }
+  found.delete(root)
+  return [...found]
+}
+
+test('the server the app started stops when the app is killed, and removes server.json', async () => {
+  const app = Bun.spawn([process.execPath, join(import.meta.dir, 'server-parent.ts'), home], {
+    stdout: 'pipe',
+  })
+  let children: number[] = []
+  try {
+    const reader = app.stdout.getReader()
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain('started')
+    // The leash and the server under it.
+    children = below(app.pid)
+    expect(children.length).toBe(2)
+    expect(existsSync(join(home, 'server.json'))).toBe(true)
+    app.kill('SIGKILL')
+    const left = () => children.filter((pid) => processes().has(pid))
+    for (let i = 0; i < 50 && left().length; i++) await Bun.sleep(100)
+    expect(left()).toEqual([])
+    expect(existsSync(join(home, 'server.json'))).toBe(false)
+  } finally {
+    for (const pid of [app.pid, ...children])
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        // Already gone.
+      }
+  }
+})
