@@ -16,6 +16,38 @@ export function withoutDatedAliases(models: readonly ModelOption[], chosen?: str
 }
 
 /**
+ * Display names the registries spell differently for one family, rewritten to the newest pattern. Applied to the name
+ * without its trailing `(region)` or `(effort)`, which stays as it is.
+ */
+const NAME_RULES: readonly [RegExp, (...m: string[]) => string][] = [
+  // Bedrock's "AU Anthropic Claude Opus 4.6": the region goes last, in brackets, as on its other regional models.
+  [
+    /^(?:([A-Z]{2,}) )?Anthropic (Claude\b.*)$/,
+    (_, region, rest = '') => (region ? `${rest} (${region})` : rest),
+  ],
+  // Anthropic's names before Claude 4.5 put the version first: "Claude 4.1 Opus", "Claude 3.5 Sonnet v2".
+  [/^Claude (\d+(?:\.\d+)?) ([A-Z][a-z]+)\b/, (_, version, family) => `Claude ${family} ${version}`],
+  // "GPT-5.6-Luna" beside "GPT-5.6 Luna".
+  [/^GPT-(\d+(?:\.\d+)?)-([A-Za-z])/, (_, version, tier) => `GPT-${version} ${tier}`],
+  // OpenAI's open-weight models go by their ids: "GPT OSS Safeguard 20B" and "GPT-OSS 120B" beside "gpt-oss-120b".
+  [
+    /^gpt[- ]oss\b(.*)$/i,
+    (_, rest = '') => {
+      const tail = rest.trim().replace(/^-/, '').toLowerCase().replace(/\s+/g, '-')
+      return tail ? `gpt-oss-${tail}` : 'gpt-oss'
+    },
+  ],
+  // "DeepSeek V3.2" beside "DeepSeek-V3.1".
+  [/^DeepSeek ([VR]\d)/, (_, version) => `DeepSeek-${version}`],
+]
+
+/** A model's display name in one pattern per family ("Claude 4 Opus" shows as "Claude Opus 4"); ids never change. */
+export function modelName(name: string): string {
+  const [, base = name, suffix = ''] = /^(.*?)((?: \([^()]*\))*)$/.exec(name) ?? []
+  return NAME_RULES.reduce((out, [pattern, rewrite]) => out.replace(pattern, rewrite), base) + suffix
+}
+
+/**
  * The model to offer in place of one that failed: another the chat's crew runs on (it has answered here), else the
  * failed model's provider's next one. Undefined rather than whichever model happens to be listed first.
  */
