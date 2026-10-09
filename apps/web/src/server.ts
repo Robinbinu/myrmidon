@@ -391,6 +391,7 @@ export function startServer(options: ServeOptions): WebServer {
     return {
       supported: computer?.supported ?? false,
       enabled: computer?.enabled ?? false,
+      engine: computer?.engine ?? 'cua',
       state: computer?.status() ?? { state: 'unsupported' },
       ...(driver ? { driver } : {}),
       version: computer?.installVersion ?? '',
@@ -1408,10 +1409,11 @@ export function startServer(options: ServeOptions): WebServer {
             // Setup is kept by /api/setup alone: a page saving its settings sends the copy it read, which may be older.
             const { setup } = options.settings.get()
             const body = { ...((await req.json()) as Record<string, unknown>), setup }
-            const wasOn = options.settings.get().computerUse.enabled
+            const was = options.settings.get().computerUse
             const settings = options.settings.set(body)
-            // Switched off: agents on the person's Mac stop at once, and the driver with them.
-            if (wasOn && !settings.computerUse.enabled && options.computer) {
+            // Switched off, or to the other engine: agents on the person's Mac stop at once, and the driver with them.
+            const engineChanged = (was.engine ?? 'cua') !== (settings.computerUse.engine ?? 'cua')
+            if (was.enabled && (!settings.computerUse.enabled || engineChanged) && options.computer) {
               options.computer.stopAll()
               await options.computer.stop()
             }

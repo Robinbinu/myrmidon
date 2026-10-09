@@ -326,6 +326,7 @@ async function main() {
       const computer = new ComputerHub(home, {
         mcp,
         enabled: () => settings.get().computerUse.enabled,
+        engine: () => settings.get().computerUse.engine ?? 'cua',
         log: (line) => (values.debug ? console.log(c.dim(line)) : undefined),
         // macOS names the app this server runs in (the desktop app, or the terminal) for the driver's diagnostics.
         ...(process.env.__CFBundleIdentifier ? { hostBundleId: process.env.__CFBundleIdentifier } : {}),

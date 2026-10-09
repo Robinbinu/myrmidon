@@ -25,9 +25,13 @@ import {
 import { spawnLeashed } from '../leashed.ts'
 import type { McpHub } from '../mcp.ts'
 import { socketPath } from '../voice/stt.ts'
+import { DESKTOP_GRANT, DesktopEngine } from './desktop.ts'
 
 /** The internal MCP server's name, so its tools are `mcp__myrmidon_computer_<tool>`. */
 export const COMPUTER_SERVER = 'myrmidon-computer'
+
+/** What agents drive the Mac through: Cua Driver (one approved app at a time), or omp's desktop engine (scripts). */
+export type ComputerEngine = 'cua' | 'omp'
 
 export type DriverState =
   | { state: 'unsupported' }
@@ -73,6 +77,8 @@ export interface DriverResult {
 }
 
 const FOREGROUND = '\0foreground'
+/** Locks of agents running omp desktop scripts, which hold the whole desktop rather than one app. */
+const DESKTOP = '\0desktop'
 const same = (a: Holder, b: Holder) => a.colonyId === b.colonyId && a.agent === b.agent
 
 /** The macOS privacy grants of this process, read without asking (bun:ffi), or undefined off macOS. */
@@ -124,6 +130,8 @@ export class ComputerHub {
   private readonly _stops = new Map<string, () => void>()
   /** Rounds the person stopped: they may not use the computer again. */
   private readonly _stopped = new Set<string>()
+  /** omp's desktop engine, for Settings → Computer use → Engine set to it. */
+  readonly desktop: DesktopEngine
 
   constructor(
     home: string,
@@ -142,10 +150,19 @@ export class ComputerHub {
       readonly sha256?: string
       /** How macOS's grants are read (tests give a stand-in). */
       readonly grants?: () => Grants | undefined
+      /** Settings → Computer use → Engine; Cua Driver when absent. */
+      readonly engine?: () => ComputerEngine
+      /** omp's desktop engine (tests give one with a stand-in worker). */
+      readonly desktop?: DesktopEngine
     },
   ) {
     this._dir = join(home, 'computer')
     this._state = this._found()
+    this.desktop = options.desktop ?? new DesktopEngine()
+  }
+
+  get engine(): ComputerEngine {
+    return this.options.engine?.() ?? 'cua'
   }
 
   get supported(): boolean {
@@ -325,6 +342,7 @@ export class ComputerHub {
 
   /** Stops the daemon (macOS answers grants per process: one granted after it started needs a restart). */
   async stop(): Promise<void> {
+    await this.desktop.closeAll()
     const daemon = this._daemon
     this._daemon = undefined
     this._ready = undefined
@@ -413,11 +431,23 @@ export class ComputerHub {
     }
   }
 
-  /** Lets go of everything one agent (or, without `agent`, a whole round that ended) holds. */
+  /**
+   * An agent runs omp desktop scripts: it shows as controlling the Mac until its round lets go or the person stops it.
+   * Returns whether it just started to.
+   */
+  holdDesktop(holder: Holder, place: string): boolean {
+    const key = `${DESKTOP}${holder.colonyId}\0${holder.agent}`
+    if (this._locks.has(key)) return false
+    this._locks.set(key, { ...holder, app: place, bundleId: DESKTOP_GRANT, since: Date.now() })
+    return true
+  }
+
+  /** Lets go of everything one agent (or, without `agent`, a whole round that ended) holds; its scripts stop. */
   release(colonyId: string, agent?: string, keepRound = false) {
     for (const [key, c] of this._locks)
       if (c.colonyId === colonyId && (agent === undefined || c.agent === agent)) this._locks.delete(key)
     if (agent === undefined && !keepRound) this._stops.delete(colonyId)
+    void this.desktop.close(colonyId, agent)
   }
 
   /** Which agents control which apps now, for the "controlling your Mac" indicator and Settings. */

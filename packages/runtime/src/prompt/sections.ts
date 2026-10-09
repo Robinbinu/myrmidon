@@ -105,6 +105,7 @@ function abilities(f: PromptFacts): string[] {
         : can.noBrowser),
     has(f, 'mcp') && `${can.mcp}${has(f, 'browser_open') ? can.mcpBrowser : ''}`,
     has(f, 'computer') && access.computer && `${can.computer}${load('computer', 'computer')}`,
+    has(f, 'desktop') && access.computer && `${can.desktop}${load('desktop', 'desktop')}`,
     has(f, 'create_tool') &&
       access.sandbox !== 'none' &&
       `${can.makeTools}${load('create_tool', 'create_tool')}`,
@@ -412,7 +413,7 @@ export const SECTIONS: readonly Section[] = [
     { key: 'refusals', guard: () => true, render: () => say.safety.refusals },
     {
       key: 'irreversible',
-      guard: (f) => any(f, 'shell', 'fs_write', 'browser_open', 'computer', 'mcp'),
+      guard: (f) => any(f, 'shell', 'fs_write', 'browser_open', 'computer', 'desktop', 'mcp'),
       render: (f) =>
         say.safety.irreversible(has(f, 'ask_user') ? say.safety.askPerson : say.safety.askNobody),
     },
@@ -447,7 +448,7 @@ export const SECTIONS: readonly Section[] = [
     },
     {
       key: 'computer-safety',
-      guard: (f) => f.access.computer && has(f, 'computer'),
+      guard: (f) => f.access.computer && (has(f, 'computer') || has(f, 'desktop')),
       render: () => say.safety.computer,
     },
     { key: 'limits', guard: () => true, render: () => say.safety.limits },
