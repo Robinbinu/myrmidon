@@ -117,6 +117,7 @@ import {
 } from './gateways.ts'
 import { Logins } from './logins.ts'
 import { buildPluginUI, uiStamp } from './plugin-ui.ts'
+import { foregroundCommand } from './terminal-foreground.ts'
 
 export interface ServeOptions {
   readonly home: string
@@ -218,7 +219,15 @@ type StreamData = Opened &
         pending: (string | Uint8Array<ArrayBuffer>)[]
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
-    | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
+    /** `watch`: the timer that looks up what runs in the terminal's foreground, to name its tab. */
+    | {
+        kind: 'terminal'
+        cwd: string
+        cols: number
+        rows: number
+        proc?: Bun.Subprocess
+        watch?: ReturnType<typeof setInterval>
+      }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
      * the socket's close code and reason once it opens; `closed`: the person's side went away.
@@ -269,6 +278,8 @@ function cookie(req: Request, name: string): string | undefined {
 
 /** Interactive shells open at once; each is a real login shell with the person's own permissions. */
 const MAX_TERMINALS = 8
+/** How often an open terminal looks up what runs in its foreground; the page hears only when that changes. */
+const TERMINAL_FOREGROUND_MS = 1_500
 
 const POLL_MS = 400
 /** How long stopping waits for Bun to report the server stopped (see `stop`). */
@@ -2725,6 +2736,24 @@ export function startServer(options: ServeOptions): WebServer {
             return
           }
           void data.proc.exited.then(() => ws.close(1000, 'shell exited'))
+          // The tab is named by what runs in it, as IDE terminals do. Polling `ps` is cheap and needs no native
+          // module; a JSON text frame tells the page, beside the shell's output in binary frames.
+          const shell = data.proc.pid
+          let shown: string | null = null
+          let looking = false
+          data.watch = setInterval(() => {
+            if (looking) return
+            looking = true
+            void foregroundCommand(shell)
+              .then((name) => {
+                if (name === undefined || name === shown) return
+                shown = name
+                ws.send(JSON.stringify({ type: 'process', name }))
+              })
+              .finally(() => {
+                looking = false
+              })
+          }, TERMINAL_FOREGROUND_MS)
           return
         }
         if (ws.data.kind === 'call') {
@@ -2816,6 +2845,7 @@ export function startServer(options: ServeOptions): WebServer {
         if (ws.data.kind === 'ping') return
         if (ws.data.kind === 'terminal') {
           terminals -= 1
+          clearInterval(ws.data.watch)
           ws.data.proc?.terminal?.close()
           ws.data.proc?.kill()
           return
