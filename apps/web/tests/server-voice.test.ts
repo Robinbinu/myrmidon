@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   type ChatService,
   ModelResolver,
+  type OmpRuntime,
   parseWav,
   SettingsStore,
   SileroVad,
@@ -78,11 +79,14 @@ test('a call over the WebSocket: the person speaks, the call model answers aloud
   const auth = { authorization: `Bearer ${server.token}` }
 
   const status = await (await fetch(new URL('/api/voice', origin), { headers: auth })).json()
+  // Saved in the shape from before voice providers: the one address became the person's endpoint.
   expect(status).toMatchObject({
     callModel: 'mock/voice',
-    stt: { provider: 'endpoint' },
-    tts: { provider: 'endpoint' },
+    stt: { provider: 'endpoint:endpoint' },
+    tts: { provider: 'endpoint:endpoint' },
+    endpoints: [{ id: 'endpoint', baseUrl: base, hasKey: false }],
   })
+  expect(status.providers.map((p: { id: string }) => p.id)).toContain('deepgram')
 
   const ws = new WebSocket(`ws://${origin.host}/api/voice/call?chat=c1&rate=16000`, {
     headers: { origin: origin.origin, ...auth },
@@ -141,13 +145,19 @@ test('a call over the WebSocket: the person speaks, the call model answers aloud
   expect(parseWav(new Uint8Array(await sample.arrayBuffer())).sampleRate).toBe(24_000)
 })
 
-test('calling is open to chats-only devices; installing engines, keys and samples are not', () => {
+test('calling is open to chats-only devices; installing engines, providers, keys and samples are not', () => {
   expect(needsFull('GET', '/api/voice/call')).toBe(false)
   expect(needsFull('GET', '/api/voice')).toBe(false)
   expect(needsFull('GET', '/api/chats/c1/calls')).toBe(false)
   expect(needsFull('POST', '/api/voice/phonon/install')).toBe(true)
   expect(needsFull('POST', '/api/voice/kitten/download')).toBe(true)
-  expect(needsFull('PUT', '/api/voice/keys')).toBe(true)
+  expect(needsFull('PUT', '/api/voice/providers/deepgram/key')).toBe(true)
+  expect(needsFull('DELETE', '/api/voice/providers/deepgram/key')).toBe(true)
+  expect(needsFull('PUT', '/api/voice/providers/azure/region')).toBe(true)
+  // A voice list is fetched with the provider's key.
+  expect(needsFull('GET', '/api/voice/providers/elevenlabs/voices')).toBe(true)
+  expect(needsFull('POST', '/api/voice/endpoints')).toBe(true)
+  expect(needsFull('DELETE', '/api/voice/endpoints/kokoro')).toBe(true)
   expect(needsFull('POST', '/api/voice/sample')).toBe(true)
 })
 
@@ -410,4 +420,93 @@ test('the phone line’s hooks refuse what Twilio did not sign, and calling out 
   })
   expect(dial.status).toBe(400)
   expect(needsFull('POST', '/api/voice/phone/call')).toBe(true)
+})
+
+test('voice providers are set up over the API: keys go to the vault and never back, regions and endpoints to settings', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-voice-providers-'))
+  homes.push(home)
+  const vault = new Map<string, string>()
+  const omp = {
+    available: () => [],
+    all: () => [],
+    find: () => undefined,
+    defaultModel: () => undefined,
+    providers: () => [],
+    speechModels: () => ({ stt: [], tts: [] }),
+    voiceKeys: {
+      get: async (id: string) => vault.get(id),
+      stored: (id: string) => vault.has(id),
+      set: async (id: string, key: string) => void vault.set(id, key),
+      remove: async (id: string) => void vault.delete(id),
+    },
+  } as unknown as OmpRuntime
+  const settings = new SettingsStore(home)
+  const chats = {
+    list: async () => [],
+    onEvents: () => () => {},
+    onStream: () => () => {},
+  } as unknown as ChatService
+  const server = startServer({ home, port: 0, chats, resolver: new ModelResolver(), settings, omp })
+  servers.push(server)
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(new URL(path, server.url.replace(/#.*$/, '')), {
+      method,
+      headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+    return {
+      status: res.status,
+      body: (await res.json()) as Record<string, unknown> & {
+        providers?: { id: string; key: string; configured: boolean }[]
+      },
+    }
+  }
+  const saved = await call('PUT', '/api/voice/providers/deepgram/key', { apiKey: ' dg-secret ' })
+  expect(saved.status).toBe(200)
+  expect(vault.get('deepgram')).toBe('dg-secret')
+  expect(saved.body.providers?.find((p) => p.id === 'deepgram')).toMatchObject({
+    key: 'stored',
+    configured: true,
+  })
+  expect(JSON.stringify(saved.body)).not.toContain('dg-secret')
+  // AWS: its two parts kept as one.
+  await call('PUT', '/api/voice/providers/aws/key', { accessKeyId: 'AKID', secretAccessKey: 'shh' })
+  expect(JSON.parse(vault.get('aws-voice') ?? '{}')).toEqual({ accessKeyId: 'AKID', secretAccessKey: 'shh' })
+  expect((await call('PUT', '/api/voice/providers/aws/key', { accessKeyId: 'AKID' })).status).toBe(400)
+  // Azure is set up once it has its region too.
+  await call('PUT', '/api/voice/providers/azure/key', { apiKey: 'az' })
+  const region = await call('PUT', '/api/voice/providers/azure/region', { region: 'WestEurope' })
+  expect(region.body.providers?.find((p) => p.id === 'azure')).toMatchObject({ configured: true })
+  expect(settings.get().voice.regions).toEqual({ azure: 'westeurope' })
+  expect((await call('PUT', '/api/voice/providers/deepgram/region', { region: 'x' })).status).toBe(400)
+  // The person's own speech service, its key in the vault; removing it puts a choice of it back on this machine.
+  const added = await call('POST', '/api/voice/endpoints', {
+    id: 'kokoro',
+    baseUrl: 'http://localhost:8880/v1/',
+    apiKey: 'kk',
+  })
+  expect(added.body.endpoints).toEqual([{ id: 'kokoro', baseUrl: 'http://localhost:8880/v1', hasKey: true }])
+  expect(vault.get('voice-endpoint-kokoro')).toBe('kk')
+  expect((await call('POST', '/api/voice/endpoints', { id: 'kokoro', baseUrl: 'http://x/v1' })).status).toBe(
+    409,
+  )
+  expect(
+    (await call('POST', '/api/voice/endpoints', { id: 'Bad Name', baseUrl: 'http://x/v1' })).status,
+  ).toBe(400)
+  settings.set({
+    ...settings.get(),
+    voice: { ...settings.get().voice, tts: { ...settings.get().voice.tts, provider: 'endpoint:kokoro' } },
+  })
+  await call('DELETE', '/api/voice/endpoints/kokoro')
+  expect(settings.get().voice.endpoints).toBeUndefined()
+  expect(settings.get().voice.tts.provider).toBe('kitten')
+  expect(vault.has('voice-endpoint-kokoro')).toBe(false)
+  // Voices: the ones a provider ships with when it has no list to ask.
+  const voices = await call('GET', '/api/voice/providers/deepgram/voices')
+  expect((voices.body.voices as { id: string }[])[0]?.id).toBe('aura-2-thalia-en')
+  // A shared key is the model provider's to remove.
+  vault.set('openai', 'sk')
+  expect((await call('DELETE', '/api/voice/providers/openai/key')).status).toBe(400)
+  await call('DELETE', '/api/voice/providers/deepgram/key')
+  expect(vault.has('deepgram')).toBe(false)
 })

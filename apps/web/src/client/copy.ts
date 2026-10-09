@@ -2878,11 +2878,11 @@ export const copy = {
     voice: {
       title: 'Voice',
       intro:
-        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a cloud or any OpenAI-compatible service.',
+        'Call your crew from the chat. The call assistant talks with you on a fast model, hands real work to the crew as a run, and tells you when it is done. Your voice becomes text, and replies become speech, on this Mac or through a voice provider you set up in Models & providers; or one realtime model does all of it.',
       enabled: 'Voice calls',
       /** Sizes are written like "1.3 MB", or empty when the server does not say. */
       enabledHint: (sizes: { detector: string; turn: string; kitten: string }) =>
-        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Cloud and endpoint engines download nothing. All are kept ready, so a call answers at once.`,
+        `Off by default. Turning them on downloads, once, what is not here yet: the speech detector${sizes.detector && ` (${sizes.detector})`}, the turn model${sizes.turn && ` (${sizes.turn})`} and, for Kitten TTS, its model${sizes.kitten && ` (${sizes.kitten})`}. Phonon-2 is not installed for you: press Install below, and its model downloads the first time it starts. Voice providers download nothing. All are kept ready, so a call answers at once.`,
       transcripts: (days: number) =>
         `Call transcripts are kept with their chat for ${days} days, then deleted.`,
       callModel: 'Call assistant model',
@@ -2893,10 +2893,49 @@ export const copy = {
       sttTitle: 'Speech to text',
       ttsTitle: 'Text to speech',
       engineLabel: 'Engine',
+      mode: 'Call mode',
+      modes: { pipeline: 'Pipeline', realtime: 'Realtime' },
+      modeHints: {
+        pipeline:
+          'Your words become text, the call assistant answers on its model, and its answer is spoken: each part is yours to choose below.',
+        realtime:
+          'One realtime model hears you, answers and speaks, so it replies sooner. It has the same tools: it hands work to the crew and puts approvals to you. Calls straight to the lead or a crew member still use speech to text and text to speech below.',
+      },
+      realtimeTitle: 'Realtime model',
+      realtimeProvider: 'Provider',
+      realtimeModel: 'Model',
+      realtimeVoice: 'Voice',
+      noRealtime: 'No realtime model is set up yet: add an OpenAI or Gemini key under Voice providers.',
+      directOnly: 'Used for calls straight to the lead or a crew member.',
+      /** The groups of the speech engine pickers. */
+      groups: {
+        local: 'On this computer',
+        omp: 'Your model providers’ speech models',
+        cloud: 'Voice providers',
+        missing: 'Voice providers without a key',
+        yours: 'Your own services',
+      },
+      needsKey: (provider: string) => `${provider} (needs a key)`,
+      needsRegion: (provider: string) => `${provider} (needs a region)`,
+      addProvider: 'Add a voice provider',
+      addProviderHint:
+        'Voice providers and their keys are set up in Models & providers, with your model providers.',
+      cloudHints: {
+        streams: (provider: string) =>
+          `${provider} hears you as you speak, so your words show while you talk; your audio is sent to ${provider}.`,
+        batch: (provider: string) => `Each turn is sent to ${provider} once you finish speaking.`,
+        speaks: (provider: string) =>
+          `What the call says is sent to ${provider}, and its voice plays as it is made.`,
+        speaksWhole: (provider: string) => `What the call says is sent to ${provider}, a sentence at a time.`,
+        endpoint: (address: string) => `Sent to ${address}.`,
+        fallback: 'If it fails mid-call, the call switches to the engine on this computer, when it is here.',
+      },
+      voicesLoading: 'Loading voices…',
+      endpointModel: 'Model',
+      endpointVoice: 'Voice',
       providers: {
         phonon: 'On-device speech recognition (Phonon-2)',
         omp: 'Cloud (your signed-in providers)',
-        endpoint: 'Your own service (OpenAI-compatible)',
         kitten: 'On-device voices (Kitten TTS)',
       },
       hints: {
@@ -2910,9 +2949,6 @@ export const copy = {
           models
             ? `Uses ${models}: what the call says is sent to that provider to be spoken.`
             : 'Needs an OpenAI or xAI key in Settings → Models; what the call says would be sent to that provider.',
-        endpoint: 'Any service with the OpenAI audio API: Groq, OpenAI, a local whisper or Kokoro server…',
-        endpointStt: 'Your audio is sent to this address to be transcribed.',
-        endpointTts: 'What the call says is sent to this address to be spoken.',
         plainHttp:
           'This address is plain http: your audio and the API key travel unencrypted. Use https unless the service runs on the same computer as Myrmidon.',
         kitten: 'KittenML’s small voices, run locally on the CPU; nothing is sent anywhere.',
@@ -2945,11 +2981,7 @@ export const copy = {
       install: 'Install',
       reinstall: 'Reinstall',
       download: 'Download',
-      baseUrl: 'Address',
       model: 'Model',
-      key: 'API key',
-      keySet: 'Saved; type a new one to replace it',
-      saveKey: 'Save key',
       kittenModel: 'Model size',
       kittenModels: {
         nano: 'Nano (fastest)',
@@ -2974,6 +3006,50 @@ export const copy = {
         callMeHint:
           'The Twilio number calls the SMS owner, who talks with the call assistant as on any call.',
         calling: (to: string) => `Calling ${to}…`,
+      },
+    },
+    /** Settings → Models & providers → Providers: the voice providers part. */
+    voiceProviders: {
+      heading: 'Voice providers',
+      intro:
+        'Speech to text, voices and realtime models for calls. Keys are kept in the same place as your model providers’ keys; where a voice provider is also a model provider (OpenAI, Gemini, Groq), the key you added for its models is used.',
+      tags: { stt: 'Speech to text', tts: 'Voice', realtime: 'Realtime' },
+      streams: 'streams',
+      key: {
+        stored: 'Key saved',
+        shared: (provider: string) => `Uses your ${provider} key`,
+        env: 'Key from the environment',
+        missing: 'No key yet',
+      },
+      addKey: 'Add key',
+      replaceKey: 'Replace key',
+      sharedKeyHint: (provider: string) =>
+        `This is the ${provider} model provider’s key too: add or replace it here, remove it under the model providers above.`,
+      remove: (provider: string) => `Remove ${provider}'s key`,
+      confirmRemove: 'Yes, remove key',
+      savedKey: (provider: string) => `Saved ${provider}'s key`,
+      removedKey: (provider: string) => `Removed ${provider}'s key`,
+      getKey: 'Get a key',
+      apiKey: 'API key',
+      accessKeyId: 'Access key ID',
+      secretAccessKey: 'Secret access key',
+      region: 'Region',
+      regionHint: 'Where your resource is, such as westeurope or us-east-1.',
+      regionSaved: (provider: string) => `Saved ${provider}'s region`,
+      endpoints: {
+        heading: 'Your own speech services',
+        note: 'Any service with the OpenAI audio API: a local whisper, Kokoro or Piper server, and others.',
+        add: 'Add a speech service',
+        name: 'Name',
+        nameHint: 'Lowercase, like kokoro; it is how Settings → Voice lists it.',
+        baseUrl: 'Address',
+        key: 'API key (if it needs one)',
+        connect: 'Add',
+        added: (name: string) => `Added ${name}`,
+        remove: (name: string) => `Remove ${name}`,
+        confirmRemove: 'Yes, remove service',
+        removed: (name: string) => `Removed ${name}`,
+        noKey: 'no key',
       },
     },
     gateways: {

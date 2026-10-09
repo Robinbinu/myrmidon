@@ -17,6 +17,12 @@ export interface TranscribeOptions {
   readonly hotwords?: readonly string[]
 }
 
+export interface ListenOptions {
+  /** Names to favour, as for a turn's transcription. */
+  readonly hotwords?: readonly string[]
+  readonly log?: (line: string) => void
+}
+
 /** Speech to text for a call: one finished turn of 16-bit mono audio in, its words out. */
 export interface SpeechToText {
   transcribe(pcm: Int16Array, sampleRate: number, options?: TranscribeOptions): Promise<string>
@@ -26,7 +32,11 @@ export interface SpeechToText {
    * A turn's words as it is spoken, for an engine that streams; undefined when it cannot now (the turn is then only
    * transcribed once it has ended, as without this).
    */
-  listen?(sampleRate: number, heard: (text: string) => void): LiveTranscription | undefined
+  listen?(
+    sampleRate: number,
+    heard: (text: string) => void,
+    options?: ListenOptions,
+  ): LiveTranscription | undefined
   /** Readies the engine for these hotwords, so the first turn that uses them does not pay for it. */
   prepare?(hotwords: readonly string[]): Promise<void>
 }
@@ -39,6 +49,8 @@ export class OpenAiCompatibleStt implements SpeechToText {
       readonly baseUrl: string
       readonly model: string
       readonly apiKey?: string
+      /** A language hint (ISO-639-1, e.g. `en`) for the endpoints that take one. */
+      readonly language?: string
       /** A Unix socket to reach the endpoint through (Phonon's server listens on one). */
       readonly unix?: string
       /** The endpoint takes a `hotwords` field (Phonon-2's server does; OpenAI's would refuse it). */
@@ -64,6 +76,7 @@ export class OpenAiCompatibleStt implements SpeechToText {
     form.append('file', new Blob([audio as Uint8Array<ArrayBuffer>], { type: mimeType }), name)
     form.append('model', this.options.model)
     form.append('response_format', 'json')
+    if (this.options.language) form.append('language', this.options.language)
     // A JSON list, which Phonon reads as one term per item, so a name with a comma in it stays one name.
     if (this.options.hotwords && hotwords?.length) form.append('hotwords', JSON.stringify(hotwords))
     const res = await fetch(`${this.options.baseUrl.replace(/\/+$/, '')}/audio/transcriptions`, {

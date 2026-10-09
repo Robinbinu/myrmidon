@@ -119,6 +119,16 @@ import {
   VOICE_SPEEDS,
 } from './ui-config.ts'
 import { engineTrouble } from './voice/engine-trouble.ts'
+import type { VoiceEndpointView, VoiceProviderView } from './voice/providers.ts'
+import {
+  AddVoiceProvider,
+  CallModeRow,
+  CloudRows,
+  cloudHint,
+  EnginePicker,
+  RealtimeCard,
+} from './voice/VoiceChoice.tsx'
+import { VoiceProviders } from './voice/VoiceProviders.tsx'
 
 type Api = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai'
 
@@ -175,16 +185,22 @@ export interface ServerSettings {
   voice: {
     enabled: boolean
     callModel?: string
-    stt: { provider: 'phonon' | 'omp' | 'endpoint'; baseUrl?: string; model?: string }
+    /** Pipeline (speech to text, the call model, text to speech) or one realtime model; absent from older servers. */
+    mode?: 'pipeline' | 'realtime'
+    /** `phonon`, `omp`, a voice provider's id, or `endpoint:<id>`. */
+    stt: { provider: string; model?: string }
     tts: {
-      provider: 'kitten' | 'omp' | 'endpoint'
+      provider: string
+      model?: string
+      /** A cloud provider's voice (Kitten's is `voice`). */
+      voiceId?: string
       kittenModel: 'nano' | 'micro' | 'mini'
       voice: string
       speed: number
-      baseUrl?: string
-      model?: string
-      endpointVoice?: string
     }
+    realtime?: { provider?: string; model?: string; voice?: string }
+    regions?: Record<string, string>
+    endpoints?: { id: string; baseUrl: string; keyless?: boolean }[]
     sensitivity: 'low' | 'normal' | 'high'
     /** Phone calls on the SMS channel's Twilio number; absent from older servers. */
     phone?: boolean
@@ -425,8 +441,11 @@ export function Settings(props: {
   onSection.current = props.onSection
   useEffect(() => {
     onSection.current?.(section)
+    if (section !== 'models') setVoiceFocus(false)
   }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
+  // Settings → Voice's "Add a voice provider" opens the Providers tab at its voice part.
+  const [voiceFocus, setVoiceFocus] = useState(false)
   const { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved } =
     useSettingsData(props.onModelsChanged)
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
@@ -685,7 +704,12 @@ export function Settings(props: {
                       onAddProvider={() => setModelsTab('providers')}
                     />
                   ) : (
-                    <Providers data={data} onProviders={providersChanged} update={update} />
+                    <Providers
+                      data={data}
+                      onProviders={providersChanged}
+                      update={update}
+                      focusVoice={voiceFocus}
+                    />
                   )}
                 </>
               )}
@@ -714,7 +738,18 @@ export function Settings(props: {
               {section === 'gateways' && <GatewaysSection />}
               {section === 'channels' && <ChannelsSection initial={props.initialChannel} />}
               {section === 'voice' && data && (
-                <VoiceSection settings={data.settings} update={update} models={props.models} />
+                <VoiceSection
+                  settings={data.settings}
+                  update={update}
+                  models={props.models}
+                  onAddProvider={() =>
+                    leave(() => {
+                      setModelsTab('providers')
+                      setVoiceFocus(true)
+                      setSection('models')
+                    })
+                  }
+                />
               )}
               {section === 'computer' && data && (
                 <ComputerSection
@@ -1580,6 +1615,8 @@ export function Providers(props: {
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
   /** Inside the setup assistant, which has its own heading and says where keys are kept itself. */
   embedded?: boolean
+  /** Scrolled to the voice providers (from Settings → Voice). */
+  focusVoice?: boolean
 }) {
   const off = new Set(props.data.settings.models.hiddenProviders)
   const setOff = (id: string, hide: boolean) =>
@@ -1837,6 +1874,7 @@ export function Providers(props: {
         <span className="font-mono">ANTHROPIC_API_KEY</span>
         {copy.settings.providers.envAfter}
       </p>
+      {!props.embedded && <VoiceProviders focus={props.focusVoice ?? false} />}
     </>
   )
 }
@@ -3415,6 +3453,10 @@ function ChannelSheet(props: {
 export interface VoiceStatusView {
   enabled: boolean
   callModel?: string
+  mode?: 'pipeline' | 'realtime'
+  /** The voice providers and the person's own services; absent from older servers. */
+  providers?: VoiceProviderView[]
+  endpoints?: VoiceEndpointView[]
   stt: {
     provider: ServerSettings['voice']['stt']['provider']
     phonon: { state: string; line?: string; error?: string }
@@ -3448,16 +3490,6 @@ function voiceBusy(s: VoiceStatusView | undefined): boolean {
   )
 }
 
-/** A plain http address to another machine, where a key and audio would travel unencrypted. */
-function plainHttp(url: string | undefined): boolean {
-  if (!url?.startsWith('http://')) return false
-  try {
-    return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)
-  } catch {
-    return false
-  }
-}
-
 /** A speech engine that failed: what went wrong and what to do, with its own message behind details. */
 export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string }) {
   const t = copy.settings.voice.trouble
@@ -3479,23 +3511,22 @@ export function EngineTrouble(props: { engine: 'phonon' | 'kitten'; raw: string 
 }
 
 /**
- * Voice calls: the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and Kitten TTS,
- * installed from here — or the person's cloud providers, or any OpenAI-compatible endpoint), and how loud speech must
- * be to count.
+ * Voice calls: the call mode, the call model, speech to text and text to speech (on this Mac by default — Phonon-2 and
+ * Kitten TTS, installed from here — omp's speech models, the voice providers set up in Models & providers, or the
+ * person's own services), a realtime model, and how loud speech must be to count.
  */
 function VoiceSection(props: {
   settings: ServerSettings
   update(p: (s: ServerSettings) => ServerSettings): void
   models: ModelOption[]
+  /** Opens Models & providers at its voice providers. */
+  onAddProvider(): void
 }) {
   const t = copy.settings.voice
   const toast = useToast()
   const v = props.settings.voice
   const [status, setStatus] = useState<VoiceStatusView>()
-  const [keys, setKeys] = useState({ stt: '', tts: '' })
   const [trying, setTrying] = useState(false)
-  const [urls, setUrls] = useState({ stt: v.stt.baseUrl ?? '', tts: v.tts.baseUrl ?? '' })
-  const [urlErrors, setUrlErrors] = useState<{ stt?: string; tts?: string }>({})
   // A failing look is said once, not again on every later look that fails the same way.
   const failed = useRef<string>(undefined)
   // Counts finished looks, so each one, answered or failed, can schedule the next.
@@ -3535,6 +3566,9 @@ function VoiceSection(props: {
       : ((t.engine[s.state as keyof typeof t.engine] as string | undefined) ?? s.state)
   const sizes = status?.sizes
   const size = (bytes: number | undefined) => (bytes ? formatSize(bytes) : '')
+  const providers = status?.providers ?? []
+  const endpoints = status?.endpoints ?? []
+  const realtime = v.mode === 'realtime'
   const tryIt = async () => {
     setTrying(true)
     try {
@@ -3548,86 +3582,18 @@ function VoiceSection(props: {
       setTrying(false)
     }
   }
-  const saveKey = (which: 'stt' | 'tts') =>
-    void act(send('PUT', '/api/voice/keys', { [which]: keys[which] })).then(() =>
-      setKeys((k) => ({ ...k, [which]: '' })),
-    )
-  const endpointFields = (which: 'stt' | 'tts') => {
-    const e = v[which]
-    return (
-      <>
-        <CardRow>
-          <Field
-            label={t.baseUrl}
-            hint={plainHttp(urls[which].trim()) ? t.hints.plainHttp : t.hints.endpoint}
-            error={urlErrors[which]}
-          >
-            <TextInput
-              value={urls[which]}
-              placeholder="https://api.groq.com/openai/v1"
-              onChange={(ev) => setUrls((u) => ({ ...u, [which]: ev.target.value }))}
-              onBlur={() => {
-                const baseUrl = urls[which].trim()
-                const error = baseUrlError(baseUrl)
-                setUrlErrors((u) => ({ ...u, [which]: error }))
-                // An address that is not one is not saved; clearing the field is.
-                if (!error || !baseUrl)
-                  set((x) => ({ ...x, [which]: { ...x[which], baseUrl: baseUrl || undefined } }))
-              }}
-              aria-label={t.baseUrl}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
-        <CardRow>
-          <Field label={t.model}>
-            <TextInput
-              defaultValue={e.model ?? ''}
-              placeholder={which === 'stt' ? 'whisper-large-v3' : 'tts-1'}
-              onBlur={(ev) => {
-                const model = ev.target.value.trim()
-                set((x) => ({ ...x, [which]: { ...x[which], model: model || undefined } }))
-              }}
-              aria-label={t.model}
-              className="font-mono"
-            />
-          </Field>
-        </CardRow>
-        {which === 'tts' && (
-          <CardRow>
-            <Field label={t.voice}>
-              <TextInput
-                defaultValue={v.tts.endpointVoice ?? ''}
-                placeholder="alloy"
-                onBlur={(ev) => {
-                  const endpointVoice = ev.target.value.trim()
-                  set((x) => ({ ...x, tts: { ...x.tts, endpointVoice: endpointVoice || undefined } }))
-                }}
-                aria-label={t.voice}
-              />
-            </Field>
-          </CardRow>
-        )}
-        <CardRow>
-          <Field label={t.key} hint={status?.[which].keySet ? t.keySet : undefined}>
-            <div className="flex gap-2">
-              <TextInput
-                type="password"
-                autoComplete="off"
-                value={keys[which]}
-                onChange={(ev) => setKeys((k) => ({ ...k, [which]: ev.target.value }))}
-                aria-label={t.key}
-                className="font-mono"
-              />
-              <Button size="sm" disabled={!keys[which].trim()} onClick={() => saveKey(which)}>
-                {t.saveKey}
-              </Button>
-            </div>
-          </Field>
-        </CardRow>
-      </>
-    )
-  }
+  const sttHint =
+    v.stt.provider === 'phonon'
+      ? t.hints.phonon(size(sizes?.phonon))
+      : v.stt.provider === 'omp'
+        ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
+        : cloudHint('stt', v.stt.provider, providers, endpoints)
+  const ttsHint =
+    v.tts.provider === 'kitten'
+      ? t.hints.kitten
+      : v.tts.provider === 'omp'
+        ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
+        : cloudHint('tts', v.tts.provider, providers, endpoints)
   const onOff = (
     <Card className="mb-6">
       <CardRow>
@@ -3666,44 +3632,47 @@ function VoiceSection(props: {
       <PageHeader title={t.title}>{t.intro}</PageHeader>
       {onOff}
       <Card className="mb-6">
-        <CardRow>
-          <Field label={t.callModel} hint={t.callModelHint}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented
-                id="call-model"
-                value={v.callModel ? 'own' : 'lead'}
-                options={[
-                  { value: 'lead', label: t.sameAsLead },
-                  { value: 'own', label: t.ownModel },
-                ]}
-                onChange={(choice) =>
-                  set((x) => ({
-                    ...x,
-                    callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
-                  }))
-                }
-              />
-              {v.callModel ? (
-                <ModelPicker
-                  variant="compact"
-                  label={t.callModel}
-                  value={v.callModel}
-                  models={props.models}
-                  placement="down"
-                  onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+        <CallModeRow voice={v} set={set} />
+        {!realtime && (
+          <CardRow>
+            <Field label={t.callModel} hint={t.callModelHint}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  id="call-model"
+                  value={v.callModel ? 'own' : 'lead'}
+                  options={[
+                    { value: 'lead', label: t.sameAsLead },
+                    { value: 'own', label: t.ownModel },
+                  ]}
+                  onChange={(choice) =>
+                    set((x) => ({
+                      ...x,
+                      callModel: choice === 'lead' ? undefined : (status?.callModel ?? props.models[0]?.ref),
+                    }))
+                  }
                 />
-              ) : (
-                status?.callModel && (
-                  <span className="text-callout text-muted">
-                    {t.leadModel(
-                      props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
-                    )}
-                  </span>
-                )
-              )}
-            </div>
-          </Field>
-        </CardRow>
+                {v.callModel ? (
+                  <ModelPicker
+                    variant="compact"
+                    label={t.callModel}
+                    value={v.callModel}
+                    models={props.models}
+                    placement="down"
+                    onChange={(callModel) => set((x) => ({ ...x, callModel }))}
+                  />
+                ) : (
+                  status?.callModel && (
+                    <span className="text-callout text-muted">
+                      {t.leadModel(
+                        props.models.find((m) => m.ref === status.callModel)?.name ?? status.callModel,
+                      )}
+                    </span>
+                  )
+                )}
+              </div>
+            </Field>
+          </CardRow>
+        )}
         <CardRow>
           <Field label={t.sensitivity} hint={t.sensitivityHint} inline>
             <Select
@@ -3721,31 +3690,27 @@ function VoiceSection(props: {
         </CardRow>
       </Card>
 
-      <SectionHeader as="h3" className="mb-2" title={t.sttTitle} />
+      {realtime && (
+        <>
+          <SectionHeader as="h3" className="mb-2" title={t.realtimeTitle} />
+          <RealtimeCard voice={v} providers={providers} set={set} onAddProvider={props.onAddProvider} />
+        </>
+      )}
+
+      <div className="mb-2 flex items-center justify-between">
+        <SectionHeader as="h3" title={t.sttTitle} note={realtime ? t.directOnly : undefined} />
+        <AddVoiceProvider onClick={props.onAddProvider} />
+      </div>
       <Card className="mb-6">
         <CardRow>
-          <Field
-            label={t.engineLabel}
-            hint={
-              v.stt.provider === 'phonon'
-                ? t.hints.phonon(size(sizes?.phonon))
-                : v.stt.provider === 'omp'
-                  ? t.hints.ompStt(status?.stt.omp.join(', ') ?? '')
-                  : t.hints.endpointStt
-            }
-          >
-            <Select
-              value={v.stt.provider}
-              onChange={(e) =>
-                set((x) => ({ ...x, stt: { ...x.stt, provider: e.target.value as typeof v.stt.provider } }))
-              }
-              aria-label={t.sttTitle}
-            >
-              <option value="phonon">{t.providers.phonon}</option>
-              <option value="omp">{t.providers.omp}</option>
-              <option value="endpoint">{t.providers.endpoint}</option>
-            </Select>
-          </Field>
+          <EnginePicker
+            kind="stt"
+            voice={v}
+            providers={providers}
+            endpoints={endpoints}
+            set={set}
+            hint={sttHint}
+          />
         </CardRow>
         {v.stt.provider === 'phonon' && status && (
           <CardRow>
@@ -3768,34 +3733,20 @@ function VoiceSection(props: {
             </div>
           </CardRow>
         )}
-        {v.stt.provider === 'endpoint' && endpointFields('stt')}
+        <CloudRows kind="stt" voice={v} providers={providers} set={set} />
       </Card>
 
-      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} />
+      <SectionHeader as="h3" className="mb-2" title={t.ttsTitle} note={realtime ? t.directOnly : undefined} />
       <Card className="mb-6">
         <CardRow>
-          <Field
-            label={t.engineLabel}
-            hint={
-              v.tts.provider === 'kitten'
-                ? t.hints.kitten
-                : v.tts.provider === 'omp'
-                  ? t.hints.ompTts(status?.tts.omp.join(', ') ?? '')
-                  : t.hints.endpointTts
-            }
-          >
-            <Select
-              value={v.tts.provider}
-              onChange={(e) =>
-                set((x) => ({ ...x, tts: { ...x.tts, provider: e.target.value as typeof v.tts.provider } }))
-              }
-              aria-label={t.ttsTitle}
-            >
-              <option value="kitten">{t.providers.kitten}</option>
-              <option value="omp">{t.providers.omp}</option>
-              <option value="endpoint">{t.providers.endpoint}</option>
-            </Select>
-          </Field>
+          <EnginePicker
+            kind="tts"
+            voice={v}
+            providers={providers}
+            endpoints={endpoints}
+            set={set}
+            hint={ttsHint}
+          />
         </CardRow>
         {v.tts.provider === 'kitten' && (
           <>
@@ -3857,7 +3808,7 @@ function VoiceSection(props: {
             </CardRow>
           </>
         )}
-        {v.tts.provider === 'endpoint' && endpointFields('tts')}
+        <CloudRows kind="tts" voice={v} providers={providers} set={set} />
         <CardRow>
           <Field label={t.speed} inline>
             <Select
