@@ -2218,6 +2218,10 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
+      // What the person has written before, for the composer's suggestions (learned in the page, never sent on).
+      '/api/suggestions': {
+        GET: guard(async () => json({ said: options.chats ? await options.chats.said() : [] })),
+      },
       // Chats by what was said in them; the chat list already matches titles itself.
       '/api/chats/search': {
         GET: guard(async (_req, url) =>
