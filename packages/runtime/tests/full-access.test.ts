@@ -338,3 +338,72 @@ test('on a computer with no sandbox, commands are refused unless the round has f
   expect(free.sandbox.kind).toBe('unconfined')
   expect(free.localPorts()).toBe('all')
 })
+
+/** Like `models`, and `seen` keeps the newest message each call was given, as text. */
+function watching(script: MockContent[][]) {
+  const resolver = new ModelResolver()
+  let call = 0
+  const seen: string[] = []
+  const lead = createMockModel({
+    handler: (ctx) => {
+      const last = ctx.messages.filter((m) => m.role === 'user').at(-1)?.content
+      seen.push(typeof last === 'string' ? last : JSON.stringify(last))
+      return { content: script[call++] ?? ['ok'] }
+    },
+  })
+  resolver.register('mock/lead', { model: lead.model, streamFn: lead.stream })
+  const judge = createMockModel({ handler: () => ({ content: ['{"score": 0.9, "reasons": "complete"}'] }) })
+  resolver.register('mock/judge', { model: judge.model, streamFn: judge.stream })
+  return Object.assign(resolver, { seen })
+}
+
+test('a round after the person changed access opens by saying so; a round after no change does not', async () => {
+  const settings = new SettingsStore(home)
+  const answer = [tool('reply_user', { text: 'Done.', final: true })]
+  const told = watching([answer, answer, answer])
+  const chats = new ChatService(runtime, { resolver: told, settings })
+  const one = await chats.send('list my ssh keys', config)
+  await waitFor(one.colonyId)
+  await chats.setChatPermissions(one.chatId, { preset: 'full', rules: [] })
+  const two = await chats.send('now', config, one.chatId)
+  expect((await waitFor(two.colonyId)).fullAccess).toBe(true)
+  const opening = told.seen.find((m) => m.includes('[user] now'))
+  expect(opening).toContain(
+    'Since your last answer the person changed what you may do: full access is now on (no sandbox; your commands run as the person',
+  )
+  expect(opening).toContain('may work now: try it.')
+  // The round logs what its agents were told, so the next change is told as a change.
+  const started = (await events(two.colonyId)).filter((e) => e.type === 'round/started').at(-1)
+  expect((started?.payload as EventPayloads['round/started'] | undefined)?.access).toMatchObject({
+    preset: 'full',
+    fullAccess: true,
+  })
+  const three = await chats.send('again', config, one.chatId)
+  await waitFor(three.colonyId)
+  expect(told.seen.find((m) => m.includes('[user] again'))).not.toContain('Since your last answer')
+  await chats.stopAll()
+})
+
+test('a change mid-round reaches the agent at its next step, without stopping it', async () => {
+  const settings = new SettingsStore(home)
+  const told = watching([
+    [tool('request_read', { path: outside, reason: 'the spec is there' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  const chats = new ChatService(runtime, { resolver: told, settings })
+  const { chatId, colonyId } = await chats.send('Read the spec', config)
+  const waiting = await waitFor(colonyId, (s) => pending(s).length > 0)
+  await chats.setChatPermissions(chatId, {
+    rules: [{ kind: 'command', target: 'bun test', decision: 'allow' }],
+  })
+  await chats.decideApproval(colonyId, pending(waiting)[0]?.id ?? '', true)
+  await waitFor(colonyId)
+  expect(told.seen.at(-1)).toContain(
+    'The person just changed what you may do: these now run without asking: `bun test`',
+  )
+  const changed = (await events(colonyId)).find((e) => e.type === 'permissions/changed')
+  const p = changed?.payload as EventPayloads['permissions/changed']
+  expect(p.interrupted).toEqual([])
+  expect(p.access?.rules).toEqual([{ kind: 'command', target: 'bun test', decision: 'allow' }])
+  await chats.stopAll()
+})

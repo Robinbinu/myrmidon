@@ -5,6 +5,7 @@ import type {
   PermissionLevel,
   PermissionRule,
   PermissionSource,
+  RoundAccess,
 } from './permissions.ts'
 
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
@@ -69,6 +70,8 @@ export interface ApprovalRequest {
   role?: AgentRole
   /** Set when an agent asks to read this folder outside what it may read: the person allows it once or for the chat. */
   read?: string
+  /** `read` is (or lies in) a folder of keys or sign-ins: the card warns, and offers once or this chat only. */
+  sensitive?: boolean
 }
 
 /**
@@ -197,6 +200,8 @@ export interface EventPayloads {
     fullAccess?: boolean
     /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
     computerUse?: boolean
+    /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
+    access?: RoundAccess
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -356,6 +361,8 @@ export interface EventPayloads {
     /** Whether the round has full access from here on, when that changed. */
     fullAccess?: boolean
     interrupted: string[]
+    /** What the round's agents may do from here on, as they were just told it. */
+    access?: RoundAccess
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
