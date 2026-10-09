@@ -68,7 +68,7 @@ export const PROMPT_HEADING_WORDS = {
 export const PROMPT_ROLE_WORDS = {
   answer: 620,
   solo: 1340,
-  crewmate: 1040,
+  crewmate: 1100,
   'team-lead': 940,
   'team-lead-hands-on': 1560,
   'team-worker': 1180,

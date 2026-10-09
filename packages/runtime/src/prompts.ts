@@ -219,6 +219,15 @@ export const prompts = {
     docs: (working: boolean) =>
       `read_docs pages: overview, ${working ? 'working (the longer method: research, code, pages, writing, design), ' : ''}modes, coordination, verification, chat, limits, tools. Read one when unsure how to proceed.`,
     projectRules: PROJECT_RULES,
+    /** Per-model-family guidance (prompt/families.ts says which family gets which, and why). */
+    families: {
+      // After Hermes' TOOL_USE_ENFORCEMENT_GUIDANCE ("do not describe what you would do ... never end your turn with a
+      // promise of future action"), in calm second person.
+      act: 'Act with your tools rather than describe what you would do: when you say you will run, read or write something, make that call in the same step. Never end a turn on a plan or a promise of later work; each turn either makes progress with tool calls or delivers the result.',
+      // After omp's malformed-function-call-retry.md ("function calls written as text ... are NOT calls").
+      calls:
+        "Call tools only through the function-calling interface, with arguments as a JSON object that matches the tool's schema. A call written as text (a code block, print(default_api…), <function=…> or <invoke> tags) never runs; if one fails to parse, issue it again the proper way, with no prose around it.",
+    },
     /** The delegation brief's heads, one per line. */
     brief: BRIEF,
     /** For an agent in the person's real folder. `propose`: it has propose. */

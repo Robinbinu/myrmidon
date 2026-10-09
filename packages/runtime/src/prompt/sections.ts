@@ -1,6 +1,7 @@
 import { clockMinutes, localDate } from '../clock.ts'
 import { prompts } from '../prompts.ts'
 import { type CrewInfo, has, type PromptFacts, type ToolGroup } from './facts.ts'
+import { FAMILY_BLOCKS } from './families.ts'
 
 /**
  * Where a section sits for prompt caching, after Hermes' three tiers: `stable` depends only on the agent's role,
@@ -493,6 +494,12 @@ export const SECTIONS: readonly Section[] = [
             .join(' or '),
         ),
     },
+    // One section per model-family block, shown only to agents on a model of that family.
+    ...FAMILY_BLOCKS.map((b) => ({
+      key: `family:${b.key}`,
+      guard: (f: PromptFacts) => b.families.includes(f.model.family),
+      render: () => b.text,
+    })),
     { key: 'plugins-how', guard: (f) => has(f, 'create_plugin'), render: () => say.plugins },
     { key: 'docs', guard: (f) => has(f, 'read_docs'), render: (f) => say.docs(f.agent.works) },
   ]),

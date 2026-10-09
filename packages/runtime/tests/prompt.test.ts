@@ -12,8 +12,9 @@ import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/in
 import { inputSchema } from '../src/made-tools.ts'
 import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
 import { projectGit } from '../src/project-context.ts'
-import { assemble } from '../src/prompt/assemble.ts'
+import { assemble, renderSections } from '../src/prompt/assemble.ts'
 import { factsFor, modelFamily } from '../src/prompt/facts.ts'
+import { FAMILY_BLOCKS } from '../src/prompt/families.ts'
 import { lint, undescribed, viewOf } from '../src/prompt/lint.ts'
 import { HEADINGS, SECTIONS, tierOf } from '../src/prompt/sections.ts'
 import { prompts } from '../src/prompts.ts'
@@ -559,4 +560,24 @@ test('the call assistant knows the time, what to say of running work, and how to
   // Every tool it names is one it has.
   const names = VOICE_TOOLS.map((t) => t.name)
   for (const called of text.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) expect(names).toContain(called)
+})
+
+test('model-family blocks reach only the families that need them', () => {
+  const blocks = (model: string) => {
+    const agent = { ...lead, model }
+    const keys = renderSections(factsFor(chat({ agents: [agent] }), agent, base)).map((r) => r.section.key)
+    return keys.filter((k) => k.startsWith('family:'))
+  }
+  // Claude does not end turns describing intentions (Hermes leaves it out); GPT and DeepSeek do.
+  expect(blocks('anthropic/claude-sonnet')).toEqual([])
+  expect(blocks('openai/gpt-5')).toEqual(['family:act'])
+  expect(blocks('deepseek/deepseek-chat')).toEqual(['family:act'])
+  // Gemini and Qwen also write tool calls as text.
+  expect(blocks('google/gemini-2.5-pro')).toEqual(['family:act', 'family:calls'])
+  expect(blocks('ollama/qwen3:8b')).toEqual(['family:act', 'family:calls'])
+  expect(blocks('mock/x')).toEqual([])
+  const text = assemble(factsFor(chat({ agents: [lead] }), { ...lead, model: 'openai/gpt-5' }, base))
+    .system[0]
+  expect(text).toContain('Act with your tools rather than describe what you would do')
+  for (const b of FAMILY_BLOCKS) expect(b.families.length).toBeGreaterThan(0)
 })
