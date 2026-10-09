@@ -17,6 +17,7 @@ import {
   COMPUTER_LOCK_WAIT_MS,
   COMPUTER_START_MS,
   CUA_DRIVER_BYTES,
+  CUA_DRIVER_FALLBACK_ENV,
   CUA_DRIVER_PATHS,
   CUA_DRIVER_SHA256,
   CUA_DRIVER_URL,
@@ -75,6 +76,22 @@ export interface DriverResult {
 const FOREGROUND = '\0foreground'
 const same = (a: Holder, b: Holder) => a.colonyId === b.colonyId && a.agent === b.agent
 
+/**
+ * The environment a driver gets: Myrmidon's own for the release it pinned, only the basics (CUA_DRIVER_FALLBACK_ENV)
+ * for one the person installed, whatever it is.
+ */
+function driverEnv(
+  info: Pick<DriverInfo, 'own'>,
+  extra: Record<string, string>,
+): Record<string, string | undefined> {
+  const base = info.own
+    ? process.env
+    : Object.fromEntries(
+        CUA_DRIVER_FALLBACK_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : [])),
+      )
+  return { ...base, ...extra }
+}
+
 /** The macOS privacy grants of this process, read without asking (bun:ffi), or undefined off macOS. */
 export function readGrants(): Grants | undefined {
   if (process.platform !== 'darwin') return undefined
@@ -124,6 +141,8 @@ export class ComputerHub {
   private readonly _stops = new Map<string, () => void>()
   /** Rounds the person stopped: they may not use the computer again. */
   private readonly _stopped = new Set<string>()
+  /** Rounds about to drive the desktop (on an app's card, waiting for the app), and how to end each wait. */
+  private readonly _waiting = new Map<string, Set<() => void>>()
 
   constructor(
     home: string,
@@ -177,7 +196,7 @@ export class ComputerHub {
     for (const raw of this.options.paths ?? CUA_DRIVER_PATHS) {
       const path = raw.startsWith('~/') ? join(homedir(), raw.slice(2)) : raw
       if (existsSync(path)) {
-        const version = driverVersion(path)
+        const version = driverVersion(path, { own: false })
         this._info = { path, own: false, ...(version ? { version } : {}) }
         return this._info
       }
@@ -279,8 +298,12 @@ export class ComputerHub {
       DO_NOT_TRACK: '1',
       ...(this.options.hostBundleId ? { CUA_DRIVER_HOST_BUNDLE_ID: this.options.hostBundleId } : {}),
     }
+    if (!info.own)
+      this.options.log?.(
+        `cua-driver: running your own install at ${info.path}, not the release Myrmidon pinned, with a minimal environment`,
+      )
     const daemon = spawnLeashed([info.path, 'serve', '--embedded', '--socket', socket], {
-      env: { ...process.env, ...env },
+      env: driverEnv(info, env),
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -377,9 +400,14 @@ export class ComputerHub {
    * Takes an app for one agent: it is the only one driving that app until it lets go (or its round ends). Another
    * agent waits for it a while, then is told who has it.
    */
-  async take(app: { name: string; bundleId: string }, holder: Holder, waitMs = COMPUTER_LOCK_WAIT_MS) {
+  take(app: { name: string; bundleId: string }, holder: Holder, waitMs = COMPUTER_LOCK_WAIT_MS) {
+    return this.beforeControl(holder.colonyId, () => this._take(app, holder, waitMs))
+  }
+
+  private async _take(app: { name: string; bundleId: string }, holder: Holder, waitMs: number) {
     const deadline = Date.now() + waitMs
     for (;;) {
+      if (this._stopped.has(holder.colonyId)) throw new Error('the person stopped computer use')
       const held = this._locks.get(app.bundleId)
       if (!held || same(held, holder)) break
       if (Date.now() >= deadline)
@@ -393,6 +421,26 @@ export class ComputerHub {
       app.bundleId,
       held ?? { ...holder, app: app.name, bundleId: app.bundleId, since: Date.now() },
     )
+  }
+
+  /**
+   * Runs `work` (an app's approval card, waiting for the app) for a round about to drive the desktop, so the person's
+   * Stop reaches it there too: it ends at once with an error, and the round never takes the app after.
+   */
+  async beforeControl<T>(colonyId: string, work: () => Promise<T>): Promise<T> {
+    const waits = this._waiting.get(colonyId) ?? new Set()
+    this._waiting.set(colonyId, waits)
+    let end = () => {}
+    const stopped = new Promise<never>((_, reject) => {
+      end = () => reject(new Error('the person stopped computer use'))
+    })
+    waits.add(end)
+    try {
+      return await Promise.race([work(), stopped])
+    } finally {
+      waits.delete(end)
+      if (!waits.size) this._waiting.delete(colonyId)
+    }
   }
 
   /** Runs `work` while holding the foreground: the actions that must bring a window forward go one at a time. */
@@ -438,21 +486,22 @@ export class ComputerHub {
 
   /** The person's Stop (or Esc): every round driving the desktop stops doing so for good, and lets go of its apps. */
   stopAll(): number {
-    const colonies = new Set(this.controls().map((c) => c.colonyId))
+    const colonies = new Set([...this.controls().map((c) => c.colonyId), ...this._waiting.keys()])
     for (const id of colonies) {
       this._stopped.add(id)
       this._stops.get(id)?.()
       this.release(id, undefined, true)
+      for (const end of this._waiting.get(id) ?? []) end()
     }
     return colonies.size
   }
 }
 
 /** The driver's version, from its machine-readable manifest. */
-function driverVersion(path: string): string | undefined {
+function driverVersion(path: string, info: Pick<DriverInfo, 'own'>): string | undefined {
   try {
     const out = Bun.spawnSync([path, 'manifest'], {
-      env: { ...process.env, DO_NOT_TRACK: '1' },
+      env: driverEnv(info, { DO_NOT_TRACK: '1' }),
       stdout: 'pipe',
       stderr: 'ignore',
       timeout: 5_000,

@@ -353,6 +353,11 @@ export const CUA_DRIVER_PATHS = [
   '/usr/local/bin/cua-driver',
   '/opt/homebrew/bin/cua-driver',
 ]
+/**
+ * The environment variables a driver the person installed gets: it is not the release Myrmidon pinned, so it does not
+ * see Myrmidon's own environment (provider keys, tokens).
+ */
+export const CUA_DRIVER_FALLBACK_ENV = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG'] as const
 /** How long the driver's daemon may take to open its socket, and one desktop action (an accessibility walk) to answer. */
 export const COMPUTER_START_MS = 15_000
 export const COMPUTER_CALL_MS = 60_000
@@ -397,6 +402,11 @@ export const COMPUTER_VIEW_ONLY_APPS = [
   /^com\.vivaldi\./,
   /^org\.chromium\./,
   /^com\.kagi\.kagimacOS/,
+  /^org\.torproject\.torbrowser/,
+  /^com\.duckduckgo\.macos\.browser/,
+  /^app\.zen-browser\./,
+  /^org\.mozilla\.librewolf/,
+  /^net\.waterfox\./,
   /^com\.tradingview\./,
   /^com\.robinhood\./,
   /^com\.webull\./,
@@ -405,7 +415,23 @@ export const COMPUTER_VIEW_ONLY_APPS = [
   /^com\.fidelity\./,
   /^com\.schwab\./,
 ]
+/**
+ * Apps that run the scripts, workflows or shortcuts typed into them: as good as a shell, so click-only with its
+ * warning. Their run key, and a click on Run, ask first.
+ */
+export const COMPUTER_SCRIPT_APPS = [
+  /^com\.apple\.ScriptEditor2$/,
+  /^com\.apple\.Automator$/,
+  /^com\.apple\.shortcuts$/,
+  /^com\.latenightsw\.ScriptDebugger/,
+  /^com\.stairways\.keyboardmaestro\./,
+  /^org\.hammerspoon\.Hammerspoon$/,
+  /^com\.raycast\.macos$/,
+]
+export const COMPUTER_SCRIPT_KEYS = [/^cmd\+r$/i]
+export const COMPUTER_SCRIPT_LABEL = /\brun\b/i
 export const COMPUTER_SHELL_APPS = [
+  ...COMPUTER_SCRIPT_APPS,
   /^com\.apple\.Terminal$/,
   /^com\.googlecode\.iterm2$/,
   /^dev\.warp\./,
@@ -442,7 +468,9 @@ export const COMPUTER_SENSITIVE_LABEL =
 export const COMPUTER_SENSITIVE_KEYS = [
   /^(cmd|ctrl)\+(return|enter)$/i,
   /^cmd\+(delete|backspace)$/i,
-  /^shift\+cmd\+delete$/i,
+  /^(shift\+cmd|cmd\+shift)\+delete$/i,
+  // Mail's Send.
+  /^(shift\+cmd|cmd\+shift)\+d$/i,
 ]
 /** Apps where Return sends what was typed (a message, a mail): pressing it there asks first. */
 export const COMPUTER_SEND_APPS = [
