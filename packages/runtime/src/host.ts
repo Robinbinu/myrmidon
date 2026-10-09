@@ -42,6 +42,8 @@ export interface ColonyHost {
   /** Lets a worker go: it stops now and later rounds of the chat leave it out. */
   dismissWorker(by: string, name: string, reason: string): Promise<string>
   deadline(): number
+  /** What this round has used so far, against its limits; a chat's colony keeps running totals across rounds. */
+  spent(): { cost: number; tokens: number }
   /** An agent's tool batch has finished (all calls in one model response have results). */
   batchEnded(agent: string): void
   /** An agent's model failed for good (a refusal, or an error that retries did not fix): pause for the person. */

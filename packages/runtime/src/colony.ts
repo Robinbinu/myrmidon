@@ -21,6 +21,7 @@ import {
   type EventDraft,
   type EventPayloads,
   emptyColonyState,
+  foldColony,
   type MyrEvent,
   mentionsIn,
   outsideEffects,
@@ -176,6 +177,12 @@ export interface Attachment {
   readonly bytes: Uint8Array
 }
 
+/** Cost and tokens every agent of the colony has used, over all of its rounds. */
+function totals(state: ColonyState): { cost: number; tokens: number } {
+  const agents = Object.values(state.agents)
+  return { cost: agents.reduce((n, a) => n + a.cost, 0), tokens: agents.reduce((n, a) => n + a.tokens, 0) }
+}
+
 /** How a wake is delivered: `mail` is recorded as read when the agent sees it; `queue` waits for the agent's current work. */
 interface Delivery {
   readonly mail?: MyrEvent['id']
@@ -201,6 +208,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _timers: ReturnType<typeof setInterval>[] = []
   private _finish!: (s: ColonyState) => void
   private _deadline = 0
+  /** The colony's totals when this round started: a chat's colony keeps running totals across its rounds. */
+  private _spentBefore = { cost: 0, tokens: 0 }
   private _finalRunning = false
   private _verifying = 0
   private _quietSince?: number
@@ -269,6 +278,11 @@ export class ColonyRun implements ColonyHost {
 
   deadline() {
     return this._deadline
+  }
+
+  spent() {
+    const now = totals(this._state)
+    return { cost: now.cost - this._spentBefore.cost, tokens: now.tokens - this._spentBefore.tokens }
   }
 
   get browser() {
@@ -875,6 +889,17 @@ export class ColonyRun implements ColonyHost {
     const started = past.find((e) => e.type === 'colony/started')
     const used = started ? Date.parse(past.at(-1)?.time ?? started.time) - Date.parse(started.time) : 0
     const left = Math.max(this.spec.budget.wallMs - used, this.spec.budget.wallMs / 2)
+    // Like the clock, a resumed round gets at least half its spend and token limits back, so a round a limit
+    // stopped can go on.
+    const start = this._state.rounds.at(-1)?.startSeq
+    const now = totals(this._state)
+    const before = start ? totals(foldColony(this.id, past, start - 1)) : { cost: 0, tokens: 0 }
+    const counted = (used: number, limit: number | undefined) =>
+      limit === undefined ? used : Math.min(used, limit / 2)
+    this._spentBefore = {
+      cost: now.cost - counted(now.cost - before.cost, this.spec.budget.costUsd),
+      tokens: now.tokens - counted(now.tokens - before.tokens, this.spec.budget.tokens),
+    }
     await this.preflight()
     this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
       if (colonyId !== this.id) return
@@ -909,6 +934,7 @@ export class ColonyRun implements ColonyHost {
       this._agents.set(a.name, agent)
     }
     this._deadline = Date.now() + wallMs
+    if (!resumedBecause) this._spentBefore = totals(this._state)
     this._bootstrapAt = Date.now()
     const swarm = this.spec.team?.mode === 'swarm' && this.spec.tier === 'team' && this.spec.agents.length > 1
     const from = this._state.rounds.at(-1)?.startSeq ?? 0
@@ -1635,15 +1661,11 @@ export class ColonyRun implements ColonyHost {
           break
         }
         const { costUsd, tokens } = this.spec.budget
-        const agents = Object.values(this._state.agents)
-        const spent = agents.reduce((n, a) => n + a.cost, 0)
-        const used = agents.reduce((n, a) => n + a.tokens, 0)
-        if (costUsd !== undefined && spent >= costUsd)
-          void this.stop(`budget: cost $${spent.toFixed(3)} reached limit $${costUsd}`)
-        else if (tokens !== undefined && used >= tokens)
-          void this.stop(
-            `budget: ${used.toLocaleString('en-US')} tokens reached limit ${tokens.toLocaleString('en-US')}`,
-          )
+        const spent = this.spent()
+        if (costUsd !== undefined && spent.cost >= costUsd)
+          void this.stop(prompts.colony.spendLimit(spent.cost, costUsd))
+        else if (tokens !== undefined && spent.tokens >= tokens)
+          void this.stop(prompts.colony.tokenLimit(spent.tokens, tokens))
         break
       }
     }

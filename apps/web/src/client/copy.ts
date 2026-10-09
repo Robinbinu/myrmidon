@@ -1831,7 +1831,9 @@ export const copy = {
       timeLimit: 'Time limit per run',
       timeLimitHint: 'The crew stops when this runs out, reviewed or not.',
       spendLimit: 'Spend limit per run',
-      spendLimitHint: 'The run stops at this cost; at 80% agents are told to wrap up. 0 means no limit.',
+      /** The default is the runtime's DEFAULT_COST_USD. */
+      spendLimitHint:
+        'The run stops at this cost; at 80% agents are told to wrap up. Each follow-up gets the full limit again. Starts at $5; 0 means no limit.',
       tokenLimit: 'Token limit per run',
       tokenLimitHint: 'Counts every token the models process, cached input included. 0 means no limit.',
       turns: 'Turns per agent',

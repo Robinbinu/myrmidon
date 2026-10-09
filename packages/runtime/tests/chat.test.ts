@@ -3581,3 +3581,45 @@ test('a photo sent without words is still a message: it says what was sent, and 
   )
   await chats.stopAll()
 })
+
+test('the spend limit is per run: a follow-up gets all of it again, and a run that hits it says so', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  // A home with no settings file starts at the $5 default.
+  expect(settings.get().team.costUsd).toBe(5)
+  settings.set({ ...settings.get(), team: { ...settings.get().team, costUsd: 1 } })
+  const resolver = new ModelResolver()
+  let overspend = false
+  const lead = createMockModel({
+    cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+    handler: () => ({
+      content: overspend
+        ? [tool('message', { to: 'team', text: 'still working' })]
+        : [tool('reply_user', { text: 'Done.', final: true })],
+      usage: { input: 400, output: 100, cost: { total: 0.6 } },
+    }),
+  })
+  resolver.register('mock/priced', { model: lead.model, streamFn: lead.stream })
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const config = { ...solo('mock/priced'), judgeModel: 'mock/judge' }
+  const first = await chats.send('First question', config)
+  expect((await waitFor(first.colonyId)).status).toBe('completed')
+  // The chat has now spent $0.60 in all; the follow-up's $0.60 is under its own $1, though the total is not.
+  const second = await chats.send('Second question', config, first.chatId)
+  const s2 = await waitFor(second.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
+  expect(s2.status).toBe('completed')
+  overspend = true
+  const third = await chats.send('Keep going', config, first.chatId)
+  const s3 = await waitFor(third.colonyId, (x) => x.rounds.length === 3 && x.status !== 'running')
+  expect(s3.status).toBe('stopped')
+  expect(s3.statusReason).toBe('spend limit reached: $1.20 of $1 for this run')
+  // Resumed, it counts at most half the limit as spent, like the clock, so it can go on for a while.
+  await chats.resume(first.chatId)
+  const resumed = await waitFor(
+    third.colonyId,
+    (x) => x.status === 'stopped' && x.statusReason !== s3.statusReason,
+  )
+  expect(resumed.statusReason).toBe('spend limit reached: $1.10 of $1 for this run')
+  await chats.stopAll()
+})

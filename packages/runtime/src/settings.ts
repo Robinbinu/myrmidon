@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Schema } from '@myrmidon/core'
+import { DEFAULT_COST_USD } from './config.ts'
 
 export const TOOL_GROUPS = {
   shell: ['shell'],
@@ -100,7 +101,7 @@ export const settingsSchema = Schema.object({
     judgeModel: Schema.string(),
     wallMinutes: Schema.number().min(1).max(240).default(30),
     maxTurns: Schema.natural().min(1).max(200).default(40),
-    costUsd: Schema.number().min(0).max(1000).default(0),
+    costUsd: Schema.number().min(0).max(1000).default(DEFAULT_COST_USD),
     tokens: Schema.natural().max(1_000_000_000).default(0),
   }).default({}),
   tools: Schema.object({

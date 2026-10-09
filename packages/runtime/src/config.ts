@@ -42,6 +42,11 @@ export const MAX_VERIFY_ROUNDS = 3
 
 // Chats (chat.ts)
 
+/**
+ * The spend limit per run, in dollars, where the settings file has none (Settings → Crew & budget; 0 means no limit).
+ * A settings file that already holds a value keeps it. The Settings hint states it too.
+ */
+export const DEFAULT_COST_USD = 5
 /** The most workers (or swarm peers) a chat's team may have, so one request cannot start an unbounded crowd. */
 export const MAX_WORKERS = 8
 

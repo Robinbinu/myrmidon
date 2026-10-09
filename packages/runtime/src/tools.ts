@@ -2362,7 +2362,7 @@ export function observeFacts(host: ColonyHost): string {
   const idle = Object.values(s.agents)
     .filter((a) => a.status === 'idle')
     .map((a) => a.info.name)
-  const spent = Object.values(s.agents).reduce((n, a) => n + a.cost, 0)
+  const spent = host.spent().cost
   const finals = reviewVerdicts(s).filter((v) => v.target === 'colony')
   return [
     `time left: ${left}s of ${Math.round(s.budget.wallMs / 1000)}s`,
