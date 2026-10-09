@@ -54,3 +54,13 @@ test('labels follow the platform', () => {
   expect(comboLabel('shift+enter', true)).toBe('⇧↩')
   expect(comboLabel('shift+enter', false)).toBe('Shift+Enter')
 })
+
+test('ctrl means the Control key on every platform, never Command', () => {
+  expect(matchCombo('ctrl+tab', key('Tab', 'Tab', { ctrl: true }))).toBe(true)
+  expect(matchCombo('ctrl+tab', key('Tab', 'Tab', { meta: true }))).toBe(false)
+  expect(matchCombo('ctrl+shift+tab', key('Tab', 'Tab', { ctrl: true, shift: true }))).toBe(true)
+  expect(matchCombo('ctrl+tab', key('Tab', 'Tab', { ctrl: true, shift: true }))).toBe(false)
+  expect(matchCombo('ctrl+shift+t', key('T', 'KeyT', { ctrl: true, shift: true }))).toBe(true)
+  expect(comboLabel('ctrl+shift+tab', true)).toBe('⌃⇧⇥')
+  expect(comboLabel('ctrl+tab', false)).toBe('Ctrl+Tab')
+})
