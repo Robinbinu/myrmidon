@@ -3557,7 +3557,7 @@ test("an older chat the person named in an earlier round's colony keeps their na
   const created = (await events(colonyId)).find((e) => e.type === 'colony/created')
   const payload = structuredClone(created?.payload) as EventPayloads['colony/created']
   if (payload.chat) payload.chat = { ...payload.chat, round: 2, request: 'now as a PDF' }
-  await runtime.ctx.log.appendOne(newColonyId('round-two'), {
+  await runtime.ctx.log.appendOne(newColonyId(), {
     type: 'colony/created',
     actor: { kind: 'user', id: 'user' },
     payload,

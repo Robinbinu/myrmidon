@@ -300,7 +300,7 @@ export class ColonyRun implements ColonyHost {
     readonly spec: ColonySpec,
     private readonly options: RunOptions = {},
   ) {
-    this.id = options.resumeId ?? newColonyId(spec.name)
+    this.id = options.resumeId ?? newColonyId()
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
     this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
