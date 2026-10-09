@@ -9,7 +9,7 @@ import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/moc
 import { COMPUTER_TOOL } from '../src/computer/tool.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
 import { inputSchema } from '../src/made-tools.ts'
-import { type Environment, kickoff, startsAwake, toolsFor } from '../src/patterns.ts'
+import { type Environment, kickoff, snapshot, startsAwake, toolsFor } from '../src/patterns.ts'
 import { assemble } from '../src/prompt/assemble.ts'
 import { factsFor, modelFamily } from '../src/prompt/facts.ts'
 import { lint, undescribed, viewOf } from '../src/prompt/lint.ts'
@@ -465,4 +465,20 @@ test('a team lead assigns tasks and holds none, so it has no claim, release or s
   expect(toolsFor(teamRound, lead)).toEqual(
     expect.arrayContaining(['create_task', 'assign_task', 'reject_task']),
   )
+})
+
+test("a round's first message says the request once, and the board it carries leaves its copy out", () => {
+  const request = 'Build a small web page about ants'
+  const state = {
+    ...emptyColonyState(colony),
+    chatMessages: [{ seq: 1, from: 'user', text: request, time: '2026-10-09T00:00:00.000Z' }],
+  } as never
+  for (const spec of [teamRound, chat({ tier: 'team', pattern: 'blackboard', agents: peers, team: swarm })]) {
+    const first = kickoff(spec, state, false, spec.agents[0]?.name)
+    expect(first.split(request)).toHaveLength(2)
+    expect(first).not.toContain('REQUEST:')
+    expect(first).toContain('PLAN: (none yet)')
+  }
+  // Wake-ups later in the round still carry it.
+  expect(snapshot(teamRound, state)).toContain(`REQUEST: ${request}`)
 })

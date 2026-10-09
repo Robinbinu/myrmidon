@@ -1207,7 +1207,7 @@ export class ColonyRun implements ColonyHost {
         prompts.colony.resumeSpeaker({
           fresh: fresh(speaker),
           request,
-          snapshot: `${snapshot(this.spec, s)}${done(speaker)}`,
+          snapshot: `${snapshot(this.spec, s, { request: request === '' })}${done(speaker)}`,
           said,
         }),
         'resume',

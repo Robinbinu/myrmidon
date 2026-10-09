@@ -282,15 +282,21 @@ export function skillsFor<T extends { name: string; description: string }>(
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
-/** The state an agent needs on waking, so it does not spend a turn re-reading empty boards. */
-export function snapshot(spec: ColonySpec, s: ColonyState): string {
+/**
+ * The state an agent needs on waking, so it does not spend a turn re-reading empty boards. `request: false` leaves out
+ * the request, for a message that already opens with it.
+ */
+export function snapshot(spec: ColonySpec, s: ColonyState, { request = true } = {}): string {
   const plan = s.notes.filter((n) => n.section === 'plan').at(-1)
   const tasks = Object.values(s.tasks).filter((t) => t.status !== 'deleted')
   const files = Object.entries(s.artifacts)
   const notes = s.notes.filter((n) => n.section !== 'plan').slice(-5)
-  const talk = s.chatMessages.slice(-4)
+  // Without the request line, the person's message that is the request is left out of the conversation too.
+  const talk = s.chatMessages
+    .filter((m) => request || !(m.from === 'user' && m.text === (spec.chat?.request ?? spec.mission)))
+    .slice(-4)
   return [
-    `REQUEST: ${spec.chat?.request ?? spec.mission}`,
+    request ? `REQUEST: ${spec.chat?.request ?? spec.mission}` : '',
     talk.length > 0
       ? `CONVERSATION:\n${talk.map((m) => `- ${m.from}: ${clip(m.text, 300)}`).join('\n')}`
       : '',
@@ -348,8 +354,10 @@ export function kickoff(spec: ColonySpec, state: ColonyState, remembers = false,
   if (spec.tier === 'answer') return request
   const files = Object.keys(state.artifacts).filter((f) => !attached?.includes(f))
   const carried = files.length > 0 ? prompts.kickoff.carried(files) : ''
-  if (to?.length) return prompts.kickoff.addressed(`${request}${carried}`, snapshot(spec, state))
+  // The message opens with the request, so the snapshot leaves its own copy out.
+  const board = snapshot(spec, state, { request: false })
+  if (to?.length) return prompts.kickoff.addressed(`${request}${carried}`, board)
   if (spec.tier !== 'team' || spec.agents.length === 1) return `${request}${carried}`
-  if (spec.team?.mode === 'swarm') return prompts.kickoff.huddle(request, snapshot(spec, state))
-  return `${request}\n\n${snapshot(spec, state)}`
+  if (spec.team?.mode === 'swarm') return prompts.kickoff.huddle(request, board)
+  return `${request}\n\n${board}`
 }
