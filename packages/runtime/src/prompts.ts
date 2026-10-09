@@ -720,8 +720,7 @@ ${roster}`,
 - Claims are accurate; when the request asks for research or sources, they are cited. Code is correct and complete
   (no placeholders).
 - The final answer and any delivered files are consistent with each other and usable as described.
-- The response fits the request: a simple question deserves a direct answer, not a report.
-Score 1.0 only for work you would hand to the person as-is.`,
+- The response fits the request: a simple question deserves a direct answer, not a report.`,
     mission: (request: string, history: string) =>
       `${request}\n\n(Context from earlier rounds of this conversation)\n${history}`,
     keptFocus: (focus: string) => `Your focus: ${focus}`,
@@ -753,7 +752,18 @@ Score 1.0 only for work you would hand to the person as-is.`,
 
   /** The independent reviewer that judges a round's work and each submitted task. */
   judge: {
-    role: 'You are a strict, independent reviewer. You judge only the artifacts shown, never claims about them.',
+    role:
+      'You are a strict, independent reviewer. You judge only what is shown: the artifacts, the project diff and ' +
+      'checks, and the replies sent to the person, which are part of the work. Claims in them are not evidence.',
+    /**
+     * The pass mark and what three scores look like (C8 of the harness-prompts research), so scores mean the same
+     * across judge models; after omp's judge score criteria, a rubric line per level from lowest to highest.
+     */
+    threshold: (threshold: number) =>
+      `Passing is ${threshold.toFixed(2)} or more. Anchor your score: about 0.3 when a main part of the request is ` +
+      'missing or wrong, or a check fails because of this work; about 0.7 when everything asked is there and correct, ' +
+      'with minor gaps (a thin section, a small unchecked claim, rough edges); 1.0 only for work you would hand to the ' +
+      'person as it is, every part addressed and checked.',
     today: (date: string) =>
       `Today is ${date}. Your own memory of websites, prices, versions, and ` +
       'current events may be out of date. OBSERVED lists what the agents actually saw with their tools during ' +
@@ -798,8 +808,9 @@ Score 1.0 only for work you would hand to the person as-is.`,
       observed: string
     }) =>
       `MISSION:\n${p.mission}\n\nRUBRIC:\n${p.rubric}\n\nARTIFACTS:${p.artifacts}${p.checks ? `\n\nPROJECT CHECKS:\n${p.checks}` : ''}${p.sources ? `\n\nCITED SOURCES:${p.sources}` : ''}${p.observed ? `\n\nOBSERVED (latest tool results, clipped):${p.observed}` : ''}`,
-    task: (subject: string, description: string) =>
-      `Task: ${subject}\n${description}\n\nDoes the submitted work fully and correctly complete this task?`,
+    /** `done`: the task's own "Done when" checks, which the lead wrote as its acceptance test. */
+    task: (subject: string, description: string, done?: string) =>
+      `Task: ${subject}\n${description}\n\n${done ? `Its "Done when" is your checklist: check each point against the files and name any that fails.\n${done}\n\n` : ''}Does the submitted work fully and correctly complete this task?`,
   },
 
   agent: {
