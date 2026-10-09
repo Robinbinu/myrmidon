@@ -92,6 +92,19 @@ test('pairing: a single-use code makes a device with its own cookie and scope; r
     (await call('/api/settings', { ...publicHost, method: 'PUT', headers: device, body: '{}' })).status,
   ).toBe(403)
   expect((await call('/api/devices', { ...publicHost, headers: device })).status).toBe(403)
+  // Computer use: whether an agent controls the Mac (for the banner and its Stop), never the driver or macOS's grants.
+  const computer = await call('/api/computer', { ...publicHost, headers: device })
+  expect(computer.status).toBe(200)
+  expect(Object.keys(await computer.json()).sort()).toEqual(['controls', 'enabled', 'supported'])
+  const stopped = await call('/api/computer/stop', {
+    ...publicHost,
+    method: 'POST',
+    headers: device,
+    body: '{}',
+  })
+  expect(Object.keys(await stopped.json()).sort()).toEqual(['controls', 'enabled', 'stopped', 'supported'])
+  const whole = await call('/api/computer', { headers: bearer(server.token) })
+  expect(await whole.json()).toMatchObject({ grants: null, version: '', downloadBytes: 0 })
 
   // Only a hash of the token is kept on disk.
   const stored = readFileSync(join(home, 'devices.json'), 'utf8')
