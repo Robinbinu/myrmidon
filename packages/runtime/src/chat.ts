@@ -43,7 +43,7 @@ import { speaksForColony } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
-import { readFolder, realPath, secretAt, within } from './read-access.ts'
+import { chatsAt, grantCovers, readFolder, realPath, secretAt } from './read-access.ts'
 import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
@@ -910,18 +910,17 @@ export class ChatService {
 
   /**
    * Lets sandboxed agents read a folder for the rest of a chat, across its runs, or takes that back; allowing also
-   * approves the requests to read it already waiting. Kept like `setChatPermissions`. The person's keys and other chats'
-   * data cannot be allowed here (only by naming them in Settings → Tools). Returns the folders allowed now.
+   * approves the requests to read it already waiting. Kept like `setChatPermissions`. A folder of keys or sign-ins may be
+   * allowed (the card that asks for one warns); other chats' data cannot be (only by naming it in Settings). Returns
+   * the folders allowed now.
    */
   async allowReadInChat(chatId: string, folder: string, allowed: boolean): Promise<string[]> {
     const latest = (await this.rounds(chatId)).at(-1)
     if (!latest) throw new Error('no such chat')
     const path = realPath(readFolder(folder))
     const colonyDir = (this.runtime.ctx.logStore as SqliteLogStore).colonyDir(latest.id as never)
-    if (allowed && secretAt(path, { dataDir: this.runtime.home, colonyDir }))
-      throw new Error(
-        `${folder} holds keys, sign-ins or other chats: only naming it in Settings → Permissions opens it`,
-      )
+    if (allowed && chatsAt(path, { dataDir: this.runtime.home, colonyDir }))
+      throw new Error(`${folder} holds every chat's data: only naming it in Settings → Permissions opens it`)
     const live = this._live.get(chatId)
     const here = live?.id === latest.id ? live : undefined
     const state = here?.state() ?? latest.state
@@ -939,7 +938,7 @@ export class ChatService {
     }
     if (allowed && here)
       for (const a of Object.values(here.state().approvals))
-        if (!a.decided && a.read && within(a.read, path))
+        if (!a.decided && a.read && grantCovers(path, a.read))
           await here.decideApproval(a.id, true).catch(() => {})
     return reads
   }

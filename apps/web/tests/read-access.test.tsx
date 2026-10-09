@@ -106,3 +106,55 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
     await unmount()
   }
 })
+
+test('a request to read a folder of keys warns, and offers it once or for this chat only', async () => {
+  const sent = recordFetch((url) => (url.includes('/readable') ? { reads: [] } : {}))
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const request = {
+    id: 'approval-2',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/.ssh (to list the keys)',
+    read: '/Users/me/.ssh',
+    sensitive: true,
+    // Even offered rules (none are, for a read) could not remember it for the project or everywhere.
+    offer: [{ kind: 'tool' as const, target: 'request_read' }],
+    time: '',
+  }
+  const { host, unmount } = await mount(
+    <MotionConfig reducedMotion="always">
+      <ToastProvider>
+        <Approval colonyId="colony-1" chatId="chat-1" project="site" request={request} />
+      </ToastProvider>
+    </MotionConfig>,
+  )
+  const doc = host.ownerDocument
+  try {
+    expect(doc.querySelector('[role="note"]')?.textContent).toBe(copy.approvals.reads.sensitive)
+    const labels = [...doc.querySelectorAll('button')].map(
+      (b) => b.textContent?.trim() || b.getAttribute('aria-label'),
+    )
+    expect(labels).toEqual([
+      copy.permissions.card.denyOnce,
+      copy.approvals.reads.approveAll,
+      copy.permissions.card.allowOnce,
+    ])
+    expect(doc.body.textContent).not.toContain(copy.permissions.card.scopes.project)
+    expect(doc.body.textContent).not.toContain(copy.permissions.card.scopes.global)
+    await act(async () => {
+      buttonIn(doc, copy.permissions.card.allowOnce).click()
+      await Bun.sleep(10)
+    })
+    expect(sent).toEqual([
+      {
+        url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-2'),
+        method: 'POST',
+        body: { approved: true },
+      },
+    ])
+  } finally {
+    await unmount()
+  }
+})

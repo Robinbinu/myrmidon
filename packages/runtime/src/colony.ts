@@ -13,6 +13,8 @@ import {
 import {
   ACCESS_GROUPS,
   AWAITING_USER,
+  accessChange,
+  accessOf,
   applyEvent,
   asksSomething,
   type ColonyId,
@@ -33,6 +35,7 @@ import {
   type PermissionLevels,
   type PermissionVerdict,
   type Review,
+  type RoundAccess,
   rulesIn,
   SYSTEM,
   type TaskSnapshot,
@@ -75,7 +78,7 @@ import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
 import { prompts } from './prompts.ts'
-import { readFolder, realPath, secretAt, within } from './read-access.ts'
+import { chatsAt, grantCovers, keysAt, readFolder, realPath, within } from './read-access.ts'
 import {
   detectSandbox,
   fullAccessIn,
@@ -507,29 +510,64 @@ export class ColonyRun implements ColonyHost {
    */
   extraReads(): string[] {
     if (this.spec.askAll) return []
-    const granted = [...(this._state.chatReads ?? []), ...this._readOnce].filter((f) => !this._secret(f))
+    // A key folder the person allowed for this chat or once opens (it is named exactly); other chats' data never does.
+    const granted = [...(this._state.chatReads ?? []), ...this._readOnce].filter((f) => !this._otherChats(f))
     return [...new Set([...(this.spec.reads ?? []), ...granted])]
   }
 
-  /** The secret (or other chats' data) a folder is or lies in: only the person can open those, in Settings. */
-  private _secret(folder: string) {
-    return secretAt(folder, { dataDir: this.runtime.home, colonyDir: this.workspace.colonyDir })
+  /**
+   * What this round's agents may do now, to tell them what changed (see `RoundAccess`). The folders read once are left
+   * out: the agent that asked knows, and they end with the round.
+   */
+  access(): RoundAccess {
+    const reads = this.spec.askAll
+      ? []
+      : [...(this.spec.reads ?? []), ...(this._state.chatReads ?? []).filter((f) => !this._otherChats(f))]
+    return accessOf(levelsOf(this.spec), this.fullAccess, reads)
+  }
+
+  /** What the agents were last told they may do; a log from before that was kept knows only full access. */
+  private _told(): RoundAccess {
+    return this._state.access ?? (this._state.fullAccess ? { fullAccess: true } : {})
+  }
+
+  /** What changed for each agent between what it was told and `now`, in words, for the agents it changed for. */
+  private _accessNotices(
+    told: RoundAccess,
+    now: RoundAccess,
+    when: 'since' | 'now',
+    agents: readonly string[],
+  ) {
+    const out: Record<string, string> = {}
+    for (const name of agents) {
+      const change = accessChange(told, now, roleOf(this.spec, name))
+      if (change) out[name] = prompts.colony.accessChanged(change, when)
+    }
+    return out
+  }
+
+  /** Whether a folder is or lies in Myrmidon's data folder outside this chat's own: no request opens it. */
+  private _otherChats(folder: string) {
+    return chatsAt(folder, { dataDir: this.runtime.home, colonyDir: this.workspace.colonyDir })
   }
 
   async requestRead(agent: string, path: string, reason?: string): Promise<string> {
     if (this.fullAccess) return prompts.toolResults.readFull
     if (this.spec.askAll) throw new Error(prompts.toolResults.readNotHere)
     const folder = realPath(readFolder(path))
-    if (this._secret(folder)) throw new Error(prompts.toolResults.readSecret(path))
+    if (this._otherChats(folder)) throw new Error(prompts.toolResults.readChats(path))
     if (this.workspace.mayRead(agent, folder)) return prompts.toolResults.readAlready(path)
+    // Keys and sign-ins may be asked for: the card says what the folder holds and offers only once or this chat.
+    const sensitive = keysAt(folder) !== undefined
     const home = homedir()
     const shown = within(folder, home) ? `~${folder.slice(home.length)}` : folder
     const decision = await this.reviewChange(agent, 'request_read', prompts.reviewCard.read(shown, reason), {
       read: folder,
+      ...(sensitive ? { sensitive: true } : {}),
     })
     if (!decision.approved) throw new Error(prompts.toolResults.declined(`reading ${path}`, decision.note))
-    if (!(this._state.chatReads ?? []).some((f) => within(folder, f))) this._readOnce.add(folder)
-    return prompts.toolResults.readAllowed(path)
+    if (!(this._state.chatReads ?? []).some((f) => grantCovers(f, folder))) this._readOnce.add(folder)
+    return sensitive ? prompts.toolResults.readAllowedKeys(path) : prompts.toolResults.readAllowed(path)
   }
 
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
@@ -544,12 +582,13 @@ export class ColonyRun implements ColonyHost {
       review?: Review
       key?: string
       read?: string
+      sensitive?: boolean
       permission?: { call: PermissionCall; verdict: PermissionVerdict }
     },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
     const read = options.read
-    if (read && this._state.chatReads?.some((f) => within(read, f))) return { approved: true }
+    if (read && this._state.chatReads?.some((f) => grantCovers(f, read))) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const decided = new Promise<ReviewDecision>((resolve) => {
       const timer = setTimeout(
@@ -572,6 +611,7 @@ export class ColonyRun implements ColonyHost {
         ...(options.review ? { review: options.review } : {}),
         ...(options.key ? { key: options.key } : {}),
         ...(options.read ? { read: options.read } : {}),
+        ...(options.sensitive ? { sensitive: true } : {}),
         ...(options.permission ? this._permissionCard(agent, options.permission) : {}),
       },
     })
@@ -872,10 +912,13 @@ export class ColonyRun implements ColonyHost {
     reads?: string[]
   }) {
     const spec = this.spec
+    const told = this._told()
+    const readsBefore = JSON.stringify(this.access().reads ?? [])
     if (next.reads) spec.reads = next.reads
     const before = levelsOf(spec)
     const confined = next.fullAccess === false && this.fullAccess
-    if (!confined && JSON.stringify(before) === JSON.stringify(next.permissions)) return
+    const readsChanged = JSON.stringify(this.access().reads ?? []) !== readsBefore
+    if (!confined && !readsChanged && JSON.stringify(before) === JSON.stringify(next.permissions)) return
     const t = tightened(before, next.permissions)
     const allows = (levels: PermissionLevels) =>
       rulesIn(levels).flatMap((r) => (r.decision === 'allow' ? [r.target] : []))
@@ -903,6 +946,7 @@ export class ColonyRun implements ColonyHost {
         ...(t.preset ? { project: t.preset } : {}),
         ...(confined ? { fullAccess: false } : {}),
         interrupted: interrupted.map((a) => a.name),
+        access: this.access(),
       },
     })
     const note = prompts.colony.permissionsChanged({
@@ -912,6 +956,15 @@ export class ColonyRun implements ColonyHost {
       confined,
     })
     for (const a of interrupted) a.interrupt('the person changed permissions', note)
+    // Everyone else hears of it too: steered into a step in progress, or waiting for whatever wakes them next.
+    const notices = this._accessNotices(
+      told,
+      this.access(),
+      'now',
+      [...this._agents.keys()].filter((name) => !interrupted.some((a) => a.name === name)),
+    )
+    for (const [name, text] of Object.entries(notices))
+      this._wake(name, text, 'permissions', this._agents.get(name)?.working ? {} : { quiet: true })
     await this.redecideApprovals()
   }
 
@@ -1058,6 +1111,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.review ? { review: this.spec.review } : {}),
       ...(this.fullAccess ? { fullAccess: true } : {}),
       ...(this.computer ? { computerUse: true } : {}),
+      access: this.access(),
     }
   }
 
@@ -1071,6 +1125,14 @@ export class ColonyRun implements ColonyHost {
     for (const e of await this.log.read(this.id)) applyEvent(this._state, e)
     if (this._state.status === 'running') throw new Error('this colony is already running a round')
     await this.preflight()
+    // Agents remember their earlier answers: a refusal the old permissions forced would stand unless they hear why not.
+    const notices = this._accessNotices(
+      this._told(),
+      this.access(),
+      'since',
+      this.spec.agents.map((a) => a.name),
+    )
+    if (this.spec.chat && Object.keys(notices).length) this.spec.chat.accessNotices = notices
     this._offLog = this.runtime.ctx.on('log/appended', (colonyId, events) => {
       if (colonyId !== this.id) return
       for (const e of events) {
