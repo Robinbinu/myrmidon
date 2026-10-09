@@ -15,6 +15,7 @@ export type Request =
   | { id: number; method: 'reveal'; path: string }
   | { id: number; method: 'notify'; title: string; body: string }
   | { id: number; method: 'setBadge'; count: number }
+  | { id: number; method: 'computerControl'; active: boolean }
 
 const CHANNEL = 'myrmidon-desktop'
 
@@ -50,6 +51,7 @@ export function preloadScript(options: { origin: string; secret: string; titleba
       reveal: (path) => call('reveal', { path }),
       notify: (title, body) => call('notify', { title, body }),
       setBadge: (count) => call('setBadge', { count }),
+      computerControl: (active) => call('computerControl', { active }),
     }),
   })
 })()`
@@ -74,6 +76,8 @@ export function parseRequest(detail: unknown, secret: string): Request | undefin
       return typeof m.count === 'number' && Number.isInteger(m.count) && m.count >= 0
         ? { id, method: 'setBadge', count: m.count }
         : undefined
+    case 'computerControl':
+      return typeof m.active === 'boolean' ? { id, method: 'computerControl', active: m.active } : undefined
     default:
       return undefined
   }
