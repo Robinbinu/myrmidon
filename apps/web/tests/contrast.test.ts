@@ -107,3 +107,24 @@ test('a channel tile without a brand mark reads as a monogram: one or two white 
   // Its wordmark was unreadable at tile size, grey on grey.
   expect('letters' in (CHANNEL_LOGOS['synology-chat'] ?? {})).toBe(true)
 })
+
+// The 16 ANSI colours of the person's own terminals, which draw on the content surface.
+const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+const TERM_COLOURS = [...ANSI, ...ANSI.map((c) => `bright-${c}`)].map((c) => `term-${c}`)
+
+describe("every ANSI colour reads at 4.5:1 on the terminal's background, in both themes", async () => {
+  const all = await themes()
+  for (const [theme, tokens] of Object.entries(all))
+    for (const colour of TERM_COLOURS)
+      test(`${theme}: ${colour} on content`, () => {
+        expect(tokens[colour]).toBeTruthy()
+        expect(contrast(tokens[colour] as string, tokens.content as string)).toBeGreaterThanOrEqual(4.5)
+      })
+})
+
+test('each theme gives the terminal its own ANSI colours', async () => {
+  const css = await Bun.file(new URL('../src/client/tokens.css', import.meta.url)).text()
+  const dark = css.slice(css.indexOf('@variant dark-tokens'))
+  for (const colour of TERM_COLOURS) expect(dark).toContain(`--${colour}:`)
+  expect(dark).toContain('--term-selection:')
+})

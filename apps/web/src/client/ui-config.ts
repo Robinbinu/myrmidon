@@ -507,3 +507,30 @@ export const APPROVAL_MENU_PX = 260
 export const APPROVAL_MENU_ROOM_PX = 340
 /** How tall the rules table grows before it scrolls. */
 export const RULES_LIST_MAX_PX = 420
+
+// The person's terminals (chat/TerminalPanel.tsx)
+
+/** Terminals one project (or home) may hold open at once; the server allows a few more across all of them. */
+export const MAX_TERMINAL_TABS = 6
+/** Line counts the ⋯ menu offers for how far back each terminal can scroll; every terminal stays in memory. */
+export const TERMINAL_SCROLLBACK_CHOICES = [1_000, 5_000, 10_000] as const
+/** The longest name a shell or program can give its tab. */
+export const MAX_TERMINAL_LABEL = 64
+/** How a terminal looks until the person picks otherwise in its ⋯ menu (Claude Code's defaults). */
+export const TERMINAL_DEFAULTS = {
+  cursorStyle: 'block',
+  cursorBlink: true,
+  copyOnSelect: false,
+  scrollback: 10_000,
+} as const
+/**
+ * Terminal shortcuts, answered while focus is in the Terminal view. ⌘T opens one on a Mac as in Terminal and iTerm;
+ * elsewhere Ctrl+Shift+T, since Ctrl+T is the shell's own (it swaps two letters). ⌃⇥ and ⌃⇧⇥ step between them, as
+ * terminal and browser tabs do (⇧⌘[ and ⇧⌘] already step between chats).
+ */
+export const TERMINAL_COMBOS = {
+  newMac: 'mod+t',
+  new: 'ctrl+shift+t',
+  next: 'ctrl+tab',
+  previous: 'ctrl+shift+tab',
+} as const
