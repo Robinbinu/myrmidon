@@ -1,12 +1,13 @@
 import type { SetupStep } from '@myrmidon/protocol'
 import { X } from 'lucide-react'
 import { copy } from '../copy.ts'
+import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { FEATURE_ICONS } from '../ui/icons.ts'
-import { Button, IconButton } from '../ui/primitives.tsx'
+import { Button } from '../ui/primitives.tsx'
 
 /**
- * On the home screen once setup is finished: what was set up later and is still not there, and a way back to it.
- * Dismissing it hides it for good; the steps stay in Settings → General.
+ * On the home screen once setup is finished: what was gone past and is still not there, and a way back to it.
+ * Dismissing it hides it for good, so its close button asks once; the steps stay in Settings → General.
  */
 export function SetupNudge(props: {
   left: readonly SetupStep[]
@@ -28,9 +29,13 @@ export function SetupNudge(props: {
         </p>
       </div>
       <Button onClick={() => props.onOpen(first)}>{t.nudge.action}</Button>
-      <IconButton label={t.nudge.dismiss} title={t.nudge.dismissTitle} onClick={props.onDismiss}>
-        <X className="size-4" />
-      </IconButton>
+      <ConfirmButton
+        icon={<X className="size-4" />}
+        label={t.nudge.dismiss}
+        title={t.nudge.dismissTitle}
+        confirm={t.nudge.dismissConfirm}
+        onConfirm={props.onDismiss}
+      />
     </div>
   )
 }

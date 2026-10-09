@@ -650,6 +650,7 @@ export const copy = {
       done: 'done',
       current: 'current step',
       later: 'set up later',
+      skipped: 'skipped',
       todo: 'not set up yet',
     },
     steps: {
@@ -723,6 +724,11 @@ export const copy = {
       testing: 'Waiting for the reply…',
       answered: (seconds: string, reply?: string) =>
         reply ? `It answered in ${seconds} s: “${reply}”` : `It answered in ${seconds} s`,
+      /** The mascot's speech line when the model answered with no words. */
+      answeredSilently: 'It answered',
+      /** Under the answer: what Continue does with the model that answered. */
+      leadNote: (button: string, model: string, reviewerToo: boolean) =>
+        `${button} makes ${model} the lead of every new chat${reviewerToo ? ', and its reviewer' : ''}. You can change it in Your crew.`,
       failed: 'The model did not answer',
       noModel: 'Connect a model above, then test it here.',
       gate: 'Continue opens once a model answers.',
@@ -732,6 +738,11 @@ export const copy = {
       intro:
         'Every new chat starts with this crew; the message box changes it for one chat. The lead does the talking and asks crewmates for work.',
       waiting: 'The crew can be set once a model is connected.',
+      cost: 'Each crewmate makes its own model calls, so more crewmates and bigger models cost more. The spend limit stops a run once it costs that much.',
+      spend: 'Spend limit per run',
+      spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
+      reviewer: 'Review the work',
+      reviewerHint: 'An independent reviewer checks the crew’s answers before they reach you.',
     },
     project: {
       title: 'Your first project',
@@ -743,10 +754,6 @@ export const copy = {
       git: 'A git repository, so it starts on Ask first: each change waits for your yes.',
       notGit: 'Not a git repository, so it starts read-only: agents read it and propose changes.',
       permissions: 'What agents may do here',
-      spend: 'Spend limit per run',
-      spendHint: 'A run stops once its model calls cost this much. 0 means no limit.',
-      reviewer: 'Review the work',
-      reviewerHint: 'An independent reviewer checks the crew’s answers before they reach you.',
       saveFailed: (reason: string) => `Could not save the folder’s permissions: ${reason}`,
     },
     voice: {
@@ -819,11 +826,13 @@ export const copy = {
     },
     ready: {
       title: 'You’re ready',
-      intro: 'Here is what you set up. Anything left waits on the home screen.',
+      intro: 'Here is where each step stands. Anything not set up waits on the home screen.',
       done: 'Set up',
       later: 'Set up later',
+      skipped: 'Skipped',
       todo: 'Not set up',
-      open: (step: string) => `Open ${step}`,
+      /** A step's row, named as it reads: the step, then how it stands. */
+      row: (step: string, status: string) => `${step}, ${status}`,
       starters: 'Start your first chat',
       noModel: 'The crew needs a model before it can start a chat.',
       connect: 'Connect a model',
@@ -856,8 +865,9 @@ export const copy = {
       title: (n: number) => `Finish setting up · ${n} left`,
       body: (steps: string) => `Still to do: ${steps}.`,
       action: 'Continue',
-      dismiss: 'Not now',
-      dismissTitle: 'Hide this for good. Every step stays in Settings → General.',
+      dismiss: 'Hide for good',
+      dismissTitle: 'Hide this card for good. Every step stays in Settings → General.',
+      dismissConfirm: 'Yes, hide this card',
       dismissed: 'Hidden for good. You can run any step from Settings → General.',
     },
   },

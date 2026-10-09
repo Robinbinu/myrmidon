@@ -14,7 +14,7 @@ import {
 import { copy } from '../copy.ts'
 import { DEFAULT_MASCOT, SETTINGS_SAVED } from '../mascot.ts'
 import { useSettingsData } from '../Settings.tsx'
-import { NOTIFY_KEY, readStored, type ThemeChoice } from '../ui/hooks.ts'
+import type { ThemeChoice } from '../ui/hooks.ts'
 import { Logo } from '../ui/Logo.tsx'
 import { Button, cn, Dot } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -33,10 +33,10 @@ import {
   type Starter,
   type StepStatus,
   stepStatus,
+  withAlerts,
 } from './state.ts'
 import {
   AlertsStep,
-  alertsAllowed,
   ChannelsStep,
   CrewStep,
   ModelsStep,
@@ -50,12 +50,6 @@ import {
 } from './steps.tsx'
 
 const t = copy.setup
-
-/** Alerts live in each browser: on here, and allowed, counts as set up. */
-const withAlerts = (view: SetupView): SetupView => ({
-  ...view,
-  have: { ...view.have, alerts: readStored<string>(NOTIFY_KEY, '0') === '1' && alertsAllowed() },
-})
 
 /**
  * The first-run setup assistant, in place of the home screen: a list of its steps to jump between, one step per
@@ -84,7 +78,11 @@ export function Setup(props: {
   const [view, setView] = useState(() => withAlerts(props.initial))
   const [screen, setScreen] = useState(props.screen)
   const settings = useSettingsData(props.onModelsChanged)
-  const [project, setProject] = useState<{ project: Project; isGit: boolean }>()
+  const [picked, setProject] = useState<{ project: Project; isGit: boolean }>()
+  // Projects added before (an earlier run, Settings, a reload): the first stands for the project step until one is
+  // picked here.
+  const [projects, setProjects] = useState<Project[]>([])
+  const project = picked ?? (projects[0] ? { project: projects[0] } : undefined)
   const [closing, setClosing] = useState(false)
   // Marks made while Myrmidon did not answer, sent again once it does.
   const unsent = useRef(new Map<SetupStep, SetupMark>())
@@ -104,6 +102,9 @@ export function Setup(props: {
     api<SetupView>('/api/setup')
       .then(take)
       .catch(() => {})
+    api<{ projects: Project[] }>('/api/projects')
+      .then((r) => setProjects(r.projects))
+      .catch(() => {})
   }, [take])
   // biome-ignore lint/correctness/useExhaustiveDependencies: what exists is asked again on every screen
   useEffect(refresh, [screen])
@@ -112,16 +113,19 @@ export function Setup(props: {
     return () => window.removeEventListener(SETTINGS_SAVED, refresh)
   }, [refresh])
 
+  /** Sends a mark, and says whether it was kept; one that was not waits to be sent again once Myrmidon answers. */
   const sendMark = useCallback(
-    (step: SetupStep, mark: SetupMark) =>
+    (step: SetupStep, mark: SetupMark): Promise<boolean> =>
       send<SetupView>('PUT', '/api/setup', { step, mark })
         .then((r) => {
           unsent.current.delete(step)
           take(r)
+          return true
         })
         .catch((err: Error) => {
           unsent.current.set(step, mark)
           if (reachable()) toast(err.message, 'error')
+          return false
         }),
     [take, toast],
   )
@@ -139,12 +143,15 @@ export function Setup(props: {
     setView((v) => ({ ...v, setup: { ...v.setup, steps: { ...v.setup.steps, [step]: value } } }))
     return sendMark(step, value)
   }
-  /** After a step: the next one, or, for a step opened on its own, back where it was opened from once it is saved. */
+  /**
+   * After a step: the next one, or, for a step opened on its own, back where it was opened from once it is saved.
+   * Closing takes the queue of unsent marks with it, so a step on its own whose mark was not kept stays open.
+   */
   const leave = (step: SetupStep, value: SetupMark) => {
     const saved = mark(step, value)
     if (!single) return setScreen(nextScreen(step))
     setClosing(true)
-    void saved.then(() => props.onClose({}))
+    void saved.then((kept) => (kept ? props.onClose({}) : setClosing(false)))
   }
 
   const finish = async (starter?: Starter) => {
@@ -193,7 +200,7 @@ export function Setup(props: {
   const list = useRef<HTMLOListElement>(null)
   const onListKey = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-    const buttons = [...(list.current?.querySelectorAll('button') ?? [])]
+    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])]
     const from = buttons.indexOf(document.activeElement as HTMLButtonElement)
     const to = buttons[Math.max(0, Math.min(buttons.length - 1, from + (e.key === 'ArrowDown' ? 1 : -1)))]
     if (to) {
@@ -246,15 +253,19 @@ export function Setup(props: {
               const st = status(s)
               return (
                 <li key={s}>
+                  {/* A step opened on its own does only that step: the others stay in view but closed. */}
                   <button
                     type="button"
+                    disabled={single && s !== screen}
                     onClick={() => setScreen(s)}
                     aria-current={s === screen ? 'step' : undefined}
                     aria-label={`${t.steps[s]}, ${t.status[st]}`}
                     data-status={st}
                     className={cn(
                       'flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-body transition-colors',
-                      s === screen ? 'bg-row-selected text-fg' : 'text-fg-2 hover:bg-fill/70 hover:text-fg',
+                      s === screen
+                        ? 'bg-row-selected text-fg'
+                        : 'text-fg-2 enabled:hover:bg-fill/70 enabled:hover:text-fg disabled:opacity-50',
                     )}
                   >
                     <Dot status={STATUS_DOT[st]} />

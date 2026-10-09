@@ -50,7 +50,16 @@ import {
 } from '../ui-config.ts'
 import { CHOREOGRAPHY, SETUP_EMOTIONS } from './choreography.ts'
 import { useSetupMascot } from './SetupMascot.tsx'
-import { type SetupScreen, type SetupView, STATUS_DOT, type Starter, starters, stepStatus } from './state.ts'
+import {
+  alertsAllowed,
+  type SetupScreen,
+  type SetupView,
+  STATUS_DOT,
+  type Starter,
+  type StepStatus,
+  starters,
+  stepStatus,
+} from './state.ts'
 
 /** Everything a step can read and do: the assistant's state, the settings it edits, and its way forward. */
 export interface SetupContext {
@@ -62,8 +71,11 @@ export interface SetupContext {
   onConfig(c: TeamConfig): void
   theme: ThemeChoice
   onTheme(t: ThemeChoice): void
-  /** The folder chosen on the project step, for the starter prompts. */
-  project?: { project: Project; isGit: boolean }
+  /**
+   * The folder chosen on the project step, or else the first project added before, for the starter prompts. Whether it
+   * is a git repository is known only for one chosen here.
+   */
+  project?: { project: Project; isGit?: boolean }
   setProject(chosen: { project: Project; isGit: boolean }): void
   onProjects(all: Project[]): void
   /** One step opened on its own: Back, done and Set up later go back where it was opened from. */
@@ -297,13 +309,7 @@ export function ModelsStep() {
       if (!r.ok) throw new Error(r.error ?? t.models.failed)
       setTest({ ok: true, ms: r.ms ?? 0, ...(r.reply ? { reply: r.reply } : {}) })
       mascot.react('hop')
-      mascot.say(speech(r.reply ?? 'OK'))
-      // The model that answered leads every new chat from now on.
-      if (ctx.config) {
-        const next = { ...ctx.config, leadModel: model, judgeModel: ctx.config.judgeModel || model }
-        ctx.onConfig(next)
-        ctx.settings.update((s) => withDefaultCrew(s, next), true)
-      }
+      mascot.say(speech(r.reply ?? t.models.answeredSilently))
       ctx.refresh()
     } catch (err) {
       mascot.hold(undefined)
@@ -375,6 +381,24 @@ export function ModelsStep() {
 
   const answered = typeof test === 'object' && test.ok ? test : undefined
   const failed = typeof test === 'object' && !test.ok ? test : undefined
+  // The model that answered leads every new chat once the person continues, and reviews too while nothing does; the
+  // step says so under the answer rather than changing the crew behind a test.
+  const adopting =
+    answered && chosen && ctx.config && (ctx.config.leadModel !== chosen || !ctx.config.judgeModel)
+      ? { config: ctx.config, model: chosen, reviewerToo: !ctx.config.judgeModel }
+      : undefined
+  const proceed = () => {
+    if (adopting) {
+      const next = {
+        ...adopting.config,
+        leadModel: adopting.model,
+        judgeModel: adopting.config.judgeModel || adopting.model,
+      }
+      ctx.onConfig(next)
+      ctx.settings.update((s) => withDefaultCrew(s, next), true)
+    }
+    ctx.done('models')
+  }
   const localName = (id: string) => t.models.local[id] ?? id
   const inUse = (provider: string) => !!answered && !!chosen && chosen.startsWith(`${provider}/`)
 
@@ -384,7 +408,7 @@ export function ModelsStep() {
       title={t.models.title}
       intro={t.models.intro}
       later="models"
-      next={{ disabled: !answered, hint: t.models.gate, onClick: () => ctx.done('models') }}
+      next={{ disabled: !answered, hint: t.models.gate, onClick: proceed }}
     >
       <section aria-labelledby="setup-found">
         <SectionHeader as="h2" className="mb-2" title={<span id="setup-found">{t.models.found}</span>} />
@@ -557,6 +581,15 @@ export function ModelsStep() {
                 <p className="text-body text-ok-ink">
                   {t.models.answered((answered.ms / 1000).toFixed(1), answered.reply)}
                 </p>
+                {adopting && (
+                  <p className="mt-1 text-callout text-muted">
+                    {t.models.leadNote(
+                      ctx.single ? t.single.done : t.continue,
+                      ctx.models.find((m) => m.ref === adopting.model)?.name ?? adopting.model,
+                      adopting.reviewerToo,
+                    )}
+                  </p>
+                )}
               </CardRow>
             )}
           </div>
@@ -618,6 +651,8 @@ export function CrewStep() {
     ctx.onConfig(c)
     ctx.settings.update((s) => withDefaultCrew(s, c))
   }
+  const data = ctx.settings.data
+  const reviewer = data?.settings.verification.reviewer ?? 'auto'
   return (
     <StepFrame
       screen="crew"
@@ -659,6 +694,40 @@ export function CrewStep() {
       ) : (
         <p className="text-body text-muted">{t.crew.waiting}</p>
       )}
+      <p className="text-callout leading-snug text-muted">{t.crew.cost}</p>
+      {data ? (
+        <Card>
+          <CardRow>
+            <Field label={t.crew.spend} hint={t.crew.spendHint} inline>
+              <NumberField
+                label={t.crew.spend}
+                value={data.settings.team.costUsd}
+                min={0}
+                max={1000}
+                step={0.5}
+                suffix={copy.settings.team.units.dollars}
+                onChange={(v) => ctx.settings.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
+              />
+            </Field>
+          </CardRow>
+          <CardRow>
+            <Field label={t.crew.reviewer} hint={t.crew.reviewerHint} inline>
+              <Switch
+                checked={reviewer !== 'off'}
+                label={t.crew.reviewer}
+                onChange={(on) =>
+                  ctx.settings.update(
+                    (s) => ({ ...s, verification: { ...s.verification, reviewer: on ? 'auto' : 'off' } }),
+                    true,
+                  )
+                }
+              />
+            </Field>
+          </CardRow>
+        </Card>
+      ) : (
+        <SettingsPending />
+      )}
     </StepFrame>
   )
 }
@@ -670,9 +739,10 @@ export function ProjectStep() {
   const mascot = useSetupMascot()
   const [picking, setPicking] = useState(false)
   const chosen = ctx.project
-  const [mode, setMode] = useState<PermissionMode | undefined>(chosen?.project.permissions?.mode)
+  // Set once the person picks a mode here; until then the folder's own (absent on an older folder: autonomous).
+  const [mode, setMode] = useState<PermissionMode>()
+  const shownMode = mode ?? chosen?.project.permissions?.mode ?? 'auto'
   const [saveError, setSaveError] = useState<string>()
-  const data = ctx.settings.data
 
   useEffect(() => {
     if (chosen) mascot.screen(chosen.project.name.toUpperCase())
@@ -693,7 +763,6 @@ export function ProjectStep() {
     }
   }
 
-  const reviewer = data?.settings.verification.reviewer ?? 'auto'
   return (
     <StepFrame
       screen="project"
@@ -727,12 +796,11 @@ export function ProjectStep() {
         </CardRow>
         {chosen && (
           <CardRow>
-            <p className="mb-3 text-callout text-fg-2">{chosen.isGit ? t.project.git : t.project.notGit}</p>
+            {chosen.isGit !== undefined && (
+              <p className="mb-3 text-callout text-fg-2">{chosen.isGit ? t.project.git : t.project.notGit}</p>
+            )}
             <p className="mb-2 text-body font-medium">{t.project.permissions}</p>
-            <PermissionChoices
-              mode={mode ?? (chosen.isGit ? 'ask' : 'read-only')}
-              onChange={(next) => void apply(chosen.project, next)}
-            />
+            <PermissionChoices mode={shownMode} onChange={(next) => void apply(chosen.project, next)} />
           </CardRow>
         )}
       </Card>
@@ -740,7 +808,7 @@ export function ProjectStep() {
         <Banner tone="bad" role="alert">
           <p>{t.project.saveFailed(saveError)}</p>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={() => void apply(chosen.project, mode ?? 'ask')}>
+            <Button size="sm" onClick={() => void apply(chosen.project, shownMode)}>
               {t.tryAgain}
             </Button>
             <Button size="sm" variant="borderless" onClick={() => ctx.later('project')}>
@@ -748,39 +816,6 @@ export function ProjectStep() {
             </Button>
           </div>
         </Banner>
-      )}
-      {data ? (
-        <Card>
-          <CardRow>
-            <Field label={t.project.spend} hint={t.project.spendHint} inline>
-              <NumberField
-                label={t.project.spend}
-                value={data.settings.team.costUsd}
-                min={0}
-                max={1000}
-                step={0.5}
-                suffix={copy.settings.team.units.dollars}
-                onChange={(v) => ctx.settings.update((s) => ({ ...s, team: { ...s.team, costUsd: v } }))}
-              />
-            </Field>
-          </CardRow>
-          <CardRow>
-            <Field label={t.project.reviewer} hint={t.project.reviewerHint} inline>
-              <Switch
-                checked={reviewer !== 'off'}
-                label={t.project.reviewer}
-                onChange={(on) =>
-                  ctx.settings.update(
-                    (s) => ({ ...s, verification: { ...s.verification, reviewer: on ? 'auto' : 'off' } }),
-                    true,
-                  )
-                }
-              />
-            </Field>
-          </CardRow>
-        </Card>
-      ) : (
-        <SettingsPending />
       )}
       <AnimatePresence>
         {picking && (
@@ -819,7 +854,15 @@ function MicTest(props: { onDenied(): void }) {
   const [error, setError] = useState<string>()
   const [level, setLevel] = useState(0)
   const stop = useRef<() => void>(undefined)
-  useEffect(() => () => stop.current?.(), [])
+  // The browser's prompt can still be open as the step closes: a microphone granted after that is let go at once.
+  const open = useRef(true)
+  useEffect(() => {
+    open.current = true
+    return () => {
+      open.current = false
+      stop.current?.()
+    }
+  }, [])
 
   const start = async () => {
     setError(undefined)
@@ -827,6 +870,10 @@ function MicTest(props: { onDenied(): void }) {
     setState('asking')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (!open.current) {
+        for (const track of stream.getTracks()) track.stop()
+        return
+      }
       const audio = new AudioContext()
       const analyser = audio.createAnalyser()
       analyser.fftSize = MIC_TEST.fftSize
@@ -852,6 +899,7 @@ function MicTest(props: { onDenied(): void }) {
       }
       setState('on')
     } catch (err) {
+      if (!open.current) return
       setState('idle')
       const name = (err as Error).name
       if (name === 'NotAllowedError' || name === 'SecurityError') props.onDenied()
@@ -880,7 +928,13 @@ function MicTest(props: { onDenied(): void }) {
             <div aria-hidden className="h-2 flex-1 overflow-hidden rounded-full bg-fill-strong">
               <div className="h-full rounded-full bg-ok" style={{ width: `${Math.round(level * 100)}%` }} />
             </div>
-            <Button size="sm" onClick={() => stop.current?.()}>
+            <Button
+              size="sm"
+              onClick={() => {
+                stop.current?.()
+                setState('idle')
+              }}
+            >
               {t.voice.micStop}
             </Button>
           </>
@@ -1126,12 +1180,6 @@ export function ChannelsStep() {
 
 /* ------------------------------------------------------------------ 8 alerts */
 
-/** Whether this window may notify: the desktop app always can, a browser once the person allowed it. */
-export function alertsAllowed(): boolean {
-  if (desktop()) return true
-  return typeof Notification !== 'undefined' && Notification.permission === 'granted'
-}
-
 export function AlertsStep() {
   const ctx = useSetup()
   const mascot = useSetupMascot()
@@ -1260,6 +1308,15 @@ function testResultText(r: TestNotice): string {
 
 /* ------------------------------------------------------------------ 9 ready */
 
+/** What Ready says beside each step. The open screen is Ready itself, so no step there is current. */
+const READY_STATUS: Record<StepStatus, string> = {
+  done: t.ready.done,
+  later: t.ready.later,
+  skipped: t.ready.skipped,
+  todo: t.ready.todo,
+  current: t.ready.todo,
+}
+
 export function ReadyStep(props: { steps: readonly SetupStep[] }) {
   const ctx = useSetup()
   const offers = starters(ctx.project ? { project: ctx.project.project.name } : {})
@@ -1275,20 +1332,19 @@ export function ReadyStep(props: { steps: readonly SetupStep[] }) {
           .filter((s) => s !== 'welcome')
           .map((s) => {
             const status = stepStatus(s, ctx.view)
+            // Named by what it shows, the step and how it stands, so a spoken "click Voice calls" finds it.
             return (
               <button
                 key={s}
                 type="button"
                 onClick={() => ctx.go(s)}
-                aria-label={`${t.ready.open(t.steps[s])}, ${t.status[status]}`}
+                aria-label={t.ready.row(t.steps[s], READY_STATUS[status])}
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-fill"
               >
                 <Dot status={STATUS_DOT[status]} />
                 <span className="min-w-0 flex-1 text-body">{t.steps[s]}</span>
-                <span className="text-small text-muted">
-                  {status === 'done' ? t.ready.done : status === 'later' ? t.ready.later : t.ready.todo}
-                </span>
-                <ChevronRight className="size-4 text-muted" />
+                <span className="text-small text-muted">{READY_STATUS[status]}</span>
+                <ChevronRight aria-hidden className="size-4 text-muted" />
               </button>
             )
           })}
