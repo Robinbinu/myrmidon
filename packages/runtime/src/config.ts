@@ -29,6 +29,8 @@ export const LOGIN_MS = 15 * 60_000
 /** Dev servers one colony may run at once, and how long one gets to start serving. */
 export const MAX_SERVERS = 3
 export const SERVER_START_MS = 60_000
+/** How long reading the ports in use (netstat, lsof) may take before a server starts; it blocks the runtime meanwhile. */
+export const PORT_LISTING_MS = 2_000
 /** How long a tool call waits for the person's approval before it is denied. */
 export const APPROVAL_MS = 15 * 60_000
 /** A claimed task whose holder sits idle this long goes back to the pool. */

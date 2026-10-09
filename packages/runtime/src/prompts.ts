@@ -998,6 +998,8 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
       `localhost:${port} is not a server you started in this round. Agents can reach only the localhost ports of their own servers (start one with start_server and open the URL it returns), plus the public internet`,
     portInUse: (port: number) =>
       `port ${port} is already in use by something other than this server; start it on a free port`,
+    serverRulesChanged: (name: string) =>
+      `${name} was stopped while it was starting: the round's rules changed and it would have run with access the round no longer has. Start it again with start_server; it will run within the rules now.`,
     portWasInUse: (port: number) =>
       `the server printed a URL on port ${port}, but that port was already in use before it started; start it on a free port and pass port`,
     readerProgram:

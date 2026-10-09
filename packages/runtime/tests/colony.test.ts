@@ -656,6 +656,110 @@ for (const { how, loose, tighten, sandboxed } of tightenings)
     },
   )
 
+/** One agent, dev, that runs `first` and then answers each later call with `next`, recording what it was given. */
+function serverAgent(first: MockContent[], next: (ctx: LlmContext, call: number) => Promise<MockContent[]>) {
+  let calls = 0
+  const resolver = new ModelResolver()
+  const mock = createMockModel({
+    handler: async (ctx: LlmContext) => {
+      calls++
+      return { content: calls === 1 ? first : await next(ctx, calls) }
+    },
+  })
+  resolver.register('mock/dev', { model: mock.model, streamFn: mock.stream })
+  return resolver
+}
+
+test('a server still starting when full access is taken back fails to start, and is never reported as running', async () => {
+  const port = 47000 + Math.floor(Math.random() * 1000)
+  const later: string[] = []
+  const resolver = serverAgent(
+    [
+      tool('start_server', {
+        command: `sleep 2; bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('late') })"`,
+        port,
+      }),
+    ],
+    async (ctx) => {
+      later.push(JSON.stringify(ctx.messages))
+      return ['ok']
+    },
+  )
+  const spec = {
+    ...parseColonySpec({
+      name: 'Starting',
+      mission: 'Serve.',
+      agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server'] }],
+      budget: { wall: '30s' },
+    }),
+    fullAccess: true,
+  }
+  const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+  await run.start()
+  const events = () => runtime.ctx.log.read(run.id)
+  while (!(await events()).some((e) => e.type === 'tool/call')) await Bun.sleep(50)
+  await Bun.sleep(300)
+  await run.askForAll()
+  await run.done
+  const log = await events()
+  const result = log.find((e) => e.type === 'tool/result')?.payload as { ok: boolean; output: string }
+  expect(result.ok).toBe(false)
+  expect(result.output).toContain('dev was stopped while it was starting')
+  expect(log.some((e) => e.type === 'server/started' || e.type === 'server/stopped')).toBe(false)
+  expect(later.some((c) => c.includes('Your server'))).toBe(false)
+  await Bun.sleep(2500)
+  await expect(fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) })).rejects.toThrow()
+})
+
+test.skipIf(detectSandbox().kind === 'none')(
+  'a server started under the rules in force keeps running when they tighten',
+  async () => {
+    const port = 48000 + Math.floor(Math.random() * 1000)
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    let serving!: () => void
+    const started = new Promise<void>((r) => {
+      serving = r
+    })
+    const later: string[] = []
+    const resolver = serverAgent(
+      [
+        tool('start_server', {
+          command: `bun -e "Bun.serve({ port: ${port}, fetch: () => new Response('confined') })"`,
+          port,
+        }),
+      ],
+      async (ctx, call) => {
+        if (call === 2) {
+          serving()
+          await held
+        } else later.push(JSON.stringify(ctx.messages))
+        return ['ok']
+      },
+    )
+    const spec = parseColonySpec({
+      name: 'Confined',
+      mission: 'Serve.',
+      agents: [{ name: 'dev', model: 'mock/dev', tools: ['start_server'] }],
+      budget: { wall: '30s' },
+    })
+    const run = new ColonyRun(runtime, spec, { resolver, quietMs: 200 })
+    await run.start()
+    await started
+    await run.askForAll()
+    expect(run.state().servers.dev).toMatchObject({ url: `http://localhost:${port}` })
+    expect(run.state().servers.dev?.stopped).toBeUndefined()
+    expect(await (await fetch(`http://localhost:${port}/`)).text()).toBe('confined')
+    release()
+    run.nudge('dev', 'carry on')
+    const final = await run.done
+    expect(final.servers.dev?.stopped).toBe('the round ended')
+    expect(later.some((c) => c.includes('Your server'))).toBe(false)
+  },
+)
+
 test.skipIf(detectSandbox().kind === 'none')(
   'web content is marked untrusted, cannot forge its end marker, and commands copied from it are flagged',
   async () => {
