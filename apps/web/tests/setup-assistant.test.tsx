@@ -719,7 +719,7 @@ test('the project step opened from Settings shows the project added before and c
     name: 'shop',
     path: '/Users/ada/shop',
     addedAt: '2026-10-01T10:00:00Z',
-    permissions: { mode: 'ask', allow: [] },
+    permissions: { preset: 'ask', rules: [] },
   }
   const { puts } = fakeServer(start, { projects: [project] })
   const closed: unknown[] = []
@@ -733,9 +733,7 @@ test('the project step opened from Settings shows the project added before and c
     expect(document.body.textContent).not.toContain('No folder chosen yet.')
     expect(button('Choose another folder')).toBeTruthy()
     // Its permissions as they are, not a guess from a git check that was never made.
-    expect(document.querySelector<HTMLInputElement>('input[name="permission-mode"]:checked')?.value).toBe(
-      'ask',
-    )
+    expect(document.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value).toBe('ask')
     expect(document.body.textContent).not.toContain('A git repository')
     expect(document.body.textContent).not.toContain('Not a git repository')
     const done = button('Done')

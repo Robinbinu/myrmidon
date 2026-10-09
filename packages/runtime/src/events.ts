@@ -27,6 +27,31 @@ const task = Schema.object({
   outputs: Schema.array(Schema.string()),
 })
 
+const presetOf = Schema.union(['read-only', 'ask', 'auto', 'full'])
+const ruleTarget = {
+  kind: oneOf('tool', 'edit', 'command', 'mcp-server', 'mcp-tool'),
+  target: str(),
+  who: Schema.union(['all', 'lead', 'crew']),
+}
+const rule = Schema.object({ ...ruleTarget, decision: oneOf('allow', 'ask', 'deny') })
+const access = Schema.dict(Schema.boolean())
+/** A level of the permission model (see protocol's permissions.ts). */
+const permissionLevel = Schema.object({
+  preset: presetOf,
+  rules: Schema.array(rule).default([]),
+  access: optional(Schema.object({ lead: optional(access), crew: optional(access) })),
+})
+
+const groups = optional(Schema.array(Schema.string()))
+/** What a round's agents were told they may do (protocol's RoundAccess). */
+const roundAccess = Schema.object({
+  preset: presetOf,
+  fullAccess: Schema.boolean(),
+  reads: optional(Schema.array(Schema.string())),
+  rules: optional(Schema.array(rule)),
+  off: optional(Schema.object({ lead: groups, crew: groups })),
+})
+
 /** How a colony (or a chat round in it) was set up: everything needed to run or resume it. */
 const colonySpec = Schema.object({
   name: str(),
@@ -64,12 +89,21 @@ const colonySpec = Schema.object({
           id: str(),
           name: str(),
           path: str(),
+          // Old logs hold the shape from before the permission model; new ones a project level.
           permissions: optional(
-            Schema.object({
-              mode: oneOf('auto', 'ask', 'read-only', 'full'),
-              allow: Schema.array(Schema.string()).default([]),
-              read: optional(Schema.array(Schema.string())),
-            }),
+            Schema.union([
+              Schema.object({
+                mode: oneOf('auto', 'ask', 'read-only', 'full'),
+                allow: Schema.array(Schema.string()).default([]),
+                read: optional(Schema.array(Schema.string())),
+              }),
+              Schema.object({
+                preset: presetOf,
+                rules: Schema.array(rule).default([]),
+                access: optional(Schema.object({ lead: optional(access), crew: optional(access) })),
+                read: optional(Schema.array(Schema.string())),
+              }),
+            ]),
           ),
         }),
       ),
@@ -93,6 +127,7 @@ const colonySpec = Schema.object({
   review: Schema.union(['off', 'auto', 'always']),
   fullAccess: Schema.boolean(),
   computerUse: Schema.boolean(),
+  access: optional(roundAccess),
 })
 
 const defs: EventTypeDefinition[] = [
@@ -273,6 +308,11 @@ const defs: EventTypeDefinition[] = [
       key: Schema.string(),
       grant: optional(Schema.union(['file', 'command'])),
       read: Schema.string(),
+      sensitive: Schema.boolean(),
+      offer: optional(Schema.array(Schema.object(ruleTarget))),
+      why: optional(Schema.dict(Schema.any())),
+      call: optional(Schema.dict(Schema.any())),
+      role: Schema.union(['lead', 'crew']),
     }),
   },
   {
@@ -341,6 +381,7 @@ const defs: EventTypeDefinition[] = [
       askAll: Schema.boolean(),
       fullAccess: Schema.boolean(),
       interrupted: strs(),
+      access: optional(roundAccess),
     }),
   },
   {
@@ -429,6 +470,12 @@ const defs: EventTypeDefinition[] = [
     actors: ['user', 'system'],
     // `auto`: Myrmidon named it from what it is about; anything else (the person, a channel, a schedule) is kept.
     schema: Schema.object({ title: str(), by: optional(Schema.union(['auto'])) }),
+  },
+  {
+    type: 'chat/permissions',
+    version: 1,
+    actors: ['user'],
+    schema: permissionLevel,
   },
   {
     type: 'chat/allowed',

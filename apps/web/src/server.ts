@@ -6,8 +6,13 @@ import { BlobStore, colonyId, MyrError, Schema, SqliteLogStore } from '@myrmidon
 import {
   type ColonyId,
   colonyMetrics,
+  DEFAULT_PRESET,
+  effectivePreset,
   foldColony,
   isSetupStep,
+  normalizeLevel,
+  PERMISSION_PRESETS,
+  type PermissionScope,
   type ProjectPermissions,
   runDiff,
   type SetupState,
@@ -299,6 +304,8 @@ const sendSchema = Schema.object({
   delivery: Schema.union(['steer', 'queue']),
   plan: Schema.boolean(),
   project: Schema.string().pattern(/^[a-z0-9-]{1,80}$/),
+  // A new chat's own permission level, chosen in the composer before its first message (checked by normalizeLevel).
+  permissions: Schema.any(),
   attachments: Schema.array(
     Schema.object({
       name: Schema.string().min(1).max(200).required(),
@@ -480,12 +487,13 @@ export function startServer(options: ServeOptions): WebServer {
         onStream: (listener) => chats.onStream(listener),
         read: (colonyId) => chats.events(colonyId),
         decideApproval: (colonyId, id, approved) => chats.decideApproval(colonyId, id, approved),
-        allowAlways: async (tool) => {
-          const settings = options.settings
-          if (!settings) throw new Error('settings need the chat runtime')
-          const current = settings.get()
-          settings.set({ ...current, permissions: { ...current.permissions, [tool]: 'allow' } })
-          await chats.permissionsChanged()
+        // "Always" on a channel remembers the card's first offer everywhere (a command's prefix, an MCP tool).
+        allowAlways: async (colonyId, approvalId) => {
+          const state = foldColony(colonyId as ColonyId, await chats.events(colonyId))
+          const request = state.approvals[approvalId]
+          const offer =
+            request?.offer?.[0] ?? (request ? { kind: 'tool' as const, target: request.tool } : undefined)
+          if (offer) await chats.remember(colonyId, 'global', [{ ...offer, decision: 'allow' }])
         },
         artifact: async (colonyId, name) => {
           const found = await latestArtifact(colonyId, name)
@@ -839,7 +847,10 @@ export function startServer(options: ServeOptions): WebServer {
         }
         let model: string | undefined
         try {
-          model = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+          // One line of text: the cheap model that names chats writes it, not the lead's, whose reasoning can
+          // outlast the greeting's time limit.
+          const lead = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+          model = lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
         } catch {
           model = undefined
         }
@@ -1007,7 +1018,7 @@ export function startServer(options: ServeOptions): WebServer {
           home: options.home,
           models,
           sandbox: options.sandboxKind ?? 'unknown',
-          ...(options.settings?.get().sandbox.enabled === false ? { fullAccess: true } : {}),
+          ...(options.settings?.get().permissions.preset === 'full' ? { fullAccess: true } : {}),
           running: list.map((c) => ({ chatId: c.chatId, title: c.title })),
           ...(skillsArchived ? { skillsArchived } : {}),
           channels: inUse.map((c) => ({
@@ -1363,6 +1374,7 @@ export function startServer(options: ServeOptions): WebServer {
               ...TOOL_DEFS.map((d) => ({
                 name: d.name,
                 description: d.description.split(/(?<=\.)\s/)[0] ?? '',
+                tier: d.tier,
               })),
               { name: 'mcp', description: 'Every tool of the connected MCP servers.', mcp: true },
               ...(options.mcp?.toolList() ?? []).map((t) => ({
@@ -1370,8 +1382,11 @@ export function startServer(options: ServeOptions): WebServer {
                 description: t.description.split(/(?<=\.)\s/)[0] ?? '',
                 mcp: true,
                 readOnly: t.readOnly,
+                ...(t.server ? { server: t.server } : {}),
               })),
             ],
+            // Servers rules can name, connected or not.
+            mcpServers: (options.mcp?.servers() ?? []).map((m) => m.name),
           })
         }),
         PUT: guard(async (req) => {
@@ -1547,13 +1562,11 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/projects': {
-        // `fullAccess`: the sandbox is off in Settings, so the person's chats outside read-only projects run unconfined.
-        GET: guard(() =>
-          json({
-            projects: options.projects?.list() ?? [],
-            fullAccess: options.settings?.get().sandbox.enabled === false,
-          }),
-        ),
+        // `preset`: the global one, which a project with none of its own uses; `fullAccess` when it is Full access.
+        GET: guard(() => {
+          const preset = options.settings?.get().permissions.preset ?? DEFAULT_PRESET
+          return json({ projects: options.projects?.list() ?? [], preset, fullAccess: preset === 'full' })
+        }),
         POST: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
           const { path, name } = (await req.json()) as { path?: unknown; name?: unknown }
@@ -1604,22 +1617,20 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/permissions': {
         PUT: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
-          const body = (await req.json().catch(() => ({}))) as {
-            mode?: unknown
-            allow?: unknown
-            read?: unknown
-          }
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
           const strings = (list: unknown) =>
             Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
+            // The project's level (`preset`, `rules`, `access`), or the shape from before it (`mode`, `allow`). A
+            // client that does not send the readable folders keeps them.
+            const read =
+              body.read === undefined
+                ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
+                : strings(body.read)
             const project = options.projects.setPermissions(req.params.id ?? '', {
-              mode: body.mode as ProjectPermissions['mode'],
-              allow: strings(body.allow),
-              // A client that does not send the readable folders keeps them.
-              read:
-                body.read === undefined
-                  ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
-                  : strings(body.read),
+              ...(body as unknown as ProjectPermissions),
+              ...(body.mode !== undefined ? { allow: strings(body.allow) } : {}),
+              read,
             })
             await options.chats?.permissionsChanged()
             return json({ project, projects: options.projects.list() })
@@ -1892,14 +1903,32 @@ export function startServer(options: ServeOptions): WebServer {
         }),
       },
       '/api/colonies/:id/approvals/:approval': {
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           const body = (await req.json().catch(() => ({}))) as {
             approved?: unknown
             edits?: unknown
             note?: unknown
+            remember?: { scope?: unknown; rule?: unknown; rules?: unknown }
           }
-          const { approved, edits, note } = body
+          const { approved, edits, note, remember } = body
+          // "For this chat / project / everywhere": this call is decided, then the rule saved, which decides every
+          // other waiting call it covers.
+          const scope = remember?.scope
+          if (remember !== undefined && scope !== 'chat' && scope !== 'project' && scope !== 'global')
+            return json({ error: 'remember.scope is chat, project or global' }, 400)
+          // One rule, or a compound command's parts (at most a handful, as Claude Code saves).
+          const given = remember
+            ? Array.isArray(remember.rules)
+              ? (remember.rules as unknown[]).slice(0, 5)
+              : [remember.rule]
+            : []
+          const rules = normalizeLevel({ rules: given }).rules
+          if (remember && (!rules.length || rules.length !== given.length))
+            return json({ error: 'remember.rule is not a valid rule' }, 400)
+          // A chats-only device may remember an answer for the chat, as it may approve the step; wider levels are
+          // Settings and a project's permissions, which need full access.
+          if (rules.length && scope !== 'chat' && access.scope !== 'full') return forbidden()
           if (typeof approved !== 'boolean') return json({ error: 'approved must be true or false' }, 400)
           // The person may rewrite a review's text fields before approving; only strings, by field key.
           const fields =
@@ -1914,6 +1943,8 @@ export function startServer(options: ServeOptions): WebServer {
               ...(fields.length ? { edits: Object.fromEntries(fields) as Record<string, string> } : {}),
               ...(typeof note === 'string' && note.trim() ? { note } : {}),
             })
+            if (rules.length)
+              await options.chats.remember(req.params.id ?? '', scope as PermissionScope, rules)
             return json({ ok: true })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 409)
@@ -2126,7 +2157,7 @@ export function startServer(options: ServeOptions): WebServer {
       },
       '/api/chats': {
         GET: guard(async () => json(options.chats ? await options.chats.list() : [])),
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
           let body: ReturnType<typeof sendSchema>
           try {
@@ -2157,6 +2188,12 @@ export function startServer(options: ServeOptions): WebServer {
               planFirst: body.plan === true,
               ...(body.project ? { project: body.project } : {}),
               ...(calls ? { context: calls.context } : {}),
+              // Like PUT /api/chats/:id/permissions, a chat's own level needs a device with full access.
+              ...(body.permissions !== undefined && !body.chatId
+                ? access.scope === 'full'
+                  ? { permissions: body.permissions }
+                  : {}
+                : {}),
             })
             calls?.tell()
             return json(sent)
@@ -2227,17 +2264,47 @@ export function startServer(options: ServeOptions): WebServer {
           }
         }),
       },
-      '/api/chats/:chatId/allowed': {
+      // The levels a chat (or a new chat in a project) runs under, and the preset in effect with where it comes from.
+      '/api/permissions': {
+        GET: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const url = new URL(req.url)
+          const chatId = url.searchParams.get('chat') ?? undefined
+          const projectId = url.searchParams.get('project') ?? undefined
+          try {
+            const found = await options.chats.permissionLevels({
+              ...(chatId ? { chatId } : {}),
+              ...(projectId ? { projectId } : {}),
+            })
+            return json({ ...found, effective: effectivePreset(found.levels) })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
+      '/api/chats/:chatId/permissions': {
+        GET: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          try {
+            return json({
+              permissions: (await options.chats.chatPermissions(req.params.chatId ?? '')) ?? null,
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
         PUT: guard(async (req) => {
           if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
-          const { grant, allowed } = (await req.json().catch(() => ({}))) as {
-            grant?: unknown
-            allowed?: unknown
-          }
-          if (grant !== 'file' && grant !== 'command') return json({ error: 'grant is file or command' }, 400)
-          if (typeof allowed !== 'boolean') return json({ error: 'allowed must be true or false' }, 400)
+          const body = (await req.json().catch(() => undefined)) as unknown
+          if (!body || typeof body !== 'object' || !Array.isArray((body as { rules?: unknown }).rules))
+            return json({ error: 'send the chat level: { preset?, rules, access? }' }, 400)
+          const preset = (body as { preset?: unknown }).preset
+          if (preset !== undefined && preset !== null && !PERMISSION_PRESETS.includes(preset as never))
+            return json({ error: 'preset is read-only, ask, auto or full' }, 400)
           try {
-            return json({ grants: await options.chats.allowInChat(req.params.chatId ?? '', grant, allowed) })
+            return json({
+              permissions: await options.chats.setChatPermissions(req.params.chatId ?? '', body),
+            })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 404)
           }

@@ -11,6 +11,7 @@ import type {
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
+import { type PermissionLevel, type RoundAccess, rulesFromGrants } from './permissions.ts'
 
 export interface AgentView {
   info: AgentInfo
@@ -212,14 +213,18 @@ export interface ColonyState {
   rounds: RoundInfo[]
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string; by?: 'auto' }
-  /** Kinds of step the person allowed for the rest of the chat; absent until they allow one. */
+  /** Old logs: kinds of step the person allowed for the rest of the chat (see `chatLevel`). */
   chatGrants?: ChatGrant[]
+  /** The chat's level of the permission model; absent until the person first sets something for the chat. */
+  chatPermissions?: PermissionLevel
   /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
   chatReads?: string[]
   /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
   computerApps?: ComputerApp[]
   /** The current round runs with full access (no sandbox); absent when it is confined. */
   fullAccess?: boolean
+  /** What the current round's agents were last told they may do; absent in logs from before it was kept. */
+  access?: RoundAccess
   /** The model failure that paused the round, until it resumes. */
   modelError?: EventPayloads['agent/error'] & { time: string }
   team?: EventPayloads['colony/created']['team']
@@ -297,6 +302,17 @@ function touch(state: ColonyState, agent: string, seq: number) {
   if (view) view.lastSeq = seq
 }
 
+/**
+ * A chat's level of the permission model as its latest round knows it: what the person set for the chat, or, in a
+ * chat from before the model, its approval cards' grants as rules. Absent when nothing was set for the chat.
+ */
+export function chatLevel(
+  state: Pick<ColonyState, 'chatPermissions' | 'chatGrants'>,
+): PermissionLevel | undefined {
+  if (state.chatPermissions) return state.chatPermissions
+  return state.chatGrants?.length ? { rules: rulesFromGrants(state.chatGrants) } : undefined
+}
+
 /** Mutating fold step. Pure with respect to everything except `state`. Unknown types are ignored. */
 export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
   const base = { seq: event.seq, id: event.id, time: event.time }
@@ -314,6 +330,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.team = p.team
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
+      if (p.access) state.access = p.access
       if (p.chat) state.rounds = [roundOf(p, event)]
       for (const info of p.agents) {
         state.agents[info.name] = {
@@ -503,6 +520,16 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['chat/allowed']
       state.chatGrants = [...p.grants]
       if (p.reads) state.chatReads = [...p.reads]
+      // A folder allowed for the chat answers an agent's own request, so it knows; one taken back it is told of later.
+      if (p.reads && state.access)
+        state.access = {
+          ...state.access,
+          reads: [...new Set([...(state.access.reads ?? []), ...p.reads])].sort(),
+        }
+      break
+    }
+    case 'chat/permissions': {
+      state.chatPermissions = structuredClone(event.payload as EventPayloads['chat/permissions'])
       break
     }
     case 'computer/apps': {
@@ -514,6 +541,7 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       // A round someone else wrote into is confined from then on, whatever it started with.
       if (p.fullAccess === false || p.askAll) delete state.fullAccess
       else if (p.fullAccess) state.fullAccess = true
+      if (p.access) state.access = p.access
       break
     }
     case 'colony/started': {
@@ -550,6 +578,8 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       state.tier = p.tier
       if (p.fullAccess) state.fullAccess = true
       else delete state.fullAccess
+      if (p.access) state.access = p.access
+      else delete state.access
       state.status = 'created'
       delete state.statusReason
       delete state.endedAt

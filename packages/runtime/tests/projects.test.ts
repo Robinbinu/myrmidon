@@ -17,25 +17,52 @@ afterEach(() => {
   rmSync(folders, { recursive: true, force: true })
 })
 
-test('a new project folder asks first; one added before that keeps working as it did', () => {
+// Changed with the permission model: new folders used to start on "Ask first"; now they use the global preset
+// (Auto by default) until the person gives one its own, and folders saved in the old shape keep their choice.
+test('a new project folder uses the global preset; saved modes keep their meaning', () => {
   const older = join(folders, 'older')
+  const asking = join(folders, 'asking')
   const newer = join(folders, 'newer')
   mkdirSync(older)
+  mkdirSync(asking)
   mkdirSync(newer)
-  // An entry written before new folders started on ask: no stored mode, which means autonomous.
   writeFileSync(
     join(home, 'projects.json'),
-    JSON.stringify([{ id: 'older-abc123', name: 'older', path: older, addedAt: '2026-10-01T00:00:00.000Z' }]),
+    JSON.stringify([
+      // Before folders had a mode: autonomous, which is "use global".
+      { id: 'older-abc123', name: 'older', path: older, addedAt: '2026-10-01T00:00:00.000Z' },
+      {
+        id: 'asking-abc123',
+        name: 'asking',
+        path: asking,
+        addedAt: '2026-10-02T00:00:00.000Z',
+        permissions: { mode: 'ask', allow: ['bun test'], read: ['~/docs'] },
+      },
+    ]),
   )
   const store = new ProjectStore(home)
   const added = store.add(newer)
-  expect(added.permissions).toEqual({ mode: 'ask', allow: [] })
-  expect(store.get(added.id)?.permissions?.mode).toBe('ask')
-  expect(store.get('older-abc123')?.permissions).toBeUndefined()
-  // Adding a folder already on the list returns it as it is, without resetting its mode.
-  expect(store.add(older).permissions).toBeUndefined()
+  expect(added.permissions).toEqual({ rules: [] })
+  expect(store.get('older-abc123')?.permissions).toEqual({ rules: [] })
+  expect(store.get('asking-abc123')?.permissions).toEqual({
+    preset: 'ask',
+    rules: [{ kind: 'command', target: 'bun test', decision: 'allow' }],
+    read: ['~/docs'],
+  })
+  // Adding a folder already on the list returns it as it is.
+  expect(store.add(asking).permissions.preset).toBe('ask')
+  // The old shape is still accepted when set; old `auto` means "use global".
   store.setPermissions(added.id, { mode: 'auto', allow: [] })
-  expect(store.add(newer).permissions?.mode).toBe('auto')
+  expect(store.get(added.id)?.permissions).toEqual({ rules: [] })
+  store.setPermissions(added.id, {
+    preset: 'read-only',
+    rules: [{ kind: 'tool', target: 'shell', decision: 'ask' }],
+  })
+  expect(store.add(newer).permissions).toEqual({
+    preset: 'read-only',
+    rules: [{ kind: 'tool', target: 'shell', decision: 'ask' }],
+  })
+  expect(() => store.setPermissions(added.id, { preset: 'yolo' } as never)).toThrow('preset')
 })
 
 test('a project file opens by its path in the folder, and nothing outside the folder does', () => {

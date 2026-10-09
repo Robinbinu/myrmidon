@@ -784,6 +784,11 @@ stay small so they merge cleanly into either.
       say what is true (and see [decide]).
 - [ ] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
 
+### H — Segmented controls (the person's screenshot)
+- [x] Dark mode: the selected segment was invisible (thumb #232328 on track #222228); labels wrapped and overlapped
+      beside a long hint (Settings → You & mascot). A `--thumb` token (dark #4a4a52) and no-shrink, no-wrap segments;
+      a contrast test keeps the thumb apart from its track.
+
 ### [decide]
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that

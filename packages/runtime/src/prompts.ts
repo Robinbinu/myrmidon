@@ -1,3 +1,4 @@
+import { type AccessChange, accessLoosened, type PermissionSource } from '@myrmidon/protocol'
 import type { WorkKind } from './verifier.ts'
 
 /**
@@ -368,9 +369,9 @@ nobody owns, publish artifacts, and request final verification once the output m
     readOnly: (project: string | undefined, propose: boolean) =>
       `Permissions: ${project} is read-only for agents. Read and analyse it freely; you cannot change its files or write there from the shell.${propose ? ' To change a file anyway, show it with propose: it is written only if the person approves it. Otherwise describe' : ' Describe'} changes in your reply (or as drafts in your scratch directory).`,
     fullAccess:
-      "Access: the person gave this round full access. There is no sandbox: your commands run as the person on their own computer, and your file tools take any path they can reach (absolute, or starting with ~), so you can read their files, change anything they can, and use their network, local services and accounts. Myrmidon's checkpoints and rewind cover only the project folder, so a change elsewhere cannot be undone from here. Act as carefully as the person would at their own keyboard: change only what the task needs, never delete or overwrite what you did not create without asking (ask_user), and keep secrets you come across out of your replies.",
+      "Access: the person gave this round full access. There is no sandbox: your commands run as the person on their own computer, and your file tools take any path they can reach (absolute, or starting with ~), so you can read their files, change anything they can, and use their network, local services and accounts. Myrmidon's checkpoints and rewind cover only the project folder, so a change elsewhere cannot be undone from here. Act as carefully as the person would at their own keyboard: change only what the task needs, never delete or overwrite what you did not create without asking (ask_user), and never print private key contents, passwords or tokens into your replies (file names, fingerprints and public keys are fine).",
     ask: (project: string | undefined, allow: readonly string[]) =>
-      `Permissions: the person approves each change to ${project}'s files and each shell command${allow.length ? ` (except commands starting with ${allow.map((a) => `\`${a}\``).join(', ')})` : ''}. They see each change in full and may rewrite it before approving; when they did, read the file back before building on it. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
+      `Permissions: the person approves each change to ${project ?? 'the files'} and each shell command that does more than look (ls, cat, grep, git status and the like run at once${allow.length ? `, as do commands starting with ${allow.map((a) => `\`${a}\``).join(', ')}` : ''}). They see each change in full and may rewrite it before approving; when they did, read the file back before building on it. Plan the change first, then make related edits together; a denied call returns an error, so ask (ask_user) rather than retry it.`,
     /** `list`: the skills this request may need, with descriptions; `others`: the rest, by name. */
     skills: (list: string, others: readonly string[]) =>
       `Skills: the person's playbooks for kinds of task. When a task matches one, load it with use_skill before you start and follow it.${list ? `\n${list}` : ''}${others.length ? `\n${list ? 'Others' : 'By name'} (use_skill shows what one is for): ${others.join(', ')}` : ''}`,
@@ -392,7 +393,7 @@ nobody owns, publish artifacts, and request final verification once the output m
     shellFull: (p: { platform: string; runtimes: readonly string[]; project: boolean }) =>
       `Shell: ${p.platform}, full access (no sandbox); commands start in ${p.project ? 'the project folder' : 'your scratch directory'} and run as the person, with their home, environment and network. Prefer paths relative to where you start, and absolute ones only for files outside it. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,
     reads: (p: { folders: readonly string[]; ask: boolean }) =>
-      `Reading: the sandbox keeps the rest of the person's computer private. You can read the project (if any), your scratch directory, this chat's shared files ($MYR_MIRROR) and the toolchains on PATH${p.folders.length ? `, and these folders the person opened for you (read-only): ${p.folders.join(', ')}` : ''}. The rest of their home, their keys and other chats are out of reach, from the shell and the file tools alike.${p.ask ? ' If the task truly needs another folder, call request_read with its full path and why; the person may allow it once or for this chat. Do not ask for keys, tokens or sign-ins (~/.ssh, ~/.aws, ~/.config and the like): those are refused.' : ''}`,
+      `Reading: the sandbox keeps the rest of the person's computer private. You can read the project (if any), your scratch directory, this chat's shared files ($MYR_MIRROR) and the toolchains on PATH${p.folders.length ? `, and these folders the person opened for you (read-only): ${p.folders.join(', ')}` : ''}. The rest of their home, their keys and other chats are out of reach, from the shell and the file tools alike.${p.ask ? ' If the task truly needs another folder, call request_read with its full path and why; the person may allow it once or for this chat. Folders of keys and sign-ins (~/.ssh, ~/.aws, ~/.config and the like) are hidden by default; if the task truly needs one, request_read it with why: the person sees a warning and decides. Never print private key contents or tokens into your replies; file names, fingerprints and public keys are fine.' : ''}`,
     shellScratch: (p: { platform: string; sandbox: string; runtimes: readonly string[] }) =>
       `Shell: ${p.platform}, ${p.sandbox} sandbox; commands start in your scratch directory, so use relative paths (e.g. web/page.md), never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. You can write only inside scratch; to read the web prefer web_search/web_fetch, which return clean text.`,
   },
@@ -523,7 +524,7 @@ nobody owns, publish artifacts, and request final verification once the output m
         'The person changed what you may do, so your last step was stopped before it finished.',
         p.off.length ? `Switched off: ${p.off.join(', ')}. Do not try them another way.` : '',
         p.ask.length ? `Now needs the person's approval for each call: ${p.ask.join(', ')}.` : '',
-        p.project ? `The project folder is now ${p.project}.` : '',
+        p.project ? `Permissions are now ${p.project}.` : '',
         p.confined
           ? 'Full access is off: commands run in the sandbox again, file tools reach only the project and your scratch directory, and the web only the public internet.'
           : '',
@@ -531,6 +532,45 @@ nobody owns, publish artifacts, and request final verification once the output m
       ]
         .filter(Boolean)
         .join('\n'),
+    /**
+     * What the person changed about what this agent may do: `since` its last answer (opening a round), or `now` (mid-round).
+     * After Codex's environment-context update and Claude Code's permission-mode notices: the new settings, stated as
+     * facts, so an agent does not hold to a refusal the old ones forced.
+     */
+    accessChanged: (c: AccessChange, when: 'since' | 'now') => {
+      const preset = { 'read-only': 'Read only', ask: 'Ask', auto: 'Auto', full: 'Full access' } as const
+      const code = (list: readonly string[]) => list.map((t) => `\`${t}\``).join(', ')
+      const fullSaid = c.fullAccess !== undefined && (c.preset?.to === 'full' || c.preset?.from === 'full')
+      const parts = [
+        c.fullAccess === true
+          ? 'full access is now on (no sandbox; your commands run as the person, and your file tools reach any path they can)'
+          : '',
+        c.fullAccess === false
+          ? 'full access is now off (commands run in the sandbox again, and file tools reach only the project, your scratch directory and the folders opened for reading)'
+          : '',
+        c.preset && !fullSaid
+          ? `the preset is now ${preset[c.preset.to]} (was ${preset[c.preset.from]})${c.preset.to === 'full' && when === 'now' ? ", but this round keeps the sandbox: full access starts with the person's next message" : ''}`
+          : '',
+        c.opened.length ? `you may now read ${c.opened.join(', ')}` : '',
+        c.closed.length
+          ? `${c.closed.join(', ')} ${c.closed.length === 1 ? 'is' : 'are'} hidden from you again`
+          : '',
+        c.allowed.length ? `these now run without asking: ${code(c.allowed)}` : '',
+        c.asked.length ? `these now need the person's approval: ${code(c.asked)}` : '',
+        c.denied.length ? `these are now refused: ${code(c.denied)}` : '',
+        c.dropped.length ? `no rule covers these any more: ${code(c.dropped)}` : '',
+        c.groupsOn.length ? `tools switched back on: ${c.groupsOn.join(', ')}` : '',
+        c.groupsOff.length ? `tools switched off: ${c.groupsOff.join(', ')}` : '',
+      ].filter(Boolean)
+      const head =
+        when === 'since'
+          ? 'Since your last answer the person changed what you may do'
+          : 'The person just changed what you may do'
+      const tail = accessLoosened(c)
+        ? 'Anything you declined or could not do earlier because of the old permissions may work now: try it.'
+        : 'Work within the new rules, and tell the person if they stop you doing something the task needs.'
+      return `${head}: ${parts.join('; ')}. ${tail}`
+    },
     taskVerdict: (id: string, pass: boolean, evidence: string) =>
       `${id} ${pass ? 'VERIFIED' : 'REJECTED'}: ${evidence}`,
     leadVerdict: (p: {
@@ -948,7 +988,39 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     cut: '\n… (cut: too long to show in full)',
   },
 
+  /** Why the permission model decided a call, as the agent reads it in a refusal. */
+  permissionSource: (source: PermissionSource): string => {
+    const level = (scope: string) =>
+      scope === 'default'
+        ? 'by default'
+        : scope === 'global'
+          ? "in the person's settings"
+          : `for this ${scope}`
+    if (source.by === 'askAll') return 'someone other than the person started this round'
+    if (source.by === 'read-only') return `the files are read-only ${level(source.scope)}`
+    if (source.by === 'preset') return `the ${source.preset} preset ${level(source.scope)}`
+    const r = source.rule
+    const what =
+      r.kind === 'command'
+        ? r.target === '*'
+          ? 'every command'
+          : `commands starting with \`${r.target}\``
+        : r.kind === 'edit'
+          ? 'file changes'
+          : r.kind === 'mcp-server'
+            ? r.target === '*'
+              ? 'every MCP tool'
+              : `the ${r.target} MCP server`
+            : r.target
+    return `a rule that ${r.decision === 'deny' ? 'denies' : r.decision === 'ask' ? 'asks first for' : 'allows'} ${what} ${level(source.scope)}`
+  },
+
   toolResults: {
+    // After Claude Code's refusal for a deny rule: final, with the reason, so the agent does not route around it.
+    denied: (what: string, why: string) =>
+      `${what} is not permitted (${why}). Do not try it another way; if the task needs it, say so to the person`,
+    readOnly: (project: string, where: string) =>
+      `${project} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
     crewmateAnswer: (name: string, answer: string) => `${name} answered:\n${answer}`,
     crewmateSilent: (name: string) =>
       `${name} stopped without answering. Read the shared files and notes for what it did, or ask it again with a clearer job.`,
@@ -968,11 +1040,13 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     readFull: 'This round has full access: read it directly with fs_read or the shell.',
     readNotHere:
       'nothing outside the project can be opened for reading in this chat: someone other than the person wrote into it',
-    readSecret: (path: string) =>
-      `${path} holds keys, tokens, sign-ins or other chats' data, which agents may not ask for. Do without it, or ask the person (ask_user) for what you need from it`,
+    readChats: (path: string) =>
+      `${path} holds Myrmidon's data for every chat, which agents may not ask for. Do without it, or ask the person (ask_user) for what you need from it`,
     readAlready: (path: string) => `You can already read ${path}.`,
     readAllowed: (path: string) =>
       `The person allowed reading ${path}: read it with fs_read, grep, glob or the shell. It stays read-only.`,
+    readAllowedKeys: (path: string) =>
+      `The person allowed reading ${path}, which holds keys or sign-ins: read it with fs_read, grep, glob or the shell. It stays read-only. Never print private key contents or tokens into your replies; file names, fingerprints and public keys are fine.`,
     alreadyDone: (output: string) =>
       `Already done: the person approved this exact call earlier and it ran, so it was not run again. Its result was:\n${output}`,
     checkIn: 'check-in sent; carry on with your assumption. An answer arrives as a [user] message.',
@@ -1278,7 +1352,7 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
     },
     request_read: {
       description:
-        "Ask the person to let you read a folder outside the project, your scratch and the folders they opened: the rest of their home is hidden by the sandbox. Use it only when the task needs that folder; they allow it once or for this chat, and then fs_read, grep, glob and the shell can read it (never write). Keys, tokens, sign-ins and other chats' data are always refused.",
+        "Ask the person to let you read a folder outside the project, your scratch and the folders they opened: the rest of their home is hidden by the sandbox. Use it only when the task needs that folder; they allow it once or for this chat, and then fs_read, grep, glob and the shell can read it (never write). A folder of keys or sign-ins (~/.ssh and the like) may be asked for when the task truly needs it: the person is warned and allows it once or for this chat at most. Other chats' data is always refused.",
       params: {
         path: 'Full path of the folder (or file), e.g. ~/Documents/notes',
         reason: 'Why the task needs it, in one short sentence the person reads',

@@ -362,11 +362,14 @@ export async function doctor(
 /** Whether agents run sandboxed or with full access: a choice the person made in Settings, said as it is. */
 async function accessCheck(call: Call): Promise<Check> {
   const { projects, fullAccess } = await call<{
-    projects: { name: string; permissions?: { mode: string } }[]
+    projects: { name: string; permissions?: { preset?: string; mode?: string } }[]
     fullAccess?: boolean
   }>('GET', '/api/projects')
   if (fullAccess) return { ok: true, text: t.doctor.access.off }
-  const full = projects.filter((p) => p.permissions?.mode === 'full').map((p) => p.name)
+  // `mode` is what a server from before the permission model sends.
+  const full = projects
+    .filter((p) => (p.permissions?.preset ?? p.permissions?.mode) === 'full')
+    .map((p) => p.name)
   return { ok: true, text: full.length ? t.doctor.access.projects(full) : t.doctor.access.on }
 }
 

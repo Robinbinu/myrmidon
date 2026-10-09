@@ -3,18 +3,27 @@ import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
   type AgentInfo,
-  type ChatGrant,
   type ColonyId,
   type ColonyState,
   type ColonyStatus,
   type ComputerApp,
+  chatLevel,
+  DEFAULT_PRESET,
   type EventPayloads,
+  effectivePreset,
   foldColony,
   type MyrEvent,
   mentionsIn,
+  normalizeLevel,
+  type PermissionLevel,
+  type PermissionLevels,
+  type PermissionRule,
+  type PermissionScope,
   type ProjectPermissions,
+  projectLevelFrom,
   type RoundInfo,
   STOPPED_BY_USER,
+  withRule,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
 import { namingModel } from './catalog.ts'
@@ -34,8 +43,8 @@ import { speaksForColony } from './patterns.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectStore } from './projects.ts'
 import { prompts } from './prompts.ts'
-import { readFolder, realPath, secretAt, within } from './read-access.ts'
-import { type MyrSettings, type SettingsStore, TOOL_GROUPS, type ToolGroup } from './settings.ts'
+import { chatsAt, grantCovers, readFolder, realPath, secretAt } from './read-access.ts'
+import type { SettingsStore } from './settings.ts'
 import {
   reviewRound,
   roundDigest,
@@ -134,27 +143,8 @@ export interface SendOptions {
    * something outside it, whatever the person allowed (`ColonySpec.askAll`).
    */
   readonly askAll?: boolean
-}
-
-/** The person's tool settings as a round's rules: switched-off groups and tools, and per-tool ask and allow. */
-export function toolRules(s: MyrSettings | undefined): {
-  disabledTools: string[]
-  askTools: string[]
-  allowTools: string[]
-} {
-  const rules = Object.entries(s?.permissions ?? {})
-  return {
-    disabledTools: [
-      ...(s
-        ? (Object.keys(TOOL_GROUPS) as ToolGroup[])
-            .filter((g) => !s.tools[g])
-            .flatMap((g) => [...TOOL_GROUPS[g]])
-        : []),
-      ...rules.filter(([, rule]) => rule === 'off').map(([tool]) => tool),
-    ],
-    askTools: rules.filter(([, rule]) => rule === 'ask').map(([tool]) => tool),
-    allowTools: rules.filter(([, rule]) => rule === 'allow').map(([tool]) => tool),
-  }
+  /** A new chat's own permission level (its preset, rules), chosen before its first message. */
+  readonly permissions?: unknown
 }
 
 /** Accepts the current team config or the older `{ mode: 'auto' | 'manual', workers, workerModel }` shape. */
@@ -229,8 +219,8 @@ export interface ChatSummary {
   readonly project?: { readonly id: string; readonly name: string }
   /** Crew members the person can write to directly (@name): everyone on the chat's crew but the lead. */
   readonly crew?: readonly CrewMember[]
-  /** Kinds of step the person allowed for the rest of the chat ("Approve all for this chat"). */
-  readonly grants?: readonly ChatGrant[]
+  /** The chat's level of the permission model, when the person set anything for it. */
+  readonly permissions?: PermissionLevel
   /** Folders the person let sandboxed agents read for the rest of the chat ("Allow reading … in this chat"). */
   readonly reads?: readonly string[]
   /** The latest round runs (or ran) with full access: no sandbox. */
@@ -537,7 +527,7 @@ export class ChatService {
           : {}),
         ...(last.awaiting ? { awaiting: true } : {}),
         ...(last.failed ? { failed: true } : {}),
-        ...(last.grants?.length ? { grants: last.grants } : {}),
+        ...(last.permissions ? { permissions: last.permissions } : {}),
         ...(last.reads?.length ? { reads: last.reads } : {}),
         ...(last.fullAccess ? { fullAccess: true } : {}),
         ...(last.computerApps?.length ? { computerApps: last.computerApps } : {}),
@@ -623,9 +613,18 @@ export class ChatService {
     // A chat keeps its folder, but permissions are re-read each round so a change applies from the next message.
     const latest = previous.at(-1)
     const earlier = latest?.state.chat?.project
-    const project = earlier ? (this._project(earlier.id, false) ?? earlier) : this._project(options.project)
+    const project = earlier
+      ? (this._project(earlier.id, false) ?? {
+          ...earlier,
+          permissions: projectLevelFrom(earlier.permissions),
+        })
+      : this._project(options.project)
     if (project && spec.chat) spec.chat.project = project
-    if (this._fullAccess(project, spec.askAll)) spec.fullAccess = true
+    const own = !latest && options.permissions !== undefined ? normalizeLevel(options.permissions) : undefined
+    spec.permissions = own
+      ? { ...this._levels(project, undefined), chat: own }
+      : this._levels(project, latest?.state)
+    if (this._fullAccess(spec.permissions, spec.askAll)) spec.fullAccess = true
     const reads = this._reads(project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
@@ -652,6 +651,8 @@ export class ChatService {
     })
     // The opening message is logged before any agent works, so it reaches the lead once, via kickoff.
     run.beforeStart(async () => {
+      if (own)
+        await run.append({ type: 'chat/permissions', actor: { kind: 'user', id: 'user' }, payload: own })
       await this._checkpoint(run.id, project, 'start', `before: ${message}`, spec.chat?.round)
       const escalated = latest?.round.escalated
       if (escalated)
@@ -830,49 +831,96 @@ export class ChatService {
   }
 
   /**
-   * Allows one kind of step (project file changes, or shell commands) for the rest of a chat, across its runs, or
-   * takes that back. Allowing also approves the steps of that kind already waiting. Recorded in the chat's latest
-   * round's log, so it survives restarts and holds for runs started from a channel. Returns what is allowed now.
+   * The permission levels a chat (or a new chat in a project, or a new chat on its own) runs under now, for the
+   * Permissions screen and its explainer. A chat keeps the project it started in.
    */
-  async allowInChat(chatId: string, grant: ChatGrant, allowed: boolean): Promise<ChatGrant[]> {
-    if (grant !== 'file' && grant !== 'command') throw new Error('grant is file or command')
+  async permissionLevels(where: { chatId?: string; projectId?: string } = {}): Promise<{
+    levels: PermissionLevels
+    project?: { id: string; name: string }
+  }> {
+    const latest = where.chatId ? (await this.rounds(where.chatId)).at(-1) : undefined
+    if (where.chatId && !latest) throw new Error('no such chat')
+    const live = where.chatId ? this._live.get(where.chatId) : undefined
+    const state = live && latest && live.id === latest.id ? live.state() : latest?.state
+    const id = state?.chat?.project?.id ?? where.projectId
+    const project = id ? this.options.projects?.get(id) : undefined
+    return {
+      levels: this._levels(project, state),
+      ...(project ? { project: { id: project.id, name: project.name } } : {}),
+    }
+  }
+
+  /** A chat's level of the permission model as it stands (from its latest round), when anything was set for it. */
+  async chatPermissions(chatId: string): Promise<PermissionLevel | undefined> {
     const latest = (await this.rounds(chatId)).at(-1)
     if (!latest) throw new Error('no such chat')
     const live = this._live.get(chatId)
-    const here = live?.id === latest.id ? live : undefined
-    const now = (here?.state() ?? latest.state).chatGrants ?? []
-    const grants = allowed ? [...new Set([...now, grant])] : now.filter((g) => g !== grant)
-    if (grants.length !== now.length) {
-      const draft = {
-        type: 'chat/allowed',
-        actor: { kind: 'user', id: 'user' },
-        payload: { grants },
-      } as const
-      if (here) await here.append(draft)
-      else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    return chatLevel(live?.id === latest.id ? live.state() : latest.state)
+  }
+
+  /**
+   * Sets a chat's level of the permission model (its preset, rules, who may use what), recorded in its latest round's
+   * log so it survives restarts and follows the chat into later rounds and into runs started from a channel. A running
+   * round takes it at once. Returns the level as saved.
+   */
+  async setChatPermissions(chatId: string, level: unknown): Promise<PermissionLevel> {
+    const latest = (await this.rounds(chatId)).at(-1)
+    if (!latest) throw new Error('no such chat')
+    const next = normalizeLevel(level)
+    const draft = { type: 'chat/permissions', actor: { kind: 'user', id: 'user' }, payload: next } as const
+    const live = this._live.get(chatId)
+    if (live?.id === latest.id) await live.append(draft)
+    else await this.runtime.ctx.log.appendOne(latest.id as never, draft)
+    await this.permissionsChanged()
+    return next
+  }
+
+  /**
+   * Remembers rules at one level, as an approval card's "for this chat / project / everywhere" does (a compound
+   * command remembers each of its parts' prefixes, as Claude Code does): the chat's level, the chat's project's, or
+   * the global one. Saving them applies them to running rounds, where calls still waiting that they cover are decided
+   * at once.
+   */
+  async remember(colonyId: string, scope: PermissionScope, rules: readonly PermissionRule[]): Promise<void> {
+    const saved = normalizeLevel({ rules }).rules
+    if (!saved.length || saved.length !== rules.length) throw new Error('those rules are not valid')
+    const add = (level: PermissionLevel) => saved.reduce(withRule, level)
+    const run = [...this._live.values()].find((r) => r.id === colonyId)
+    const state = run?.state() ?? foldColony(colonyId as ColonyId, await this.store.read(colonyId as never))
+    const chatId = state.chat?.chatId
+    if (scope === 'chat') {
+      if (!chatId) throw new Error('that round is not in a chat')
+      await this.setChatPermissions(chatId, add((await this.chatPermissions(chatId)) ?? { rules: [] }))
+      return
     }
-    if (allowed && here)
-      for (const a of Object.values(here.state().approvals))
-        if (!a.decided && a.grant === grant)
-          // Decided meanwhile (the person on another device, a timeout): nothing left to approve.
-          await here.decideApproval(a.id, true).catch(() => {})
-    return grants
+    if (scope === 'project') {
+      const id = state.chat?.project?.id
+      const project = id ? this.options.projects?.get(id) : undefined
+      if (!project || !this.options.projects) throw new Error('this chat has no project')
+      // The project's readable folders ride along in its permissions, untouched.
+      this.options.projects.setPermissions(project.id, add(project.permissions))
+    } else {
+      const settings = this.options.settings
+      if (!settings) throw new Error('settings need the chat runtime')
+      const now = settings.get()
+      settings.set({ ...now, permissions: add(now.permissions) })
+    }
+    await this.permissionsChanged()
   }
 
   /**
    * Lets sandboxed agents read a folder for the rest of a chat, across its runs, or takes that back; allowing also
-   * approves the requests to read it already waiting. Kept like `allowInChat`. The person's keys and other chats'
-   * data cannot be allowed here (only by naming them in Settings → Tools). Returns the folders allowed now.
+   * approves the requests to read it already waiting. Kept like `setChatPermissions`. A folder of keys or sign-ins may be
+   * allowed (the card that asks for one warns); other chats' data cannot be (only by naming it in Settings). Returns
+   * the folders allowed now.
    */
   async allowReadInChat(chatId: string, folder: string, allowed: boolean): Promise<string[]> {
     const latest = (await this.rounds(chatId)).at(-1)
     if (!latest) throw new Error('no such chat')
     const path = realPath(readFolder(folder))
     const colonyDir = (this.runtime.ctx.logStore as SqliteLogStore).colonyDir(latest.id as never)
-    if (allowed && secretAt(path, { dataDir: this.runtime.home, colonyDir }))
-      throw new Error(
-        `${folder} holds keys, sign-ins or other chats: only naming it in Settings → Tools opens it`,
-      )
+    if (allowed && chatsAt(path, { dataDir: this.runtime.home, colonyDir }))
+      throw new Error(`${folder} holds every chat's data: only naming it in Settings → Permissions opens it`)
     const live = this._live.get(chatId)
     const here = live?.id === latest.id ? live : undefined
     const state = here?.state() ?? latest.state
@@ -890,7 +938,7 @@ export class ChatService {
     }
     if (allowed && here)
       for (const a of Object.values(here.state().approvals))
-        if (!a.decided && a.read && within(a.read, path))
+        if (!a.decided && a.read && grantCovers(path, a.read))
           await here.decideApproval(a.id, true).catch(() => {})
     return reads
   }
@@ -942,16 +990,25 @@ export class ChatService {
   }
 
   /**
-   * Whether a round of the person's runs with full access: its project is set to it, or the sandbox is off in Settings
-   * and the project is not read-only. A round someone else started (`askAll`) never does.
+   * The permission levels a round of a chat runs under: the global one (Settings), its project's (without the
+   * readable folders, which are not part of the model), and the chat's own from its latest round.
    */
-  private _fullAccess(
+  private _levels(
     project: { permissions?: ProjectPermissions } | undefined,
-    askAll: boolean | undefined,
-  ) {
-    if (askAll) return false
-    const mode = project?.permissions?.mode
-    return mode === 'full' || (this.options.settings?.get().sandbox.enabled === false && mode !== 'read-only')
+    state: Pick<ColonyState, 'chatPermissions' | 'chatGrants'> | undefined,
+  ): PermissionLevels {
+    const global = this.options.settings?.get().permissions ?? { preset: DEFAULT_PRESET, rules: [] }
+    const { read: _, ...own } = project?.permissions ?? { rules: [] }
+    const chat = state ? chatLevel(state) : undefined
+    return { global, ...(project?.permissions ? { project: own } : {}), ...(chat ? { chat } : {}) }
+  }
+
+  /**
+   * Whether a round of the person's runs with full access: Full access is the preset in effect (a read-only project
+   * never has it). A round someone else started (`askAll`) never does.
+   */
+  private _fullAccess(levels: PermissionLevels, askAll: boolean | undefined) {
+    return !askAll && effectivePreset(levels).preset === 'full'
   }
 
   /**
@@ -1146,9 +1203,11 @@ export class ChatService {
     const spec = this.specFromLog(await this.store.read(last.id as never))
     // Taken from the settings now, not as the round started: the person may have turned the sandbox back on.
     const project = spec.chat?.project
-    const permissions = project ? this.options.projects?.get(project.id)?.permissions : undefined
-    if (this._fullAccess(permissions ? { permissions } : project, spec.askAll)) spec.fullAccess = true
-    const reads = this._reads(permissions ? { permissions } : project, spec.askAll)
+    const fresh = project ? this.options.projects?.get(project.id) : undefined
+    if (spec.chat && fresh) spec.chat.project = fresh
+    spec.permissions = this._levels(fresh ?? project, last.state)
+    if (this._fullAccess(spec.permissions, spec.askAll)) spec.fullAccess = true
+    const reads = this._reads(fresh ?? project, spec.askAll)
     if (reads.length) spec.reads = reads
     if (this._computerUse(spec.askAll)) spec.computerUse = true
     const models: Record<string, string> = {}
@@ -1250,7 +1309,7 @@ export class ChatService {
       observer: { intervalMs: created.observerMs ?? 45_000 },
       ...(created.thinking ? { thinking: created.thinking } : {}),
       ...(created.taskJudge ? { taskJudge: created.taskJudge } : {}),
-      ...(created.chat ? { chat: { ...created.chat, history: created.chat.history ?? '' } } : {}),
+      ...(created.chat ? { chat: this._chatOf(created.chat) } : {}),
       ...(created.team
         ? {
             team: {
@@ -1264,11 +1323,21 @@ export class ChatService {
           }
         : {}),
       ...(created.disabledTools?.length ? { disabledTools: created.disabledTools } : {}),
-      ...(created.askTools?.length ? { askTools: created.askTools } : {}),
-      ...(created.allowTools?.length ? { allowTools: created.allowTools } : {}),
       ...(askAll ? { askAll: true } : {}),
       ...(created.review ? { review: created.review } : {}),
       ...(created.tier ? { tier: created.tier } : {}),
+    }
+  }
+
+  /** A logged round's chat, its project's permissions read in their current shape (old logs hold the old one). */
+  private _chatOf(
+    chat: NonNullable<EventPayloads['colony/created']['chat']>,
+  ): NonNullable<ColonySpec['chat']> {
+    const { project, ...rest } = chat
+    return {
+      ...rest,
+      history: chat.history ?? '',
+      ...(project ? { project: { ...project, permissions: projectLevelFrom(project.permissions) } } : {}),
     }
   }
 
@@ -1296,18 +1365,19 @@ export class ChatService {
   }
 
   /**
-   * The person changed tool settings or a project's permissions: running rounds take the new rules at once, and an
-   * agent mid-turn under rules that got stricter is stopped and told what changed (see ColonyRun.applyRules).
+   * The person changed permissions at some level (Settings, a project, a chat): running rounds take the new levels at
+   * once, and an agent mid-turn under rules that got stricter is stopped and told what changed (see
+   * ColonyRun.applyRules).
    */
   async permissionsChanged(): Promise<void> {
-    const rules = toolRules(this.options.settings?.get())
     for (const run of this._live.values()) {
       if (run.state().status !== 'running') continue
       const project = run.spec.chat?.project
-      const fresh = project ? this.options.projects?.get(project.id)?.permissions : undefined
-      const fullAccess = this._fullAccess(fresh ? { permissions: fresh } : project, run.spec.askAll)
-      const reads = this._reads(fresh ? { permissions: fresh } : project, run.spec.askAll)
-      await run.applyRules({ ...rules, ...(fresh ? { project: fresh } : {}), fullAccess, reads })
+      const fresh = project ? (this.options.projects?.get(project.id) ?? project) : undefined
+      const permissions = this._levels(fresh, run.state())
+      const fullAccess = this._fullAccess(permissions, run.spec.askAll)
+      const reads = this._reads(fresh, run.spec.askAll)
+      await run.applyRules({ permissions, fullAccess, reads })
     }
   }
 
@@ -1459,7 +1529,6 @@ export class ChatService {
       tier === 'solo' && config.mode === 'orchestrated'
         ? crew('worker').map((a) => this._asSpecialist(a))
         : []
-    const { disabledTools, askTools, allowTools } = toolRules(s)
     // Without a settings store (tests, bare runtimes) the round keeps the rules from before the setting: direct
     // answers are not reviewed, other final answers always are.
     const review = s?.verification.reviewer
@@ -1491,9 +1560,6 @@ export class ChatService {
           ? { wallMs: Math.min(wallMs, 4 * 60_000), maxTurns: 4, ...limits }
           : { wallMs, maxTurns: s?.team.maxTurns ?? 40, ...limits },
       observer: { intervalMs: (s?.observer.intervalSeconds ?? 45) * 1000 },
-      ...(disabledTools.length ? { disabledTools } : {}),
-      ...(askTools.length ? { askTools } : {}),
-      ...(allowTools.length ? { allowTools } : {}),
       ...(review ? { review } : {}),
       chat: {
         chatId,
