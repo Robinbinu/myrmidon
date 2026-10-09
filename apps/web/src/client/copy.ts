@@ -1550,6 +1550,8 @@ export const copy = {
     stopped: 'Computer use stopped',
     notifyTitle: 'Myrmidon is using your Mac',
     notifyBody: 'Press Esc to stop.',
+    /** In a chat's step, in place of what the agent saw. */
+    shotFailed: 'The screenshot could not be loaded.',
     blocked: {
       install: 'An agent wants to use your Mac, but Cua Driver is not installed yet.',
       grants: (missing: string) =>
