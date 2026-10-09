@@ -601,7 +601,9 @@ function WorkspaceBody({
                                   onClick={() => setBoard(value)}
                                   className={cn(
                                     'rounded-md px-2 py-0.5 text-small transition-colors',
-                                    board === value ? 'bg-segment-on text-fg shadow-[0_0.5px_2px_rgb(0_0_0/0.25)]' : 'text-muted hover:text-fg',
+                                    board === value
+                                      ? 'bg-segment-on text-fg shadow-[0_0.5px_2px_rgb(0_0_0/0.25)]'
+                                      : 'text-muted hover:text-fg',
                                   )}
                                 >
                                   {label}
