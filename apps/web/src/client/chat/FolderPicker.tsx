@@ -1,5 +1,5 @@
 import { ArrowUp, Folder, FolderPlus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { activeGateway, api, type Project, send } from '../api.ts'
 import { copy } from '../copy.ts'
 import { desktop } from '../ui/desktop.ts'
@@ -25,14 +25,21 @@ export function FolderPicker(props: { onClose(): void; onAdded(project: Project,
   const [listing, setListing] = useState<Listing>()
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
+  // Only the latest request shows: the home folder's listing, slow to come, must not replace a path typed meanwhile.
+  const latest = useRef(0)
 
-  const open = (path: string) =>
-    api<Listing>(`/api/folders?path=${encodeURIComponent(path)}`)
+  const open = (path: string) => {
+    const ask = ++latest.current
+    return api<Listing>(`/api/folders?path=${encodeURIComponent(path)}`)
       .then((l) => {
+        if (ask !== latest.current) return
         setListing(l)
         setTyped(l.path)
       })
-      .catch((err) => toast(String((err as Error).message), 'error'))
+      .catch((err) => {
+        if (ask === latest.current) toast(String((err as Error).message), 'error')
+      })
+  }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: start in the home folder (or the native dialog) once
   useEffect(() => {
