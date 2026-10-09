@@ -1,15 +1,6 @@
-import type { LucideIcon } from 'lucide-react'
+import { Copy, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import {
-  type MouseEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
-import { createPortal } from 'react-dom'
+import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MENU_EDGE_PX, menuFade } from '../ui-config.ts'
 import { moveMenuFocus, usePopover } from './Popover.tsx'
 import { isMac } from './platform.ts'
@@ -92,18 +83,27 @@ export function MenuRows(props: { entries: readonly MenuEntry[]; onClose(): void
           e.run()
         }}
         className={cn(
-          'flex h-[22px] w-full items-center gap-2 rounded-sm px-2 text-left text-body outline-none disabled:opacity-40',
-          e.destructive ? 'text-bad-ink focus:bg-bad-soft' : 'text-fg focus:bg-fill-strong',
+          // The highlighted row takes the accent, as a Mac menu's does; a destructive one turns red instead.
+          'group flex h-[22px] w-full items-center gap-2 rounded-sm px-2 text-left text-body outline-none disabled:opacity-40',
+          e.destructive
+            ? 'text-bad-ink focus:bg-bad-fill focus:text-white'
+            : 'text-fg focus:bg-accent focus:text-on-accent',
         )}
       >
         {e.icon ? (
-          <e.icon aria-hidden className={cn('size-3.5 shrink-0', !e.destructive && 'text-fg-2')} />
+          <e.icon
+            aria-hidden
+            className={cn('size-3.5 shrink-0', !e.destructive && 'text-fg-2 group-focus:text-on-accent')}
+          />
         ) : (
           <span aria-hidden className="size-3.5 shrink-0" />
         )}
         <span className="min-w-0 flex-1 truncate">{e.label}</span>
         {e.combo && (
-          <span aria-hidden className="pl-4 text-small tabular-nums text-muted">
+          <span
+            aria-hidden
+            className="pl-4 text-small tabular-nums text-muted group-focus:text-current group-focus:opacity-70"
+          >
             {comboLabel(e.combo, isMac)}
           </span>
         )}
@@ -199,49 +199,58 @@ function wantsBrowserMenu(e: MouseEvent<HTMLElement>): boolean {
   )
 }
 
-export interface ContextMenuHandle {
-  /** For an element's onContextMenu: opens the menu with these entries, named `label` for screen readers. */
-  open(e: MouseEvent<HTMLElement>, label: string, entries: MenuEntries): void
-  /** The open menu, to render once anywhere in the component; it draws itself over the whole window. */
-  readonly menu: ReactNode
+/** The host on screen, which draws the open menu; there is one, and only one menu is open at a time. */
+let showMenu: ((menu: OpenMenu | undefined) => void) | undefined
+
+/**
+ * Where context menus draw, rendered once at the app's root so a menu is never clipped or moved by the pane it opened
+ * in (a sidebar's glass is a containing block for fixed elements).
+ */
+export function ContextMenuHost() {
+  const [shown, setShown] = useState<OpenMenu>()
+  useEffect(() => {
+    showMenu = setShown
+    return () => {
+      if (showMenu === setShown) showMenu = undefined
+    }
+  }, [])
+  const close = useCallback(() => setShown(undefined), [])
+  return (
+    <AnimatePresence>
+      {shown && <ContextMenu key={`${shown.x},${shown.y}`} {...shown} onClose={close} />}
+    </AnimatePresence>
+  )
 }
 
 /**
- * Context menus for the elements of one component (one list's rows, one transcript's messages): each element calls
- * `open` from its onContextMenu with its own entries, and `menu` is rendered once.
+ * For an element's onContextMenu: opens a menu of `entries` at the pointer (or under the element, from the keyboard),
+ * named `label` for screen readers. Over a text field or selected text the browser's own menu opens instead.
  */
-export function useContextMenu(): ContextMenuHandle {
-  const [shown, setShown] = useState<OpenMenu>()
-  // Server rendering has no document to draw over; the menu only ever opens after the page is live.
-  const [live, setLive] = useState(false)
-  useEffect(() => {
-    setLive(true)
-  }, [])
-  const close = useCallback(() => setShown(undefined), [])
-  const open = useCallback((e: MouseEvent<HTMLElement>, label: string, entries: MenuEntries) => {
-    if (wantsBrowserMenu(e)) return
-    const list = arrangeMenu(entries)
-    if (!list.length) return
-    e.preventDefault()
-    e.stopPropagation()
-    // The menu key and Shift+F10 report no pointer position: the menu opens under the element instead.
-    const keyboard = e.clientX === 0 && e.clientY === 0
-    const r = e.currentTarget.getBoundingClientRect()
-    setShown({
-      x: keyboard ? r.left + 8 : e.clientX,
-      y: keyboard ? r.bottom : e.clientY,
-      entries: list,
-      label,
-      keyboard,
-    })
-  }, [])
-  const menu = live
-    ? createPortal(
-        <AnimatePresence>
-          {shown && <ContextMenu key={`${shown.x},${shown.y}`} {...shown} onClose={close} />}
-        </AnimatePresence>,
-        document.body,
-      )
-    : null
-  return { open, menu }
+export function openContextMenu(e: MouseEvent<HTMLElement>, label: string, entries: MenuEntries) {
+  if (!showMenu || wantsBrowserMenu(e)) return
+  const list = arrangeMenu(entries)
+  if (!list.length) return
+  e.preventDefault()
+  e.stopPropagation()
+  // The menu key and Shift+F10 report no pointer position: the menu opens under the element instead.
+  const keyboard = e.clientX === 0 && e.clientY === 0
+  const r = e.currentTarget.getBoundingClientRect()
+  showMenu({
+    x: keyboard ? r.left + 8 : e.clientX,
+    y: keyboard ? r.bottom : e.clientY,
+    entries: list,
+    label,
+    keyboard,
+  })
+}
+
+/** A menu entry that copies `text`, then says so with `onCopied` (a toast). */
+export function copyAction(label: string, text: string, onCopied?: () => void): MenuAction {
+  return {
+    label,
+    icon: Copy,
+    run: () => {
+      void navigator.clipboard.writeText(text).then(() => onCopied?.())
+    },
+  }
 }

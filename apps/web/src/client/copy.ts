@@ -695,6 +695,42 @@ export const copy = {
     footer: { move: 'move', open: 'open', close: 'close' },
   },
 
+  /** Right-click menus: on a chat, a project, a message, a file, a command or an address. */
+  contextMenu: {
+    chat: {
+      label: (title: string) => `Chat “${title}”`,
+      rename: 'Rename',
+      export: 'Export as Markdown',
+      copyLink: 'Copy link',
+      linkCopied: 'Link copied',
+      delete: 'Delete chat',
+    },
+    project: {
+      label: (name: string) => `Project ${name}`,
+      newChat: 'New chat here',
+      permissions: 'Permissions',
+      copyPath: 'Copy folder path',
+      pathCopied: 'Folder path copied',
+    },
+    message: {
+      label: 'Message',
+      copy: 'Copy',
+      copyMarkdown: 'Copy as Markdown',
+    },
+    link: {
+      label: (url: string) => `Link ${url}`,
+      open: 'Open link',
+      copy: 'Copy link',
+    },
+    file: {
+      label: (name: string) => `File ${name}`,
+      open: 'Open',
+      copyName: 'Copy name',
+    },
+    copy: 'Copy',
+    copied: 'Copied',
+  },
+
   sidebar: {
     label: 'Chats',
     hide: 'Hide sidebar',

@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { arrangeMenu, type MenuAction, MenuRows, menuPosition } from '../src/client/ui/Menu.tsx'
+import {
+  arrangeMenu,
+  copyAction,
+  type MenuAction,
+  MenuRows,
+  menuPosition,
+  openContextMenu,
+} from '../src/client/ui/Menu.tsx'
 
 const item = (label: string, extra: Partial<MenuAction> = {}): MenuAction => ({ label, run() {}, ...extra })
 
@@ -43,4 +50,14 @@ test('menu rows are menu items reached by the arrow keys, with shortcut hints an
   expect(html).toContain('<hr')
   expect(html).toContain('text-bad-ink')
   expect(html).toContain('h-[22px]')
+})
+
+test('with no menu host on screen a right-click is left alone, and a copy entry copies what it was given', () => {
+  let prevented = false
+  const event = { preventDefault: () => (prevented = true) } as never
+  openContextMenu(event, 'Chat', [item('Rename')])
+  expect(prevented).toBe(false)
+  const entry = copyAction('Copy link', 'http://localhost/?chat=a')
+  expect(entry.label).toBe('Copy link')
+  expect(entry.icon).toBeDefined()
 })

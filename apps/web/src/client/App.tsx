@@ -69,6 +69,7 @@ import {
   useTheme,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
+import { ContextMenuHost } from './ui/Menu.tsx'
 import { isMac } from './ui/platform.ts'
 import { Badge, Banner, Button, cn, Dot, IconButton, Select, toneFor } from './ui/primitives.tsx'
 import { Sheet } from './ui/Sheet.tsx'
@@ -821,6 +822,7 @@ export function App() {
   const sidebar = (
     <Sidebar
       onDelete={setDeleting}
+      onExport={(c) => void exportChat(c).catch((err) => toast(String(err.message ?? err), 'error'))}
       onRename={async (c, title) => {
         try {
           await request('PATCH', `/api/chats/${c.chatId}`, { title })
@@ -1369,6 +1371,7 @@ export function App() {
           <CommandPalette key="palette" items={paletteItems()} onClose={() => setPaletteOpen(false)} />
         )}
       </AnimatePresence>
+      <ContextMenuHost />
     </MotionConfig>
   )
 }

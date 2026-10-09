@@ -2,9 +2,11 @@ import {
   BarChart3,
   ChevronRight,
   CircleAlert,
+  Download,
   Folder,
   FolderPlus,
   HeartPulse,
+  Link,
   Monitor,
   Moon,
   Network,
@@ -30,10 +32,12 @@ import { ConfirmButton } from '../ui/ConfirmButton.tsx'
 import { type ThemeChoice, useUnreadChats } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Logo } from '../ui/Logo.tsx'
+import { copyAction, openContextMenu } from '../ui/Menu.tsx'
 import { isMac } from '../ui/platform.ts'
 import { CountBadge, cn, Dot, IconButton } from '../ui/primitives.tsx'
 import { comboLabel } from '../ui/shortcuts.ts'
 import { runPhase } from '../ui/status.ts'
+import { useToast } from '../ui/Toast.tsx'
 import { Toolbar } from '../ui/Toolbar.tsx'
 import { MESSAGE_SEARCH_DELAY_MS, spring } from '../ui-config.ts'
 import { GatewaySwitcher } from './GatewaySwitcher.tsx'
@@ -97,6 +101,7 @@ export function Sidebar(props: {
   onSelect(chatId: string): void
   onDelete(chat: ChatSummary): void
   onRename(chat: ChatSummary, title: string): Promise<void>
+  onExport?(chat: ChatSummary): void
   onNew(): void
   projects: Project[]
   onNewInProject(project: Project): void
@@ -110,6 +115,7 @@ export function Sidebar(props: {
   onCollapse(): void
 }) {
   const [query, setQuery] = useState('')
+  const toast = useToast()
   const { status } = useStatus()
   // System reports on this machine and points to Settings, both of which a chats-only device cannot use.
   const fullAccess = useScope() === 'full'
@@ -289,6 +295,17 @@ export function Sidebar(props: {
             onFocus={() => setLastRow(c.chatId)}
             onClick={() => props.onSelect(c.chatId)}
             onDoubleClick={() => startRename(c)}
+            onContextMenu={(e) => {
+              const m = copy.contextMenu.chat
+              const link = new URL(location.pathname, location.origin)
+              link.searchParams.set('chat', c.chatId)
+              openContextMenu(e, m.label(c.title), [
+                { label: m.rename, icon: Pencil, combo: 'f2', run: () => startRename(c) },
+                props.onExport && { label: m.export, icon: Download, run: () => props.onExport?.(c) },
+                { ...copyAction(m.copyLink, link.href, () => toast(m.linkCopied, 'success')), icon: Link },
+                { label: m.delete, icon: Trash2, destructive: true, run: () => requestDelete(c) },
+              ])
+            }}
             onKeyDown={(e) => {
               if (e.key === 'F2') {
                 e.preventDefault()
@@ -452,6 +469,18 @@ export function Sidebar(props: {
                 <button
                   type="button"
                   onClick={() => toggle(p.id)}
+                  onContextMenu={(e) => {
+                    const m = copy.contextMenu.project
+                    openContextMenu(e, m.label(p.name), [
+                      { label: m.newChat, icon: Plus, run: () => props.onNewInProject(p) },
+                      props.onProjectPermissions && {
+                        label: m.permissions,
+                        icon: FEATURE_ICONS.permissions,
+                        run: () => props.onProjectPermissions?.(p),
+                      },
+                      copyAction(m.copyPath, p.path, () => toast(m.pathCopied, 'success')),
+                    ])
+                  }}
                   aria-expanded={open}
                   title={p.path}
                   className="flex h-7 w-full items-center gap-1.5 rounded-md pl-1 pr-20 text-left text-body text-fg-2 transition-colors hover:bg-fill/70 hover:text-fg"
