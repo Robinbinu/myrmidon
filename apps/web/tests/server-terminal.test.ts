@@ -91,3 +91,25 @@ test('several terminals run their own shells, and each says what runs in its for
     two.ws.close()
   }
 }, 60_000)
+
+test('more terminals than allowed at once are refused with a reason, even when asked for together', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'myr-term-'))
+  homes.push(home)
+  const projects = {
+    get: (id: string) => ({ id, name: 'here', path: home, addedAt: '' }),
+  } as unknown as ProjectStore
+  const server = startServer({ home, port: 0, projects })
+  servers.push(server)
+  const many = Array.from({ length: 9 }, () => openTerminal(server, 'p1'))
+  const refused: CloseEvent[] = []
+  for (const t of many) t.ws.addEventListener('close', (e) => refused.push(e))
+  try {
+    await until(() => refused.length >= 1)
+    await Bun.sleep(300)
+    expect(refused).toHaveLength(1)
+    expect(refused[0]?.code).toBe(4429)
+    expect(refused[0]?.reason).toBe('Too many terminals are open (8). Close one to open another.')
+  } finally {
+    for (const t of many) t.ws.close()
+  }
+}, 60_000)

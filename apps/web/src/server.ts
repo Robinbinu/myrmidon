@@ -219,9 +219,13 @@ type StreamData = Opened &
         pending: (string | Uint8Array<ArrayBuffer>)[]
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
-    /** `watch`: the timer that looks up what runs in the terminal's foreground, to name its tab. */
+    /**
+     * `watch`: the timer that looks up what runs in the terminal's foreground, to name its tab. `refused`: one too many
+     * terminals; it closes with the reason as soon as it opens, since a refused upgrade tells the page nothing.
+     */
     | {
         kind: 'terminal'
+        refused?: boolean
         cwd: string
         cols: number
         rows: number
@@ -2660,21 +2664,24 @@ export function startServer(options: ServeOptions): WebServer {
         const access = req.headers.get('origin') ? authorized(req, url) : undefined
         if (!access) return json({ error: 'unauthorized' }, 401)
         if (access.scope !== 'full') return forbidden()
-        if (terminals >= MAX_TERMINALS) return json({ error: 'too many terminals open' }, 429)
         const project = url.searchParams.get('project')
         const path = project ? options.projects?.get(project)?.path : homedir()
         if (!path) return json({ error: 'no such project' }, 404)
         const size = (key: string, fallback: number) =>
           Math.min(500, Math.max(10, Number(url.searchParams.get(key)) || fallback))
+        // Counted here rather than once open, so requests arriving together cannot pass the limit between them.
+        const refused = terminals >= MAX_TERMINALS
         const data = {
           kind: 'terminal' as const,
+          ...(refused ? { refused } : {}),
           cwd: path,
           cols: size('cols', 100),
           rows: size('rows', 30),
           ...(access.device ? { device: access.device.id } : {}),
         }
-        if (server.upgrade(req, { data })) return undefined as unknown as Response
-        return json({ error: 'websocket upgrade failed' }, 400)
+        if (!server.upgrade(req, { data })) return json({ error: 'websocket upgrade failed' }, 400)
+        if (!refused) terminals += 1
+        return undefined as unknown as Response
       },
       // Live view of an agent's browser tab: frames, its cursor, page changes; the person can take control.
       '/api/colonies/:id/browser/:agent': async (req: Request & { params: Record<string, string> }) => {
@@ -2719,7 +2726,10 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'terminal') {
           const data = ws.data
-          terminals += 1
+          if (data.refused) {
+            ws.close(4429, `Too many terminals are open (${MAX_TERMINALS}). Close one to open another.`)
+            return
+          }
           try {
             data.proc = Bun.spawn([process.env.SHELL || '/bin/zsh', '-l'], {
               cwd: data.cwd,
@@ -2844,7 +2854,7 @@ export function startServer(options: ServeOptions): WebServer {
         }
         if (ws.data.kind === 'ping') return
         if (ws.data.kind === 'terminal') {
-          terminals -= 1
+          if (!ws.data.refused) terminals -= 1
           clearInterval(ws.data.watch)
           ws.data.proc?.terminal?.close()
           ws.data.proc?.kill()
