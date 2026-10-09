@@ -7,7 +7,7 @@ import { SANDBOX_SECRETS, SANDBOX_TOOLCHAINS } from './config.ts'
  * What a sandboxed agent may read outside its own folders. The person's home is hidden as a whole; toolchains, the
  * project, the chat's own folder and the folders the person allows (in Settings, for a project, or in one chat) are
  * opened back up; keys and sign-ins (SANDBOX_SECRETS) and Myrmidon's data folder stay hidden inside any of those
- * unless named exactly. The deepest rule that covers a path decides, so the shell (sandbox.ts) and the file tools
+ * unless named exactly (a key folder can be, in one chat, when the person allows an agent's request for it). The deepest rule that covers a path decides, so the shell (sandbox.ts) and the file tools
  * (workspace.ts) agree on every path.
  */
 
@@ -64,18 +64,41 @@ export function toolchainPaths(home = homedir()): string[] {
   return SANDBOX_TOOLCHAINS.flatMap((p) => realOrNone(join(home, p)) ?? [])
 }
 
+/** The folder of keys or sign-ins (see SANDBOX_SECRETS) that `path` is or lies in. */
+export function keysAt(path: string, home?: string): string | undefined {
+  const real = realPath(path)
+  return secretPaths(home).find((s) => within(real, s) || within(path, s))
+}
+
+/** Whether `path` is or lies in Myrmidon's data folder, which holds every chat; the chat's own folder is not. */
+export function chatsAt(path: string, where: { dataDir?: string; colonyDir?: string }): boolean {
+  if (!where.dataDir) return false
+  const real = realPath(path)
+  if (where.colonyDir && within(real, realPath(where.colonyDir))) return false
+  const data = realPath(where.dataDir)
+  return within(real, data) || within(path, data)
+}
+
 /**
- * The secret, or Myrmidon's data folder, that `path` is or lies in: a project or a chat can never grant it, only the
- * person by naming it in Settings. The chat's own folder (`colonyDir`) is not one.
+ * The secret, or Myrmidon's data folder, that `path` is or lies in: a project can never grant it, and only the person
+ * by naming it in Settings opens it for every chat. The chat's own folder (`colonyDir`) is not one.
  */
 export function secretAt(
   path: string,
   where: { home?: string; dataDir?: string; colonyDir?: string } = {},
 ): string | undefined {
-  const real = realPath(path)
-  if (where.colonyDir && within(real, realPath(where.colonyDir))) return undefined
-  const guarded = [...secretPaths(where.home), ...(where.dataDir ? [realPath(where.dataDir)] : [])]
-  return guarded.find((s) => within(real, s) || within(path, s))
+  if (where.dataDir && chatsAt(path, where)) return realPath(where.dataDir)
+  return keysAt(path, where.home)
+}
+
+/**
+ * Whether a folder allowed for reading (`grant`, real) opens `path` (real): it covers it, and when `path` holds keys or
+ * sign-ins, the grant lies within that folder too, so allowing ~ never opens ~/.ssh.
+ */
+export function grantCovers(grant: string, path: string, home?: string): boolean {
+  if (!within(path, grant)) return false
+  const keys = secretPaths(home).filter((s) => within(path, s))
+  return keys.length === 0 || keys.some((k) => within(grant, k))
 }
 
 /**

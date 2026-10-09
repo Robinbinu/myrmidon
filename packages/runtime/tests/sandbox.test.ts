@@ -84,12 +84,12 @@ test('a full-access command that runs too long is stopped, with what it started'
 }, 20_000)
 
 test('full access never holds for a round someone else wrote into, nor in a read-only project', () => {
-  const chat = (mode: 'auto' | 'read-only' | 'full') => ({
+  const chat = (preset: 'auto' | 'read-only' | 'full') => ({
     chatId: 'c',
     round: 1,
     request: 'r',
     history: '',
-    project: { id: 'p', name: 'p', path: root, permissions: { mode, allow: [] } },
+    project: { id: 'p', name: 'p', path: root, permissions: { preset, rules: [] } },
   })
   expect(fullAccessIn({ fullAccess: true })).toBe(true)
   expect(fullAccessIn({})).toBe(false)

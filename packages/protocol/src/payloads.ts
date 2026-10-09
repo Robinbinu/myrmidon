@@ -1,24 +1,39 @@
 import type { EventId } from './event.ts'
+import type {
+  AgentRole,
+  PermissionCall,
+  PermissionLevel,
+  PermissionRule,
+  PermissionSource,
+  RoundAccess,
+} from './permissions.ts'
 
 export type AgentStatus = 'provisioning' | 'ready' | 'working' | 'idle' | 'completed' | 'stopped' | 'failed'
 export type ColonyStatus = 'created' | 'running' | 'completed' | 'stopped' | 'failed'
 export type TaskStatus = 'pending' | 'in_progress' | 'submitted' | 'verified' | 'rejected' | 'deleted'
 /**
- * How freely agents may change a project folder. `auto`: anything the sandbox allows (checkpoints can rewind it);
- * `ask`: edits to project files and shell commands wait for the person, except commands starting with an `allow`
- * prefix; `read-only`: agents read the project but cannot change it; `full`: as `auto`, with no sandbox at all (full
- * access: commands, file tools and the web reach whatever the person can).
+ * A project's permissions: its level of the permission model (a preset, or "use global" when absent, its rules and
+ * who may use what), and the folders beyond the project that sandboxed agents may read in its chats (never write;
+ * `~` or absolute). See permissions.ts.
  */
-export interface ProjectPermissions {
-  mode: 'auto' | 'ask' | 'read-only' | 'full'
-  allow: string[]
-  /** Folders beyond the project that sandboxed agents may read (never write) in this project's chats (`~` or absolute). */
+export interface ProjectPermissions extends PermissionLevel {
   read?: string[]
 }
 
 /**
- * Kinds of step the person may allow for the rest of a chat, from an "Ask first" project's approval cards: changes
- * to project files, and shell commands.
+ * A project's permissions as they were saved before the permission model: `auto` (whatever the global sandbox
+ * allowed), `ask` (edits and commands wait, except commands starting with an `allow` prefix), `read-only`, or `full`.
+ * Still accepted on input and read from old logs; `projectLevelFrom` turns it into a level.
+ */
+export interface LegacyProjectPermissions {
+  mode: 'auto' | 'ask' | 'read-only' | 'full'
+  allow: string[]
+  read?: string[]
+}
+
+/**
+ * Kinds of step a person allowed for the rest of a chat from approval cards before the permission model (file changes,
+ * shell commands). Read from old logs only; chat rules replace them (`rulesFromGrants`).
  */
 export type ChatGrant = 'file' | 'command'
 
@@ -43,10 +58,20 @@ export interface ApprovalRequest {
   review?: Review
   /** The call's receipt key: once approved and done, the same call returns its result instead of running again. */
   key?: string
-  /** Set when the person may approve every step of this kind for the rest of the chat. */
+  /** Old logs: the kind of step the person could allow for the rest of the chat. */
   grant?: ChatGrant
+  /** What the card may remember from the answer, most specific first (a command's prefix, then every command). */
+  offer?: Omit<PermissionRule, 'decision'>[]
+  /** Why the call asked: the rule or preset that decided it (or that someone else started the round). */
+  why?: PermissionSource
+  /** The call as the permission engine saw it, so a waiting request is decided again when the rules change. */
+  call?: PermissionCall
+  /** Whether the agent asking is the lead or crew, for rules that name who. */
+  role?: AgentRole
   /** Set when an agent asks to read this folder outside what it may read: the person allows it once or for the chat. */
   read?: string
+  /** `read` is (or lies in) a folder of keys or sign-ins: the card warns, and offers once or this chat only. */
+  sensitive?: boolean
 }
 
 /**
@@ -139,7 +164,13 @@ export interface EventPayloads {
       round: number
       request: string
       history?: string
-      project?: { id: string; name: string; path: string; permissions?: ProjectPermissions }
+      /** Old logs hold a project's permissions in their old shape. */
+      project?: {
+        id: string
+        name: string
+        path: string
+        permissions?: ProjectPermissions | LegacyProjectPermissions
+      }
       /** Bigger tiers this round's agent may hand the request to (escalate). */
       escalate?: ('solo' | 'team')[]
       /** What the person keeps across chats (memory), as prompt lines, when the round started. */
@@ -169,6 +200,8 @@ export interface EventPayloads {
     fullAccess?: boolean
     /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
     computerUse?: boolean
+    /** What the round's agents may do as it starts, to tell them what changed next time (see `RoundAccess`). */
+    access?: RoundAccess
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -328,6 +361,8 @@ export interface EventPayloads {
     /** Whether the round has full access from here on, when that changed. */
     fullAccess?: boolean
     interrupted: string[]
+    /** What the round's agents may do from here on, as they were just told it. */
+    access?: RoundAccess
   }
   /** Something a plugin put in the log (ctx.events.emit), for the UI and other plugins. */
   'plugin/event': { plugin: string; type: string; data: Record<string, unknown> }
@@ -386,6 +421,8 @@ export interface EventPayloads {
   /** What the person allows without asking for the rest of the chat, across its runs: the whole set after a change. */
   /** `reads`: folders sandboxed agents may read for the rest of the chat; absent in events from before reads existed. */
   'chat/allowed': { grants: ChatGrant[]; reads?: string[] }
+  /** The chat's level of the permission model after the person changed it (preset, rules, who may use what). */
+  'chat/permissions': PermissionLevel
   'colony/failed': { reason: string }
   'colony/completed': { verdicts: EventId[] }
   'agent/status': { agent: string; status: AgentStatus; detail?: string }

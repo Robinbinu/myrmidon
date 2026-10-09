@@ -289,6 +289,7 @@ export function RoundView(props: {
         key={i.approval.id}
         colonyId={props.colonyId}
         chatId={state.chat?.chatId}
+        project={state.chat?.project?.name}
         request={i.approval}
       />
     ) : (

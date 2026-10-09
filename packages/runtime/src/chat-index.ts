@@ -3,11 +3,12 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SqliteLogStore } from '@myrmidon/core'
 import {
-  type ChatGrant,
   type ColonyState,
   type ColonyStatus,
   type ComputerApp,
+  chatLevel,
   foldColony,
+  type PermissionLevel,
   stopCause,
 } from '@myrmidon/protocol'
 import { CHAT_SEARCH_LIMIT, SNIPPET_AFTER, SNIPPET_BEFORE } from './config.ts'
@@ -31,8 +32,8 @@ export interface IndexedRound {
   readonly project?: { readonly id: string; readonly name: string }
   /** On a chat's latest round: who is on its crew now, so the person can write to them (@name). */
   readonly crew?: readonly CrewMember[]
-  /** On a chat's latest round: kinds of step the person allowed for the rest of the chat. */
-  readonly grants?: readonly ChatGrant[]
+  /** On a chat's latest round: the chat's level of the permission model, when anything was set for it. */
+  readonly permissions?: PermissionLevel
   /** On a chat's latest round: folders the person let sandboxed agents read for the rest of the chat. */
   readonly reads?: readonly string[]
   /** On a chat's latest round: it runs with full access (no sandbox). */
@@ -131,8 +132,10 @@ export class ChatIndex {
         // Rows written before chats ran in one colony hold a single round.
         const data = row.data ? (JSON.parse(row.data) as IndexedRound | IndexedRound[]) : []
         const list = Array.isArray(data) ? data : [data]
-        // Rows from before the crew and model failures were indexed are read again once.
-        if (list.length === 0 || (list.at(-1)?.crew && list.at(-1)?.failed !== undefined)) {
+        // Rows from before the crew and model failures were indexed are read again once, and rows holding chat
+        // grants from before the permission model, so they show as the chat's rules.
+        const last = list.at(-1) as (IndexedRound & { grants?: unknown }) | undefined
+        if (list.length === 0 || (last?.crew && last.failed !== undefined && last.grants === undefined)) {
           out.push(...list)
           continue
         }
@@ -300,7 +303,7 @@ function summarize(colonyId: string, s: ColonyState): IndexedRound[] {
               role: a.info.role,
               ...(a.info.specialty ? { specialty: a.info.specialty } : {}),
             })),
-          ...(s.chatGrants?.length ? { grants: s.chatGrants } : {}),
+          ...(chatLevel(s) ? { permissions: chatLevel(s) } : {}),
           ...(s.chatReads?.length ? { reads: s.chatReads } : {}),
           ...(s.fullAccess ? { fullAccess: true } : {}),
           ...(s.computerApps?.length ? { computerApps: s.computerApps } : {}),
