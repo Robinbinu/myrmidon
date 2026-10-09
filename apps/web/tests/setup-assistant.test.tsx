@@ -23,7 +23,7 @@ import {
   starters,
   stepStatus,
 } from '../src/client/setup/state.ts'
-import { mount, withDom } from './dom.ts'
+import { mount, press, withDom } from './dom.ts'
 
 withDom()
 
@@ -401,6 +401,27 @@ const listed = () =>
       b.getAttribute('data-status'),
     ]),
   )
+
+test('the arrows move along the step list, Left and Right as well as Up and Down for the strip a narrow window shows', async () => {
+  fakeServer({ steps: {} })
+  const { unmount } = await showSetup('crew', { steps: {} })
+  try {
+    await settle()
+    const steps = () => [...document.querySelectorAll<HTMLButtonElement>('nav li button')]
+    const at = () => steps().indexOf(document.activeElement as HTMLButtonElement)
+    const start = steps().findIndex((b) => b.getAttribute('aria-current') === 'step')
+    await act(async () => steps()[start]?.focus())
+    await press('ArrowRight')
+    expect(at()).toBe(start + 1)
+    await press('ArrowLeft')
+    await press('ArrowLeft')
+    expect(at()).toBe(start - 1)
+    await press('ArrowDown')
+    expect(at()).toBe(start)
+  } finally {
+    await unmount()
+  }
+})
 
 test('Continue marks the step done and moves on; the next heading takes focus and the address follows', async () => {
   const { puts } = fakeServer({ steps: {} })
