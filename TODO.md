@@ -463,6 +463,9 @@ Open work, in the order it will be done:
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
 12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
       then rewrite Myrmidon's prompts to that standard.
+      The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
+      tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
+      versions logged per run, A/B checked with apps/eval before shipping.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
