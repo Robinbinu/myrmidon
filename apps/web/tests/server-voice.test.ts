@@ -177,6 +177,8 @@ function gateway(o: { enabled?: boolean; slowModels?: Promise<void> } = {}) {
   settings.set({
     ...settings.get(),
     profile: { name: 'Robin', greeting: 'rules' },
+    // A direct call's words go to the chat with the person's default team.
+    team: { ...settings.get().team, leadModel: 'mock/voice' },
     voice: {
       enabled: o.enabled ?? true,
       callModel: 'mock/voice',
@@ -195,10 +197,15 @@ function gateway(o: { enabled?: boolean; slowModels?: Promise<void> } = {}) {
   const resolver = new ModelResolver()
   const model = createMockModel({ handler: () => ({ content: ['Okay.'] }) })
   resolver.register('mock/voice', { model: model.model, streamFn: model.stream })
+  const sent: { text: string; chatId?: string; options?: Record<string, unknown> }[] = []
   const chats = {
     list: async () => [{ chatId: 'c1', title: 'Planning', rounds: [], crew: [{ name: 'ana' }] }],
     onEvents: () => () => {},
     onStream: () => () => {},
+    send: async (text: string, _team: unknown, chatId?: string, options?: Record<string, unknown>) => {
+      sent.push({ text, ...(chatId ? { chatId } : {}), ...(options ? { options } : {}) })
+      return { chatId: chatId ?? 'c1', colonyId: 'col-1', started: true }
+    },
   } as unknown as ChatService
   const voiceModels = {
     vad: new SileroVad(home, `${base}/no-model.onnx`),
@@ -227,7 +234,7 @@ function gateway(o: { enabled?: boolean; slowModels?: Promise<void> } = {}) {
     })
     return { ws, messages, closed }
   }
-  return { call, spoken }
+  return { call, spoken, sent }
 }
 
 const until = async (check: () => boolean, ms = 5000) => {
@@ -237,6 +244,19 @@ const until = async (check: () => boolean, ms = 5000) => {
     await Bun.sleep(10)
   }
 }
+
+test("what is said on a direct call reaches the chat as the person's message, marked as spoken", async () => {
+  const { call, sent } = gateway()
+  const c = await call('chat=c1&talk=lead&rate=16000')
+  await until(() => c.messages.some((m) => m.type === 'said'))
+  const loud = Int16Array.from({ length: 320 }, (_, i) => Math.round(3000 * Math.sin(i / 3)))
+  for (let i = 0; i < 25; i++) c.ws.send(loud)
+  for (let i = 0; i < 50; i++) c.ws.send(new Int16Array(320))
+  await until(() => sent.length === 1)
+  expect(sent[0]).toMatchObject({ text: 'hello', chatId: 'c1', options: { voice: true } })
+  c.ws.close()
+  await c.closed
+})
 
 test('a call first says who it reached: a member not in the crew gets the call assistant', async () => {
   const { call } = gateway()

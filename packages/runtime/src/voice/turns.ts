@@ -71,6 +71,11 @@ export class TurnDetector {
     return this._speaking
   }
 
+  /** The turn in progress so far, from just before it started (empty between turns). */
+  soFar(): Int16Array {
+    return this._speaking ? concat(this._chunks, this._length) : new Int16Array(0)
+  }
+
   /** A frame and how likely it is speech (0–1). */
   push(frame: Int16Array, chance: number): TurnEvent[] {
     const loud = chance >= (this._speaking ? (this.options.hold ?? this.options.start) : this.options.start)

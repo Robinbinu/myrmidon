@@ -76,6 +76,8 @@ export function CallBar(props: {
   latency?: number
   state: CallState
   lines: readonly CallLine[]
+  /** What the person is saying, as it is heard, while they speak. */
+  partial?: string
   /** What waits for the person's yes or no. */
   approval?: string
   muted: boolean
@@ -83,7 +85,9 @@ export function CallBar(props: {
   onHangUp(): void
 }) {
   const t = copy.call
-  const last = props.lines.slice(props.approval ? -1 : -2)
+  // The bar keeps its height: what is being heard takes the place of the oldest line.
+  const shown = (props.approval ? 1 : 2) - (props.partial ? 1 : 0)
+  const last = shown > 0 ? props.lines.slice(-shown) : []
   // Starting a call takes away the Call button that had focus.
   const hangUp = useRef<HTMLButtonElement>(null)
   useFocusWhenLost(hangUp)
@@ -132,6 +136,13 @@ export function CallBar(props: {
               </div>
             ))}
           </div>
+          {/* Outside the log: words that change twice a second are not announced; the line they become is. */}
+          {props.partial && (
+            <div className="truncate text-muted">
+              <span className="font-medium">{t.you}: </span>
+              {props.partial}
+            </div>
+          )}
         </div>
         <IconButton
           label={props.muted ? t.unmute : t.mute}

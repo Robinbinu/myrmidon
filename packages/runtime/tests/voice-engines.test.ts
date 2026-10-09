@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ServerWebSocket } from 'bun'
 import { VOICE_KITTEN_MODELS, VOICE_PHONON_VERSION } from '../src/config.ts'
 import { parseWav, trimSilence, wav } from '../src/voice/audio.ts'
+import { PhononStream } from '../src/voice/phonon-stream.ts'
 import { SmartTurn } from '../src/voice/smart-turn.ts'
 import { SpeechSplitter } from '../src/voice/speech.ts'
 import { OpenAiCompatibleStt, PHONON_INSTALL, PhononStt } from '../src/voice/stt.ts'
@@ -77,6 +79,110 @@ test('an OpenAI-compatible endpoint transcribes a turn and speaks a sentence', a
 
   const failing = new OpenAiCompatibleStt({ baseUrl: `http://127.0.0.1:${server.port}/nope`, model: 'x' })
   await expect(failing.transcribe(tone, 16_000)).rejects.toThrow('transcription failed (404)')
+})
+
+test('hotwords go only to an endpoint that takes them, as a JSON list', async () => {
+  const fields: (string | null)[] = []
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch: async (req) => {
+      fields.push((await req.formData()).get('hotwords') as string | null)
+      return Response.json({ text: 'ok' })
+    },
+  })
+  servers.push(server)
+  const baseUrl = `http://127.0.0.1:${server.port}/v1`
+  const hotwords = ['Quillon', 'Smith, Jones']
+  await new OpenAiCompatibleStt({ baseUrl, model: 'phonon-2', hotwords: true }).transcribe(tone, 16_000, {
+    hotwords,
+  })
+  await new OpenAiCompatibleStt({ baseUrl, model: 'whisper-1' }).transcribe(tone, 16_000, { hotwords })
+  await new OpenAiCompatibleStt({ baseUrl, model: 'phonon-2', hotwords: true }).transcribe(tone, 16_000)
+  expect(fields).toEqual(['["Quillon","Smith, Jones"]', null, null])
+})
+
+test("Phonon's live stream sends the turn's audio as it comes and says the words so far", async () => {
+  const dir = home()
+  const unix = join(dir, 's.sock')
+  const got: { config?: unknown; samples: number[]; texts: string[]; ended?: boolean } = {
+    samples: [],
+    texts: [],
+  }
+  let peer: ServerWebSocket<undefined> | undefined
+  const server = Bun.serve({
+    unix,
+    fetch: (req, s) =>
+      new URL(req.url).pathname === '/v1/audio/stream' && s.upgrade(req)
+        ? undefined
+        : new Response('no', { status: 404 }),
+    websocket: {
+      open: (ws) => {
+        peer = ws
+      },
+      message: (ws, msg) => {
+        if (typeof msg === 'string') {
+          const m = JSON.parse(msg)
+          if (m.type === 'end') got.ended = true
+          else got.config = m
+          return
+        }
+        got.samples.push(...new Int16Array(msg.buffer, msg.byteOffset, msg.byteLength / 2))
+        if (got.samples.length === 4) ws.send(JSON.stringify({ type: 'partial', text: 'check the' }))
+        if (got.samples.length === 6) {
+          ws.send(JSON.stringify({ type: 'final', text: 'Check the build.', segment: 1 }))
+          ws.send(JSON.stringify({ type: 'partial', text: 'then' }))
+        }
+      },
+      close: () => {
+        peer = undefined
+      },
+    },
+  })
+  servers.push(server)
+  const stream = new PhononStream(unix, 16_000, (text) => got.texts.push(text))
+  // Audio from before the server answers is kept, then sent in order.
+  stream.push(Int16Array.from([1, 2]))
+  stream.push(Int16Array.from([3, 4]))
+  const until = async (check: () => boolean) => {
+    const end = Date.now() + 3000
+    while (!check()) {
+      if (Date.now() > end) throw new Error('timed out')
+      await Bun.sleep(5)
+    }
+  }
+  await until(() => got.texts.length === 1)
+  stream.push(Int16Array.from([5, -6]))
+  await until(() => got.texts.length === 3)
+  expect(got.config).toEqual({ sample_rate: 16_000, format: 'pcm_s16le' })
+  expect(got.samples).toEqual([1, 2, 3, 4, 5, -6])
+  expect(got.texts).toEqual(['check the', 'Check the build.', 'Check the build. then'])
+  stream.close()
+  await until(() => peer === undefined)
+  // Ended without asking Phonon to decode the rest, which would hold up the turn's transcript.
+  expect(got.ended).toBeUndefined()
+})
+
+test('a stream the server refuses ends quietly, and Phonon streams only once it is running', async () => {
+  const dir = home()
+  const unix = join(dir, 's.sock')
+  const server = Bun.serve({ unix, fetch: () => new Response('busy', { status: 503 }) })
+  servers.push(server)
+  const logged: string[] = []
+  const texts: string[] = []
+  const stream = new PhononStream(
+    unix,
+    16_000,
+    (t) => texts.push(t),
+    (l) => logged.push(l),
+  )
+  stream.push(new Int16Array(4))
+  const end = Date.now() + 3000
+  while (!logged.length && Date.now() < end) await Bun.sleep(5)
+  expect(logged[0]).toContain('503')
+  stream.push(new Int16Array(4))
+  expect(texts).toEqual([])
+  expect(new PhononStt(home(), undefined, join(home(), 'no-bin')).listen(16_000, () => {})).toBeUndefined()
 })
 
 /** Pins for a stand-in model whose files are `files`, so the downloads check against their real hashes. */

@@ -2251,7 +2251,9 @@ export function startServer(options: ServeOptions): WebServer {
               {
                 ...(data.chat ? { chatId: data.chat } : {}),
                 ...(summary ? { chatTitle: summary.title } : {}),
-                ...(summary?.project ? { project: summary.project.id } : {}),
+                ...(summary?.project
+                  ? { project: summary.project.id, projectName: summary.project.name }
+                  : {}),
                 ...(summary?.crew?.length ? { crew: summary.crew } : {}),
                 // The lead, or one of this chat's crew; anything else is the call assistant.
                 ...(data.talk === 'lead' || summary?.crew?.some((c) => c.name === data.talk)

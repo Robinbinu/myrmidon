@@ -439,6 +439,8 @@ export function App() {
   const [call, setCall] = useState<{
     state: CallState
     lines: CallLine[]
+    /** What the person is saying, as it is heard, while they speak. */
+    partial?: string
     muted: boolean
     /** Who the call reached: `assistant`, `lead` or a crew member's name. */
     talk: string
@@ -476,7 +478,9 @@ export function App() {
     const client = new CallClient(
       activeChat,
       {
-        state: (state) => setCall((c) => c && { ...c, state }),
+        // A turn that was only noise ends with no line: what was heard of it goes with it.
+        state: (state) =>
+          setCall((c) => c && { ...c, state, ...(state === 'hearing' ? {} : { partial: undefined }) }),
         hello: (hello) =>
           setCall(
             (c) =>
@@ -490,8 +494,13 @@ export function App() {
         line: (who, text, from) =>
           setCall(
             (c) =>
-              c && { ...c, lines: [...c.lines, { who, text, ...(from ? { from } : {}) }].slice(-CALL_LINES) },
+              c && {
+                ...c,
+                lines: [...c.lines, { who, text, ...(from ? { from } : {}) }].slice(-CALL_LINES),
+                ...(who === 'person' ? { partial: undefined } : {}),
+              },
           ),
+        partial: (text) => setCall((c) => c && { ...c, partial: text }),
         level: setMicLevel,
         chat: (id) => {
           setCall((c) => c && { ...c, chatId: id })
@@ -1192,6 +1201,7 @@ export function App() {
                     {...(call.approvals.length ? { approval: call.approvals.at(-1)?.summary } : {})}
                     state={call.state}
                     lines={call.lines}
+                    {...(call.partial ? { partial: call.partial } : {})}
                     muted={call.muted}
                     onMute={muteCall}
                     onHangUp={() => {

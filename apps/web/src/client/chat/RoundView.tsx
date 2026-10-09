@@ -460,7 +460,7 @@ function filesOnly(text: string, files: readonly SentFile[]): boolean {
   return text === copy.composer.attachedOnly || text === `(sent ${names})`
 }
 
-function UserMessage(props: {
+export function UserMessage(props: {
   text: string
   /** Set for messages sent while the round was running. */
   mode?: 'steer' | 'queue' | undefined
