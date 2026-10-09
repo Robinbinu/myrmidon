@@ -66,6 +66,27 @@ export class ChatIndex {
       'create table if not exists chat_messages (colony_id text not null, chat_id text not null, sender text not null, at text not null, text text not null, folded text not null)',
     )
     this._db.run('create index if not exists chat_messages_by_colony on chat_messages (colony_id)')
+    // A trigram index over `folded`, so search does not scan every message. It reads its text from chat_messages
+    // (external content) and triggers keep it in step with every write there. It is case-sensitive because `folded`
+    // is folded already: matching it the way instr() does keeps results identical to the scan. An index made before
+    // it existed is filled from the messages once, in the same transaction that adds it. The index points at rowids,
+    // which VACUUM may renumber in a table without an integer primary key, so this file must never be vacuumed.
+    this._db.transaction(() => {
+      const fresh = !this._db.query("select 1 from sqlite_master where name = 'chat_messages_fts'").get()
+      this._db.run(
+        "create virtual table if not exists chat_messages_fts using fts5(folded, content='chat_messages', tokenize='trigram case_sensitive 1')",
+      )
+      this._db.run(
+        'create trigger if not exists chat_messages_fts_insert after insert on chat_messages begin insert into chat_messages_fts (rowid, folded) values (new.rowid, new.folded); end',
+      )
+      this._db.run(
+        "create trigger if not exists chat_messages_fts_delete after delete on chat_messages begin insert into chat_messages_fts (chat_messages_fts, rowid, folded) values ('delete', old.rowid, old.folded); end",
+      )
+      this._db.run(
+        "create trigger if not exists chat_messages_fts_update after update on chat_messages begin insert into chat_messages_fts (chat_messages_fts, rowid, folded) values ('delete', old.rowid, old.folded); insert into chat_messages_fts (rowid, folded) values (new.rowid, new.folded); end",
+      )
+      if (fresh) this._db.run("insert into chat_messages_fts (chat_messages_fts) values ('rebuild')")
+    })()
     // The log stamp each colony's messages were indexed at.
     this._db.run(
       'create table if not exists chat_message_stamps (colony_id text primary key, stamp text not null)',
@@ -129,18 +150,21 @@ export class ChatIndex {
       const m = s.chatMessages.findLast((x) => x.text.toLowerCase().includes(needle))
       if (s.chat && m) hits.push({ chatId: s.chat.chatId, from: m.from, ...snippet(m.text, needle) })
     }
+    // Trigrams cannot match under three characters, so shorter needles scan the messages instead.
+    const indexed = Array.from(needle).length >= 3
     // A running round's rows are as old as its last indexing; its live state was searched above.
     const rows = this._db
       .query(
         `select chat_id, sender, text from chat_messages where rowid in (
           select max(rowid) from chat_messages
-          where instr(folded, ?) > 0
+          where ${indexed ? 'rowid in (select rowid from chat_messages_fts where chat_messages_fts match ?)' : 'instr(folded, ?) > 0'}
             and colony_id not in (select value from json_each(?)) and chat_id not in (select value from json_each(?))
           group by chat_id
         ) order by at desc limit ?`,
       )
       .all(
-        needle,
+        // One quoted phrase: the needle's own quotes doubled, so every character in it is literal.
+        indexed ? `"${needle.replaceAll('"', '""')}"` : needle,
         JSON.stringify(live.map((s) => s.id)),
         JSON.stringify(hits.map((h) => h.chatId)),
         CHAT_SEARCH_LIMIT,
