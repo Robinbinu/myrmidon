@@ -61,6 +61,11 @@ export interface ColonySpec {
     voice?: boolean
     /** What the agents should know that the chat does not show, e.g. a voice call's transcript. */
     context?: string
+    /**
+     * What the person changed about what each agent may do since the round before, in words, by agent; it opens that
+     * agent's first message of the round. Not logged: the round's `access` is, and this is worked out from it.
+     */
+    accessNotices?: Readonly<Record<string, string>>
   }
   /** How the team may grow at run time. */
   team?: TeamPolicy

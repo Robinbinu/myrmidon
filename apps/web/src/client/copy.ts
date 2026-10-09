@@ -1261,6 +1261,9 @@ export const copy = {
     /** Folders sandboxed agents may read for the rest of a chat, from a read request's card, and their chips. */
     reads: {
       approveAll: 'Allow reading it in this chat',
+      /** On a request to read a folder of keys or sign-ins (~/.ssh, ~/.aws…), which may be allowed once or for this chat. */
+      sensitive:
+        'This folder holds keys or sign-ins. Agents can read anything in it, and what they read can end up in a reply or leave over the network. Allow it only if the task needs it.',
       allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
       chip: (name: string) => `Reads ${name}`,
       chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
