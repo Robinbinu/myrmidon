@@ -151,6 +151,32 @@ export const LEASH_GRACE_MS = 2_000
  */
 export const NEW_PROJECT_MODE: 'auto' | 'ask' | 'read-only' = 'ask'
 
+// Setup assistant (setup.ts)
+
+/** The smallest context window that can lead a crew; the client's AGENT_MIN_WINDOW (ui-config.ts) is the same. */
+export const SETUP_LEAD_MIN_WINDOW = 32_000
+/** How long setup waits for a model server on this computer before it counts as not running. */
+export const SETUP_PROBE_MS = 800
+/**
+ * Model servers setup looks for on this computer, at the ports they listen on out of the box, each with the
+ * OpenAI-compatible address it is added at and the provider name it gets.
+ */
+export const SETUP_LOCAL_SERVERS: readonly { id: string; baseUrl: string; provider: string }[] = [
+  { id: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', provider: 'ollama-local' },
+  { id: 'lm-studio', baseUrl: 'http://127.0.0.1:1234/v1', provider: 'lmstudio' },
+]
+/** Provider keys setup notices in the environment, under the names omp's catalog reads them by (pi-catalog). */
+export const SETUP_ENV_KEYS: Readonly<Record<string, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  xai: 'XAI_API_KEY',
+}
+
 // Project context (instructions.ts, git.ts)
 
 /** The most instruction text read from a project, how deep its @imports are followed, and how many folders are searched for nested files. */

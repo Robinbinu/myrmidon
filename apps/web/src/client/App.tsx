@@ -49,6 +49,7 @@ import { forgetDraft } from './chat/drafts.ts'
 import { FolderPicker, ProjectPill } from './chat/FolderPicker.tsx'
 import { Hero } from './chat/Hero.tsx'
 import { useHeldDeletes } from './chat/held-deletes.ts'
+import { canLead } from './chat/model-list.ts'
 import { ProjectPermissions } from './chat/ProjectPermissions.tsx'
 import { isRunning, JumpToLatest, PendingRound, RoundView } from './chat/RoundView.tsx'
 import { Sidebar, type View } from './chat/Sidebar.tsx'
@@ -59,12 +60,24 @@ import { SETTINGS_SAVED } from './mascot.ts'
 import { syncPluginUI } from './plugins.tsx'
 import { SECTIONS, type Section, Settings } from './Settings.tsx'
 import { SystemPage } from './System.tsx'
+import { SetupNudge } from './setup/Nudge.tsx'
+import { Setup } from './setup/Setup.tsx'
+import {
+  leftToSetUp,
+  opensOnLoad,
+  SETUP_PARAM,
+  type SetupScreen,
+  type SetupView,
+  type Starter,
+} from './setup/state.ts'
 import { useStatus } from './status.tsx'
 import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
+  DOCK_BADGE_KEY,
   day,
   NOTIFY_KEY,
+  readStored,
   useFollowLatest,
   useHotkeys,
   usePersistentFlag,
@@ -83,12 +96,12 @@ import { needsYou, runPhase } from './ui/status.ts'
 import { useToast, useToastHandle } from './ui/Toast.tsx'
 import { Toolbar, ToolbarTitle } from './ui/Toolbar.tsx'
 import {
-  AGENT_MIN_WINDOW,
   CALL_HANG_UP_COMBO,
   CALL_LINES,
   CALL_MUTE_COMBO,
   DELETE_TITLES_SHOWN,
   MAX_FILE_BYTES,
+  SETUP_HANDOFF_MS,
   softSpring,
   UNDO_DELETE_COMBO,
 } from './ui-config.ts'
@@ -143,9 +156,6 @@ function useReachable(): boolean {
   }, [])
   return on
 }
-
-/** A model that can lead a crew: any the person has not hidden whose window, when known, holds an agent. */
-const canLead = (m: ModelOption) => !m.hidden && (m.contextWindow ?? AGENT_MIN_WINDOW) >= AGENT_MIN_WINDOW
 
 function readLocalConfig(): Record<string, unknown> {
   try {
@@ -339,9 +349,9 @@ export function App() {
   const needYou = chats.filter(needsYou).length
   useEffect(() => {
     document.title = copy.app.documentTitle(needYou)
-    // In the desktop app the Dock icon carries the same count.
+    // In the desktop app the Dock icon carries the same count, unless the person turned it off.
     void desktop()
-      ?.setBadge(needYou)
+      ?.setBadge(readStored<string>(DOCK_BADGE_KEY, '1') === '1' ? needYou : 0)
       .catch(() => {})
   }, [needYou])
   const [busy, setBusy] = useState(false)
@@ -358,6 +368,16 @@ export function App() {
   const [newProject, setNewProject] = useState<string>()
   const [picking, setPicking] = useState(false)
   const [permissionsFor, setPermissionsFor] = useState<Project>()
+  /** Where the person is with setup; `failed` while Myrmidon could not say. */
+  const [setup, setSetup] = useState<SetupView | 'failed'>()
+  /** The setup assistant's screen while it is open in place of the app. */
+  const [setupScreen, setSetupScreen] = useState<SetupScreen>()
+  /** Whether setup has been decided on for this page: it opens by itself only on the first answer. */
+  const setupDecided = useRef(false)
+  /** A starter prompt picked as setup finished, sent once the home screen is back. */
+  const [starter, setStarter] = useState<string>()
+  /** Setup just handed the window back, so the home screen's mascot takes over from setup's instead of popping in. */
+  const [fromSetup, setFromSetup] = useState(false)
   const composer = useRef<ComposerHandle>(null)
   const seen = useRef(new Map<string, string>())
   /** Chats a skill review is reading now: asking again waits for the answer already on its way. */
@@ -418,16 +438,34 @@ export function App() {
 
   useEffect(loadProjects, [loadProjects])
 
+  // The owner meets the setup assistant until it is finished; a chats-only device never does.
+  const loadSetup = useCallback(() => {
+    if (!fullAccess) return
+    api<SetupView>('/api/setup')
+      .then((r) => {
+        setSetup(r)
+        if (setupDecided.current) return
+        setupDecided.current = true
+        const open = opensOnLoad(r)
+        if (open) setSetupScreen(open)
+      })
+      .catch(() => {
+        if (!setupDecided.current) setSetup('failed')
+      })
+  }, [fullAccess])
+  useEffect(loadSetup, [loadSetup])
+
   // What failed to load while the server was away loads once it answers again; the polls catch up by themselves.
   useEffect(() => {
     const back = () => {
       if (!reachable()) return
       loadProjects()
       if (!config) loadModels()
+      if (!setupDecided.current) loadSetup()
     }
     window.addEventListener(CONNECTION_CHANGED, back)
     return () => window.removeEventListener(CONNECTION_CHANGED, back)
-  }, [config, loadModels, loadProjects])
+  }, [config, loadModels, loadProjects, loadSetup])
 
   // Announce rounds that finish while the user is elsewhere: another chat, another view, or another window. The chat
   // on screen shows its own answer arriving, so a pop-up there only repeats it.
@@ -1104,370 +1142,449 @@ export function App() {
     ]
   }
 
+  /** Setup handing the window back: to the home screen, where a starter prompt picked on its last screen is sent. */
+  const closeSetup = (result: { starter?: Starter; project?: string }) => {
+    setSetupScreen(undefined)
+    const url = new URL(location.href)
+    url.searchParams.delete(SETUP_PARAM)
+    history.replaceState(null, '', url)
+    loadSetup()
+    setSettingsOpen(false)
+    setView('chat')
+    setActiveChat(undefined)
+    if (result.project) setNewProject(result.project)
+    setFromSetup(true)
+    const text = result.starter?.text
+    setTimeout(() => {
+      setFromSetup(false)
+      if (text) setStarter(text)
+    }, SETUP_HANDOFF_MS)
+  }
+  const runSetupAgain = () =>
+    request<SetupView>('PUT', '/api/setup', { restart: true })
+      .then((r) => {
+        setSetup(r)
+        setSettingsOpen(false)
+        setSetupScreen('welcome')
+      })
+      .catch((err) => toast(String((err as Error).message ?? err), 'error'))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sends the starter once, when it is due and a model is set
+  useEffect(() => {
+    if (!starter || !config) return
+    setStarter(undefined)
+    void send(starter).catch(() => {})
+  }, [starter, config])
+  const setupLeft = setup && setup !== 'failed' ? leftToSetUp(setup) : []
+
+  // Until Myrmidon says whether setup is due, the window stays empty rather than flash the home screen first.
+  if (fullAccess && setup === undefined && online) return <div className="h-dvh bg-bg" />
+  const settingUp = fullAccess && !!setupScreen && !!setup && setup !== 'failed'
+
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
-      {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
-      <div className="flex h-dvh overflow-hidden bg-bg text-fg">
-        {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
-        {!settingsOpen && view === 'chat' && config && (
-          <button
-            type="button"
-            onClick={() => composer.current?.focus()}
-            className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+      {/* Setup covers the window while it is open. It fades out over the app rather than vanish, so its mascot can
+          settle into the home screen's (they share a layout id, and the hand-over needs the old one to exit). */}
+      <AnimatePresence>
+        {settingUp && setupScreen && setup && (
+          <motion.div
+            key="setup"
+            className="fixed inset-0 z-50"
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
           >
-            {copy.app.skipToComposer}
-          </button>
-        )}
-        <AnimatePresence initial={false}>
-          {!collapsed && (
-            <motion.div
-              key="sidebar"
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: sidebarSplit.width, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={sidebarSplit.dragging ? { duration: 0 } : softSpring}
-              className="shrink-0 overflow-hidden"
-            >
-              {sidebar}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
-
-        <main className="flex min-w-0 flex-1 flex-col bg-surface">
-          {settingsOpen ? (
-            <Settings
-              key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
-              initialSection={settingsSection}
-              onSection={setShownSection}
-              {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
-              guard={settingsGuard}
-              onClose={() => setSettingsOpen(false)}
+            <Setup
+              initial={setup}
+              screen={setupScreen}
               theme={theme}
               onTheme={setTheme}
-              reduceMotion={reduceMotion}
-              onReduceMotion={setReduceMotion}
               models={models}
               onModelsChanged={loadModels}
-              config={config}
+              {...(config ? { config } : {})}
               onConfig={updateConfig}
+              online={online}
+              onProjects={setProjects}
+              onClose={closeSetup}
             />
-          ) : (
-            <>
-              <Toolbar inset={collapsed}>
-                {collapsed && (
-                  <IconButton
-                    label={copy.app.showSidebar}
-                    title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
-                    onClick={() => setCollapsed(false)}
-                  >
-                    <PanelLeft className="size-4" />
-                  </IconButton>
-                )}
-                {collapsed && (
-                  <IconButton
-                    label={copy.app.newTask}
-                    title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}
-                    onClick={() => newTask()}
-                  >
-                    <SquarePen className="size-4" />
-                  </IconButton>
-                )}
-                <ToolbarTitle>
-                  <motion.span
-                    key={title}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="truncate"
-                  >
-                    {title}
-                  </motion.span>
-                  {view === 'chat' && chat && (
-                    <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
-                  )}
-                </ToolbarTitle>
-                {view === 'chat' && voiceOn && !call && (
-                  <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
-                )}
-                {view === 'chat' && chat && (
-                  <Button
-                    variant="borderless"
-                    size="sm"
-                    icon={<Network className="size-4" />}
-                    onClick={() => {
-                      const latest = chat.rounds.at(-1)
-                      if (latest) setColonyModal(latest.colonyId)
-                    }}
-                    title={copy.app.crewButtonTitle}
-                  >
-                    {copy.app.crewButton}
-                  </Button>
-                )}
-              </Toolbar>
-              <AnimatePresence>
-                {call && (
-                  <CallBar
-                    key="call"
-                    talk={call.talk}
-                    {...(call.chatId && callChatTitle
-                      ? {
-                          chat: {
-                            title: callChatTitle,
-                            onOpen: () => {
-                              setActiveChat(call.chatId)
-                              setView('chat')
-                            },
-                          },
-                        }
-                      : {})}
-                    {...(call.latency !== undefined ? { latency: call.latency } : {})}
-                    {...(call.approvals.length ? { approval: call.approvals.at(-1)?.summary } : {})}
-                    state={call.state}
-                    lines={call.lines}
-                    {...(call.partial ? { partial: call.partial } : {})}
-                    muted={call.muted}
-                    onMute={muteCall}
-                    onHangUp={() => {
-                      callRef.current?.hangUp()
-                      // The bar and its button go; the message box is where the conversation carries on.
-                      composer.current?.focus()
-                    }}
-                  />
-                )}
-              </AnimatePresence>
-              {!online ? (
-                <div
-                  role="status"
-                  className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
-                >
-                  <LoaderCircle className="size-3.5 animate-spin text-muted" />
-                  {copy.app.reconnecting}
-                </div>
-              ) : (
-                chatsError && (
-                  <div className="shrink-0 bg-bad-soft px-4 py-2 text-body text-bad-ink">{chatsError}</div>
-                )
-              )}
-
-              {view === 'chat' &&
-                (() => {
-                  if (missing)
-                    return (
-                      <PaneNotice
-                        icon={<MessageCircleQuestion className="size-6 text-muted" />}
-                        title={copy.app.chatNotFound.title}
-                        body={copy.app.chatNotFound.body}
-                        action={{
-                          label: copy.app.chatNotFound.action,
-                          icon: <SquarePen className="size-3.5" />,
-                          run: () => newTask(),
-                        }}
-                      />
-                    )
-                  // A chat link waits for the chat list rather than showing the entry page meanwhile.
-                  if (activeChat && !chat && !waiting)
-                    return chatsError ? (
-                      <PaneNotice
-                        icon={<CircleAlert className="size-6 text-bad-ink" />}
-                        title={copy.app.chatFailed}
-                        body={chatsError}
-                        action={{
-                          label: copy.app.composer.retry,
-                          icon: <RefreshCw className="size-3.5" />,
-                          run: refreshChats,
-                        }}
-                      />
-                    ) : (
-                      <div className="flex-1" />
-                    )
-                  const box = config ? (
-                    <Composer
-                      key={activeChat ?? NEW_CHAT_DRAFT}
-                      ref={composer}
-                      draftKey={activeChat ?? NEW_CHAT_DRAFT}
-                      models={models}
-                      config={config}
-                      onConfig={updateConfig}
-                      running={running}
-                      busy={busy}
-                      centered={!chat}
-                      onTextChange={setDraft}
-                      status={running ? copy.app.composer.status : undefined}
-                      placeholder={
-                        chat
-                          ? `${
-                              running
-                                ? chat.rounds.at(-1)?.swarm
-                                  ? copy.app.composer.messagePeers
-                                  : copy.app.composer.messageLead
-                                : copy.app.composer.followUp
-                            }${chat.crew?.length ? copy.app.composer.mentionHint : ''}`
-                          : copy.app.composer.newTask
-                      }
-                      onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
-                      {...(chat?.crew ? { crew: chat.crew } : {})}
-                      onCommand={command}
-                      onStop={stop}
-                      chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
-                      project={
-                        <>
-                          {/* A chat started without a project stays without one. */}
-                          {(!chat || chat.project) && (
-                            <ProjectPill
-                              projects={projects}
-                              {...(chat?.project ? { fixed: chat.project } : {})}
-                              {...(newProject ? { value: newProject } : {})}
-                              onChange={setNewProject}
-                              {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
-                            />
-                          )}
-                          {chat?.grants?.length ? (
-                            <ChatGrantChips
-                              chatId={chat.chatId}
-                              grants={chat.grants}
-                              onChanged={refreshChats}
-                            />
-                          ) : null}
-                        </>
-                      }
-                    />
-                  ) : (
-                    <ComposerPending
-                      centered={!chat}
-                      {...(modelsError ? { error: modelsError } : {})}
-                      onRetry={loadModels}
-                    />
-                  )
-                  return chat || waiting ? (
-                    <>
-                      <Transcript
-                        {...(chat ? { chat } : {})}
-                        calls={calls}
-                        onOpenColony={setColonyModal}
-                        onRetry={(t) => void send(t).catch(() => {})}
-                        onLearn={() => void learn()}
-                        onAnswer={(t) => send(t)}
-                        onResume={resume}
-                        models={models}
-                        sending={busy}
-                        {...(waiting && pending ? { pending: pending.text } : {})}
-                      />
-                      {box}
-                    </>
-                  ) : (
-                    <Hero
-                      draft={draft}
-                      working={chats.filter((c) => isRunning(c.status)).length}
-                      {...(chats[0]
-                        ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
-                        : {})}
-                      news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
-                      recent={chats.map((c) => ({
-                        chatId: c.chatId,
-                        title: c.title,
-                        status: runPhase(c),
-                        updatedAt: c.updatedAt,
-                      }))}
-                      onOpenChat={openChat}
-                      onPick={(t) => composer.current?.fill(t)}
-                    >
-                      {config && !models.some(canLead) && (
-                        <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
-                      )}
-                      {box}
-                    </Hero>
-                  )
-                })()}
-              {view === 'colonies' && <ColoniesPane />}
-              {view === 'compare' && <ComparePane onOpen={setColonyModal} />}
-              {view === 'system' && (
-                <SystemPage
-                  onManageChannels={() => openSettings('channels')}
-                  onOpenChat={(id) => {
-                    setActiveChat(id)
-                    setView('chat')
-                  }}
-                />
-              )}
-            </>
-          )}
-        </main>
-
-        <AnimatePresence>
-          {!settingsOpen && view === 'chat' && chat && (
-            <Workspace key="workspace" chat={chat} open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
-          )}
-        </AnimatePresence>
-      </div>
-
-      <AnimatePresence>
-        {deleting && deleting.length > 0 && (
-          <Sheet
-            key="delete"
-            title={
-              deleting.length === 1
-                ? copy.app.deleteChat.title
-                : copy.app.deleteChat.titleMany(deleting.length)
-            }
-            onClose={() => setDeleting(undefined)}
-            size="sm"
-          >
-            <DeleteChats chats={deleting} onCancel={() => setDeleting(undefined)} onConfirm={confirmDelete} />
-          </Sheet>
-        )}
-        {permissionsFor && (
-          <ProjectPermissions
-            key="permissions"
-            project={permissionsFor}
-            onClose={() => setPermissionsFor(undefined)}
-            onSaved={setProjects}
-          />
-        )}
-        {picking && (
-          <FolderPicker
-            key="folders"
-            onClose={() => setPicking(false)}
-            onAdded={(p, all) => {
-              setProjects(all)
-              setPicking(false)
-              // The open chat stays open, so the toast offers a chat in the new folder; a new task about to start
-              // works in it already.
-              if (!activeChat) setNewProject(p.id)
-              toast(
-                copy.folderPicker.added(p.name),
-                'success',
-                activeChat
-                  ? { label: copy.folderPicker.startChat(p.name), run: () => newTask(p.id) }
-                  : undefined,
-              )
-            }}
-          />
-        )}
-        {colonyModal && (
-          <Sheet
-            key="colony"
-            title={copy.app.crewConsole}
-            onClose={() => setColonyModal(undefined)}
-            size="full"
-            flush
-          >
-            <ColonyScreen key={colonyModal} id={colonyModal} />
-          </Sheet>
-        )}
-        {shortcutsOpen && (
-          <Sheet
-            key="shortcuts"
-            title={copy.settings.shortcuts.title}
-            onClose={() => setShortcutsOpen(false)}
-            size="sm"
-          >
-            <ShortcutList />
-          </Sheet>
-        )}
-        {paletteOpen && (
-          <CommandPalette key="palette" items={paletteItems()} onClose={() => setPaletteOpen(false)} />
+          </motion.div>
         )}
       </AnimatePresence>
+      {!settingUp && (
+        <>
+          {/* The shell is exactly one viewport tall; only inner panels scroll, so the message box never leaves the screen. */}
+          <div className="flex h-dvh overflow-hidden bg-bg text-fg">
+            {/* Past the sidebar's controls and chat list in one press, for people on the keyboard. */}
+            {!settingsOpen && view === 'chat' && config && (
+              <button
+                type="button"
+                onClick={() => composer.current?.focus()}
+                className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[90] focus:rounded-md focus:bg-surface focus:px-3 focus:py-1.5 focus:text-body focus:font-medium focus:text-fg focus:shadow-pop"
+              >
+                {copy.app.skipToComposer}
+              </button>
+            )}
+            <AnimatePresence initial={false}>
+              {!collapsed && (
+                <motion.div
+                  key="sidebar"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: sidebarSplit.width, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={sidebarSplit.dragging ? { duration: 0 } : softSpring}
+                  className="shrink-0 overflow-hidden"
+                >
+                  {sidebar}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
+
+            <main className="flex min-w-0 flex-1 flex-col bg-surface">
+              {settingsOpen ? (
+                <Settings
+                  key={settingsChannel ? `${settingsSection}:${settingsChannel}` : settingsSection}
+                  initialSection={settingsSection}
+                  onSection={setShownSection}
+                  {...(settingsChannel ? { initialChannel: settingsChannel } : {})}
+                  guard={settingsGuard}
+                  onClose={() => setSettingsOpen(false)}
+                  theme={theme}
+                  onTheme={setTheme}
+                  reduceMotion={reduceMotion}
+                  onReduceMotion={setReduceMotion}
+                  models={models}
+                  onModelsChanged={loadModels}
+                  config={config}
+                  onConfig={updateConfig}
+                  onRunSetup={() => void runSetupAgain()}
+                />
+              ) : (
+                <>
+                  <Toolbar inset={collapsed}>
+                    {collapsed && (
+                      <IconButton
+                        label={copy.app.showSidebar}
+                        title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
+                        onClick={() => setCollapsed(false)}
+                      >
+                        <PanelLeft className="size-4" />
+                      </IconButton>
+                    )}
+                    {collapsed && (
+                      <IconButton
+                        label={copy.app.newTask}
+                        title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}
+                        onClick={() => newTask()}
+                      >
+                        <SquarePen className="size-4" />
+                      </IconButton>
+                    )}
+                    <ToolbarTitle>
+                      <motion.span
+                        key={title}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="truncate"
+                      >
+                        {title}
+                      </motion.span>
+                      {view === 'chat' && chat && (
+                        <Badge tone={toneFor(runPhase(chat))}>{copy.status.run[runPhase(chat)]}</Badge>
+                      )}
+                    </ToolbarTitle>
+                    {view === 'chat' && voiceOn && !call && (
+                      <CallMenu crew={chat?.crew ?? []} onCall={(to) => void startCall(to)} />
+                    )}
+                    {view === 'chat' && chat && (
+                      <Button
+                        variant="borderless"
+                        size="sm"
+                        icon={<Network className="size-4" />}
+                        onClick={() => {
+                          const latest = chat.rounds.at(-1)
+                          if (latest) setColonyModal(latest.colonyId)
+                        }}
+                        title={copy.app.crewButtonTitle}
+                      >
+                        {copy.app.crewButton}
+                      </Button>
+                    )}
+                  </Toolbar>
+                  <AnimatePresence>
+                    {call && (
+                      <CallBar
+                        key="call"
+                        talk={call.talk}
+                        {...(call.chatId && callChatTitle
+                          ? {
+                              chat: {
+                                title: callChatTitle,
+                                onOpen: () => {
+                                  setActiveChat(call.chatId)
+                                  setView('chat')
+                                },
+                              },
+                            }
+                          : {})}
+                        {...(call.latency !== undefined ? { latency: call.latency } : {})}
+                        {...(call.approvals.length ? { approval: call.approvals.at(-1)?.summary } : {})}
+                        state={call.state}
+                        lines={call.lines}
+                        {...(call.partial ? { partial: call.partial } : {})}
+                        muted={call.muted}
+                        onMute={muteCall}
+                        onHangUp={() => {
+                          callRef.current?.hangUp()
+                          // The bar and its button go; the message box is where the conversation carries on.
+                          composer.current?.focus()
+                        }}
+                      />
+                    )}
+                  </AnimatePresence>
+                  {!online ? (
+                    <div
+                      role="status"
+                      className="flex shrink-0 items-center gap-2 border-b border-line bg-fill px-4 py-2 text-body text-fg-2"
+                    >
+                      <LoaderCircle className="size-3.5 animate-spin text-muted" />
+                      {copy.app.reconnecting}
+                    </div>
+                  ) : (
+                    chatsError && (
+                      <div className="shrink-0 bg-bad-soft px-4 py-2 text-body text-bad-ink">
+                        {chatsError}
+                      </div>
+                    )
+                  )}
+
+                  {view === 'chat' &&
+                    (() => {
+                      if (missing)
+                        return (
+                          <PaneNotice
+                            icon={<MessageCircleQuestion className="size-6 text-muted" />}
+                            title={copy.app.chatNotFound.title}
+                            body={copy.app.chatNotFound.body}
+                            action={{
+                              label: copy.app.chatNotFound.action,
+                              icon: <SquarePen className="size-3.5" />,
+                              run: () => newTask(),
+                            }}
+                          />
+                        )
+                      // A chat link waits for the chat list rather than showing the entry page meanwhile.
+                      if (activeChat && !chat && !waiting)
+                        return chatsError ? (
+                          <PaneNotice
+                            icon={<CircleAlert className="size-6 text-bad-ink" />}
+                            title={copy.app.chatFailed}
+                            body={chatsError}
+                            action={{
+                              label: copy.app.composer.retry,
+                              icon: <RefreshCw className="size-3.5" />,
+                              run: refreshChats,
+                            }}
+                          />
+                        ) : (
+                          <div className="flex-1" />
+                        )
+                      const box = config ? (
+                        <Composer
+                          key={activeChat ?? NEW_CHAT_DRAFT}
+                          ref={composer}
+                          draftKey={activeChat ?? NEW_CHAT_DRAFT}
+                          models={models}
+                          config={config}
+                          onConfig={updateConfig}
+                          running={running}
+                          busy={busy}
+                          centered={!chat}
+                          onTextChange={setDraft}
+                          status={running ? copy.app.composer.status : undefined}
+                          placeholder={
+                            chat
+                              ? `${
+                                  running
+                                    ? chat.rounds.at(-1)?.swarm
+                                      ? copy.app.composer.messagePeers
+                                      : copy.app.composer.messageLead
+                                    : copy.app.composer.followUp
+                                }${chat.crew?.length ? copy.app.composer.mentionHint : ''}`
+                              : copy.app.composer.newTask
+                          }
+                          onSend={(t, delivery, files) => send(t, activeChat, delivery, files)}
+                          {...(chat?.crew ? { crew: chat.crew } : {})}
+                          onCommand={command}
+                          onStop={stop}
+                          chatState={{ chat: !!chat, resumable: !!chat && chat.status === 'stopped' }}
+                          project={
+                            <>
+                              {/* A chat started without a project stays without one. */}
+                              {(!chat || chat.project) && (
+                                <ProjectPill
+                                  projects={projects}
+                                  {...(chat?.project ? { fixed: chat.project } : {})}
+                                  {...(newProject ? { value: newProject } : {})}
+                                  onChange={setNewProject}
+                                  {...(fullAccess ? { onAdd: () => setPicking(true) } : {})}
+                                />
+                              )}
+                              {chat?.grants?.length ? (
+                                <ChatGrantChips
+                                  chatId={chat.chatId}
+                                  grants={chat.grants}
+                                  onChanged={refreshChats}
+                                />
+                              ) : null}
+                            </>
+                          }
+                        />
+                      ) : (
+                        <ComposerPending
+                          centered={!chat}
+                          {...(modelsError ? { error: modelsError } : {})}
+                          onRetry={loadModels}
+                        />
+                      )
+                      return chat || waiting ? (
+                        <>
+                          <Transcript
+                            {...(chat ? { chat } : {})}
+                            calls={calls}
+                            onOpenColony={setColonyModal}
+                            onRetry={(t) => void send(t).catch(() => {})}
+                            onLearn={() => void learn()}
+                            onAnswer={(t) => send(t)}
+                            onResume={resume}
+                            models={models}
+                            sending={busy}
+                            {...(waiting && pending ? { pending: pending.text } : {})}
+                          />
+                          {box}
+                        </>
+                      ) : (
+                        <Hero
+                          draft={draft}
+                          working={chats.filter((c) => isRunning(c.status)).length}
+                          {...(chats[0]
+                            ? { latest: { status: chats[0].status, updatedAt: chats[0].updatedAt } }
+                            : {})}
+                          news={chats.map((c) => `${c.chatId}:${c.status}:${c.awaiting ? 1 : 0}`).join('|')}
+                          recent={chats.map((c) => ({
+                            chatId: c.chatId,
+                            title: c.title,
+                            status: runPhase(c),
+                            updatedAt: c.updatedAt,
+                          }))}
+                          onOpenChat={openChat}
+                          onPick={(t) => composer.current?.fill(t)}
+                          fromSetup={fromSetup}
+                        >
+                          {config && !models.some(canLead) && (
+                            <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
+                          )}
+                          {fullAccess && models.some(canLead) && setupLeft.length > 0 && (
+                            <SetupNudge left={setupLeft} onOpen={setSetupScreen} />
+                          )}
+                          {box}
+                        </Hero>
+                      )
+                    })()}
+                  {view === 'colonies' && <ColoniesPane />}
+                  {view === 'compare' && <ComparePane onOpen={setColonyModal} />}
+                  {view === 'system' && (
+                    <SystemPage
+                      onManageChannels={() => openSettings('channels')}
+                      onOpenChat={(id) => {
+                        setActiveChat(id)
+                        setView('chat')
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </main>
+
+            <AnimatePresence>
+              {!settingsOpen && view === 'chat' && chat && (
+                <Workspace key="workspace" chat={chat} open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
+              )}
+            </AnimatePresence>
+          </div>
+
+          <AnimatePresence>
+            {deleting && deleting.length > 0 && (
+              <Sheet
+                key="delete"
+                title={
+                  deleting.length === 1
+                    ? copy.app.deleteChat.title
+                    : copy.app.deleteChat.titleMany(deleting.length)
+                }
+                onClose={() => setDeleting(undefined)}
+                size="sm"
+              >
+                <DeleteChats
+                  chats={deleting}
+                  onCancel={() => setDeleting(undefined)}
+                  onConfirm={confirmDelete}
+                />
+              </Sheet>
+            )}
+            {permissionsFor && (
+              <ProjectPermissions
+                key="permissions"
+                project={permissionsFor}
+                onClose={() => setPermissionsFor(undefined)}
+                onSaved={setProjects}
+              />
+            )}
+            {picking && (
+              <FolderPicker
+                key="folders"
+                onClose={() => setPicking(false)}
+                onAdded={(p, all) => {
+                  setProjects(all)
+                  setPicking(false)
+                  // The open chat stays open, so the toast offers a chat in the new folder; a new task about to start
+                  // works in it already.
+                  if (!activeChat) setNewProject(p.id)
+                  toast(
+                    copy.folderPicker.added(p.name),
+                    'success',
+                    activeChat
+                      ? { label: copy.folderPicker.startChat(p.name), run: () => newTask(p.id) }
+                      : undefined,
+                  )
+                }}
+              />
+            )}
+            {colonyModal && (
+              <Sheet
+                key="colony"
+                title={copy.app.crewConsole}
+                onClose={() => setColonyModal(undefined)}
+                size="full"
+                flush
+              >
+                <ColonyScreen key={colonyModal} id={colonyModal} />
+              </Sheet>
+            )}
+            {shortcutsOpen && (
+              <Sheet
+                key="shortcuts"
+                title={copy.settings.shortcuts.title}
+                onClose={() => setShortcutsOpen(false)}
+                size="sm"
+              >
+                <ShortcutList />
+              </Sheet>
+            )}
+            {paletteOpen && (
+              <CommandPalette key="palette" items={paletteItems()} onClose={() => setPaletteOpen(false)} />
+            )}
+          </AnimatePresence>
+        </>
+      )}
       <ContextMenuHost />
     </MotionConfig>
   )

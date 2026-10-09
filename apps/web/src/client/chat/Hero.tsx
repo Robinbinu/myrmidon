@@ -2,7 +2,7 @@ import { BookOpen, Code2, Gamepad2, Search } from 'lucide-react'
 import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'motion/react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
-import { type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
+import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
 import { CrewCursor, tripMs } from '../ui/cursor.tsx'
 import { ago } from '../ui/hooks.ts'
 import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
@@ -65,7 +65,7 @@ function useTallerThan(px: number): boolean {
 }
 
 /** A colour canvas can draw with: a `var(--token)` resolves to the token's value, anything else passes through. */
-const resolveColor = (color: string) => {
+export const resolveColor = (color: string) => {
   const token = /^var\((--[\w-]+)\)$/.exec(color)?.[1]
   return token ? readToken(token) : color
 }
@@ -73,7 +73,7 @@ const resolveColor = (color: string) => {
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)] as T
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 /** Pixel offset from the face's center → where the eyes point, in cells. */
-const gaze = (dx: number, dy: number): [number, number] => [
+export const gaze = (dx: number, dy: number): [number, number] => [
   clamp(Math.round(dx / 110), -2, 2),
   clamp(Math.round(dy / 90), -1, 1),
 ]
@@ -144,6 +144,8 @@ export function Hero(props: {
   recent: readonly { chatId: string; title: string; status: string; updatedAt: string }[]
   onOpenChat(chatId: string): void
   onPick(text: string): void
+  /** The setup assistant just closed: its mascot settles into this one's place, so this one does not pop in too. */
+  fromSetup?: boolean
   children: ReactNode
 }) {
   const reduce = useReducedMotionConfig()
@@ -358,8 +360,10 @@ export function Hero(props: {
       <div className="m-auto flex w-full max-w-[720px] flex-col items-center px-6 py-8">
         {roomy && (
           <div className="relative">
+            {/* Shares its layout id with the setup assistant's mascot, which shrinks into this place as setup ends. */}
             <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              layoutId={MASCOT_LAYOUT_ID}
+              initial={props.fromSetup ? false : { opacity: 0, y: 12, scale: 0.94 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={softSpring}
               className="relative"

@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
+  BellRing,
   BookMarked,
   Brain,
   CalendarClock,
@@ -30,6 +31,7 @@ import {
   PhoneIncoming,
   Plug,
   Puzzle,
+  Rocket,
   ScreenShare,
   ScrollText,
   Server,
@@ -160,4 +162,8 @@ export const FEATURE_ICONS = {
   activity: Activity,
   /** Keyboard shortcuts: the shortcuts sheet (⌘/) and its list in Settings. */
   shortcuts: Keyboard,
+  /** The first-run setup assistant: running it again, and the home screen's card for what is left. */
+  setup: Rocket,
+  /** Notifications when a chat finishes or needs the person, and the Dock badge. */
+  alerts: BellRing,
 } as const

@@ -1,4 +1,9 @@
 import type { ModelOption, TeamConfig } from '../api.ts'
+import { AGENT_MIN_WINDOW } from '../ui-config.ts'
+
+/** A model that can lead a crew: any the person has not hidden whose window, when known, holds an agent. */
+export const canLead = (m: ModelOption) =>
+  !m.hidden && (m.contextWindow ?? AGENT_MIN_WINDOW) >= AGENT_MIN_WINDOW
 
 /** A provider's dated snapshot id: claude-haiku-4-5-20251001, or claude-haiku-4-5@20251001 on Vertex. */
 const DATED = /[-@]\d{8}$/
