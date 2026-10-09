@@ -832,8 +832,6 @@ export const copy = {
       later: 'Set up later',
       skipped: 'Skipped',
       todo: 'Not set up',
-      /** A step's row, named as it reads: the step, then how it stands. */
-      row: (step: string, status: string) => `${step}, ${status}`,
       starters: 'Start your first chat',
       noModel: 'The crew needs a model before it can start a chat.',
       connect: 'Connect a model',

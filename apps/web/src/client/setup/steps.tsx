@@ -659,7 +659,13 @@ export function CrewStep() {
       title={t.crew.title}
       intro={t.crew.intro}
       later="crew"
-      next={{ onClick: () => ctx.done('crew') }}
+      next={{
+        onClick: () => {
+          // The crew shown is the one new chats start with: Continue keeps it, so the step is set up.
+          if (config) ctx.settings.update((s) => withDefaultCrew(s, config), true)
+          ctx.done('crew')
+        },
+      }}
     >
       {config && ctx.models.some(canLead) ? (
         <>
@@ -1340,13 +1346,12 @@ export function ReadyStep(props: { steps: readonly SetupStep[] }) {
           .filter((s) => s !== 'welcome')
           .map((s) => {
             const status = stepStatus(s, ctx.view)
-            // Named by what it shows, the step and how it stands, so a spoken "click Voice calls" finds it.
+            // Named by its words alone, the step then how it stands, so a spoken "click Voice calls" finds it.
             return (
               <button
                 key={s}
                 type="button"
                 onClick={() => ctx.go(s)}
-                aria-label={t.ready.row(t.steps[s], READY_STATUS[status])}
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-fill"
               >
                 <Dot status={STATUS_DOT[status]} />

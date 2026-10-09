@@ -272,6 +272,7 @@ function fakeServer(
 ) {
   const state = { setup: structuredClone(start) }
   const puts: unknown[] = []
+  const saved: { team?: { leadModel?: string } }[] = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost/')
     const method = init?.method ?? 'GET'
@@ -286,6 +287,7 @@ function fakeServer(
       return Response.json({ setup: state.setup, have: answers.have ?? {} })
     }
     if (url.pathname === '/api/projects') return Response.json({ projects: answers.projects ?? [] })
+    if (url.pathname === '/api/settings' && method !== 'GET') saved.push(body)
     if (url.pathname === '/api/settings')
       return Response.json(
         answers.voiceOn
@@ -312,7 +314,7 @@ function fakeServer(
       })
     return Response.json({})
   }) as unknown as typeof fetch
-  return { puts }
+  return { puts, saved }
 }
 
 async function showSetup(
@@ -635,7 +637,7 @@ test('in the desktop app in front, the test waits for Myrmidon to go to the back
 
 /* ------------------------------------------------------------------ what each step says and keeps */
 
-test('Ready says what exists: set up, set up later, skipped or not set up, each row named as it reads', async () => {
+test('Ready says what exists: set up, set up later, skipped or not set up, each row named by its words', async () => {
   const start: SetupState = {
     steps: { welcome: 'done', you: 'done', models: 'done', crew: 'done', voice: 'done', channels: 'later' },
   }
@@ -644,26 +646,21 @@ test('Ready says what exists: set up, set up later, skipped or not set up, each 
   try {
     await settle()
     expect(document.body.textContent).toContain('Here is where each step stands.')
-    const buttons = [...document.querySelectorAll('main button[aria-label]')]
-    const steps = buttons.filter((b) => b.querySelector('span.flex-1'))
+    const steps = [...document.querySelectorAll('main button')].filter((b) => b.querySelector('span.flex-1'))
     const rows = Object.fromEntries(
-      steps.map((b) => [b.querySelector('span.flex-1')?.textContent, b.getAttribute('aria-label')]),
+      steps.map((b) => [...b.querySelectorAll('span')].map((x) => x.textContent).filter(Boolean)),
     )
-    expect(rows).toMatchObject({
-      'You & mascot': 'You & mascot, Set up',
-      'Connect models': 'Connect models, Set up',
-      'Voice calls': 'Voice calls, Skipped',
-      'Messaging apps': 'Messaging apps, Set up later',
-      'Your first project': 'Your first project, Not set up',
+    expect(rows).toEqual({
+      'You & mascot': 'Set up',
+      'Connect models': 'Set up',
+      'Your crew': 'Set up',
+      'Your first project': 'Not set up',
+      'Voice calls': 'Skipped',
+      'Messaging apps': 'Set up later',
+      Alerts: 'Not set up',
     })
-    // The name starts with what the row shows, so it can be found by its words.
-    for (const b of steps) {
-      const shown = [...b.querySelectorAll('span')]
-        .map((x) => x.textContent)
-        .filter(Boolean)
-        .join(', ')
-      expect(b.getAttribute('aria-label')).toBe(shown)
-    }
+    // Named by the words it shows, the step then how it stands (WCAG 2.5.3), not by a label of its own.
+    for (const b of steps) expect(b.hasAttribute('aria-label')).toBe(false)
   } finally {
     await unmount()
   }
@@ -695,7 +692,7 @@ test('a model that answers is made the lead only on Continue, and the step says 
 })
 
 test('the spend limit, review and what the crew costs are on the crew step, not the project step', async () => {
-  fakeServer({ steps: { welcome: 'done' } })
+  const { saved } = fakeServer({ steps: { welcome: 'done' } })
   const { unmount } = await showSetup('crew', { steps: { welcome: 'done' } })
   try {
     await settle()
@@ -704,6 +701,8 @@ test('the spend limit, review and what the crew costs are on the crew step, not 
     expect(document.body.textContent).toContain('more crewmates and bigger models cost more')
     await act(async () => button('Continue').click())
     await settle()
+    // Continue keeps the crew shown, so new chats start with it and the step counts as set up.
+    expect(saved.at(-1)?.team?.leadModel).toBe(MODEL.ref)
     expect(heading()).toBe('Your first project')
     expect(document.body.textContent).not.toContain('Spend limit per run')
     expect(document.body.textContent).not.toContain('Review the work')
