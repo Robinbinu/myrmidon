@@ -46,6 +46,8 @@ export function useTheme(imported?: readonly ImportedTheme[]): [ThemeChoice, (t:
 export const NOTIFY_KEY = 'myr-notify'
 /** Ghost-text suggestions in the composer, on unless the person turns them off (this browser only). */
 export const SUGGEST_KEY = 'myr-suggest'
+/** The small next-word model behind those suggestions, off until the person turns it on (this browser only). */
+export const SUGGEST_MODEL_KEY = 'myr-suggest-model'
 /** Whether the desktop app's Dock icon counts the chats waiting for the person (on unless turned off). */
 export const DOCK_BADGE_KEY = 'myr-dock-badge'
 

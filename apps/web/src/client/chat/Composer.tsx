@@ -20,7 +20,7 @@ import {
 } from '../api.ts'
 import { copy } from '../copy.ts'
 import { PluginSlot, usePluginSlots } from '../plugins.tsx'
-import { SUGGEST_KEY, usePersistentFlag } from '../ui/hooks.ts'
+import { SUGGEST_KEY, SUGGEST_MODEL_KEY, usePersistentFlag } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { Popover } from '../ui/Popover.tsx'
 import { cn, SectionHeader, Segmented } from '../ui/primitives.tsx'
@@ -36,7 +36,7 @@ import { withoutDatedAliases } from './model-list.ts'
 import { nextWord } from './suggest.ts'
 import { HelpersChip, HelpersEditor, ReviewChip, Row, TeamChip, ThinkingChip } from './TeamControls.tsx'
 import { idleRoom, naturalWidth, shouldFold } from './toolbar-fit.ts'
-import { useSuggester } from './use-suggester.ts'
+import { useModelWord, useSuggester } from './use-suggester.ts'
 
 export const MODES = [
   {
@@ -487,7 +487,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const suggester = useSuggester(suggestOn)
   const [atEnd, setAtEnd] = useState(true)
   const [hiddenFor, setHiddenFor] = useState<string>()
-  const ghost = !menu && atEnd && text !== hiddenFor ? suggester?.suggest(text) : undefined
+  const [modelOn] = usePersistentFlag(SUGGEST_MODEL_KEY, false)
+  const shown = !menu && atEnd && text !== hiddenFor
+  const local = shown ? suggester?.suggest(text) : undefined
+  // The model only guesses a whole next word, after a space, and only when the person's own history had nothing.
+  const modelWord = useModelWord(
+    text,
+    suggestOn && modelOn && shown && !local && / $/.test(text) && !!text.trim(),
+  )
+  const ghost = local ?? modelWord
   const ghostLayer = useRef<HTMLDivElement>(null)
   const take = (part: string) => {
     const next = text + part

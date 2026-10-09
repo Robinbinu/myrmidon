@@ -2497,6 +2497,11 @@ export const copy = {
       suggest: 'Suggest as I type',
       suggestHint:
         'Grey text after the cursor from what you have written before: Tab takes the next word, → takes it all, Esc hides it. Worked out on this device; nothing is sent anywhere.',
+      suggestModel: 'Smarter next words',
+      suggestModelHint: (mb: number) =>
+        `When nothing you wrote before fits, a small language model (Pythia-14M) guesses the next word. A ${mb} MB download, once; it runs on the computer Myrmidon runs on and sends nothing anywhere.`,
+      suggestModelDownloading: (mb: number) => `Downloading the ${mb} MB model…`,
+      suggestModelFailed: (error: string) => `The model could not be downloaded: ${error}`,
       setup: 'Setup assistant',
       setupHint: 'Go through the first-run steps again: models, crew, project, voice and the rest.',
       runSetup: 'Run setup again',

@@ -488,6 +488,41 @@ export const RECOVERY_GRACE_MS = 60_000
 export const CHAT_SEARCH_LIMIT = 50
 /** The person's past messages the composer learns its suggestions from, most recent first. */
 export const SUGGEST_CORPUS = 2_000
+/**
+ * The composer's optional next-word model: Pythia-14M (EleutherAI, Apache-2.0; ONNX by Xenova), 8-bit, pinned by
+ * revision and hash, downloaded once into `<home>/models/pythia-14m` when the person turns it on. Measured on their own
+ * typing it was the smallest that helped, at about 2 ms a call.
+ */
+export const SUGGEST_MODEL = {
+  name: 'pythia-14m',
+  base: 'https://huggingface.co/Xenova/pythia-14m/resolve/29ac7d207305198580e1af9f73a141a08a47e871/',
+  files: [
+    {
+      path: 'onnx/model_quantized.onnx',
+      sha256: '89b2ab5f634da8e5de810652f443d19e276ba4df918da85a93771f8383f51d29',
+      bytes: 14_756_094,
+    },
+    {
+      path: 'tokenizer.json',
+      sha256: '3cf430678137c8491ca82fb7092ee49e44ad38857fffe1e4a4a5ed860139a5b8',
+      bytes: 2_113_738,
+    },
+    {
+      path: 'tokenizer_config.json',
+      sha256: '4d1c4fdcf128d28ffcc56e21a36f7002b5e754624c9c8cbd025df7fa58af8428',
+      bytes: 264,
+    },
+  ],
+  /** The model's shape, for its empty key/value cache on a first call. */
+  layers: 6,
+  heads: 4,
+  headSize: 32,
+} as const
+/** A predicted word is offered only when the model gives its first token at least this probability. */
+export const SUGGEST_MODEL_MIN_P = 0.3
+/** The end of the draft the model reads, and the most tokens one word may take. */
+export const SUGGEST_MODEL_CONTEXT_CHARS = 300
+export const SUGGEST_MODEL_MAX_TOKENS = 4
 export const SNIPPET_BEFORE = 40
 export const SNIPPET_AFTER = 100
 
