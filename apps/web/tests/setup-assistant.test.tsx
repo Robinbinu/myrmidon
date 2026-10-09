@@ -143,7 +143,7 @@ test('the list shows done once a thing exists, later as set up later, and the ho
   expect(leftToSetUp(view({ ...v.setup, dismissedAt: '2026-10-09T11:00:00Z' }, v.have))).toEqual([])
 })
 
-test('Continue past a step with nothing set up is skipped, not done, and the home screen still counts it', () => {
+test('Continue past a step with nothing set up is skipped, not done, and the home screen card leaves it out', () => {
   const v = view(
     {
       finishedAt: '2026-10-09T10:00:00Z',
@@ -152,26 +152,27 @@ test('Continue past a step with nothing set up is skipped, not done, and the hom
         you: 'done',
         models: 'done',
         voice: 'done',
-        channels: 'done',
-        alerts: 'done',
+        channels: 'later',
+        alerts: 'later',
       },
     },
     { models: true },
   )
   expect(stepStatus('models', v)).toBe('done')
-  // Voice left Off, no channel added, alerts off: gone past, but not set up.
+  // Voice left Off: gone past, but not set up.
   expect(stepStatus('voice', v)).toBe('skipped')
-  expect(stepStatus('channels', v)).toBe('skipped')
+  expect(stepStatus('channels', v)).toBe('later')
   // You & mascot always has a mascot and a name to call the person, so going through it sets it up.
   expect(stepStatus('you', v)).toBe('done')
-  expect(leftToSetUp(v)).toEqual(['voice', 'channels', 'alerts'])
+  // The card lists only what was set up later: going past voice was a choice, not something still to do.
+  expect(leftToSetUp(v)).toEqual(['channels', 'alerts'])
   // A skipped step is not where the assistant opens again.
   expect(resumeAt(view({ steps: { welcome: 'done', you: 'done', models: 'done' } }))).toBe('crew')
   // Alerts on and allowed in this browser count as set up, which only the browser knows.
   localStorage.setItem('myr-notify', '1')
   ;(globalThis as { Notification?: unknown }).Notification = { permission: 'granted' }
   try {
-    expect(leftToSetUp(v)).toEqual(['voice', 'channels'])
+    expect(leftToSetUp(v)).toEqual(['channels'])
   } finally {
     localStorage.removeItem('myr-notify')
     ;(globalThis as { Notification?: unknown }).Notification = realNotification
@@ -183,7 +184,12 @@ test('the home screen card says what is left, and its close button asks once bef
   const opened: string[] = []
   let dismissed = 0
   const { host, unmount } = await mount(
-    <SetupNudge left={['voice', 'alerts']} onOpen={(s) => opened.push(s)} onDismiss={() => dismissed++} />,
+    <div>
+      <SetupNudge left={['voice', 'alerts']} onOpen={(s) => opened.push(s)} onDismiss={() => dismissed++} />
+      <div>
+        <textarea aria-label="Message" />
+      </div>
+    </div>,
   )
   try {
     expect(host.textContent).toContain('Finish setting up · 2 left')
@@ -196,6 +202,8 @@ test('the home screen card says what is left, and its close button asks once bef
     const sure = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Yes, hide this card')
     await act(async () => sure?.click())
     expect(dismissed).toBe(1)
+    // The card is going, so focus moves on to the message box after it rather than falling to the page.
+    expect(document.activeElement).toBe(host.querySelector('textarea'))
     await act(async () => (host.querySelector('button') as HTMLButtonElement).click())
     expect(opened).toEqual(['voice'])
   } finally {
@@ -268,11 +276,23 @@ function fakeServer(
     voiceOn?: boolean
     /** Marks are refused, as a Myrmidon that cannot write its settings does. */
     markFails?: boolean
+    /** Settings saves are refused. */
+    saveFails?: boolean
+    /** The default crew saved already, as Settings or another window left it. */
+    team?: Record<string, unknown>
   } = {},
 ) {
-  const state = { setup: structuredClone(start) }
+  const state = { setup: structuredClone(start), projects: structuredClone(answers.projects ?? []) }
   const puts: unknown[] = []
-  const saved: { team?: { leadModel?: string } }[] = []
+  const saved: { team?: { leadModel?: string; judgeModel?: string; workers?: number } }[] = []
+  let settings = {
+    ...SETTINGS,
+    settings: {
+      ...SETTINGS.settings,
+      team: { ...SETTINGS.settings.team, ...answers.team },
+      voice: { ...SETTINGS.settings.voice, enabled: !!answers.voiceOn },
+    },
+  }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input), 'http://localhost/')
     const method = init?.method ?? 'GET'
@@ -286,17 +306,26 @@ function fakeServer(
       }
       return Response.json({ setup: state.setup, have: answers.have ?? {} })
     }
-    if (url.pathname === '/api/projects') return Response.json({ projects: answers.projects ?? [] })
-    if (url.pathname === '/api/settings' && method !== 'GET') saved.push(body)
-    if (url.pathname === '/api/settings')
-      return Response.json(
-        answers.voiceOn
+    if (url.pathname === '/api/projects') return Response.json({ projects: state.projects })
+    const permissions = url.pathname.match(/^\/api\/projects\/([^/]+)\/permissions$/)
+    if (permissions && method === 'PUT') {
+      state.projects = state.projects.map((p) =>
+        (p as { id: string }).id === permissions[1]
           ? {
-              ...SETTINGS,
-              settings: { ...SETTINGS.settings, voice: { ...SETTINGS.settings.voice, enabled: true } },
+              ...(p as object),
+              permissions: { rules: body.rules, ...(body.preset ? { preset: body.preset } : {}) },
             }
-          : SETTINGS,
+          : p,
       )
+      return Response.json({ projects: state.projects })
+    }
+    if (url.pathname === '/api/settings' && method !== 'GET') {
+      saved.push(body)
+      if (answers.saveFails) return Response.json({ error: 'settings.json is read-only' }, { status: 400 })
+      settings = { ...settings, settings: body }
+      return Response.json({ settings: body })
+    }
+    if (url.pathname === '/api/settings') return Response.json(settings)
     if (url.pathname === '/api/setup/detect') return Response.json({ ready: [], env: [], local: [] })
     if (url.pathname === '/api/models/test')
       return Response.json(answers.test ?? { ok: true, ms: 800, reply: 'OK' })
@@ -667,7 +696,7 @@ test('Ready says what exists: set up, set up later, skipped or not set up, each 
 })
 
 test('a model that answers is made the lead only on Continue, and the step says so first', async () => {
-  fakeServer({ steps: { welcome: 'done' } })
+  const { saved } = fakeServer({ steps: { welcome: 'done' } })
   const configs: TeamConfig[] = []
   const { unmount } = await showSetup(
     'models',
@@ -679,12 +708,15 @@ test('a model that answers is made the lead only on Continue, and the step says 
     await act(async () => button('Send a test message').click())
     await settle()
     expect(document.body.textContent).toContain(
-      'Continue makes Qwen the lead of every new chat, and its reviewer. You can change it in Your crew.',
+      'Continue makes Qwen the model every new chat starts with, and the reviewer. You can change it in Your crew.',
     )
     expect(configs).toEqual([])
+    expect(saved).toEqual([])
     await act(async () => button('Continue').click())
     await settle()
     expect(configs.at(-1)).toMatchObject({ leadModel: MODEL.ref, judgeModel: MODEL.ref })
+    // Only the lead and the empty reviewer change on the server; the rest of its crew stays.
+    expect(saved.at(-1)?.team).toMatchObject({ leadModel: MODEL.ref, judgeModel: MODEL.ref, workers: 0 })
     expect(heading()).toBe('Your crew')
   } finally {
     await unmount()
@@ -701,7 +733,7 @@ test('the spend limit, review and what the crew costs are on the crew step, not 
     expect(document.body.textContent).toContain('more crewmates and bigger models cost more')
     await act(async () => button('Continue').click())
     await settle()
-    // Continue keeps the crew shown, so new chats start with it and the step counts as set up.
+    // With no crew saved yet, Continue keeps the one shown, so new chats start with it and the step is set up.
     expect(saved.at(-1)?.team?.leadModel).toBe(MODEL.ref)
     expect(heading()).toBe('Your first project')
     expect(document.body.textContent).not.toContain('Spend limit per run')
@@ -709,6 +741,93 @@ test('the spend limit, review and what the crew costs are on the crew step, not 
   } finally {
     await unmount()
   }
+})
+
+test('a crew saved elsewhere survives Done on Your crew opened from Settings', async () => {
+  const start: SetupState = { finishedAt: '2026-10-09T10:00:00Z', steps: { welcome: 'done' } }
+  // The server's default crew, and this browser's message box set to something else.
+  const { saved, puts } = fakeServer(start, {
+    team: { leadModel: 'other/big', judgeModel: 'other/judge', workers: 3 },
+  })
+  const closed: unknown[] = []
+  const { unmount } = await showSetup('crew', start, { returnTo: 'settings', onClose: (r) => closed.push(r) })
+  try {
+    await settle()
+    await act(async () => button('Done').click())
+    await settle()
+    expect(saved).toEqual([])
+    expect(puts).toContainEqual({ step: 'crew', mark: 'done' })
+    expect(closed).toHaveLength(1)
+  } finally {
+    await unmount()
+  }
+})
+
+test('a crew that cannot be saved keeps the step open and unmarked', async () => {
+  const { puts } = fakeServer({ steps: { welcome: 'done' } }, { saveFails: true })
+  const { unmount } = await showSetup('crew', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    await act(async () => button('Continue').click())
+    await settle()
+    expect(heading()).toBe('Your crew')
+    expect(puts).toEqual([])
+    expect(document.body.textContent).toContain('settings.json is read-only')
+  } finally {
+    await unmount()
+  }
+})
+
+const SHOP = { id: 'p1', name: 'shop', path: '/Users/ada/shop', addedAt: '2026-10-01T10:00:00Z' }
+
+test('a preset picked on the project step still shows after going Back and returning', async () => {
+  fakeServer({ steps: { welcome: 'done' } }, { projects: [SHOP], team: { leadModel: MODEL.ref } })
+  const { unmount } = await showSetup('project', { steps: { welcome: 'done' } })
+  try {
+    await settle()
+    const checked = () => document.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value
+    const readOnly = document.querySelector<HTMLInputElement>('input[type="radio"][value="read-only"]')
+    await act(async () => readOnly?.click())
+    await settle()
+    expect(checked()).toBe('read-only')
+    await act(async () => button('Back').click())
+    await settle()
+    expect(heading()).toBe('Your crew')
+    await act(async () => button('Continue').click())
+    await settle()
+    expect(heading()).toBe('Your first project')
+    expect(checked()).toBe('read-only')
+  } finally {
+    await unmount()
+  }
+})
+
+test('the first chat starts in a project only when this run chose it', async () => {
+  const ready = async (onProject: () => Promise<void>) => {
+    fakeServer({ steps: { welcome: 'done' } }, { projects: [SHOP] })
+    const closed: { project?: string }[] = []
+    const { unmount } = await showSetup(
+      'project',
+      { steps: { welcome: 'done' } },
+      { onClose: (r) => closed.push(r as { project?: string }) },
+    )
+    try {
+      await settle()
+      await onProject()
+      const list = [...document.querySelectorAll<HTMLButtonElement>('nav li button')]
+      await act(async () => list.find((b) => b.textContent?.includes('Ready'))?.click())
+      await settle()
+      await act(async () => button('Open Myrmidon').click())
+      await settle()
+      return closed
+    } finally {
+      await unmount()
+    }
+  }
+  // Set up later: the project added before is not where the first chat goes.
+  expect(await ready(async () => act(async () => button('Set up later').click()))).toEqual([{}])
+  // Continued past with it shown: it is.
+  expect(await ready(async () => act(async () => button('Continue').click()))).toEqual([{ project: 'p1' }])
 })
 
 test('the project step opened from Settings shows the project added before and can be finished', async () => {

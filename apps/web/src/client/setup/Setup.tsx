@@ -78,11 +78,18 @@ export function Setup(props: {
   const [view, setView] = useState(() => withAlerts(props.initial))
   const [screen, setScreen] = useState(props.screen)
   const settings = useSettingsData(props.onModelsChanged)
-  const [picked, setProject] = useState<{ project: Project; isGit: boolean }>()
+  const [picked, setPicked] = useState<{ project: Project; isGit: boolean }>()
   // Projects added before (an earlier run, Settings, a reload): the first stands for the project step until one is
-  // picked here.
+  // picked here. One picked is looked up again in the list, which carries what was saved for it since.
   const [projects, setProjects] = useState<Project[]>([])
-  const project = picked ?? (projects[0] ? { project: projects[0] } : undefined)
+  const project = picked
+    ? { ...picked, project: projects.find((p) => p.id === picked.project.id) ?? picked.project }
+    : projects[0]
+      ? { project: projects[0] }
+      : undefined
+  // The first chat starts in the project only when this run chose it: picked, or Continued past on its step.
+  const [projectChosen, setProjectChosen] = useState(false)
+  const chatProject = projectChosen ? project : undefined
   const [closing, setClosing] = useState(false)
   // Marks made while Myrmidon did not answer, sent again once it does.
   const unsent = useRef(new Map<SetupStep, SetupMark>())
@@ -148,6 +155,7 @@ export function Setup(props: {
    * Closing takes the queue of unsent marks with it, so a step on its own whose mark was not kept stays open.
    */
   const leave = (step: SetupStep, value: SetupMark) => {
+    if (step === 'project') setProjectChosen(value === 'done')
     const saved = mark(step, value)
     if (!single) return setScreen(nextScreen(step))
     setClosing(true)
@@ -162,7 +170,10 @@ export function Setup(props: {
       setClosing(false)
       return toast((err as Error).message, 'error')
     }
-    props.onClose({ ...(starter ? { starter } : {}), ...(project ? { project: project.project.id } : {}) })
+    props.onClose({
+      ...(starter ? { starter } : {}),
+      ...(chatProject ? { project: chatProject.project.id } : {}),
+    })
   }
 
   const ctx: SetupContext = {
@@ -175,8 +186,15 @@ export function Setup(props: {
     theme: props.theme,
     onTheme: props.onTheme,
     ...(project ? { project } : {}),
-    setProject,
-    onProjects: props.onProjects,
+    ...(chatProject ? { chatProject: chatProject.project } : {}),
+    setProject: (chosen) => {
+      setPicked(chosen)
+      setProjectChosen(true)
+    },
+    onProjects: (all) => {
+      setProjects(all)
+      props.onProjects(all)
+    },
     single,
     go: setScreen,
     back: () => {

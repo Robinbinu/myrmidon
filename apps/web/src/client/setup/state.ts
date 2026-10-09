@@ -99,16 +99,14 @@ export function opensOnLoad(view: SetupView, search: string = location.search): 
 }
 
 /**
- * The steps gone past without their thing, set up later or skipped with Continue: what the home screen's card says
- * is left. None once the card was dismissed, which is for good.
+ * The steps set up later whose thing does not exist yet: what the home screen's card says is left. A step skipped with
+ * Continue is not listed: going past it (voice left Off) was a choice, not something still to do. None once the card
+ * was dismissed, which is for good.
  */
 export function leftToSetUp(view: SetupView): SetupStep[] {
   if (!view.setup.finishedAt || view.setup.dismissedAt) return []
   const here = withAlerts(view)
-  return SETUP_STEPS.filter((s) => {
-    const status = stepStatus(s, here)
-    return status === 'later' || status === 'skipped'
-  })
+  return SETUP_STEPS.filter((s) => stepStatus(s, here) === 'later')
 }
 
 export function nextScreen(screen: SetupScreen): SetupScreen {
