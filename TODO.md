@@ -466,6 +466,10 @@ Open work, in the order it will be done:
       The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
       tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
       versions logged per run, A/B checked with apps/eval before shipping.
+      Research done (docs/research/2026-10-09-harness-prompts.md, Part 4 is the plan; assembled prompts in
+      docs/research/2026-10-09-myrmidon-prompts-assembled.md). Also found: the chat title still reaches agents through
+      the colony id (a slug of the title) in scratch paths, $MYR_MIRROR and artifact: URLs; 65 of 139 tool parameters
+      undocumented; the judge never told its threshold.
 12l. - [x] **Full access, no sandbox** (asked 2026-10-09, like Hermes) — global switch in Settings → Tools (default on)
       and a per-project Full access; lifts the command sandbox, file-path limits and the private-address rule; approvals
       still apply; channel members and read-only projects stay sandboxed. Left: Windows (unconfined commands still use
