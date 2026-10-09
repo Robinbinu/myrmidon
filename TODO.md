@@ -473,7 +473,7 @@ Open work, in the order it will be done:
       (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
       find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
-12q. - [ ] **Prompts rewritten** — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
+12q. - [x] **Prompts rewritten** (done, merged 2c176a1; left: eval A/B, learned rules, failure counts per family, descriptions from transcripts) — study omp, Qwen Code, Hermes (and others) harness prompts, document them in docs/research,
       then rewrite Myrmidon's prompts to that standard.
       The person: match the best of the other harnesses; nothing static — assembled from guarded sections per role, live
       tool list, model family, run state and environment; and evolving — learned rules from runs and feedback, prompt
@@ -492,7 +492,7 @@ Open work, in the order it will be done:
       Clicking it again and again confuses it: swirling eyes, every crew cursor falls with gravity and slowly recovers.
       Crew cursors get their own mechanics (Reynolds steering: wander, arrive, flee, separation; personalities),
       react to the eyes, and are named after random Minions.
-12t. - [ ] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
+12t. - [x] **One permission model: global, project, chat** (asked 2026-10-09: "I cannot keep approving tool calls, mcp
       calls etc; the ui should be well thought out", like Claude Code and Codex) — today approvals are spread over
       Settings → Tools rules, project modes, chat grants (file/command only) and full access; MCP has no per-chat or
       per-project allow and approval cards have no "don't ask again for this tool/server". Also: a team lead has no web, browser, shell or
