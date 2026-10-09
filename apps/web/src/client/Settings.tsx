@@ -49,7 +49,8 @@ import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
 import { usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
-import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
+import { type MascotPatch, SETTINGS_SAVED, withMascotDefaults } from './mascot.ts'
+import { MascotBehaviour, MascotPreview, MiniMascot } from './mascot-settings.tsx'
 import type { CatalogTool } from './permissions/describe.ts'
 import { type GlobalPermissions, PermissionsPage } from './permissions/PermissionsPage.tsx'
 import { PluginSlot, usePluginSlots } from './plugins.tsx'
@@ -64,6 +65,8 @@ import {
 import { baseUrlError, channelSetup, clampNumber, cronError, providerNameError } from './settings-forms.ts'
 import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
+import { AppearanceSection } from './themes/AppearanceSection.tsx'
+import type { ImportedTheme } from './themes/vscode.ts'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
 import { desktop } from './ui/desktop.ts'
@@ -78,7 +81,7 @@ import {
   usePersistentFlag,
 } from './ui/hooks.ts'
 import { FEATURE_ICONS } from './ui/icons.ts'
-import { AgentAvatar, BOW, FLOWER, PixelFace, PixelSprite } from './ui/pixel.tsx'
+import { AgentAvatar } from './ui/pixel.tsx'
 import {
   Badge,
   Banner,
@@ -165,7 +168,9 @@ export interface ServerSettings {
   /** The global level of the permission model: the default preset, rules, who can use what. */
   permissions: GlobalPermissions
   profile?: { name?: string; greeting: 'model' | 'rules'; titles?: 'model' | 'first-message' }
-  mascot?: MascotLook
+  mascot?: MascotPatch
+  /** VS Code themes the person imported; absent from older servers. */
+  appearance?: { imported: ImportedTheme[] }
   voice: {
     enabled: boolean
     callModel?: string
@@ -205,6 +210,7 @@ export interface SettingsResponse {
 
 export type Section =
   | 'general'
+  | 'appearance'
   | 'mascot'
   | 'specialists'
   | 'devices'
@@ -320,6 +326,13 @@ export const SECTIONS: { id: Section; group: SectionGroup; label: string; hint: 
       group: 'you',
       label: copy.settings.sections.general.label,
       hint: copy.settings.sections.general.hint,
+      icon: FEATURE_ICONS.general,
+    },
+    {
+      id: 'appearance',
+      group: 'you',
+      label: copy.settings.sections.appearance.label,
+      hint: copy.settings.sections.appearance.hint,
       icon: FEATURE_ICONS.appearance,
     },
     {
@@ -413,9 +426,8 @@ export function Settings(props: {
     onSection.current?.(section)
   }, [section])
   const [modelsTab, setModelsTab] = useState<'models' | 'providers'>('models')
-  const { data, error, saving, saveError, retry, update, providersChanged, modelsRemoved } = useSettingsData(
-    props.onModelsChanged,
-  )
+  const { data, error, saving, saveError, retry, update, saveNow, providersChanged, modelsRemoved } =
+    useSettingsData(props.onModelsChanged)
   const wideNav = useMinWidth(SETTINGS_NAV_COLLAPSE_PX)
   // Hooks are the one section with an explicit Save; leaving it with edits asks first.
   const [hooksDirty, setHooksDirty] = useState(false)
@@ -618,8 +630,6 @@ export function Settings(props: {
               {section === 'general' && (
                 <div className="flex flex-col gap-10">
                   <General
-                    theme={props.theme}
-                    onTheme={props.onTheme}
                     reduceMotion={props.reduceMotion}
                     onReduceMotion={props.onReduceMotion}
                     {...(props.onRunSetup ? { onRunSetup: props.onRunSetup } : {})}
@@ -687,6 +697,16 @@ export function Settings(props: {
                   onConfig={props.onConfig}
                 />
               )}
+              {section === 'appearance' && (
+                <AppearanceSection
+                  theme={props.theme}
+                  onTheme={props.onTheme}
+                  {...(data ? { imported: data.settings.appearance?.imported ?? [] } : {})}
+                  onSaveImported={(imported) =>
+                    saveNow((s) => ({ ...s, appearance: { ...s.appearance, imported } }))
+                  }
+                />
+              )}
               {section === 'mascot' && data && <MascotSection data={data} update={update} />}
               {section === 'specialists' && <SpecialistsSection models={props.models} />}
               {section === 'devices' && <DevicesSection />}
@@ -731,7 +751,7 @@ export function Settings(props: {
               {section === 'plugins' && <PluginsSection />}
               {section === 'hooks' && <HooksSection onDirty={setHooksDirty} />}
               {section === 'schedules' && <SchedulesSection />}
-              {!data && !error && section !== 'general' && (
+              {!data && !error && section !== 'general' && section !== 'appearance' && (
                 <div className="flex items-center gap-2 text-body text-muted">
                   <LoaderCircle className="size-4 animate-spin" /> {copy.settings.page.loading}
                 </div>
@@ -913,8 +933,6 @@ export function ThemePicker(props: { theme: ThemeChoice; onTheme(t: ThemeChoice)
 }
 
 function General(props: {
-  theme: ThemeChoice
-  onTheme(t: ThemeChoice): void
   reduceMotion: boolean
   onReduceMotion(v: boolean): void
   onRunSetup?(): void
@@ -924,11 +942,6 @@ function General(props: {
     <>
       <PageHeader title={copy.settings.general.title}>{copy.settings.general.intro}</PageHeader>
       <Card>
-        <CardRow>
-          <Field label={copy.settings.general.theme} hint={copy.settings.general.themeHint} inline>
-            <ThemePicker theme={props.theme} onTheme={props.onTheme} />
-          </Field>
-        </CardRow>
         <CardRow>
           <Field
             label={copy.settings.general.reduceMotion}
@@ -4136,35 +4149,6 @@ function Tile(props: { selected: boolean; label: string; onClick(): void; childr
   )
 }
 
-/** The mascot's screen at a size for pickers: its eyes in the chosen style and colour, with its accessory. */
-function MiniMascot(props: { look: MascotLook; cell?: number }) {
-  const cell = props.cell ?? 4
-  return (
-    <span className="relative inline-block rounded-xl bg-screen p-2.5">
-      <PixelFace
-        mood="idle"
-        color={MASCOT_COLORS[props.look.color]}
-        cols={15}
-        rows={8}
-        cell={cell}
-        gap={cell * 0.3}
-        eyes={props.look.eyes}
-        look={[0, 0]}
-      />
-      {props.look.look === 'flower' && (
-        <PixelSprite sprite={FLOWER} cell={cell * 0.85} className="absolute -right-2.5 -top-2.5" />
-      )}
-      {props.look.look === 'bow' && (
-        <PixelSprite
-          sprite={BOW}
-          cell={cell * 0.75}
-          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2"
-        />
-      )}
-    </span>
-  )
-}
-
 export function MascotSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
@@ -4176,9 +4160,9 @@ export function MascotSection(props: {
 }) {
   const t = copy.settings.mascot
   const profile = props.data.settings.profile ?? { greeting: 'model' as const }
-  const look = { ...DEFAULT_MASCOT, ...props.data.settings.mascot }
-  const set = (patch: Partial<MascotLook>) =>
-    props.update((s) => ({ ...s, mascot: { ...DEFAULT_MASCOT, ...s.mascot, ...patch } }), true)
+  const look = withMascotDefaults(props.data.settings.mascot)
+  const set = (patch: MascotPatch) =>
+    props.update((s) => ({ ...s, mascot: withMascotDefaults(s.mascot, patch) }), true)
   return (
     <>
       {!props.embedded && <PageHeader title={t.title}>{t.intro}</PageHeader>}
@@ -4241,9 +4225,7 @@ export function MascotSection(props: {
       <Card>
         {!props.embedded && (
           <CardRow>
-            <figure className="m-0 grid place-items-center py-4" aria-label={t.preview}>
-              <MiniMascot look={look} cell={9} />
-            </figure>
+            <MascotPreview look={look} />
           </CardRow>
         )}
         <CardRow>
@@ -4307,6 +4289,7 @@ export function MascotSection(props: {
           </Field>
         </CardRow>
       </Card>
+      {!props.embedded && <MascotBehaviour look={look} set={set} />}
     </>
   )
 }

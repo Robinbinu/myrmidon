@@ -7,6 +7,8 @@ import { terminalSocket } from '../api.ts'
 import { copy } from '../copy.ts'
 import { Button } from '../ui/primitives.tsx'
 
+const ANSI_COLOURS = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const
+
 /**
  * The person's own shell, like an IDE's integrated terminal: a login shell on this machine in the chat's project
  * folder (or home), with their own permissions. Agents never use it; their commands are sandboxed separately.
@@ -22,9 +24,19 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
     if (!el) return
     setEnded(undefined)
     // xterm draws on a canvas, so it takes the panel's colours as values and is given them again on a theme change.
+    // A VS Code theme also brings its terminal palette (--ansi-*); Myrmidon's own looks keep xterm's.
     const colours = () => {
       const style = getComputedStyle(el)
-      return { background: style.backgroundColor, foreground: style.color, cursor: style.color }
+      const root = getComputedStyle(document.documentElement)
+      const ansi = Object.fromEntries(
+        ANSI_COLOURS.flatMap((name) =>
+          [false, true].map((bright) => {
+            const key = bright ? `bright${name[0]?.toUpperCase()}${name.slice(1)}` : name
+            return [key, root.getPropertyValue(`--ansi-${bright ? 'bright-' : ''}${name}`).trim()] as const
+          }),
+        ).filter(([, v]) => v),
+      )
+      return { ...ansi, background: style.backgroundColor, foreground: style.color, cursor: style.color }
     }
     const term = new Terminal({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -37,7 +49,10 @@ export function ShellTerminal(props: { project?: string; cwdLabel: string }) {
       term.options.theme = colours()
     }
     const themed = new MutationObserver(retheme)
-    themed.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    themed.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-palette'],
+    })
     const system = matchMedia('(prefers-color-scheme: dark)')
     system.addEventListener('change', retheme)
     const fit = new FitAddon()

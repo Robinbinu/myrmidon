@@ -2,7 +2,7 @@ import { identityOf } from '@myrmidon/protocol'
 import { motion, useReducedMotionConfig } from 'motion/react'
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { copy } from '../copy.ts'
-import { AGENT_DOZE_MS, MASCOT_TYPING, popSpring } from '../ui-config.ts'
+import { AGENT_DOZE_MS, MASCOT_DISPLAY, MASCOT_TYPING, popSpring } from '../ui-config.ts'
 import { type Clip, type Dot, type EyeTweak, forEye, useClip } from './clips.ts'
 import { AgentCharacter } from './crew.tsx'
 import { cn } from './primitives.tsx'
@@ -394,7 +394,13 @@ export function PixelFace(props: {
   cell?: number
   gap?: number
   className?: string
-  glow?: boolean
+  style?: CSSProperties
+  /** A glow around the lit dots: `true` is the soft one. */
+  glow?: boolean | 'off' | 'soft' | 'strong'
+  /** The dots' shape: softly rounded LED cells (the default), circles, or squares. */
+  dots?: 'led' | 'round' | 'square'
+  /** The unlit dots: faint (the default), tinted with the face's colour, or not drawn. */
+  grid?: 'faint' | 'tinted' | 'off'
   /** Where the eyes look, in cells (x, y). Omit to let an idle face glance around on its own. */
   look?: readonly [number, number]
   eyes?: EyeStyle
@@ -533,7 +539,15 @@ export function PixelFace(props: {
 
   const w = cols * cell + (cols - 1) * gap
   const h = rows * cell + (rows - 1) * gap
-  const r = cell * 0.3
+  const r = cell * MASCOT_DISPLAY.radius[props.dots ?? 'led']
+  const unlit =
+    props.grid === 'off'
+      ? 'transparent'
+      : props.grid === 'tinted'
+        ? `color-mix(in srgb, ${props.color} ${Math.round(MASCOT_DISPLAY.tint * 100)}%, var(--screen-cell))`
+        : 'var(--screen-cell)'
+  const glow = props.glow === true ? 'soft' : props.glow || 'off'
+  const halo = glow === 'off' ? undefined : MASCOT_DISPLAY.glow[glow]
   const cells = []
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -546,7 +560,7 @@ export function PixelFace(props: {
           height={cell}
           rx={r}
           style={{
-            fill: lit.get(`${x},${y}`) ?? 'var(--screen-cell)',
+            fill: lit.get(`${x},${y}`) ?? unlit,
             // A clip sets its own pace; the fade would smear its frames together.
             transition: shown ? 'fill 60ms linear' : 'fill 180ms ease-out',
           }}
@@ -562,13 +576,15 @@ export function PixelFace(props: {
       className={props.className}
       data-typed={spelling || undefined}
       data-clip={shown ? props.clip?.name : undefined}
-      style={
-        props.glow
+      style={{
+        ...props.style,
+        // color-mix rather than a hex alpha, so a token colour (the theme's accent) glows too.
+        ...(halo
           ? {
-              filter: `drop-shadow(0 0 ${Math.min(cell * 1.4, 18)}px ${props.color}66)`,
+              filter: `drop-shadow(0 0 ${Math.min(cell * halo.blur, halo.maxPx)}px color-mix(in srgb, ${props.color} ${halo.mix}%, transparent))`,
             }
-          : undefined
-      }
+          : {}),
+      }}
       aria-hidden
     >
       {cells}

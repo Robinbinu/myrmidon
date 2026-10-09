@@ -1,8 +1,9 @@
 import { useReducedMotionConfig } from 'motion/react'
 import { type PointerEvent, useEffect, useRef, useState } from 'react'
+import type { MascotLook } from '../mascot.ts'
 import type { Clip, EyeTweak, Look } from '../ui/clips.ts'
 import { type EyeStyle, type Mood, PixelFace } from '../ui/pixel.tsx'
-import { MASCOT_GRID, MASCOT_TOUCH } from '../ui-config.ts'
+import { MASCOT_DISPLAY, MASCOT_GRID, MASCOT_TOUCH } from '../ui-config.ts'
 
 const { cols: COLS, rows: ROWS } = MASCOT_GRID
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
@@ -23,6 +24,8 @@ export function MascotScreen(props: {
   mood: Mood
   color: string
   eyes: EyeStyle
+  /** How the screen is drawn, as set in Settings → You & mascot. */
+  display: MascotLook['display']
   look?: Look
   text?: string
   tweak?: EyeTweak
@@ -132,7 +135,9 @@ export function MascotScreen(props: {
           rows={ROWS}
           cell={20}
           gap={6}
-          glow
+          glow={props.display.glow}
+          dots={props.display.dots}
+          grid={props.display.grid}
           eyes={props.eyes}
           {...(look ? { look } : {})}
           {...(props.text !== undefined ? { text: props.text } : {})}
@@ -140,7 +145,8 @@ export function MascotScreen(props: {
           {...(props.clip ? { clip: props.clip } : {})}
           {...(props.playId !== undefined ? { playId: props.playId } : {})}
           onClipEnd={props.onClipEnd}
-          className="h-auto w-[min(400px,calc(100vw-96px))]"
+          className="h-auto"
+          style={{ width: `min(${MASCOT_DISPLAY.widthPx[props.display.size]}px, calc(100vw - 96px))` }}
         />
       </div>
     </button>
