@@ -1623,12 +1623,15 @@ export function startServer(options: ServeOptions): WebServer {
             Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
             // The project's level (`preset`, `rules`, `access`), or the shape from before it (`mode`, `allow`). A
-            // client that does not send the readable folders keeps them.
-            const read =
-              body.read === undefined
-                ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
-                : strings(body.read)
+            // client that does not send the readable folders keeps them, and one that sends only a preset (no mode,
+            // no rules) keeps the rules and who-can-use-what too.
+            const now = options.projects.get(req.params.id ?? '')?.permissions
+            const read = body.read === undefined ? (now?.read ?? []) : strings(body.read)
+            const keepRules = body.mode === undefined && body.allow === undefined && body.rules === undefined
             const project = options.projects.setPermissions(req.params.id ?? '', {
+              ...(keepRules
+                ? { rules: now?.rules ?? [], ...(now?.access ? { access: now.access } : {}) }
+                : {}),
               ...(body as unknown as ProjectPermissions),
               ...(body.mode !== undefined ? { allow: strings(body.allow) } : {}),
               read,
