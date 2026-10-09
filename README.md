@@ -43,7 +43,9 @@ framework you wire together yourself. Myrmidon is all four behind a single conve
   the same chats as the browser. Call your crew from the app or a phone; run it on a server and pair your devices.
 - **Extend it without forking it.** Plugins use Claude Code's folder format (skills, commands, hooks, MCP servers)
   plus Myrmidon code and UI. Ask the lead for a Myrmidon feature and it builds one as a plugin.
-- **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux). Secrets are redacted
+- **Safe by default.** Shell commands run under `sandbox-exec` (macOS) or bubblewrap (Linux): agents read the
+  project, their own work files and toolchains, write only the project and their work files, and cannot see the
+  rest of your home, other chats or your keys unless you open a folder for reading. Secrets are redacted
   from logs and transcripts. Fetched web pages are treated as untrusted data. Each tool can be set to Allow, Ask
   first, or Off. When you want agents to use the computer unrestricted, like Hermes Agent, turn on **full access**
   for one project or for all your chats; approvals you set still apply, and people other than you who talk to it

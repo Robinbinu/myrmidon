@@ -68,6 +68,7 @@ const colonySpec = Schema.object({
             Schema.object({
               mode: oneOf('auto', 'ask', 'read-only', 'full'),
               allow: Schema.array(Schema.string()).default([]),
+              read: optional(Schema.array(Schema.string())),
             }),
           ),
         }),
@@ -270,6 +271,7 @@ const defs: EventTypeDefinition[] = [
       ),
       key: Schema.string(),
       grant: optional(Schema.union(['file', 'command'])),
+      read: Schema.string(),
     }),
   },
   {
@@ -431,7 +433,10 @@ const defs: EventTypeDefinition[] = [
     type: 'chat/allowed',
     version: 1,
     actors: ['user'],
-    schema: Schema.object({ grants: Schema.array(oneOf('file', 'command')).default([]) }),
+    schema: Schema.object({
+      grants: Schema.array(oneOf('file', 'command')).default([]),
+      reads: optional(Schema.array(Schema.string())),
+    }),
   },
   {
     type: 'colony/escalated',

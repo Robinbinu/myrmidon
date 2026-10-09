@@ -143,7 +143,7 @@ export interface ServerSettings {
   }
   tools: { shell: boolean; web: boolean; files: boolean; messaging: boolean; mcp: boolean }
   /** `enabled: false` gives the person's chats full access; absent from older servers. */
-  sandbox?: { enabled: boolean }
+  sandbox?: { enabled: boolean; read?: string[]; readHome?: boolean }
   verification: { threshold: number; rubric?: string; reviewer: 'off' | 'auto' | 'always' }
   instructions: { lead?: string; worker?: string }
   observer: { intervalSeconds: number }
@@ -178,6 +178,8 @@ export interface SettingsResponse {
   searchProviders: { id: string; label: string }[]
   customApis: Api[]
   sandbox: string
+  /** Paths of the person's keys and Myrmidon's data, as typed and in full: a readable folder that opens one is warned about. */
+  guardedReads?: string[]
   home: string
   /** The computer account's name, used when the person has not set one. */
   account?: string
@@ -2199,13 +2201,82 @@ function ToolRules(props: {
   )
 }
 
+/** Whether a folder the person typed is, or lies inside, one of the guarded paths (their keys, Myrmidon's data). */
+function opensGuarded(folder: string, guarded: readonly string[]): boolean {
+  const f = folder.trim().replace(/\/+$/, '')
+  return guarded.some((g) => f === g || f.startsWith(`${g}/`))
+}
+
+/** The folders sandboxed agents may read in every chat, beyond the project and their own files. */
+function SandboxReads(props: {
+  data: SettingsResponse
+  update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
+}) {
+  const t = copy.settings.tools.reads
+  const sandbox = props.data.settings.sandbox ?? { enabled: true }
+  const [text, setText] = useState((sandbox.read ?? []).join('\n'))
+  const folders = text
+    .split('\n')
+    .map((f) => f.trim())
+    .filter(Boolean)
+  const guarded = folders.filter((f) => opensGuarded(f, props.data.guardedReads ?? []))
+  return (
+    <>
+      <SectionHeader
+        className="mb-2"
+        icon={<FEATURE_ICONS.readAccess className="size-4 text-muted" />}
+        title={t.title}
+        note={t.subtitle}
+      />
+      <Card className="mb-6">
+        <CardRow>
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-reading font-medium">{t.home}</div>
+              <div className="text-callout text-muted">{t.homeHint}</div>
+            </div>
+            <Switch
+              checked={!!sandbox.readHome}
+              label={t.home}
+              onChange={(v) =>
+                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, readHome: v } }), true)
+              }
+            />
+          </div>
+        </CardRow>
+        <CardRow>
+          <Field label={t.folders}>
+            <TextArea
+              value={text}
+              onChange={(e) => {
+                const next = e.target.value
+                setText(next)
+                const read = next
+                  .split('\n')
+                  .map((f) => f.trim())
+                  .filter(Boolean)
+                props.update((s) => ({ ...s, sandbox: { enabled: true, ...s.sandbox, read } }))
+              }}
+              rows={3}
+              placeholder={t.foldersPlaceholder}
+              className="font-mono"
+            />
+          </Field>
+          {guarded.length > 0 && <p className="mt-2 text-callout text-warn-ink">{t.guarded(guarded)}</p>}
+        </CardRow>
+      </Card>
+    </>
+  )
+}
+
 function ToolsSection(props: {
   data: SettingsResponse
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
 }) {
   const on = props.data.settings.sandbox?.enabled !== false
   const sandboxed = on && props.data.sandbox !== 'none'
-  const setSandbox = (enabled: boolean) => props.update((s) => ({ ...s, sandbox: { enabled } }), true)
+  const setSandbox = (enabled: boolean) =>
+    props.update((s) => ({ ...s, sandbox: { ...s.sandbox, enabled } }), true)
   const Icon = on ? FEATURE_ICONS.sandbox : FEATURE_ICONS.fullAccess
   return (
     <>
@@ -2251,6 +2322,7 @@ function ToolsSection(props: {
           )}
         </div>
       </div>
+      {on && props.data.settings.sandbox && <SandboxReads data={props.data} update={props.update} />}
       <Card>
         {TOOL_INFO.map((t) => (
           <CardRow key={t.key}>

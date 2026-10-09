@@ -83,6 +83,11 @@ export interface ColonySpec {
    * Approvals still apply. It never holds while `askAll` does, nor in a read-only project (see `fullAccessIn`).
    */
   fullAccess?: boolean
+  /**
+   * Folders the person lets sandboxed agents read beyond the defaults, from Settings and the project (absolute; the
+   * chat's own grants are in its state). Never set while `askAll` holds, and ignored from the moment it does.
+   */
+  reads?: string[]
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */

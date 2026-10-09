@@ -17,7 +17,9 @@ const action = (tool: string) =>
     ? copy.approvals.actions.shell
     : tool === 'fs_write' || tool === 'fs_edit'
       ? copy.approvals.actions.file
-      : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
+      : tool === 'request_read'
+        ? copy.approvals.actions.read
+        : copy.approvals.actions.use(tool.replace(/^mcp__/, '').replaceAll('_', ' '))
 
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import type { Pending } from './approvals.ts'
@@ -149,6 +151,12 @@ function ApprovalCard({
   const decide = async (approved: boolean, all = false) => {
     setBusy(true)
     try {
+      // Allowing the folder for the chat approves this request with it.
+      if (all && a.read && chatId) {
+        await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
+        toast(copy.approvals.reads.allowed(a.read), 'success')
+        return
+      }
       await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
         approved,
         ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
@@ -216,6 +224,16 @@ function ApprovalCard({
         >
           {copy.approvals.approval.deny}
         </Button>
+        {a.read && chatId && (
+          <Button
+            variant="push"
+            disabled={busy}
+            onClick={() => void decide(true, true)}
+            icon={<FEATURE_ICONS.readAccess className="size-3.5" />}
+          >
+            {copy.approvals.reads.approveAll}
+          </Button>
+        )}
         {a.grant && chatId && (
           <Button
             variant="push"
@@ -232,7 +250,11 @@ function ApprovalCard({
           onClick={() => void decide(true)}
           icon={<Check className="size-3.5" />}
         >
-          {changed.length ? copy.approvals.review.approveEdited : copy.approvals.approval.approve}
+          {changed.length
+            ? copy.approvals.review.approveEdited
+            : a.read
+              ? copy.approvals.approval.approveOnce
+              : copy.approvals.approval.approve}
         </Button>
       </div>
     </motion.div>
@@ -374,40 +396,63 @@ export function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
   )
 }
 
+const CHIP =
+  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl pr-1 pl-2 text-callout font-medium text-muted'
+const CHIP_CLOSE =
+  'inline-flex size-5 items-center justify-center rounded-md transition-colors hover:bg-fill hover:text-fg'
+
 /**
- * What the person allowed for the rest of a chat from its approval cards, as chips beside the message box; removing
- * one makes that kind of step ask again from the next one.
+ * What the person allowed for the rest of a chat from its approval cards, as chips beside the message box: kinds of
+ * step, and folders agents may read. Removing one makes that kind of step ask again, or hides that folder again,
+ * from the next one.
  */
-export function ChatGrantChips(props: { chatId: string; grants: readonly ChatGrant[]; onChanged(): void }) {
+export function ChatGrantChips(props: {
+  chatId: string
+  grants: readonly ChatGrant[]
+  reads?: readonly string[]
+  onChanged(): void
+}) {
   const toast = useToast()
   const t = copy.approvals.grants
-  const revoke = async (grant: ChatGrant) => {
+  const r = copy.approvals.reads
+  const take = async (body: Record<string, unknown>, path: string, done: string) => {
     try {
-      await send('PUT', `/api/chats/${props.chatId}/allowed`, { grant, allowed: false })
-      toast(t.revoked(t.kinds[grant]), 'info')
+      await send('PUT', `/api/chats/${props.chatId}/${path}`, { ...body, allowed: false })
+      toast(done, 'info')
       props.onChanged()
     } catch (err) {
       toast(String((err as Error).message), 'error')
     }
   }
-  return props.grants.map((grant) => (
-    <span
-      key={grant}
-      title={t.chipTitle(t.kinds[grant])}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl pr-1 pl-2 text-callout font-medium text-muted"
-    >
+  const kinds = props.grants.map((grant) => (
+    <span key={grant} title={t.chipTitle(t.kinds[grant])} className={CHIP}>
       <FEATURE_ICONS.chatGrants className="size-3.5 shrink-0 text-ok-ink" />
       <span className="truncate">{t.chip(t.kinds[grant])}</span>
       <button
         type="button"
-        onClick={() => void revoke(grant)}
+        onClick={() => void take({ grant }, 'allowed', t.revoked(t.kinds[grant]))}
         aria-label={t.revoke(t.kinds[grant])}
-        className="inline-flex size-5 items-center justify-center rounded-md transition-colors hover:bg-fill hover:text-fg"
+        className={CHIP_CLOSE}
       >
         <X className="size-3" />
       </button>
     </span>
   ))
+  const folders = (props.reads ?? []).map((folder) => (
+    <span key={`read:${folder}`} title={r.chipTitle(folder)} className={CHIP}>
+      <FEATURE_ICONS.readAccess className="size-3.5 shrink-0 text-ok-ink" />
+      <span className="max-w-48 truncate">{r.chip(folder.split('/').filter(Boolean).at(-1) ?? folder)}</span>
+      <button
+        type="button"
+        onClick={() => void take({ folder }, 'readable', r.revoked(folder))}
+        aria-label={r.revoke(folder)}
+        className={CHIP_CLOSE}
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  ))
+  return [...kinds, ...folders]
 }
 
 /**

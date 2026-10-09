@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { hostname } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -60,6 +60,7 @@ import type { PluginHost } from './plugin-host.ts'
 import { type ProjectContext, readProjectContext } from './project-context.ts'
 
 import { prompts } from './prompts.ts'
+import { readFolder, realPath, secretAt, within } from './read-access.ts'
 import {
   detectSandbox,
   fullAccessIn,
@@ -286,6 +287,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
   private readonly _todos = new Map<string, readonly TodoItem[]>()
+  /** Folders the person allowed reading once (request_read): for this round only, never kept with the chat. */
+  private readonly _readOnce = new Set<string>()
   /** Opened on the first worker that needs a worktree; null once known not to be a git project. */
   private _worktrees?: ProjectWorktrees | null
 
@@ -297,7 +300,15 @@ export class ColonyRun implements ColonyHost {
     this.id = options.resumeId ?? newColonyId(spec.name)
     const dir = (runtime.ctx.logStore as SqliteLogStore).colonyDir(this.id)
     this.blobs = new BlobStore(join(dir, 'blobs'))
-    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess)
+    this.workspace = new ColonyWorkspace(dir, spec.chat?.project?.path, () => this.fullAccess, {
+      dataDir: realPath(runtime.home),
+      reads: () => this.extraReads(),
+      // Skills say their scripts run from their own folder, so the shell may read the enabled ones.
+      commandReads: () =>
+        (this.options.skills?.list(this.spec.chat?.project?.path) ?? [])
+          .filter((s) => s.enabled)
+          .map((s) => s.dir),
+    })
     const folder = spec.chat?.project?.path
     // Read once per round, so every agent works from the same rules even if a file changes mid-round.
     if (folder) this.project = readProjectContext(folder)
@@ -429,6 +440,37 @@ export class ColonyRun implements ColonyHost {
     return this._untrusted.get(agent) ?? []
   }
 
+  /**
+   * Folders this round's agents may read beyond the defaults: the person's (Settings, the project), this chat's
+   * grants and this round's one-off ones. None from the moment a channel member writes into the round.
+   */
+  extraReads(): string[] {
+    if (this.spec.askAll) return []
+    const granted = [...(this._state.chatReads ?? []), ...this._readOnce].filter((f) => !this._secret(f))
+    return [...new Set([...(this.spec.reads ?? []), ...granted])]
+  }
+
+  /** The secret (or other chats' data) a folder is or lies in: only the person can open those, in Settings. */
+  private _secret(folder: string) {
+    return secretAt(folder, { dataDir: this.runtime.home, colonyDir: this.workspace.colonyDir })
+  }
+
+  async requestRead(agent: string, path: string, reason?: string): Promise<string> {
+    if (this.fullAccess) return prompts.toolResults.readFull
+    if (this.spec.askAll) throw new Error(prompts.toolResults.readNotHere)
+    const folder = realPath(readFolder(path))
+    if (this._secret(folder)) throw new Error(prompts.toolResults.readSecret(path))
+    if (this.workspace.mayRead(agent, folder)) return prompts.toolResults.readAlready(path)
+    const home = homedir()
+    const shown = within(folder, home) ? `~${folder.slice(home.length)}` : folder
+    const decision = await this.reviewChange(agent, 'request_read', prompts.reviewCard.read(shown, reason), {
+      read: folder,
+    })
+    if (!decision.approved) throw new Error(prompts.toolResults.declined(`reading ${path}`, decision.note))
+    if (!(this._state.chatReads ?? []).some((f) => within(folder, f))) this._readOnce.add(folder)
+    return prompts.toolResults.readAllowed(path)
+  }
+
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
     return (await this.reviewChange(agent, tool, summary, {})).approved
   }
@@ -437,10 +479,12 @@ export class ColonyRun implements ColonyHost {
     agent: string,
     tool: string,
     summary: string,
-    options: { review?: Review; key?: string; grant?: ChatGrant },
+    options: { review?: Review; key?: string; grant?: ChatGrant; read?: string },
   ): Promise<ReviewDecision> {
     if (this._state.status !== 'running') return { approved: false }
     if (options.grant && this._state.chatGrants?.includes(options.grant)) return { approved: true }
+    const read = options.read
+    if (read && this._state.chatReads?.some((f) => within(read, f))) return { approved: true }
     const id = `approval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const decided = new Promise<ReviewDecision>((resolve) => {
       const timer = setTimeout(
@@ -463,6 +507,7 @@ export class ColonyRun implements ColonyHost {
         ...(options.review ? { review: options.review } : {}),
         ...(options.key ? { key: options.key } : {}),
         ...(options.grant ? { grant: options.grant } : {}),
+        ...(options.read ? { read: options.read } : {}),
       },
     })
     return decided
@@ -511,6 +556,7 @@ export class ColonyRun implements ColonyHost {
       command,
       cwd,
       writable: readOnly ? [scratch] : [...new Set([cwd, scratch])],
+      ...this.workspace.confinement(),
       ...(port ? { env: { PORT: String(port) } } : {}),
     })
     this._servers.set(name, proc)
@@ -730,12 +776,15 @@ export class ColonyRun implements ColonyHost {
     project?: ProjectPermissions
     /** Whether the round would get full access now (`false` takes it back). */
     fullAccess?: boolean
+    /** The folders the person now lets agents read (Settings and the project); they apply from the next read. */
+    reads?: string[]
   }) {
     const spec = this.spec as ColonySpec & {
       disabledTools?: string[]
       askTools?: string[]
       allowTools?: string[]
     }
+    if (next.reads) spec.reads = next.reads
     const added = (now: readonly string[], before: readonly string[] | undefined) =>
       now.filter((t) => !(before ?? []).includes(t))
     const off = added(next.disabledTools, spec.disabledTools)

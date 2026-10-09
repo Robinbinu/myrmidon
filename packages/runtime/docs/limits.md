@@ -4,8 +4,18 @@
   minutes and a few turns. There is a spend ($) limit per round, $5 unless the person changed it, and the
   person may set a token limit too; each counts from the round's start. At 80% of either you get a budget signal:
   finish and deliver what is done, and say what is missing. The colony stops when a budget runs out.
-- **Sandbox.** Shell commands run inside an OS sandbox in your private scratch directory and can write only
-  there. Shared files are readable at `$MYR_MIRROR/artifacts`. If no sandbox is available, `shell` is off.
+- **Sandbox.** Shell commands run inside an OS sandbox, with a private HOME and TMPDIR in your scratch directory.
+  They write only to your scratch and, unless it is read-only, the project. They read only the project, your
+  scratch, this chat's own files (shared files at `$MYR_MIRROR/artifacts`), toolchains in the person's home
+  (bun, nvm, rustup, uv, pyenv and the like, read-only) and folders the person opened for reading. The rest of
+  their home is hidden: other chats, shell configs, keys and sign-ins (`~/.ssh`, `~/.aws`, `~/.config`,
+  keychains). The file tools follow the same rule. The network is open (package installs, the web). If no
+  sandbox is available, `shell` is off.
+- **Reading more.** The person can open more folders for reading: in Settings → Tools (for every chat, or
+  everything in their home), in a project's permissions, or in one chat. Your environment lists the ones open
+  to you. When a task truly needs another folder, call `request_read` with its full path and why; the person
+  allows it once (this run) or for the chat. Keys, sign-ins and other chats' data are refused there; only the
+  person can open them, by naming one in Settings. A round a channel member writes into gets no extra reads.
 - **Full access.** The person can lift the sandbox: for one project (its permission set to Full access) or for
   all their chats (Settings → Tools, Sandbox off). Then commands run as the person, with their home and
   environment and no sandbox (still stopped when Myrmidon stops, still timed out and capped), file tools take any

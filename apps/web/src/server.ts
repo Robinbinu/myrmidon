@@ -41,6 +41,7 @@ import {
   gitStatus,
   gitUnstage,
   gitWorkingChanges,
+  guardedPaths,
   type HookStore,
   importFromOmp,
   type LiveInput,
@@ -1330,6 +1331,8 @@ export function startServer(options: ServeOptions): WebServer {
             customApis: CUSTOM_APIS,
             sandbox: options.sandboxKind ?? 'unknown',
             home: options.home,
+            // Readable folders that open these get a warning: keys, sign-ins and every chat's data.
+            guardedReads: guardedPaths(options.home),
             account,
             agentDir: options.omp?.agentDir,
             ompSetup: existsSync(join(homedir(), '.omp', 'agent')),
@@ -1569,14 +1572,22 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/permissions': {
         PUT: guard(async (req) => {
           if (!options.projects) return json({ error: 'projects need the chat runtime' }, 503)
-          const body = (await req.json().catch(() => ({}))) as { mode?: unknown; allow?: unknown }
-          const allow = Array.isArray(body.allow)
-            ? body.allow.filter((a): a is string => typeof a === 'string')
-            : []
+          const body = (await req.json().catch(() => ({}))) as {
+            mode?: unknown
+            allow?: unknown
+            read?: unknown
+          }
+          const strings = (list: unknown) =>
+            Array.isArray(list) ? list.filter((a): a is string => typeof a === 'string') : []
           try {
             const project = options.projects.setPermissions(req.params.id ?? '', {
               mode: body.mode as ProjectPermissions['mode'],
-              allow,
+              allow: strings(body.allow),
+              // A client that does not send the readable folders keeps them.
+              read:
+                body.read === undefined
+                  ? (options.projects.get(req.params.id ?? '')?.permissions?.read ?? [])
+                  : strings(body.read),
             })
             await options.chats?.permissionsChanged()
             return json({ project, projects: options.projects.list() })
@@ -2197,6 +2208,24 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ grants: await options.chats.allowInChat(req.params.chatId ?? '', grant, allowed) })
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) }, 404)
+          }
+        }),
+      },
+      '/api/chats/:chatId/readable': {
+        PUT: guard(async (req) => {
+          if (!options.chats) return json({ error: 'this server was started without the chat runtime' }, 503)
+          const { folder, allowed } = (await req.json().catch(() => ({}))) as {
+            folder?: unknown
+            allowed?: unknown
+          }
+          if (typeof folder !== 'string' || !folder.trim()) return json({ error: 'folder is a path' }, 400)
+          if (typeof allowed !== 'boolean') return json({ error: 'allowed must be true or false' }, 400)
+          try {
+            return json({
+              reads: await options.chats.allowReadInChat(req.params.chatId ?? '', folder, allowed),
+            })
+          } catch (err) {
+            return json({ error: err instanceof Error ? err.message : String(err) }, 422)
           }
         }),
       },

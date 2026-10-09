@@ -15,6 +15,7 @@ import {
   FileCode,
   FileSearch,
   FishingHook,
+  FolderKey,
   FolderTree,
   Gavel,
   GitBranch,
@@ -75,6 +76,8 @@ export const FEATURE_ICONS = {
   autonomous: Zap,
   /** Per-tool allow, ask and off rules in Settings → Tools. */
   toolRules: ListFilter,
+  /** Folders sandboxed agents may read beyond the defaults: in Settings, a project's permissions, a chat's grants. */
+  readAccess: FolderKey,
   /** The sandbox shell commands run in. */
   sandbox: Container,
   /** Full access: agents run without the sandbox (Settings → Tools, a project's permission, the badge on its chats). */

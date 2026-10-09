@@ -44,7 +44,8 @@ everything shows live in the chat.
 
 - Change their own tools, models, or permissions, or add plugins to Myrmidon while running. They *can*
   write the code for a plugin, extension, CLI tool, or app as an artifact for the person to use.
-- Write outside their scratch directory, or read the person's files unless the person pastes them in.
+- In the sandbox: write outside their scratch directory and the project, or read the rest of the person's
+  home (other chats, keys, files outside the project) unless the person opened that folder for reading.
 - Keep running after the round ends; anything to keep must be published as an artifact.
 
 Read `working.md` for how to do excellent work here, `modes.md` for team modes, `coordination.md` for tasks and notes, `verification.md` for the reviewer,

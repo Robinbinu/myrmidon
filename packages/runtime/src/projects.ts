@@ -14,10 +14,12 @@ import {
   MAX_FIND_RESULTS,
   MAX_FIND_SCAN,
   MAX_PROJECT_FILE_BYTES,
+  MAX_READ_FOLDERS,
   MAX_TREE_ENTRIES,
   NEW_PROJECT_MODE,
 } from './config.ts'
 import { git } from './git.ts'
+import { readFolder, secretAt } from './read-access.ts'
 
 /**
  * Project folders, like Claude Code's and Codex's: a chat can belong to a directory on this machine. Its agents
@@ -38,8 +40,8 @@ export interface Project {
 export class ProjectStore {
   private readonly _file: string
 
-  constructor(home: string) {
-    this._file = join(home, 'projects.json')
+  constructor(private readonly _home: string) {
+    this._file = join(_home, 'projects.json')
   }
 
   list(): Project[] {
@@ -84,10 +86,17 @@ export class ProjectStore {
     if (mode !== 'auto' && mode !== 'ask' && mode !== 'read-only' && mode !== 'full')
       throw new Error('mode is auto, ask, read-only or full')
     const allow = [...new Set(permissions.allow.map((a) => a.trim()).filter(Boolean))].slice(0, 50)
+    const read = [...new Set((permissions.read ?? []).map((f) => f.trim()).filter(Boolean))]
+    if (read.length > MAX_READ_FOLDERS) throw new Error(`at most ${MAX_READ_FOLDERS} readable folders`)
+    for (const folder of read)
+      if (secretAt(readFolder(folder), { dataDir: this._home }))
+        throw new Error(
+          `${folder} holds keys, sign-ins or other chats: a project cannot open it, only naming it in Settings → Tools can`,
+        )
     const list = this.list()
     const project = list.find((p) => p.id === id)
     if (!project) throw new Error('no such project')
-    const next = { ...project, permissions: { mode, allow } }
+    const next = { ...project, permissions: { mode, allow, ...(read.length ? { read } : {}) } }
     this._write(list.map((p) => (p.id === id ? next : p)))
     return next
   }

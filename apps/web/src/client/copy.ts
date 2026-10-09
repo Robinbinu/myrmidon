@@ -1197,12 +1197,24 @@ export const copy = {
     actions: {
       shell: 'run a command',
       file: 'change a file',
+      read: 'read a folder outside the sandbox',
       use: (tool: string) => `use ${tool}`,
     },
     approval: {
       wantsTo: (action: string) => `wants to ${action}`,
       deny: 'Deny',
       approve: 'Allow',
+      /** A request to read a folder: allowed for this run only, or for the rest of the chat. */
+      approveOnce: 'Allow once',
+    },
+    /** Folders sandboxed agents may read for the rest of a chat, from a read request's card, and their chips. */
+    reads: {
+      approveAll: 'Allow reading it in this chat',
+      allowed: (folder: string) => `Agents may read ${folder} for the rest of this chat`,
+      chip: (name: string) => `Reads ${name}`,
+      chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
+      revoke: (folder: string) => `Stop agents reading ${folder}`,
+      revoked: (folder: string) => `${folder} is hidden from agents again`,
     },
     /** One kind of step allowed for the rest of a chat from its card, and the chips that take it back. */
     grants: {
@@ -1378,19 +1390,19 @@ export const copy = {
     modes: {
       auto: {
         label: 'Autonomous',
-        hint: 'Agents edit files and run commands without asking, in the sandbox unless you turned it off. Every run is checkpointed, so you can rewind it.',
+        hint: 'Agents edit the project and run commands without asking, in the sandbox unless you turned it off: they read and write the project and their own work files, and read toolchains and the folders you list below. The rest of your home, other chats and your keys stay out of reach. Every run is checkpointed, so you can rewind it.',
       },
       ask: {
         label: 'Ask first',
-        hint: 'Each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
+        hint: 'As Autonomous, but each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
       },
       readOnly: {
         label: 'Read-only',
-        hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched. They propose changes instead.',
+        hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched, and the rest of your home stays out of reach. They propose changes instead.',
       },
       full: {
         label: 'Full access',
-        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, with any file, your network and your accounts. Rules set to ask still ask.',
+        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, reading and changing any file you can (your home and keys included), with your network and accounts. Rules set to ask still ask.',
       },
     },
     /** The small mark beside a project's name. */
@@ -1403,6 +1415,12 @@ export const copy = {
     confirmFull: 'Yes, give full access',
     allow: {
       label: 'Commands that run without asking, one prefix per line (chained or piped commands always ask)',
+    },
+    /** Folders beyond the project that this project's sandboxed agents may read. */
+    read: {
+      label: 'Other folders agents may read here (read-only), one per line, starting with ~ or /',
+      hint: 'Also open in every chat: what Settings → Tools lists. Folders with keys or other chats cannot be opened here.',
+      placeholder: '~/Documents/specs',
     },
     save: 'Save',
     appliesFrom: 'Applies from each chat’s next message in this project.',
@@ -1650,7 +1668,7 @@ export const copy = {
     shell: {
       emptyTitle: 'No shell commands yet',
       emptyBody:
-        'Agents run commands in a sandbox that can write only to their working folder and, unless the project is Read-only, the project.',
+        'Agents run commands in a sandbox that writes only to their working folder and, unless the project is Read-only, the project, and cannot see the rest of your home.',
       running: 'running…',
       noOutput: '(no output)',
     },
@@ -2310,7 +2328,7 @@ export const copy = {
       groups: {
         shell: {
           label: 'Shell',
-          hint: 'Run commands in a sandbox that can write only to the agent’s working folder and, unless the project is Read-only, the project.',
+          hint: 'Run commands in a sandbox that writes only to the agent’s working folder and, unless the project is Read-only, the project, and reads only those, toolchains and the folders you open below.',
         },
         web: {
           label: 'Web search & fetch',
@@ -2335,13 +2353,26 @@ export const copy = {
             : `Sandbox on: ${sandbox}`,
       noSandbox: 'No OS sandbox found',
       sandboxedHint:
-        'Shell commands and command checks can write only to the agent’s working folder and, unless the project is Read-only, the project.',
+        'Agents read the project, their own work files, this chat’s shared files and toolchains (bun, node, Python, Rust and the like), plus the folders you open below. They write only to their work files and, unless it is Read-only, the project. The rest of your home, other chats and your keys (~/.ssh, ~/.aws, ~/.config, keychains) stay out of reach. The network stays open, for package installs and the web.',
       unsandboxedHint:
         'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless you turn the sandbox off (full access) or Myrmidon was started with --unsafe-no-sandbox. On Linux, install bubblewrap and restart Myrmidon.',
       /** The sandbox switch: On, or Off for full access. */
       sandboxOffTitle: 'Sandbox off (full access)',
       sandboxOffHint:
-        "Your chats run without the sandbox: commands run as you, file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+        "Your chats run without the sandbox: commands run as you, reading and changing anything you can (your whole home, other chats and your keys included), file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+      /** Folders sandboxed agents may read beyond the defaults, in every chat. */
+      reads: {
+        title: 'What sandboxed agents may also read',
+        subtitle:
+          'read-only, in every chat; a project can add its own, and a chat can allow one when an agent asks',
+        home: 'Everything in my home (read-only)',
+        homeHint:
+          'Agents may read any file in your home. Your keys, sign-ins and other chats stay hidden unless you name them below.',
+        folders: 'Folders agents may read, one per line, starting with ~ or /',
+        foldersPlaceholder: '~/Documents/notes\n~/code/shared-libs',
+        guarded: (paths: readonly string[]) =>
+          `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
+      },
       turnOff: 'Turn off',
       turnOffName: 'Turn the sandbox off (full access)',
       confirmOff: 'Yes, turn it off',
