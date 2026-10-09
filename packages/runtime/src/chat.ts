@@ -30,7 +30,7 @@ import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
 import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
-import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
+import { type Attachment, ColonyRun, RoundClosingError, type Runtime } from './colony.ts'
 import type { ComputerHub } from './computer/driver.ts'
 import { CHAT_TITLE_ROUNDS, MAX_READ_FOLDERS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
 import type { HookStore } from './hooks.ts'
@@ -265,6 +265,8 @@ export class ChatService {
   private readonly _deleting = new Set<string>()
   /** A chat's name on its way into the log, which deleting the chat waits for. */
   private readonly _naming = new Map<string, Promise<unknown>>()
+  /** What each round does once it ends (its owner file, its end checkpoint); shutting down waits for it. */
+  private readonly _wrapUps = new Set<Promise<unknown>>()
 
   constructor(
     private readonly runtime: Runtime,
@@ -299,6 +301,8 @@ export class ChatService {
       specialists?: SpecialistStore
       /** Skills a reviewer proposed from finished work, waiting for the person or decided. */
       skillProposals?: SkillProposalStore
+      /** How long a round's crew sits quiet before it is nudged, or a wound-down round closes (see RunOptions). */
+      quietMs?: number
     },
   ) {}
 
@@ -591,10 +595,16 @@ export class ChatService {
     await this._settle()
     const live = this._live.get(id)
     if (live && live.state().status === 'running') {
-      // Their message steers a round someone else started: from now on it asks too, as if they had started it.
-      if (options.askAll) await live.askForAll()
-      await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
-      return { chatId: id, colonyId: live.id, started: false }
+      try {
+        // Their message steers a round someone else started: from now on it asks too, as if they had started it.
+        if (options.askAll) await live.askForAll()
+        await live.postUserMessage(message, delivery, attachments, addressedIn(message, live.state()), extra)
+        return { chatId: id, colonyId: live.id, started: false }
+      } catch (err) {
+        // The round closed as the message came in: it opens the next round once that one has ended.
+        if (!(err instanceof RoundClosingError)) throw err
+        await live.done
+      }
     }
     const previous = await this.rounds(id)
     const history = conversation(previous)
@@ -633,6 +643,7 @@ export class ChatService {
     if (planFirst && spec.tier !== 'answer') spec.planFirst = true
     const run: ColonyRun = new ColonyRun(this.runtime, spec, {
       resolver: this.options.resolver,
+      ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
@@ -697,12 +708,14 @@ export class ChatService {
       this._release(run)
       throw err
     }
-    void run.done.finally(() => {
-      this._release(run)
-      this.index.noteMessages(run.id, run.state())
-      if (this._live.get(id) === run) this._live.delete(id)
-      void this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
-    })
+    this._wrapUp(
+      run.done.finally(() => {
+        this._release(run)
+        this.index.noteMessages(run.id, run.state())
+        if (this._live.get(id) === run) this._live.delete(id)
+        return this._checkpoint(run.id, project, 'end', `after: ${message}`, spec.chat?.round)
+      }),
+    )
     void run.done.then((final) => {
       if (final.escalated)
         this._rerun(id, message, config, {
@@ -1055,7 +1068,7 @@ export class ChatService {
   }
 
   async stop(chatId: string): Promise<void> {
-    await this._live.get(chatId)?.stop(STOPPED_BY_USER)
+    await this._live.get(chatId)?.stop(STOPPED_BY_USER, true)
   }
 
   /** Snapshots a project round's folder; a failure is reported but never stops the round. */
@@ -1227,6 +1240,7 @@ export class ChatService {
       projectDiff: () => this._roundDiff(run, last.state.chat?.project),
       resolver: this.options.resolver,
       resumeId: last.id as ColonyId,
+      ...(this.options.quietMs !== undefined ? { quietMs: this.options.quietMs } : {}),
       ...(this.options.web ? { web: this.options.web } : {}),
       ...(this.options.unsafeNoSandbox ? { unsafeNoSandbox: true } : {}),
       ...(this.options.mcp ? { mcp: this.options.mcp } : {}),
@@ -1253,18 +1267,20 @@ export class ChatService {
       this._release(run)
       throw err
     }
-    void run.done.finally(() => {
-      this._release(run)
-      this.index.noteMessages(run.id, run.state())
-      if (this._live.get(chatId) === run) this._live.delete(chatId)
-      void this._checkpoint(
-        run.id,
-        last.state.chat?.project,
-        'end',
-        `after resumed round ${last.round.round}`,
-        last.round.round,
-      )
-    })
+    this._wrapUp(
+      run.done.finally(() => {
+        this._release(run)
+        this.index.noteMessages(run.id, run.state())
+        if (this._live.get(chatId) === run) this._live.delete(chatId)
+        return this._checkpoint(
+          run.id,
+          last.state.chat?.project,
+          'end',
+          `after resumed round ${last.round.round}`,
+          last.round.round,
+        )
+      }),
+    )
     return { chatId, colonyId: run.id }
   }
 
@@ -1407,8 +1423,15 @@ export class ChatService {
     for (const listener of this._streams) listener(colonyId, agent, text, done, plain)
   }
 
+  private _wrapUp(work: Promise<unknown>) {
+    this._wrapUps.add(work)
+    void work.finally(() => this._wrapUps.delete(work))
+  }
+
+  /** Stops every round, a crew still winding down included, and waits until nothing of theirs runs any more. */
   async stopAll(): Promise<void> {
-    await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down')))
+    await Promise.all([...this._live.values()].map((r) => r.stop('server shutting down', true)))
+    await Promise.allSettled([...this._wrapUps])
   }
 
   private buildSpec(
