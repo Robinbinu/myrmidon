@@ -88,6 +88,11 @@ export interface ColonySpec {
    * chat's own grants are in its state). Never set while `askAll` holds, and ignored from the moment it does.
    */
   reads?: string[]
+  /**
+   * Computer use: agents may see and control the person's Mac, one app at a time once the person approves it. Set by
+   * the chat when Settings → Computer use is on; never while `askAll` holds (see ColonyRun.computer).
+   */
+  computerUse?: boolean
   /** Chat rounds: when the reviewer (the judge) runs. Absent means on every final answer. */
   review?: 'off' | 'auto' | 'always'
   /** Chat rounds: how much machinery this request gets (solo unless the lead escalates to a team). */

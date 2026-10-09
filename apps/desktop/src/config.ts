@@ -17,3 +17,9 @@ export const SERVER_START_TIMEOUT_MS = 90_000
 export const SERVER_POLL_MS = 200
 /** How long the server gets to stop its running chats on quit before it is killed. */
 export const SERVER_STOP_TIMEOUT_MS = 10_000
+
+/**
+ * The key that stops computer use from anywhere while an agent controls the Mac, as Electrobun accelerators name it
+ * (tried in order). Held as a global shortcut, so the key press is consumed and a page or dialog never sees it.
+ */
+export const COMPUTER_STOP_KEYS = ['Escape', 'Esc'] as const

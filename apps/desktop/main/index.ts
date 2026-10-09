@@ -9,9 +9,11 @@ import Electrobun, {
   type ApplicationMenuItemConfig,
   BrowserWindow,
   BuildConfig,
+  GlobalShortcut,
   PATHS,
   Utils,
 } from 'electrobun/main'
+import { DESKTOP_COMPUTER_STOP } from '../../web/src/client/ui/desktop.ts'
 import {
   badgeLabel,
   parseRequest,
@@ -20,7 +22,7 @@ import {
   replyScript,
   shortcutScript,
 } from '../src/bridge.ts'
-import { TITLEBAR_INSET_PX, WINDOW_BUTTONS, WINDOW_SIZE } from '../src/config.ts'
+import { COMPUTER_STOP_KEYS, TITLEBAR_INSET_PX, WINDOW_BUTTONS, WINDOW_SIZE } from '../src/config.ts'
 import { desktopCopy } from '../src/copy.ts'
 import { setDockBadge } from '../src/dock.ts'
 import {
@@ -94,7 +96,23 @@ async function answer(request: Request): Promise<unknown> {
       return Utils.showNotification({ title: request.title, body: request.body })
     case 'setBadge':
       return setDockBadge(badgeLabel(request.count))
+    case 'computerControl':
+      return computerControl(request.active)
   }
+}
+
+/** The global Esc, held only while an agent controls the Mac: it tells the page to stop computer use. */
+let stopKey: string | undefined
+function computerControl(active: boolean): boolean {
+  if (active && !stopKey)
+    stopKey = COMPUTER_STOP_KEYS.find((key) =>
+      GlobalShortcut.register(key, () => run(shortcutScript(DESKTOP_COMPUTER_STOP))),
+    )
+  else if (!active && stopKey) {
+    GlobalShortcut.unregister(stopKey)
+    stopKey = undefined
+  }
+  return stopKey !== undefined
 }
 
 // The server: the one already running for this home, or one the app starts and stops with itself.

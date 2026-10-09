@@ -22,6 +22,16 @@ export interface ProjectPermissions {
  */
 export type ChatGrant = 'file' | 'command'
 
+/**
+ * An app on the person's Mac they let agents use in a chat (computer use), and how much: `view` screenshots only,
+ * `click` also clicking and scrolling, `full` also typing and keys.
+ */
+export interface ComputerApp {
+  bundleId: string
+  name: string
+  tier: 'view' | 'click' | 'full'
+}
+
 /** A tool call waiting for the person to approve or deny it. */
 export interface ApprovalRequest {
   id: string
@@ -157,6 +167,8 @@ export interface EventPayloads {
      * apply. Never set on a round someone other than the person started (`askAll`).
      */
     fullAccess?: boolean
+    /** Agents may see and control the person's Mac (computer use); never set alongside `askAll`. */
+    computerUse?: boolean
   }
   /**
    * `pid`/`hostname` identify the runner process so orphaned colonies can be detected. `resumed` marks a
@@ -230,6 +242,30 @@ export interface EventPayloads {
     box?: { x: number; y: number; width: number; height: number }
     width: number
     height: number
+  }
+  /** What an app on the person's Mac showed after an agent's desktop action (computer use), for the chat's steps. */
+  'computer/keyframe': {
+    agent: string
+    blob: string
+    app: string
+    title: string
+    /** The desktop action, as the computer tool names it (left_click, type, open_app…). */
+    action: string
+    label?: string
+    /** Where it acted, in the screenshot's pixels. */
+    point?: { x: number; y: number }
+    width: number
+    height: number
+  }
+  /** The apps the person let agents use in this chat, the whole set after a change. */
+  'computer/apps': { apps: ComputerApp[] }
+  /** An agent took (or let go of) an app on the person's Mac: the "controlling your Mac" indicator follows it. */
+  'computer/control': { agent: string; app?: string; active: boolean }
+  /** An agent needed computer use and could not have it yet: the driver is missing, or macOS grants are. */
+  'computer/blocked': {
+    agent: string
+    reason: 'install' | 'grants'
+    missing?: ('accessibility' | 'screen-recording')[]
   }
   /** An agent's model refused or failed; the round pauses so the person can continue with another model. */
   'agent/error': {

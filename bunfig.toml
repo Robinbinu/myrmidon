@@ -1,3 +1,7 @@
 # Tailwind CSS for the dashboard's HTML entrypoint (Bun.serve bundles it at startup).
 [serve.static]
 plugins = ["bun-plugin-tailwind"]
+
+# prompt-library/ holds other harnesses' sources for reading (git-ignored); their tests are not ours.
+[test]
+pathIgnorePatterns = ["prompt-library/**"]

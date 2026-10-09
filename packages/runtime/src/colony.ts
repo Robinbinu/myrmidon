@@ -34,6 +34,7 @@ import {
 } from '@myrmidon/protocol'
 import { ColonyAgent, type ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { ComputerHub } from './computer/driver.ts'
 import {
   APPROVAL_MS,
   BOOTSTRAP_MS,
@@ -153,6 +154,8 @@ export interface RunOptions {
   readonly projectDiff?: () => Promise<string | undefined>
   /** Shared headless Chrome for the browser_* tools. */
   readonly browser?: BrowserHub
+  /** Computer use (the person's Mac through Cua Driver), for rounds whose spec allows it. */
+  readonly computer?: ComputerHub
   /** What the person keeps across chats; agents propose additions to it with remember. */
   readonly memory?: MemoryStore
   /** Skills agents can load by name (use_skill). */
@@ -322,6 +325,7 @@ export class ColonyRun implements ColonyHost {
     this.done = new Promise((resolve) => {
       this._finish = resolve
     })
+    this.options.computer?.newRound(this.id, () => this._computerStopped())
   }
 
   get log() {
@@ -352,6 +356,30 @@ export class ColonyRun implements ColonyHost {
 
   get browser() {
     return this.options.browser?.available ? this.options.browser : undefined
+  }
+
+  /**
+   * The person's Mac, while this round may use it: the chat allowed it when the round started, and only the person
+   * wrote into it (a channel member's message takes it away at once, like full access).
+   */
+  get computer() {
+    return this.spec.computerUse && !this.spec.askAll ? this.options.computer : undefined
+  }
+
+  /** The person pressed Stop on computer use: agents driving their Mac stop at once, and are told why. */
+  private _computerStopped() {
+    const holding = new Set(
+      (this.options.computer?.controls() ?? []).filter((c) => c.colonyId === this.id).map((c) => c.agent),
+    )
+    for (const agent of holding)
+      void this.append({
+        type: 'computer/control',
+        actor: { kind: 'user', id: 'user' },
+        payload: { agent, active: false },
+      }).catch(() => {})
+    for (const a of this._agents.values())
+      if (holding.has(a.name) && a.working)
+        a.interrupt('the person stopped computer use', prompts.computer.stoppedNote)
   }
 
   mcpTools() {
@@ -980,6 +1008,7 @@ export class ColonyRun implements ColonyHost {
       ...(this.spec.askAll ? { askAll: true } : {}),
       ...(this.spec.review ? { review: this.spec.review } : {}),
       ...(this.fullAccess ? { fullAccess: true } : {}),
+      ...(this.computer ? { computerUse: true } : {}),
     }
   }
 
@@ -2186,6 +2215,7 @@ export class ColonyRun implements ColonyHost {
     this._mirrorTimer = undefined
     for (const a of this._agents.values()) a.stop()
     await this.options.browser?.closeColony(this.id).catch(() => {})
+    this.options.computer?.release(this.id)
     await Bun.sleep(50)
     await this.workspace.writeMirror(this._state, this.blobs).catch(() => {})
     this._offLog?.()

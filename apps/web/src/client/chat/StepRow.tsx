@@ -1,6 +1,8 @@
 import { CircleAlert, Megaphone, Search, TriangleAlert, UserPlus } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { blobImage } from '../api.ts'
+import { OPEN_SETTINGS_EVENT } from '../ComputerUse.tsx'
 import { copy } from '../copy.ts'
 import { diffLines } from '../diff.ts'
 import { clock } from '../ui/hooks.ts'
@@ -23,6 +25,8 @@ const STEP_STYLE: Record<StepKind, { icon: typeof Search; color: string }> = {
   talk: { icon: Megaphone, color: 'text-muted' },
   signal: { icon: CircleAlert, color: 'text-warn-ink' },
   think: { icon: FEATURE_ICONS.thinking, color: 'text-muted' },
+  computer: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
+  computerSetup: { icon: FEATURE_ICONS.computerUse, color: 'text-warn-ink' },
 }
 
 /** One line of the activity feed: kind icon, who, what, when. `hideAgent` drops the name in a one-agent view. */
@@ -56,7 +60,28 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
       >
         <style.icon className="size-3" />
       </span>
-      {lines ? (
+      {step.shot ? (
+        <details className="group min-w-0 break-words pt-0.5">
+          <summary className="list-none marker:hidden hover:text-fg">
+            {!hideAgent && <span className="text-muted">{step.agent} · </span>}
+            {step.lead} <span className="font-semibold text-fg">{step.strong}</span>{' '}
+            {step.tail && <span className="text-muted">{step.tail}</span>}
+          </summary>
+          <StepShot colony={step.shot.colony} blob={step.shot.blob} />
+        </details>
+      ) : step.kind === 'computerSetup' ? (
+        <span className="min-w-0 break-words pt-0.5">
+          {!hideAgent && <span className="text-muted">{step.agent} · </span>}
+          {step.lead} <span className="text-fg">{step.tail}</span>{' '}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT, { detail: 'computer' }))}
+            className="font-medium text-accent-fg hover:underline"
+          >
+            {copy.computerUse.blocked.open}
+          </button>
+        </span>
+      ) : lines ? (
         <details className="group min-w-0 break-words pt-0.5">
           <summary className="list-none marker:hidden hover:text-fg">
             {!hideAgent && <span className="text-muted">{step.agent} · </span>}
@@ -100,5 +125,36 @@ export function StepRow({ step, hideAgent }: { step: Step; hideAgent?: boolean }
         </time>
       </span>
     </motion.li>
+  )
+}
+
+/** A desktop step's screenshot, loaded when the step is opened (it is fetched with the auth header, not by URL). */
+function StepShot(props: { colony: string; blob: string }) {
+  const [url, setUrl] = useState<string>()
+  useEffect(() => {
+    let made: string | undefined
+    let stop = false
+    blobImage(props.colony, props.blob)
+      .then((u) => {
+        if (stop) URL.revokeObjectURL(u)
+        else {
+          made = u
+          setUrl(u)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      stop = true
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [props.colony, props.blob])
+  return (
+    <div className="mt-1.5 overflow-hidden rounded-xl border border-line bg-surface">
+      {url ? (
+        <img src={url} alt="" className="block w-full" />
+      ) : (
+        <div className="h-24 animate-pulse bg-fill" />
+      )}
+    </div>
   )
 }

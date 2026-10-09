@@ -11,6 +11,7 @@ import type {
 import type { AgentTool } from '@oh-my-pi/pi-agent-core'
 import type { ModelError } from './agent.ts'
 import type { BrowserHub } from './browser.ts'
+import type { ComputerHub } from './computer/driver.ts'
 import type { PluginHost } from './plugin-host.ts'
 import type { ProjectContext } from './project-context.ts'
 import type { Sandbox } from './sandbox.ts'
@@ -88,6 +89,11 @@ export interface ColonyHost {
   toolsChanged(made?: { readonly by: string; readonly tool: string }): void
   /** A real browser for agents; absent when no Chrome is installed. */
   readonly browser?: BrowserHub
+  /**
+   * The person's Mac (computer use), while this round may use it: switched on in Settings when it started, and only
+   * the person wrote into it. Absent otherwise, so the computer tool is left out or refuses.
+   */
+  readonly computer?: ComputerHub
   /** The project's instructions, check commands and layout, read when the round started; absent outside projects. */
   readonly project?: ProjectContext
   /**

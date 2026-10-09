@@ -22,7 +22,7 @@ import {
   TEAM_CHAT,
 } from '@myrmidon/protocol'
 import type { AgentTool, AgentToolResult } from '@oh-my-pi/pi-agent-core'
-import { type } from '@oh-my-pi/pi-ai'
+import { type Model, type } from '@oh-my-pi/pi-ai'
 import * as natives from '@oh-my-pi/pi-natives'
 import type { ElementHandle } from 'puppeteer-core'
 import chatDoc from '../docs/chat.md' with { type: 'text' }
@@ -48,6 +48,7 @@ import {
   watched,
 } from './browser.ts'
 import { clockTime, localDate } from './clock.ts'
+import { COMPUTER_TOOL, computerTool } from './computer/tool.ts'
 import {
   GLOB_LIMIT,
   GREP_LIMIT,
@@ -2528,7 +2529,13 @@ export function matchTools(
  * Wraps tool definitions as pi-agent-core tools for one agent. The allowlist and tier rules are
  * enforced here, inside execution, so hiding a tool from the model is never the only defence.
  */
-export function buildAgentTools(agent: string, allowed: readonly string[], host: ColonyHost): AgentTool[] {
+export function buildAgentTools(
+  agent: string,
+  allowed: readonly string[],
+  host: ColonyHost,
+  /** The agent's current model, which sizes computer use's screenshots. */
+  model?: () => Model,
+): AgentTool[] {
   const allow = new Set(allowed)
   const mcp = allow.has('mcp')
     ? [...host.mcpTools(), ...host.pluginTools(agent)]
@@ -2542,7 +2549,10 @@ export function buildAgentTools(agent: string, allowed: readonly string[], host:
   const made = Object.values(host.state().madeTools)
     .filter((t) => (t.language === 'browser' ? browsing : scripts))
     .map((t) => logged(agent, madeTool(agent, t, host), host))
-  return [...harnessTools(agent, allow, host), ...mcp, ...made]
+  // The person's Mac, only for rounds that may use it (never one a channel member started or wrote into).
+  const computer =
+    allow.has(COMPUTER_TOOL) && host.computer && model ? [computerTool(agent, host, model)] : []
+  return [...harnessTools(agent, allow, host), ...mcp, ...made, ...computer]
 }
 
 /** Runs a made tool's script in the caller's sandbox, with its inputs as JSON in MYR_INPUT. */

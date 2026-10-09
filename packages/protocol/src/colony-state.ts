@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   ChatGrant,
   ColonyStatus,
+  ComputerApp,
   EventPayloads,
   NoteSection,
   QuestionChoice,
@@ -208,6 +209,8 @@ export interface ColonyState {
   chatGrants?: ChatGrant[]
   /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
   chatReads?: string[]
+  /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
+  computerApps?: ComputerApp[]
   /** The current round runs with full access (no sandbox); absent when it is confined. */
   fullAccess?: boolean
   /** The model failure that paused the round, until it resumes. */
@@ -493,6 +496,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['chat/allowed']
       state.chatGrants = [...p.grants]
       if (p.reads) state.chatReads = [...p.reads]
+      break
+    }
+    case 'computer/apps': {
+      state.computerApps = (event.payload as EventPayloads['computer/apps']).apps.map((a) => ({ ...a }))
       break
     }
     case 'permissions/changed': {

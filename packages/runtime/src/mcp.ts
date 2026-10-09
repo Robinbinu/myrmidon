@@ -60,14 +60,24 @@ type Manager = {
   disconnectAll(): Promise<void>
 }
 
+/** The prefix omp gives a server's tool names: `mcp__<server>_<tool>`. */
+const toolPrefix = (server: string) => `mcp__${server.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
+
 export class McpHub {
   private readonly _file: string
   private _manager?: Manager
   private _adapters = new Map<string, AgentTool>()
+  /**
+   * Servers Myrmidon runs for itself (computer use's Cua Driver): connected like the rest, but their tools are
+   * Myrmidon's own to call, never offered to agents as MCP tools nor listed in Settings.
+   */
+  private readonly _internal = new Map<string, McpServerConfig>()
+  private _internalTools = new Map<string, AgentTool>()
   /** Tools their server marks read-only (`annotations.readOnlyHint`). */
   private _readOnly = new Set<string>()
   private readonly _errors = new Map<string, string>()
   private _starting?: Promise<void>
+  private _queued?: Promise<void>
 
   /** Servers connected by the last start, so ones that went away (a plugin switched off) can be dropped. */
   private _connected = new Set<string>()
@@ -117,9 +127,21 @@ export class McpHub {
     } as McpServerConfig
   }
 
-  /** Connects every enabled server. Safe to call again; it reconnects only what changed. */
+  /**
+   * Connects every enabled server. Safe to call again; it reconnects only what changed. A call while a start runs
+   * waits for one more pass after it, so a change made meanwhile is not missed.
+   */
   start(): Promise<void> {
-    this._starting ??= this._connect().finally(() => {
+    if (this._starting) {
+      this._queued ??= this._starting
+        .catch(() => {})
+        .then(() => {
+          this._queued = undefined
+          return this.start()
+        })
+      return this._queued
+    }
+    this._starting = this._connect().finally(() => {
       this._starting = undefined
     })
     return this._starting
@@ -141,6 +163,10 @@ export class McpHub {
     const sources: Record<string, unknown> = {}
     for (const [name, config] of Object.entries(doc.mcpServers ?? {})) {
       if (!this._enabled(doc, name)) continue
+      configs[name] = this._launchConfig(config)
+      sources[name] = { provider: 'myrmidon', providerName: 'Myrmidon', path: this._file, level: 'user' }
+    }
+    for (const [name, config] of this._internal) {
       configs[name] = this._launchConfig(config)
       sources[name] = { provider: 'myrmidon', providerName: 'Myrmidon', path: this._file, level: 'user' }
     }
@@ -177,10 +203,14 @@ export class McpHub {
         hasQueuedMessages: () => false,
         abort: () => {},
       }) as never
-    const tools = this._manager.getTools()
-    this._adapters = new Map(
-      tools.map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]),
-    )
+    const internal = [...this._internal.keys()].map(toolPrefix)
+    const isInternal = (name: string) => internal.some((p) => name.startsWith(p))
+    const all = this._manager.getTools()
+    const adapt = (list: typeof all) =>
+      new Map(list.map((t) => [t.name, new Adapter(t as never, context) as unknown as AgentTool]))
+    this._internalTools = adapt(all.filter((t) => isInternal(t.name)))
+    const tools = all.filter((t) => !isInternal(t.name))
+    this._adapters = adapt(tools)
     // omp keeps the server's definition on its tool object, annotations included.
     this._readOnly = new Set(
       tools
@@ -222,7 +252,7 @@ export class McpHub {
       const enabled = plugin.has(name) ? config.enabled !== false : this._enabled(doc, name)
       const error = this._errors.get(name)
       const live = this._manager?.getConnectionStatus(name) ?? 'disconnected'
-      const prefix = `mcp__${name.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
+      const prefix = toolPrefix(name)
       return {
         name,
         transport,
@@ -272,6 +302,32 @@ export class McpHub {
     this._write(doc)
     await this._manager?.disconnectServer(name)
     await this.start()
+  }
+
+  /**
+   * Connects (or, with no config, disconnects) one of Myrmidon's own servers. A changed config reconnects it: omp keeps
+   * a connected server as it is, so it is dropped first.
+   */
+  async setInternal(name: string, config: McpServerConfig | undefined): Promise<void> {
+    if (this._internal.has(name)) {
+      this._internal.delete(name)
+      await this._manager?.disconnectServer(name)
+    }
+    if (config) this._internal.set(name, config)
+    await this.start()
+    // A server that went away still leaves its tools until the next rebuild.
+    if (!config)
+      this._internalTools = new Map([...this._internalTools].filter(([t]) => !t.startsWith(toolPrefix(name))))
+  }
+
+  /** One tool of an internal server, by the server's own name for it. */
+  internalTool(server: string, tool: string): AgentTool | undefined {
+    return this._internalTools.get(`${toolPrefix(server)}${tool}`)
+  }
+
+  /** Why an internal server is not connected, if it failed. */
+  internalError(server: string): string | undefined {
+    return this._errors.get(server)
   }
 
   async close(): Promise<void> {

@@ -42,6 +42,7 @@ import {
 import { ColonyScreen } from './ColonyScreen.tsx'
 import { CommandPalette, type PaletteItem } from './CommandPalette.tsx'
 import { Compare } from './Compare.tsx'
+import { ComputerBanner, OPEN_SETTINGS_EVENT } from './ComputerUse.tsx'
 import { ChatGrantChips } from './chat/ApprovalCards.tsx'
 import { Composer, type ComposerHandle, type Delivery } from './chat/Composer.tsx'
 import { sidebarOrder, stepChat } from './chat/chat-order.ts'
@@ -697,6 +698,17 @@ export function App() {
     setSettingsSection(section)
     setSettingsOpen(true)
   }
+  // A step in a chat (computer use waiting to be set up) opens Settings at its section.
+  const openSettingsRef = useRef(openSettings)
+  openSettingsRef.current = openSettings
+  useEffect(() => {
+    const open = (e: Event) => {
+      const section = (e as CustomEvent<unknown>).detail
+      if (SECTIONS.some((s) => s.id === section)) openSettingsRef.current(section as Section)
+    }
+    window.addEventListener(OPEN_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, open)
+  }, [])
 
   // The pending card gives way once the chat list shows the round it started.
   useEffect(() => {
@@ -1226,6 +1238,7 @@ export function App() {
 
   return (
     <MotionConfig reducedMotion={reduceMotion ? 'always' : 'user'}>
+      <ComputerBanner />
       {/* Setup covers the window while it is open. It fades out over the app rather than vanish, so its mascot can
           settle into the home screen's (they share a layout id, and the hand-over needs the old one to exit). */}
       <AnimatePresence>

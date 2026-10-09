@@ -30,6 +30,7 @@ import {
   MessageSquareText,
   MessagesSquare,
   MonitorSmartphone,
+  MousePointerClick,
   Palette,
   PhoneIncoming,
   Plug,
@@ -108,6 +109,8 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
+  /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
+  computerUse: MousePointerClick,
   /** Messaging channels (Telegram and the rest). */
   channels: MessagesSquare,
   /** An agent asking the person to sign in to a website for it. */

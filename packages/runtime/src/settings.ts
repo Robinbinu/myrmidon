@@ -58,6 +58,12 @@ export interface MyrSettings {
     /** Everything in the person's home is readable too, but for their keys and other chats' data. */
     readHome?: boolean
   }
+  /**
+   * Computer use: agents may see and control the person's Mac (through Cua Driver), one app at a time once the person
+   * approves it in the chat. Off until the person turns it on; separate from the sandbox, and never given to rounds a
+   * channel member started.
+   */
+  computerUse: { enabled: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -147,6 +153,7 @@ export const settingsSchema = Schema.object({
     ).max(MAX_READ_FOLDERS),
     readHome: Schema.boolean(),
   }).default({}),
+  computerUse: Schema.object({ enabled: Schema.boolean().default(false) }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -224,6 +231,7 @@ function parse(input: unknown): MyrSettings {
       ...(s.sandbox.read?.length ? { read: [...new Set(s.sandbox.read.map((f) => f.trim()))] } : {}),
       ...(s.sandbox.readHome ? { readHome: true } : {}),
     },
+    computerUse: { enabled: s.computerUse.enabled },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,

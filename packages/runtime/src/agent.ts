@@ -12,6 +12,8 @@ import { type AssistantMessage, type Model, streamSimple } from '@oh-my-pi/pi-ai
 import { isContextOverflow } from '@oh-my-pi/pi-ai/error'
 import { getModelPricingStatus } from '@oh-my-pi/pi-catalog'
 import { ContextCompactor } from './compaction.ts'
+import { ANTHROPIC_MEMBERS, anthropicToolsetPayload, computerProtocol } from './computer/actions.ts'
+import { COMPUTER_TOOL, computerMember } from './computer/tool.ts'
 import { KEEP_TURNS, MODEL_RETRIES, QUIET_KEPT, TRANSIENT_STATUS, TURN_TIMEOUT_MS } from './config.ts'
 import { agentActor, type ColonyHost } from './host.ts'
 import { type ModelResolver, withOllamaContext } from './models.ts'
@@ -96,7 +98,7 @@ export class ColonyAgent {
     this.restored = history.length
     const resolved = resolver.resolve(spec.model)
     this._stream = resolved.streamFn
-    const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host)
+    const tools = buildAgentTools(spec.name, toolsFor(host.spec, spec), host, this._model)
     for (const name of preloaded(
       host.spec.chat?.request ?? host.spec.mission,
       tools.map((t) => t.name),
@@ -108,6 +110,7 @@ export class ColonyAgent {
           sandbox: host.sandbox.kind,
           web: host.web !== noWebTools,
           browser: host.browser !== undefined,
+          computer: host.computer !== undefined,
           boundary: host.boundary,
           ...(host.project ? { project: host.project } : {}),
           ...(host.workspace.isolation(spec.name) ? { worktree: host.workspace.isolation(spec.name) } : {}),
@@ -122,6 +125,15 @@ export class ColonyAgent {
           : {}),
       },
       getApiKey: (m) => resolver.apiKey(m),
+      // Tools see their call's provider metadata and batch: OpenAI's native computer actions arrive that way.
+      getToolContext: (call) => (call ? ({ toolCall: call } as never) : undefined),
+      // Anthropic's computer toolset calls each action by its own name (left_click, scroll…).
+      resolveFallbackTool: (name, advertised) =>
+        ANTHROPIC_MEMBERS.has(name) &&
+        advertised.some((t) => t.name === COMPUTER_TOOL) &&
+        computerProtocol(this._agent.state.model) === 'anthropic'
+          ? computerMember(name, this.spec.name, this.host, this._model)
+          : undefined,
       transformContext: (messages, signal) => this._compactor.transform(messages, signal),
       // pi reads the model afresh each step but keeps the stream function for a whole loop; dispatching here lets
       // a mid-round model switch reach models that bring their own stream too.
@@ -129,10 +141,11 @@ export class ColonyAgent {
       // definitions do not ride along in every model call.
       streamFn: (model, context, options) => {
         this._streamedWith = model
+        const tools = context.tools?.filter((t) => this._shown(t.name))
         return (this._stream ?? streamSimple)(
           model,
-          context.tools ? { ...context, tools: context.tools.filter((t) => this._shown(t.name)) } : context,
-          withOllamaContext(model, options),
+          tools ? { ...context, tools } : context,
+          withComputerToolset(model, tools, withOllamaContext(model, options)),
         )
       },
     })
@@ -163,9 +176,14 @@ export class ColonyAgent {
     return !onDemand(name) || this._loaded.has(name)
   }
 
+  /** The model this agent calls now (it may switch mid-round); sizes computer use's screenshots. */
+  private readonly _model = (): Model => this._agent.state.model
+
   /** Picks up tools made since this agent started; takes effect on its next model call. */
   refreshTools() {
-    this._agent.setTools(buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host))
+    this._agent.setTools(
+      buildAgentTools(this.spec.name, toolsFor(this.host.spec, this.spec), this.host, this._model),
+    )
   }
 
   /** Shows these on-demand tools in this agent's next model calls. */
@@ -625,4 +643,26 @@ export function classifyModelError(m: AssistantMessage): ModelError {
     (m.errorStatus !== undefined && TRANSIENT_STATUS.has(m.errorStatus)) ||
     /timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|overloaded|rate.?limit|temporar|try again/i.test(message)
   return { kind: 'error', message, transient }
+}
+
+/**
+ * A Claude model that takes Anthropic's computer toolset gets it in place of the generic `computer` function tool:
+ * pi-ai builds the request with plain tools, and its payload hook swaps the definition in (and marks the history's
+ * member calls), after any hook the caller set.
+ */
+function withComputerToolset<O extends { onPayload?: (params: unknown, model: Model) => unknown }>(
+  model: Model,
+  tools: readonly { name: string }[] | undefined,
+  options: O | undefined,
+): O | undefined {
+  if (computerProtocol(model) !== 'anthropic' || !tools?.some((t) => t.name === COMPUTER_TOOL)) return options
+  const before = options?.onPayload
+  return {
+    ...(options ?? ({} as O)),
+    onPayload: async (params: unknown, m: Model) => {
+      const changed = await before?.(params, m)
+      const body = changed === undefined ? params : changed
+      return anthropicToolsetPayload(body) ?? changed
+    },
+  }
 }
