@@ -81,7 +81,7 @@ test('a day chip is named by the day it shows, with the full name as its tooltip
 test('the time is picked in the same words the sentence under it uses', async () => {
   serve([])
   const { copy } = await import('../src/client/copy.ts')
-  const { timeText, hourText } = await import('../src/client/schedule-rule.ts')
+  const { timeText, hourText, minuteText } = await import('../src/client/schedule-rule.ts')
   const t = copy.settings.schedules
   const { host, unmount } = await section()
   try {
@@ -90,6 +90,7 @@ test('the time is picked in the same words the sentence under it uses', async ()
     const hour = host.querySelector(`select[aria-label="${t.hour}"]`) as HTMLSelectElement
     const minute = host.querySelector(`select[aria-label="${t.minute}"]`) as HTMLSelectElement
     expect(hour.selectedOptions[0]?.textContent).toBe(hourText(9))
+    expect(minute.selectedOptions[0]?.textContent).toBe(minuteText(0))
     await pick(hour, '14')
     await pick(minute, '30')
     expect(host.textContent).toContain(t.describe.weekdays(timeText(14, 30)))

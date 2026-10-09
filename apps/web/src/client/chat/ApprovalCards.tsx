@@ -7,6 +7,7 @@ import { copy } from '../copy.ts'
 import { useScope } from '../DeviceGate.tsx'
 import { type DiffLine, diffLines } from '../diff.ts'
 import { sourceText, targetText } from '../permissions/describe.ts'
+import { useArmGuard } from '../ui/ConfirmButton.tsx'
 import { MenuItem, MenuList, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { Button, cn, TextArea, TextInput } from '../ui/primitives.tsx'
 import { useToast } from '../ui/Toast.tsx'
@@ -202,11 +203,17 @@ function ApprovalCard({
         approved: true,
         ...(note.trim() ? { note: note.trim() } : {}),
       })
-      await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
-      toast(copy.approvals.reads.allowed(a.read), 'success')
     } catch (err) {
       toast(String((err as Error).message), 'error')
       setBusy(false)
+      return
+    }
+    // The read itself is allowed by now and its card is going; only the chat-wide part can still fail.
+    try {
+      await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
+      toast(copy.approvals.reads.allowed(a.read), 'success')
+    } catch (err) {
+      toast(copy.approvals.reads.onceOnly(a.read, String((err as Error).message)), 'error')
     }
   }
   return (
@@ -352,6 +359,7 @@ function SplitButton(props: {
   // A remembered answer for every chat, or for every command or MCP tool, waits for a second, spelled-out yes: one
   // stray click would otherwise stop agents asking about anything of its kind.
   const [confirming, setConfirming] = useState<PermissionScope>()
+  const guard = useArmGuard()
   // A card near the top of the chat opens its menu downward, so the menu is never cut off under the title bar.
   const [up, setUp] = useState(true)
   const [pick, setPick] = useState(0)
@@ -442,7 +450,10 @@ function SplitButton(props: {
                   variant="danger"
                   autoFocus
                   className="h-auto min-h-6 whitespace-normal py-1 text-left"
+                  onKeyDown={(e) => guard.repeat(e)}
                   onClick={() => {
+                    // The Enter held, or the double-click, that chose "Everywhere" must not also say yes here.
+                    if (guard.tooSoon()) return
                     setOpen(false)
                     setConfirming(undefined)
                     props.onRemember(confirming, choice.rules)
@@ -468,7 +479,10 @@ function SplitButton(props: {
                       title={t.scopes[scope]}
                       detail={t.scopeHint[scope]}
                       onSelect={() => {
-                        if (scope === 'global' || choice.rules.some(wide)) return setConfirming(scope)
+                        if (scope === 'global' || choice.rules.some(wide)) {
+                          guard.arm()
+                          return setConfirming(scope)
+                        }
                         setOpen(false)
                         props.onRemember(scope, choice.rules)
                       }}

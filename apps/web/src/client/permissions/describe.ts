@@ -78,6 +78,19 @@ export function sourceText(source: PermissionSource, decision: RuleDecision): st
   }
 }
 
+/**
+ * The prefix of an MCP server's tool names, `mcp__<server>_`, with the server's name folded as omp folds it. Mirrors
+ * `toolPrefix` in packages/runtime/src/mcp.ts (the runtime's copy, which follows omp's): change both together.
+ */
+export function mcpToolPrefix(server: string): string {
+  const part = server
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `mcp__${part || 'server'}_`
+}
+
 /** A tool as the server lists it for rules and the explainer. */
 export interface CatalogTool {
   name: string

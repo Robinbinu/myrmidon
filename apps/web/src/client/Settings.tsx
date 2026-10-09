@@ -58,6 +58,7 @@ import {
   DEFAULT_RULE,
   describeCron,
   hourText,
+  minuteText,
   type Repeat,
   ruleToCron,
   type ScheduleRule,
@@ -4498,7 +4499,7 @@ function SchedulePicker(props: {
           >
             {minutes.map((m) => (
               <option key={m} value={m}>
-                :{String(m).padStart(2, '0')}
+                {minuteText(m)}
               </option>
             ))}
           </Select>
@@ -4538,7 +4539,7 @@ function SchedulePicker(props: {
             >
               {minutes.map((m) => (
                 <option key={m} value={m}>
-                  :{String(m).padStart(2, '0')}
+                  {minuteText(m)}
                 </option>
               ))}
             </Select>
