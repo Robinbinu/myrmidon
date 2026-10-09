@@ -121,17 +121,52 @@ test('a folder that fails to load says why and tries again; opening one loads it
     await act(async () => row('src')?.click())
     await act(async () => Bun.sleep(10))
     expect(asked.filter((p) => p === 'src')).toHaveLength(1)
-    const alert = doc.querySelector('[role=tree] [role=alert]')
-    expect(alert?.textContent).toContain('src is not readable')
+    const failed = row('src is not readable')
+    expect(failed).toBeDefined()
     fail = false
-    const retry = alert?.closest('[role=treeitem]')?.querySelector('button')
+    const retry = failed?.querySelector('button')
     expect(retry?.textContent).toBe('Try again')
     if (!retry) throw new Error('no Try again button')
     await act(async () => retry.click())
     await act(async () => Bun.sleep(10))
-    expect(doc.querySelector('[role=tree] [role=alert]')).toBeNull()
+    expect(row('src is not readable')).toBeUndefined()
     expect(row('calc.py')).toBeDefined()
   } finally {
     await unmount()
   }
+})
+
+test('a chats-only device gets no Explorer and no way to open project files', async () => {
+  const { ScopeContext } = await import('../src/client/DeviceGate.tsx')
+  const { ProjectFiles } = await import('../src/client/chat/ProjectFiles.tsx')
+  const { StepRow } = await import('../src/client/chat/StepRow.tsx')
+  const { VIEWS } = await import('../src/client/chat/Workspace.tsx')
+  expect(VIEWS.find((v) => v.value === 'explorer')?.fullOnly).toBe(true)
+  const step = {
+    id: 's1',
+    kind: 'file' as const,
+    agent: 'ada',
+    lead: 'Edited',
+    strong: 'calc.py',
+    file: 'calc.py',
+    time: '2026-10-09T10:00:00.000Z',
+  }
+  const opens = async (scope: 'full' | 'chat') => {
+    const { host, unmount } = await mount(
+      <MotionConfig reducedMotion="always">
+        <ScopeContext.Provider value={scope}>
+          <ProjectFiles project={{ id: 'app-1', name: 'app' }}>
+            <ul>
+              <StepRow step={step} />
+            </ul>
+          </ProjectFiles>
+        </ScopeContext.Provider>
+      </MotionConfig>,
+    )
+    const found = host.querySelector('button[aria-label="Open calc.py"]') !== null
+    await unmount()
+    return found
+  }
+  expect(await opens('full')).toBe(true)
+  expect(await opens('chat')).toBe(false)
 })
