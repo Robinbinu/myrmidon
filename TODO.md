@@ -283,9 +283,11 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **"Approve all for this chat"** on approval cards (7 approvals for one small fix). **Decided 2026-10-09: yes,
       per chat, per kind of step, shown as a chip that can be revoked.** Done for file changes and commands; channels
       have no button for it yet.
-- [ ] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
+- [x] Desktop shell: native menu bar (⌘N new chat, ⌘K palette, ⌘, Settings window), window chrome inset for the
       traffic lights, dock badge when a chat waits, system folder picker, "Show in Finder" / "Save to project" on
-      files.
+      files. Done 2026-10-09 on Electrobun 2.0.2 (apps/desktop, docs/desktop.md; `bun run desktop`). Left: real
+      menu clicks/⌘ keys untested, voice calls in WKWebView and in the compiled server untested, code signing, app icon,
+      a server left running if the app crashes, notification clicks can't open their chat.
 - [x] Merge Crews (ColonyScreen) into the chat Workspace so there is one console. **Decided 2026-10-09: keep both.**
 - [x] New specialists start with every tool on (Web, Shell, Files, Browser, MCP) — start from the least access?
       **Decided 2026-10-09: keep everything on.**
