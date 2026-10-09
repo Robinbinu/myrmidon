@@ -456,7 +456,8 @@ export class WhatsAppCloudAdapter implements ChannelAdapter {
    */
   async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const to = press.message?.chat
-    if (!note || !to) return
+    // Notes arrive as messages here, so one that only repeats the pressed message is left out.
+    if (!note || note.echo || !to) return
     await this._message(to, { type: 'text', text: { body: note.text }, context: { message_id: press.id } })
   }
 }

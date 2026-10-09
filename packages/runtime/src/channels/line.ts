@@ -430,7 +430,8 @@ export class LineAdapter implements ChannelAdapter {
   async answerPress(press: ButtonPress, note?: PressNote): Promise<void> {
     const chat = this._pressChats.get(press.id)
     this._pressChats.delete(press.id)
-    if (!note || !chat) return
+    // Notes arrive as messages here, so one that only repeats the pressed message is left out.
+    if (!note || note.echo || !chat) return
     const unused = this._replies.get(chat)?.token === press.id ? this._token(chat) : undefined
     await this._deliver(chat, [{ type: 'text', text: note.text }], unused)
   }

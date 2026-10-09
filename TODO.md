@@ -265,7 +265,7 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
 - [x] Mail panel shows a sender's name in their agent colour on the light surface (`Workspace.tsx`), as low as 1.9:1.
       Name in ink now, the colour on a dot beside it.
-- [ ] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip).
+- [x] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip). Done.
 - [ ] Teams file consent card (native OneDrive upload in personal chats); Matrix end-to-end encryption needs
       `@matrix-org/matrix-sdk-crypto-nodejs` (native) — a new dependency, ask first.
 - [x] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram

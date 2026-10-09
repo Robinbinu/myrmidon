@@ -265,6 +265,22 @@ test("a press's note is the reply to that press", async () => {
     path: '/v2/bot/message/reply',
     body: { replyToken: 'press-token', messages: [{ type: 'text', text: 'Allowed' }] },
   })
+  // A note that only repeats what the pressed message says is not sent: here it would be one more message.
+  await post(adapter, [
+    {
+      type: 'postback',
+      timestamp: 2,
+      webhookEventId: 'E2',
+      replyToken: 'press-token-2',
+      source: dm,
+      postback: { data: 'a:o:k' },
+    },
+  ])
+  const echoed = received[1]?.press
+  if (!echoed) throw new Error('no second press')
+  const before = fake.calls.length
+  await adapter.answerPress(echoed, { text: 'Allowed', echo: true })
+  expect(fake.calls).toHaveLength(before)
 })
 
 test('files: a small JPEG or PNG is an image LINE fetches from the gateway, anything else a link', async () => {
