@@ -458,7 +458,7 @@ Open work, in the order it will be done:
 12o. - [x] **Mascot shows what you type** — on the new-chat screen the matrix shows the typed text with a blinking bar; after
       5 s without typing the eyes come back. Done: letters drawn in the eye grid's own cells (5 tall), only the last ones
       that fit, no scrolling, a blinking cursor bar; their colour follows the draft's mood like the eyes.
-12p. - [x] **Agent feedback report** (done; leftovers from its test await the person's OK to delete) (docs/research/2026-10-09-agent-feedback.md): multi-file artifact pages fail from file://
+12p. - [x] **Agent feedback report** (done; its test plugin removed, its files and tools left in the probe chat by the person's choice) (docs/research/2026-10-09-agent-feedback.md): multi-file artifact pages fail from file://
       (serve over http); crewmate briefs wrong ("solo", tools they lack, two finishing rules); made tools not callable until
       find_tools; find_tools silently drops tools; read_log shows only the first line; repeated prompt text, irrelevant
       skills, tool names differing between prompt and tool list, reviewer not mentioned, mixed time zones.
