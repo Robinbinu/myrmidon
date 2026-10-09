@@ -224,7 +224,7 @@ type StreamData = Opened &
       }
     | { kind: 'browser'; colony: ColonyId; agent: string; unwatch?: () => void }
     /** One of the person's own tabs (Browser view): its frames and the tab list out, input in. */
-    | { kind: 'person-browser'; tab: string; unwatch?: () => void }
+    | { kind: 'person-browser'; tab: string; unwatch?: () => void; inputs?: Promise<void> }
     | { kind: 'terminal'; cwd: string; cols: number; rows: number; proc?: Bun.Subprocess }
     /**
      * A voice call: the person's audio in, the call's speech and state out. `refusal`: the call is refused, said as
@@ -3053,7 +3053,7 @@ export function startServer(options: ServeOptions): WebServer {
           return
         }
         if (ws.data.kind === 'person-browser') {
-          const tab = ws.data.tab
+          const data = ws.data
           let msg: PersonInput
           try {
             msg = JSON.parse(String(raw)) as PersonInput
@@ -3061,13 +3061,17 @@ export function startServer(options: ServeOptions): WebServer {
             return
           }
           if (!PERSON_INPUTS.has(msg?.type)) return
-          void personBrowser
-            ?.input(tab, msg)
-            .catch((err) =>
+          // One at a time, in the order they came: a button's release must not overtake its press.
+          data.inputs = (data.inputs ?? Promise.resolve()).then(() =>
+            personBrowser?.input(data.tab, msg).catch((err) => {
               ws.send(
-                JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : String(err) }),
-              ),
-            )
+                JSON.stringify({
+                  type: 'error',
+                  message: err instanceof Error ? err.message : String(err),
+                }),
+              )
+            }),
+          )
           return
         }
         if (ws.data.kind !== 'browser' || !options.browser) return
