@@ -8,8 +8,6 @@ import {
   CircleX,
   Download,
   ExternalLink,
-  Eye,
-  EyeOff,
   LoaderCircle,
   LogIn,
   type LucideIcon,
@@ -46,6 +44,7 @@ import { formatSize } from './chat/Attachments.tsx'
 import { TeamSettings } from './chat/Composer.tsx'
 import { ToolLibraryList } from './chat/MadeTools.tsx'
 import { ModelPicker, windowLabel } from './chat/ModelPicker.tsx'
+import { usersOf, withoutModel } from './chat/model-list.ts'
 import { SpecialistEditor } from './chat/SpecialistEditor.tsx'
 import { copy } from './copy.ts'
 import { DEFAULT_MASCOT, type MascotLook, SETTINGS_SAVED } from './mascot.ts'
@@ -671,6 +670,14 @@ export function Settings(props: {
                     <ModelsSection
                       models={props.models}
                       settings={data.settings}
+                      providers={data.providers}
+                      {...(props.config ? { config: props.config } : {})}
+                      onConfig={props.onConfig}
+                      onRemoved={(settings, providers) => {
+                        setData((d) => (d ? { ...d, settings, providers } : d))
+                        props.onModelsChanged()
+                        window.dispatchEvent(new Event(SETTINGS_SAVED))
+                      }}
                       update={update}
                       onRefresh={props.onModelsChanged}
                       onAddProvider={() => setModelsTab('providers')}
@@ -844,6 +851,11 @@ function General(props: {
 function ModelsSection(props: {
   models: ModelOption[]
   settings: ServerSettings
+  providers: ProviderInfo[]
+  config?: TeamConfig
+  onConfig(c: TeamConfig): void
+  /** A model was removed: the settings and providers as the server has them now. */
+  onRemoved(settings: ServerSettings, providers: ProviderInfo[]): void
   update(p: (s: ServerSettings) => ServerSettings, immediate?: boolean): void
   onRefresh(): void
   onAddProvider(): void
@@ -853,18 +865,67 @@ function ModelsSection(props: {
   const [tests, setTests] = useState<Record<string, 'running' | { ok: boolean; text: string }>>({})
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [hiddenOpen, setHiddenOpen] = useState(false)
   const hidden = new Set(props.settings.models.hidden)
   const hiddenProviders = new Set(props.settings.models.hiddenProviders)
   const q = query.trim().toLowerCase()
+  // A removed model leaves its provider's list for Hidden models, where it can be restored.
   const groups = useMemo(() => {
+    const removed = new Set(props.settings.models.hidden)
     const by = new Map<string, ModelOption[]>()
     for (const m of props.models) {
-      if (q && !`${m.ref} ${m.name}`.toLowerCase().includes(q)) continue
+      if (removed.has(m.ref) || (q && !`${m.ref} ${m.name}`.toLowerCase().includes(q))) continue
       by.set(m.provider, [...(by.get(m.provider) ?? []), m])
     }
     return [...by].sort(([a], [b]) => a.localeCompare(b))
-  }, [props.models, q])
+  }, [props.models, q, props.settings.models.hidden])
+  const hiddenModels = props.models.filter(
+    (m) => hidden.has(m.ref) && (!q || `${m.ref} ${m.name}`.toLowerCase().includes(q)),
+  )
   const shown = props.models.filter((m) => !hidden.has(m.ref) && !hiddenProviders.has(m.provider)).length
+  /** A custom endpoint's model leaves its list; any other model, or an endpoint's only one, is hidden. */
+  const deletes = (m: ModelOption) => {
+    const ids = props.providers.find((p) => p.id === m.provider && p.custom)?.modelIds ?? []
+    return ids.length > 1 && ids.includes(m.id)
+  }
+  const remove = async (m: ModelOption) => {
+    try {
+      const r = await send<{
+        removed: 'deleted' | 'hidden'
+        cleared: ('lead' | 'crewmates' | 'reviewer' | 'call' | 'titles')[]
+        lead?: string
+        titles?: string
+        settings: ServerSettings
+        providers: ProviderInfo[]
+      }>('POST', '/api/models/remove', { ref: m.ref })
+      const lead = r.lead
+      const moved = lead && props.config ? withoutModel(props.config, m.ref, lead) : undefined
+      const leadMoved = r.cleared.includes('lead') || (!!moved && moved.leadModel !== props.config?.leadModel)
+      if (moved) props.onConfig(moved)
+      props.onRemoved(r.settings, r.providers)
+      const name = (ref: string) => props.models.find((x) => x.ref === ref)?.name ?? ref
+      toast(
+        [
+          r.removed === 'deleted'
+            ? copy.settings.models.removedDeleted(m.name, m.provider)
+            : copy.settings.models.removedHidden(m.name),
+          leadMoved && lead && copy.settings.models.nowLeads(name(lead)),
+          r.cleared.includes('titles') && r.titles && copy.settings.models.nowNames(name(r.titles)),
+        ]
+          .filter(Boolean)
+          .join(' '),
+        'success',
+      )
+    } catch (err) {
+      toast(String((err as Error).message ?? err), 'error')
+    }
+  }
+  const inUse = (m: ModelOption) => {
+    const users = usersOf(m.ref, props.config, props.settings)
+    if (!users.length) return undefined
+    const who = new Intl.ListFormat('en').format(users.map((u) => copy.settings.models.users[u]))
+    return copy.settings.models.inUse(who, users.length > 1 || users[0] === 'crewmates')
+  }
 
   const test = async (ref: string) => {
     setTests((t) => ({ ...t, [ref]: 'running' }))
@@ -966,12 +1027,8 @@ function ModelsSection(props: {
                 <div className="max-h-[46vh] overflow-auto">
                   {models.map((m) => {
                     const t = tests[m.ref]
-                    const isHidden = hidden.has(m.ref)
                     return (
-                      <div
-                        key={m.ref}
-                        className={cn('flex items-center gap-3 py-2 pl-10 pr-4', isHidden && 'opacity-55')}
-                      >
+                      <div key={m.ref} className="flex items-center gap-3 py-2 pl-10 pr-4">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-body font-medium">{m.name}</span>
@@ -1012,17 +1069,18 @@ function ModelsSection(props: {
                         >
                           {copy.settings.models.test}
                         </Button>
-                        <IconButton
-                          size="sm"
-                          label={
-                            isHidden
-                              ? copy.settings.models.showModel(m.name)
-                              : copy.settings.models.hideModel(m.name)
+                        <ConfirmButton
+                          icon={deletes(m) ? true : <FEATURE_ICONS.hiddenModels className="size-4" />}
+                          label={copy.settings.models.remove(m.name)}
+                          title={
+                            deletes(m)
+                              ? copy.settings.models.removeDeleteTitle(m.provider)
+                              : copy.settings.models.removeHideTitle
                           }
-                          onClick={() => toggleSet('hidden', m.ref)}
-                        >
-                          {isHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                        </IconButton>
+                          confirm={copy.settings.models.confirmRemove}
+                          warning={inUse(m)}
+                          onConfirm={() => void remove(m)}
+                        />
                       </div>
                     )
                   })}
@@ -1031,6 +1089,44 @@ function ModelsSection(props: {
             </Card>
           )
         })}
+        {hiddenModels.length > 0 && (
+          <Card>
+            <button
+              type="button"
+              onClick={() => setHiddenOpen((o) => !o)}
+              aria-expanded={hiddenOpen}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+            >
+              <motion.span animate={{ rotate: hiddenOpen ? 90 : 0 }} transition={spring}>
+                <ChevronRight className="size-4 text-muted" />
+              </motion.span>
+              <FEATURE_ICONS.hiddenModels className="size-4 text-muted" />
+              <span className="text-body font-medium">
+                {copy.settings.models.hiddenHeading(hiddenModels.length)}
+              </span>
+            </button>
+            {hiddenOpen && (
+              <div className="max-h-[46vh] overflow-auto">
+                {hiddenModels.map((m) => (
+                  <div key={m.ref} className="flex items-center gap-3 py-2 pl-10 pr-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-body font-medium text-fg-2">{m.name}</div>
+                      <div className="truncate font-mono text-caption text-muted">{m.ref}</div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="borderless"
+                      aria-label={copy.settings.models.restoreLabel(m.name)}
+                      onClick={() => toggleSet('hidden', m.ref)}
+                    >
+                      {copy.settings.models.restore}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
       </div>
     </>
   )

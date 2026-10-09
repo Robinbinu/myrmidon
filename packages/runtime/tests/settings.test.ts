@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseColonySpec, SettingsStore, toolsFor } from '../src/index.ts'
+import { parseColonySpec, SettingsStore, toolsFor, withoutModel } from '../src/index.ts'
 
 function home() {
   return mkdtempSync(join(tmpdir(), 'myr-settings-'))
@@ -75,6 +75,38 @@ test('the reviewer is on auto unless the person turns it off or on for every ans
         verification: { ...store.get().verification, reviewer: 'sometimes' as never },
       }),
     ).toThrow()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('removing a model takes it out of every default, hiding it or forgetting it with its context window', () => {
+  const dir = home()
+  try {
+    const store = new SettingsStore(dir)
+    const s = store.set({
+      ...store.get(),
+      team: { ...store.get().team, leadModel: 'a/x', workerModel: 'a/x', judgeModel: 'b/y' },
+      voice: { ...store.get().voice, callModel: 'a/x' },
+      models: { hidden: ['c/z'], hiddenProviders: [], windows: { 'a/x': 64_000 } },
+    })
+    const hidden = withoutModel(s, 'a/x', true)
+    expect(hidden.cleared).toEqual(['lead', 'crewmates', 'call'])
+    expect(hidden.settings.team.leadModel).toBeUndefined()
+    expect(hidden.settings.team.workerModel).toBeUndefined()
+    expect(hidden.settings.team.judgeModel).toBe('b/y')
+    expect(hidden.settings.voice.callModel).toBeUndefined()
+    expect(hidden.settings.models.hidden).toEqual(['c/z', 'a/x'])
+    // Restoring a hidden model brings back the window the person set for it.
+    expect(hidden.settings.models.windows['a/x']).toBe(64_000)
+    // The result is valid settings, and the input is left as it was.
+    expect(store.set(hidden.settings).team.leadModel).toBeUndefined()
+    expect(s.team.leadModel).toBe('a/x')
+
+    const deleted = withoutModel(s, 'a/x', false)
+    expect(deleted.settings.models.hidden).toEqual(['c/z'])
+    expect(deleted.settings.models.windows['a/x']).toBeUndefined()
+    expect(withoutModel(s, 'b/y', true).cleared).toEqual(['reviewer'])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

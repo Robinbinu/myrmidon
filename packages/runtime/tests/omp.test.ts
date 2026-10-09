@@ -69,3 +69,28 @@ test('signing out keeps an API key stored for the same provider', async () => {
   await omp.removeCredentials('anthropic')
   expect(omp.providers().find((p) => p.id === 'anthropic')?.stored).toBe(false)
 })
+
+test("a custom endpoint's model can be deleted from its list, but not its only one or a built-in provider's", async () => {
+  const omp = await bootOmp(home)
+  await omp.addProvider({
+    name: 'localai',
+    baseUrl: 'http://localhost:1235/v1',
+    api: 'openai-completions',
+    apiKey: 'local-key-123456',
+    models: ['qwen3-8b', 'gemma-3'],
+  })
+  try {
+    expect(await omp.removeModel('localai', 'qwen3-8b')).toBe(true)
+    expect(omp.providers().find((p) => p.id === 'localai')?.modelIds).toEqual(['gemma-3'])
+    expect(omp.find('localai', 'qwen3-8b')).toBeUndefined()
+    // An empty list would make the endpoint discover its models, bringing every one back: only hiding works.
+    expect(await omp.removeModel('localai', 'gemma-3')).toBe(false)
+    expect(await omp.removeModel('localai', 'missing')).toBe(false)
+    expect(omp.providers().find((p) => p.id === 'localai')?.modelIds).toEqual(['gemma-3'])
+    const builtIn = omp.all().find((m) => m.provider === 'anthropic')
+    expect(builtIn).toBeDefined()
+    expect(await omp.removeModel('anthropic', builtIn?.id ?? '')).toBe(false)
+  } finally {
+    await omp.removeProvider('localai')
+  }
+})

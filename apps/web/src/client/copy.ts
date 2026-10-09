@@ -1865,7 +1865,7 @@ export const copy = {
     models: {
       title: 'Models',
       intro: (count: number, shown: number) =>
-        `${count} models you can call right now, ${shown} shown in pickers. Switch off whole providers you don’t use, hide single models, and test any model with a one-line request.`,
+        `${count} models you can call right now, ${shown} shown in pickers. Switch off whole providers you don’t use, remove single models, and test any model with a one-line request.`,
       search: 'Search models',
       refreshed: 'Model lists refreshed from providers',
       refresh: 'Refresh',
@@ -1878,8 +1878,22 @@ export const copy = {
       testFailed: 'failed',
       respondedIn: (time: string) => `Responded in ${time}`,
       test: 'Test',
-      showModel: (name: string) => `Show ${name}`,
-      hideModel: (name: string) => `Hide ${name}`,
+      remove: (name: string) => `Remove ${name}`,
+      removeHideTitle: 'Remove from pickers; Hidden models below brings it back',
+      removeDeleteTitle: (provider: string) => `Remove from ${provider}’s model list`,
+      confirmRemove: 'Yes, remove model',
+      /** Who uses a model by default, as `inUse` lists them. */
+      users: { lead: 'lead', crewmates: 'crewmates', reviewer: 'reviewer', call: 'call assistant' },
+      inUse: (who: string, many: boolean) =>
+        `Your ${who} ${many ? 'use' : 'uses'} it, and will switch to another model.`,
+      removedHidden: (name: string) => `Removed ${name} from pickers`,
+      removedDeleted: (name: string, provider: string) => `Removed ${name} from ${provider}`,
+      /** After a removal: who uses which model now. */
+      nowLeads: (model: string) => `New chats now lead with ${model}.`,
+      nowNames: (model: string) => `${model} names chats now.`,
+      hiddenHeading: (n: number) => `Hidden models · ${n}`,
+      restore: 'Restore',
+      restoreLabel: (name: string) => `Restore ${name}`,
       windowSources: {
         set: 'set by you',
         provider: 'from the provider',
