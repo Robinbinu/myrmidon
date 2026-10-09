@@ -855,7 +855,10 @@ export function startServer(options: ServeOptions): WebServer {
         }
         let model: string | undefined
         try {
-          model = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+          // One line of text: the cheap model that names chats writes it, not the lead's, whose reasoning can
+          // outlast the greeting's time limit.
+          const lead = profile?.greeting === 'rules' ? undefined : defaultTeam().leadModel
+          model = lead && options.omp ? namingModel(options.omp, options.settings, lead) : lead
         } catch {
           model = undefined
         }
