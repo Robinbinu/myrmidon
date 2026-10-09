@@ -274,7 +274,7 @@ function WorkspaceBody({
       group: PLUGIN_GROUP,
     })),
   ]
-  // The shell keeps running while you look at other views; it starts the first time you open it.
+  // The Terminal view mounts the first time it is opened; its shells live on in terminal-sessions.ts, past this chat.
   const [shellOpened, setShellOpened] = useState(false)
   const [inspect, setInspect] = useState<string>()
   const plan = state.notes.filter((n) => n.section === 'plan').at(-1)

@@ -1865,9 +1865,11 @@ export const copy = {
     closed: 'The shell closed.',
     newShell: 'New shell',
     tabs: 'Terminals',
-    /** A tab: its number in this chat, then what runs in it, else the folder it started in (`~` for home). */
+    /** A tab: its number among the project's terminals, then what runs in it, else its folder (`~` for home). */
     name: (n: number) => `Terminal ${n}`,
     tab: (n: number, what: string) => `Terminal ${n} · ${what}`,
+    /** The part of a tab's name a narrow panel leaves out, keeping what runs in view. */
+    tabPrefix: (n: number) => `Terminal ${n} · `,
     /** How the tab's × and the Delete key are offered to screen readers. */
     closeHint: 'Delete closes it',
     close: (name: string) => `Close ${name}`,

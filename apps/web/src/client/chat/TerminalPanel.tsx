@@ -1,99 +1,45 @@
-import { Ellipsis, Maximize2, Minimize2, Plus, X } from 'lucide-react'
+import { Ellipsis, Maximize2, Minimize2, Plus, RotateCcw, X } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { useArmGuard } from '../ui/ConfirmButton.tsx'
 import { anyDialogOpen } from '../ui/dialog.ts'
-import { readStored, store } from '../ui/hooks.ts'
 import { FEATURE_ICONS } from '../ui/icons.ts'
 import { MenuItem, MenuSeparator, Popover } from '../ui/Popover.tsx'
 import { isMac } from '../ui/platform.ts'
 import { Button, cn, Empty, IconButton } from '../ui/primitives.tsx'
 import { comboLabel, matchCombo } from '../ui/shortcuts.ts'
+import { MAX_TERMINAL_TABS, TERMINAL_COMBOS, TERMINAL_SCROLLBACK_CHOICES } from '../ui-config.ts'
 import {
-  MAX_TERMINAL_TABS,
-  TERMINAL_COMBOS,
-  TERMINAL_DEFAULTS,
-  TERMINAL_SCROLLBACK_CHOICES,
-} from '../ui-config.ts'
-import { ShellTerminal, type TerminalPrefs } from './ShellTerminal.tsx'
+  addTerminal,
+  CURSOR_STYLES,
+  closeTerminal,
+  setTerminalPrefs,
+  showTerminal,
+  type TerminalPrefs,
+  type TerminalSession,
+  terminalPrefs,
+  terminalSet,
+  useTerminals,
+} from './terminal-sessions.ts'
 
 const t = copy.shellTerminal
 
-/** One open terminal: its number in this chat and what it last said runs in it. */
-interface Tab {
-  id: number
-  n: number
-  /** The foreground command, or null while the shell waits at its prompt. */
-  process: string | null
-  /** The folder the shell's title names (see folderOfTitle), once it set one. */
-  cwd?: string
-}
-
 /**
- * The folder a shell's title names, as zsh and bash set it by default or with oh-my-zsh ("robin@mac:~/code/app",
- * "~/code/app"): its last part, so the tab follows `cd` as Claude Code's does. Titles that name no folder (a program's
- * own) give nothing, and the tab keeps the folder it started in.
- */
-function folderOfTitle(title: string): string | undefined {
-  const path =
-    title
-      .trim()
-      .split(/[\s:]+/)
-      .at(-1) ?? ''
-  if (path !== '~' && !path.startsWith('~/') && !path.startsWith('/')) return undefined
-  return path.replace(/\/+$/, '').split('/').at(-1) || path
-}
-
-const CURSOR_STYLES = ['block', 'bar', 'underline'] as const
-const PREF_KEYS = {
-  cursorStyle: 'myr-terminal-cursor',
-  cursorBlink: 'myr-terminal-blink',
-  copyOnSelect: 'myr-terminal-copy-on-select',
-  scrollback: 'myr-terminal-scrollback',
-} as const
-
-/** The ⋯ menu's choices as this browser remembers them; anything unreadable falls back to the defaults. */
-function readPrefs(): TerminalPrefs {
-  const style = readStored<string>(PREF_KEYS.cursorStyle, TERMINAL_DEFAULTS.cursorStyle)
-  const lines = Number(readStored(PREF_KEYS.scrollback, String(TERMINAL_DEFAULTS.scrollback)))
-  const flag = (key: string, fallback: boolean) => readStored(key, fallback ? '1' : '0') === '1'
-  return {
-    cursorStyle: CURSOR_STYLES.find((s) => s === style) ?? TERMINAL_DEFAULTS.cursorStyle,
-    cursorBlink: flag(PREF_KEYS.cursorBlink, TERMINAL_DEFAULTS.cursorBlink),
-    copyOnSelect: flag(PREF_KEYS.copyOnSelect, TERMINAL_DEFAULTS.copyOnSelect),
-    scrollback: TERMINAL_SCROLLBACK_CHOICES.find((n) => n === lines) ?? TERMINAL_DEFAULTS.scrollback,
-  }
-}
-
-function useTerminalPrefs(): [TerminalPrefs, (change: Partial<TerminalPrefs>) => void] {
-  const [prefs, setPrefs] = useState(readPrefs)
-  return [
-    prefs,
-    (change) => {
-      setPrefs((p) => ({ ...p, ...change }))
-      for (const [key, value] of Object.entries(change))
-        store(
-          PREF_KEYS[key as keyof TerminalPrefs],
-          typeof value === 'boolean' ? (value ? '1' : '0') : String(value),
-        )
-    },
-  ]
-}
-
-/**
- * The workspace's Terminal view: the person's own shells as tabs, like Claude Code's terminal panel. Each tab is its
- * own shell, named by what runs in it (else the folder it started in); every tab stays alive while another shows.
- * A ⋯ menu sets how all of them look, and the view can fill the window.
+ * The workspace's Terminal view: the project's shells as tabs, like Claude Code's terminal panel. Each tab is its own
+ * shell, named by what runs in it (else the folder it is in). The shells live in terminal-sessions.ts, so they keep
+ * running while another tab, view, chat or Settings shows. A ⋯ menu sets how all of them look, and the view can fill
+ * the window.
  */
 export function TerminalPanel(props: { project?: { id: string; name: string } }) {
-  const [tabs, setTabs] = useState<Tab[]>([{ id: 1, n: 1, process: null }])
-  const [active, setActive] = useState(1)
-  const nextId = useRef(2)
-  // Bumped when the shown terminal should take focus (a click or a shortcut, not arrowing along the tabs).
-  const [focusRequest, setFocusRequest] = useState(0)
+  useTerminals()
+  const project = props.project?.id
+  const set = terminalSet(project)
+  const tabs = set.sessions
+  const active = set.active
+  // The terminal to give focus to once it shows (a click or a shortcut, not arrowing along the tabs).
+  const focusNext = useRef<number>(undefined)
   const [closing, setClosing] = useState<number>()
-  const [prefs, setPrefs] = useTerminalPrefs()
   const [maximized, setMaximized] = useState(false)
   const ids = useId()
   const tabId = (id: number) => `${ids}-tab-${id}`
@@ -103,28 +49,21 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
   const full = tabs.length >= MAX_TERMINAL_TABS
   const newCombo = isMac ? TERMINAL_COMBOS.newMac : TERMINAL_COMBOS.new
 
-  const nameOf = (tab: Tab) => t.name(tab.n)
-  const labelOf = (tab: Tab) => t.tab(tab.n, tab.process ?? tab.cwd ?? folder)
-  const update = (id: number, change: Partial<Tab>) =>
-    setTabs((list) => list.map((tab) => (tab.id === id ? { ...tab, ...change } : tab)))
+  const nameOf = (tab: TerminalSession) => t.name(tab.n)
+  const whatOf = (tab: TerminalSession) => tab.process ?? tab.cwd ?? folder
+  const labelOf = (tab: TerminalSession) => t.tab(tab.n, whatOf(tab))
   const show = (id: number) => {
-    setActive(id)
-    setFocusRequest((n) => n + 1)
+    showTerminal(project, id)
+    focusNext.current = id
   }
   const add = () => {
-    if (full) return
-    const id = nextId.current++
-    setTabs((list) => [...list, { id, n: Math.max(0, ...list.map((tab) => tab.n)) + 1, process: null }])
-    setActive(id)
+    const added = addTerminal(project)
+    if (added) focusNext.current = added.id
   }
   const remove = (id: number) => {
     setClosing(undefined)
-    const at = tabs.findIndex((tab) => tab.id === id)
-    const rest = tabs.filter((tab) => tab.id !== id)
-    setTabs(rest)
-    // The neighbour to the right takes its place, as browser tabs do; the last one's left neighbour otherwise.
-    const next = rest[Math.min(at, rest.length - 1)]
-    if (active === id && next) show(next.id)
+    closeTerminal(project, id)
+    if (terminalSet(project).active !== undefined) focusNext.current = terminalSet(project).active
   }
   // A terminal with a command still running asks first; an idle shell closes at once.
   const close = (id: number) => {
@@ -138,11 +77,26 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
     if (next) show(next.id)
   }
 
+  // After the shown terminal is on screen (and started, if new): the slots attach in their effects, before this one.
+  useEffect(() => {
+    const id = focusNext.current
+    if (id === undefined) return
+    focusNext.current = undefined
+    tabs.find((tab) => tab.id === id)?.focus()
+  })
+
+  const asking = tabs.find((tab) => tab.id === closing)
+  // The command ended (or the tab went) while the question showed: there is nothing left to ask about.
+  useEffect(() => {
+    if (closing !== undefined && asking?.process == null) setClosing(undefined)
+  }, [closing, asking?.process])
+
   // Along the tabs: arrows, Home and End pick a tab (focus stays on the tabs), Delete closes the focused one.
   const tabKeys = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault()
-      return close(active)
+      if (active !== undefined) close(active)
+      return
     }
     const at = tabs.findIndex((tab) => tab.id === active)
     const to =
@@ -159,7 +113,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
     e.preventDefault()
     const next = tabs[(to + tabs.length) % tabs.length]
     if (!next) return
-    setActive(next.id)
+    showTerminal(project, next.id)
     document.getElementById(tabId(next.id))?.focus()
   }
 
@@ -187,8 +141,6 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
     return () => document.removeEventListener('keydown', esc)
   }, [maximized])
 
-  const asking = tabs.find((tab) => tab.id === closing)
-
   return (
     <div
       onKeyDownCapture={viewKeys}
@@ -198,7 +150,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
         maximized && 'fixed inset-x-0 bottom-0 top-[52px] z-[60] border-t border-line shadow-pop',
       )}
     >
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1.5">
+      <div className="@container flex h-9 shrink-0 items-center gap-1 border-b border-line pl-2 pr-1.5">
         {tabs.length > 0 && (
           <div
             role="tablist"
@@ -214,19 +166,24 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
                   type="button"
                   role="tab"
                   id={tabId(tab.id)}
+                  aria-label={labelOf(tab)}
                   aria-selected={selected}
                   aria-controls={panelId(tab.id)}
-                  aria-keyshortcuts="Delete"
+                  aria-keyshortcuts="Delete Backspace"
                   aria-describedby={`${ids}-close-hint`}
                   tabIndex={selected ? 0 : -1}
                   title={labelOf(tab)}
                   onClick={() => show(tab.id)}
                   className={cn(
-                    'group flex h-7 min-w-28 max-w-60 shrink items-center gap-1 rounded-md pl-2.5 pr-1 text-small transition-colors',
+                    'group flex h-7 min-w-24 max-w-60 shrink items-center gap-1 rounded-md pl-2.5 pr-0.5 text-small transition-colors',
                     selected ? 'bg-fill-strong text-fg' : 'text-fg-2 hover:bg-fill hover:text-fg',
                   )}
                 >
-                  <span className="truncate">{labelOf(tab)}</span>
+                  <span className="truncate">
+                    {/* A narrow panel with several tabs keeps room for what runs; the name stays in the tooltip. */}
+                    <span className={cn(tabs.length > 1 && 'hidden @2xl:inline')}>{t.tabPrefix(tab.n)}</span>
+                    {whatOf(tab)}
+                  </span>
                   {/* For the pointer; keyboards close the focused tab with Delete, so this is no second Tab stop. */}
                   <span
                     aria-hidden="true"
@@ -236,8 +193,11 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
                       close(tab.id)
                     }}
                     className={cn(
-                      'grid size-5 shrink-0 place-items-center rounded-sm text-muted hover:bg-fill-strong hover:text-fg',
-                      selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      'grid size-6 shrink-0 place-items-center rounded-sm text-muted hover:bg-fill-strong hover:text-fg',
+                      // Hidden, it takes no clicks; the shown tab always has it, as touch screens cannot hover.
+                      selected
+                        ? 'opacity-100'
+                        : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100',
                     )}
                   >
                     <X className="size-3" />
@@ -260,7 +220,7 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
           <Plus className="size-3.5" />
         </IconButton>
         <span className="flex-1" />
-        <TerminalOptions prefs={prefs} onChange={setPrefs} />
+        <TerminalOptions prefs={terminalPrefs()} onChange={setTerminalPrefs} />
         <IconButton
           size="sm"
           label={maximized ? t.restore : t.maximize}
@@ -269,10 +229,10 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
           {maximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </IconButton>
       </div>
-      {asking && (
+      {asking?.process && (
         <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
           <span className="min-w-0 flex-1 text-small text-fg-2">
-            {t.stillRunning(nameOf(asking), asking.process ?? '')}
+            {t.stillRunning(nameOf(asking), asking.process)}
           </span>
           <Button
             size="sm"
@@ -314,16 +274,41 @@ export function TerminalPanel(props: { project?: { id: string; name: string } })
           aria-labelledby={tabId(tab.id)}
           className={tab.id === active ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
         >
-          <ShellTerminal
-            {...(props.project ? { project: props.project.id } : {})}
-            active={tab.id === active}
-            focusRequest={focusRequest}
-            prefs={prefs}
-            onProcess={(process) => update(tab.id, { process })}
-            onTitle={(title) => update(tab.id, { cwd: folderOfTitle(title) })}
-          />
+          <TerminalSlot session={tab} />
         </div>
       ))}
+    </div>
+  )
+}
+
+/** Where one shell shows: its screen moves in while the slot is on the page and back to waiting after. */
+function TerminalSlot(props: { session: TerminalSession }) {
+  const slot = useRef<HTMLDivElement>(null)
+  const { session } = props
+  useEffect(() => {
+    const el = slot.current
+    if (!el) return
+    session.attach(el)
+    return () => session.detach(el)
+  }, [session])
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {session.ended && (
+        <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-footnote text-muted">
+          <span role="status" className="min-w-0 flex-1 truncate" title={session.ended}>
+            {session.ended}
+          </span>
+          <Button
+            size="sm"
+            variant="borderless"
+            onClick={() => session.restart()}
+            icon={<RotateCcw className="size-3.5" />}
+          >
+            {t.newShell}
+          </Button>
+        </div>
+      )}
+      <div ref={slot} className="min-h-0 flex-1" />
     </div>
   )
 }

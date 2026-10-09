@@ -510,10 +510,12 @@ export const RULES_LIST_MAX_PX = 420
 
 // The person's terminals (chat/TerminalPanel.tsx)
 
-/** Terminals one chat may hold open at once; the server allows a few more across every chat and device. */
+/** Terminals one project (or home) may hold open at once; the server allows a few more across all of them. */
 export const MAX_TERMINAL_TABS = 6
-/** Line counts the ⋯ menu offers for how far back each terminal can scroll. */
-export const TERMINAL_SCROLLBACK_CHOICES = [1_000, 5_000, 10_000, 50_000] as const
+/** Line counts the ⋯ menu offers for how far back each terminal can scroll; every terminal stays in memory. */
+export const TERMINAL_SCROLLBACK_CHOICES = [1_000, 5_000, 10_000] as const
+/** The longest name a shell or program can give its tab. */
+export const MAX_TERMINAL_LABEL = 64
 /** How a terminal looks until the person picks otherwise in its ⋯ menu (Claude Code's defaults). */
 export const TERMINAL_DEFAULTS = {
   cursorStyle: 'block',
