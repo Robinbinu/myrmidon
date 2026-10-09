@@ -143,6 +143,36 @@ function first<T>(items: readonly T[]): T {
 const clip = (text: string, max = MAX_READ_CHARS) =>
   text.length > max ? `${text.slice(0, max)}\n…[truncated ${text.length - max} chars]` : text
 
+/**
+ * The lines of a file fs_read returns: `offset` (1-based) and `limit` pick a range, and the result stops at the last
+ * whole line within `max` characters. A whole file that fits comes back as it is; otherwise a header names the lines
+ * shown and, when lines remain, the offset that reads on (after Qwen Code's and Gemini CLI's read_file paging).
+ */
+export function readRange(text: string, offset = 1, limit?: number, max = MAX_READ_CHARS): string {
+  if (!Number.isInteger(offset) || offset < 1) throw new Error('offset is a line number, 1 or more')
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
+    throw new Error('limit is a number of lines, 1 or more')
+  if (offset === 1 && limit === undefined && text.length <= max) return text
+  const lines = text.split('\n')
+  if (text.endsWith('\n')) lines.pop()
+  const total = lines.length
+  if (offset > total) throw new Error(prompts.toolResults.readPastEnd(offset, total))
+  const wanted = lines.slice(offset - 1, limit === undefined ? undefined : offset - 1 + limit)
+  const shown: string[] = []
+  let size = 0
+  for (const line of wanted) {
+    // A single line longer than the cap is cut rather than skipped, so a minified file still reads.
+    if (size + line.length + 1 > max) {
+      if (shown.length === 0) shown.push(`${line.slice(0, max)}…`)
+      break
+    }
+    shown.push(line)
+    size += line.length + 1
+  }
+  const last = offset + shown.length - 1
+  return `${prompts.toolResults.readLines(offset, last, total)}\n${shown.join('\n')}${last < total ? `\n${prompts.toolResults.readOn(last + 1, total)}` : ''}`
+}
+
 function taskLine(t: TaskSnapshot) {
   const owner = `${t.owner ? ` owner=${t.owner}` : ''}${t.assignee && t.assignee !== t.owner ? ` assignee=${t.assignee}` : ''}${t.outputs?.length ? ` outputs=${t.outputs.join(',')}` : ''}`
   const blocked = t.blockedBy.length ? ` blockedBy=${t.blockedBy.join(',')}` : ''
@@ -1404,9 +1434,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'fs_read',
     tier: 'read',
     description: prompts.tools.fs_read.description,
-    parameters: type({ path: type('string') }),
+    parameters: type({
+      path: type('string').describe(prompts.tools.fs_read.params.path),
+      'offset?': type('number').describe(prompts.tools.fs_read.params.offset),
+      'limit?': type('number').describe(prompts.tools.fs_read.params.limit),
+    }),
     async run(args, agent, host) {
-      return clip(readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'))
+      return readRange(
+        readFileSync(host.workspace.resolveForRead(agent, args.path), 'utf8'),
+        args.offset,
+        args.limit,
+      )
     },
   },
   {

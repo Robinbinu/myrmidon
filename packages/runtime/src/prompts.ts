@@ -1036,6 +1036,12 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
       'web_fetch does not run other programs: they would reach the network without its address checks',
     browserBlocked: (url: string, reason?: string) =>
       `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
+    /** fs_read's header over a range of lines, and how to read on. */
+    readLines: (first: number, last: number, total: number) => `(lines ${first}-${last} of ${total})`,
+    readOn: (next: number, total: number) =>
+      `… lines ${next}-${total} not shown: fs_read with offset: ${next} reads on.`,
+    readPastEnd: (offset: number, total: number) =>
+      `offset ${offset} is past the end: the file has ${total} line${total === 1 ? '' : 's'}`,
     logMore: (chars: number, seq: number) => `… (${chars} more chars: read_log(entry: ${seq}) shows it all)`,
     logPending: 'no result yet: the call is still running',
     toolCreated: (name: string, output: string) =>
@@ -1307,10 +1313,20 @@ Use end_call when the person says goodbye or asks you to hang up.${o.crew.length
         'file. `old` must appear exactly once (copy it from fs_read, with enough surrounding lines to be unique); set ' +
         '`all` to replace every occurrence. Make several edits in one step for several changes.',
     },
+    // After Qwen Code's read_file (offset/limit paging, truncation stated) and Claude Code's Read.
     fs_read: {
       description:
-        'Read a file in your working directory (the project, when the chat has one), your scratch directory, or a ' +
-        'folder the person opened for reading (full path, ~ allowed).',
+        'Read a text file from your working directory, your scratch directory, or a folder the person opened for ' +
+        'reading (full path, ~ allowed); a page web_fetch saved is read the same way, by the path it gave. Use it ' +
+        'instead of cat, head, tail or sed -n in the shell. A file up to 40,000 characters comes back whole. A longer ' +
+        'one, or a range you ask for with offset and limit, comes back as whole lines under a header naming the lines ' +
+        'shown, ending with the offset that reads on. To find which lines you need, grep first: it gives line numbers.',
+      params: {
+        path: 'File path, relative to your working directory, or absolute (~ allowed)',
+        offset: 'First line to read, 1-based (default 1)',
+        limit:
+          'How many lines to read from offset (default: to the end of the file, up to 40,000 characters)',
+      },
     },
     request_read: {
       description:
