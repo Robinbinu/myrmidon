@@ -3,6 +3,8 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   type ApprovalRequest,
+  alwaysOffer,
+  type ColonyId,
   type EventPayloads,
   foldColony,
   type MyrEvent,
@@ -62,8 +64,8 @@ export interface ChannelChats {
   read(colonyId: string): Promise<readonly MyrEvent[]>
   decideApproval(colonyId: string, id: string, approved: boolean): Promise<void>
   /**
-   * Lets this kind of call run without asking from now on, everywhere: the approval's first offer (a command's
-   * prefix, an MCP tool), saved as a global allow rule.
+   * Lets this kind of call run without asking from now on, everywhere: what `alwaysOffer` names for the approval (a
+   * command's prefixes, an MCP tool), saved as global allow rules, which also decide the waiting calls they cover.
    */
   allowAlways(colonyId: string, approvalId: string): Promise<void>
   /** An artifact's latest version, for sending the files a round made. */
@@ -193,11 +195,13 @@ interface OpenApproval {
   readonly channel: string
   readonly colonyId: string
   readonly id: string
-  readonly tool: string
   readonly text: string
   readonly messages: { adapter: ChannelAdapter; ref: SentRef; to: ChannelChat }[]
-  /** Asked for in a member's round: "always" is not offered (it would widen the owner's own rules). */
-  readonly member: boolean
+  /**
+   * What "always" saves, as its button says (see alwaysOffer); empty when it is not offered: in a member's round (it
+   * would widen the owner's own rules), for a read request, or where the card offers nothing to remember.
+   */
+  readonly always: ReturnType<typeof alwaysOffer>
 }
 
 /** Questions with options sent to a chat, answered one press at a time, then sent together. */
@@ -852,15 +856,21 @@ export class ChannelHub {
     if (person.role !== 'owner') return void (await note({ text: t.approval.onlyOwner }))
     this._approvals.delete(k)
     const approved = decision !== 'd'
-    const always = decision === 'a' && !open.member
+    const always = decision === 'a' && open.always.length > 0
     try {
       if (always) await this.options.chats.allowAlways(open.colonyId, open.id)
       await this.options.chats.decideApproval(open.colonyId, open.id, approved)
     } catch {
-      return void (await note({ text: t.approval.gone }))
+      // Saving the rule decides every waiting call it covers, usually this one: then it is done as answered.
+      const decided = always
+        ? foldColony(open.colonyId as ColonyId, await this.options.chats.read(open.colonyId)).approvals[
+            open.id
+          ]?.decided
+        : undefined
+      if (!decided?.approved) return void (await note({ text: t.approval.gone }))
     }
     const outcome = always
-      ? t.approval.allowedAlways(person.name, open.tool)
+      ? t.approval.allowedAlways(person.name, t.approval.what(open.always))
       : approved
         ? t.approval.allowed(person.name)
         : t.approval.denied(person.name)
@@ -1109,8 +1119,10 @@ export class ChannelHub {
     const preview = request.review?.fields.find((f) => f.value)?.value
     const k = key()
     const member = tracker.member
+    const always = member ? [] : alwaysOffer(request)
     const text = [
       t.approval.ask(request.agent, request.summary),
+      ...(request.sensitive ? [t.approval.sensitive] : []),
       ...(member ? [t.approval.member(member)] : []),
       ...(preview
         ? [`\`\`\`\n${preview.slice(0, PREVIEW_CHARS)}${preview.length > PREVIEW_CHARS ? '\n…' : ''}\n\`\`\``]
@@ -1123,11 +1135,13 @@ export class ChannelHub {
           text,
           buttons: [
             [{ label: t.approval.once, data: `a:o:${k}` }],
-            ...(member ? [] : [[{ label: t.approval.always(request.tool), data: `a:a:${k}` }]]),
+            ...(always.length
+              ? [[{ label: t.approval.always(t.approval.what(always)), data: `a:a:${k}` }]]
+              : []),
             [{ label: t.approval.deny, data: `a:d:${k}` }],
           ],
         }
-      : { text: `${text}\n\n${member ? t.approval.typedOnce(k, p) : t.approval.typed(k, p)}` }
+      : { text: `${text}\n\n${always.length ? t.approval.typed(k, p) : t.approval.typedOnce(k, p)}` }
     const here = tracker.to.kind === 'dm' && owner?.dm === tracker.to.id
     // An owner with no private chat (group-only platforms like Twitch) is asked where the run is; only their press
     // counts there too.
@@ -1148,10 +1162,9 @@ export class ChannelHub {
       channel: tracker.channel,
       colonyId: tracker.colonyId,
       id: request.id,
-      tool: request.tool,
       text,
       messages: [{ adapter: tracker.adapter, ref, to: target }],
-      member: Boolean(member),
+      always,
     })
     if (target !== tracker.to)
       await tracker.adapter.send(tracker.to, { text: t.approval.elsewhere }).catch(() => {})

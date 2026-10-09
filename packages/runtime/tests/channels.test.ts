@@ -156,6 +156,10 @@ class FakeChats implements ChannelChats {
     return this.events.get(colonyId) ?? []
   }
   async decideApproval(colonyId: string, id: string, approved: boolean) {
+    const done = (this.events.get(colonyId) ?? []).some(
+      (e) => e.type === 'approval/decided' && (e.payload as { id: string }).id === id,
+    )
+    if (done) throw new Error('that request is no longer waiting')
     this.decided.push({ colonyId, id, approved })
     this.emit(colonyId, 'approval/decided', { id, approved, by: 'person' })
   }
@@ -164,6 +168,9 @@ class FakeChats implements ChannelChats {
       (e) => e.type === 'approval/requested' && (e.payload as { id: string }).id === approvalId,
     )
     this.alwaysAllowed.push((asked?.payload as { tool?: string } | undefined)?.tool ?? approvalId)
+    // The saved rule decides the waiting calls it covers at once, as ChatService.remember does.
+    if ((asked?.payload as { offer?: unknown[] } | undefined)?.offer?.length)
+      this.emit(colonyId, 'approval/decided', { id: approvalId, approved: true, by: 'person' })
   }
   async artifact(_colonyId: string, name: string) {
     return { data: new TextEncoder().encode(`contents of ${name}`), mediaType: 'text/markdown' }
@@ -587,6 +594,70 @@ test('approvals go to the owner with buttons; only the owner decides, and "alway
   await until(() =>
     adapter.edits.some((e) => e.text.includes('✅ Allowed by Alice; shell is now always allowed')),
   )
+})
+
+test('"always" saves what its button names, and a step the saved rule already approved counts as done', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'run the tests')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-1',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'bun test src',
+    call: { tool: 'shell', kind: 'command', command: 'bun test src' },
+    offer: [
+      { kind: 'command', target: 'bun test' },
+      { kind: 'command', target: '*' },
+    ],
+  })
+  await until(() => adapter.sent.some((s) => s.chat === '100' && s.buttons))
+  const ask = adapter.sent.find((s) => s.chat === '100' && s.buttons)
+  const always = ask?.buttons?.[1]?.[0]
+  expect(always?.label).toBe('Always allow `bun test`')
+  await say(ALICE, '', { press: always?.data ?? '' })
+  await until(() =>
+    adapter.presses.some((p) => p.note === 'Allowed' || p.note === 'That run has already ended.'),
+  )
+  expect(adapter.presses.some((p) => p.note === 'That run has already ended.')).toBe(false)
+  expect(chats.alwaysAllowed).toEqual(['shell'])
+  await until(() => adapter.edits.some((e) => e.text.includes('`bun test` is now always allowed')))
+})
+
+test('a request to read a key folder warns the owner and offers no "always"', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'list my keys')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-1',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/.ssh: to list the keys',
+    read: '/Users/a/.ssh',
+    sensitive: true,
+  })
+  await until(() => adapter.sent.some((s) => s.chat === '100' && s.buttons))
+  const ask = adapter.sent.find((s) => s.chat === '100' && s.buttons)
+  expect(ask?.text).toContain('keys or sign-ins')
+  expect(ask?.buttons?.map((row) => row[0]?.label)).toEqual(['Allow once', 'Deny'])
+  // Typed: no "always" either, even when written.
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-2',
+    agent: 'lead',
+    tool: 'request_read',
+    summary: 'read ~/notes',
+    read: '/Users/a/notes',
+  })
+  await until(() => adapter.sent.filter((s) => s.chat === '100' && s.buttons).length === 2)
+  const plain = adapter.sent.filter((s) => s.chat === '100' && s.buttons).at(-1)
+  expect(plain?.text).not.toContain('keys or sign-ins')
+  expect(plain?.buttons).toHaveLength(2)
+  const once = plain?.buttons?.[0]?.[0]?.data ?? ''
+  await say(ALICE, '', { press: once.replace('a:o:', 'a:a:') })
+  await until(() => chats.decided.length === 1)
+  expect(chats.alwaysAllowed).toEqual([])
 })
 
 test('without buttons, approvals and questions are answered by typing', async () => {
