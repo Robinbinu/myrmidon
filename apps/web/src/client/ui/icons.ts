@@ -1,6 +1,7 @@
 import {
   Activity,
   AudioLines,
+  AudioWaveform,
   BadgeCheck,
   BadgeQuestionMark,
   BadgeX,
@@ -162,6 +163,8 @@ export const FEATURE_ICONS = {
   mascot: Smile,
   /** Voice calls with the crew. */
   voice: AudioLines,
+  /** Voice providers (speech to text, voices, realtime models) and their keys, in Models & providers. */
+  voiceProviders: AudioWaveform,
   /** Phone calls on the SMS channel's Twilio number, and a call card that was one. */
   phoneCalls: PhoneIncoming,
   /** The web: search, fetching pages, a page an agent opened. */
