@@ -828,6 +828,15 @@ export const copy = {
       /** Before a line of a message that matched the search; `from` is the agent's name or `user`. */
       matchFrom: (from: string) => (from === 'user' ? 'You: ' : `${from}: `),
     },
+    /** Several chats picked with ⌘-click, ⇧-click or ⌘A, and what can be done to them at once. */
+    selection: {
+      label: 'Selected chats',
+      count: (n: number) => `${n} selected`,
+      delete: (n: number) => (n === 1 ? 'Delete chat' : `Delete ${n} chats`),
+      export: (n: number) => (n === 1 ? 'Export as Markdown' : `Export ${n} chats as Markdown`),
+      clear: 'Clear selection',
+      clearTitle: (key: string) => `Clear selection (${key})`,
+    },
     projects: {
       heading: 'Projects',
       add: 'Add a project folder',
@@ -1526,8 +1535,10 @@ export const copy = {
       openChatToExport: 'Open a chat to export it',
       stopping: 'Stopping the crew…',
       deleted: (title: string) => `Deleted “${title}”`,
+      deletedMany: (n: number) => `Deleted ${n} chats`,
       undoDelete: 'Undo',
       undoDeleteTitle: (keys: string) => `Bring the chat back (${keys})`,
+      undoDeleteManyTitle: (keys: string) => `Bring the chats back (${keys})`,
       deleteFailed: (title: string, reason: string) => `Couldn’t delete “${title}”: ${reason}`,
       projectRemoved: (name: string) => `Removed ${name} from projects; its folder and chats are untouched`,
     },
@@ -1588,6 +1599,17 @@ export const copy = {
       stillRunning: 'This chat is still running. It will be stopped first.',
       cancel: 'Cancel',
       confirm: 'Delete chat',
+      /** Several chats at once. */
+      titleMany: (n: number) => `Delete ${n} chats?`,
+      bodyMany: (n: number) =>
+        `These ${n} chats and their runs will be permanently removed from this Myrmidon: messages, files, logs, and agent transcripts. You can still undo it for a few seconds.`,
+      stillRunningMany: (n: number) =>
+        n === 1
+          ? 'One of these chats is still running. It will be stopped first.'
+          : `${n} of these chats are still running. They will be stopped first.`,
+      confirmMany: (n: number) => `Delete ${n} chats`,
+      /** Ends the list of titles when it is cut short. */
+      andMore: (n: number) => `and ${n} more`,
     },
     crewConsole: 'Crew',
     noCrews: 'No crews yet. Send a message in a chat and its crew shows here.',
@@ -1900,7 +1922,7 @@ export const copy = {
     models: {
       title: 'Models',
       intro: (count: number, shown: number) =>
-        `${count} models you can call right now, ${shown} shown in pickers. Switch off whole providers you don’t use, hide single models, and test any model with a one-line request.`,
+        `${count} models you can call right now, ${shown} shown in pickers. Switch off whole providers you don’t use, remove single models, and test any model with a one-line request.`,
       search: 'Search models',
       refreshed: 'Model lists refreshed from providers',
       refresh: 'Refresh',
@@ -1913,8 +1935,22 @@ export const copy = {
       testFailed: 'failed',
       respondedIn: (time: string) => `Responded in ${time}`,
       test: 'Test',
-      showModel: (name: string) => `Show ${name}`,
-      hideModel: (name: string) => `Hide ${name}`,
+      remove: (name: string) => `Remove ${name}`,
+      removeHideTitle: 'Remove from pickers; Hidden models below brings it back',
+      removeDeleteTitle: (provider: string) => `Remove from ${provider}’s model list`,
+      confirmRemove: 'Yes, remove model',
+      /** Who uses a model by default, as `inUse` lists them. */
+      users: { lead: 'lead', crewmates: 'crewmates', reviewer: 'reviewer', call: 'call assistant' },
+      inUse: (who: string, many: boolean) =>
+        `Your ${who} ${many ? 'use' : 'uses'} it, and will switch to another model.`,
+      removedHidden: (name: string) => `Removed ${name} from pickers.`,
+      removedDeleted: (name: string, provider: string) => `Removed ${name} from ${provider}.`,
+      /** After a removal: who uses which model now. */
+      nowLeads: (model: string) => `New chats now lead with ${model}.`,
+      nowNames: (model: string) => `${model} names chats now.`,
+      hiddenHeading: (n: number) => `Hidden models · ${n}`,
+      restore: 'Restore',
+      restoreLabel: (name: string) => `Restore ${name}`,
       windowSources: {
         set: 'set by you',
         provider: 'from the provider',

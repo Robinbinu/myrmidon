@@ -16,8 +16,9 @@ import {
   STOPPED_BY_USER,
 } from '@myrmidon/protocol'
 import type { BrowserHub } from './browser.ts'
+import { namingModel } from './catalog.ts'
 import { ChatIndex, type CrewMember, type IndexedRound, type MessageHit } from './chat-index.ts'
-import { nameChat, titleModel } from './chat-titles.ts'
+import { nameChat } from './chat-titles.ts'
 import type { Checkpoints } from './checkpoints.ts'
 import { type Attachment, ColonyRun, type Runtime } from './colony.ts'
 import { CHAT_TITLE_ROUNDS, MAX_WORKERS, SKILL_REVIEW_CALLS } from './config.ts'
@@ -752,20 +753,7 @@ export class ChatService {
   /** The cheapest fast model the person can use and has not hidden, for naming chats; the lead's otherwise. */
   private _titleModel(lead: string): string {
     const omp = this.options.resolver.omp
-    if (!omp) return lead
-    const prefs = this.options.settings?.get().models
-    const hidden = new Set(prefs?.hidden ?? [])
-    const hiddenProviders = new Set(prefs?.hiddenProviders ?? [])
-    const candidates = omp
-      .available()
-      .filter((m) => !hidden.has(`${m.provider}/${m.id}`) && !hiddenProviders.has(m.provider))
-      .map((m) => ({
-        provider: m.provider,
-        id: m.id,
-        inputPrice: m.cost?.input ?? 0,
-        contextWindow: m.contextWindow ?? null,
-      }))
-    return titleModel(candidates, lead)
+    return omp ? namingModel(omp, this.options.settings, lead) : lead
   }
 
   /** Starts the round that takes over an escalated request, after anything already being sent to this chat. */

@@ -35,7 +35,7 @@ function copySidecar(bundle: string) {
   const target = join(bundle, 'Contents', 'Resources', 'app', 'sidecar')
   mkdirSync(target, { recursive: true })
   const files = existsSync(dist)
-    ? readdirSync(dist).filter((name) => name === 'myrmidon' || name.endsWith('.node'))
+    ? readdirSync(dist).filter((name) => name === 'myrmidon' || /\.(node|dylib)$/.test(name))
     : []
   if (!files.includes('myrmidon')) throw new Error(desktopCopy.build.sidecarMissing(join(dist, 'myrmidon')))
   for (const name of files) copyFileSync(join(dist, name), join(target, name))

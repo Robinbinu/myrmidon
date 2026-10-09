@@ -1,4 +1,4 @@
-import type { ModelOption } from '../api.ts'
+import type { ModelOption, TeamConfig } from '../api.ts'
 
 /** A provider's dated snapshot id: claude-haiku-4-5-20251001, or claude-haiku-4-5@20251001 on Vertex. */
 const DATED = /[-@]\d{8}$/
@@ -64,4 +64,35 @@ export function fallbackModel(
   const siblings = models.filter((m) => m.provider === provider)
   const at = siblings.findIndex((m) => m.ref === failed)
   return [...siblings.slice(at + 1), ...siblings.slice(0, Math.max(at, 0))].find(ok)
+}
+
+/** Who uses a model by default, as Settings → Models names them before it is removed. */
+export type ModelUser = 'lead' | 'crewmates' | 'reviewer' | 'call'
+
+/** The defaults that use `ref`: this window's crew (the composer's) and the saved ones a channel or call gets. */
+export function usersOf(
+  ref: string,
+  config: TeamConfig | undefined,
+  saved: {
+    team: { leadModel?: string; workerModel?: string; judgeModel?: string }
+    voice: { callModel?: string }
+  },
+): ModelUser[] {
+  const users: ModelUser[] = []
+  if (config?.leadModel === ref || saved.team.leadModel === ref) users.push('lead')
+  if (config?.roster.some((r) => r.model === ref) || saved.team.workerModel === ref) users.push('crewmates')
+  if (config?.judgeModel === ref || saved.team.judgeModel === ref) users.push('reviewer')
+  if (saved.voice.callModel === ref) users.push('call')
+  return users
+}
+
+/** This window's crew without a removed model: `lead` takes over from it, and crewmates and the reviewer follow. */
+export function withoutModel(config: TeamConfig, ref: string, lead: string): TeamConfig {
+  const leadModel = config.leadModel === ref ? lead : config.leadModel
+  return {
+    ...config,
+    leadModel,
+    roster: config.roster.map((r) => (r.model === ref ? { ...r, model: leadModel } : r)),
+    judgeModel: config.judgeModel === ref ? leadModel : config.judgeModel,
+  }
 }

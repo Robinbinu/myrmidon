@@ -5,9 +5,11 @@ import { VOICE_PHONON_START_MS, VOICE_PHONON_VERSION } from '../config.ts'
 import { spawnLeashed } from '../leashed.ts'
 import { parseWav, wav } from './audio.ts'
 import { type LiveTranscription, PhononStream } from './phonon-stream.ts'
-
-/** "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. */
-const WARM_CLIP = join(import.meta.dir, 'warm-speech.wav')
+/**
+ * "Testing, one two three." (2 s, 16 kHz, spoken by Kitten TTS), for warming Phonon-2 up. Imported as a file so a
+ * compiled Myrmidon, which has no source tree beside it, carries it.
+ */
+import WARM_CLIP from './warm-speech.wav' with { type: 'file' }
 
 export interface TranscribeOptions {
   readonly signal?: AbortSignal

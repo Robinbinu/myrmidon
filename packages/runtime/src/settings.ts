@@ -205,6 +205,41 @@ function parse(input: unknown): MyrSettings {
   }
 }
 
+/** A default that can name a model: the lead's, the crewmates', the reviewer's, the call assistant's, or chat naming's. */
+export type ModelDefault = 'lead' | 'crewmates' | 'reviewer' | 'call' | 'titles'
+
+/**
+ * The settings once a model is removed: no default names it any more, so each falls back as an unset one does (the
+ * crewmates, reviewer and call assistant to the lead, the lead to the default model). It is hidden from pickers when it
+ * stays listed (`hide`), or forgotten with its context window when it was deleted. Says which defaults it was.
+ */
+export function withoutModel(
+  s: MyrSettings,
+  ref: string,
+  hide: boolean,
+): { settings: MyrSettings; cleared: ModelDefault[] } {
+  const next = structuredClone(s)
+  const cleared: ModelDefault[] = []
+  const roles = [
+    ['leadModel', 'lead'],
+    ['workerModel', 'crewmates'],
+    ['judgeModel', 'reviewer'],
+  ] as const
+  for (const [key, role] of roles)
+    if (next.team[key] === ref) {
+      delete next.team[key]
+      cleared.push(role)
+    }
+  if (next.voice.callModel === ref) {
+    delete next.voice.callModel
+    cleared.push('call')
+  }
+  const hidden = next.models.hidden.filter((r) => r !== ref)
+  next.models.hidden = hide ? [...hidden, ref] : hidden
+  if (!hide) delete next.models.windows[ref]
+  return { settings: next, cleared }
+}
+
 function atomicWrite(path: string, text: string, mode: number) {
   const tmp = `${path}.${process.pid}.tmp`
   writeFileSync(tmp, text, { mode })

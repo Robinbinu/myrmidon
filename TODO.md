@@ -441,8 +441,14 @@ Open work, in the order it will be done:
       Phonon, agents' dev servers, Chrome (watched by pid: puppeteer's pipe mode crashed Bun on macOS, EXC_GUARD) and
       the desktop app's server; Kitten already exits on EOF; terminal shells get SIGHUP. SIGKILL tests for each.
       Left: Linux not run; MCP servers that ignore stdin EOF would leak (none seen).
-      - [ ] The Kitten worker likely fails in the packaged desktop app (it runs kitten-worker.ts, not on disk in
-        the compiled sidecar) — check and bundle it.
+      - [x] The Kitten worker likely fails in the packaged desktop app (it runs kitten-worker.ts, not on disk in
+        the compiled sidecar) — check and bundle it. Worse: voice on crashed the packaged server, and onnxruntime's
+        library and the warm-up clip were missing too. Fixed and checked in a compiled build.
+      - [ ] Kitten's model download has no timeout: a stuck connection (seen: IPv6 SYN_SENT to the CDN) hangs it.
+12i. - [ ] **First-run setup assistant** (asked 2026-10-09) — nine skippable screens with a live mascot, resumable,
+      "Run setup again" in Settings → General. Building.
+12j. - [ ] **Remove a single model from a provider** (asked 2026-10-09).
+12k. - [ ] **Select several chats and delete them at once** (asked 2026-10-09).
 12g. - [x] **Status dots like Codex and Claude Code** (asked 2026-10-08): study how both show an agent's or session's
       state (working, waiting on you, done, failed, idle: colour, pulse, shape) and use that standard for every
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were

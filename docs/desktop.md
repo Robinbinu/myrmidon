@@ -53,15 +53,23 @@ bun run desktop:build        # = bun run desktop:sidecar, then electrobun build 
 ```
 
 `desktop:sidecar` compiles the server with `bun build --compile` (Tailwind plugin included) into
-`apps/desktop/dist/myrmidon` (about 120 MB), with oh-my-pi's native addon (`pi_natives.<platform>-<arch>.node`) beside
-it. The build hook (`apps/desktop/scripts/bundle-hook.ts`) copies both into the app's `Resources/app/sidecar` and sets
-the microphone usage text. Output: `apps/desktop/artifacts/` (`macos-arm64-Myrmidon.dmg`, the update archive and
+`apps/desktop/dist/myrmidon` (about 125 MB) from `apps/desktop/src/sidecar.ts`, which is the CLI and, started as
+`myrmidon kitten-worker <model folder>`, Kitten TTS's worker (a compiled build has no script file to run it from).
+Beside it goes the native code it loads from there: oh-my-pi's addon (`pi_natives.<platform>-<arch>.node`) and
+onnxruntime's (`onnxruntime_binding.node` and `libonnxruntime.1.dylib`, which the speech detector, the turn model and
+Kitten use; the build rewrites onnxruntime-node to load them beside the executable, since the compiled build would
+unpack its addon to a temporary folder without the library it links to). The build hook
+(`apps/desktop/scripts/bundle-hook.ts`) copies them all into the app's `Resources/app/sidecar` and sets the microphone
+usage text. Output: `apps/desktop/artifacts/` (`macos-arm64-Myrmidon.dmg`, the update archive and
 `stable-macos-arm64-update.json`). `--env=canary` builds a canary channel that installs beside the stable app.
+`apps/desktop/tests/sidecar.test.ts` builds the sidecar and runs its Kitten worker from outside the repository.
 
 What was checked on 2026-10-09: the sidecar starts, serves the dashboard with its CSS and answers the API; the built app
-extracts itself, starts the sidecar and stops it on quit. Not checked yet: voice calls from the sidecar (the speech
-engines use a worker file, a bundled WAV and the sherpa-onnx native addon, which `bun build --compile` may not carry),
-and the app started from Finder rather than a terminal (see the PATH risk below).
+extracts itself, starts the sidecar and stops it on quit. The sidecar alone (`MYRMIDON_HOME=<scratch>
+apps/desktop/dist/myrmidon serve --dev`, from outside the repository) with voice on loads the speech detector and the
+turn model, warms Phonon-2 with its bundled clip, and speaks with Kitten (Settings → Voice → Try it). Not checked yet:
+a whole voice call through the built app, and the app started from Finder rather than a terminal (see the PATH risk
+below).
 
 ### Signing and notarization
 

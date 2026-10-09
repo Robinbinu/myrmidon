@@ -9,6 +9,7 @@ import {
   CalendarClock,
   Container,
   Cpu,
+  EyeOff,
   Feather,
   FileCode,
   FileSearch,
@@ -87,6 +88,8 @@ export const FEATURE_ICONS = {
   lightThinking: Feather,
   /** Models: the Models section, the /model command. */
   models: Cpu,
+  /** Models removed from pickers, listed under Hidden models in Settings → Models to restore. */
+  hiddenModels: EyeOff,
   /** Providers and their keys. */
   providers: KeyRound,
   /** Another Myrmidon this window can show. */
