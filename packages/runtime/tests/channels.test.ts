@@ -625,6 +625,39 @@ test('"always" saves what its button names, and a step the saved rule already ap
   await until(() => adapter.edits.some((e) => e.text.includes('`bun test` is now always allowed')))
 })
 
+test('"always" warns when it would remember a test runner, and is not offered when only every command would do', async () => {
+  const { adapter, chats, say, pair } = await setup()
+  await pair(ALICE)
+  await say(ALICE, 'run the tests')
+  await until(() => chats.sends.length === 1)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-1',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'bun test',
+    call: { tool: 'shell', kind: 'command', command: 'bun test' },
+    offer: [
+      { kind: 'command', target: 'bun test', projectCode: true },
+      { kind: 'command', target: '*' },
+    ],
+  })
+  await until(() => adapter.sent.some((s) => s.chat === '100' && s.buttons))
+  const runner = adapter.sent.find((s) => s.chat === '100' && s.buttons)
+  expect(runner?.text).toContain("anything they write into the project's scripts, tests or build files")
+  expect(runner?.buttons).toHaveLength(3)
+  chats.emit('col-chat-1', 'approval/requested', {
+    id: 'ap-2',
+    agent: 'lead',
+    tool: 'shell',
+    summary: 'bun test $(cat list)',
+    call: { tool: 'shell', kind: 'command', command: 'bun test $(cat list)' },
+    offer: [{ kind: 'command', target: '*' }],
+  })
+  await until(() => adapter.sent.filter((s) => s.chat === '100' && s.buttons).length === 2)
+  const opaque = adapter.sent.filter((s) => s.chat === '100' && s.buttons).at(-1)
+  expect(opaque?.buttons?.map((row) => row[0]?.label)).toEqual(['Allow once', 'Deny'])
+})
+
 test('a request to read a key folder warns the owner and offers no "always"', async () => {
   const { adapter, chats, say, pair } = await setup()
   await pair(ALICE)

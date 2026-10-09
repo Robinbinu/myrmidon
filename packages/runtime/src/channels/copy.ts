@@ -248,6 +248,9 @@ export const channelCopy = {
     gone: 'That run has already ended.',
     once: 'Allow once',
     always: (what: string) => `Always allow ${what}`,
+    /** Under an "always" that would remember a test runner, build tool or script, which agents can rewrite. */
+    projectCode:
+      '"Always" here also lets agents run anything they write into the project\'s scripts, tests or build files, in every chat.',
     /** What an "always" saves, by its rules: a command's prefixes, an MCP tool or server, file changes, a tool. */
     what: (rules: readonly { kind: string; target: string }[]) =>
       rules
