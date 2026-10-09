@@ -1,7 +1,12 @@
-import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { SANDBOX_MAX_OUTPUT } from './config.ts'
+import {
+  SANDBOX_HIDDEN_ROOTS,
+  SANDBOX_HIDDEN_TMP,
+  SANDBOX_MAX_OUTPUT,
+  SANDBOX_TEMP_READABLE,
+} from './config.ts'
 import { spawnLeashed } from './leashed.ts'
 import { realOrNone, realPath, toolchainPaths } from './read-access.ts'
 import type { ColonySpec } from './spec.ts'
@@ -75,6 +80,17 @@ export interface PathRule {
 }
 
 const ORDER = { hide: 0, read: 1, write: 2 } as const
+
+/** Myrmidon's socket folders in /tmp as they are now (see SANDBOX_HIDDEN_TMP). */
+function tmpSocketDirs(): string[] {
+  try {
+    return readdirSync('/tmp')
+      .filter((name) => name.startsWith(SANDBOX_HIDDEN_TMP))
+      .map((name) => join('/tmp', name))
+  } catch {
+    return []
+  }
+}
 const depth = (path: string) => path.split(sep).filter(Boolean).length
 
 /**
@@ -87,7 +103,12 @@ export function pathRules(spec: PathSpec, home: string): PathRule[] {
   // one to hide keeps its rule, so a command that could write its parent cannot create it (~/.ssh in a project at ~).
   const real = (paths: readonly string[]) => paths.flatMap((p) => realOrNone(p) ?? [])
   const rules: PathRule[] = [
-    ...[...(home && home !== sep ? [home] : []), ...(spec.hidden ?? [])].map((path) => ({
+    ...[
+      ...(home && home !== sep ? [home] : []),
+      ...SANDBOX_HIDDEN_ROOTS,
+      ...tmpSocketDirs(),
+      ...(spec.hidden ?? []),
+    ].map((path) => ({
       path: realPath(path),
       access: 'hide' as const,
     })),
@@ -120,6 +141,14 @@ export function macProfile(spec: PathSpec, home: string): string {
   const rules = pathRules(spec, home)
   const subpath = (r: PathRule) => `(subpath ${sbplPath(r.path)})`
   const reads = rules.map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-read* ${subpath(r)})`)
+  // Connecting to a unix socket is not a file read: a socket in a hidden folder (the Cua Driver's, in the data
+  // folder) would stay reachable without its own rules.
+  const sockets = rules.map(
+    (r) => `(${r.access === 'hide' ? 'deny' : 'allow'} network-outbound (remote unix-socket ${subpath(r)}))`,
+  )
+  // Socket folders made in /tmp after this profile was written (a dev server keeps its profile for hours).
+  const tmp = `(regex #"^/private/tmp/${SANDBOX_HIDDEN_TMP}")`
+  const temp = SANDBOX_TEMP_READABLE.map((name) => `(regex #"^/private/var/folders/[^/]+/[^/]+/T/${name}")`)
   const writes = rules
     .filter((r) => r.access !== 'read')
     .map((r) => `(${r.access === 'hide' ? 'deny' : 'allow'} file-write* ${subpath(r)})`)
@@ -128,7 +157,16 @@ export function macProfile(spec: PathSpec, home: string): string {
   return [
     '(version 1)',
     '(allow default)',
+    `(deny file-read* ${tmp})`,
+    `(deny network-outbound (remote unix-socket ${tmp}))`,
     ...reads,
+    `(allow file-read* ${temp.join(' ')})`,
+    ...sockets,
+    // Commands are Myrmidon's children, so macOS lets them use its Screen Recording and Accessibility grants. With no
+    // window server they cannot capture the screen or post input events, and with no Apple events they cannot script
+    // other apps (System Events). Accessibility calls made straight to another app's process are not covered here.
+    '(deny mach-lookup (global-name-regex #"^com\\.apple\\.windowserver"))',
+    '(deny appleevent-send)',
     '(deny file-write*)',
     ...writes,
     '(allow file-write* (literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/fd/"))',

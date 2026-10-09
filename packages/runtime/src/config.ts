@@ -211,7 +211,48 @@ export const SANDBOX_SECRETS = [
   'Library/Safari',
   '.local/share/keyrings',
   '.mozilla',
+  // Other agents' sign-ins and histories (omp's own and its config, Claude Code, Codex, Gemini CLI).
+  '.omp',
+  '.claude',
+  '.claude.json',
+  '.codex',
+  '.gemini',
+  // Shell startup files, where people export API keys.
+  '.zshrc',
+  '.zshenv',
+  '.zprofile',
+  '.zlogin',
+  '.bashrc',
+  '.bash_profile',
+  '.profile',
+  '.terraform.d',
+  '.terraformrc',
+  '.vault-token',
+  '.pgpass',
+  '.gem/credentials',
+  '.m2/settings.xml',
+  // .NET's certificate store (private keys), inside a toolchain folder that is otherwise readable.
+  '.dotnet/corefx',
+  // Sandboxed apps' data, and what app groups share (password managers, mail and chat apps).
+  'Library/Containers',
+  'Library/Group Containers',
 ] as const
+/**
+ * Folders outside the home that sandboxed commands may not read either: other disks, the folder all accounts share,
+ * and the per-user temp and cache folders where other apps (and other chats) leave files. Folders a command may
+ * read or write inside them (a project in the temp folder) open again.
+ */
+export const SANDBOX_HIDDEN_ROOTS = ['/Volumes', '/Users/Shared', '/private/var/folders'] as const
+/**
+ * Files in the macOS per-user temp folder (inside a hidden root) that toolchains read: xcrun's cache, which the
+ * /usr/bin shims (python3, git, clang) look up on every run and complain loudly without.
+ */
+export const SANDBOX_TEMP_READABLE = ['xcrun_db'] as const
+/**
+ * The name prefix of folders in /tmp that Myrmidon keeps sockets in when the data folder's path is too long for one
+ * (`socketPath`): the Cua Driver's socket can be there, so they are hidden like the data folder.
+ */
+export const SANDBOX_HIDDEN_TMP = 'myr-'
 /** The most extra readable folders the person may list, in Settings or for one project, and grant in one chat. */
 export const MAX_READ_FOLDERS = 50
 /** How long a hook may run when it sets no timeout, the most it may set, and how much of its output is kept. */
