@@ -91,3 +91,14 @@ describe('the selected segment stands out from its track, and its label reads on
     })
   }
 })
+
+test('a channel tile without a brand mark reads as a monogram: one or two white letters that stand out', async () => {
+  const { CHANNEL_LOGOS } = await import('../src/client/channel-logos.ts')
+  for (const [id, logo] of Object.entries(CHANNEL_LOGOS)) {
+    if (!('letters' in logo)) continue
+    expect({ id, short: [...logo.letters].length <= 2 }).toEqual({ id, short: true })
+    expect({ id, ok: contrast('#ffffff', logo.color) >= 3 }).toEqual({ id, ok: true })
+  }
+  // Its wordmark was unreadable at tile size, grey on grey.
+  expect('letters' in (CHANNEL_LOGOS['synology-chat'] ?? {})).toBe(true)
+})

@@ -32,9 +32,10 @@ export function Drawer(props: { label: string; width: number; onClose(): void; c
         animate={{ x: 0 }}
         exit={{ x: '-100%' }}
         transition={softSpring}
-        // Some of the window stays uncovered, so it reads as a panel over the page and there is room to tap away.
+        // Some of the window stays uncovered, so it reads as a panel over the page and there is room to tap away. The
+        // sidebar's material is see-through, made for the window's edge; over the page it needs a solid ground.
         style={{ width: `min(${props.width}px, 85vw)` }}
-        className="h-full overflow-hidden shadow-pop outline-none"
+        className="h-full overflow-hidden bg-bg shadow-pop outline-none"
       >
         {props.children}
       </motion.div>

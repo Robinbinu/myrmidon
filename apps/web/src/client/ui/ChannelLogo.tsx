@@ -28,7 +28,11 @@ export function ChannelLogo(props: { id: string; size?: number; className?: stri
           <path d={logo.path} />
         </svg>
       ) : 'letters' in logo ? (
-        <span className="font-semibold leading-none" style={{ fontSize: Math.round(size * 0.48) }}>
+        // Bold and sized to the letters, so a monogram carries the weight of the marks beside it.
+        <span
+          className="font-bold leading-none tracking-tight"
+          style={{ fontSize: Math.round(size * ([...logo.letters].length > 1 ? 0.42 : 0.52)) }}
+        >
           {logo.letters}
         </span>
       ) : (
