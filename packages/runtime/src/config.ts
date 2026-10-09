@@ -307,3 +307,10 @@ export const VOICE_TRANSCRIPT_PRUNE_MS = 24 * 60 * 60_000
 /** How long naming a chat may take, and the rounds after which it is tried (a chat that is only "hi" so far waits). */
 export const CHAT_TITLE_MS = 30_000
 export const CHAT_TITLE_ROUNDS = 3
+/** The smallest context window (tokens) a model that names chats needs; a window omp does not know passes. */
+export const CHAT_TITLE_MIN_WINDOW = 16_000
+/**
+ * Small, fast model tiers, best first, matched against the words of a model id ("gpt-4o-mini", "claude-haiku-4-5"):
+ * how chats are named when no available model has a known price.
+ */
+export const CHAT_TITLE_TIERS = ['haiku', 'flash', 'mini', 'nano', 'lite', 'small', 'fast']

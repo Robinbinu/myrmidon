@@ -19,6 +19,7 @@ import {
   type Runtime,
   type TeamConfig,
 } from '../src/index.ts'
+import type { OmpRuntime } from '../src/omp/runtime.ts'
 
 let home: string
 let runtime: Runtime
@@ -3559,6 +3560,57 @@ test('a chat is named from what it is about once there is something to name, and
   await waitFor(third.colonyId, (x) => x.rounds.length === 3 && x.rounds.at(-1)?.status === 'completed')
   await Bun.sleep(50)
   expect(await named()).toBe('Sales')
+  await chats.stopAll()
+})
+
+test('a chat is named on the cheapest model the person can use, and on the lead’s when that one fails', async () => {
+  const { SettingsStore } = await import('../src/settings.ts')
+  const settings = new SettingsStore(home)
+  const available = [
+    { provider: 'mock', id: 'lead', cost: { input: 3 }, contextWindow: 200_000 },
+    { provider: 'cheap', id: 'namer-mini', cost: { input: 0.1 }, contextWindow: 128_000 },
+    // Cheaper still, but the person hid it.
+    { provider: 'cheap', id: 'hidden-nano', cost: { input: 0.01 }, contextWindow: 128_000 },
+  ]
+  settings.set({ ...settings.get(), models: { ...settings.get().models, hidden: ['cheap/hidden-nano'] } })
+  const resolver = new ModelResolver({ available: () => available } as unknown as OmpRuntime)
+  const namedBy: string[] = []
+  let cheapWorks = true
+  const answer = (who: string) => (ctx: LlmContext) => {
+    const sys = ctx.systemPrompt?.join('\n') ?? ''
+    if (sys.includes('You name conversations')) {
+      namedBy.push(who)
+      if (who === 'cheap' && !cheapWorks) throw new Error('key revoked')
+      return { content: [`{"title": "Named by ${who}"}`] }
+    }
+    return { content: [tool('reply_user', { text: 'Hello!', final: true })] }
+  }
+  for (const [ref, who] of [
+    ['mock/lead', 'lead'],
+    ['cheap/namer-mini', 'cheap'],
+    ['cheap/hidden-nano', 'hidden'],
+  ] as const) {
+    const m = createMockModel({ handler: answer(who) })
+    resolver.register(ref, { model: m.model, streamFn: m.stream })
+  }
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo'), settings })
+  const team = { ...solo('mock/lead'), judgeModel: 'mock/judge' }
+  const title = async (chatId: string, want: string) => {
+    const now = async () => (await chats.list()).find((c) => c.chatId === chatId)?.title
+    const end = Date.now() + 3000
+    while ((await now()) !== want && Date.now() < end) await Bun.sleep(20)
+    return now()
+  }
+  const first = await chats.send('plan the offsite', team)
+  await waitFor(first.colonyId)
+  expect(await title(first.chatId, 'Named by cheap')).toBe('Named by cheap')
+  expect(namedBy).toEqual(['cheap'])
+  cheapWorks = false
+  const second = await chats.send('book the venue', team)
+  await waitFor(second.colonyId)
+  expect(await title(second.chatId, 'Named by lead')).toBe('Named by lead')
+  expect(namedBy).toEqual(['cheap', 'cheap', 'lead'])
   await chats.stopAll()
 })
 

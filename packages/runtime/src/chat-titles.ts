@@ -1,5 +1,5 @@
 import { completeSimple } from '@oh-my-pi/pi-ai'
-import { CHAT_TITLE_MS } from './config.ts'
+import { CHAT_TITLE_MIN_WINDOW, CHAT_TITLE_MS, CHAT_TITLE_TIERS } from './config.ts'
 import type { ModelResolver } from './models.ts'
 import { prompts } from './prompts.ts'
 
@@ -44,6 +44,45 @@ export async function nameChat(
     : await completeSimple(resolved.model, context, { apiKey, signal })
   if (reply.stopReason === 'error') throw new Error(reply.errorMessage ?? 'the model failed')
   return parseTitle(reply.content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join(''))
+}
+
+/** A model the person can use, as far as picking one to name chats needs to know it. */
+export interface TitleCandidate {
+  readonly provider: string
+  readonly id: string
+  /** Dollars per million input tokens; 0 or absent when unknown (or free, which omp does not tell apart). */
+  readonly inputPrice?: number
+  readonly contextWindow?: number | null
+}
+
+/**
+ * The model that names chats: a small job, so the cheapest model will do. Among the person's models with room for
+ * the request (`CHAT_TITLE_MIN_WINDOW`), the lowest known input price wins; with no prices known, the best fast tier
+ * by name (`CHAT_TITLE_TIERS`). Ties go to the lead's provider, whose credentials the run just used. With nothing
+ * to pick from, the lead's own model.
+ */
+export function titleModel(candidates: readonly TitleCandidate[], lead: string): string {
+  const leadProvider = lead.slice(0, lead.indexOf('/'))
+  const fits = candidates.filter((m) => !m.contextWindow || m.contextWindow >= CHAT_TITLE_MIN_WINDOW)
+  const ref = (m: TitleCandidate) => `${m.provider}/${m.id}`
+  const tier = (m: TitleCandidate) => {
+    const words = m.id.toLowerCase().split(/[^a-z0-9]+/)
+    const at = CHAT_TITLE_TIERS.findIndex((t) => words.includes(t))
+    return at < 0 ? CHAT_TITLE_TIERS.length : at
+  }
+  const byPreference = (a: TitleCandidate, b: TitleCandidate) =>
+    Number(b.provider === leadProvider) - Number(a.provider === leadProvider) ||
+    tier(a) - tier(b) ||
+    ref(a).localeCompare(ref(b))
+  const priced = fits.filter((m) => (m.inputPrice ?? 0) > 0)
+  if (priced.length)
+    return ref(
+      [...priced].sort(
+        (a, b) => (a.inputPrice ?? 0) - (b.inputPrice ?? 0) || byPreference(a, b),
+      )[0] as TitleCandidate,
+    )
+  const tiered = fits.filter((m) => tier(m) < CHAT_TITLE_TIERS.length).sort(byPreference)
+  return tiered[0] ? ref(tiered[0]) : lead
 }
 
 /** The model's JSON as a usable name, or nothing (it had nothing to name, or answered badly). */
