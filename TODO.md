@@ -827,6 +827,12 @@ stay small so they merge cleanly into either.
       `PUT /api/projects/:id/permissions` with `{preset}` and no `rules` is read as legacy and clears both; the
       access-changed notice tells agents to retry things the person declined.
 
+### K — Several terminals (the person's ask, with a screenshot of Claude Code's terminal panel)
+- [ ] The workspace Terminal (the person's own shell) takes tabs like Claude Code's: "Terminal 1", "Terminal 2", each
+      named by what runs in it (e.g. `bun run dev`), + to add, × to close (asking first if something still runs),
+      kept alive while you switch views; a ⋯ menu for cursor style, blink, copy on select and scrollback; maximise
+      the panel. Branch fx-k-terminals.
+
 ### [decide]
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
