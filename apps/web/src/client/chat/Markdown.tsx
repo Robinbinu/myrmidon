@@ -3,6 +3,7 @@ import { Fragment, type MouseEvent, type ReactNode } from 'react'
 import { copy } from '../copy.ts'
 import { useCopy } from '../ui/hooks.ts'
 import { copyAction, openContextMenu } from '../ui/Menu.tsx'
+import { openLinkHere } from './browser-links.ts'
 
 // A link's label stops at the next `[`, and its address at a `(` that does not open a balanced pair, which every
 // later link's `](` is: each attempt then scans only up to the next link instead of rescanning the rest of the line
@@ -51,6 +52,7 @@ function inline(text: string): ReactNode[] {
           href={token.slice(token.indexOf('](') + 2, -1)}
           target="_blank"
           rel="noreferrer"
+          onClick={openLinkHere}
           onContextMenu={linkMenu}
         >
           {token.slice(1, token.indexOf(']'))}
@@ -58,7 +60,15 @@ function inline(text: string): ReactNode[] {
       )
     } else {
       out.push(
-        <a key={at} className={LINK} href={token} target="_blank" rel="noreferrer" onContextMenu={linkMenu}>
+        <a
+          key={at}
+          className={LINK}
+          href={token}
+          target="_blank"
+          rel="noreferrer"
+          onClick={openLinkHere}
+          onContextMenu={linkMenu}
+        >
           {token}
         </a>,
       )

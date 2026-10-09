@@ -134,6 +134,8 @@ export function MenuItem(props: {
   /** Let the detail wrap instead of cutting it off. */
   multiline?: boolean
   checked?: boolean
+  /** With `checked`: an on/off setting (a checkbox item) rather than one choice of several. */
+  toggle?: boolean
   /** The group's Tab stop when none of its items is chosen; give it to the first. */
   tabStop?: boolean
   onSelect(): void
@@ -143,9 +145,9 @@ export function MenuItem(props: {
       type="button"
       {...(props.checked === undefined
         ? { role: 'menuitem' }
-        : { role: 'menuitemradio', 'aria-checked': props.checked })}
+        : { role: props.toggle ? 'menuitemcheckbox' : 'menuitemradio', 'aria-checked': props.checked })}
       // The chosen item is the group's one Tab stop, as in a radio group; the arrow keys reach the rest.
-      tabIndex={props.checked || props.tabStop ? 0 : -1}
+      tabIndex={(props.checked && !props.toggle) || props.tabStop ? 0 : -1}
       onClick={props.onSelect}
       className="flex w-full items-center gap-2.5 rounded-base px-2 py-1.5 text-left outline-none transition-colors hover:bg-fill focus-visible:bg-fill"
     >

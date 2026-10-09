@@ -49,6 +49,8 @@ import SpringCheck from '../vendor/react-bits/SpringCheck'
 import { AgentSheet } from './AgentSheet.tsx'
 import { ArtifactViewer } from './ArtifactViewer.tsx'
 import { AuditView } from './AuditView.tsx'
+import { BrowserView } from './BrowserView.tsx'
+import { useBrowserLinks } from './browser-links.ts'
 import { Computer } from './Computer.tsx'
 import { FoldAll, FoldChevron, useFolds } from './Folds.tsx'
 import { GitView } from './GitView.tsx'
@@ -66,6 +68,7 @@ type Tab =
   | 'git'
   | 'shell'
   | 'computer'
+  | 'browser'
   | 'tasks'
   | 'team'
   | 'mail'
@@ -123,6 +126,14 @@ export const VIEWS: ViewDef[] = [
     icon: FEATURE_ICONS.computer,
     group: 1,
     key: '5',
+  },
+  // No shortcut digit is left; it opens from the rail, the view picker, and links (Open links in built-in browser).
+  {
+    value: 'browser',
+    label: copy.workspace.views.browser,
+    icon: FEATURE_ICONS.browser,
+    group: 1,
+    fullOnly: true,
   },
   {
     value: 'terminal',
@@ -305,6 +316,13 @@ function WorkspaceBody({
     window.addEventListener('myr:open-view', open)
     return () => window.removeEventListener('myr:open-view', open)
   }, [])
+  // Links in chats open here when the person asked for that (⋯ › Open links in built-in browser).
+  const [link, setLink] = useState<{ url: string; at: number }>()
+  useBrowserLinks(fullAccess, (url) => {
+    setLink({ url, at: Date.now() })
+    setTab('browser')
+    show(true)
+  })
   const [file, setFile] = useState<string>()
   const [hint, setHint] = useState<{ label: string; combo?: string; top: number; right: number }>()
   const steps = useMemo(() => deriveSteps(events), [events])
@@ -458,8 +476,11 @@ function WorkspaceBody({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.15 }}
                     // An open conversation fills the panel and scrolls on its own, opening at its newest message.
-                    className={tab === 'mail' || tab === 'explorer' ? 'h-full' : undefined}
+                    className={
+                      tab === 'mail' || tab === 'explorer' || tab === 'browser' ? 'h-full' : undefined
+                    }
                   >
+                    {tab === 'browser' && <BrowserView {...(link ? { open: link } : {})} />}
                     {tab === 'git' && project && <GitView project={project.id} />}
                     {tab === 'explorer' && project && <ProjectExplorer project={project} edited={changed} />}
                     {tab === 'files' && <ColonyTools colonyId={colonyId} tools={state.madeTools} />}

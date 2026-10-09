@@ -822,10 +822,22 @@ export function startServer(options: ServeOptions): WebServer {
     return json({ error: err.message, code: err.code, ...(err.site ? { site: err.site } : {}) }, status)
   }
   const browserState = ():
-    | { tabs: PersonTab[]; settings: PersonBrowserSettings; maxTabs: number }
+    | {
+        available: boolean
+        tabs: PersonTab[]
+        settings: PersonBrowserSettings
+        maxTabs: number
+        maxHtmlBytes: number
+      }
     | undefined =>
     personBrowser
-      ? { tabs: personBrowser.tabs(), settings: personBrowser.settings, maxTabs: personBrowser.maxTabs }
+      ? {
+          available: options.browser?.available ?? false,
+          tabs: personBrowser.tabs(),
+          settings: personBrowser.settings,
+          maxTabs: personBrowser.maxTabs,
+          maxHtmlBytes: personBrowser.maxHtmlBytes,
+        }
       : undefined
   const preview = Bun.serve({
     hostname: bindHost,

@@ -1,5 +1,6 @@
 import {
   Activity,
+  AppWindow,
   AudioLines,
   BadgeCheck,
   BadgeQuestionMark,
@@ -118,6 +119,8 @@ export const FEATURE_ICONS = {
   devices: MonitorSmartphone,
   /** An agent's computer: the browser and desktop it drives. */
   computer: ScreenShare,
+  /** The person's own browser in the workspace, with tabs, kept apart from the agents' browsers. */
+  browser: AppWindow,
   /** Computer use: agents controlling the person's own Mac (Settings → Computer use, its banner and steps). */
   computerUse: MousePointerClick,
   /** Messaging channels (Telegram and the rest). */
