@@ -315,7 +315,8 @@ nobody owns, publish artifacts, and request final verification once the output m
     round: (mode: string) => `This round: ${mode}.`,
     modes: {
       answer: 'answer (one agent, direct reply)',
-      solo: 'solo (one agent, all tools)',
+      /** Agents echo this line to the person, so it says what they can use, never internal words like "solo". */
+      solo: 'you, alone, with every tool. This chat has no crewmates: if the person wants one, say so plainly and that they can add crewmates with the Crew picker in the message box',
       soloCrew: (n: number) =>
         `solo (you work alone with every tool; ${n} crewmate${n === 1 ? '' : 's'} on call, asked with ask_crewmate)`,
       crewmate: (lead: string) => `one job for ${lead}, who works on the request alone and asked you for it`,
@@ -485,16 +486,16 @@ nobody owns, publish artifacts, and request final verification once the output m
       `If it is for you, answer in the group with message(to: "${p.group}", reply_to: ${p.seq}).`,
     /** Delivered tagged [team]. */
     teamMessage: (seq: number, from: string, text: string) => `#${seq} ${from}: ${text}`,
-    /**
-     * Messages an agent never got to read before its last round ended, shown when it next wakes and before anything
-     * newer, so it catches up instead of answering stale news.
-     */
     /** To the rest of the crew once the speaker has given the person the final answer. */
     windDown: (speaker: string) =>
       `${speaker} has given the person the final answer, so this conversation is winding down. Finish a thought you are in the middle of, but do not reply to wrap-ups, thanks or goodbyes and do not start anything new: it can wait for the next round.`,
     /** The message tool's answer once an agent has had its last word in a chat that is winding down. */
     chatClosing:
       'Not sent: this conversation is closing and you have had your last word. Keep it for the next round.',
+    /**
+     * Messages an agent never got to read before its last round ended, shown when it next wakes and before anything
+     * newer, so it catches up instead of answering stale news.
+     */
     missed: (lines: readonly string[], older: number) =>
       `Messages you had not read yet, from before now (older than anything below; reply only where one still needs it):\n${lines.join('\n')}${older ? `\n(${older} older unread; read_messages shows them.)` : ''}`,
     /** The person wrote to this agent directly (@name) while the round runs. */
