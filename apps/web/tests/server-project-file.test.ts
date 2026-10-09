@@ -102,3 +102,46 @@ test("a project around Myrmidon's data folder does not show it", async () => {
     truncated: false,
   })
 })
+
+test('the git views of a project never show its ignored files in full, nor keys or Myrmidon data inside it', async () => {
+  const folders = realpathSync(mkdtempSync(join(tmpdir(), 'myr-pgit-')))
+  dirs.push(folders)
+  const root = join(folders, 'app')
+  const home = join(root, 'data')
+  mkdirSync(home, { recursive: true })
+  const git = (...args: string[]) =>
+    Bun.spawnSync(['git', '-c', 'user.name=Ada', '-c', 'user.email=ada@x', ...args], { cwd: root })
+  git('init', '-q', '-b', 'main')
+  writeFileSync(join(root, '.gitignore'), '.env\n')
+  git('add', '-A')
+  git('commit', '-qm', 'init')
+  writeFileSync(join(root, '.env'), 'API_KEY=sk-env\n')
+  writeFileSync(join(root, 'new.txt'), 'fresh\n')
+  const projects = new ProjectStore(home)
+  const project = projects.add(root)
+  writeFileSync(join(home, 'credentials.json'), '{"key":"sk-data"}\n')
+  const server = startServer({ home, port: 0, projects })
+  servers.push(server)
+  const get = (path: string) =>
+    fetch(new URL(path, server.url.replace(/#.*$/, '')), {
+      headers: { authorization: `Bearer ${server.token}` },
+    })
+  const diff = (kind: string, path: string) =>
+    get(`/api/projects/${project.id}/git/diff?kind=${kind}&path=${encodeURIComponent(path)}`)
+
+  expect(await (await diff('untracked', 'new.txt')).json()).toMatchObject({
+    patch: expect.stringContaining('+fresh'),
+  })
+  for (const [kind, path] of [
+    ['untracked', '.env'],
+    ['untracked', 'data/credentials.json'],
+    ['unstaged', 'data/credentials.json'],
+  ] as const) {
+    const res = await diff(kind, path)
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(await res.json())).not.toContain('sk-')
+  }
+  const changes = await (await get(`/api/projects/${project.id}/git/changes`)).json()
+  expect(JSON.stringify(changes)).toContain('new.txt')
+  expect(JSON.stringify(changes)).not.toContain('sk-data')
+})

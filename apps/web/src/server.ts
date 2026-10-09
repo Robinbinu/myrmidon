@@ -71,7 +71,9 @@ import {
   type PluginStore,
   PRIVACY_PANES,
   type ProjectStore,
+  projectSecret,
   readProjectFile,
+  refuseProjectSecret,
   requestScreenRecording,
   restartSetup,
   ruleGreeting,
@@ -381,8 +383,8 @@ export function startServer(options: ServeOptions): WebServer {
     controls: options.computer?.controls() ?? [],
   })
   /** Settings → Computer use and the "controlling your Mac" indicator read this; chats-only devices the part above. */
-  const computerStatus = (access?: Access) => {
-    if (access && access.scope !== 'full') return computerControls()
+  const computerStatus = (access: Access) => {
+    if (access.scope !== 'full') return computerControls()
     const computer = options.computer
     const driver = computer?.driver()
     return {
@@ -2008,7 +2010,11 @@ export function startServer(options: ServeOptions): WebServer {
       '/api/projects/:id/git/changes': guard(async (req) => {
         const project = options.projects?.get(req.params.id ?? '')
         if (!project) return json({ error: 'no such project' }, 404)
-        return json(await gitWorkingChanges(project.path))
+        return json(
+          await gitWorkingChanges(project.path, (file) =>
+            projectSecret(project.path, file, { dataDir: options.home }),
+          ),
+        )
       }),
       '/api/projects/:id/git/diff': guard(async (req, url) => {
         const project = options.projects?.get(req.params.id ?? '')
@@ -2016,8 +2022,11 @@ export function startServer(options: ServeOptions): WebServer {
         const kind = url.searchParams.get('kind')
         if (kind !== 'staged' && kind !== 'unstaged' && kind !== 'untracked')
           return json({ error: 'kind is staged, unstaged or untracked' }, 400)
+        const file = url.searchParams.get('path') ?? ''
         try {
-          return json({ patch: await gitFileDiff(project.path, url.searchParams.get('path') ?? '', kind) })
+          // Open to chats-only devices, for the changes a chat made: never the person's keys around the project.
+          refuseProjectSecret(project.path, file, { dataDir: options.home })
+          return json({ patch: await gitFileDiff(project.path, file, kind) })
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : String(err) }, 400)
         }
@@ -2360,19 +2369,19 @@ export function startServer(options: ServeOptions): WebServer {
         GET: guard((_req, _url, access) => json(computerStatus(access))),
       },
       '/api/computer/install': {
-        POST: guard(() => {
+        POST: guard((_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           if (!computer.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           void computer
             .install()
             .catch((err) => console.error(`computer use: ${err instanceof Error ? err.message : err}`))
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/grants': {
         // Asks macOS for Screen Recording (its own dialog) and opens the privacy pane the person grants it in.
-        POST: guard(async (req) => {
+        POST: guard(async (req, _url, access) => {
           const computer = options.computer
           if (!computer?.supported) return json({ error: 'computer use runs on macOS only' }, 409)
           const { grant } = (await req.json().catch(() => ({}))) as { grant?: unknown }
@@ -2380,16 +2389,16 @@ export function startServer(options: ServeOptions): WebServer {
             return json({ error: 'grant is accessibility or screenRecording' }, 400)
           if (grant === 'screenRecording') requestScreenRecording()
           Bun.spawn(['open', PRIVACY_PANES[grant]], { stdout: 'ignore', stderr: 'ignore' })
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/restart': {
         // macOS answers a process's grants from a cache: the driver starts afresh to see new ones.
-        POST: guard(async () => {
+        POST: guard(async (_req, _url, access) => {
           const computer = options.computer
           if (!computer) return json({ error: 'computer use needs the chat runtime' }, 503)
           await computer.stop()
-          return json(computerStatus())
+          return json(computerStatus(access))
         }),
       },
       '/api/computer/stop': {

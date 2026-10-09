@@ -149,21 +149,6 @@ export function listFolders(path: string): { path: string; parent: string | unde
   return { path: abs, parent, folders }
 }
 
-/**
- * A path in a project folder as its real path, refused when it leads outside (`allowRoot`: the folder itself counts).
- * `path` is relative to the folder or absolute inside it (agents name files both ways). Symlinks are followed only
- * while they stay inside. A missing path is judged as named.
- */
-function projectPath(root: string, path: string, allowRoot = false): { base: string; real: string } {
-  const base = realpathSync(root)
-  const abs = resolve(base, path)
-  const real = existsSync(abs) ? realpathSync(abs) : abs
-  if ((!path && !allowRoot) || !(real.startsWith(base + sep) || (allowRoot && real === base)))
-    throw new Error(`${path} is not in this project`)
-  if (!existsSync(real)) throw new Error(`${path} is no longer in the folder`)
-  return { base, real }
-}
-
 /** Whose keys a project's file views hide: the person's home (the real one unless a test sets it), Myrmidon's data. */
 export interface SecretGuard {
   readonly home?: string
@@ -183,9 +168,48 @@ function secretsIn(base: string, guard: SecretGuard): string[] {
   return guarded.filter((s) => s.startsWith(base + sep))
 }
 
-const hiddenBy = (path: string, secrets: readonly string[]) => secrets.some((s) => within(path, s))
+/** Whether `path` (absolute) is or leads into one of `secrets`, a symlink followed to where it really points. */
+const hiddenBy = (path: string, secrets: readonly string[]) =>
+  secrets.length > 0 && secrets.some((s) => within(realPath(path), s) || within(path, s))
 
 const secretRefused = (path: string) => `${path} holds keys or sign-ins, which the app does not show`
+
+/**
+ * Whether a file of the project (relative to it; it need not exist) is one the file views hide (see `secretsIn`),
+ * for other views of the folder, such as its git diffs.
+ */
+export function projectSecret(root: string, file: string, guard: SecretGuard = {}): boolean {
+  const base = realpathSync(root)
+  return hiddenBy(resolve(base, file), secretsIn(base, guard))
+}
+
+/** Throws when a file of the project is one the file views hide (see `projectSecret`). */
+export function refuseProjectSecret(root: string, file: string, guard: SecretGuard = {}): void {
+  if (projectSecret(root, file, guard)) throw new Error(secretRefused(file))
+}
+
+/**
+ * A path in a project folder as its real path, refused when it leads outside (`allowRoot`: the folder itself counts)
+ * or into the person's keys (see `secretsIn`), whether it exists or not, so the answer never says which do. `path`
+ * is relative to the folder or absolute inside it (agents name files both ways). Symlinks are followed only while
+ * they stay inside. A missing path is judged as named.
+ */
+function projectPath(
+  root: string,
+  path: string,
+  allowRoot: boolean,
+  guard: SecretGuard,
+): { base: string; real: string; secrets: string[] } {
+  const base = realpathSync(root)
+  const abs = resolve(base, path)
+  const real = existsSync(abs) ? realpathSync(abs) : abs
+  if ((!path && !allowRoot) || !(real.startsWith(base + sep) || (allowRoot && real === base)))
+    throw new Error(`${path} is not in this project`)
+  const secrets = secretsIn(base, guard)
+  if (hiddenBy(abs, secrets)) throw new Error(secretRefused(path))
+  if (!existsSync(real)) throw new Error(`${path} is no longer in the folder`)
+  return { base, real, secrets }
+}
 
 /** A text file in a project folder, for the person to read in the app: one an agent edited, say. */
 export function readProjectFile(
@@ -193,8 +217,7 @@ export function readProjectFile(
   file: string,
   guard: SecretGuard = {},
 ): { path: string; text: string } {
-  const { base, real } = projectPath(root, file)
-  if (hiddenBy(real, secretsIn(base, guard))) throw new Error(secretRefused(file))
+  const { base, real } = projectPath(root, file, false, guard)
   const stat = statSync(real)
   if (!stat.isFile()) throw new Error(`${file} is not a file`)
   if (stat.size > MAX_PROJECT_FILE_BYTES) throw new Error(`${file} is over 2 MB, too large to show`)
@@ -225,9 +248,7 @@ export async function listProjectDir(
   dir: string,
   guard: SecretGuard = {},
 ): Promise<{ path: string; entries: ProjectEntry[]; truncated: boolean }> {
-  const { base, real } = projectPath(root, dir, true)
-  const secrets = secretsIn(base, guard)
-  if (hiddenBy(real, secrets)) throw new Error(secretRefused(dir))
+  const { base, real, secrets } = projectPath(root, dir, true, guard)
   if (!statSync(real).isDirectory()) throw new Error(`${dir} is not a folder`)
   const at = relative(base, real)
   const marks = await gitMarks(base, at)
@@ -317,14 +338,13 @@ export async function findProjectFiles(
   query: string,
   guard: SecretGuard = {},
 ): Promise<{ paths: string[]; truncated: boolean }> {
-  const { real } = projectPath(root, '', true)
-  const secrets = secretsIn(real, guard)
+  const { real, secrets } = projectPath(root, '', true, guard)
   const q = query.trim().toLowerCase()
   let all: string[]
   try {
     all = (await git(real, ['ls-files', '-co', '--exclude-standard', '-z'])).split('\0').filter(Boolean)
   } catch {
-    all = walkFiles(real)
+    all = walkFiles(real, secrets)
   }
   const found = [...new Set(all)]
     .filter((p) => p.toLowerCase().includes(q) && !hiddenBy(join(real, p), secrets))
@@ -332,12 +352,13 @@ export async function findProjectFiles(
   return { paths: found.slice(0, MAX_FIND_RESULTS), truncated: found.length > MAX_FIND_RESULTS }
 }
 
-function walkFiles(base: string): string[] {
+function walkFiles(base: string, secrets: readonly string[]): string[] {
   const out: string[] = []
   const walk = (dir: string, at: string) => {
     for (const d of readdirSync(dir, { withFileTypes: true })) {
       if (out.length >= MAX_FIND_SCAN) return
-      if (d.name === '.git' || d.name === 'node_modules') continue
+      // Hidden folders are skipped whole, so they never use up the scan.
+      if (d.name === '.git' || d.name === 'node_modules' || hiddenBy(join(dir, d.name), secrets)) continue
       const path = at ? `${at}/${d.name}` : d.name
       if (d.isDirectory()) walk(join(dir, d.name), path)
       else if (d.isFile()) out.push(path)
