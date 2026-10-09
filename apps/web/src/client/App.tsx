@@ -77,6 +77,7 @@ import {
   type Starter,
 } from './setup/state.ts'
 import { useStatus } from './status.tsx'
+import { Drawer } from './ui/Drawer.tsx'
 import { desktop } from './ui/desktop.ts'
 import { anyDialogOpen } from './ui/dialog.ts'
 import {
@@ -86,6 +87,7 @@ import {
   readStored,
   useFollowLatest,
   useHotkeys,
+  useMinWidth,
   usePersistentFlag,
   useReduceMotion,
   useTheme,
@@ -108,6 +110,7 @@ import {
   DELETE_TITLES_SHOWN,
   MAX_FILE_BYTES,
   SETUP_HANDOFF_MS,
+  SIDEBAR_DOCK_PX,
   softSpring,
   UNDO_DELETE_COMBO,
 } from './ui-config.ts'
@@ -320,6 +323,15 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(() => !!sectionFromAddress())
+  // A narrow window keeps the sidebar off the page and slides it over the page when asked for; whether the docked
+  // sidebar is hidden stays the person's choice for wide windows.
+  const docked = useMinWidth(SIDEBAR_DOCK_PX)
+  const [drawer, setDrawer] = useState(false)
+  const sidebarBeside = docked && !collapsed
+  const toggleSidebar = () => (docked ? setCollapsed(!collapsed) : setDrawer(!drawer))
+  // Going somewhere from the drawer puts it away, as picking a page from a phone's menu does.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: closes on each change of place
+  useEffect(() => setDrawer(false), [activeChat, view, settingsOpen, docked])
   // Plugins' commands join the slash menu and their UI fills its slots; a plugin switched or edited shows up here.
   const [pluginList] = usePoll<{ plugins: PluginSummary[] }>('/api/plugins', { plugins: [] }, 4000)
   useEffect(() => {
@@ -771,7 +783,7 @@ export function App() {
     // With a sheet or menu open, ⌘. closes it instead (ui/dialog.ts).
     { combo: 'mod+.', run: () => !anyDialogOpen() && running && stop(), inInputs: true },
     { combo: '/', run: () => composer.current?.focus() },
-    { combo: 'mod+b', run: () => setCollapsed(!collapsed), inInputs: true },
+    { combo: 'mod+b', run: toggleSidebar, inInputs: true },
     // Only while a delete can be taken back, so ⌘Z is otherwise left alone.
     ...(deletes.undoLast ? [{ combo: UNDO_DELETE_COMBO, run: deletes.undoLast }] : []),
     {
@@ -1032,7 +1044,7 @@ export function App() {
       }
       onSettings={() => (fullAccess ? setSettingsOpen(true) : toast(copy.app.chatsOnly, 'info'))}
       onGateways={() => leaveSettings(() => openSettings('gateways'))}
-      onCollapse={() => setCollapsed(true)}
+      onCollapse={() => (docked ? setCollapsed(true) : setDrawer(false))}
     />
   )
 
@@ -1086,7 +1098,7 @@ export function App() {
         label: a.toggleSidebar,
         icon: <PanelLeft className={icon} />,
         combo: 'mod+b',
-        run: () => setCollapsed(!collapsed),
+        run: toggleSidebar,
       },
       {
         id: 'workspace',
@@ -1281,7 +1293,7 @@ export function App() {
               </button>
             )}
             <AnimatePresence initial={false}>
-              {!collapsed && (
+              {sidebarBeside && (
                 <motion.div
                   key="sidebar"
                   initial={{ width: 0, opacity: 0 }}
@@ -1294,7 +1306,20 @@ export function App() {
                 </motion.div>
               )}
             </AnimatePresence>
-            {!collapsed && <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />}
+            {sidebarBeside && (
+              <SplitDivider split={sidebarSplit} side="left" label={copy.app.resizeSidebar} />
+            )}
+            <AnimatePresence>
+              {!docked && drawer && (
+                <Drawer
+                  label={copy.sidebar.label}
+                  width={sidebarSplit.width}
+                  onClose={() => setDrawer(false)}
+                >
+                  {sidebar}
+                </Drawer>
+              )}
+            </AnimatePresence>
 
             <main className="flex min-w-0 flex-1 flex-col bg-surface">
               {settingsOpen ? (
@@ -1318,17 +1343,17 @@ export function App() {
                 />
               ) : (
                 <>
-                  <Toolbar inset={collapsed}>
-                    {collapsed && (
+                  <Toolbar inset={!sidebarBeside}>
+                    {!sidebarBeside && (
                       <IconButton
                         label={copy.app.showSidebar}
                         title={copy.app.showSidebarTitle(comboLabel('mod+b', isMac))}
-                        onClick={() => setCollapsed(false)}
+                        onClick={toggleSidebar}
                       >
                         <PanelLeft className="size-4" />
                       </IconButton>
                     )}
-                    {collapsed && (
+                    {!sidebarBeside && (
                       <IconButton
                         label={copy.app.newTask}
                         title={copy.app.newTaskTitle(comboLabel('mod+n', isMac))}

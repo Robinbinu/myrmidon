@@ -82,8 +82,13 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
       buttonIn(doc, copy.approvals.reads.approveAll).click()
       await Bun.sleep(10)
     })
-    // Allowing it for the chat answers the request too: no separate approval is sent.
+    // The request itself is answered first (so a note or edits go with it), then the folder is allowed for the chat.
     expect(sent).toEqual([
+      {
+        url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-1'),
+        method: 'POST',
+        body: { approved: true },
+      },
       {
         url: expect.stringContaining('/api/chats/chat-1/readable'),
         method: 'PUT',
@@ -96,7 +101,7 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
       ;(remove as HTMLButtonElement).click()
       await Bun.sleep(10)
     })
-    expect(sent[1]).toMatchObject({ method: 'PUT', body: { folder: '/Users/me/notes', allowed: false } })
+    expect(sent[2]).toMatchObject({ method: 'PUT', body: { folder: '/Users/me/notes', allowed: false } })
   } finally {
     await unmount()
   }

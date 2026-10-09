@@ -151,18 +151,15 @@ function ApprovalCard({
   const decide = async (approved: boolean, all = false) => {
     setBusy(true)
     try {
-      // Allowing the folder for the chat approves this request with it.
-      if (all && a.read && chatId) {
-        await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
-        toast(copy.approvals.reads.allowed(a.read), 'success')
-        return
-      }
       await send('POST', `/api/colonies/${colonyId}/approvals/${a.id}`, {
         approved,
         ...(approved && changed.length ? { edits: Object.fromEntries(changed) } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
       })
-      if (all && a.grant && chatId) {
+      if (all && a.read && chatId) {
+        await send('PUT', `/api/chats/${chatId}/readable`, { folder: a.read, allowed: true })
+        toast(copy.approvals.reads.allowed(a.read), 'success')
+      } else if (all && a.grant && chatId) {
         await send('PUT', `/api/chats/${chatId}/allowed`, { grant: a.grant, allowed: true })
         toast(grants.allowed(grants.kinds[a.grant]), 'success')
       }

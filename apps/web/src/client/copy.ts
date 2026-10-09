@@ -1118,7 +1118,7 @@ export const copy = {
       removeTitle: 'Remove from projects (the folder and its chats stay)',
       noChats: 'No chats yet',
       /** The armed remove button: the second click removes the project from the list. */
-      removeConfirm: 'Yes, remove',
+      removeConfirm: 'Yes, remove project',
     },
     /** `combo` is the New chat shortcut, written for this platform. */
     empty: (combo: string) => `No chats yet. Start one with New chat (${combo}).`,
@@ -1454,7 +1454,7 @@ export const copy = {
       },
       full: {
         label: 'Full access',
-        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, reading and changing any file you can (your home and keys included), with your network and accounts. Rules set to ask still ask.',
+        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, reading and changing any file you can (your home and keys included), with your network and accounts. Agents still ask before steps you set to ask, but with full access a determined agent could get around that.',
       },
     },
     /** The small mark beside a project's name. */
@@ -1478,12 +1478,11 @@ export const copy = {
     appliesFrom: 'Applies from each chat’s next message in this project.',
   },
 
-  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   /** Computer use: agents seeing and controlling the person's Mac through Cua Driver. */
   computerUse: {
     title: 'Computer use',
     intro:
-      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you approve each app in the chat, and you can stop them at any time.',
+      'Agents can see your Mac and use its apps with the mouse and keyboard, as you would: for native apps, simulators and tools with no other way in. They use it only after you allow each app in the chat, and you can stop them at any time.',
     unsupported: 'Computer use runs on macOS only.',
     switchLabel: 'Let agents use my Mac',
     switchHint: 'Off by default. Chats from channels never get it.',
@@ -1491,7 +1490,7 @@ export const copy = {
     turnOnName: 'Turn on computer use',
     confirmOn: 'Yes, let agents use my Mac',
     warning:
-      'Agents will see the windows of apps you approve and can click and type in them as you. What they see on screen can try to trick them; approve only apps the task needs, and watch while they work.',
+      'Agents will see the windows of apps you allow and can click and type in them as you. What they see on screen can try to trick them; allow only apps the task needs, and watch while they work.',
     turnOff: 'Turn off',
     driverTitle: 'Cua Driver',
     driverNote: 'The open-source driver agents use your Mac through (trycua, MIT).',
@@ -1516,7 +1515,7 @@ export const copy = {
     grants: {
       screenRecording: {
         label: 'Screen Recording',
-        hint: 'Lets agents see the windows of apps you approve.',
+        hint: 'Lets agents see the windows of apps you allow.',
       },
       accessibility: { label: 'Accessibility', hint: 'Lets agents click, type and scroll in them.' },
     },
@@ -1533,7 +1532,7 @@ export const copy = {
       'Browsers and trading apps: view only (agents use their own browser for websites).',
       'Terminals and code editors: click only, unless you give full control in the chat.',
       'Everything else: see, click and type.',
-      'Finder, terminals and System Settings show a warning before you approve them. Myrmidon itself is never shown to agents.',
+      'Finder, terminals and System Settings show a warning before you allow them. Myrmidon itself is never shown to agents.',
     ],
     appsTitle: 'Apps you allowed in chats',
     appsNote: 'Each chat asks once per app; take one back here.',
@@ -1556,6 +1555,7 @@ export const copy = {
     },
   },
 
+  /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
   fullAccess: {
     badge: 'Full access',
     title: 'This chat runs without the sandbox: its agents can read and change anything you can',
@@ -2491,7 +2491,7 @@ export const copy = {
       /** The sandbox switch: On, or Off for full access. */
       sandboxOffTitle: 'Sandbox off (full access)',
       sandboxOffHint:
-        "Your chats run without the sandbox: commands run as you, reading and changing anything you can (your whole home, other chats and your keys included), file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+        "Your chats run without the sandbox: commands run as you, reading and changing anything you can (your whole home, other chats and your keys included), file tools reach any path, and the web any address. Agents still ask before steps you set to ask, but with full access a determined agent could get around that. Read-only projects and channel members' chats stay sandboxed.",
       /** Folders sandboxed agents may read beyond the defaults, in every chat. */
       reads: {
         title: 'What sandboxed agents may also read',
@@ -2506,8 +2506,8 @@ export const copy = {
           `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
       },
       turnOff: 'Turn off',
-      turnOffName: 'Turn the sandbox off (full access)',
-      confirmOff: 'Yes, turn it off',
+      turnOffName: 'Turn off the sandbox (full access)',
+      confirmOff: 'Yes, turn off the sandbox',
       turnOn: 'Turn sandbox on',
       rulesTitle: 'Per-tool rules',
       rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
@@ -2615,7 +2615,7 @@ export const copy = {
       waitingHint:
         'People and groups who messaged your bot. To approve one, type the code the bot sent them: only they, or someone they told, can know it.',
       ownerFirst:
-        'No owner yet: the first person you approve becomes the owner, who approves risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
+        'No owner yet: the first person you approve becomes the owner, who allows or denies risky steps and can allow tools for good. Approve yourself first, with the code your own message got.',
       group: (title: string) => `group “${title}”`,
       sender: (platform: string, id: string, handle?: string) =>
         `${handle ? `@${handle} · ` : ''}${platform} ID ${id}`,
@@ -2626,8 +2626,8 @@ export const copy = {
       makeOwnerName: (name: string) => `Make ${name} the owner`,
       makeOwnerConfirm: 'Yes, make owner',
       makeOwnerWarning:
-        'They approve risky steps and can allow tools for good; the current owner becomes a member.',
-      makeOwnerFirstWarning: 'They approve risky steps and can allow tools for good.',
+        'They allow or deny risky steps and can allow tools for good; the current owner becomes a member.',
+      makeOwnerFirstWarning: 'They allow or deny risky steps and can allow tools for good.',
       madeOwner: (name: string) => `${name} is now the owner`,
       confirmOwner: (name: string) =>
         `${name} is the owner, but may have become it just by being under "Let in without a code", which no longer gives ownership. Confirm them if they are you or someone you trust; otherwise make someone else the owner or revoke them.`,
@@ -2645,7 +2645,7 @@ export const copy = {
       revokeConfirm: 'Yes, revoke access',
       revokeWarning: 'Their messages are ignored until they are approved again with a new code.',
       revokeOwnerWarning:
-        'This channel will have no owner: nothing can be approved in the chat until you approve someone with a new code or make a member the owner.',
+        'This channel will have no owner: no step can be allowed in the chat until you approve someone with a new code or make a member the owner.',
       revokeGroupWarning: 'The bot ignores the group until it is approved again with a new code.',
       none: 'No one yet: message your bot to get a code.',
       approved: (name: string) => `Approved ${name}`,
@@ -2953,7 +2953,8 @@ export const copy = {
         monthly: 'Monthly',
         custom: 'Custom (cron)',
       },
-      time: 'Time',
+      hour: 'Hour',
+      minute: 'Minute',
       minutePast: 'Minutes past the hour',
       dayOfMonth: 'Day of the month',
       days: 'Days',
@@ -2987,6 +2988,8 @@ export const copy = {
         custom: (cron: string) => `Custom: ${cron}`,
       },
       localTime: 'in this computer’s time zone',
+      /** This Myrmidon runs schedules by its own clock, which a browser on another computer may not share. */
+      serverZone: (zone: string) => `in ${zone} time, where this Myrmidon runs`,
       pickADay: 'Pick at least one day',
       shortMonths: (day: string) => `Months without a ${day} are skipped`,
       change: 'Change',
