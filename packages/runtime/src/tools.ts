@@ -47,6 +47,7 @@ import {
   switchPage,
   watched,
 } from './browser.ts'
+import { clockTime, localDate } from './clock.ts'
 import {
   GLOB_LIMIT,
   GREP_LIMIT,
@@ -54,6 +55,7 @@ import {
   MAX_READ_CHARS,
   MCP_FAILURE_LIMIT,
   PAGE_EXCERPT,
+  READ_LOG_RESULT_CHARS,
   REVIEW_MAX_CHARS,
 } from './config.ts'
 import { gitCommitChanges, gitWorkingChanges } from './git.ts'
@@ -1298,9 +1300,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       'agent?': type('string').describe(prompts.tools.read_log.params.agent),
       'tool?': type('string').describe(prompts.tools.read_log.params.tool),
       'last?': type('number').describe(prompts.tools.read_log.params.last),
+      'entry?': type('number').describe(prompts.tools.read_log.params.entry),
     }),
     async run(args, _agent, host) {
       const events = await host.log.read(host.id)
+      if (args.entry !== undefined) return clip(logEntry(events, Math.round(args.entry)))
       const lines = logLines(events, args)
       const last = Math.min(100, Math.max(1, Math.round(args.last ?? 30)))
       if (lines.length === 0) return 'nothing in the log matches'
@@ -1496,9 +1500,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       const year = new Date().getFullYear()
       const stale = (args.query.match(/\b20\d\d\b/g) ?? []).map(Number).filter((y: number) => y < year)
       // Models search for the year their training ended; say so, once per such query.
-      const note = stale.length
-        ? prompts.toolResults.staleYear(stale, new Date().toISOString().slice(0, 10))
-        : ''
+      const note = stale.length ? prompts.toolResults.staleYear(stale, localDate()) : ''
       return { text: clip(text.trim() || `No results for "${args.query}".`), images: [], preface: note }
     },
   },
@@ -2318,44 +2320,88 @@ const firstLine = (text: string, max: number) => {
   return line.length > max ? `${line.slice(0, max)}…` : line
 }
 
-/** The colony log as one line per thing an agent did, oldest first, for read_log. */
+/**
+ * The colony log as one entry per thing an agent did, oldest first, for read_log. A tool call shows what it returned,
+ * up to READ_LOG_RESULT_CHARS, so a claim ("tests pass") can be checked against the output; entries are numbered by
+ * their place in the log, and logEntry shows one in full.
+ */
 export function logLines(events: readonly MyrEvent[], filter: { agent?: string; tool?: string }): string[] {
-  const calls = new Map<string, number>()
+  const calls = new Map<string, { line: number; seq: number }>()
   const out: string[] = []
   const keep = (agent: string, tool?: string) =>
     (!filter.agent || agent === filter.agent) && (!filter.tool || (tool ?? '').includes(filter.tool))
   for (const e of events) {
-    const at = e.time.slice(11, 19)
+    const head = `#${e.seq} ${clockTime(e.time)}`
     if (e.type === 'tool/call') {
       const p = e.payload as EventPayloads['tool/call']
       if (!keep(p.agent, p.tool)) continue
-      calls.set(`${p.agent}/${p.callId}`, out.length)
-      out.push(`${at} ${p.agent} ${p.tool}(${firstLine(JSON.stringify(p.args ?? {}), 160)}) → …`)
+      calls.set(`${p.agent}/${p.callId}`, { line: out.length, seq: e.seq })
+      out.push(`${head} ${p.agent} ${p.tool}(${firstLine(JSON.stringify(p.args ?? {}), 160)}) → …`)
     } else if (e.type === 'tool/result') {
       const p = e.payload as EventPayloads['tool/result']
-      const line = calls.get(`${p.agent}/${p.callId}`)
-      if (line === undefined) continue
-      const outcome = p.ok ? `ok: ${firstLine(p.output, 160)}` : `FAILED: ${firstLine(p.output, 160)}`
-      out[line] = `${out[line]?.slice(0, -1)}${outcome}`
+      const call = calls.get(`${p.agent}/${p.callId}`)
+      if (call === undefined) continue
+      out[call.line] =
+        `${out[call.line]?.slice(0, -1)}${p.ok ? 'ok' : 'FAILED'}${resultExcerpt(p.output, call.seq)}`
     } else if (filter.tool) {
     } else if (e.type === 'task/changed') {
       const p = e.payload as EventPayloads['task/changed']
       if (keep(p.by))
         out.push(
-          `${at} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? ` (${firstLine(p.reason, 120)})` : ''}`,
+          `${head} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? ` (${firstLine(p.reason, 120)})` : ''}`,
         )
     } else if (e.type === 'chat/reply') {
       const p = e.payload as EventPayloads['chat/reply']
-      if (keep(p.agent)) out.push(`${at} ${p.agent} told the person: ${firstLine(p.text, 160)}`)
+      if (keep(p.agent)) out.push(`${head} ${p.agent} told the person: ${firstLine(p.text, 160)}`)
     } else if (e.type === 'worktree/merged' || e.type === 'worktree/conflict') {
       const p = e.payload as EventPayloads['worktree/merged']
       if (keep(p.agent))
         out.push(
-          `${at} ${p.agent} ${e.type === 'worktree/merged' ? 'merged' : 'conflicted on'} ${p.files.join(', ')}`,
+          `${head} ${p.agent} ${e.type === 'worktree/merged' ? 'merged' : 'conflicted on'} ${p.files.join(', ')}`,
         )
     }
   }
   return out
+}
+
+/** A tool result under its call in read_log: indented, cut at READ_LOG_RESULT_CHARS with a pointer to the rest. */
+function resultExcerpt(output: string, seq: number): string {
+  const text = output.trim()
+  if (!text) return ' (no output)'
+  const shown = text.slice(0, READ_LOG_RESULT_CHARS)
+  const rest = text.length - shown.length
+  return `\n${shown
+    .split('\n')
+    .map((l) => `  ${l}`)
+    .join('\n')}${rest > 0 ? `\n  ${prompts.toolResults.logMore(rest, seq)}` : ''}`
+}
+
+/** One read_log entry in full: a tool call with all its arguments and its whole result (as logged), or a reply. */
+export function logEntry(events: readonly MyrEvent[], seq: number): string {
+  const e = events.find((x) => x.seq === seq)
+  if (!e) throw new Error(`the log has no entry #${seq}`)
+  const head = `#${e.seq} ${clockTime(e.time)}`
+  if (e.type === 'tool/call') {
+    const p = e.payload as EventPayloads['tool/call']
+    const result = events.find(
+      (x) =>
+        x.type === 'tool/result' &&
+        (x.payload as EventPayloads['tool/result']).agent === p.agent &&
+        (x.payload as EventPayloads['tool/result']).callId === p.callId,
+    )?.payload as EventPayloads['tool/result'] | undefined
+    return `${head} ${p.agent} ${p.tool}\nargs: ${JSON.stringify(p.args ?? {}, null, 2)}\n${
+      result ? `${result.ok ? 'ok' : 'FAILED'}:\n${result.output}` : prompts.toolResults.logPending
+    }`
+  }
+  if (e.type === 'chat/reply') {
+    const p = e.payload as EventPayloads['chat/reply']
+    return `${head} ${p.agent} told the person:\n${p.text}`
+  }
+  if (e.type === 'task/changed') {
+    const p = e.payload as EventPayloads['task/changed']
+    return `${head} ${p.by} ${p.task.id} → ${p.task.status}${p.reason ? `\n${p.reason}` : ''}`
+  }
+  throw new Error(`#${seq} is not a tool call, task change or reply`)
 }
 
 export function observeFacts(host: ColonyHost): string {

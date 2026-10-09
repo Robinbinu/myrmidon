@@ -292,7 +292,7 @@ nobody owns, publish artifacts, and request final verification once the output m
   /** Facts about where the agent runs; the last part of the system prompt, since they change between rounds. */
   environment: {
     today: (p: { date: string; weekday: string; zone: string }) =>
-      `Today is ${p.date} (${p.weekday}), ${p.zone}. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
+      `Today is ${p.date} (${p.weekday}) in the person's time zone, ${p.zone}; every time you are shown (read_log, notes, the shell) is in it. Your training data is older: product names, versions, prices, and "latest" anything you remember have likely been superseded. When a current official source disagrees with your memory, the source wins; do not go searching for the versions you remember.`,
     worktree: (p: { name: string; workdir: string; branch: string; path: string }) =>
       `Project: "${p.name}". You work in your own copy of it, a git worktree at ${p.workdir} (branch ${p.branch}), so your edits never collide with other crewmates'; your file tools and shell work there. When you submit_task, the harness merges your changes into the person's folder at ${p.path}; do not commit, switch branches, or edit that folder yourself. If your changes conflict with someone else's, submit_task fails and your copy shows both sides with conflict markers to resolve. Read before you change anything, follow the project's conventions, keep changes to what was asked, and run its own build or tests to check your work. Scratch files and saved web pages go in your scratch directory.${PROJECT_RULES}`,
     project: (p: { name: string; path: string }) =>
@@ -909,6 +909,8 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
       'web_fetch does not run other programs: they would reach the network without its address checks',
     browserBlocked: (url: string, reason?: string) =>
       `the browser did not load ${url}: ${reason ?? 'it, or a redirect from it, goes to a private or local network address. Agents can reach only the public internet, plus the localhost ports of servers they started with start_server in this round'}`,
+    logMore: (chars: number, seq: number) => `… (${chars} more chars: read_log(entry: ${seq}) shows it all)`,
+    logPending: 'no result yet: the call is still running',
     toolCreated: (name: string, output: string) =>
       `Created ${name}; you can call it from your next step, and crewmates load it with find_tools("${name}"). Test run:\n${output}`,
     worktreeUpdated: (files: readonly string[]) =>
@@ -1045,12 +1047,14 @@ Use end_call when the person says goodbye or asks you to hang up.${o.chatTitle ?
     },
     read_log: {
       description:
-        'Read what agents actually did, from the colony log: each tool call with its arguments and outcome, task ' +
-        'changes, merges and replies. Use it to check a claim ("tests pass", "I read the docs") before trusting it.',
+        'Read what agents actually did, from the colony log: each tool call with its arguments and the start of what ' +
+        'it returned, task changes, merges and replies, numbered (#n). `entry` shows one in full: every argument and ' +
+        'the whole result. Use it to check a claim ("tests pass", "I read the docs") before trusting it.',
       params: {
         agent: 'Only this agent',
         tool: 'Only tools whose name contains this, e.g. shell or web_',
         last: 'How many entries, newest last (default 30, at most 100)',
+        entry: 'An entry number (#n) to show in full',
       },
     },
     request_review: {

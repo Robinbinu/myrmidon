@@ -1,4 +1,5 @@
 import type { ColonyState } from '@myrmidon/protocol'
+import { localDate, personZone, zoneOffset } from './clock.ts'
 import type { ProjectContext } from './project-context.ts'
 import { prompts } from './prompts.ts'
 import type { AgentSpec, ColonySpec } from './spec.ts'
@@ -313,10 +314,12 @@ const RUNTIMES = ['bun', 'node', 'python3', 'deno', 'uv', 'git'].filter((c) => B
 
 function environment(spec: ColonySpec, env: Environment, tools: readonly string[]): string {
   const now = new Date()
-  const date = now.toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' })
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const lines = [
-    prompts.environment.today({ date, weekday: now.toLocaleDateString('en-US', { weekday: 'long' }), zone }),
+    prompts.environment.today({
+      date: localDate(now),
+      weekday: now.toLocaleDateString('en-US', { weekday: 'long' }),
+      zone: `${personZone()} (${zoneOffset(now)})`,
+    }),
   ]
   const project = spec.chat?.project
   if (project && env.worktree)

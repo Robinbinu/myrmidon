@@ -1,7 +1,17 @@
 import { expect, test } from 'bun:test'
 import type { MyrEvent } from '@myrmidon/protocol'
+import { clockTime, localDate } from '../src/clock.ts'
+import { READ_LOG_RESULT_CHARS } from '../src/config.ts'
 import type { ColonyHost } from '../src/host.ts'
-import { flowStepFailure, logLines, matchTools, mcpBreaker, similar, sniffImage } from '../src/tools.ts'
+import {
+  flowStepFailure,
+  logEntry,
+  logLines,
+  matchTools,
+  mcpBreaker,
+  similar,
+  sniffImage,
+} from '../src/tools.ts'
 
 test('task dedupe catches rewordings but not numbered siblings', () => {
   expect(similar('Research Flask in depth', 'Research Flask in depth: stats and features')).toBeGreaterThan(
@@ -34,32 +44,87 @@ test('an MCP server that keeps failing is switched off for the round, and succes
   expect(mcpBreaker(host, 'web_fetch')).toBeUndefined()
 })
 
-test('read_log lists what agents did, filtered by agent or tool, with each call matched to its outcome', () => {
-  const ev = (type: string, payload: Record<string, unknown>, second: number) =>
-    ({
-      type,
-      payload,
-      time: `2026-10-07T12:00:${String(second).padStart(2, '0')}.000Z`,
-    }) as unknown as MyrEvent
+/** Runs `fn` with the process in time zone `zone`, as if the person lived there. */
+function inZone<T>(zone: string, fn: () => T): T {
+  // Set back, never deleted: once TZ is deleted, Bun ignores later changes to it.
+  const before = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+  process.env.TZ = zone
+  try {
+    return fn()
+  } finally {
+    process.env.TZ = before
+  }
+}
+
+const ev = (seq: number, type: string, payload: Record<string, unknown>, second: number) =>
+  ({
+    seq,
+    type,
+    payload,
+    time: `2026-10-07T12:00:${String(second).padStart(2, '0')}.000Z`,
+  }) as unknown as MyrEvent
+
+test('read_log shows each call with what it returned, filtered by agent or tool, and one entry in full', () => {
+  const long = `PASS ${'x'.repeat(READ_LOG_RESULT_CHARS)}\n2/2 PASS`
   const events = [
-    ev('tool/call', { agent: 'kai', callId: 'c1', tool: 'shell', args: { command: 'bun test' } }, 1),
+    ev(1, 'tool/call', { agent: 'kai', callId: 'c1', tool: 'shell', args: { command: 'bun test' } }, 1),
     ev(
+      2,
       'tool/call',
       { agent: 'nova', callId: 'c1', tool: 'web_fetch', args: { url: 'https://example.org' } },
       2,
     ),
-    ev('tool/result', { agent: 'kai', callId: 'c1', tool: 'shell', ok: true, output: 'exit 1\n3 fail' }, 3),
-    ev('tool/result', { agent: 'nova', callId: 'c1', tool: 'web_fetch', ok: false, output: 'ERROR: 404' }, 4),
-    ev('task/changed', { by: 'kai', task: { id: 'task-1', status: 'submitted' } }, 5),
+    ev(
+      3,
+      'tool/result',
+      { agent: 'kai', callId: 'c1', tool: 'shell', ok: true, output: 'exit 1\n3 fail' },
+      3,
+    ),
+    ev(
+      4,
+      'tool/result',
+      { agent: 'nova', callId: 'c1', tool: 'web_fetch', ok: false, output: 'ERROR: 404' },
+      4,
+    ),
+    ev(5, 'task/changed', { by: 'kai', task: { id: 'task-1', status: 'submitted' } }, 5),
+    ev(6, 'tool/call', { agent: 'kai', callId: 'c2', tool: 'shell', args: { command: 'bun test b' } }, 6),
+    ev(7, 'tool/result', { agent: 'kai', callId: 'c2', tool: 'shell', ok: true, output: long }, 7),
   ]
-  expect(logLines(events, {})).toEqual([
-    '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
-    '12:00:02 nova web_fetch({"url":"https://example.org"}) → FAILED: ERROR: 404',
-    '12:00:05 kai task-1 → submitted',
-  ])
-  expect(logLines(events, { agent: 'kai', tool: 'shell' })).toEqual([
-    '12:00:01 kai shell({"command":"bun test"}) → ok: exit 1',
-  ])
+  inZone('UTC', () => {
+    const lines = logLines(events, {})
+    expect(lines.slice(0, 3)).toEqual([
+      '#1 12:00:01 kai shell({"command":"bun test"}) → ok\n  exit 1\n  3 fail',
+      '#2 12:00:02 nova web_fetch({"url":"https://example.org"}) → FAILED\n  ERROR: 404',
+      '#5 12:00:05 kai task-1 → submitted',
+    ])
+    // A long result is cut, and says how to see the rest; the entry shows it whole.
+    expect(lines[3]).toContain(`more chars: read_log(entry: 6)`)
+    expect(lines[3]).not.toContain('2/2 PASS')
+    expect(logEntry(events, 6)).toContain('2/2 PASS')
+    expect(logEntry(events, 6)).toContain('"command": "bun test b"')
+    expect(() => logEntry(events, 99)).toThrow('no entry #99')
+    expect(logLines(events, { agent: 'kai', tool: 'shell' })[0]).toBe(
+      '#1 12:00:01 kai shell({"command":"bun test"}) → ok\n  exit 1\n  3 fail',
+    )
+  })
+})
+
+test('agents see every time in one zone, the one their prompt names', async () => {
+  const { systemPrompt } = await import('../src/patterns.ts')
+  const { parseColonySpec } = await import('../src/spec.ts')
+  const spec = parseColonySpec({ name: 'Zone', mission: 'x', agents: [{ name: 'a', model: 'm' }] })
+  const agent = spec.agents[0] as (typeof spec.agents)[number]
+  inZone('Asia/Kolkata', () => {
+    const prompt = systemPrompt(spec, agent, { sandbox: 'none', web: false, browser: false }).join('\n')
+    expect(prompt).toMatch(/time zone, Asia\/(Kolkata|Calcutta) \(UTC\+05:30\)/)
+    // 12:00:01 UTC is 17:30:01 there: read_log says so, not the UTC time.
+    expect(logLines(events(), {})[0]).toStartWith('#1 17:30:01 kai')
+    expect(clockTime('2026-10-07T12:00:01.000Z')).toBe('17:30:01')
+    expect(localDate('2026-10-07T20:00:00.000Z')).toBe('2026-10-08')
+  })
+  function events() {
+    return [ev(1, 'tool/call', { agent: 'kai', callId: 'c1', tool: 'shell', args: {} }, 1)]
+  }
 })
 
 test('find_tools loads every tool a query names, and names the ones it matched but did not load', () => {

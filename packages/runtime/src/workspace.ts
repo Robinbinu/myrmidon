@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { BlobStore } from '@myrmidon/core'
 import type { ColonyState } from '@myrmidon/protocol'
+import { clockTime, localDate } from './clock.ts'
 
 const ARTIFACT_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/
 
@@ -106,8 +107,9 @@ export class ColonyWorkspace {
       writeFileSync(path, content)
       chmodSync(path, 0o444)
     }
-    write('notes.md', state.notes.map((n) => `- [${n.time}] ${n.agent}: ${n.text}`).join('\n'))
-    write('board.md', state.board.map((b) => `- [${b.time}] ${b.agent}: ${b.text}`).join('\n'))
+    const at = (time: string) => `${localDate(time)} ${clockTime(time)}`
+    write('notes.md', state.notes.map((n) => `- [${at(n.time)}] ${n.agent}: ${n.text}`).join('\n'))
+    write('board.md', state.board.map((b) => `- [${at(b.time)}] ${b.agent}: ${b.text}`).join('\n'))
     for (const [name, versions] of Object.entries(state.artifacts)) {
       const latest = versions.at(-1)
       if (latest) write(join('artifacts', name), await blobs.get(latest.blob))
