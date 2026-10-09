@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { type Call, callbackPort, key, login, model, type Terminal } from '../src/setup.ts'
+import { type Call, callbackPort, doctor, key, login, model, type Terminal } from '../src/setup.ts'
 
 const plain = (s: string) => s
 const style = { dim: plain, bold: plain, green: plain, red: plain, yellow: plain, cyan: plain }
@@ -198,4 +198,30 @@ test('Ctrl-C while a sign-in waits withdraws it on the server', async () => {
   }
   await expect(login(call, term, 'github-copilot')).rejects.toThrow('cancelled')
   expect(calls.at(-1)?.route).toBe('DELETE /api/logins/login-3')
+})
+
+test('doctor says whether agents run sandboxed or with full access', async () => {
+  const sandbox = {
+    kind: 'sandbox-exec' as const,
+    argv: () => [],
+    run: async () => ({ code: 0, stdout: '', stderr: '', timedOut: false }),
+    start: () => {
+      throw new Error('not used')
+    },
+  }
+  const report = async (projects: unknown) => {
+    const { call } = api({
+      'GET /api/models': () => ({ models: [{ ref: 'a/b', provider: 'a', name: 'B' }] }),
+      'GET /api/channels': () => ({ channels: [] }),
+      'GET /api/projects': () => projects,
+    })
+    const { term, out } = scripted([])
+    await doctor(call, term, { sandbox, scratch: '/tmp', server: { url: 'http://127.0.0.1:1' } })
+    return out.join('\n')
+  }
+  expect(await report({ projects: [], fullAccess: false })).toContain('agents run sandboxed')
+  expect(
+    await report({ projects: [{ name: 'site', permissions: { mode: 'full' } }], fullAccess: false }),
+  ).toContain('except with full access in site')
+  expect(await report({ projects: [], fullAccess: true })).toContain('the sandbox is off')
 })

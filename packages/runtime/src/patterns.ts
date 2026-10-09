@@ -280,6 +280,7 @@ function roleBrief(spec: ColonySpec, agent: AgentSpec): string {
 export interface Environment {
   /** This round's marker for untrusted content blocks. */
   readonly boundary?: string
+  /** The sandbox kind commands run in; `unconfined` means the round has full access. */
   readonly sandbox: string
   readonly web: boolean
   readonly browser: boolean
@@ -331,6 +332,7 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
   if (env.boundary && tools.some((t) => t.startsWith('web_') || t.startsWith('browser_') || t === 'mcp'))
     lines.push(prompts.environment.untrusted(env.boundary))
   const permissions = project?.permissions
+  if (env.sandbox === 'unconfined') lines.push(prompts.environment.fullAccess)
   if (permissions?.mode === 'read-only') lines.push(prompts.environment.readOnly(project?.name))
   else if (permissions?.mode === 'ask') lines.push(prompts.environment.ask(project?.name, permissions.allow))
   if (env.skills?.length && tools.includes('use_skill'))
@@ -365,7 +367,13 @@ function environment(spec: ColonySpec, env: Environment, tools: readonly string[
   }
   if (tools.includes('shell')) {
     const shell = { platform: process.platform, sandbox: env.sandbox, runtimes: RUNTIMES }
-    lines.push(project ? prompts.environment.shellProject(shell) : prompts.environment.shellScratch(shell))
+    lines.push(
+      env.sandbox === 'unconfined'
+        ? prompts.environment.shellFull({ ...shell, project: !!project })
+        : project
+          ? prompts.environment.shellProject(shell)
+          : prompts.environment.shellScratch(shell),
+    )
   }
   return lines.join('\n')
 }
@@ -391,7 +399,12 @@ function capabilities(spec: ColonySpec, agent: AgentSpec, env: Environment): str
     say.can(
       [
         has('web_search') && (env.web ? say.web : say.noWeb),
-        has('shell') && (env.sandbox !== 'none' ? say.shell(env.sandbox) : say.noShell),
+        has('shell') &&
+          (env.sandbox === 'unconfined'
+            ? say.shellFull
+            : env.sandbox !== 'none'
+              ? say.shell(env.sandbox)
+              : say.noShell),
         has('publish_artifact') && say.publish,
         has('browser_open') && (env.browser ? say.browser : say.noBrowser),
         has('mcp') && say.mcp,

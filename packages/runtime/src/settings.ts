@@ -43,6 +43,12 @@ export interface MyrSettings {
     tokens: number
   }
   tools: Record<ToolGroup, boolean>
+  /**
+   * `enabled: false` is full access for every chat of the person's: commands run without the OS sandbox, file tools
+   * reach any path and the web any address (approvals still apply). Read-only projects and rounds a channel member
+   * started stay sandboxed whatever this says; a project set to full access has it with the sandbox on.
+   */
+  sandbox: { enabled: boolean }
   /** An omp search provider id (e.g. `brave`, `exa`, `duckduckgo`) or `auto` for omp's fallback chain. */
   search: { provider: string }
   /** `reviewer`: off never reviews; auto lets the speaking agent ask (request_review); always reviews every final answer. */
@@ -123,6 +129,7 @@ export const settingsSchema = Schema.object({
     mcp: Schema.boolean().default(true),
     browser: Schema.boolean().default(true),
   }).default({}),
+  sandbox: Schema.object({ enabled: Schema.boolean().default(true) }).default({}),
   search: Schema.object({
     provider: Schema.string()
       .pattern(/^[a-z][a-z0-9-]{1,30}$/)
@@ -194,6 +201,7 @@ function parse(input: unknown): MyrSettings {
     version: 1,
     team: s.team,
     tools: s.tools,
+    sandbox: { enabled: s.sandbox.enabled },
     search: { provider: s.search.provider },
     verification: s.verification,
     instructions: s.instructions,

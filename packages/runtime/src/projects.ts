@@ -81,8 +81,8 @@ export class ProjectStore {
   /** Sets how freely agents may change the project; applies from the chat's next round. */
   setPermissions(id: string, permissions: ProjectPermissions): Project {
     const mode = permissions.mode
-    if (mode !== 'auto' && mode !== 'ask' && mode !== 'read-only')
-      throw new Error('mode is auto, ask or read-only')
+    if (mode !== 'auto' && mode !== 'ask' && mode !== 'read-only' && mode !== 'full')
+      throw new Error('mode is auto, ask, read-only or full')
     const allow = [...new Set(permissions.allow.map((a) => a.trim()).filter(Boolean))].slice(0, 50)
     const list = this.list()
     const project = list.find((p) => p.id === id)

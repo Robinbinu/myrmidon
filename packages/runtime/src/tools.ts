@@ -476,7 +476,8 @@ async function askFirst(
 
 /**
  * A write to a file in the project folder (not scratch) follows the project's permissions. In an "ask" project the
- * person sees the new content against the file as it is, and may rewrite it; returns the content to write.
+ * person sees the new content against the file as it is, and may rewrite it; returns the content to write. With full
+ * access an "ask" project asks before writes anywhere else on the computer too.
  */
 async function guardProjectEdit(
   host: ColonyHost,
@@ -488,12 +489,14 @@ async function guardProjectEdit(
   const unchanged = { content: change.after, edited: false }
   const project = host.spec.chat?.project
   const mode = project?.permissions?.mode ?? 'auto'
-  if (!project || mode === 'auto') return unchanged
+  if (!project || mode === 'auto' || mode === 'full') return unchanged
+  const within = (root: string) => path === root || path.startsWith(`${root}/`)
   const scratch = host.workspace.scratch(agent)
-  const inProject =
-    (path === project.path || path.startsWith(`${project.path}/`)) && !path.startsWith(`${scratch}/`)
-  if (!inProject) return unchanged
-  const where = relative(project.path, path)
+  const inProject = within(project.path) && !within(scratch)
+  // Only full access reaches past the project, scratch and the agent's own worktree.
+  const elsewhere = !within(project.path) && !within(scratch) && !within(host.workspace.workdir(agent))
+  if (!inProject && !elsewhere) return unchanged
+  const where = inProject ? relative(project.path, path) : path
   if (mode === 'read-only')
     throw new Error(
       `${project.name} is read-only for agents: you can read it but not change ${where}. Put drafts in your scratch directory and describe the change instead.`,
