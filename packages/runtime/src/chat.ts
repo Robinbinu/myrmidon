@@ -475,6 +475,18 @@ export class ChatService {
         const file = this._ownerFile(r.colonyId)
         const pid = existsSync(file) ? Number(readFileSync(file, 'utf8')) : undefined
         if (pid && pid !== process.pid && alive(pid)) continue
+        // What it was still asking the person can no longer be answered: closed as stopped, as a stop closes them.
+        const past = await this.runtime.ctx.log.read(r.colonyId as never)
+        const decided = new Set(
+          past.filter((e) => e.type === 'approval/decided').map((e) => (e.payload as { id: string }).id),
+        )
+        for (const e of past)
+          if (e.type === 'approval/requested' && !decided.has((e.payload as { id: string }).id))
+            await this.runtime.ctx.log.appendOne(r.colonyId as never, {
+              type: 'approval/decided',
+              actor: { kind: 'system', id: 'myrmidon' },
+              payload: { id: (e.payload as { id: string }).id, approved: false, by: 'stopped' },
+            })
         await this.runtime.ctx.log.appendOne(r.colonyId as never, {
           type: 'colony/stopped',
           actor: { kind: 'system', id: 'myrmidon' },

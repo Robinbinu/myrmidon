@@ -927,6 +927,12 @@ test('a round left running by a Myrmidon that is gone is stopped, and the chat t
   const gone = new ChatService(runtime, { resolver: first, classify: fixed('solo') })
   const { chatId, colonyId } = await gone.send('a long job', solo('mock/slow'))
   await waitFor(colonyId, (s) => s.status === 'running')
+  // It was waiting on the person when it died.
+  await runtime.ctx.log.appendOne(colonyId as never, {
+    type: 'approval/requested',
+    actor: { kind: 'agent', id: 'lead' },
+    payload: { id: 'approval-gone', agent: 'lead', tool: 'shell', summary: 'ls' },
+  })
   const dead = Bun.spawn(['true'])
   await dead.exited
   writeFileSync(join(home, 'runs', colonyId), String(dead.pid))
@@ -940,6 +946,9 @@ test('a round left running by a Myrmidon that is gone is stopped, and the chat t
   const stopped = (await events(colonyId)).findLast((e) => e.type === 'colony/stopped')
   expect((stopped?.payload as EventPayloads['colony/stopped'] | undefined)?.reason).toContain('restarted')
   expect(existsSync(join(home, 'runs', colonyId))).toBe(false)
+  // What it asked can no longer be answered: closed as stopped, so no card offers buttons that do nothing.
+  const closed = (await events(colonyId)).find((e) => e.type === 'approval/decided')
+  expect(closed?.payload).toMatchObject({ id: 'approval-gone', approved: false, by: 'stopped' })
 
   const next = await chats.send('carry on', solo('mock/lead'), chatId)
   expect(next.started).toBe(true)
@@ -2243,12 +2252,18 @@ test('allowing all file changes for a chat approves the waiting one and later on
   const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
   expect((await again.list()).find((c) => c.chatId === a.chatId)?.grants).toEqual(['file'])
   expect((await again.list()).find((c) => c.chatId === b.chatId)?.grants).toBeUndefined()
-  writes('mock/a2', 'd.txt')
+  // A file the lead proposes is a file change too: allowed, it lands without a card.
+  scripted(resolver, 'mock/a2', [
+    [tool('fs_write', { path: 'd.txt', content: 'd.txt' })],
+    [tool('propose', { kind: 'file', why: 'Add f', path: 'f.txt', content: 'f' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
   const next = await again.send('One more', config('mock/a2'), a.chatId)
   const s2 = await waitFor(next.colonyId, (x) => x.rounds.length === 2 && x.status !== 'running')
   expect(s2.status).toBe('completed')
   expect(Object.values(s2.approvals)).toHaveLength(1)
   expect(existsSync(join(folder, 'd.txt'))).toBe(true)
+  expect(readFileSync(join(folder, 'f.txt'), 'utf8')).toBe('f')
 
   // Taken back, the next write asks again.
   expect(await again.allowInChat(a.chatId, 'file', false)).toEqual([])

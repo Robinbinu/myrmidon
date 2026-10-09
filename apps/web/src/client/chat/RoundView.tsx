@@ -214,8 +214,19 @@ export function RoundView(props: {
       : []
   const timeline: Item[] = [
     ...thread.map((m) => ({ seq: m.seq, message: m })),
-    // Only the round running now can still be waiting on the person.
-    ...roundApprovals(state, events).filter((r) => r.approval.decided || latest),
+    // Only the round running now can still be waiting on the person; a request left open by a round that ended
+    // without closing it (an older log) reads as stopped, not as buttons that no longer do anything.
+    ...roundApprovals(state, events).map((r) =>
+      r.approval.decided || (latest && isRunning(state.status))
+        ? r
+        : {
+            ...r,
+            approval: {
+              ...r.approval,
+              decided: { id: r.approval.id, approved: false, by: 'stopped' as const },
+            },
+          },
+    ),
     // A reply still being written sits where it began, after what was in the log by then.
     ...streaming.map(([agent, live]) => ({ seq: live.since + 0.5, stream: agent, live })),
   ].sort((a, b) => a.seq - b.seq)

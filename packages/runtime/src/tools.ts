@@ -1758,9 +1758,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
         const where = relative(project.path, path)
         const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
         const title = existsSync(path) ? prompts.reviewCard.edit(where) : prompts.reviewCard.write(where)
+        // A proposed file is a file change like any other, so "allow all file changes" covers it; a commit still asks.
         const decision = await host.reviewChange(agent, 'propose', args.why, {
           review: fileReview(title, where, { before, after: args.content }),
           key,
+          grant: 'file',
         })
         if (!decision.approved) return prompts.toolResults.declined(`writing ${where}`, decision.note)
         const content = decision.edits?.content ?? args.content

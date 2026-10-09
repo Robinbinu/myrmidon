@@ -453,8 +453,11 @@ Open work, in the order it will be done:
       Done 2026-10-09 (web_fetch and the browser). Left: the shell can still reach private addresses (sandbox limits
       writes only); the shared Chrome lets every open run's own ports through for WebSockets and service workers;
       web_fetch lost omp's lynx/trafilatura/yt-dlp readers (YouTube transcripts through it no longer work).
-15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
-      through their endpoints (the browser pane was hidden).
+15. - [x] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet. Done 2026-10-09
+      on a throwaway project: Plugins renders (placeholder cut at narrow widths); rewind sheet, Rewind files, Undo rewind
+      and the Git panel refresh all work. Found and fixed on the way: the folder picker let a slow home listing replace
+      a typed path; proposed files weren't covered by "Allow all file changes"; a run interrupted by a restart left
+      its approval card with live buttons.
 16. - [ ] **M4.7 benchmarks** (deferred).
 
 Earlier items:
