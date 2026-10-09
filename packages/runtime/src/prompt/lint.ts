@@ -1,8 +1,10 @@
 import { COMPUTER_TOOL } from '../computer/tool.ts'
+import { PROMPT_HEADING_WORDS, PROMPT_ROLE_WORDS } from '../config.ts'
+import { prompts } from '../prompts.ts'
 import { TOOL_DEFS, toolDescription } from '../tools.ts'
 import { assemble, renderSections } from './assemble.ts'
 import type { PromptFacts } from './facts.ts'
-import type { HeadingKey } from './sections.ts'
+import { HEADINGS, type HeadingKey } from './sections.ts'
 
 /** Everything one agent is shown at the start of a round, as the checks read it. */
 export interface PromptView {
@@ -141,7 +143,95 @@ const repeatedSentences: LintCheck = {
   },
 }
 
-export const CHECKS: readonly LintCheck[] = [unknownTools, interfaceMetadata, repeatedSentences]
+/**
+ * Words Myrmidon wrote in a text: data it carries (tagged blocks such as <memory>, and roster lines naming a
+ * crewmate's tools) grows with the person's setup, not with the wording, so it does not count.
+ */
+export function authoredWords(text: string): number {
+  return text
+    .replace(/<([a-z_]+)[^>]*>[\s\S]*?<\/\1>/g, ' ')
+    .split('\n')
+    .filter((line) => !/^- [^:]+: .*; tools: /.test(line))
+    .join(' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+}
+
+/**
+ * Per-heading and per-role word budgets (config.ts, after the targets in the harness-prompts research §4.3 and
+ * §4.4): a prompt grows one sentence at a time, and only a number makes that visible. Raise a budget in the same
+ * change that needs it.
+ */
+const wordBudgets: LintCheck = {
+  key: 'word-budget',
+  run: (view) => {
+    const found: LintFinding[] = []
+    let stable = 0
+    for (const heading of Object.keys(HEADINGS) as HeadingKey[]) {
+      const words = view.sections
+        .filter((s) => s.heading === heading)
+        .reduce((n, s) => n + authoredWords(s.text), 0)
+      if (HEADINGS[heading].tier === 'stable') stable += words
+      // A plugin's own section is the plugin author's text, like project instructions.
+      const budget = heading === 'plugins' ? Number.POSITIVE_INFINITY : PROMPT_HEADING_WORDS[heading]
+      if (words > budget)
+        found.push({ check: 'word-budget', where: heading, text: `${words} > ${budget} words` })
+    }
+    const { kind, works } = view.facts.agent
+    // A team lead with hands-on tools also gets the working method.
+    const role = kind === 'team-lead' && works ? 'team-lead-hands-on' : kind
+    const budget = PROMPT_ROLE_WORDS[role]
+    if (stable > budget)
+      found.push({ check: 'word-budget', where: role, text: `${stable} > ${budget} words` })
+    return found
+  },
+}
+
+/**
+ * A lead that is not told what its crewmates can do tells the person the team cannot do it: each crewmate it can hand
+ * work to is listed with its tools, and a "you have no ... tools" line names only tools the lead really lacks.
+ */
+const crewTools: LintCheck = {
+  key: 'crew-tools',
+  run: (view) => {
+    const { facts } = view
+    const text = view.system.join('\n')
+    const crew =
+      facts.agent.kind === 'team-lead'
+        ? facts.mode.roster
+        : facts.agent.kind === 'solo'
+          ? facts.mode.crewmatesOnCall
+          : []
+    const words = prompts.capabilities.groups
+    const listed = crew
+      .filter(
+        (c) =>
+          !text
+            .split('\n')
+            .some(
+              (l) => l.startsWith(`- ${c.name}: `) && l.includes(c.tools.map((g) => words[g]).join(', ')),
+            ),
+      )
+      .map((c) => ({ check: 'crew-tools', where: c.name, text: `${c.name} is not listed with its tools` }))
+    const lacking = /You have no (.+?) tools yourself/.exec(text)?.[1] ?? ''
+    const wrong = facts.agent.groups
+      .filter((g) => new RegExp(`\\b${words[g]}\\b`).test(lacking))
+      .map((g) => ({
+        check: 'crew-tools',
+        where: facts.agent.name,
+        text: `told it lacks ${g}, which it has`,
+      }))
+    return [...listed, ...wrong]
+  },
+}
+
+export const CHECKS: readonly LintCheck[] = [
+  unknownTools,
+  interfaceMetadata,
+  repeatedSentences,
+  wordBudgets,
+  crewTools,
+]
 
 export function lint(view: PromptView, options: LintOptions = {}, checks = CHECKS): LintFinding[] {
   return checks.flatMap((c) => c.run(view, options))

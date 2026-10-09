@@ -40,6 +40,44 @@ export const HUDDLE_MS = 90_000
 /** Failed final verifications before a round gives up. */
 export const MAX_VERIFY_ROUNDS = 3
 
+// Prompts (prompt/lint.ts)
+
+/**
+ * The most words Myrmidon's own text may take under each heading of an agent's system prompt (data it carries, such as
+ * memory, project instructions and roster lines, does not count). The research targets
+ * (docs/research/2026-10-09-harness-prompts.md §4.3) are you ~150, finish ~80, safety ~200, method ~300, others
+ * ~200, person ~200; these sit above them where a heading stacks parts some agents need: the delivery contract under
+ * "How you finish", full access or an ask-first project under "Safety", and project rules (or, for a lead with
+ * hands-on tools, the lead's method too) under "How to work".
+ */
+export const PROMPT_HEADING_WORDS = {
+  you: 190,
+  finish: 150,
+  safety: 340,
+  method: 680,
+  others: 230,
+  person: 210,
+  instructions: 90,
+  environment: 260,
+} as const
+/**
+ * The most words of the stable part (every heading before the person's own text) per kind of agent, the worst case
+ * over the test matrix. §4.4's targets: answer ~350, solo 900-1,100, team lead 700-900, worker 600-800, crewmate
+ * 500-700, swarm peer 800-1,000; each consolidated safety section (~250 words) is most of the difference.
+ */
+export const PROMPT_ROLE_WORDS = {
+  answer: 620,
+  solo: 1340,
+  crewmate: 1040,
+  'team-lead': 940,
+  'team-lead-hands-on': 1560,
+  'team-worker': 1180,
+  'swarm-peer': 1070,
+  'colony-lead': 1000,
+  'colony-worker': 1000,
+  'colony-peer': 1000,
+} as const
+
 // Chats (chat.ts)
 
 /**

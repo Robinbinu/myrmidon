@@ -317,7 +317,22 @@ test('a renamed chat: the title reaches no agent in later rounds, and the colony
   await chats.stopAll()
 })
 
+test('every prompt stays within its word budgets', () => {
+  const found = views.flatMap(({ label, view }) =>
+    lint(view)
+      .filter((f) => f.check === 'word-budget')
+      .map((f) => `${label} (${f.where}): ${f.text}`),
+  )
+  expect(found).toEqual([])
+})
+
 test("a lead knows its crewmates' tools and never thinks the team lacks one they have", () => {
+  const found = views.flatMap(({ label, view }) =>
+    lint(view)
+      .filter((f) => f.check === 'crew-tools')
+      .map((f) => `${label} (${f.where}): ${f.text}`),
+  )
+  expect(found).toEqual([])
   const text = (label: string) => views.find((v) => v.label === label)?.view.system.join('\n') ?? ''
   // Without hands-on tools of its own, the lead hands research and building to the crewmates who have them.
   expect(text('team lead')).toContain('- kai: coder (mock/kai); tools: web, browser, shell, files')
@@ -333,6 +348,15 @@ test("a lead knows its crewmates' tools and never thinks the team lacks one they
   expect(text('solo lead with crewmates on call')).toContain(
     '- pax: researcher (openai/gpt-5); tools: web, browser, shell, files',
   )
+  // The lint catches a lead told it lacks a tool it has.
+  const view = views.find((v) => v.label === 'team lead with hands-on tools')?.view
+  if (!view) throw new Error('no view')
+  const broken = { ...view, system: [`${view.system[0]}\nYou have no web tools yourself.`] }
+  expect(
+    lint(broken)
+      .filter((f) => f.check === 'crew-tools')
+      .map((f) => f.text),
+  ).toEqual(['told it lacks web, which it has'])
 })
 
 test('one rule per role: workers assume and record, messages change work, one ending, a stated precedence', () => {
@@ -392,4 +416,10 @@ test('the lint itself catches an absent tool, a leaked label and a repeated rule
     'interface-metadata kickoff',
     'repeated-sentences x, y',
   ])
+  // A budget is checked per heading.
+  const long = {
+    ...view,
+    sections: [...view.sections, { key: 'z', heading: 'person' as const, text: 'word '.repeat(300) }],
+  }
+  expect(lint(long).map((f) => `${f.check} ${f.where}`)).toEqual(['word-budget person', 'word-budget answer'])
 })
