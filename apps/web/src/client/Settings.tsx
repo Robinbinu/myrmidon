@@ -55,6 +55,7 @@ import { removeSpecialist, useSpecialists } from './specialists.ts'
 import { useStatus } from './status.tsx'
 import { ChannelLogo } from './ui/ChannelLogo.tsx'
 import { ConfirmButton } from './ui/ConfirmButton.tsx'
+import { desktop } from './ui/desktop.ts'
 import {
   ago,
   day,
@@ -745,9 +746,11 @@ export function Settings(props: {
 /** Desktop notifications when a round finishes while Myrmidon is in the background (this browser only). */
 function NotifyToggle() {
   const toast = useToast()
-  const supported = typeof Notification !== 'undefined'
+  // The desktop app posts native notifications, which macOS asks about itself the first time.
+  const shell = !!desktop()
+  const supported = shell || typeof Notification !== 'undefined'
   const [on, setOn] = usePersistentFlag(NOTIFY_KEY, false)
-  const granted = supported && Notification.permission === 'granted'
+  const granted = shell || (supported && Notification.permission === 'granted')
   return (
     <Field
       label={copy.settings.notify.label}
@@ -760,6 +763,7 @@ function NotifyToggle() {
         label={copy.settings.notify.label}
         onChange={(v) => {
           if (!v) return setOn(false)
+          if (shell) return setOn(true)
           void Notification.requestPermission().then((p) => {
             setOn(p === 'granted')
             if (p !== 'granted') toast(copy.settings.notify.blocked, 'error')
