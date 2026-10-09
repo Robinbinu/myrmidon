@@ -3,22 +3,45 @@ import { AnimatePresence, motion, useAnimate, useReducedMotionConfig } from 'mot
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { MASCOT_LAYOUT_ID, type MascotLook, useGreeting, useMascotLook } from '../mascot.ts'
-import { CrewCursor, tripMs } from '../ui/cursor.tsx'
+import {
+  BANG,
+  type Clip,
+  chain,
+  fire,
+  IDLE_CLIPS,
+  SNEEZE_CLIP,
+  SWEAT,
+  spiralEyes,
+  starEyes,
+  tears,
+  ZZZ,
+} from '../ui/clips.ts'
 import { ago } from '../ui/hooks.ts'
-import { agentColor, BOW, DotMatrix, FLOWER, LEAD_COLOR, PixelFace, PixelSprite } from '../ui/pixel.tsx'
+import { BOW, DotMatrix, eyeCells, FLOWER, LEAD_COLOR, moodFor, PixelSprite } from '../ui/pixel.tsx'
 import { cn, Dot } from '../ui/primitives.tsx'
+import { boot, charge, confetti, equaliser, life, pacman, pop, ripple } from '../ui/shows.ts'
 import {
   HERO_MASCOT_MIN_HEIGHT,
   HERO_RECENT_CHATS,
   MASCOT_COLORS,
   MASCOT_DOZE_MS,
+  MASCOT_GRID,
+  MASCOT_IDLE,
   MASCOT_PAT_MS,
+  MASCOT_REACTIONS,
   MASCOT_SCREEN_MS,
+  MASCOT_SHOWS,
+  MASCOT_TOUCH,
   MASCOT_TYPING,
   MASCOT_USER_FOCUS_MS,
   softSpring,
 } from '../ui-config.ts'
+import { micLevel } from '../voice/CallBar.tsx'
+import type { CallState } from '../voice/call-client.ts'
 import { ambient, EMOTIONS, type Emotion, readDraft } from './emotion.ts'
+import { HeroCrew } from './HeroCrew.tsx'
+import type { CrewSignal } from './hero-crew.ts'
+import { lookAt, MascotScreen } from './MascotScreen.tsx'
 
 const SUGGESTIONS = [
   { icon: Search, ...copy.hero.suggestions.research },
@@ -28,24 +51,16 @@ const SUGGESTIONS = [
 ]
 
 const POKED: Emotion[] = [EMOTIONS.wink, EMOTIONS.love, EMOTIONS.surprised, EMOTIONS.happy]
-const IDLE_TRICKS: Emotion[] = [EMOTIONS.wink, EMOTIONS.happy]
+/** Call states in which someone can be heard, so the screen shows the equaliser. */
+const CALL_LIVE: ReadonlySet<CallState> = new Set(['listening', 'hearing', 'thinking', 'speaking', 'muted'])
 
-/** The crew that hangs around the mascot. Positions are relative to the face's center. */
-const CREW = [
-  { name: 'nova', color: agentColor('nova'), x: -340, y: -70 },
-  { name: 'kai', color: agentColor('kai'), x: 320, y: 30 },
-  { name: 'judge', color: agentColor('judge'), x: -290, y: 130 },
-]
-
-/** Where each cursor last was, so coming back to this screen finds them where they left off, not at their start. */
-let lastPositions: { x: number; y: number }[] | undefined
-
-interface CrewState {
-  name: string
-  color: string
-  x: number
-  y: number
-  clicking: boolean
+/** A clip playing on the mascot's screen, and the emotion (status line and colour) it shows meanwhile. */
+interface Act {
+  clip: Clip
+  id: number
+  emotion?: Emotion
+  /** What follows once it has played to the end. */
+  after?: () => void
 }
 
 const readToken = (name: string) =>
@@ -214,6 +229,8 @@ export function Hero(props: {
   onPick(text: string): void
   /** The setup assistant just closed: its mascot settles into this one's place, so this one does not pop in too. */
   fromSetup?: boolean
+  /** A voice call from this window, by its state: while someone can be heard, the screen shows an equaliser. */
+  call?: CallState
   children: ReactNode
 }) {
   const reduce = useReducedMotionConfig()
@@ -229,11 +246,21 @@ export function Hero(props: {
   const shakes = useRef<{ at: number; dir: number }[]>([])
   const lastMove = useRef({ x: 0, t: 0 })
   const [asleep, setAsleep] = useState(false)
+  // Asleep long enough, its screen turns into the Game of Life.
+  const [dreaming, setDreaming] = useState(false)
+  // The screen switches on with a scanline, unless setup's mascot is settling into its place.
+  const [act, setAct] = useState<Act | undefined>(() =>
+    reduce || props.fromSetup ? undefined : { clip: boot(), id: 0 },
+  )
+  const actRef = useRef(act)
+  actRef.current = act
+  const acts = useRef(0)
+  const clicks = useRef<number[]>([])
   const [hover, setHover] = useState(false)
   const [look, setLook] = useState<[number, number]>()
-  const [crew, setCrew] = useState<CrewState[]>(() =>
-    CREW.map((c, i) => ({ ...c, ...lastPositions?.[i], clicking: false })),
-  )
+  // Each knock (five quick clicks) sends the whole crew tumbling down.
+  const [knocked, setKnocked] = useState(0)
+  const canvas = useRef<HTMLDivElement>(null)
   const lastUser = useRef(Date.now())
   const asleepRef = useRef(false)
   const typing = props.draft.trim().length > 0
@@ -241,25 +268,68 @@ export function Hero(props: {
   const typingRef = useRef(typing)
   typingRef.current = typing
   const reactionTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const busy = useRef(false)
-  /** Where each crew cursor is heading, so new targets can keep their distance. */
-  const positions = useRef(lastPositions ?? CREW.map((c) => ({ x: c.x, y: c.y })))
+  const busy = useRef(act !== undefined)
+  const callLive = props.call !== undefined && CALL_LIVE.has(props.call)
+  const callRef = useRef(props.call)
+  callRef.current = props.call
+  const moodRef = useRef<Emotion['mood']>('idle')
 
+  const wake = useCallback(() => {
+    asleepRef.current = false
+    setAsleep(false)
+    setDreaming(false)
+  }, [])
+  const bounce = useCallback(() => {
+    if (!reduce && scope.current)
+      void animate(scope.current, { scale: [1, 0.965, 1.012, 1] }, { duration: 0.45, ease: 'easeOut' })
+  }, [animate, reduce, scope])
   const react = useCallback(
     (r: Emotion) => {
-      asleepRef.current = false
-      setAsleep(false)
+      wake()
+      setAct(undefined)
       setReaction(r)
       busy.current = true
-      if (!reduce && scope.current)
-        void animate(scope.current, { scale: [1, 0.965, 1.012, 1] }, { duration: 0.45, ease: 'easeOut' })
+      bounce()
       clearTimeout(reactionTimer.current)
       reactionTimer.current = setTimeout(() => {
         setReaction(undefined)
         busy.current = false
-      }, 1600)
+      }, MASCOT_REACTIONS.ms)
     },
-    [animate, reduce, scope],
+    [bounce, wake],
+  )
+  /** Plays a clip on the screen with an emotion; with reduced motion only the emotion shows, as a plain reaction. */
+  const perform = useCallback(
+    (a: Omit<Act, 'id'>) => {
+      if (reduce) {
+        if (a.emotion) react(a.emotion)
+        return
+      }
+      wake()
+      clearTimeout(reactionTimer.current)
+      busy.current = true
+      setReaction(a.emotion)
+      acts.current += 1
+      setAct({ ...a, id: acts.current })
+      if (a.emotion) bounce()
+    },
+    [bounce, react, reduce, wake],
+  )
+  const endAct = useCallback(() => {
+    const ended = actRef.current
+    setAct(undefined)
+    setReaction(undefined)
+    busy.current = false
+    ended?.after?.()
+  }, [])
+  /** A reaction, drawn: startled eyes jump with "!!", dizzy ones spiral; the rest show as their mood. */
+  const reactTo = useCallback(
+    (e: Emotion) => {
+      if (e === EMOTIONS.surprised) perform({ clip: BANG, emotion: e })
+      else if (e === EMOTIONS.dizzy) perform({ clip: spiralEyes(MASCOT_REACTIONS.ms), emotion: e })
+      else react(e)
+    },
+    [perform, react],
   )
   useEffect(
     () => () => {
@@ -282,7 +352,7 @@ export function Hero(props: {
       lastUser.current = Date.now()
       const g = gaze(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2))
       setLook((l) => (l && l[0] === g[0] && l[1] === g[1] ? l : g))
-      if (asleepRef.current) react(EMOTIONS.surprised)
+      if (asleepRef.current) reactTo(EMOTIONS.surprised)
       // Shaking the pointer back and forth makes it dizzy.
       const dt = e.timeStamp - lastMove.current.t
       const dx = e.clientX - lastMove.current.x
@@ -294,129 +364,93 @@ export function Hero(props: {
         shakes.current = recent
         if (recent.length >= 4 && !busy.current) {
           shakes.current = []
-          react(EMOTIONS.dizzy)
+          reactTo(EMOTIONS.dizzy)
         }
       }
     }
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
-  }, [react, scope])
+  }, [reactTo, scope])
 
-  // Dozing off, and the occasional trick while nobody is around.
+  // Dozing off, and the occasional trick while nobody is around: something its eyes do, now and then a show.
   useEffect(() => {
     if (reduce) return
     const t = setInterval(() => {
       const quiet = Date.now() - lastUser.current
       if (quiet > MASCOT_USER_FOCUS_MS) setLook((l) => (l && !busy.current ? undefined : l))
       if (typingRef.current || busy.current || asleepRef.current) return
+      if (callRef.current && CALL_LIVE.has(callRef.current)) return
       if (quiet > MASCOT_DOZE_MS) {
         asleepRef.current = true
         setAsleep(true)
-      } else if (Math.random() < 0.12) {
-        react(pick(IDLE_TRICKS))
+      } else if (moodRef.current === 'idle' && Math.random() < MASCOT_IDLE.chance) {
+        perform({ clip: Math.random() < MASCOT_IDLE.showShare ? pacman() : pick(IDLE_CLIPS) })
       }
-    }, 1000)
+    }, MASCOT_IDLE.everyMs)
     return () => clearInterval(t)
-  }, [react, reduce])
+  }, [perform, reduce])
 
-  // The crew wanders the canvas and now and then flies over to poke the mascot.
   useEffect(() => {
-    if (reduce) return
-    let alive = true
-    let poking = false
-    const timers: ReturnType<typeof setTimeout>[] = []
-    const wait = (ms: number) =>
-      new Promise<void>((done) => {
-        timers.push(setTimeout(done, ms))
+    if (!asleep || reduce) return
+    const t = setTimeout(() => setDreaming(true), MASCOT_SHOWS.life.afterMs)
+    return () => clearTimeout(t)
+  }, [asleep, reduce])
+
+  // A run that finishes while the screen is open gets confetti and star eyes; one that fails, tears.
+  const news = props.latest ? `${props.latest.status}@${props.latest.updatedAt}` : ''
+  const seenNews = useRef(news)
+  useEffect(() => {
+    if (news === seenNews.current) return
+    seenNews.current = news
+    const status = props.latest?.status
+    if (!status) return
+    const mood = moodFor(status)
+    if (mood === 'happy')
+      perform({ clip: chain('celebrate', confetti(), starEyes()), emotion: EMOTIONS.proud })
+    else if (mood === 'error') perform({ clip: tears(), emotion: EMOTIONS.sad })
+  }, [news, perform, props.latest?.status])
+
+  const tap = (cell: readonly [number, number]) => {
+    lastUser.current = Date.now()
+    const now = Date.now()
+    if (actRef.current?.clip.name === 'confused') return
+    clicks.current = [...clicks.current.filter((t) => now - t < MASCOT_TOUCH.confusedWindowMs), now]
+    if (clicks.current.length >= MASCOT_TOUCH.confusedClicks) {
+      clicks.current = []
+      perform({
+        clip: { ...spiralEyes(MASCOT_TOUCH.confusedMs), name: 'confused' },
+        emotion: EMOTIONS.confused,
       })
-    const update = (i: number, patch: Partial<CrewState>) => {
-      if (patch.x !== undefined && patch.y !== undefined) {
-        positions.current[i] = { x: patch.x, y: patch.y }
-        lastPositions = [...positions.current]
-      }
-      setCrew((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+      if (!reduce) setKnocked((n) => n + 1)
+      return
     }
-    const follow = (x: number, y: number) => {
-      if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
-    }
-    const size = () => {
-      const r = scope.current?.getBoundingClientRect()
-      return { hw: (r?.width ?? 450) / 2, hh: (r?.height ?? 320) / 2 }
-    }
-    // Somewhere around the screen, away from the headline below it and from the other cursors.
-    const roam = (i: number) => {
-      const { hw, hh } = size()
-      const others = positions.current.filter((_, j) => j !== i)
-      let best = { x: 0, y: 0 }
-      let bestGap = -1
-      for (let k = 0; k < 6; k++) {
-        const side = Math.random() < 0.5 ? -1 : 1
-        const c = { x: side * (hw + 50 + Math.random() * 170), y: -hh * 0.9 + Math.random() * hh * 1.6 }
-        const gap = Math.min(...others.map((o) => Math.hypot(o.x - c.x, o.y - c.y)), Number.POSITIVE_INFINITY)
-        if (gap > bestGap) {
-          best = c
-          bestGap = gap
-        }
-      }
-      return best
-    }
-    const run = async (i: number) => {
-      await wait(1200 + i * 1100)
-      while (alive) {
-        if (!poking && !typingRef.current && Math.random() < 0.4) {
-          poking = true
-          const { hw, hh } = size()
-          const x = (Math.random() * 2 - 1) * hw * 0.55
-          const y = (Math.random() * 2 - 1) * hh * 0.45
-          const from = positions.current[i] ?? { x, y }
-          update(i, { x, y })
-          follow(x, y)
-          await wait(tripMs(Math.hypot(x - from.x, y - from.y)) + 260)
-          if (!alive) return
-          update(i, { clicking: true })
-          react(pick(POKED))
-          await wait(240)
-          update(i, { clicking: false })
-          await wait(650)
-          poking = false
-          update(i, roam(i))
-        } else {
-          const to = roam(i)
-          update(i, to)
-          if (Math.random() < 0.5) follow(to.x, to.y)
-        }
-        await wait(2800 + Math.random() * 4200)
-      }
-    }
-    for (const i of CREW.keys()) void run(i)
-    return () => {
-      alive = false
-      for (const t of timers) clearTimeout(t)
-    }
-  }, [react, reduce, scope])
+    perform({ clip: ripple(cell[0], cell[1], lookAt(cell[0], cell[1])) })
+  }
 
   const emotion: Emotion =
     reaction ??
     (typing
       ? readDraft(props.draft)
-      : asleep
-        ? EMOTIONS.sleepy
-        : petted
-          ? EMOTIONS.happy
-          : hover
-            ? EMOTIONS.curious
-            : ambient({
-                working: props.working,
-                ...(props.latest
-                  ? {
-                      latest: {
-                        status: props.latest.status,
-                        agoMs: now - Date.parse(props.latest.updatedAt),
-                      },
-                    }
-                  : {}),
-                hour: new Date(now).getHours(),
-              }))
+      : callLive
+        ? EMOTIONS.onCall
+        : asleep
+          ? EMOTIONS.sleepy
+          : petted
+            ? EMOTIONS.happy
+            : hover
+              ? EMOTIONS.curious
+              : ambient({
+                  working: props.working,
+                  ...(props.latest
+                    ? {
+                        latest: {
+                          status: props.latest.status,
+                          agoMs: now - Date.parse(props.latest.updatedAt),
+                        },
+                      }
+                    : {}),
+                  hour: new Date(now).getHours(),
+                }))
   const label = emotion.label
   // The colour the person chose is the mascot's own; its moods still bring theirs.
   const eyes = useMemo(
@@ -424,9 +458,58 @@ export function Hero(props: {
     [emotion.color, mascot.color],
   )
   const typedColor = useTypingColor(props.draft, eyes)
+  moodRef.current = emotion.mood
+
+  // What plays on the screen while nothing else does: the equaliser on a call, z's or the Game of Life while it
+  // sleeps, a sweat drop while it is worried, flames while several crews work at once.
+  const concerned = emotion === EMOTIONS.concerned || emotion === EMOTIONS.sad
+  const backdrop = reduce
+    ? undefined
+    : callLive
+      ? 'equaliser'
+      : asleep
+        ? dreaming
+          ? 'life'
+          : 'zzz'
+        : typed !== undefined
+          ? undefined
+          : concerned
+            ? 'sweat'
+            : props.working >= MASCOT_REACTIONS.fireAt && emotion.mood === 'working'
+              ? 'fire'
+              : undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a backdrop is made once each time it starts showing
+  const backdropClip = useMemo((): Clip | undefined => {
+    if (backdrop === 'equaliser')
+      return equaliser(() =>
+        // The mic's level while the person can be heard; while the voice speaks or thinks, a lively stand-in.
+        callRef.current === 'speaking'
+          ? 0.35 + Math.random() * 0.5
+          : callRef.current === 'thinking'
+            ? 0.12
+            : micLevel() * MASCOT_SHOWS.equaliser.gain,
+      )
+    if (backdrop === 'life')
+      return life(eyeCells('idle', MASCOT_GRID.cols, MASCOT_GRID.rows, 0, false, [0, 0], mascot.eyes))
+    if (backdrop === 'zzz') return ZZZ
+    if (backdrop === 'sweat') return SWEAT
+    if (backdrop === 'fire') return fire()
+    return undefined
+  }, [backdrop])
+  const shown = act?.clip ?? backdropClip
+  // The crew takes its cue from the mascot: startled, they scatter; happy, they come close; asleep, they creep up.
+  const signal: CrewSignal = asleep
+    ? 'sneak'
+    : reaction === EMOTIONS.surprised || reaction === EMOTIONS.popped
+      ? 'scatter'
+      : emotion.mood === 'happy' || emotion.mood === 'love'
+        ? 'gather'
+        : 'roam'
+  // A question being typed: one eye turns into a "?" once the screen is back from spelling it out.
+  const asking = typing && typed === undefined && emotion === EMOTIONS.curious
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
+    <div ref={canvas} className="flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain">
       <div className="m-auto flex w-full max-w-[720px] flex-col items-center px-6 py-8">
         {roomy && (
           <div className="relative">
@@ -452,27 +535,38 @@ export function Hero(props: {
                 }}
                 className="block rounded-5xl bg-screen p-6 pb-4 shadow-[var(--screen-frame)]"
               >
-                <button
-                  type="button"
-                  onClick={() => react(pick(POKED))}
-                  aria-label={copy.hero.poke}
-                  className="block rounded-xl outline-offset-4"
-                >
-                  {/* While the person types, the screen spells out their message in its own cells. */}
-                  <PixelFace
-                    mood={emotion.mood}
-                    color={typed !== undefined ? typedColor : eyes}
-                    cols={15}
-                    rows={8}
-                    cell={20}
-                    gap={6}
-                    glow
-                    eyes={mascot.eyes}
-                    {...(look ? { look } : {})}
-                    {...(typed !== undefined ? { text: typed } : {})}
-                    className="h-auto w-[min(400px,calc(100vw-96px))]"
-                  />
-                </button>
+                <MascotScreen
+                  label={copy.hero.poke}
+                  mood={emotion.mood}
+                  color={typed !== undefined ? typedColor : eyes}
+                  eyes={mascot.eyes}
+                  {...(look ? { look } : {})}
+                  {...(typed !== undefined ? { text: typed } : {})}
+                  {...(asking ? { tweak: { mood: 'idle', shape: ['open', 'ask'], look: [-1, -1] } } : {})}
+                  {...(shown ? { clip: shown, playId: act ? act.id : shown.name } : {})}
+                  onClipEnd={endAct}
+                  onTap={tap}
+                  onPress={() => reactTo(pick(POKED))}
+                  onDoubleTap={() => {
+                    if (actRef.current?.clip.name !== 'confused')
+                      perform({ clip: SNEEZE_CLIP, emotion: EMOTIONS.sneeze })
+                  }}
+                  onHold={() =>
+                    perform({
+                      clip: charge(),
+                      emotion: EMOTIONS.charging,
+                      after: () => perform({ clip: pop(), emotion: EMOTIONS.popped }),
+                    })
+                  }
+                  onRelease={() => {
+                    // Let go before it is full, the charge fizzles out.
+                    if (actRef.current?.clip.name === 'charge') {
+                      setAct(undefined)
+                      setReaction(undefined)
+                      busy.current = false
+                    }
+                  }}
+                />
                 <div className="mt-5 flex items-center justify-between px-1">
                   <span className="flex items-center gap-1.5 font-mono text-caption uppercase tracking-[0.2em] text-[color:var(--screen-ink)]">
                     <span
@@ -516,16 +610,18 @@ export function Hero(props: {
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4, duration: 0.3 }}
             >
-              {crew.map((c) => (
-                <CrewCursor
-                  key={c.name}
-                  name={c.name}
-                  color={c.color}
-                  x={c.x}
-                  y={c.y}
-                  clicking={c.clicking}
-                />
-              ))}
+              <HeroCrew
+                signal={signal}
+                {...(look ? { look } : {})}
+                typing={typing}
+                knocked={knocked}
+                face={scope}
+                canvas={canvas}
+                onPoke={() => reactTo(pick(POKED))}
+                onWatch={(x, y) => {
+                  if (Date.now() - lastUser.current > MASCOT_USER_FOCUS_MS) setLook(gaze(x, y))
+                }}
+              />
             </motion.div>
           </div>
         )}

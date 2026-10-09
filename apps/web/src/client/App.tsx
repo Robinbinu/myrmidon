@@ -1545,6 +1545,7 @@ export function App() {
                           onOpenChat={openChat}
                           onPick={(t) => composer.current?.fill(t)}
                           fromSetup={fromSetup}
+                          {...(call ? { call: call.state } : {})}
                         >
                           {config && !models.some(canLead) && (
                             <SetupCard {...(fullAccess ? { onConnect: () => openSettings('models') } : {})} />
