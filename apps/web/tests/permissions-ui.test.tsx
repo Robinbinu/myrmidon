@@ -77,10 +77,11 @@ test('an approval card answers once by default, and its menu remembers the answe
     expect(doc.body.textContent).toContain(
       copy.permissions.why.preset(
         'Ask',
-        copy.permissions.why.where.project,
+        copy.permissions.why.setOn.project,
         copy.permissions.why.presetWhat.ask,
       ),
     )
+    expect(doc.body.textContent).toContain('This project is set to Ask, so this waits for you.')
     const more = byLabel(doc, t.moreAllow)
     expect(more.getAttribute('aria-haspopup')).toBe('dialog')
     await click(more)
@@ -101,6 +102,18 @@ test('an approval card answers once by default, and its menu remembers the answe
       m.textContent?.startsWith(t.scopes.global),
     )
     await click(everywhere as HTMLElement)
+    // Every command, in every chat: nothing is saved until a second, spelled-out yes.
+    expect(sent).toEqual([])
+    const yes = byText(doc, t.confirm.allow(t.target.everyCommand, t.confirm.where.global))
+    expect(yes).toBeDefined()
+    await click(byText(doc, t.confirm.back))
+    expect(sent).toEqual([])
+    await click(
+      [...menu.querySelectorAll('[role=menuitem]')].find((m) =>
+        m.textContent?.startsWith(t.scopes.global),
+      ) as HTMLElement,
+    )
+    await click(byText(doc, t.confirm.allow(t.target.everyCommand, t.confirm.where.global)))
     expect(sent).toEqual([
       {
         url: expect.stringContaining('/api/colonies/colony-1/approvals/approval-1'),
@@ -437,4 +450,151 @@ test('checking a tool says what happens for the lead and the crew, and which lev
   } finally {
     await unmount()
   }
+})
+
+test('walking the presets with the arrow keys saves only the one they rest on; a click saves at once', async () => {
+  const { PresetChoice } = await import('../src/client/permissions/PresetChoice.tsx')
+  const { PRESET_SETTLE_MS } = await import('../src/client/ui-config.ts')
+  const saved: (string | undefined)[] = []
+  function Host() {
+    const [value, setValue] = useState<'read-only' | 'ask' | 'auto' | 'full' | undefined>('read-only')
+    return (
+      <PresetChoice
+        value={value}
+        onChange={(next) => {
+          saved.push(next)
+          setValue(next)
+        }}
+      />
+    )
+  }
+  const { host, unmount } = await (await page(<Host />)).with()
+  const doc = host.ownerDocument
+  const radio = (v: string) => doc.querySelector(`input[value="${v}"]`) as HTMLInputElement
+  // A browser moves the check on an arrow key; here the key goes first, then the change it causes.
+  const arrowTo = async (v: string) =>
+    act(async () => {
+      radio(v).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      radio(v).click()
+    })
+  try {
+    await arrowTo('ask')
+    await arrowTo('auto')
+    expect(saved).toEqual([])
+    expect(radio('auto').checked).toBe(true)
+    await act(async () => Bun.sleep(PRESET_SETTLE_MS + 50))
+    expect(saved).toEqual(['auto'])
+    // Space saves without waiting.
+    await arrowTo('ask')
+    await act(async () => {
+      radio('ask').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    })
+    expect(saved).toEqual(['auto', 'ask'])
+    // Passing Full access asks to confirm it, and saves nothing.
+    await arrowTo('full')
+    await act(async () => Bun.sleep(PRESET_SETTLE_MS + 50))
+    expect(saved).toEqual(['auto', 'ask'])
+    // A click is a choice made.
+    await click(radio('read-only'))
+    expect(saved).toEqual(['auto', 'ask', 'read-only'])
+  } finally {
+    await unmount()
+  }
+})
+
+test('while computer use is off, its switches are off and say where to turn it on', async () => {
+  const { AccessMatrix } = await import('../src/client/permissions/AccessMatrix.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const t = copy.permissions.access
+  const { host, unmount } = await (
+    await page(
+      <AccessMatrix
+        levels={{ global: { preset: 'auto', rules: [] } }}
+        scope="global"
+        off={{ computer: t.computerOff }}
+        onChange={() => {}}
+      />,
+    )
+  ).with()
+  const doc = host.ownerDocument
+  try {
+    const computer = byLabel(doc, t.toggle(t.groups.computer.label, t.lead))
+    expect(computer.getAttribute('aria-checked')).toBe('false')
+    expect(computer.disabled).toBe(true)
+    expect(computer.closest('tr')?.textContent).toContain(t.computerOff)
+    expect(byLabel(doc, t.toggle(t.groups.web.label, t.lead)).getAttribute('aria-checked')).toBe('true')
+  } finally {
+    await unmount()
+  }
+})
+
+test('the tools to check are listed by names people know, grouped, with the id after', async () => {
+  const { Explainer } = await import('../src/client/permissions/Explainer.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const t = copy.permissions.explain
+  const { host, unmount } = await (
+    await page(
+      <Explainer
+        global={{ preset: 'auto', rules: [] }}
+        projects={[]}
+        tools={[
+          { name: 'shell', description: '', tier: 'exec' },
+          { name: 'request_final_verification', description: '' },
+          { name: 'mcp', description: '', mcp: true },
+          { name: 'mcp__stagehand_browserbase_screenshot', description: '', mcp: true, server: 'stagehand' },
+        ]}
+      />,
+    )
+  ).with()
+  const doc = host.ownerDocument
+  try {
+    const groups = [...doc.querySelectorAll('optgroup')].map((g) => [
+      g.getAttribute('label'),
+      [...g.querySelectorAll('option')].map((o) => o.textContent),
+    ])
+    expect(groups).toEqual([
+      [copy.permissions.access.groups.shell.label, [t.option('Run a command', 'shell')]],
+      [copy.permissions.access.groups.mcp.label, [t.option('Any MCP tool', 'mcp')]],
+      [t.otherGroup, [t.option('Ask for the final review', 'request_final_verification')]],
+      [
+        t.mcpGroup('stagehand'),
+        [t.option('browserbase screenshot', 'mcp__stagehand_browserbase_screenshot')],
+      ],
+    ])
+  } finally {
+    await unmount()
+  }
+})
+
+test("a card's buttons are named by the words they show (WCAG 2.5.3)", async () => {
+  recordFetch()
+  const { Approval } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { copy } = await import('../src/client/copy.ts')
+  const file = {
+    ...command,
+    tool: 'fs_write',
+    review: {
+      kind: 'file' as const,
+      title: 'Write notes.md',
+      fields: [{ key: 'content', label: 'notes.md', value: 'hi', format: 'text' as const, editable: true }],
+    },
+  }
+  const { host, unmount } = await (
+    await page(<Approval colonyId="c" chatId="chat-1" request={file} />)
+  ).with()
+  const doc = host.ownerDocument
+  try {
+    const edit = buttons(doc).find((b) =>
+      b.textContent?.startsWith(copy.approvals.review.edit),
+    ) as HTMLElement
+    // No aria-label to replace what it shows; the field it edits follows the visible word.
+    expect(edit.hasAttribute('aria-label')).toBe(false)
+    expect(edit.textContent).toBe(`${copy.approvals.review.edit} notes.md`)
+    await click(edit)
+    expect(edit.textContent).toBe(`${copy.approvals.review.preview} notes.md`)
+  } finally {
+    await unmount()
+  }
+  const { steer, queue } = copy.composer.deliveries
+  expect(copy.composer.deliveryLabel(steer.label, queue.label).startsWith(steer.label)).toBe(true)
 })

@@ -346,6 +346,12 @@ export const GATEWAY_POLL_MS = 30_000
 export const SETTINGS_NAV_COLLAPSE_PX = 1100
 
 /**
+ * Walking a preset choice with the arrow keys saves the one it rests on after this long (or at once on Space, Enter,
+ * or leaving the choices), not each preset passed on the way.
+ */
+export const PRESET_SETTLE_MS = 700
+
+/**
  * A two-step remove ignores its second step for this long after the first, so a double-click or a held Enter that
  * arms it cannot also confirm it.
  */

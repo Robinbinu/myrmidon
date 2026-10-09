@@ -1,9 +1,9 @@
 import { PERMISSION_PRESETS, type PermissionPreset } from '@myrmidon/protocol'
 import { AnimatePresence, motion } from 'motion/react'
-import { useId, useState } from 'react'
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { copy } from '../copy.ts'
 import { Button, cn } from '../ui/primitives.tsx'
-import { spring } from '../ui-config.ts'
+import { PRESET_SETTLE_MS, spring } from '../ui-config.ts'
 import { PRESET_ICONS, presetLabel } from './describe.ts'
 
 const t = copy.permissions
@@ -12,7 +12,7 @@ const t = copy.permissions
  * The main switch, as Codex's /permissions offers it: Read only, Ask, Auto, Full access, from the strictest, each with
  * its one line. A project or chat shows "Use global (…)" first (`inherit`), the choice that follows the level above.
  * Full access takes a second, warned confirmation before `onChange` hears of it. A radio group: arrow keys move
- * between the choices, as with any radio buttons.
+ * between the choices, as with any radio buttons; `onChange` hears of the one they settle on, not each one passed.
  */
 export function PresetChoice(props: {
   value: PermissionPreset | undefined
@@ -28,15 +28,64 @@ export function PresetChoice(props: {
   const name = useId()
   const [confirming, setConfirming] = useState(false)
   const presets = props.presets ?? PERMISSION_PRESETS
-  const choose = (next: PermissionPreset | undefined) => {
-    if (next === 'full' && !props.fullConfirmed && props.value !== 'full') return setConfirming(true)
-    setConfirming(false)
-    props.onChange(next)
+  // A choice reached with the arrow keys, shown at once and saved once the keys rest on it.
+  const [pending, setPending] = useState<{ preset: PermissionPreset | undefined }>()
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const arrowed = useRef(false)
+  const onChange = useRef(props.onChange)
+  onChange.current = props.onChange
+  const commit = (next: PermissionPreset | undefined) => {
+    clearTimeout(settle.current)
+    setPending(undefined)
+    if (next !== props.value) props.onChange(next)
   }
-  const selected = (p: PermissionPreset | undefined) => !confirming && props.value === p
+  // Closing the page mid-walk still saves where the keys rested.
+  const latest = useRef(pending)
+  latest.current = pending
+  useEffect(
+    () => () => {
+      clearTimeout(settle.current)
+      if (latest.current) onChange.current(latest.current.preset)
+    },
+    [],
+  )
+  const choose = (next: PermissionPreset | undefined) => {
+    const byArrow = arrowed.current
+    arrowed.current = false
+    if (next === 'full' && !props.fullConfirmed && props.value !== 'full') {
+      clearTimeout(settle.current)
+      setPending(undefined)
+      return setConfirming(true)
+    }
+    setConfirming(false)
+    if (!byArrow) return commit(next)
+    setPending({ preset: next })
+    clearTimeout(settle.current)
+    settle.current = setTimeout(() => commit(next), PRESET_SETTLE_MS)
+  }
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key.startsWith('Arrow')) arrowed.current = true
+    else if ((e.key === ' ' || e.key === 'Enter') && pending) {
+      e.preventDefault()
+      commit(pending.preset)
+    }
+  }
+  const shown = pending ? pending.preset : props.value
+  const selected = (p: PermissionPreset | undefined) => !confirming && shown === p
   return (
     <div className="flex flex-col gap-2">
-      <fieldset aria-label={t.presetsLabel} disabled={props.disabled} className="m-0 min-w-0 border-0 p-0">
+      <fieldset
+        aria-label={t.presetsLabel}
+        disabled={props.disabled}
+        onKeyDown={onKeyDown}
+        onPointerDown={() => {
+          arrowed.current = false
+        }}
+        onBlur={(e) => {
+          if (pending && !e.currentTarget.contains(e.relatedTarget)) commit(pending.preset)
+        }}
+        className="m-0 min-w-0 border-0 p-0"
+      >
         {props.inherit && (
           <Tile
             name={name}

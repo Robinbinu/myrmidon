@@ -714,6 +714,8 @@ export function Settings(props: {
                   servers={data.mcpServers ?? []}
                   sandbox={data.sandbox}
                   reads={<SandboxReads data={data} update={update} />}
+                  computerUse={data.settings.computerUse?.enabled === true}
+                  onSetUpComputer={() => setSection('computer')}
                 />
               )}
               {section === 'verification' && data && (
