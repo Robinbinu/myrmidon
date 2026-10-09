@@ -122,8 +122,11 @@ test('orchestrated: workers sleep until assigned, the final answer verifies itse
   const writer = Object.keys(round1.agents).find((n) => n !== 'lead') ?? ''
   expect(CALL_SIGNS as readonly string[]).toContain(writer)
   expect(round1.agents[writer]?.info.specialty).toBe('writer')
-  expect(round1.agents.lead?.info.tools).not.toContain('shell')
-  expect(round1.agents.lead?.info.tools).not.toContain('web_search')
+  // Changed with the permission model: a team's lead is hands-on by default (it has the crew's build tools too);
+  // Permissions → Who can use what turns them off for it (see role-access.test.ts).
+  expect(round1.agents.lead?.info.tools).toContain('shell')
+  expect(round1.agents.lead?.info.tools).toContain('web_search')
+  expect(round1.agents.lead?.info.tools).toContain('assign_task')
 
   const log = await events(first.colonyId)
   const firstTask = log.findIndex((e) => e.type === 'task/changed')
@@ -2268,12 +2271,13 @@ test('review cards: the person sees a change in full and may rewrite it; an appr
   rmSync(folder, { recursive: true, force: true })
 })
 
+// Changed with the permission model: the card's "Allow all file changes in this chat" (a chat grant) is now a rule
+// remembered at the chat's level, and chat grants already in a chat's log read as such rules.
 test('allowing all file changes for a chat approves the waiting one and later ones, there only, until taken back', async () => {
   const { ProjectStore } = await import('../src/projects.ts')
   const folder = mkdtempSync(join(tmpdir(), 'myr-grant-'))
   const projects = new ProjectStore(home)
-  const project = projects.add(folder)
-  expect(project.permissions?.mode).toBe('ask')
+  const project = projects.setPermissions(projects.add(folder).id, { preset: 'ask', rules: [] })
   const resolver = new ModelResolver()
   const writes = (ref: string, ...files: string[]) =>
     scripted(resolver, ref, [
@@ -2289,9 +2293,12 @@ test('allowing all file changes for a chat approves the waiting one and later on
   writes('mock/a1', 'a.txt', 'b.txt')
   const a = await chats.send('Write two files', config('mock/a1'), undefined, { project: project.id })
   const waiting = Object.values((await asked(a.colonyId)).approvals)
-  expect(waiting.map((x) => [x.summary, x.grant])).toEqual([['write a.txt', 'file']])
+  expect(waiting.map((x) => [x.summary, x.offer])).toEqual([['write a.txt', [{ kind: 'edit', target: '*' }]]])
+  expect(waiting[0]?.why).toEqual({ by: 'preset', scope: 'project', preset: 'ask' })
   // One click: the waiting write goes ahead, and so does the next without a card.
-  expect(await chats.allowInChat(a.chatId, 'file', true)).toEqual(['file'])
+  const allowEdits = { kind: 'edit', target: '*', decision: 'allow' } as const
+  await chats.remember(a.colonyId, 'chat', [allowEdits])
+  expect(await chats.chatPermissions(a.chatId)).toEqual({ rules: [allowEdits] })
   const done = await waitFor(a.colonyId)
   expect(done.status).toBe('completed')
   expect(Object.values(done.approvals).map((x) => x.decided?.approved)).toEqual([true])
@@ -2307,8 +2314,19 @@ test('allowing all file changes for a chat approves the waiting one and later on
 
   // After a restart (a new service reading the logs) the chat keeps it, and lists it.
   const again = new ChatService(runtime, { resolver, classify: fixed('solo'), projects })
-  expect((await again.list()).find((c) => c.chatId === a.chatId)?.grants).toEqual(['file'])
-  expect((await again.list()).find((c) => c.chatId === b.chatId)?.grants).toBeUndefined()
+  expect((await again.list()).find((c) => c.chatId === a.chatId)?.permissions).toEqual({
+    rules: [allowEdits],
+  })
+  expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toBeUndefined()
+  // A chat grant from before the permission model reads as the same kind of rule.
+  await runtime.ctx.log.appendOne(b.colonyId as never, {
+    type: 'chat/allowed',
+    actor: { kind: 'user', id: 'user' },
+    payload: { grants: ['command'] },
+  })
+  expect((await again.list()).find((c) => c.chatId === b.chatId)?.permissions).toEqual({
+    rules: [{ kind: 'command', target: '*', decision: 'allow' }],
+  })
   // A file the lead proposes is a file change too: allowed, it lands without a card.
   scripted(resolver, 'mock/a2', [
     [tool('fs_write', { path: 'd.txt', content: 'd.txt' })],
@@ -2323,7 +2341,7 @@ test('allowing all file changes for a chat approves the waiting one and later on
   expect(readFileSync(join(folder, 'f.txt'), 'utf8')).toBe('f')
 
   // Taken back, the next write asks again.
-  expect(await again.allowInChat(a.chatId, 'file', false)).toEqual([])
+  expect(await again.setChatPermissions(a.chatId, { rules: [] })).toEqual({ rules: [] })
   writes('mock/a3', 'e.txt')
   const last = await again.send('And another', config('mock/a3'), a.chatId)
   const s3 = await waitFor(
@@ -2333,6 +2351,30 @@ test('allowing all file changes for a chat approves the waiting one and later on
   expect(Object.values(s3.approvals).filter((p) => !p.decided)[0]?.summary).toBe('write e.txt')
   await again.stopAll()
   rmSync(folder, { recursive: true, force: true })
+})
+
+test('a new chat can start on its own preset, chosen before its first message', async () => {
+  const resolver = new ModelResolver()
+  scripted(resolver, 'mock/own', [
+    [tool('shell', { command: 'bun test' })],
+    [tool('reply_user', { text: 'Done.', final: true })],
+  ])
+  judge(resolver)
+  const chats = new ChatService(runtime, { resolver, classify: fixed('solo') })
+  const { chatId, colonyId } = await chats.send(
+    'Run the tests',
+    { ...solo('mock/own'), judgeModel: 'mock/judge' },
+    undefined,
+    { permissions: { preset: 'ask', rules: [] } },
+  )
+  // Ask: a command that does more than look waits, where Auto (the default) would have run it.
+  const s = await waitFor(colonyId, (x) => Object.values(x.approvals).some((a) => !a.decided))
+  const waiting = Object.values(s.approvals).find((a) => !a.decided)
+  expect(waiting).toMatchObject({ tool: 'shell', why: { by: 'preset', scope: 'chat', preset: 'ask' } })
+  expect(await chats.chatPermissions(chatId)).toEqual({ preset: 'ask', rules: [] })
+  await chats.decideApproval(colonyId, waiting?.id ?? '', false)
+  await waitFor(colonyId)
+  await chats.stopAll()
 })
 
 test.skipIf(detectSandbox().kind === 'none')(
@@ -2359,10 +2401,15 @@ test.skipIf(detectSandbox().kind === 'none')(
       return Object.values(s.approvals).find((a) => !a.decided)
     }
     const first = await pending()
+    // Each part must be allowed: `echo` is, `touch` is not. The card offers the part's prefix to remember.
     expect(first).toMatchObject({
       tool: 'shell',
       summary: 'echo chained && touch chained.txt',
-      grant: 'command',
+      offer: [
+        { kind: 'command', target: 'echo' },
+        { kind: 'command', target: 'touch' },
+        { kind: 'command', target: '*' },
+      ],
     })
     await chats.decideApproval(colonyId, first?.id ?? '', true)
     const second = await pending()
@@ -3304,7 +3351,12 @@ test('tightening permissions mid-turn stops the agent at once and tells it what 
     await Bun.sleep(20)
   }
   const started = Date.now()
-  settings.set({ ...settings.get(), tools: { ...settings.get().tools, web: false } })
+  // The web group switched off for everyone (Permissions → Who can use what; once Settings → Tools' web switch).
+  const now = settings.get()
+  settings.set({
+    ...now,
+    permissions: { ...now.permissions, access: { lead: { web: false }, crew: { web: false } } },
+  })
   await chats.permissionsChanged()
   const s = await waitFor(colonyId)
   // The turn was cut short well before the slow tool would have finished.

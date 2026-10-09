@@ -33,7 +33,7 @@ test("a project's readable folders are saved with its permissions", async () => 
     name: 'site',
     path: '/tmp/site',
     addedAt: '',
-    permissions: { mode: 'auto' as const, allow: [], read: ['~/Documents/specs'] },
+    permissions: { rules: [], read: ['~/Documents/specs'] },
   }
   const { host, unmount } = await mount(
     <MotionConfig reducedMotion="always">
@@ -48,7 +48,12 @@ test("a project's readable folders are saved with its permissions", async () => 
       buttonIn(doc, copy.permissions.save).click()
       await Bun.sleep(10)
     })
-    expect(sent[0]?.body).toMatchObject({ mode: 'auto', read: ['~/Documents/specs'] })
+    // The sheet reads the global level and the tool catalog first; the save is the one PUT.
+    expect(sent.find((r) => r.method === 'PUT')?.body).toMatchObject({
+      preset: null,
+      rules: [],
+      read: ['~/Documents/specs'],
+    })
   } finally {
     await unmount()
   }
@@ -56,7 +61,7 @@ test("a project's readable folders are saved with its permissions", async () => 
 
 test('a request to read a folder is allowed once or for the chat; the chat’s folder shows as a chip that hides it again', async () => {
   const sent = recordFetch((url) => (url.includes('/readable') ? { reads: [] } : {}))
-  const { Approval, ChatGrantChips } = await import('../src/client/chat/ApprovalCards.tsx')
+  const { Approval, ChatReadChips } = await import('../src/client/chat/ApprovalCards.tsx')
   const { ToastProvider } = await import('../src/client/ui/Toast.tsx')
   const { copy } = await import('../src/client/copy.ts')
   const request = {
@@ -71,13 +76,13 @@ test('a request to read a folder is allowed once or for the chat; the chat’s f
     <MotionConfig reducedMotion="always">
       <ToastProvider>
         <Approval colonyId="colony-1" chatId="chat-1" request={request} />
-        <ChatGrantChips chatId="chat-1" grants={[]} reads={['/Users/me/notes']} onChanged={() => {}} />
+        <ChatReadChips chatId="chat-1" reads={['/Users/me/notes']} onChanged={() => {}} />
       </ToastProvider>
     </MotionConfig>,
   )
   const doc = host.ownerDocument
   try {
-    expect(buttonIn(doc, copy.approvals.approval.approveOnce)).toBeDefined()
+    expect(buttonIn(doc, copy.permissions.card.allowOnce)).toBeDefined()
     await act(async () => {
       buttonIn(doc, copy.approvals.reads.approveAll).click()
       await Bun.sleep(10)

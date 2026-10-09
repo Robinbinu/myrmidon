@@ -34,6 +34,10 @@ test('an MCP server in mcp.json becomes agent tools, without inheriting our secr
   expect(textOf(await echo.execute('c1', { text: 'hi' } as never))).toContain('echo: hi')
   const leaked = textOf(await env.execute('c2', { name: 'FAKE_PROVIDER_API_KEY' } as never))
   expect(leaked).not.toContain('sk-should-not-leak')
+  // Each tool knows its server, for permission rules that name a whole server.
+  expect(hub.serverOf(echo.name)).toBe('echo')
+  expect(hub.toolList().every((t) => t.server === 'echo')).toBe(true)
+  expect(hub.serverOf('mcp__other_tool')).toBeUndefined()
 
   await hub.setEnabled('echo', false)
   expect(hub.servers()[0]?.status).toBe('disabled')

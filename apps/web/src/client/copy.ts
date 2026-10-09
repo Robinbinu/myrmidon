@@ -533,6 +533,7 @@ export const copy = {
       'chat/reply': 'reply',
       'chat/renamed': 'chat renamed',
       'chat/allowed': 'allowed for this chat',
+      'chat/permissions': 'chat permissions set',
       'colony/failed': 'crew failed',
       'colony/completed': 'crew completed',
       'agent/status': 'status changed',
@@ -1256,10 +1257,6 @@ export const copy = {
     },
     approval: {
       wantsTo: (action: string) => `wants to ${action}`,
-      deny: 'Deny',
-      approve: 'Allow',
-      /** A request to read a folder: allowed for this run only, or for the rest of the chat. */
-      approveOnce: 'Allow once',
     },
     /** Folders sandboxed agents may read for the rest of a chat, from a read request's card, and their chips. */
     reads: {
@@ -1269,16 +1266,6 @@ export const copy = {
       chipTitle: (folder: string) => `Agents may read ${folder} in this chat (never change it)`,
       revoke: (folder: string) => `Stop agents reading ${folder}`,
       revoked: (folder: string) => `${folder} is hidden from agents again`,
-    },
-    /** One kind of step allowed for the rest of a chat from its card, and the chips that take it back. */
-    grants: {
-      kinds: { file: 'File changes', command: 'Commands' },
-      approveAll: { file: 'Allow all file changes in this chat', command: 'Allow all commands in this chat' },
-      allowed: (kind: string) => `${kind} are allowed for the rest of this chat`,
-      chip: (kind: string) => `${kind} allowed`,
-      chipTitle: (kind: string) => `${kind} run without asking in this chat`,
-      revoke: (kind: string) => `Ask again before ${kind.toLowerCase()}`,
-      revoked: (kind: string) => `${kind} ask first again`,
     },
     /** What became of a call once decided, as the one line it leaves in the chat. */
     decided: {
@@ -1438,46 +1425,224 @@ export const copy = {
       "When an agent makes itself a tool for a job, it shows in the chat's Files view. Choose Keep there and every new run starts with it.",
   },
 
+  /**
+   * The permission model: a preset at each level (global, project, chat), allow / ask / deny rules under it, and who
+   * may use what. One set of words for Settings → Permissions, a project's sheet, the chat's control and approval
+   * cards.
+   */
   permissions: {
     title: (project: string) => `Permissions · ${project}`,
-    modesLabel: 'What agents may do',
-    modes: {
-      auto: {
-        label: 'Autonomous',
-        hint: 'Agents edit the project and run commands without asking, in the sandbox unless you turned it off: they read and write the project and their own work files, and read toolchains and the folders you list below. The rest of your home, other chats and your keys stay out of reach. Every run is checkpointed, so you can rewind it.',
+    presetsLabel: 'What agents may do',
+    presets: {
+      'read-only': {
+        label: 'Read only',
+        hint: 'Agents read, search and run commands that change nothing; no file changes.',
       },
       ask: {
-        label: 'Ask first',
-        hint: 'As Autonomous, but each change to a project file and each shell command waits for you to allow it in the chat, except the commands you allow below.',
+        label: 'Ask',
+        hint: 'Agents ask before each file change and each command that does more than look.',
       },
-      readOnly: {
-        label: 'Read-only',
-        hint: 'Agents read and analyse the project but cannot change it; the sandbox keeps the folder untouched, and the rest of your home stays out of reach. They propose changes instead.',
+      auto: {
+        label: 'Auto',
+        hint: 'Agents edit and run commands in the sandbox; they ask before anything destructive.',
       },
       full: {
         label: 'Full access',
-        hint: 'No sandbox, whatever Settings → Tools says: agents work as you on this computer, reading and changing any file you can (your home and keys included), with your network and accounts. Rules set to ask still ask.',
+        hint: 'No sandbox and no asking: agents work as you on this computer. Rules still apply.',
       },
     },
+    /** The first choice of a project or chat: take the level above's preset. */
+    inherit: {
+      global: (preset: string) => `Use global (${preset})`,
+      project: (preset: string) => `Use project (${preset})`,
+      hint: 'Follows the setting above it, and changes with it.',
+    },
+    /** Where a value comes from, after it. */
+    scopes: {
+      global: 'global',
+      project: 'this project',
+      chat: 'this chat',
+      default: 'default',
+    },
+    from: (scope: string) => `from ${scope}`,
     /** The small mark beside a project's name. */
     mark: {
-      readOnly: 'Read-only for agents',
+      readOnly: 'Read only for agents',
       ask: 'Agents ask before changes',
       full: 'Full access for agents',
     },
-    /** Saving a project as Full access takes a second click. */
+    /** Choosing Full access takes a second click. */
     confirmFull: 'Yes, give full access',
-    allow: {
-      label: 'Commands that run without asking, one prefix per line (chained or piped commands always ask)',
-    },
+    confirmFullTitle: 'Give agents full access?',
+    cancel: 'Cancel',
+    readOnlyFloor: (project: string) =>
+      `${project} is read only: change it in the project’s permissions to let this chat do more.`,
     /** Folders beyond the project that this project's sandboxed agents may read. */
     read: {
-      label: 'Other folders agents may read here (read-only), one per line, starting with ~ or /',
-      hint: 'Also open in every chat: what Settings → Tools lists. Folders with keys or other chats cannot be opened here.',
+      label: 'Other folders agents may read here (read only), one per line, starting with ~ or /',
+      hint: 'Also open in every chat: what Settings → Permissions lists. Folders with keys or other chats cannot be opened here.',
       placeholder: '~/Documents/specs',
     },
     save: 'Save',
-    appliesFrom: 'Applies from each chat’s next message in this project.',
+    appliesFrom: 'Applies at once, to running chats in this project too.',
+    /** Settings → Permissions. */
+    page: {
+      title: 'Permissions',
+      intro:
+        'What agents may do without asking you. Set a default here; a project or a chat can choose its own, and the nearer one wins. Rules under the preset allow, ask about or deny one tool, MCP server or command.',
+      presetTitle: 'Default for every chat',
+      presetNote: 'projects and chats can override it',
+      sandbox: (kind: string) =>
+        kind === 'none'
+          ? 'No OS sandbox was found on this computer: commands only run with Full access.'
+          : `The sandbox (${kind === 'sandbox-exec' ? 'macOS' : kind}) keeps commands to the project and the agent’s own files in every preset but Full access.`,
+      movedFromTools: 'Presets, rules and who may use what now live in Permissions.',
+      openPermissions: 'Open Permissions',
+    },
+    /** Who can use what: tool groups by role. */
+    access: {
+      title: 'Who can use what',
+      note: 'tool groups for the lead and its crew',
+      lead: 'Lead',
+      leadHint: 'when it leads a crew',
+      crew: 'Crew',
+      crewHint: 'workers, crewmates, an agent alone',
+      groups: {
+        files: { label: 'Files', hint: 'Read, search and change files' },
+        shell: { label: 'Commands', hint: 'Shell, checks, dev servers, tool making' },
+        web: { label: 'Web', hint: 'Search and read pages' },
+        browser: { label: 'Browser', hint: 'Its own browser: click, type, sign in' },
+        mcp: { label: 'MCP tools', hint: 'Tools of your MCP servers' },
+        computer: { label: 'Computer use', hint: 'Your Mac, one app at a time' },
+        messaging: { label: 'Messaging', hint: 'Team chat, mail and shared notes' },
+        plugins: { label: 'Plugins', hint: 'Build and switch on plugins' },
+      },
+      toggle: (group: string, role: string) => `${group} for the ${role.toLowerCase()}`,
+      reset: 'Use the level above',
+      resetLabel: (group: string, role: string) =>
+        `${group} for the ${role.toLowerCase()}: use the level above`,
+      leadTip:
+        'The lead plans and assigns; with these on it also does hands-on work itself. Turn a group off to keep it delegating.',
+    },
+    /** The rules table. */
+    rules: {
+      title: 'Rules',
+      note: 'allow, ask about or deny one thing; deny always wins',
+      search: 'Find a rule',
+      searchPlaceholder: 'Find a rule: shell, github, bun test…',
+      add: 'Add rule',
+      none: 'No rules: the preset decides. Answers you remember from approval cards appear here.',
+      noMatch: 'No rule matches.',
+      kinds: {
+        tool: 'Tools',
+        edit: 'File changes',
+        command: 'Commands',
+        'mcp-server': 'MCP servers',
+        'mcp-tool': 'MCP tools',
+      },
+      kindOne: {
+        tool: 'Tool',
+        edit: 'File changes',
+        command: 'Command prefix',
+        'mcp-server': 'MCP server',
+        'mcp-tool': 'MCP tool',
+      },
+      kindLabel: 'Kind',
+      targetLabel: 'What',
+      targetPlaceholder: {
+        tool: 'shell',
+        edit: '*',
+        command: 'bun test',
+        'mcp-server': 'github',
+        'mcp-tool': 'mcp__github_create_issue',
+      },
+      targetHint: {
+        tool: 'A tool by name.',
+        edit: 'Every file change (writes, edits, proposed files).',
+        command:
+          'Commands starting with these words; * is every command. Chained commands must match in every part.',
+        'mcp-server': 'Every tool of one server; * is every MCP tool.',
+        'mcp-tool': 'One MCP tool by its full name.',
+      },
+      decisions: { allow: 'Allow', ask: 'Ask', deny: 'Deny' },
+      decisionLabel: (target: string) => `Decision for ${target}`,
+      decisionHeading: 'Decision',
+      who: { all: 'Everyone', lead: 'Lead', crew: 'Crew' },
+      whoLabel: (target: string) => `Who ${target} applies to`,
+      remove: (target: string) => `Remove the rule for ${target}`,
+      everyCommand: 'Every command',
+      everyMcp: 'Every MCP tool',
+      everyEdit: 'Every file change',
+      readOnlyTool: 'read only',
+      cancel: 'Cancel',
+    },
+    /** "Check a tool": which level and rule decide a call. */
+    explain: {
+      title: 'Check a tool',
+      note: 'what happens when an agent uses it, and why',
+      tool: 'Tool',
+      command: 'Command',
+      commandPlaceholder: 'bun test && git push',
+      where: 'Where',
+      noProject: 'A chat without a project',
+      inProject: (name: string) => `A chat in ${name}`,
+      outcome: { allow: 'Runs', ask: 'Asks you', deny: 'Refused' },
+    },
+    /** Why a call was decided as it was, as the approval card and the explainer say it. */
+    why: {
+      askAll: 'Someone other than you started this round, so every step asks.',
+      readOnly: (where: string) => `Files are read only ${where}.`,
+      preset: (preset: string, where: string, what: string) => `${preset} ${where} ${what}.`,
+      rule: (where: string, decision: string, what: string) => `A rule ${where} ${decision} ${what}.`,
+      ruleDecision: { allow: 'allows', ask: 'asks before', deny: 'denies' },
+      presetWhat: {
+        allow: 'runs this without asking',
+        ask: 'asks before this',
+        deny: 'does not allow this',
+      },
+      /** Where a preset or rule was set, as the sentence says it. */
+      where: {
+        default: '(the default)',
+        global: 'in your settings',
+        project: 'for this project',
+        chat: 'for this chat',
+      },
+    },
+    /** The chat's permission control beside the message box. */
+    chat: {
+      label: (preset: string) => `Permissions for this chat: ${preset}`,
+      newLabel: (preset: string) => `Permissions for the new chat: ${preset}`,
+      title: 'This chat',
+      newTitle: 'This new chat',
+      remembered: 'Remembered for this chat',
+      nothing: 'Nothing yet. Choose “For this chat” on an approval card.',
+      all: 'All permissions…',
+      fullOnly: 'Only a device with full access can change this.',
+    },
+    /** The approval card's menus. */
+    card: {
+      allowOnce: 'Allow once',
+      denyOnce: 'Deny',
+      moreAllow: 'More ways to allow',
+      moreDeny: 'More ways to deny',
+      allowAlways: 'Don’t ask again for',
+      denyAlways: 'Always deny',
+      rememberIn: 'Remember for',
+      scopes: { chat: 'This chat', project: 'This project', global: 'Everywhere' },
+      scopeHint: { chat: 'Until you remove it', project: 'Every chat in this project', global: 'Every chat' },
+      target: {
+        command: (prefix: string) => `${prefix} …`,
+        everyCommand: 'every command',
+        edit: 'file changes',
+        mcpTool: (tool: string) => tool,
+        mcpServer: (server: string) => `everything from ${server}`,
+        everyMcp: 'every MCP tool',
+        tool: (tool: string) => tool,
+      },
+      remembered: (what: string, scope: string) => `Remembered: ${what} · ${scope.toLowerCase()}`,
+      /** Joins the parts of a compound command remembered together. */
+      and: ' and ',
+    },
   },
 
   /** Agents running without the sandbox: the warning before it is given, and the badge on chats that have it. */
@@ -2260,7 +2425,8 @@ export const copy = {
       computer: { label: 'Computer use', hint: 'Agents on your Mac' },
       models: { label: 'Models & providers', hint: 'Models, API keys, endpoints' },
       team: { label: 'Crew & budget', hint: 'Defaults and limits' },
-      tools: { label: 'Tools', hint: 'Shell, web, files' },
+      permissions: { label: 'Permissions', hint: 'What agents may do without asking' },
+      tools: { label: 'Tools', hint: 'MCP servers, tool library, search' },
       skills: { label: 'Skills', hint: 'Playbooks agents load' },
       plugins: { label: 'Plugins', hint: 'Skills, commands, hooks, servers' },
       hooks: { label: 'Hooks', hint: 'Commands around every tool' },
@@ -2460,47 +2626,11 @@ export const copy = {
     },
     tools: {
       title: 'Tools',
-      intro: 'What agents can use in new chats. Publishing, tasks, and review are always on.',
-      groups: {
-        shell: {
-          label: 'Shell',
-          hint: 'Run commands in a sandbox that writes only to the agent’s working folder and, unless the project is Read-only, the project, and reads only those, toolchains and the folders you open below.',
-        },
-        web: {
-          label: 'Web search & fetch',
-          hint: 'Search the internet and read pages, PDFs, repos, and papers with dedicated readers.',
-        },
-        files: {
-          label: 'Working files',
-          hint: 'A private working folder for drafts before publishing files.',
-        },
-        messaging: { label: 'Messaging', hint: 'Board posts, direct mail between agents, and shared notes.' },
-        mcp: {
-          label: 'MCP servers (tool connectors)',
-          hint: 'Tools from the MCP servers below, for every agent that does hands-on work.',
-        },
-      },
-      /** `sandbox` is the runtime's sandbox kind. */
-      sandboxActive: (sandbox: string) =>
-        sandbox === 'sandbox-exec'
-          ? 'Sandbox on: macOS confines shell commands'
-          : sandbox === 'bubblewrap'
-            ? 'Sandbox on: bubblewrap confines shell commands'
-            : `Sandbox on: ${sandbox}`,
-      noSandbox: 'No OS sandbox found',
-      sandboxedHint:
-        'Agents read the project, their own work files, this chat’s shared files and toolchains (bun, node, Python, Rust and the like), plus the folders you open below. They write only to their work files and, unless it is Read-only, the project. The rest of your home, other chats and your keys (~/.ssh, ~/.aws, ~/.config, keychains) stay out of reach. The network stays open, for package installs and the web.',
-      unsandboxedHint:
-        'No sandbox was found on the computer Myrmidon runs on, so the shell tool is off unless you turn the sandbox off (full access) or Myrmidon was started with --unsafe-no-sandbox. On Linux, install bubblewrap and restart Myrmidon.',
-      /** The sandbox switch: On, or Off for full access. */
-      sandboxOffTitle: 'Sandbox off (full access)',
-      sandboxOffHint:
-        "Your chats run without the sandbox: commands run as you, reading and changing anything you can (your whole home, other chats and your keys included), file tools reach any path, and the web any address. Rules set to ask still ask. Read-only projects and channel members' chats stay sandboxed.",
+      intro: 'Tool connectors (MCP servers), the tools agents made that you kept, and web search.',
       /** Folders sandboxed agents may read beyond the defaults, in every chat. */
       reads: {
-        title: 'What sandboxed agents may also read',
-        subtitle:
-          'read-only, in every chat; a project can add its own, and a chat can allow one when an agent asks',
+        title: 'Folders agents may also read',
+        subtitle: 'read only, in every chat; projects add their own',
         home: 'Everything in my home (read-only)',
         homeHint:
           'Agents may read any file in your home. Your keys, sign-ins and other chats stay hidden unless you name them below.',
@@ -2509,20 +2639,6 @@ export const copy = {
         guarded: (paths: readonly string[]) =>
           `Careful: ${paths.join(', ')} ${paths.length === 1 ? 'holds' : 'hold'} keys, sign-ins or every chat’s data. Agents in all your chats can read ${paths.length === 1 ? 'it' : 'them'}, and anything they read can leave over the network.`,
       },
-      turnOff: 'Turn off',
-      turnOffName: 'Turn the sandbox off (full access)',
-      confirmOff: 'Yes, turn it off',
-      turnOn: 'Turn sandbox on',
-      rulesTitle: 'Per-tool rules',
-      rulesSubtitle: 'ask before each call, or turn one tool off; applies to new runs',
-      findTool: 'Find a tool',
-      findToolPlaceholder: 'Find a tool, e.g. browser, shell, mcp',
-      ruleFor: (tool: string) => `Rule for ${tool}`,
-      allow: 'Allow',
-      askFirst: 'Ask first',
-      mcpDefault: 'Default: read-only tools run, others ask',
-      readOnlyDefault: 'Default: runs (read-only)',
-      changesDefault: 'Default: asks (can change things)',
       libraryTitle: 'Your tool library',
       librarySubtitle: 'tools agents made that you kept; every new run starts with them',
       webSearch: 'Web search',

@@ -597,7 +597,7 @@ export function Sidebar(props: {
                   />
                   <Folder className="size-4 shrink-0 text-muted" />
                   <span className="truncate">{p.name}</span>
-                  <PermissionMark {...(p.permissions ? { mode: p.permissions.mode } : {})} />
+                  <PermissionMark preset={p.permissions?.preset} />
                 </button>
                 {props.onProjectPermissions && (
                   <button

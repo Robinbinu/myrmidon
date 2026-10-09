@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { Schema } from '@myrmidon/core'
-import type { ProjectPermissions } from '@myrmidon/protocol'
+import type { PermissionLevels, ProjectPermissions } from '@myrmidon/protocol'
 
 export type AcceptanceCheck =
   | {
@@ -66,21 +66,22 @@ export interface ColonySpec {
   team?: TeamPolicy
   /** Tools removed from every agent regardless of role. */
   disabledTools?: string[]
-  /** Tools whose every call needs the person's approval (`mcp` for every MCP tool). */
-  askTools?: string[]
   /**
-   * Tools the person allowed outright. An MCP tool asks first unless its server marks it read-only; allowing it (or
-   * `mcp`) lets it run without asking.
+   * The permission model's levels for this round (global, the project's, the chat's): presets, rules, who may use
+   * what. Re-read every round, and replaced in a running round when the person changes any of them. Absent on a bare
+   * colony (`myr run`), which keeps the rules from before the model: commands and edits run, MCP tools that change
+   * things ask (see `levelsOf`).
    */
-  allowTools?: string[]
+  permissions?: PermissionLevels
   /**
    * Every call that changes something outside the colony waits for approval, whatever the person allowed: the round
    * was started by someone other than the person (a channel member), who must not borrow the person's permissions.
    */
   askAll?: boolean
   /**
-   * Full access: commands run without the OS sandbox, file tools reach any path, and the web and browser any address.
-   * Approvals still apply. It never holds while `askAll` does, nor in a read-only project (see `fullAccessIn`).
+   * Full access (the Full access preset in effect): commands run without the OS sandbox, file tools reach any path,
+   * and the web and browser any address. It never holds while `askAll` does, nor in a read-only project
+   * (see `fullAccessIn`).
    */
   fullAccess?: boolean
   /**

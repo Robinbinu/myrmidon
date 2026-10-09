@@ -11,6 +11,7 @@ import type {
   SignalKind,
   TaskSnapshot,
 } from './payloads.ts'
+import { type PermissionLevel, rulesFromGrants } from './permissions.ts'
 
 export interface AgentView {
   info: AgentInfo
@@ -212,8 +213,10 @@ export interface ColonyState {
   rounds: RoundInfo[]
   /** A title the user gave the conversation in this round, with when. */
   chatTitle?: { title: string; at: string; by?: 'auto' }
-  /** Kinds of step the person allowed for the rest of the chat; absent until they allow one. */
+  /** Old logs: kinds of step the person allowed for the rest of the chat (see `chatLevel`). */
   chatGrants?: ChatGrant[]
+  /** The chat's level of the permission model; absent until the person first sets something for the chat. */
+  chatPermissions?: PermissionLevel
   /** Folders the person let sandboxed agents read for the rest of the chat; absent until they allow one. */
   chatReads?: string[]
   /** Apps on the person's Mac they let agents use in this chat (computer use); absent until they allow one. */
@@ -295,6 +298,17 @@ function link(state: ColonyState, from: string, to: string) {
 function touch(state: ColonyState, agent: string, seq: number) {
   const view = state.agents[agent]
   if (view) view.lastSeq = seq
+}
+
+/**
+ * A chat's level of the permission model as its latest round knows it: what the person set for the chat, or, in a
+ * chat from before the model, its approval cards' grants as rules. Absent when nothing was set for the chat.
+ */
+export function chatLevel(
+  state: Pick<ColonyState, 'chatPermissions' | 'chatGrants'>,
+): PermissionLevel | undefined {
+  if (state.chatPermissions) return state.chatPermissions
+  return state.chatGrants?.length ? { rules: rulesFromGrants(state.chatGrants) } : undefined
 }
 
 /** Mutating fold step. Pure with respect to everything except `state`. Unknown types are ignored. */
@@ -503,6 +517,10 @@ export function applyEvent(state: ColonyState, event: MyrEvent): ColonyState {
       const p = event.payload as EventPayloads['chat/allowed']
       state.chatGrants = [...p.grants]
       if (p.reads) state.chatReads = [...p.reads]
+      break
+    }
+    case 'chat/permissions': {
+      state.chatPermissions = structuredClone(event.payload as EventPayloads['chat/permissions'])
       break
     }
     case 'computer/apps': {
