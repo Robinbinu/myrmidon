@@ -833,6 +833,15 @@ stay small so they merge cleanly into either.
       kept alive while you switch views; a ⋯ menu for cursor style, blink, copy on select and scrollback; maximise
       the panel. Branch fx-k-terminals.
 
+### L — A browser of your own, with tabs (the person's ask, with screenshots of Claude Code's browser pane)
+- [ ] A Browser view in the workspace like Claude Code's: tabs with favicon and title, + for a new tab, × to close,
+      back / forward / reload, an address bar, a pick-element button, a layout (split) toggle, maximise and close; a
+      ⋯ menu: Open in <default browser>, Copy URL, Save screenshot, Open HTML file…, Viewport (Responsive / presets),
+      Open links in built-in browser, Manage allowed sites…, Cookies: Keep cookies (until quit / always / never) and
+      Clear browsing data (confirmed). Built on the Chrome Myrmidon already runs for agents (CDP screencast and input,
+      as the Computer view does), in the person's own browser context, never shared with agents unless handed over.
+      Branch fx-l-browser.
+
 ### [decide]
 - [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
       Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
