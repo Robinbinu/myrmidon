@@ -1096,7 +1096,13 @@ function Conversation(props: {
                   )}
                 >
                   {first && (
-                    <div className="text-footnote font-semibold" style={{ color: agentColor(m.from) }}>
+                    // Identity colours as text fall to 1.9:1 on the light surface: the colour goes on a dot.
+                    <div className="flex items-center gap-1.5 text-footnote font-semibold text-fg">
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 rounded-full"
+                        style={{ background: agentColor(m.from) }}
+                      />
                       {m.from}
                     </div>
                   )}

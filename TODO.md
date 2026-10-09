@@ -149,12 +149,13 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Helper naming drifts** — "Never" shows as "Solo", "Always" as "Team of 3", "Auto" as "2 helpers"; the
       `/team` popover says "2 helpers · called by the lead" while the chip says "Team of 3".
 - [x] **Solo throws the helper roster away** (`TeamControls.tsx:321`) — keep it and flip a flag.
-- [ ] **Model picker**: duplicate entries (Claude Haiku 4.5, Opus 4.5 under two ids), mixed naming ("Claude 4 Opus"
+- [x] **Model picker**: duplicate entries (Claude Haiku 4.5, Opus 4.5 under two ids), mixed naming ("Claude 4 Opus"
       vs "Claude Opus 4"), the sticky provider header covers half a row; helper model picker opens on top of the
       helpers popover.
-      **Left:** duplicate dated ids and header overlap fixed; mixed names ("Claude 4 Opus" vs "Claude Opus 4") come from the model registry and were left alone.
+      **Left:** duplicate dated ids and header overlap fixed; mixed names now normalized in the picker (`modelName()`,
+      2026-10-09); Qwen/Doubao/ERNIE left as they are, and other places still show the raw name.
 - [x] **@mention menu** — show each agent's face; include the lead.
-- [ ] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
+- [x] **`/learn` on a trivial chat starts a paid job and never reports what it found.**
       **Left:** the result toast exists, but the "Reading this chat…" toast disappears after 3.5s while the job runs longer; needs a lasting progress line.
 
 ### C — Status, colour & time (`ui/primitives.tsx`, `chat/Sidebar.tsx`, `chat/AgentSheet.tsx`, `chat/Workspace.tsx`, `chat/StepRow.tsx`, `chat/AuditView.tsx`, `ColonyScreen.tsx`, `ColonyMap.tsx`, `Compare.tsx`, `legacy.css`)
@@ -167,8 +168,8 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **Unknown cost shows `$0.000`** (Crews, Compare) — show "n/a"; durations as "23m 35s", not "1415s".
 - [x] **Compare** — table overflows at 1440 (last column cut), run ids wrap over many lines, "solo · orchestrated",
       no warning when two different tasks are compared.
-- [ ] **Map** — "lead lead", "stopped … stopped", no links between agents.
-      **Left:** "lead lead" and repeated status fixed; links between agents not drawn.
+- [x] **Map** — "lead lead", "stopped … stopped", no links between agents.
+      Links between agents drawn (2026-10-09), weighted by messages; the map's colours now follow the theme.
 - [x] **Accessible names include the sleeping "z"** ("z lead stopped …") from the pixel face.
 - [x] **legacy.css uses the amber accent as text** (~1.9:1, `legacy.css:121,174`); `.pill`/`.dot` duplicate
       `Badge`/`Dot`.
@@ -235,8 +236,8 @@ server down). Letters are fix groups; each group owns its files so they can be w
 - [x] **The Files panel opens on every chat, even "No files yet"** (~440px) — open it when there is content.
 - [x] **Rail of 10 unlabeled icons with "99+" badges**; Terminal does nothing without a project and doesn't say
       why; the rail doesn't scroll at 600px tall; Team tab has no empty state.
-- [ ] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
-      **Left:** message search done; undo after deleting a chat skipped (delete removes the folder at once; undo needs a pending-delete state).
+- [x] **Search matches titles only** ("391" finds nothing); deleting a chat has no undo.
+      Undo after deleting a chat done (2026-10-09): 8s Undo toast or ⌘Z; nothing is deleted until it lapses.
 - [x] **Chat titles are the prompt verbatim** ("Hi", "Hi", "hi") — short generated titles. (Done as 12b.)
       **Left:** not done: short titles need a model call (cost), see [decide].
 - [x] **Unexplained sidebar numbers** (5, 2, 3).
@@ -255,13 +256,18 @@ server down). Letters are fix groups; each group owns its files so they can be w
 
 ### Follow-ups found while fixing
 
-- [ ] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
-- [ ] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
-- [ ] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
+- [x] Contrast below 4.5:1 left: dark avatar initials in the Git view (2.57:1), muted text on `fill-strong` (4.04:1).
+- [x] Hit targets under 24px remain in a few places outside the composer, chat and Settings.
+- [x] The crew console's Reviews list and activity still name the reviewer by its runtime id (`llm-judge#0`); the
       replay bar shows the raw `checkpoint/restored` event type.
-- [ ] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
+- [x] No test for the modal Escape stack and focus trap (needs a DOM test setup); the artifact viewer opened inside
       the crew console was not exercised by hand.
-- [ ] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
+- [x] `/learn`: keep a progress line while the review runs (the toast disappears after 3.5s).
+- [x] Mail panel shows a sender's name in their agent colour on the light surface (`Workspace.tsx`), as low as 1.9:1.
+      Name in ink now, the colour on a dot beside it.
+- [ ] Mattermost, LINE and WhatsApp Cloud still post press notes that only echo the message (one line each to skip).
+- [ ] Teams file consent card (native OneDrive upload in personal chats); Matrix end-to-end encryption needs
+      `@matrix-org/matrix-sdk-crypto-nodejs` (native) — a new dependency, ask first.
 - [ ] Message search scans the messages table with `instr`; move to FTS5 if chat history grows large (FTS5 trigram
       can't match queries under 3 characters).
 
@@ -423,8 +429,10 @@ Open work, in the order it will be done:
       status dot in the app. Done: only work spins; amber means needs you; blue marks a chat finished while you were
       elsewhere until you open it; hollow ring done/idle, dashed queued, square stopped, × failed (ui/status.ts).
       Not done: a "2 need input" count in the window title, and putting needs-input chats first in the sidebar.
-13. - [ ] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
-      2026-10-07-native-ui).
+13. - [x] **Native UI phase 3+** — overlays, context menus, sheets, Settings as System Settings (spec
+      2026-10-07-native-ui). Done 2026-10-09: sheets replace modals, context menus, ⌘K command menu, ⌘/ shortcuts,
+      calm new chat, composer pop-ups, Settings like System Settings, old token names gone. Left: legacy.css clean-out,
+      Reveal in Finder (needs the desktop shell).
 14. - [ ] **Agents' browser and private addresses** — decide a rule (e.g. only ports the round opened) and DNS-pinned
       fetching in omp to close rebinding (69456b5 notes). **Decided 2026-10-09: only ports the run opened; DNS-pinned.**
 15. - [ ] **Look over in the browser** — Settings → Plugins page and the rewind confirmation sheet were checked only
