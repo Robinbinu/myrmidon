@@ -60,8 +60,20 @@ type Manager = {
   disconnectAll(): Promise<void>
 }
 
-/** The prefix omp gives a server's tool names: `mcp__<server>_<tool>`. */
-const toolPrefix = (server: string) => `mcp__${server.toLowerCase().replace(/[^a-z0-9_]/g, '_')}_`
+/**
+ * The prefix omp gives a server's tool names: `mcp__<server>_<tool>`, the name sanitised as omp's
+ * `sanitizeMCPToolNamePart` does (pi-coding-agent src/mcp/tool-bridge.ts; not exported): lowercased, each run of
+ * other characters an underscore, runs of underscores folded into one and trimmed at the ends, `server` if nothing
+ * is left.
+ */
+const toolPrefix = (server: string) => {
+  const part = server
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `mcp__${part || 'server'}_`
+}
 
 /**
  * Myrmidon's own servers are named `myrmidon-…` (computer use's `myrmidon-computer`), so their tools are
