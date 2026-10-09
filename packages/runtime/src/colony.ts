@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -170,6 +171,40 @@ async function listening(port: number): Promise<boolean> {
   }
 }
 
+/**
+ * Every TCP port something on this machine listens on, or undefined where that cannot be read. Taken before a
+ * server starts, it tells the ports the server opened from ones that were already in use (the dashboard's, say).
+ */
+function listeningPorts(): Set<number> | undefined {
+  try {
+    if (process.platform === 'linux') {
+      const ports = new Set<number>()
+      for (const table of ['/proc/net/tcp', '/proc/net/tcp6'])
+        for (const line of readFileSync(table, 'utf8').split('\n').slice(1)) {
+          // "sl local_address rem_address st ...": local_address is HEXIP:HEXPORT, state 0A is LISTEN.
+          const [, local, , state] = line.trim().split(/\s+/)
+          if (state === '0A' && local) ports.add(Number.parseInt(local.split(':').at(-1) ?? '', 16))
+        }
+      return ports
+    }
+    if (process.platform === 'darwin') {
+      const out = Bun.spawnSync(['netstat', '-an', '-p', 'tcp'])
+      if (out.exitCode !== 0) return undefined
+      const ports = new Set<number>()
+      for (const line of new TextDecoder().decode(out.stdout).split('\n')) {
+        // "tcp4  0  0  127.0.0.1.4318  *.*  LISTEN": the port is the last dotted part of the local address.
+        const columns = line.trim().split(/\s+/)
+        const port = /\.(\d+)$/.exec(columns[3] ?? '')?.[1]
+        if (columns.at(-1) === 'LISTEN' && port) ports.add(Number(port))
+      }
+      return ports
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
 /** A file the person attached to a chat message. */
 export interface Attachment {
   readonly name: string
@@ -228,6 +263,8 @@ export class ColonyRun implements ColonyHost {
   private readonly _reminded = new Map<string, number>()
   private readonly _approvals = new Map<string, (decision: ReviewDecision) => void>()
   private readonly _servers = new Map<string, SandboxProcess>()
+  /** The localhost port each running server opened (see `localPorts`). */
+  private readonly _serverPorts = new WeakMap<SandboxProcess, number>()
   private readonly _untrusted = new Map<string, { source: string; text: string }[]>()
   private readonly _logins = new Map<string, (outcome: 'handed-back' | 'timeout' | 'stopped') => void>()
   readonly boundary = crypto.randomUUID().replaceAll('-', '').slice(0, 10)
@@ -433,6 +470,10 @@ export class ColonyRun implements ColonyHost {
     const cwd = this.workspace.workdir(agent)
     const scratch = this.workspace.scratch(agent)
     const readOnly = this.spec.chat?.project?.permissions?.mode === 'read-only'
+    // A port already in use is someone else's (the dashboard's, another app's): claiming it would open it to agents.
+    const before = listeningPorts()
+    if (port && (before?.has(port) || (await listening(port))))
+      throw new Error(prompts.toolResults.portInUse(port))
     const proc = this.sandbox.start({
       command,
       cwd,
@@ -455,13 +496,22 @@ export class ColonyRun implements ColonyHost {
     })
     const deadline = Date.now() + SERVER_START_MS
     let url: string | undefined
+    let opened = port
     while (!url && !ended && Date.now() < deadline) {
       await Bun.sleep(300)
       if (port) url = (await listening(port)) ? `http://localhost:${port}` : undefined
       else {
         const m = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):(\d{2,5})/.exec(proc.output())
-        if (m && (await listening(Number(m[1])))) url = `http://localhost:${m[1]}`
+        if (m && (await listening(Number(m[1])))) {
+          opened = Number(m[1])
+          url = `http://localhost:${opened}`
+        }
       }
+    }
+    if (url && opened && !port && before?.has(opened)) {
+      proc.stop()
+      this._servers.delete(name)
+      throw new Error(prompts.toolResults.portWasInUse(opened))
     }
     if (!url) {
       proc.stop()
@@ -471,12 +521,23 @@ export class ColonyRun implements ColonyHost {
         `${ended ? 'the command exited' : `nothing served within ${SERVER_START_MS / 1000}s`}${port ? ` on port ${port}` : ' (no local URL printed; pass port)'}\n${tail}`,
       )
     }
+    // Without a record of the ports in use before, a printed port cannot be told from someone else's.
+    if (opened && (port || before)) this._serverPorts.set(proc, opened)
     await this.append({
       type: 'server/started',
       actor: agentActor(agent),
       payload: { agent, name, command, url },
     })
     return url
+  }
+
+  localPorts(): ReadonlySet<number> {
+    const ports = new Set<number>()
+    for (const proc of this._servers.values()) {
+      const port = this._serverPorts.get(proc)
+      if (port) ports.add(port)
+    }
+    return ports
   }
 
   serverLogs(name: string): string {
