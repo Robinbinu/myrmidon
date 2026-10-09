@@ -1268,7 +1268,7 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
       'Cua Driver, which computer use runs on, is not installed: ask the person to install it in Settings → Computer use',
     grants: (missing: readonly string[]) =>
       `macOS has not given Myrmidon ${missing.join(' and ')} yet, which computer use needs. The person has been shown how to grant it in the chat; tell them, and stop until they have (Myrmidon may need a restart after granting).`,
-    noApp: 'no app is open: start with open_app (app: its name, e.g. "Notes")',
+    noApp: 'no app is open: call the open_app tool first (app: its name, e.g. "Notes"; list_apps lists them)',
     unknownApp: (app: string, near: readonly string[]) =>
       `no app named ${app} on this Mac${near.length ? `; did you mean ${near.join(', ')}?` : ''} (list_apps lists them)`,
     ownApp: 'Myrmidon itself is never shown to or driven by agents',
@@ -1341,17 +1341,15 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
     // ("PREFER AX over pixels", screen content is untrusted); the how-to moved here from "How to work".
     computer: {
       description:
-        "See and control the person's Mac, one action per call, in an app you opened with open_app (the person approves " +
-        'each app first). It is the slowest way to do anything: use your other tools (shell, files, browser_* for ' +
-        'websites, MCP) first, and the computer for what they cannot reach: native apps, simulators, apps with no API. ' +
-        'Browsers and trading apps are view-only, terminals and editors click-only; ask for full_control only when the ' +
-        "task needs typing there. Every call returns a screenshot of the app's window and its numbered accessibility " +
-        'elements: prefer click_element with a number to clicking pixels, and take coordinates from the latest ' +
-        'screenshot only. Actions: open_app {app, full_control?}, list_apps, screenshot, elements {query?}, ' +
-        'click_element {element, button?, count?}, left_click / right_click / middle_click / double_click / ' +
-        'triple_click {coordinate, text?}, mouse_move {coordinate}, left_click_drag {start_coordinate, coordinate}, ' +
-        'scroll {coordinate or element, scroll_direction, scroll_amount}, type {text, element?}, key {text, repeat?}, ' +
-        'wait {duration}, zoom {region}, cursor_position. Shortcuts use cmd.',
+        "See and control the person's Mac, one action per call, in the app you opened with the open_app tool (the " +
+        'person approves each app first). It is the slowest way to do anything: use your other tools (shell, files, ' +
+        'browser_* for websites, MCP) first, and the computer for what they cannot reach: native apps, simulators, apps ' +
+        "with no API. Every call returns a screenshot of the app's window and its numbered accessibility elements: " +
+        'prefer click_element with a number to clicking pixels, and take coordinates from the latest screenshot only. ' +
+        'Actions: screenshot, elements {query?}, click_element {element, button?, count?}, left_click / right_click / ' +
+        'middle_click / double_click / triple_click {coordinate, text?}, mouse_move {coordinate}, left_click_drag ' +
+        '{start_coordinate, coordinate}, scroll {coordinate or element, scroll_direction, scroll_amount}, type {text, ' +
+        'element?}, key {text, repeat?}, wait {duration}, zoom {region}, cursor_position. Shortcuts use cmd.',
       params: {
         action: 'The action to take; each is listed with its inputs in the description',
         coordinate:
@@ -1364,13 +1362,28 @@ It is ${o.now.weekday}, ${o.now.date}, ${o.now.time} in their time zone (${o.now
         repeat: 'How many times to press the key (key; default 1)',
         duration: 'Seconds to wait (wait)',
         region: '[x0, y0, x1, y1] in pixels of the latest screenshot, to look at closely (zoom)',
-        app: 'The app to open, by name ("Notes") or bundle id (open_app)',
-        full_control:
-          'true asks the person for full control of a click-only app, so you can type in it (open_app; default false)',
         query: 'Only elements whose text contains this (elements; default: all of them)',
         button: 'left or right (click_element; default left)',
         count: '1 for a click, 2 for a double click (click_element; default 1)',
       },
+    },
+    // A tool of its own, since neither Anthropic's computer toolset nor OpenAI's computer tool can open an app; the
+    // description carries the rules a native tool's model never reads in the computer tool's.
+    open_app: {
+      description:
+        "Open (or switch to) an app on the person's Mac, to see and control it with your computer tool: start every " +
+        'computer task here. The person approves each app once per chat. Browsers and trading apps are view-only, ' +
+        'terminals and editors click-only; ask for full_control only when the task needs typing there. Returns a ' +
+        "screenshot of the app's window and its numbered accessibility elements. Use list_apps when unsure of the name.",
+      params: {
+        app: 'The app to open, by name ("Notes") or bundle id ("com.apple.Notes")',
+        full_control:
+          'true asks the person for full control of a click-only app, so you can type in it (default false)',
+      },
+    },
+    list_apps: {
+      description:
+        "List the apps on the person's Mac, running ones first, with their bundle ids, to open one with open_app.",
     },
     // After Claude Code's TaskGet ("when you need the full description and context before starting work").
     read_task: {

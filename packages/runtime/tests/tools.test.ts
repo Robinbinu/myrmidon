@@ -215,6 +215,14 @@ test('a request that plainly needs the browser or a dev server starts with those
   expect(preloaded('Summarize this text for me', names)).toEqual([])
 })
 
+test("computer use's tools load together: the computer works only in an app open_app opened", async () => {
+  const { preloaded, withCompanions } = await import('../src/patterns.ts')
+  const names = ['fs_read', 'computer', 'open_app', 'list_apps']
+  expect(preloaded('What is on my screen in Notes?', names)).toEqual(['computer', 'open_app', 'list_apps'])
+  expect(withCompanions(['computer'])).toEqual(['computer', 'open_app', 'list_apps'])
+  expect(withCompanions(['fs_read'])).toEqual(['fs_read'])
+})
+
 test('MCP tools ask first unless their server marks them read-only; the person can allow, ask or turn off each', async () => {
   const { decide } = await import('@myrmidon/protocol')
   const mcp = (tool: string, readOnly: boolean) =>
