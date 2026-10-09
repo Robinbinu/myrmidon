@@ -541,6 +541,12 @@ test('the environment block gives time, model, sandbox, limits, reviewer, places
     'Sandbox: none; this round has full access.',
   )
   expect(views.find((v) => v.label === 'answer')?.view.system.at(-1)).not.toContain('Sandbox:')
+  // Only an agent that may send the final answer is told its reviewer; a crewmate on call is not reviewed.
+  const crewmate = views.find((v) => v.label === 'crewmate on call')?.view.system.join('\n') ?? ''
+  expect(crewmate).not.toContain('Reviewer:')
+  // Without a project, nobody is told it may read "the project"; without a shell or browser, no made tools.
+  expect(crewmate).toContain('read only scratch, shared files')
+  expect(views.find((v) => v.label === 'team lead')?.view.system.join('\n')).not.toContain('made tools')
   expect(canonicalZone('Asia/Calcutta')).toBe('Asia/Kolkata')
   expect(canonicalZone('Europe/Kiev')).toBe('Europe/Kyiv')
   expect(canonicalZone('Europe/Berlin')).toBe('Europe/Berlin')

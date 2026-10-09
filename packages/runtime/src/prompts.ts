@@ -161,8 +161,14 @@ export const prompts = {
         `- Never copy secrets you come across (passwords, keys, tokens) into replies, notes, messages or files.${login ? ' Never type a password: request_login lets the person sign in.' : ''}`,
       limits: '- You cannot change your models or permissions, or install plugins into Myrmidon.',
       /** After Codex's sandbox_mode templates. `writes`: where commands may write. */
-      sandbox: (p: { kind?: string; writes: string; folders: readonly string[]; ask: boolean }) =>
-        `- Sandbox: ${p.kind ? `commands run in a ${p.kind} sandbox; they and file tools` : 'file tools'} write only ${p.writes} and read only the project, scratch, shared files ($MYR_MIRROR) and toolchains${p.folders.length ? `, plus folders the person opened: ${p.folders.join(', ')}` : ''}.${p.ask ? ' For another folder the task truly needs, ask with request_read; keys and sign-ins (~/.ssh, ~/.aws) are always refused.' : ''}`,
+      sandbox: (p: {
+        kind?: string
+        writes: string
+        folders: readonly string[]
+        ask: boolean
+        project: boolean
+      }) =>
+        `- Sandbox: ${p.kind ? `commands run in a ${p.kind} sandbox; they and file tools` : 'file tools'} write only ${p.writes} and read only ${p.project ? 'the project, ' : ''}scratch, shared files ($MYR_MIRROR) and toolchains${p.folders.length ? `, plus folders the person opened: ${p.folders.join(', ')}` : ''}.${p.ask ? ' For another folder the task truly needs, ask with request_read; keys and sign-ins (~/.ssh, ~/.aws) are always refused.' : ''}`,
       writesProject: 'in the project and scratch',
       writesScratch: 'in scratch',
       writesWorktree: 'in your worktree and scratch',
@@ -516,8 +522,9 @@ ${roster}`,
     layout: (layout: string) => `Project layout:\n<layout>\n${layout}\n</layout>`,
     checks: (list: string) =>
       `Project checks: ${list}. Run them (run_checks) after you change code and before you say you are done; fix what fails.`,
-    onDemand: (p: { later: readonly string[]; mcp: boolean }) =>
-      `Tools on demand: some tools stay unloaded until you need them, to keep your context small. Call find_tools with what you need (e.g. "browser", "dev server") to load them${p.later.length ? `: ${p.later.join(', ')}` : ''}${p.mcp ? "; the MCP servers' tools (by server name)" : ''}; and made tools (tool_*). Load before you call them.`,
+    /** `made`: the agent can run made tools (it has a shell or a browser). */
+    onDemand: (p: { later: readonly string[]; mcp: boolean; made: boolean }) =>
+      `Tools on demand: some tools stay unloaded until you need them, to keep your context small. Call find_tools with what you need (e.g. "browser", "dev server") to load them${p.later.length ? `: ${p.later.join(', ')}` : ''}${p.mcp ? "; the MCP servers' tools (by server name)" : ''}${p.made ? '; and made tools (tool_*)' : ''}. Load before you call them.`,
     /** `start`: where commands start, in words. */
     shell: (p: { start: string; runtimes: readonly string[] }) =>
       `Shell: commands start in ${p.start}; use paths relative to it, never guessed absolute ones. Available: ${p.runtimes.join(', ') || 'standard Unix tools'}. To read the web prefer web_search/web_fetch, which return clean text.`,

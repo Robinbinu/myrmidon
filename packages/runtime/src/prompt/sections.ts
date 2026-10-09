@@ -342,7 +342,8 @@ function environment(f: PromptFacts): string {
             writes: writeRoots(f),
           })),
     env.budget({ minutes: Math.round(f.env.budget.wallMs / 60_000), turns: f.env.budget.maxTurns }),
-    f.mode.chat &&
+    // The final answer's reviewer matters to whoever may send it.
+    has(f, 'reply_user') &&
       env.reviewer({ setting: f.review.setting, ...(f.review.judge ? { judge: f.review.judge } : {}) }),
     ...(shell || files ? places(f) : []),
     shell &&
@@ -418,6 +419,7 @@ export const SECTIONS: readonly Section[] = [
     { key: 'credentials', guard: () => true, render: (f) => say.safety.credentials(has(f, 'request_login')) },
     {
       key: 'sandbox',
+      version: 2,
       guard: (f) => !f.access.fullAccess && any(f, 'shell', 'fs_read'),
       render: (f) =>
         say.safety.sandbox({
@@ -425,6 +427,7 @@ export const SECTIONS: readonly Section[] = [
           writes: writes(f),
           folders: f.access.reads,
           ask: has(f, 'request_read') && f.audience.owner,
+          project: project(f) !== undefined,
         }),
     },
     {
@@ -461,7 +464,7 @@ export const SECTIONS: readonly Section[] = [
       guard: (f) => f.agent.works && verifyBullets(f).length > 0,
       render: (f) => [say.verify.head, ...verifyBullets(f)].join('\n'),
     },
-    { key: 'lead-method', guard: (f) => f.agent.kind === 'team-lead', render: leadMethod },
+    { key: 'lead-method', version: 2, guard: (f) => f.agent.kind === 'team-lead', render: leadMethod },
     {
       key: 'project-rules',
       guard: (f) =>
@@ -506,6 +509,7 @@ export const SECTIONS: readonly Section[] = [
   ...under('others', [
     {
       key: 'crewmates',
+      version: 2,
       guard: (f) => f.agent.kind === 'solo' && has(f, 'ask_crewmate') && f.mode.crewmatesOnCall.length > 0,
       render: (f) =>
         say.crewmates({
@@ -632,8 +636,10 @@ export const SECTIONS: readonly Section[] = [
     },
     {
       key: 'on-demand',
+      version: 2,
       guard: (f) => has(f, 'find_tools'),
-      render: (f) => env.onDemand({ later: f.tools.deferred, mcp: has(f, 'mcp') }),
+      render: (f) =>
+        env.onDemand({ later: f.tools.deferred, mcp: has(f, 'mcp'), made: any(f, 'shell', 'browser_open') }),
     },
   ]),
 ]
