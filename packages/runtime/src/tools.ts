@@ -48,8 +48,10 @@ import {
   watched,
 } from './browser.ts'
 import { clockTime, localDate } from './clock.ts'
-import { COMPUTER_TOOL, computerTool } from './computer/tool.ts'
+import { COMPUTER_TOOL, computerParameters, computerTool } from './computer/tool.ts'
 import {
+  FETCH_SHOWN_CHARS,
+  FIND_TOOLS_LIMIT,
   GLOB_LIMIT,
   GREP_LIMIT,
   MAX_ARTIFACT_BYTES,
@@ -75,7 +77,7 @@ import { toolsFor } from './patterns.ts'
 import { adoptDraft, isOwnDraft, testPlugin, writeDraft } from './plugin-builder.ts'
 import type { ProjectCheck } from './project-context.ts'
 import type { PromptFacts } from './prompt/facts.ts'
-import { prompts } from './prompts.ts'
+import { type Place, prompts } from './prompts.ts'
 import { SANDBOX_DIRS } from './sandbox.ts'
 import { assertArtifactName, SKIP_DIRS } from './workspace.ts'
 
@@ -784,6 +786,15 @@ export async function runProjectChecks(
   }
 }
 
+/** Where the file tools work, before the agent's facts are known: the neutral default. */
+const PLACE: Place = { where: 'working', full: false }
+
+/** Where this agent's file tools work, for their descriptions. */
+function placeOf(f: PromptFacts): Place {
+  const where = f.access.worktree ? 'worktree' : f.access.project ? 'project' : 'scratch'
+  return { where, full: f.access.fullAccess }
+}
+
 export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'read_task',
@@ -808,8 +819,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.append_note.description,
     parameters: type({
-      text: type('string').atLeastLength(1),
-      'section?': type("'plan' | 'decision' | 'finding' | 'status'"),
+      text: type('string').atLeastLength(1).describe(prompts.tools.append_note.params.text),
+      'section?': type("'plan' | 'decision' | 'finding' | 'status'").describe(
+        prompts.tools.append_note.params.section,
+      ),
       'corrects?': type('string').describe(prompts.tools.append_note.params.corrects),
     }),
     async run(args, agent, host) {
@@ -943,9 +956,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.update_group.description,
     parameters: type({
-      name: type('string'),
-      'add?': type('string').array(),
-      'remove?': type('string').array(),
+      name: type('string').describe(prompts.tools.update_group.params.name),
+      'add?': type('string').array().describe(prompts.tools.update_group.params.add),
+      'remove?': type('string').array().describe(prompts.tools.update_group.params.remove),
     }),
     async run(args, agent, host) {
       const state = host.state()
@@ -969,7 +982,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'read_messages',
     tier: 'read',
     description: prompts.tools.read_messages.description,
-    parameters: type({ 'with?': type('string'), 'limit?': type('number') }),
+    parameters: type({
+      'with?': type('string').describe(prompts.tools.read_messages.params.with),
+      'limit?': type('number').describe(prompts.tools.read_messages.params.limit),
+    }),
     async run(args, agent, host) {
       const state = host.state()
       const line = (l: ConversationLine) =>
@@ -1028,10 +1044,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'create_task',
     tier: 'write',
-    description: prompts.tools.create_task.description,
+    description: prompts.tools.create_task.description(prompts.system.brief),
     parameters: type({
-      subject: type('string').atLeastLength(1),
-      'description?': type('string'),
+      subject: type('string').atLeastLength(1).describe(prompts.tools.create_task.params.subject),
+      'description?': type('string').describe(prompts.tools.create_task.params.description),
       'assignee?': type('string').describe(prompts.tools.create_task.params.assignee),
       'outputs?': type('string').array().describe(prompts.tools.create_task.params.outputs),
       'blockedBy?': type('string').array().describe(prompts.tools.create_task.params.blockedBy),
@@ -1086,7 +1102,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'claim_task',
     tier: 'write',
     description: prompts.tools.claim_task.description,
-    parameters: type({ id: type('string'), revision: type('number') }),
+    parameters: type({
+      id: type('string').describe(prompts.tools.claim_task.params.id),
+      revision: type('number').describe(prompts.tools.claim_task.params.revision),
+    }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
       const e = first(
@@ -1113,7 +1132,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'assign_task',
     tier: 'write',
     description: prompts.tools.assign_task.description,
-    parameters: type({ id: type('string'), assignee: type('string'), revision: type('number') }),
+    parameters: type({
+      id: type('string').describe(prompts.tools.assign_task.params.id),
+      assignee: type('string').describe(prompts.tools.assign_task.params.assignee),
+      revision: type('number').describe(prompts.tools.assign_task.params.revision),
+    }),
     async run(args, agent, host) {
       await host.appendAtomic((s) => {
         const task = requireTask(s, args.id)
@@ -1131,7 +1154,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'release_task',
     tier: 'write',
     description: prompts.tools.release_task.description,
-    parameters: type({ id: type('string'), revision: type('number') }),
+    parameters: type({
+      id: type('string').describe(prompts.tools.release_task.params.id),
+      revision: type('number').describe(prompts.tools.release_task.params.revision),
+    }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
       await host.appendAtomic((s) => {
@@ -1151,8 +1177,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.reject_task.description,
     parameters: type({
-      id: type('string'),
-      revision: type('number'),
+      id: type('string').describe(prompts.tools.reject_task.params.id),
+      revision: type('number').describe(prompts.tools.reject_task.params.revision),
       reason: type('string').atLeastLength(10).describe(prompts.tools.reject_task.params.reason),
     }),
     async run(args, agent, host) {
@@ -1186,7 +1212,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'submit_task',
     tier: 'write',
     description: prompts.tools.submit_task.description,
-    parameters: type({ id: type('string'), revision: type('number'), artifacts: type('string').array() }),
+    parameters: type({
+      id: type('string').describe(prompts.tools.submit_task.params.id),
+      revision: type('number').describe(prompts.tools.submit_task.params.revision),
+      artifacts: type('string').array().describe(prompts.tools.submit_task.params.artifacts),
+    }),
     async run(args, agent, host) {
       if (args.id === 'task-final') throw new Error(FINAL_HINT)
       const held = host.state().tasks[args.id]
@@ -1224,9 +1254,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.publish_artifact.description,
     parameters: type({
       name: type('string').describe(prompts.tools.publish_artifact.params.name),
-      'content?': type('string'),
+      'content?': type('string').describe(prompts.tools.publish_artifact.params.content),
       'fromScratch?': type('string').describe(prompts.tools.publish_artifact.params.fromScratch),
-      'mediaType?': type('string'),
+      'mediaType?': type('string').describe(prompts.tools.publish_artifact.params.mediaType),
     }),
     async run(args, agent, host) {
       const name = assertArtifactName(args.name)
@@ -1277,7 +1307,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'read_artifact',
     tier: 'read',
     description: prompts.tools.read_artifact.description,
-    parameters: type({ name: type('string'), 'version?': type('number') }),
+    parameters: type({
+      name: type('string').describe(prompts.tools.read_artifact.params.name),
+      'version?': type('number').describe(prompts.tools.read_artifact.params.version),
+    }),
     async run(args, _agent, host) {
       const versions = host.state().artifacts[args.name]
       if (!versions) throw new Error(`no such artifact: ${args.name}`)
@@ -1329,7 +1362,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'read',
     description: prompts.tools.use_skill.description,
     parameters: type({
-      name: type('string'),
+      name: type('string').describe(prompts.tools.use_skill.params.name),
       'file?': type('string').describe(prompts.tools.use_skill.params.file),
     }),
     async run(args, agent, host) {
@@ -1340,7 +1373,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'find_tools',
     tier: 'read',
     description: prompts.tools.find_tools.description,
-    parameters: type({ query: type('string').atLeastLength(2) }),
+    parameters: type({
+      query: type('string').atLeastLength(2).describe(prompts.tools.find_tools.params.query),
+    }),
     async run(args, agent, host) {
       return host.loadTools(agent, args.query)
     },
@@ -1387,8 +1422,12 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_write',
     tier: 'write',
-    description: prompts.tools.fs_write.description,
-    parameters: type({ path: type('string'), content: type('string') }),
+    description: prompts.tools.fs_write.description(PLACE),
+    describe: (f) => prompts.tools.fs_write.description(placeOf(f)),
+    parameters: type({
+      path: type('string').describe(prompts.tools.fs_write.params.path),
+      content: type('string').describe(prompts.tools.fs_write.params.content),
+    }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
       const { content, edited } = await guardProjectEdit(host, agent, 'fs_write', path, {
@@ -1404,12 +1443,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_edit',
     tier: 'write',
-    description: prompts.tools.fs_edit.description,
+    description: prompts.tools.fs_edit.description(PLACE),
+    describe: (f) => prompts.tools.fs_edit.description(placeOf(f)),
     parameters: type({
-      path: type('string'),
-      old: type('string').atLeastLength(1),
-      new: type('string'),
-      'all?': type('boolean'),
+      path: type('string').describe(prompts.tools.fs_edit.params.path),
+      old: type('string').atLeastLength(1).describe(prompts.tools.fs_edit.params.old),
+      new: type('string').describe(prompts.tools.fs_edit.params.new),
+      'all?': type('boolean').describe(prompts.tools.fs_edit.params.all),
     }),
     async run(args, agent, host) {
       const path = host.workspace.resolveInWorkdir(agent, args.path)
@@ -1433,7 +1473,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_read',
     tier: 'read',
-    description: prompts.tools.fs_read.description,
+    description: prompts.tools.fs_read.description(PLACE),
+    describe: (f) => prompts.tools.fs_read.description(placeOf(f)),
     parameters: type({
       path: type('string').describe(prompts.tools.fs_read.params.path),
       'offset?': type('number').describe(prompts.tools.fs_read.params.offset),
@@ -1450,8 +1491,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'fs_list',
     tier: 'read',
-    description: prompts.tools.fs_list.description,
-    parameters: type({ 'path?': type('string') }),
+    description: prompts.tools.fs_list.description(PLACE),
+    describe: (f) => prompts.tools.fs_list.description(placeOf(f)),
+    parameters: type({ 'path?': type('string').describe(prompts.tools.fs_list.params.path) }),
     async run(args, agent, host) {
       const root = host.workspace.workdir(agent)
       const dir = host.workspace.resolveForRead(agent, args.path ?? '.')
@@ -1473,12 +1515,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'grep',
     tier: 'read',
-    description: prompts.tools.grep.description,
+    description: prompts.tools.grep.description(PLACE),
+    describe: (f) => prompts.tools.grep.description(placeOf(f)),
     parameters: type({
       pattern: type('string').atLeastLength(1).describe(prompts.tools.grep.params.pattern),
       'path?': type('string').describe(prompts.tools.grep.params.path),
       'glob?': type('string').describe(prompts.tools.grep.params.glob),
-      'ignoreCase?': 'boolean',
+      'ignoreCase?': type('boolean').describe(prompts.tools.grep.params.ignoreCase),
       'context?': type('number').describe(prompts.tools.grep.params.context),
       'filesOnly?': type('boolean').describe(prompts.tools.grep.params.filesOnly),
     }),
@@ -1526,9 +1569,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'glob',
     tier: 'read',
-    description: prompts.tools.glob.description,
+    description: prompts.tools.glob.description(PLACE),
+    describe: (f) => prompts.tools.glob.description(placeOf(f)),
     parameters: type({
-      pattern: type('string').atLeastLength(1),
+      pattern: type('string').atLeastLength(1).describe(prompts.tools.glob.params.pattern),
       'path?': type('string').describe(prompts.tools.glob.params.path),
     }),
     async run(args, agent, host) {
@@ -1552,7 +1596,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'request_read',
     tier: 'read',
-    description: prompts.tools.request_read.description,
+    description: prompts.tools.request_read.description(false),
+    describe: (f) => prompts.tools.request_read.description(f.access.fullAccess),
     parameters: type({
       path: type('string').atLeastLength(1).describe(prompts.tools.request_read.params.path),
       'reason?': type('string').describe(prompts.tools.request_read.params.reason),
@@ -1566,7 +1611,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'read',
     description: prompts.tools.web_search.description,
     parameters: type({
-      query: type('string').atLeastLength(2),
+      query: type('string').atLeastLength(2).describe(prompts.tools.web_search.params.query),
       'limit?': type('number').describe(prompts.tools.web_search.params.limit),
       'recency?': type("'day' | 'week' | 'month' | 'year'").describe(prompts.tools.web_search.params.recency),
     }),
@@ -1586,7 +1631,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'web_fetch',
     tier: 'read',
-    description: prompts.tools.web_fetch.description,
+    description: prompts.tools.web_fetch.description(true),
+    describe: (f) => prompts.tools.web_fetch.description(f.tools.names.includes('fs_read')),
     parameters: type({ url: type('string').describe(prompts.tools.web_fetch.params.url) }),
     async run(args, agent, host) {
       const page = await host.web.read(args.url, () => host.localPorts())
@@ -1596,7 +1642,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
       // can read or grep, and only an excerpt enters the conversation.
       const self = host.spec.agents.find((a) => a.name === agent)
       if (!self || !toolsFor(host.spec, self).includes('fs_read'))
-        return { text: clip(page.output, 16_000), images: [], preface: `${head}\n` }
+        return { text: clip(page.output, FETCH_SHOWN_CHARS), images: [], preface: `${head}\n` }
       const name = `web/${pageFileName(page.url)}.md`
       const path = host.workspace.resolveInScratch(agent, name)
       mkdirSync(dirname(path), { recursive: true })
@@ -1615,7 +1661,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.escalate.description,
     parameters: type({
-      to: "'solo' | 'team'",
+      to: type("'solo' | 'team'").describe(prompts.tools.escalate.params.to),
       reason: type('string').atLeastLength(1).describe(prompts.tools.escalate.params.reason),
     }),
     async run(args, agent, host) {
@@ -1628,7 +1674,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     description: prompts.tools.reply_user.description('always', false),
     describe: (f) =>
       prompts.tools.reply_user.description(f.review.setting, f.tools.names.includes('request_review')),
-    parameters: type({ text: type('string').atLeastLength(1), 'final?': type('boolean') }),
+    parameters: type({
+      text: type('string').atLeastLength(1).describe(prompts.tools.reply_user.params.text),
+      'final?': type('boolean').describe(prompts.tools.reply_user.params.final),
+    }),
     async run(args, agent, host) {
       if (host.spec.team?.mode === 'swarm' && host.spec.tier === 'team' && speaker(host.state()) !== agent)
         throw new Error(
@@ -1647,7 +1696,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.reply_person.description,
     parameters: type({
-      text: type('string').atLeastLength(1),
+      text: type('string').atLeastLength(1).describe(prompts.tools.reply_person.params.text),
       'final?': type('boolean').describe(prompts.tools.reply_person.params.final),
     }),
     async run(args, agent, host) {
@@ -1672,8 +1721,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.remember.description,
     parameters: type({
-      text: type('string').atLeastLength(3).atMostLength(400),
-      kind: "'preference' | 'decision' | 'lesson' | 'fact'",
+      text: type('string').atLeastLength(3).atMostLength(400).describe(prompts.tools.remember.params.text),
+      kind: type("'preference' | 'decision' | 'lesson' | 'fact'").describe(
+        prompts.tools.remember.params.kind,
+      ),
       scope: type("'everywhere' | 'project'").describe(prompts.tools.remember.params.scope),
       why: type('string').describe(prompts.tools.remember.params.why),
     }),
@@ -1686,7 +1737,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.check_in.description,
     parameters: type({
-      question: type('string').atLeastLength(3),
+      question: type('string').atLeastLength(3).describe(prompts.tools.check_in.params.question),
       assumption: type('string').atLeastLength(3).describe(prompts.tools.check_in.params.assumption),
     }),
     async run(args, agent, host) {
@@ -1709,13 +1760,17 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     parameters: type({
       question: type('string').atLeastLength(3).describe(prompts.tools.ask_user.params.question),
       'questions?': type({
-        question: type('string').atLeastLength(3),
-        'header?': type('string').atMostLength(20),
-        options: type({ label: type('string').atLeastLength(1), 'description?': 'string' })
+        question: type('string').atLeastLength(3).describe(prompts.tools.ask_user.params.q_question),
+        'header?': type('string').atMostLength(20).describe(prompts.tools.ask_user.params.q_header),
+        options: type({
+          label: type('string').atLeastLength(1).describe(prompts.tools.ask_user.params.q_label),
+          'description?': type('string').describe(prompts.tools.ask_user.params.q_description),
+        })
           .array()
           .atLeastLength(2)
-          .atMostLength(4),
-        'multiSelect?': 'boolean',
+          .atMostLength(4)
+          .describe(prompts.tools.ask_user.params.q_options),
+        'multiSelect?': type('boolean').describe(prompts.tools.ask_user.params.q_multiSelect),
       })
         .array()
         .atMostLength(4)
@@ -1761,8 +1816,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.test_plugin.description,
     parameters: type({
-      name: type('string'),
-      'tests?': type({ tool: type('string'), 'args?': type('Record<string, unknown>') })
+      name: type('string').describe(prompts.tools.test_plugin.params.name),
+      'tests?': type({
+        tool: type('string').describe(prompts.tools.test_plugin.params.t_tool),
+        'args?': type('Record<string, unknown>').describe(prompts.tools.test_plugin.params.t_args),
+      })
         .array()
         .describe(prompts.tools.test_plugin.params.tests),
     }),
@@ -1790,7 +1848,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.propose_plugin.description,
     parameters: type({
-      name: type('string'),
+      name: type('string').describe(prompts.tools.propose_plugin.params.name),
       summary: type('string').atLeastLength(10).describe(prompts.tools.propose_plugin.params.summary),
     }),
     async run(args, agent, host) {
@@ -1824,7 +1882,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.propose.description,
     parameters: type({
-      kind: type("'file' | 'commit'"),
+      kind: type("'file' | 'commit'").describe(prompts.tools.propose.params.kind),
       why: type('string').atLeastLength(1).describe(prompts.tools.propose.params.why),
       'path?': type('string').describe(prompts.tools.propose.params.path),
       'content?': type('string').describe(prompts.tools.propose.params.content),
@@ -1911,7 +1969,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'ask_crewmate',
     tier: 'write',
-    description: prompts.tools.ask_crewmate.description,
+    description: prompts.tools.ask_crewmate.description(prompts.system.brief),
     parameters: type({
       to: type('string').atLeastLength(1).describe(prompts.tools.ask_crewmate.params.to),
       job: type('string').atLeastLength(10).describe(prompts.tools.ask_crewmate.params.job),
@@ -1940,7 +1998,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'dismiss_crewmate',
     tier: 'write',
     description: prompts.tools.dismiss_crewmate.description,
-    parameters: type({ name: type('string'), reason: type('string').atLeastLength(3) }),
+    parameters: type({
+      name: type('string').describe(prompts.tools.dismiss_crewmate.params.name),
+      reason: type('string').atLeastLength(3).describe(prompts.tools.dismiss_crewmate.params.reason),
+    }),
     async run(args, agent, host) {
       return host.dismissWorker(agent, args.name, args.reason)
     },
@@ -1949,7 +2010,14 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'update_todo',
     tier: 'write',
     description: prompts.tools.update_todo.description,
-    parameters: type({ items: type({ text: type('string').atLeastLength(1), 'done?': 'boolean' }).array() }),
+    parameters: type({
+      items: type({
+        text: type('string').atLeastLength(1).describe(prompts.tools.update_todo.params.i_text),
+        'done?': type('boolean').describe(prompts.tools.update_todo.params.i_done),
+      })
+        .array()
+        .describe(prompts.tools.update_todo.params.items),
+    }),
     async run(args, agent, host) {
       const items = (args.items as { text: string; done?: boolean }[]).map((i) => ({
         text: i.text,
@@ -2048,7 +2116,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'read',
     description: prompts.tools.browser_extract.description,
     parameters: type({
-      what: type("'tables' | 'links' | 'items'"),
+      what: type("'tables' | 'links' | 'items'").describe(prompts.tools.browser_extract.params.what),
       'selector?': type('string').describe(prompts.tools.browser_extract.params.selector),
       'fields?': type('string').describe(prompts.tools.browser_extract.params.fields),
       'limit?': type('number').describe(prompts.tools.browser_extract.params.limit),
@@ -2085,7 +2153,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'read',
     description: prompts.tools.browser_network.description,
     parameters: type({
-      'only?': type("'failed' | 'api'"),
+      'only?': type("'failed' | 'api'").describe(prompts.tools.browser_network.params.only),
       'body?': type('number').describe(prompts.tools.browser_network.params.body),
     }),
     async run(args, agent, host) {
@@ -2118,7 +2186,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'browser_downloads',
     tier: 'read',
-    description: prompts.tools.browser_downloads.description,
+    description: prompts.tools.browser_downloads.description({ read: true, shell: true, publish: true }),
+    describe: (f) =>
+      prompts.tools.browser_downloads.description({
+        read: f.tools.names.includes('fs_read'),
+        shell: f.tools.names.includes('shell'),
+        publish: f.tools.names.includes('publish_artifact'),
+      }),
     parameters: type({}),
     async run(_args, agent, host) {
       const dir = join(host.workspace.scratch(agent), 'downloads')
@@ -2138,7 +2212,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'write',
     description: prompts.tools.browser_upload.description,
     parameters: type({
-      ref: type('string'),
+      ref: type('string').describe(prompts.tools.browser_upload.params.ref),
       path: type('string').describe(prompts.tools.browser_upload.params.path),
     }),
     async run(args, agent, host) {
@@ -2185,7 +2259,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'browser_type',
     tier: 'write',
     description: prompts.tools.browser_type.description,
-    parameters: type({ ref: type('string'), text: type('string'), 'submit?': type('boolean') }),
+    parameters: type({
+      ref: type('string').describe(prompts.tools.browser_type.params.ref),
+      text: type('string').describe(prompts.tools.browser_type.params.text),
+      'submit?': type('boolean').describe(prompts.tools.browser_type.params.submit),
+    }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const field = await pageElement(tab, args.ref)
@@ -2205,7 +2283,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'browser_press',
     tier: 'write',
     description: prompts.tools.browser_press.description,
-    parameters: type({ key: type('string') }),
+    parameters: type({ key: type('string').describe(prompts.tools.browser_press.params.key) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       await tab.page.keyboard.press(args.key as never)
@@ -2218,7 +2296,9 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'browser_screenshot',
     tier: 'read',
     description: prompts.tools.browser_screenshot.description,
-    parameters: type({ 'fullPage?': type('boolean') }),
+    parameters: type({
+      'fullPage?': type('boolean').describe(prompts.tools.browser_screenshot.params.fullPage),
+    }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const data = (await tab.page.screenshot({
@@ -2244,7 +2324,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     name: 'browser_eval',
     tier: 'write',
     description: prompts.tools.browser_eval.description,
-    parameters: type({ expression: type('string') }),
+    parameters: type({ expression: type('string').describe(prompts.tools.browser_eval.params.expression) }),
     async run(args, agent, host) {
       const tab = await browserTab(host, agent)
       const value = await tab.page.evaluate(`(async () => (${args.expression}))()`)
@@ -2254,9 +2334,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'start_server',
     tier: 'exec',
-    description: prompts.tools.start_server.description,
+    description: prompts.tools.start_server.description(false),
+    describe: (f) => prompts.tools.start_server.description(f.access.fullAccess),
     parameters: type({
-      command: type('string').atLeastLength(1),
+      command: type('string').atLeastLength(1).describe(prompts.tools.start_server.params.command),
       'name?': type('string').describe(prompts.tools.start_server.params.name),
       'port?': type('number').describe(prompts.tools.start_server.params.port),
     }),
@@ -2297,7 +2378,8 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'run_checks',
     tier: 'exec',
-    description: prompts.tools.run_checks.description,
+    description: prompts.tools.run_checks.description(false),
+    describe: (f) => prompts.tools.run_checks.description(f.access.fullAccess),
     parameters: type({ 'only?': type('string').describe(prompts.tools.run_checks.params.only) }),
     async run(args, agent, host) {
       if (!host.project) throw new Error('run_checks works in project chats; use shell to run commands here')
@@ -2318,18 +2400,21 @@ export const TOOL_DEFS: readonly ToolDef[] = [
   {
     name: 'create_tool',
     tier: 'exec',
-    description: prompts.tools.create_tool.description(MADE_PREFIX),
+    description: prompts.tools.create_tool.description(MADE_PREFIX, false),
+    describe: (f) => prompts.tools.create_tool.description(MADE_PREFIX, f.access.fullAccess),
     parameters: type({
       name: type('string').describe(prompts.tools.create_tool.params.name),
       description: type('string').describe(prompts.tools.create_tool.params.description),
       inputs: type({
-        name: type('string'),
+        name: type('string').describe(prompts.tools.create_tool.params.inputName),
         type: type('string').describe(prompts.tools.create_tool.params.inputType),
-        'description?': type('string'),
-        'optional?': 'boolean',
-      }).array(),
+        'description?': type('string').describe(prompts.tools.create_tool.params.inputDescription),
+        'optional?': type('boolean').describe(prompts.tools.create_tool.params.inputOptional),
+      })
+        .array()
+        .describe(prompts.tools.create_tool.params.inputs),
       language: type('string').describe(prompts.tools.create_tool.params.language),
-      source: type('string'),
+      source: type('string').describe(prompts.tools.create_tool.params.source),
       test: type('string').describe(prompts.tools.create_tool.params.test),
     }),
     async run(args, agent, host) {
@@ -2368,7 +2453,10 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     tier: 'exec',
     description: prompts.tools.shell.description(false),
     describe: (f) => prompts.tools.shell.description(f.access.fullAccess),
-    parameters: type({ command: type('string'), 'timeoutSeconds?': type('number') }),
+    parameters: type({
+      command: type('string').describe(prompts.tools.shell.params.command),
+      'timeoutSeconds?': type('number').describe(prompts.tools.shell.params.timeoutSeconds),
+    }),
     async run(args, agent, host) {
       if (host.sandbox.kind === 'none' && !host.unsafeNoSandbox)
         throw new Error('shell is disabled: no OS sandbox')
@@ -2547,7 +2635,7 @@ export function guessMediaType(name: string): string {
 export function matchTools(
   tools: readonly AgentTool[],
   query: string,
-  limit = 12,
+  limit = FIND_TOOLS_LIMIT,
 ): { found: AgentTool[]; more: AgentTool[] } {
   const q = query.toLowerCase()
   const asked = q.split(/[\s,]+/).filter(Boolean)
@@ -2926,6 +3014,15 @@ class AlreadyDone extends Error {
   constructor(readonly output: string) {
     super('already done')
   }
+}
+
+/** A harness tool's parameters as JSON Schema, the way providers receive them (as pi-ai's arkToWireSchema does). */
+export function toolParameters(name: string): Record<string, unknown> | undefined {
+  const params =
+    name === COMPUTER_TOOL ? computerParameters : TOOL_DEFS.find((d) => d.name === name)?.parameters
+  return params?.toJsonSchema({ fallback: (ctx: { base: unknown }) => ctx.base } as never) as
+    | Record<string, unknown>
+    | undefined
 }
 
 /** A harness tool's description as this agent sees it. */

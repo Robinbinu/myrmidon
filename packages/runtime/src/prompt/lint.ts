@@ -1,7 +1,7 @@
 import { COMPUTER_TOOL } from '../computer/tool.ts'
 import { PROMPT_HEADING_WORDS, PROMPT_ROLE_WORDS } from '../config.ts'
 import { prompts } from '../prompts.ts'
-import { TOOL_DEFS, toolDescription } from '../tools.ts'
+import { TOOL_DEFS, toolDescription, toolParameters } from '../tools.ts'
 import { assemble, renderSections } from './assemble.ts'
 import type { PromptFacts } from './facts.ts'
 import { HEADINGS, type HeadingKey } from './sections.ts'
@@ -12,7 +12,12 @@ export interface PromptView {
   readonly sections: readonly { readonly key: string; readonly heading: HeadingKey; readonly text: string }[]
   readonly system: readonly string[]
   readonly kickoff: string
-  readonly tools: readonly { readonly name: string; readonly description: string }[]
+  readonly tools: readonly {
+    readonly name: string
+    readonly description: string
+    /** Its parameters as JSON Schema, the way the provider receives them. */
+    readonly parameters?: Record<string, unknown>
+  }[]
   /** Paths the agent is told about. */
   readonly paths: readonly string[]
 }
@@ -51,8 +56,11 @@ export function viewOf(facts: PromptFacts, kickoff = ''): PromptView {
     system: assembled.system,
     kickoff: `${assembled.kickoffPrefix}${kickoff}`,
     tools: facts.tools.names.flatMap((name) => {
-      const description = toolDescription(name, facts)
-      return description === undefined ? [] : [{ name, description }]
+      const description =
+        toolDescription(name, facts) ??
+        (name === COMPUTER_TOOL ? prompts.tools.computer.description : undefined)
+      const parameters = toolParameters(name)
+      return description === undefined ? [] : [{ name, description, ...(parameters ? { parameters } : {}) }]
     }),
     paths: [facts.access.project?.path, facts.access.worktree?.path].filter((p): p is string => !!p),
   }
@@ -225,12 +233,45 @@ const crewTools: LintCheck = {
   },
 }
 
+/** Paths to the parameters of a JSON Schema that carry no description, nested objects and array items included. */
+export function undescribed(schema: unknown, at = ''): string[] {
+  if (!schema || typeof schema !== 'object') return []
+  const node = schema as Record<string, unknown>
+  const props = (node.properties ?? {}) as Record<string, Record<string, unknown>>
+  const own = Object.entries(props).flatMap(([key, value]) => [
+    ...(typeof value.description === 'string' && value.description.trim() ? [] : [`${at}${key}`]),
+    ...undescribed(value, `${at}${key}.`),
+  ])
+  const items = node.items ? undescribed(node.items, at.replace(/\.$/, '[].')) : []
+  const branches = ['anyOf', 'oneOf', 'allOf'].flatMap((k) =>
+    Array.isArray(node[k]) ? (node[k] as unknown[]).flatMap((b) => undescribed(b, at)) : [],
+  )
+  return [...own, ...items, ...branches]
+}
+
+/**
+ * Every parameter of every tool the agent has says what it is, with its unit, default and allowed values (§4.9): a
+ * bare name and type leave the model to guess, and nearly half of them once did.
+ */
+const paramDescriptions: LintCheck = {
+  key: 'param-descriptions',
+  run: (view) =>
+    view.tools.flatMap((t) =>
+      undescribed(t.parameters).map((p) => ({
+        check: 'param-descriptions',
+        where: `tool:${t.name}`,
+        text: p,
+      })),
+    ),
+}
+
 export const CHECKS: readonly LintCheck[] = [
   unknownTools,
   interfaceMetadata,
   repeatedSentences,
   wordBudgets,
   crewTools,
+  paramDescriptions,
 ]
 
 export function lint(view: PromptView, options: LintOptions = {}, checks = CHECKS): LintFinding[] {

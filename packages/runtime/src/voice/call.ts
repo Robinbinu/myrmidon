@@ -190,7 +190,8 @@ export function spokenAnswer(text: string): boolean | undefined {
   return YES.has(said) ? true : NO.has(said) ? false : undefined
 }
 
-const TOOLS: Tool[] = [
+/** The call assistant's tools (exported for the prompt lint's parameter check). */
+export const VOICE_TOOLS: Tool[] = [
   {
     name: 'start_task',
     description: prompts.voice.tools.startTask.description,
@@ -761,7 +762,7 @@ export class CallSession {
           }),
         ],
         messages: this._messages,
-        tools: TOOLS,
+        tools: VOICE_TOOLS,
       }
       const stream: AssistantMessageEventStream = resolved.streamFn
         ? await resolved.streamFn(resolved.model, context, { apiKey, signal })

@@ -88,7 +88,8 @@ function deskOf(host: ColonyHost, agent: string): Desk {
   return desk
 }
 
-const parameters = type({
+/** The computer tool's parameters, one schema for every action (exported for the prompt lint). */
+export const computerParameters = type({
   action: type(
     "'screenshot' | 'elements' | 'left_click' | 'right_click' | 'middle_click' | 'double_click' | 'triple_click' | 'click_element' | 'mouse_move' | 'left_click_drag' | 'scroll' | 'type' | 'key' | 'wait' | 'zoom' | 'cursor_position' | 'open_app' | 'list_apps'",
   ).describe(prompts.tools.computer.params.action),
@@ -121,7 +122,7 @@ export function computerTool(agent: string, host: ColonyHost, model: () => Model
     name: COMPUTER_TOOL,
     label: COMPUTER_TOOL,
     description: prompts.tools.computer.description,
-    parameters,
+    parameters: computerParameters,
     // OpenAI's computer-use models get the native tool; every other model this definition as a function tool.
     native: { type: 'computer' },
     intent: 'omit',

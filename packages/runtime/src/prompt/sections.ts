@@ -436,7 +436,6 @@ export const SECTIONS: readonly Section[] = [
       guard: (f) => f.access.worktree !== undefined && has(f, 'submit_task'),
       render: () => say.worktree,
     },
-    { key: 'computer', guard: (f) => f.access.computer && has(f, 'computer'), render: () => say.computer },
     {
       key: 'escalation',
       guard: (f) =>

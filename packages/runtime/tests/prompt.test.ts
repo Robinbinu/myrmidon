@@ -6,14 +6,17 @@ import { newColonyId } from '@myrmidon/core'
 import { emptyColonyState, foldColony } from '@myrmidon/protocol'
 import type { Context as LlmContext } from '@oh-my-pi/pi-ai'
 import { createMockModel, type MockContent } from '@oh-my-pi/pi-ai/providers/mock'
+import { COMPUTER_TOOL } from '../src/computer/tool.ts'
 import { bootRuntime, ChatService, ModelResolver, type Runtime } from '../src/index.ts'
+import { inputSchema } from '../src/made-tools.ts'
 import { type Environment, kickoff, startsAwake, toolsFor } from '../src/patterns.ts'
 import { assemble } from '../src/prompt/assemble.ts'
 import { factsFor, modelFamily } from '../src/prompt/facts.ts'
-import { lint, viewOf } from '../src/prompt/lint.ts'
+import { lint, undescribed, viewOf } from '../src/prompt/lint.ts'
 import { HEADINGS, SECTIONS, tierOf } from '../src/prompt/sections.ts'
 import type { AgentSpec, ColonySpec } from '../src/spec.ts'
-import { toolDescription } from '../src/tools.ts'
+import { TOOL_DEFS, toolDescription, toolParameters } from '../src/tools.ts'
+import { VOICE_TOOLS } from '../src/voice/call.ts'
 
 // Labels the interface shows the person; none of them may reach an agent.
 const TITLE = 'Quokka Ledger Zephyr'
@@ -422,4 +425,34 @@ test('the lint itself catches an absent tool, a leaked label and a repeated rule
     sections: [...view.sections, { key: 'z', heading: 'person' as const, text: 'word '.repeat(300) }],
   }
   expect(lint(long).map((f) => `${f.check} ${f.where}`)).toEqual(['word-budget person', 'word-budget answer'])
+})
+
+test('every tool parameter says what it is, in every prompt and for every tool the harness defines', () => {
+  const found = views.flatMap(({ label, view }) =>
+    lint(view)
+      .filter((f) => f.check === 'param-descriptions')
+      .map((f) => `${label} (${f.where}): ${f.text}`),
+  )
+  expect(found).toEqual([])
+  // Beyond the matrix: every harness tool, the computer, the call assistant's tools, and a made tool's wrapper.
+  const harness = [...TOOL_DEFS.map((d) => d.name), COMPUTER_TOOL].flatMap((name) =>
+    undescribed(toolParameters(name)).map((p) => `${name}.${p}`),
+  )
+  expect(harness).toEqual([])
+  expect(VOICE_TOOLS.flatMap((t) => undescribed(t.parameters).map((p) => `${t.name}.${p}`))).toEqual([])
+  // A tool saved before inputs needed describing still names each input and its type.
+  expect(undescribed(inputSchema([{ name: 'query', type: 'string', description: '' }]))).toEqual([])
+  // Nested objects and array items are checked too.
+  expect(
+    undescribed({
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          description: 'the list',
+          items: { type: 'object', properties: { text: { type: 'string' } } },
+        },
+      },
+    }),
+  ).toEqual(['items[].text'])
 })

@@ -140,6 +140,10 @@ export const GREP_LIMIT = 100
 export const GLOB_LIMIT = 200
 /** How much of a fetched page enters the conversation; the rest is saved to a scratch file. */
 export const PAGE_EXCERPT = 8_000
+/** How much of a fetched page an agent without file tools gets, since nothing is saved for it to read on. */
+export const FETCH_SHOWN_CHARS = 16_000
+/** Most tools a find_tools query loads by description alone; the rest that match are named for loading by name. */
+export const FIND_TOOLS_LIMIT = 12
 /** The most characters a tool result carries into the conversation before it is cut. */
 export const MAX_READ_CHARS = 40_000
 /** How much of each tool result read_log shows under its call; read_log(entry) shows one in full. */

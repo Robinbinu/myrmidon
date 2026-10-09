@@ -499,7 +499,9 @@ export class ColonyRun implements ColonyHost {
   }
 
   async requestRead(agent: string, path: string, reason?: string): Promise<string> {
-    if (this.fullAccess) return prompts.toolResults.readFull
+    const self = this.spec.agents.find((a) => a.name === agent)
+    const tools = self ? toolsFor(this.spec, self) : []
+    if (this.fullAccess) return prompts.toolResults.readFull(tools)
     if (this.spec.askAll) throw new Error(prompts.toolResults.readNotHere)
     const folder = realPath(readFolder(path))
     if (this._secret(folder)) throw new Error(prompts.toolResults.readSecret(path))
@@ -511,7 +513,7 @@ export class ColonyRun implements ColonyHost {
     })
     if (!decision.approved) throw new Error(prompts.toolResults.declined(`reading ${path}`, decision.note))
     if (!(this._state.chatReads ?? []).some((f) => within(folder, f))) this._readOnce.add(folder)
-    return prompts.toolResults.readAllowed(path)
+    return prompts.toolResults.readAllowed(path, tools)
   }
 
   async requestApproval(agent: string, tool: string, summary: string): Promise<boolean> {
