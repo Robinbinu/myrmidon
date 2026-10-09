@@ -45,7 +45,7 @@ export function moveMenuFocus(e: KeyboardEvent<HTMLElement>) {
     e.key === 'ArrowDown'
       ? (at + 1) % items.length
       : e.key === 'ArrowUp'
-        ? (at - 1 + items.length) % items.length
+        ? (at <= 0 ? items.length : at) - 1
         : e.key === 'Home'
           ? 0
           : e.key === 'End'

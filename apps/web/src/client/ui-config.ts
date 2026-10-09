@@ -12,6 +12,10 @@ export const popSpring = { type: 'spring', stiffness: 520, damping: 17 } as cons
 export const lookSpring = { type: 'spring', stiffness: 420, damping: 30 } as const
 /** A plain fade: a dialog's backdrop, a toast leaving. */
 export const fade = { duration: 0.15 } as const
+/** A context menu appearing and leaving: quick, as a Mac's do, with no travel. */
+export const menuFade = { duration: 0.1 } as const
+/** The least room a context menu keeps between itself and the window's edges. */
+export const MENU_EDGE_PX = 8
 /** How long a toast stays: one with a button long enough to reach for it, an error long enough to read. */
 export const TOAST_MS = { info: 3500, error: 7000, action: 15_000 } as const
 
