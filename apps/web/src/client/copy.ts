@@ -682,7 +682,14 @@ export const copy = {
     withShortcut: (action: string, combo: string) => `${action} (${combo})`,
     search: { placeholder: 'Search', label: 'Search chats' },
     /** Date headings for chats outside a project. */
-    groups: { today: 'Today', yesterday: 'Yesterday', previous7Days: 'Previous 7 days', older: 'Older' },
+    groups: {
+      /** Above everything else: chats waiting on the person's answer or approval. */
+      needsYou: 'Needs you',
+      today: 'Today',
+      yesterday: 'Yesterday',
+      previous7Days: 'Previous 7 days',
+      older: 'Older',
+    },
     chat: {
       titleField: 'Chat title',
       rename: 'Rename chat',
@@ -1311,9 +1318,13 @@ export const copy = {
       fallbackName: 'chat',
     },
     toasts: {
-      learning: 'Reading this chat for a skill worth keeping…',
-      learned: (name: string) => `Proposed a skill: ${name}. Keep or discard it below.`,
-      nothingToLearn: 'Nothing in this chat worth keeping as a skill.',
+      /** Stays until the review answers, which can take minutes; the chat is named since the person may move on. */
+      learning: (title: string) => `Reading “${title}” for a skill worth keeping…`,
+      stillLearning: (title: string) => `Still reading “${title}” for a skill`,
+      learned: (name: string, title: string) =>
+        `Proposed a skill from “${title}”: ${name}. Keep or discard it in the chat.`,
+      nothingToLearn: (title: string) => `Nothing in “${title}” worth keeping as a skill.`,
+      learnFailed: (title: string, reason: string) => `Couldn’t learn a skill from “${title}”: ${reason}`,
       skillsArchived: (names: string[]) =>
         names.length === 1
           ? `Archived the learned skill ${names[0]}: nobody used it for a while.`
@@ -1346,8 +1357,13 @@ export const copy = {
       openChatToExport: 'Open a chat to export it',
       stopping: 'Stopping the crew…',
       deleted: (title: string) => `Deleted “${title}”`,
+      undoDelete: 'Undo',
+      undoDeleteTitle: (keys: string) => `Bring the chat back (${keys})`,
+      deleteFailed: (title: string, reason: string) => `Couldn’t delete “${title}”: ${reason}`,
       projectRemoved: (name: string) => `Removed ${name} from projects; its folder and chats are untouched`,
     },
+    /** The window or tab title, with how many chats wait for the person as a mail app counts unread mail. */
+    documentTitle: (needYou: number) => (needYou > 0 ? `(${needYou}) Myrmidon` : 'Myrmidon'),
     titles: {
       newTask: 'New chat',
       crews: 'Crews',
@@ -1399,10 +1415,9 @@ export const copy = {
       quotedTitle: (title: string) => `“${title}”`,
       /** Follows the quoted chat title. */
       body: (rounds: number) =>
-        ` and its ${rounds === 1 ? 'run' : `${rounds} runs`} will be permanently removed from this Myrmidon: messages, files, logs, and agent transcripts. This can’t be undone.`,
+        ` and its ${rounds === 1 ? 'run' : `${rounds} runs`} will be permanently removed from this Myrmidon: messages, files, logs, and agent transcripts. You can still undo it for a few seconds.`,
       stillRunning: 'This chat is still running. It will be stopped first.',
       cancel: 'Cancel',
-      deleting: 'Deleting…',
       confirm: 'Delete chat',
     },
     crewConsole: 'Crew',
