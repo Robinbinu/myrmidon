@@ -692,3 +692,99 @@ Earlier items:
       changes tinted, ignored entries dimmed, files the crew changed in this chat ringed, a name filter across the
       folder (`/find`, skipping what git ignores), arrow keys as in an editor, files open in the viewer. Refreshes on
       a rewind or commit and when the crew changes a file.
+
+## Inspection of 68 commits (2026-10-09, evening)
+
+Setup assistant, mascot, computer use, sandbox reads and full access, crew wind-down, schedules, prompts. All of it
+is on main too (PR #8). Branch `inspection-fixes`; each group below is one agent's branch, reviewed, then merged.
+Two other branches are rewriting the same runtime files (`permissions`, `prompts-rewrite`): the runtime fixes here
+stay small so they merge cleanly into either.
+
+### A — Sandbox and computer use (`sandbox.ts`, `config.ts`, `computer/driver.ts`, `computer/tool.ts`)
+- [ ] Sandboxed shells can `connect()` to the Cua Driver socket in the data folder (file-read deny does not cover
+      sockets): a prompt-injected agent could run its own driver against it and drive the Mac with no app approval.
+      Deny outbound unix sockets under the data folder (SBPL and bwrap).
+- [ ] Sandboxed commands likely inherit Myrmidon's Screen Recording / Accessibility grants (`screencapture`,
+      CGEventPost): deny what the profile can (e.g. screencapture, osascript) or document the limit.
+- [ ] Stop / Esc only stops rounds holding an app; one waiting for the app (or on its approval card) takes it after.
+- [ ] Script Editor, Automator, Shortcuts (and Tor Browser) get full control with no warning: add them to the right
+      tiers; cmd+R in a script app is a sensitive key.
+- [ ] `type` with a newline bypasses the "Return sends" check; Mail's shift+cmd+D send is not a sensitive key.
+- [ ] SANDBOX_SECRETS gaps once home reads are on: ~/.omp/agent, ~/.claude, ~/.codex, ~/.gemini, shell startup files,
+      .terraform.d, .vault-token, .pgpass, .gem/credentials, .m2/settings.xml, Library/Containers and Group
+      Containers; ~/.dotnet (a toolchain dir) holds a certificate store.
+- [ ] Outside home, /Volumes, /Users/Shared, /private/var/folders and /tmp/myr-* stay readable.
+- [ ] Unpinned fallback drivers (CUA_DRIVER_PATHS) run with the full environment and Myrmidon's grants.
+
+### B — Crew wind-down (`colony.ts`, `chat.ts`, `agent.ts`, `tools.ts` messaging, `tests/chat.test.ts`)
+- [ ] A person's follow-up while a round settles goes into the closing round and can go unanswered ("Not sent: this
+      conversation is closing", turn cut, completed). Their message must cancel settling (or start a new round).
+- [ ] An answer given while settling skips the reviewer.
+- [ ] A team lead's final answer in plain text never reaches the person: the round waits for the stall nudge (~10s,
+      two extra model turns). Deliver it as in a solo round.
+- [ ] Each sign-off sends one more model request that is then aborted (billed; aborted message in history).
+- [ ] chat.test.ts: 78 pass / 10 fail (was 86 / 1): rounds wait SETTLE_QUIET_MS after the answer, tests never set
+      quietMs, and rounds still settling crash after teardown (`this.store.home`, "no such colony").
+- [ ] `create_group` sends without the one-last-word check; requeued non-mail notes lose `quiet` and their trigger.
+- [ ] The lead tells the person "This is a solo round" (brief wording leaking into replies).
+- [ ] Misplaced JSDoc in prompts.ts (`missed` above `windDown`).
+
+### G — Dev servers (`tools.ts` start_server, `colony.ts` servers)
+- [ ] colony.test "only ports a run's own servers opened … ports already in use cannot be claimed" fails on develop:
+      a port already in use is claimed (`ok: true`).
+- [ ] A server started under Full access keeps running unsandboxed after full access is taken back.
+
+### C — Routes and project files (`devices.ts`, `projects.ts`, `server.ts` routes, `mcp.ts`, `ProjectExplorer.tsx`, `StepRow.tsx`)
+- [ ] `GET /api/projects/:id/file|tree|find` are open to chats-only devices and `readProjectFile` ignores
+      SANDBOX_SECRETS: a paired phone reads `.env` (or `~/.ssh/...` in a project at home). (My bug, from the file
+      viewer.)
+- [ ] `GET /api/computer` is open to chats-only devices and runs the driver, returning its path.
+- [ ] Internal MCP name collisions: a server named `myrmidon_computer…` shadows or hides the driver's tools.
+- [ ] Explorer: a subfolder that fails to load shows as empty; `toggle()` loads inside a state updater (twice in
+      StrictMode).
+- [ ] Computer-use step screenshots all fetch up front (children of a closed <details> mount); a failed one pulses
+      forever.
+
+### D — Setup assistant (`setup/Setup.tsx`, `setup/steps.tsx`, `setup/Nudge.tsx`, `runtime/src/setup.ts`, copy `setup`)
+- [ ] Ready says "Set up" for every step only continued past (voice Off, no channel, alerts off, no model tested);
+      "Here is what you set up" is untrue. Show what exists, and "Skipped" / "Not set up" otherwise.
+- [ ] Testing a model silently makes it the lead (and reviewer) for every new chat: say so, or apply on Continue.
+- [ ] Mic test: leaving the step while the permission prompt is open leaks the microphone and its rAF loop; "Stop
+      the test" leaves the UI in listening mode.
+- [ ] Your first project cannot finish when a project exists (after refresh, or opened from Settings).
+- [ ] The nudge's "Not now" hides it for good with no undo.
+- [ ] Spend limit and reviewer sit on the project step (skipping it hides them); the default crew is all Opus with
+      2 on demand and no cost hint.
+- [ ] Steps are vertically centred, so Back/Continue jump between steps.
+- [ ] Ready rows: accessible name ("Open You & mascot, done") does not contain the visible text (WCAG 2.5.3).
+- [ ] Single-step mode still lets the person wander to Ready; a failed mark is lost when a single step closes;
+      'OK' hardcoded in steps.tsx.
+
+### E — Mascot (`Hero.tsx`, `HeroCrew.tsx`, `hero-crew.ts`, `MascotScreen.tsx`, `ui/pixel.tsx`, `ui/steering.ts`, `setup/SetupMascot.tsx`)
+- [ ] ~6% of a core while the new-chat screen idles; the crew loop never pauses (window visible but unfocused, a
+      sheet over it, narrow windows where the crew is hidden but still pokes the mascot).
+- [ ] Scattering cursors overshoot their bounds by ~140px (scrollbars / clipping).
+- [ ] Heavy drop-shadow filter on the SVG redrawn ~13×/s while two crews run (fire backdrop) and while asleep.
+- [ ] Keyboard activity never counts as presence (dozes while typing); a right-click breaks the next key press;
+      `swallowClick` can eat the next real click after pointercancel; wander depends on the frame rate.
+- [ ] The screen's caption and clock fail contrast (3.5:1); crew cursor names change on every load.
+- [ ] Impure render in useTypingColor; magic numbers outside ui-config.ts; dead `seek`/`ZERO`; crewTimers grows.
+
+### F — Layout, Settings and copy (`App.tsx`, `Sidebar.tsx`, `Settings.tsx`, schedules UI, `ApprovalCards.tsx`, `copy.ts` outside setup)
+- [ ] At narrow widths (~420px) neither the sidebar nor the setup step list collapses; content gets ~160px.
+- [ ] Sidebar multi-select listbox breaks aria-required-children on every screen (buttons inside the listbox).
+- [ ] Schedule day chips: visible "Mon", name "Monday" (WCAG 2.5.3); Esc while editing closes Settings and loses
+      the edit; the time field shows 12h while the line says 24h; monthly on the 29th–31st skips short months
+      silently; the day shown uses the browser's zone while the server runs in its own.
+- [ ] Settings → Tools: one button's name does not contain its visible text.
+- [ ] The read-in-this-chat approval path drops the typed note.
+- [ ] Copy: computer use says "approve" (glossary: Allow); "Messaging apps" (glossary: channel); "Yes, turn it off"
+      does not repeat its object; misplaced comment above `computerUse`. Full access says "approvals still apply" /
+      "Rules set to ask still ask", but a full-access agent can read the server token and approve its own cards:
+      say what is true (and see [decide]).
+- [ ] Channel tiles with letter placeholders (Slack "S", Teams "T", Tlon "~", Nostr "N").
+
+### [decide]
+- [ ] Full access and approvals: an unsandboxed agent can read `~/.myrmidon/server.json` and call the API as you.
+      Keep the token out of reach (keychain, a per-run secret the API demands for approvals), or say plainly that
+      full access includes being able to approve its own steps.
